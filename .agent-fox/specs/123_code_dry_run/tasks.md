@@ -114,8 +114,8 @@ in `cli/code.py`.
     - [x] No linter warnings introduced: `make lint`
     - [x] Requirements 1.1-1.4, 1.E1-1.E3, 2.1, 2.E1, 3.1, 3.E1, 4.1, 4.2 met
 
-- [ ] 3. Update documentation
-  - [ ] 3.1 Update `docs/cli-reference.md`
+- [x] 3. Update documentation
+  - [x] 3.1 Update `docs/cli-reference.md`
     - Add `--dry-run` to the `code` command options table
     - Add a "Dry-Run Mode" subsection under the `code` command section,
       following the same structure as the `plan` command's dry-run docs
@@ -123,10 +123,10 @@ in `cli/code.py`.
     - Document JSON output keys
     - _Requirements: 1.1, 2.1, 3.1_
 
-  - [ ] 3.V Verify task group 3
-    - [ ] All tests still pass: `uv run pytest -q`
-    - [ ] No linter warnings introduced: `make lint`
-    - [ ] CLI reference accurately describes the new flag
+  - [x] 3.V Verify task group 3
+    - [x] All tests still pass: `uv run pytest -q`
+    - [x] No linter warnings introduced: `make lint`
+    - [x] CLI reference accurately describes the new flag
 
 - [ ] 4. Wiring verification
 

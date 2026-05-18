@@ -211,6 +211,7 @@ agent-fox code [OPTIONS]
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
+| `--dry-run` | flag | off | Show plan analysis without running the orchestrator |
 | `--parallel N` | int | from config | Override parallelism (1-8) |
 | `--debug` | flag | off | Enable debug audit trail (JSONL + DuckDB tool signals) |
 | `--specs-dir PATH` | path | from config | Path to specs directory (default: from config, or `.agent-fox/specs`) |
@@ -228,6 +229,65 @@ Requires a persisted plan in the knowledge store (run `agent-fox plan` first).
 The `--force-clean` flag overrides the `workspace.force_clean` config setting.
 When active, the orchestrator automatically removes untracked files and resets
 a dirty index before dispatching a session, instead of blocking the node.
+
+#### Dry-Run Mode (`--dry-run`)
+
+When `--dry-run` is set, the command loads the persisted plan from DuckDB
+(read-only), filters out completed tasks, and displays a rich analysis of the
+remaining work without starting the orchestrator or dispatching any coding
+sessions. No infrastructure is set up, no writes occur, and no coding sessions
+are dispatched.
+
+The analysis output includes:
+
+- **Parallelism phases** — groups of tasks that can execute concurrently, with
+  phase numbers and peak parallelism.
+- **Critical path** — the longest dependency chain through the remaining plan.
+- **Dependency edges** — all edges grouped by type (intra-spec and cross-spec).
+
+Completed tasks are excluded from all sections of the output so that only
+remaining work is displayed.
+
+**Mutual exclusion with execution flags:** `--dry-run` cannot be combined with
+`--watch`, `--debug`, `--force-clean`, or `--parallel`. If any of these flags
+are provided alongside `--dry-run`, the command exits with code 1 and an error
+message listing all incompatible flags.
+
+**Daemon guard bypass:** Because `--dry-run` is a read-only operation, it
+bypasses the night-shift daemon PID guard. You can run `code --dry-run` even
+while the daemon is active.
+
+**JSON output:** `--dry-run` composes with the global `--json` flag. When both
+are set, the command outputs a JSON object with the following keys:
+
+- `nodes` — remaining (non-completed) nodes keyed by ID.
+- `edges` — dependency edges between remaining nodes.
+- `order` — topological order of remaining nodes.
+- `metadata` — plan metadata.
+- `phases` — parallelism phases computed from remaining nodes.
+- `critical_path` — longest dependency chain through remaining nodes.
+- `grouped_edges` — edges split into `intra_spec` and `cross_spec` groups.
+
+If the plan is empty or all tasks are completed, the JSON output contains
+empty collections for `nodes`, `edges`, and `order`.
+
+**Examples:**
+
+```bash
+# Preview remaining work in the plan
+agent-fox code --dry-run
+
+# Get structured JSON output for scripting
+agent-fox --json code --dry-run
+```
+
+**Edge cases:**
+
+- If no plan exists (knowledge DB not found), exits with code 1 and an error
+  message suggesting `agent-fox plan`.
+- If the plan has no tasks, displays "No tasks in plan." and exits with code 0.
+- If all tasks are completed, displays "All tasks completed." and exits with
+  code 0.
 
 #### Watch Mode (`--watch`)
 
