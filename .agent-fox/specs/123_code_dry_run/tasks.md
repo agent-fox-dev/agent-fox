@@ -76,24 +76,24 @@ in `cli/code.py`.
     - [x] All spec tests FAIL (red) -- no implementation yet
     - [x] No linter warnings introduced: `make lint`
 
-- [ ] 2. Implement dry-run flag in cli/code.py
-  - [ ] 2.1 Add `--dry-run` Click option to `code_cmd`
+- [x] 2. Implement dry-run flag in cli/code.py
+  - [x] 2.1 Add `--dry-run` Click option to `code_cmd`
     - Add `is_flag=True, default=False` option
     - Add `dry_run` parameter to `code_cmd` function signature
     - _Requirements: 1.1, 1.4_
 
-  - [ ] 2.2 Implement `_check_dry_run_conflicts()` helper
+  - [x] 2.2 Implement `_check_dry_run_conflicts()` helper
     - Accept `dry_run`, `parallel`, `debug`, `watch`, `force_clean` params
     - Return list of incompatible flag names (empty if no conflicts)
     - _Requirements: 2.1, 2.E1_
 
-  - [ ] 2.3 Add mutual exclusion check at start of `code_cmd`
+  - [x] 2.3 Add mutual exclusion check at start of `code_cmd`
     - Call `_check_dry_run_conflicts()` after parsing args, before daemon check
     - If conflicts found, print error to stderr listing flags, exit 1
     - In JSON mode, emit error via `json_io.emit_error()`
     - _Requirements: 2.1, 2.E1_
 
-  - [ ] 2.4 Implement dry-run branch in `code_cmd`
+  - [x] 2.4 Implement dry-run branch in `code_cmd`
     - After mutual exclusion check, before daemon check:
       if `dry_run` is set, skip daemon PID guard entirely
     - Check `DEFAULT_DB_PATH.exists()` -- error if missing
@@ -108,11 +108,11 @@ in `cli/code.py`.
     - Return before reaching orchestrator code
     - _Requirements: 1.1, 1.2, 1.3, 1.E1, 1.E2, 1.E3, 3.1, 3.E1, 4.1_
 
-  - [ ] 2.V Verify task group 2
-    - [ ] Spec tests for this group pass: `uv run pytest -q tests/unit/cli/test_code_dry_run.py`
-    - [ ] All existing tests still pass: `uv run pytest -q`
-    - [ ] No linter warnings introduced: `make lint`
-    - [ ] Requirements 1.1-1.4, 1.E1-1.E3, 2.1, 2.E1, 3.1, 3.E1, 4.1, 4.2 met
+  - [x] 2.V Verify task group 2
+    - [x] Spec tests for this group pass: `uv run pytest -q tests/unit/cli/test_code_dry_run.py`
+    - [x] All existing tests still pass: `uv run pytest -q`
+    - [x] No linter warnings introduced: `make lint`
+    - [x] Requirements 1.1-1.4, 1.E1-1.E3, 2.1, 2.E1, 3.1, 3.E1, 4.1, 4.2 met
 
 - [ ] 3. Update documentation
   - [ ] 3.1 Update `docs/cli-reference.md`

@@ -3,7 +3,8 @@
 Thin CLI wrapper that delegates to ``engine.run.run_code()`` for
 orchestrator execution, then handles output formatting and exit codes.
 
-Requirements: 16-REQ-1.1 through 16-REQ-5.2, 23-REQ-5.1, 23-REQ-5.E1
+Requirements: 16-REQ-1.1 through 16-REQ-5.2, 23-REQ-5.1, 23-REQ-5.E1,
+              123-REQ-1.1 through 123-REQ-4.2
 """
 
 from __future__ import annotations
@@ -19,7 +20,10 @@ from agent_fox.cli import json_io
 from agent_fox.core.errors import AgentFoxError
 from agent_fox.engine.run import InterruptedResult, run_code
 from agent_fox.engine.state import ExecutionState
+from agent_fox.graph.persistence import load_plan
+from agent_fox.knowledge.db import open_knowledge_store
 from agent_fox.reporting.formatters import format_tokens
+from agent_fox.spec.discovery import discover_specs
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +117,144 @@ def _print_summary(state: ExecutionState) -> None:
                 click.echo(f"  [{node_id}] {reason}")
 
 
+def _handle_dry_run(config: object, json_mode: bool, specs_dir: str | None) -> None:
+    """Execute the dry-run analysis path.
+
+    Loads the persisted plan from DuckDB (read-only), filters out completed
+    nodes, computes analysis (phases, critical path, grouped edges), and
+    displays the result as text or JSON.
+
+    Requirements: 123-REQ-1.1, 123-REQ-1.3, 123-REQ-1.E1, 123-REQ-1.E2,
+                  123-REQ-1.E3, 123-REQ-3.1, 123-REQ-3.E1, 123-REQ-4.1
+    """
+    from agent_fox.cli.plan import _edge_to_dict, _metadata_to_dict, _node_to_dict
+    from agent_fox.core.config import resolve_spec_root
+    from agent_fox.core.paths import DEFAULT_DB_PATH
+    from agent_fox.graph.analyzer import compute_phases, critical_path, group_edges
+    from agent_fox.graph.planner import format_plan_analysis
+    from agent_fox.graph.types import NodeStatus
+
+    # 123-REQ-1.E1: check DB file exists
+    if not DEFAULT_DB_PATH.exists():
+        _err_msg = "No plan found. Run `agent-fox plan` first to generate a plan."
+        if json_mode:
+            json_io.emit_error(_err_msg)
+            sys.exit(1)
+        click.echo(f"Error: {_err_msg}", err=True)
+        sys.exit(1)
+
+    # Load persisted plan from DuckDB (read-only)
+    _db = open_knowledge_store(config.knowledge)
+    try:
+        graph = load_plan(_db.connection)
+    finally:
+        _db.close()
+
+    # 123-REQ-1.E2: empty plan (no nodes or None)
+    if graph is None or not graph.nodes:
+        if json_mode:
+            json_io.emit(
+                {
+                    "nodes": {},
+                    "edges": [],
+                    "order": [],
+                    "metadata": {},
+                    "phases": [],
+                    "critical_path": [],
+                    "grouped_edges": {"intra_spec": [], "cross_spec": []},
+                }
+            )
+        else:
+            click.echo("No tasks in plan.")
+        return
+
+    # 123-REQ-1.3: filter completed nodes
+    completed_ids = {nid for nid, node in graph.nodes.items() if node.status == NodeStatus.COMPLETED}
+
+    # 123-REQ-1.E3: all nodes completed
+    if completed_ids == set(graph.nodes.keys()):
+        if json_mode:
+            json_io.emit(
+                {
+                    "nodes": {},
+                    "edges": [],
+                    "order": [],
+                    "metadata": _metadata_to_dict(graph.metadata),
+                    "phases": [],
+                    "critical_path": [],
+                    "grouped_edges": {"intra_spec": [], "cross_spec": []},
+                }
+            )
+        else:
+            click.echo("All tasks completed.")
+        return
+
+    if completed_ids:
+        graph.nodes = {nid: n for nid, n in graph.nodes.items() if nid not in completed_ids}
+        graph.edges = [e for e in graph.edges if e.source not in completed_ids and e.target not in completed_ids]
+        graph.order = [nid for nid in graph.order if nid not in completed_ids]
+
+    # Compute analysis
+    phases = compute_phases(graph)
+    path = critical_path(graph)
+    grouped = group_edges(graph)
+
+    # Discover specs for display
+    project_root = Path.cwd()
+    specs_path = Path(specs_dir) if specs_dir else resolve_spec_root(config, project_root)
+    try:
+        specs = discover_specs(specs_path)
+    except Exception:
+        specs = []
+
+    # 123-REQ-3.1: JSON output
+    if json_mode:
+        json_io.emit(
+            {
+                "nodes": {nid: _node_to_dict(node) for nid, node in graph.nodes.items()},
+                "edges": [_edge_to_dict(e) for e in graph.edges],
+                "order": graph.order,
+                "metadata": _metadata_to_dict(graph.metadata),
+                "phases": [{"number": p.number, "node_ids": p.node_ids} for p in phases],
+                "critical_path": path,
+                "grouped_edges": {
+                    "intra_spec": [_edge_to_dict(e) for e in grouped.intra_spec],
+                    "cross_spec": [_edge_to_dict(e) for e in grouped.cross_spec],
+                },
+            }
+        )
+        return
+
+    # Text output
+    click.echo(format_plan_analysis(graph, phases, path, grouped, specs))
+
+
+def _check_dry_run_conflicts(
+    dry_run: bool,
+    parallel: int | None,
+    debug: bool,
+    watch: bool,
+    force_clean: bool,
+) -> list[str]:
+    """Return list of flag names incompatible with --dry-run, or empty list.
+
+    Requirements: 123-REQ-2.1, 123-REQ-2.E1
+    """
+    if not dry_run:
+        return []
+
+    conflicts: list[str] = []
+    if watch:
+        conflicts.append("--watch")
+    if debug:
+        conflicts.append("--debug")
+    if force_clean:
+        conflicts.append("--force-clean")
+    if parallel is not None:
+        conflicts.append("--parallel")
+    return conflicts
+
+
 @click.command("code")
 @click.option(
     "--parallel",
@@ -150,6 +292,12 @@ def _print_summary(state: ExecutionState) -> None:
     default=False,
     help="Automatically remove untracked files and reset dirty index before dispatch",
 )
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="Show plan analysis without running the orchestrator",
+)
 @click.pass_context
 def code_cmd(
     ctx: click.Context,
@@ -159,12 +307,35 @@ def code_cmd(
     watch: bool,
     watch_interval: int | None,
     force_clean: bool,
+    dry_run: bool,
 ) -> None:
     """Execute the task plan."""
     # 16-REQ-1.2: load config from Click context
     config = ctx.obj["config"]
     quiet: bool = ctx.obj.get("quiet", False)
     json_mode: bool = ctx.obj.get("json", False)
+
+    # 123-REQ-2.1, 123-REQ-2.E1: mutual exclusion with execution flags
+    conflicts = _check_dry_run_conflicts(
+        dry_run=dry_run,
+        parallel=parallel,
+        debug=debug,
+        watch=watch,
+        force_clean=force_clean,
+    )
+    if conflicts:
+        flag_list = ", ".join(conflicts)
+        msg = f"Error: --dry-run cannot be combined with execution flags: {flag_list}"
+        if json_mode:
+            json_io.emit_error(msg)
+        else:
+            click.echo(msg, err=True)
+        sys.exit(1)
+
+    # 123-REQ-4.1, 123-REQ-4.2: dry-run bypasses daemon guard
+    if dry_run:
+        _handle_dry_run(config, json_mode, specs_dir)
+        return
 
     # 118-REQ-2.2: CLI --force-clean flag overrides config value
     if force_clean:
