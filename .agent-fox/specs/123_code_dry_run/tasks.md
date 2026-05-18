@@ -128,9 +128,9 @@ in `cli/code.py`.
     - [x] No linter warnings introduced: `make lint`
     - [x] CLI reference accurately describes the new flag
 
-- [ ] 4. Wiring verification
+- [x] 4. Wiring verification
 
-  - [ ] 4.1 Trace every execution path from design.md end-to-end
+  - [x] 4.1 Trace every execution path from design.md end-to-end
     - Path 1 (text output): verify `code_cmd` calls `load_plan` ->
       filter -> `compute_phases` -> `critical_path` -> `group_edges` ->
       `format_plan_analysis` -> `click.echo`
@@ -140,23 +140,23 @@ in `cli/code.py`.
       error -> `sys.exit(1)`
     - _Requirements: all_
 
-  - [ ] 4.2 Verify return values propagate correctly
+  - [x] 4.2 Verify return values propagate correctly
     - `load_plan()` return consumed by filter logic
     - Filter output consumed by analyzer functions
     - Analyzer outputs consumed by formatter
     - No return values discarded
     - _Requirements: all_
 
-  - [ ] 4.3 Run the integration smoke tests
+  - [x] 4.3 Run the integration smoke tests
     - All `TS-123-SMOKE-*` tests pass using real analyzer (not mocked)
     - _Test Spec: TS-123-SMOKE-1 through TS-123-SMOKE-3_
 
-  - [ ] 4.4 Stub / dead-code audit
+  - [x] 4.4 Stub / dead-code audit
     - Search `cli/code.py` for: `return []`, `return None` on non-Optional,
       `pass` in non-abstract, `# TODO`, `# stub`, `NotImplementedError`
     - Each hit must be justified or replaced
 
-  - [ ] 4.5 Cross-spec entry point verification
+  - [x] 4.5 Cross-spec entry point verification
     - Verify `compute_phases`, `critical_path`, `group_edges` from spec 122
       are importable and called from `cli/code.py`
     - Verify `format_plan_analysis` from spec 122 is importable and called
@@ -164,12 +164,12 @@ in `cli/code.py`.
       `cli/plan.py` are importable for JSON path
     - _Requirements: all_
 
-  - [ ] 4.V Verify wiring group
-    - [ ] All smoke tests pass
-    - [ ] No unjustified stubs remain in touched files
-    - [ ] All execution paths from design.md are live (traceable in code)
-    - [ ] All cross-spec entry points are called from production code
-    - [ ] All existing tests still pass: `uv run pytest -q`
+  - [x] 4.V Verify wiring group
+    - [x] All smoke tests pass
+    - [x] No unjustified stubs remain in touched files
+    - [x] All execution paths from design.md are live (traceable in code)
+    - [x] All cross-spec entry points are called from production code
+    - [x] All existing tests still pass: `uv run pytest -q`
 
 ### Checkbox States
 
