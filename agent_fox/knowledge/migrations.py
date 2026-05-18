@@ -852,9 +852,7 @@ def _migrate_v25(conn: duckdb.DuckDBPyConnection) -> bool | None:
     """
     tables = {
         r[0]
-        for r in conn.execute(
-            "SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'"
-        ).fetchall()
+        for r in conn.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'").fetchall()
     }
     if "drift_findings" not in tables:
         logger.info("drift_findings table not found, skipping v25 migration")

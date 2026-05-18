@@ -787,8 +787,7 @@ def dismiss_finding_by_id(
     if row is not None:
         description, severity = row
         conn.execute(
-            "UPDATE review_findings SET superseded_by = ? "
-            "WHERE id::VARCHAR = ? AND superseded_by IS NULL",
+            "UPDATE review_findings SET superseded_by = ? WHERE id::VARCHAR = ? AND superseded_by IS NULL",
             [marker, finding_id],
         )
         logger.info(
@@ -809,8 +808,7 @@ def dismiss_finding_by_id(
     if row is not None:
         description, severity = row
         conn.execute(
-            "UPDATE drift_findings SET superseded_by = ? "
-            "WHERE id::VARCHAR = ? AND superseded_by IS NULL",
+            "UPDATE drift_findings SET superseded_by = ? WHERE id::VARCHAR = ? AND superseded_by IS NULL",
             [marker, finding_id],
         )
         logger.info(
@@ -831,8 +829,7 @@ def dismiss_finding_by_id(
     if row is not None:
         requirement_id, verdict = row
         conn.execute(
-            "UPDATE verification_results SET superseded_by = ? "
-            "WHERE id::VARCHAR = ? AND superseded_by IS NULL",
+            "UPDATE verification_results SET superseded_by = ? WHERE id::VARCHAR = ? AND superseded_by IS NULL",
             [marker, finding_id],
         )
         logger.info(

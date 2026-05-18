@@ -138,16 +138,10 @@ def plan_cmd(
                 if nid in persisted.nodes:
                     node.status = persisted.nodes[nid].status
 
-        completed_ids = {
-            nid for nid, node in graph.nodes.items() if node.status == NodeStatus.COMPLETED
-        }
+        completed_ids = {nid for nid, node in graph.nodes.items() if node.status == NodeStatus.COMPLETED}
         if completed_ids:
             graph.nodes = {nid: n for nid, n in graph.nodes.items() if nid not in completed_ids}
-            graph.edges = [
-                e
-                for e in graph.edges
-                if e.source not in completed_ids and e.target not in completed_ids
-            ]
+            graph.edges = [e for e in graph.edges if e.source not in completed_ids and e.target not in completed_ids]
             graph.order = [nid for nid in graph.order if nid not in completed_ids]
 
         phases = compute_phases(graph)
@@ -164,23 +158,15 @@ def plan_cmd(
 
             emit(
                 {
-                    "nodes": {
-                        nid: _node_to_dict(node) for nid, node in graph.nodes.items()
-                    },
+                    "nodes": {nid: _node_to_dict(node) for nid, node in graph.nodes.items()},
                     "edges": [_edge_to_dict(e) for e in graph.edges],
                     "order": graph.order,
                     "metadata": _metadata_to_dict(graph.metadata),
-                    "phases": [
-                        {"number": p.number, "node_ids": p.node_ids} for p in phases
-                    ],
+                    "phases": [{"number": p.number, "node_ids": p.node_ids} for p in phases],
                     "critical_path": path,
                     "grouped_edges": {
-                        "intra_spec": [
-                            _edge_to_dict(e) for e in grouped.intra_spec
-                        ],
-                        "cross_spec": [
-                            _edge_to_dict(e) for e in grouped.cross_spec
-                        ],
+                        "intra_spec": [_edge_to_dict(e) for e in grouped.intra_spec],
+                        "cross_spec": [_edge_to_dict(e) for e in grouped.cross_spec],
                     },
                 }
             )
