@@ -54,7 +54,7 @@ def create_platform(config: object, project_root: Path) -> GitHubPlatform:
         sys.exit(1)
 
     token = os.environ.get("GITHUB_PAT", "")
-    if not token:
+    if not token.strip():
         logger.error("GITHUB_PAT environment variable is required")
         sys.exit(1)
 

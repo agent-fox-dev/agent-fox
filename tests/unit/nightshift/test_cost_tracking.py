@@ -173,7 +173,7 @@ class TestCliCreatesSinkDispatcher:
 
         with (
             patch("agent_fox.nightshift.engine.validate_night_shift_prerequisites"),
-            patch("agent_fox.nightshift.platform_factory.create_platform", return_value=MagicMock()),
+            patch("agent_fox.nightshift.platform_factory.create_platform") as mock_create_plat,
             patch("agent_fox.ui.display.create_theme"),
             patch("agent_fox.ui.progress.ProgressDisplay") as mock_progress_cls,
             patch("agent_fox.nightshift.daemon.DaemonRunner") as mock_runner_cls,
@@ -184,6 +184,8 @@ class TestCliCreatesSinkDispatcher:
             # Mock open_knowledge_store so CLI can create a SinkDispatcher without a real DB
             patch("agent_fox.knowledge.db.open_knowledge_store", return_value=MagicMock()),
         ):
+            mock_create_plat.return_value.check_credentials = AsyncMock(return_value=None)
+
             mock_progress = MagicMock()
             mock_progress_cls.return_value = mock_progress
 
@@ -691,7 +693,7 @@ class TestCliDuckDBUnavailable:
 
         with (
             patch("agent_fox.nightshift.engine.validate_night_shift_prerequisites"),
-            patch("agent_fox.nightshift.platform_factory.create_platform", return_value=MagicMock()),
+            patch("agent_fox.nightshift.platform_factory.create_platform") as mock_create_plat,
             patch("agent_fox.ui.display.create_theme"),
             patch("agent_fox.ui.progress.ProgressDisplay") as mock_progress_cls,
             patch("agent_fox.nightshift.daemon.DaemonRunner") as mock_runner_cls,
@@ -706,6 +708,8 @@ class TestCliDuckDBUnavailable:
                 create=True,
             ) as mock_open_store,
         ):
+            mock_create_plat.return_value.check_credentials = AsyncMock(return_value=None)
+
             mock_progress = MagicMock()
             mock_progress_cls.return_value = mock_progress
 

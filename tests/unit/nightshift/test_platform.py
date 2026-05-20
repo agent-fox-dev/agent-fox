@@ -1,7 +1,8 @@
 """Unit tests for PlatformProtocol, GitHubPlatform compliance, and factory.
 
 Test Spec: TS-61-23, TS-61-24, TS-61-25, TS-61-E1, TS-61-E11
-Requirements: 61-REQ-8.1, 61-REQ-8.2, 61-REQ-8.3, 61-REQ-1.E1, 61-REQ-8.E1
+Requirements: 61-REQ-8.1, 61-REQ-8.2, 61-REQ-8.3, 61-REQ-1.E1, 61-REQ-8.E1,
+              598-AC-1, 598-AC-3, 598-AC-4, 598-AC-5
 """
 
 from __future__ import annotations
@@ -119,4 +120,90 @@ class TestUnknownPlatformType:
 
         with pytest.raises(SystemExit) as exc_info:
             create_platform(config, tmp_path)  # type: ignore[arg-type]
+        assert exc_info.value.code == 1
+
+
+# ---------------------------------------------------------------------------
+# 598-AC-1, 598-AC-3, 598-AC-4: check_credentials() on GitHubPlatform
+# ---------------------------------------------------------------------------
+
+
+class TestCheckCredentials:
+    """Verify GitHubPlatform.check_credentials() raises on 401/403, passes on 200."""
+
+    def _make_platform(self, token: str = "tok") -> object:
+        from agent_fox.platform.github import GitHubPlatform
+
+        return GitHubPlatform(owner="owner", repo="repo", token=token)
+
+    def test_raises_integration_error_on_401(self) -> None:
+        """AC-1: check_credentials() raises IntegrationError when API returns 401."""
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from agent_fox.core.errors import IntegrationError
+
+        platform = self._make_platform(token="bad-token")
+        mock_resp = MagicMock()
+        mock_resp.status_code = 401
+
+        with patch.object(platform, "_request", AsyncMock(return_value=mock_resp)):  # type: ignore[arg-type]
+            with pytest.raises(IntegrationError) as exc_info:
+                asyncio.run(platform.check_credentials())  # type: ignore[attr-defined]
+
+        assert "401" in str(exc_info.value)
+
+    def test_raises_integration_error_on_403(self) -> None:
+        """AC-4: check_credentials() raises IntegrationError when API returns 403."""
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        from agent_fox.core.errors import IntegrationError
+
+        platform = self._make_platform(token="no-access-token")
+        mock_resp = MagicMock()
+        mock_resp.status_code = 403
+
+        with patch.object(platform, "_request", AsyncMock(return_value=mock_resp)):  # type: ignore[arg-type]
+            with pytest.raises(IntegrationError) as exc_info:
+                asyncio.run(platform.check_credentials())  # type: ignore[attr-defined]
+
+        assert "403" in str(exc_info.value)
+
+    def test_no_exception_on_200(self) -> None:
+        """AC-3: check_credentials() returns normally when API returns 200."""
+        import asyncio
+        from unittest.mock import AsyncMock, MagicMock, patch
+
+        platform = self._make_platform(token="valid-token")
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+
+        with patch.object(platform, "_request", AsyncMock(return_value=mock_resp)):  # type: ignore[arg-type]
+            # Should not raise
+            asyncio.run(platform.check_credentials())  # type: ignore[attr-defined]
+
+
+# ---------------------------------------------------------------------------
+# 598-AC-5: whitespace-only GITHUB_PAT is rejected at create_platform() time
+# ---------------------------------------------------------------------------
+
+
+class TestWhitespaceOnlyPat:
+    """Verify that a whitespace-only GITHUB_PAT causes create_platform() to exit."""
+
+    def test_whitespace_only_pat_exits_1(self, tmp_path: object) -> None:
+        """AC-5: GITHUB_PAT='   ' triggers sys.exit(1) before any API call."""
+        from unittest.mock import patch
+
+        from agent_fox.core.config import AgentFoxConfig
+        from agent_fox.nightshift.platform_factory import create_platform
+
+        config = AgentFoxConfig()
+        config.platform.type = "github"  # type: ignore[misc]
+
+        with patch.dict("os.environ", {"GITHUB_PAT": "   "}):
+            with pytest.raises(SystemExit) as exc_info:
+                create_platform(config, tmp_path)  # type: ignore[arg-type]
+
         assert exc_info.value.code == 1

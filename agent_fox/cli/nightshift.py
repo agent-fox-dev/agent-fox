@@ -161,6 +161,18 @@ def night_shift_cmd(
     # Instantiate the platform from config (exits with code 1 on failure).
     platform = create_platform(config, project_root)
 
+    # Pre-flight credential check: verify token is valid before entering the loop.
+    # A 401/403 from GitHub is an immediate, unrecoverable startup error.
+    # Requirements: 598-AC-2
+    from agent_fox.core.errors import IntegrationError
+
+    try:
+        asyncio.run(platform.check_credentials())
+    except IntegrationError as exc:
+        click.echo(f"Error: GitHub authentication failed — {exc}", err=True)
+        logger.error("Credential pre-flight check failed: %s", exc)
+        sys.exit(1)
+
     # Create DuckDB-backed SinkDispatcher for audit cost tracking (91-REQ-1.2).
     # If DuckDB cannot be opened, proceed without cost tracking (91-REQ-1.E1).
     _knowledge_db = None

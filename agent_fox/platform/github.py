@@ -585,6 +585,30 @@ class GitHubPlatform:
             f"GitHub label creation failed ({resp.status_code})",
         )
 
+    async def check_credentials(self) -> None:
+        """Verify that the stored token has access to the configured repository.
+
+        Makes a lightweight ``GET /repos/{owner}/{repo}`` call and raises
+        ``IntegrationError`` when the response indicates an authentication or
+        authorisation failure (401 Unauthorized or 403 Forbidden).  Returns
+        normally on any other status code so callers can treat non-auth errors
+        (e.g. 404 for a private repo the token cannot see) separately if
+        needed.
+
+        Intended as a pre-flight check at startup to surface bad credentials
+        before entering the daemon loop.
+
+        Requirements: 598-AC-1, 598-AC-3, 598-AC-4
+        """
+        headers = self._auth_headers()
+        url = f"{self._api_base}/repos/{self._owner}/{self._repo}"
+        resp = await self._request("get", url, headers=headers)
+        if resp.status_code in (401, 403):
+            raise IntegrationError(
+                f"GitHub credential check failed ({resp.status_code}): "
+                "check that GITHUB_PAT is set to a valid token with repository access",
+            )
+
     async def close(self) -> None:
         """Clean up resources.
 

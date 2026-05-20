@@ -303,7 +303,9 @@ class TestProgressDisplayCreated:
             mock_runner_instance.run = AsyncMock(return_value=mock_daemon_state)
             MockRunner.return_value = mock_runner_instance
 
-            MockPlatform.return_value = MagicMock()
+            mock_plat = MagicMock()
+            mock_plat.check_credentials = AsyncMock(return_value=None)
+            MockPlatform.return_value = mock_plat
 
             mock_progress_instance = MagicMock()
             MockProgress.return_value = mock_progress_instance
@@ -340,11 +342,13 @@ class TestExitSummary:
         with (
             patch("agent_fox.nightshift.engine.NightShiftEngine") as MockEngine,
             patch("agent_fox.nightshift.engine.validate_night_shift_prerequisites"),
-            patch("agent_fox.nightshift.platform_factory.create_platform"),
+            patch("agent_fox.nightshift.platform_factory.create_platform") as mock_create_plat,
             patch("agent_fox.ui.progress.ProgressDisplay") as MockProgress,
             patch("agent_fox.nightshift.daemon.DaemonRunner") as MockRunner,
             patch("agent_fox.nightshift.streams.build_streams", return_value=[]),
         ):
+            mock_create_plat.return_value.check_credentials = AsyncMock(return_value=None)
+
             mock_engine = MagicMock()
             mock_engine.state = MagicMock()
             mock_engine.state.hunt_scans_completed = 2
@@ -392,11 +396,13 @@ class TestPropDisplayLifecycle:
         with (
             patch("agent_fox.nightshift.engine.NightShiftEngine") as MockEngine,
             patch("agent_fox.nightshift.engine.validate_night_shift_prerequisites"),
-            patch("agent_fox.nightshift.platform_factory.create_platform"),
+            patch("agent_fox.nightshift.platform_factory.create_platform") as mock_create_plat,
             patch("agent_fox.ui.progress.ProgressDisplay") as MockProgress,
             patch("agent_fox.nightshift.daemon.DaemonRunner") as MockRunner,
             patch("agent_fox.nightshift.streams.build_streams", return_value=[]),
         ):
+            mock_create_plat.return_value.check_credentials = AsyncMock(return_value=None)
+
             mock_engine = MagicMock()
             mock_engine.state = MagicMock()
             mock_engine.state.hunt_scans_completed = 0
