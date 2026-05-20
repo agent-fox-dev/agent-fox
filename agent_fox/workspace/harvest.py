@@ -449,6 +449,8 @@ _NON_RETRYABLE_PUSH_PATTERNS = (
     "connection refused",
     "connection timed out",
     "repository not found",
+    "no anonymous write access",
+    "error while loading shared libraries",
 )
 
 

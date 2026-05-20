@@ -1185,6 +1185,94 @@ class TestNonRetryablePushErrorStopsImmediately:
         assert push_count == 1
         mock_fetch.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_no_anonymous_write_access_is_non_retryable(
+        self,
+        repo_root: Path,
+    ) -> None:
+        """'No anonymous write access' is classified as non-retryable (AC-1)."""
+        from agent_fox.workspace.harvest import _push_with_retry
+
+        push_count = 0
+
+        async def mock_run_git(args, **kwargs):
+            nonlocal push_count
+            if isinstance(args, list) and args and args[0] == "push":
+                push_count += 1
+                return (128, "", "remote: No anonymous write access.")
+            return (0, "", "")
+
+        with (
+            patch(
+                "agent_fox.workspace.harvest.run_git",
+                side_effect=mock_run_git,
+            ),
+            patch(
+                "agent_fox.workspace.harvest.fetch_remote",
+                new_callable=AsyncMock,
+                return_value=True,
+                create=True,
+            ) as mock_fetch,
+        ):
+            result = await _push_with_retry(repo_root, "develop")
+
+        assert result is False
+        assert push_count == 1
+        mock_fetch.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_error_while_loading_shared_libraries_is_non_retryable(
+        self,
+        repo_root: Path,
+    ) -> None:
+        """'Error while loading shared libraries' is classified as non-retryable (AC-2)."""
+        from agent_fox.workspace.harvest import _push_with_retry
+
+        push_count = 0
+        shared_lib_stderr = (
+            "/checode/checode-linux-libc/ubi9/node: error while loading shared libraries:"
+            " libnode.so.127: cannot open shared object file: No such file or directory"
+        )
+
+        async def mock_run_git(args, **kwargs):
+            nonlocal push_count
+            if isinstance(args, list) and args and args[0] == "push":
+                push_count += 1
+                return (128, "", shared_lib_stderr)
+            return (0, "", "")
+
+        with (
+            patch(
+                "agent_fox.workspace.harvest.run_git",
+                side_effect=mock_run_git,
+            ),
+            patch(
+                "agent_fox.workspace.harvest.fetch_remote",
+                new_callable=AsyncMock,
+                return_value=True,
+                create=True,
+            ) as mock_fetch,
+        ):
+            result = await _push_with_retry(repo_root, "develop")
+
+        assert result is False
+        assert push_count == 1
+        mock_fetch.assert_not_called()
+
+    def test_combined_stderr_from_issue_is_non_retryable(self) -> None:
+        """Combined stderr (shared lib crash + anonymous access) is non-retryable (AC-3)."""
+        from agent_fox.workspace.harvest import _is_non_retryable_push_error
+
+        combined_stderr = (
+            "/checode/checode-linux-libc/ubi9/node: error while loading shared libraries:"
+            " libnode.so.127: cannot open shared object file: No such file or directory\n"
+            "/checode/checode-linux-libc/ubi9/node: error while loading shared libraries:"
+            " libnode.so.127: cannot open shared object file: No such file or directory\n"
+            "remote: No anonymous write access."
+        )
+
+        assert _is_non_retryable_push_error(combined_stderr) is True
+
 
 # ---------------------------------------------------------------------------
 # TS-121-E5: Audit sink unavailable
