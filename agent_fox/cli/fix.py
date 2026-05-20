@@ -75,8 +75,9 @@ def _build_fix_session_runner(
         )
         from agent_fox.core.config import PricingConfig
         from agent_fox.core.models import calculate_cost, resolve_model
+        from agent_fox.engine.sdk_params import resolve_model_tier
 
-        model_entry = resolve_model(config.models.coding)
+        model_entry = resolve_model(resolve_model_tier(config, "coder"))
         pricing = getattr(config, "pricing", PricingConfig())
         return calculate_cost(
             outcome.input_tokens,
@@ -121,8 +122,9 @@ def _build_improve_session_runner(
         )
         from agent_fox.core.config import PricingConfig
         from agent_fox.core.models import calculate_cost, resolve_model
+        from agent_fox.engine.sdk_params import resolve_model_tier
 
-        model_entry = resolve_model(config.models.coding)
+        model_entry = resolve_model(resolve_model_tier(config, "coder"))
         pricing = getattr(config, "pricing", PricingConfig())
         cost = calculate_cost(
             outcome.input_tokens,

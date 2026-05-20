@@ -49,7 +49,7 @@ _EXPECTED_PROMOTED_FIELDS = [
     ("orchestrator", "parallel"),
     ("orchestrator", "max_budget_usd"),
     ("orchestrator", "quality_gate"),
-    ("models", "coding"),
+    # ("models", "coding") removed — deprecated field no longer promoted (issue #597)
     ("platform", "type"),
     ("archetypes", "coder"),
     ("archetypes", "reviewer"),
@@ -242,12 +242,18 @@ class TestBudgetAndModelPromoted:
         actual = parsed["orchestrator"]["max_budget_usd"]
         assert actual == 8.0, f"max_budget_usd is {actual}, expected 8.0"
 
-    def test_models_coding_promoted_as_advanced(self):
-        """models.coding == 'ADVANCED' in parsed template."""
+    def test_models_coding_not_promoted(self):
+        """models.coding is NOT an active (uncommented) field in the default template.
+
+        The [models] coding field is deprecated (issue #597). It must not appear
+        as an active line in the generated config to avoid the deprecation warning.
+        The coder's ADVANCED tier is now the archetype registry default.
+        """
         template = generate_default_config()
-        parsed = tomllib.loads(template)
-        actual = parsed["models"]["coding"]
-        assert actual == "ADVANCED", f"models.coding is {actual!r}, expected 'ADVANCED'"
+        non_comment_lines = [ln for ln in template.splitlines() if not ln.lstrip().startswith("#")]
+        assert not any("coding =" in ln for ln in non_comment_lines), (
+            "models.coding must not appear as an active line in the default template"
+        )
 
     def test_max_budget_line_not_commented(self):
         """max_budget_usd = 8.0 appears as an active line."""

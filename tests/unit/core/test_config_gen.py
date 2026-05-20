@@ -124,10 +124,21 @@ class TestTemplateGeneration:
         Requirement: 33-REQ-1.3
         """
         template = generate_default_config()
+        lines = template.split("\n")
 
-        # Sections with promoted fields have active headers
-        for section in ["orchestrator", "archetypes", "models", "platform"]:
-            assert f"[{section}]" in template, f"Missing active section header for [{section}]"
+        # Sections with promoted fields have active (uncommented) headers
+        for section in ["orchestrator", "archetypes", "platform"]:
+            assert any(ln.strip() == f"[{section}]" for ln in lines), (
+                f"Missing active section header for [{section}]"
+            )
+
+        # [models] has no promoted fields so must appear only as a commented header
+        assert not any(ln.strip() == "[models]" for ln in lines), (
+            "[models] must not appear as an active section header"
+        )
+        assert any(ln.strip() == "# [models]" for ln in lines), (
+            "[models] must appear as a commented section header"
+        )
 
         # Security is hidden — must not appear even as a commented header
         assert "# [security]" not in template
@@ -480,3 +491,67 @@ class TestTemplateHeaderFooter:
         fresh = generate_default_config()
         merged = merge_existing_config(fresh)
         assert merged == fresh, "Merging a fresh config must be idempotent"
+
+
+class TestCodingDeprecation:
+    """Tests for the deprecated [models] coding field (issue #597).
+
+    AC-1: default template must not contain an active coding = line.
+    AC-4: project config must not contain an active coding = line.
+    AC-5: merge_existing_config marks active coding entries as deprecated.
+    """
+
+    def test_ac1_default_config_has_no_active_coding_line(self) -> None:
+        """AC-1: generate_default_config() must not emit an active 'coding =' line."""
+        template = generate_default_config()
+        non_comment_lines = [ln for ln in template.splitlines() if not ln.lstrip().startswith("#")]
+        assert not any("coding =" in ln for ln in non_comment_lines), (
+            "Default config template must not have an active 'coding =' entry"
+        )
+
+    def test_ac4_project_config_has_no_active_coding_line(self) -> None:
+        """AC-4: The project's own .agent-fox/config.toml must not have active coding =."""
+        import re
+        from pathlib import Path
+
+        config_path = Path(__file__).parents[3] / ".agent-fox" / "config.toml"
+        if not config_path.exists():
+            return  # No project config to check
+
+        content = config_path.read_text(encoding="utf-8")
+        in_models = False
+        for line in content.splitlines():
+            stripped = line.strip()
+            # Detect section headers
+            if re.match(r"^\[[\w.]+\]$", stripped):
+                in_models = stripped == "[models]"
+                continue
+            # Within [models], reject any uncommented coding = line
+            if in_models and not stripped.startswith("#") and re.match(r"^coding\s*=", stripped):
+                raise AssertionError(
+                    f"Project config has active 'coding =' under [models]: {line!r}"
+                )
+
+    def test_ac5_merge_marks_existing_coding_as_deprecated(self) -> None:
+        """AC-5: merge_existing_config comments out active [models] coding entries."""
+        old_content = "[models]\ncoding = \"ADVANCED\"\n"
+        merged = merge_existing_config(old_content)
+
+        # The active 'coding = "ADVANCED"' line must no longer be active
+        non_comment_lines = [ln for ln in merged.splitlines() if not ln.lstrip().startswith("#")]
+        assert not any("coding =" in ln for ln in non_comment_lines), (
+            "After merge, 'coding =' must be commented out or removed"
+        )
+        # A DEPRECATED marker must be present
+        assert "DEPRECATED" in merged, "Merge must add a DEPRECATED marker for the coding field"
+
+    def test_ac5_merge_marks_nondefault_coding_as_deprecated(self) -> None:
+        """AC-5: merge_existing_config also handles non-default coding values."""
+        old_content = "[models]\ncoding = \"STANDARD\"\n"
+        merged = merge_existing_config(old_content)
+
+        non_comment_lines = [ln for ln in merged.splitlines() if not ln.lstrip().startswith("#")]
+        assert not any("coding =" in ln for ln in non_comment_lines), (
+            "After merge, non-default 'coding =' must be commented out"
+        )
+        assert "DEPRECATED" in merged

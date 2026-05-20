@@ -78,12 +78,18 @@ _PROMOTED_DEFAULTS: set[tuple[str, str]] = {
     ("orchestrator", "parallel"),
     ("orchestrator", "quality_gate"),
     ("orchestrator", "max_budget_usd"),
-    ("models", "coding"),
     ("archetypes", "coder"),
     ("archetypes", "reviewer"),
     ("archetypes", "verifier"),
     ("archetypes.instances", "verifier"),
     ("platform", "type"),
+}
+
+# Fields that are still present in the schema (for backward compatibility) but
+# are deprecated and should be commented out when found active in an existing
+# config during a merge.  Keyed by (section_path, field_name).
+_SCHEMA_DEPRECATED_FIELDS: set[tuple[str, str]] = {
+    ("models", "coding"),
 }
 
 # Template-level value overrides for promoted fields.
@@ -739,8 +745,11 @@ def _collect_active_fields(
 
         active_fields.setdefault(section_path, set()).add(key)
 
-        if key not in known_fields:
-            # Record deprecated field for later processing
+        if key not in known_fields or (section_path, key) in _SCHEMA_DEPRECATED_FIELDS:
+            # Record deprecated field for later processing.
+            # This covers both fields that were removed from the schema and
+            # fields that remain in the schema for backward compatibility but
+            # should no longer be set in configs (e.g. models.coding).
             value = section_data[key]
             value_str = _format_toml_value(value)
             deprecated_entries.append((section_path, key, value_str))

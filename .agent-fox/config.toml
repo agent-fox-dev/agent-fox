@@ -15,10 +15,6 @@ session_timeout = 45
 ## Maximum USD spend per session, 0 = unlimited (default: 8.0)
 max_budget_usd = 20.0
 
-[models]
-## Model tier for coding tasks (default: "ADVANCED")
-coding = "ADVANCED"
-
 [platform]
 ## Platform type (none or github) (default: "none")
 type = "github"

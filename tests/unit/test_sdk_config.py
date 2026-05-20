@@ -148,6 +148,57 @@ class TestModelsCodingDeprecationWarning:
         assert resolve_model_tier(config, "coder") == "SIMPLE"
 
 
+class TestNoCodingWarningAfterInit:
+    """AC-2: After agent-fox init, no deprecation warning fires during engine run."""
+
+    def test_ac2_no_warning_when_models_section_absent(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """AC-2: Config without [models] section must not trigger coding deprecation warning."""
+        import logging
+
+        from agent_fox.engine.sdk_params import resolve_model_tier
+
+        config_file = tmp_path / "config.toml"
+        # Simulate the fresh template — no [models] section at all
+        config_file.write_text("[orchestrator]\nparallel = 2\n")
+        config = load_config(path=config_file)
+
+        with caplog.at_level(logging.WARNING, logger="agent_fox.engine.sdk_params"):
+            resolve_model_tier(config, "coder")
+
+        coding_warnings = [
+            r for r in caplog.records
+            if r.levelno >= logging.WARNING and "coding" in r.message and "deprecated" in r.message
+        ]
+        assert not coding_warnings, (
+            "resolve_model_tier must not emit a deprecation warning when [models] coding is absent"
+        )
+
+    def test_ac3_warning_fires_for_nondefault_coding_via_resolve(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """AC-3: resolve_model_tier must emit a warning when coding is explicitly set."""
+        import logging
+
+        from agent_fox.engine.sdk_params import resolve_model_tier
+
+        config_file = tmp_path / "config.toml"
+        config_file.write_text('[models]\ncoding = "STANDARD"\n')
+        config = load_config(path=config_file)
+
+        with caplog.at_level(logging.WARNING, logger="agent_fox.engine.sdk_params"):
+            resolve_model_tier(config, "coder")
+
+        coding_warnings = [
+            r for r in caplog.records
+            if r.levelno >= logging.WARNING and "coding" in r.message and "deprecated" in r.message
+        ]
+        assert coding_warnings, (
+            "resolve_model_tier must emit a deprecation warning when [models] coding is explicitly set"
+        )
+
+
 # ---------------------------------------------------------------------------
 # TS-56-12: Thinking Config Parsing
 # Requirement: 56-REQ-4.1

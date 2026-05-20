@@ -214,13 +214,22 @@ def _resolve_coding_model_display(model_config: ModelConfig) -> str:
     """Resolve the coding model to a display string.
 
     Returns the model ID (e.g., 'claude-opus-4-6') on success,
-    or the raw config value (e.g., 'ADVANCED') on failure.
+    or the raw tier string (e.g., 'ADVANCED') on failure.
+
+    When ``model_config.coding`` is None (i.e., not explicitly configured),
+    the coder archetype's registry default tier is used so that the banner
+    always shows a meaningful model name.
     """
+    from agent_fox.archetypes import ARCHETYPE_REGISTRY
+
+    tier = model_config.coding
+    if tier is None:
+        tier = ARCHETYPE_REGISTRY["coder"].default_model_tier
     try:
-        entry = resolve_model(model_config.coding)
+        entry = resolve_model(tier)
         return entry.model_id
     except Exception:
-        return model_config.coding
+        return tier
 
 
 def render_banner(

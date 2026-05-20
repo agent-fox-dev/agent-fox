@@ -32,7 +32,8 @@ class TestConfigDefaults:
         assert config.orchestrator.max_retries == 2
         assert config.orchestrator.session_timeout == 30
         assert config.theme.playful is True
-        assert config.models.coding == "ADVANCED"
+        # models.coding defaults to None (issue #597); ADVANCED tier comes from registry
+        assert config.models.coding is None
 
     def test_whitespace_only_toml_returns_defaults(self, tmp_path: Path) -> None:
         """A whitespace-only config file produces all default values."""
@@ -42,7 +43,8 @@ class TestConfigDefaults:
         config = load_config(path=config_file)
 
         assert config.orchestrator.parallel == 2
-        assert config.models.coding == "ADVANCED"
+        # models.coding defaults to None (issue #597); ADVANCED tier comes from registry
+        assert config.models.coding is None
 
 
 class TestConfigOverrides:
@@ -94,7 +96,8 @@ class TestConfigMissingFile:
 
         assert isinstance(config, AgentFoxConfig)
         assert config.orchestrator.parallel == 2
-        assert config.models.coding == "ADVANCED"
+        # models.coding defaults to None (issue #597); ADVANCED tier comes from registry
+        assert config.models.coding is None
 
 
 class TestConfigInvalidTOML:

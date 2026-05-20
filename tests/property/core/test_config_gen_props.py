@@ -194,7 +194,9 @@ class TestRoundTripDefaultEquivalence:
 
         # Promoted values are loaded correctly
         assert config.orchestrator.parallel == 2
-        assert config.models.coding == "ADVANCED"
+        # models.coding is no longer promoted in the default template (issue #597);
+        # the coder's ADVANCED tier comes from the archetype registry default.
+        assert config.models.coding is None
 
 
 class TestMergeValuePreservation:

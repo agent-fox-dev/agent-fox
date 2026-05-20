@@ -55,8 +55,8 @@ class TestClampInstances:
 class TestResolveModelTier:
     """Tests for NodeSessionRunner._resolve_model_tier."""
 
-    def test_default_coder_uses_global_models_coding(self) -> None:
-        """Coder archetype uses config.models.coding (default ADVANCED)."""
+    def test_default_coder_uses_advanced_tier(self) -> None:
+        """Coder archetype defaults to ADVANCED tier (from archetype registry)."""
         runner = NodeSessionRunner("spec:1", AgentFoxConfig(), knowledge_db=_MOCK_KB)
         assert runner._resolved_model_id == "claude-opus-4-6"
 

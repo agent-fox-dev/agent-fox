@@ -67,7 +67,7 @@ class ArchetypeEntry:
 ARCHETYPE_REGISTRY: dict[str, ArchetypeEntry] = {
     "coder": ArchetypeEntry(
         name="coder",
-        default_model_tier="STANDARD",
+        default_model_tier="ADVANCED",
         injection=None,
         task_assignable=True,
         default_max_turns=300,

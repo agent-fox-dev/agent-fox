@@ -66,15 +66,20 @@ class TestVerifierDefaultStandard:
 # ---------------------------------------------------------------------------
 
 
-class TestCoderDefaultStandard:
-    """TS-57-4: Verify Coder archetype defaults to STANDARD."""
+class TestCoderDefaultAdvanced:
+    """TS-57-4: Verify Coder archetype defaults to ADVANCED.
 
-    def test_coder_default_tier_is_standard(self) -> None:
-        """ARCHETYPE_REGISTRY["coder"].default_model_tier must be STANDARD."""
+    The coder's registry default_model_tier is ADVANCED (issue #597).
+    Previously the effective ADVANCED tier came from the deprecated
+    [models] coding = "ADVANCED" config field; now it comes from the registry.
+    """
+
+    def test_coder_default_tier_is_advanced(self) -> None:
+        """ARCHETYPE_REGISTRY["coder"].default_model_tier must be ADVANCED."""
         from agent_fox.archetypes import ARCHETYPE_REGISTRY
 
         entry = ARCHETYPE_REGISTRY["coder"]
-        assert entry.default_model_tier == "STANDARD"
+        assert entry.default_model_tier == "ADVANCED"
 
 
 # ---------------------------------------------------------------------------
@@ -84,9 +89,13 @@ class TestCoderDefaultStandard:
 
 
 class TestRemainingArchetypesStandard:
-    """All base archetypes default to STANDARD tier."""
+    """reviewer and verifier default to STANDARD tier; coder defaults to ADVANCED.
 
-    @pytest.mark.parametrize("name", ["coder", "reviewer", "verifier"])
+    Updated by issue #597: coder's ADVANCED tier is now explicit in the registry
+    rather than supplied by the deprecated [models] coding config field.
+    """
+
+    @pytest.mark.parametrize("name", ["reviewer", "verifier"])
     def test_archetype_defaults_to_standard(self, name: str) -> None:
         from agent_fox.archetypes import ARCHETYPE_REGISTRY
 
@@ -242,8 +251,8 @@ class TestUnknownArchetypeFallback:
 
         entry = get_archetype("unknown_archetype_xyz")
         assert entry.name == "coder"
-        # After fix, coder defaults to STANDARD
-        assert entry.default_model_tier == "STANDARD"
+        # Coder registry default is ADVANCED (issue #597 — moved from deprecated models.coding)
+        assert entry.default_model_tier == "ADVANCED"
 
 
 # ---------------------------------------------------------------------------

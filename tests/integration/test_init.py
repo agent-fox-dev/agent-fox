@@ -285,7 +285,9 @@ class TestInitConfigGeneration:
         # Verify key defaults
         assert config.orchestrator.parallel == 2
         assert config.theme.playful is True
-        assert config.models.coding == "ADVANCED"
+        # models.coding is no longer promoted in the default template (issue #597);
+        # the field defaults to None and coder gets ADVANCED via the archetype registry.
+        assert config.models.coding is None
 
     def test_fresh_config_contains_all_sections(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
         """Fresh config.toml contains section headers for all visible sections.

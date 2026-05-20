@@ -188,13 +188,13 @@ class ModelConfig(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    coding: str = Field(default="ADVANCED", description="Model tier for coding tasks (deprecated)")
+    coding: str | None = Field(default=None, description="Model tier for coding tasks (deprecated)")
     memory_extraction: str = Field(default="SIMPLE", description="Model tier for memory extraction")
 
     @model_validator(mode="after")
     def _warn_deprecated_coding(self) -> Self:
         """Emit a deprecation warning when models.coding is set to a non-default value."""
-        if self.coding != "ADVANCED":
+        if self.coding is not None and self.coding != "ADVANCED":
             logger.warning(
                 "[models] coding is deprecated and will be removed in a future release. "
                 "Use [archetypes.overrides.coder] model_tier = %r instead.",

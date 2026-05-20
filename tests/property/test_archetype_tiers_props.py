@@ -27,8 +27,10 @@ _TIER_ORDER: dict[ModelTier, int] = {
 
 # "triage" was removed in spec 100 and absorbed into maintainer:hunt (STANDARD tier).
 # "maintainer" is now in the registry with STANDARD tier.
-_ADVANCED_ARCHETYPES: set[str] = set()
-_STANDARD_ARCHETYPES = {"coder", "reviewer", "verifier", "maintainer"}
+# "coder" moved from STANDARD to ADVANCED in issue #597 (registry now reflects
+# the effective default that was previously supplied by the deprecated [models] coding field).
+_ADVANCED_ARCHETYPES: set[str] = {"coder"}
+_STANDARD_ARCHETYPES = {"reviewer", "verifier", "maintainer"}
 
 
 # ---------------------------------------------------------------------------
@@ -222,7 +224,11 @@ class TestConfigOverridePrecedence:
 
     @pytest.mark.parametrize("name", _ALL_ARCHETYPES)
     def test_no_override_uses_global_or_registry_default(self, name: str) -> None:
-        """Without archetype override, global [models] config or registry default is used."""
+        """Without archetype override, global [models] config or registry default is used.
+
+        With models.coding deprecated (issue #597), the global model value is None
+        for coder; the resolver falls through to the registry default (ADVANCED).
+        """
         from agent_fox.core.config import AgentFoxConfig, ArchetypesConfig
         from agent_fox.engine.sdk_params import _ARCHETYPE_MODEL_KEYS, resolve_model_tier
         from agent_fox.archetypes import ARCHETYPE_REGISTRY
@@ -231,7 +237,9 @@ class TestConfigOverridePrecedence:
         tier = resolve_model_tier(config, name)
         model_key = _ARCHETYPE_MODEL_KEYS.get(name)
         if model_key is not None:
-            expected = getattr(config.models, model_key)
+            global_val = getattr(config.models, model_key)
+            # If the global value is None (deprecated field not set), expect registry default
+            expected = global_val if global_val is not None else ARCHETYPE_REGISTRY[name].default_model_tier
         else:
             expected = ARCHETYPE_REGISTRY[name].default_model_tier
         assert tier == expected
@@ -261,6 +269,9 @@ class TestConfigOverridePrecedence:
         else:
             model_key = _ARCHETYPE_MODEL_KEYS.get(name)
             if model_key is not None:
-                assert result == getattr(config.models, model_key)
+                global_val = getattr(config.models, model_key)
+                # If global value is None (deprecated field not set), expect registry default
+                expected = global_val if global_val is not None else ARCHETYPE_REGISTRY[name].default_model_tier
+                assert result == expected
             else:
                 assert result == ARCHETYPE_REGISTRY[name].default_model_tier

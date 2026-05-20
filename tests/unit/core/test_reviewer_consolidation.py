@@ -147,14 +147,19 @@ class TestCoderFixMode:
     """Verify coder fix mode matches former fix_coder configuration."""
 
     def test_coder_fix_mode(self) -> None:
-        """TS-98-6: coder fix mode has STANDARD tier, 300 turns, adaptive 64k."""
+        """TS-98-6: coder fix mode has ADVANCED tier, 300 turns, adaptive 64k.
+
+        Updated by issue #597: coder's default tier moved from STANDARD to ADVANCED
+        in the registry. The fix mode inherits this value since it doesn't override
+        model_tier at the mode level.
+        """
         from agent_fox.archetypes import ARCHETYPE_REGISTRY, resolve_effective_config
 
         entry = ARCHETYPE_REGISTRY["coder"]
         assert "fix" in entry.modes, f"coder should have 'fix' mode, got modes: {set(entry.modes.keys())}"
         cfg = resolve_effective_config(entry, "fix")
-        assert cfg.default_model_tier == "STANDARD", (
-            f"coder:fix tier should be STANDARD, got {cfg.default_model_tier!r}"
+        assert cfg.default_model_tier == "ADVANCED", (
+            f"coder:fix tier should be ADVANCED, got {cfg.default_model_tier!r}"
         )
         assert cfg.default_max_turns == 300, f"coder:fix max_turns should be 300, got {cfg.default_max_turns}"
         assert cfg.default_thinking_mode == "adaptive", (

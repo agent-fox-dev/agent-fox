@@ -296,9 +296,10 @@ class TestCoderFixModeEquivalence:
         assert "fix" in entry.modes, f"coder must have 'fix' mode, got {set(entry.modes.keys())}"
         cfg = resolve_effective_config(entry, "fix")
 
-        # Matches former fix_coder archetype configuration
-        assert cfg.default_model_tier == "STANDARD", (
-            f"coder:fix tier should be STANDARD, got {cfg.default_model_tier!r}"
+        # Matches former fix_coder archetype configuration.
+        # Updated by issue #597: coder defaults to ADVANCED (registry), so fix mode inherits ADVANCED.
+        assert cfg.default_model_tier == "ADVANCED", (
+            f"coder:fix tier should be ADVANCED, got {cfg.default_model_tier!r}"
         )
         assert cfg.default_max_turns == 300, f"coder:fix max_turns should be 300, got {cfg.default_max_turns}"
         assert cfg.default_thinking_mode == "adaptive", (
