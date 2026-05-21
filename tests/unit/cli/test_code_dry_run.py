@@ -618,8 +618,11 @@ class TestPropertyCompletedExclusion:
             mock_db_path.exists.return_value = True
             result = runner.invoke(main, ["code", "--dry-run"])
 
+        import re
+
         for nid in completed_ids:
-            assert nid not in result.output
+            pattern = re.escape(nid) + r"(?!\d)"
+            assert not re.search(pattern, result.output), f"{nid} (completed) found in output"
 
 
 class TestPropertyMutualExclusion:
