@@ -132,6 +132,171 @@ def _emit_persistence_event(
         )
 
 
+def _try_extract_with_retry(
+    transcript: str,
+    extract_fn: Any,
+    *,
+    session_handle: Any,
+    sink: SinkDispatcher | SessionSink | None,
+    run_id: str,
+    node_id: str,
+    archetype: str,
+) -> tuple[Any | None, bool]:
+    """Extract structured data from transcript, retrying once if possible.
+
+    Returns (extracted_result, retry_attempted). The result is None when
+    all strategies are exhausted; the caller should bail out.
+
+    Requirements: 74-REQ-3.1, 74-REQ-3.3, 74-REQ-3.5
+    """
+    result = extract_fn(transcript)
+    retry_attempted = False
+
+    if result is not None:
+        return result, False
+
+    session_is_alive = session_handle is not None and getattr(session_handle, "is_alive", False)
+    if session_is_alive:
+        logger.warning(
+            "Initial parse failed for %s %s — attempting format retry",
+            archetype,
+            node_id,
+        )
+        retry_response = session_handle.append_user_message(FORMAT_RETRY_PROMPT)
+        retry_attempted = True
+        result = extract_fn(retry_response)
+
+    if result is None:
+        strategy_parts = [_STRATEGY_INITIAL]
+        if retry_attempted:
+            strategy_parts.append(_STRATEGY_RETRY)
+        emit_audit_event(
+            sink,
+            run_id,
+            AuditEventType.REVIEW_PARSE_FAILURE,
+            node_id=node_id,
+            archetype=archetype,
+            severity=AuditSeverity.WARNING,
+            payload={
+                "raw_output": transcript[:2000],
+                "retry_attempted": retry_attempted,
+                "strategy": ",".join(strategy_parts),
+            },
+        )
+        return None, retry_attempted
+
+    if retry_attempted:
+        emit_audit_event(
+            sink,
+            run_id,
+            AuditEventType.REVIEW_PARSE_RETRY_SUCCESS,
+            node_id=node_id,
+            archetype=archetype,
+            severity=AuditSeverity.INFO,
+            payload={"archetype": archetype},
+        )
+
+    return result, retry_attempted
+
+
+def _persist_standard_findings(
+    json_objects: list[Any],
+    dispatch_key: str,
+    archetype: str,
+    node_id: str,
+    session_id: str,
+    spec_name: str,
+    task_group: str,
+    knowledge_db_conn: Any,
+    sink: SinkDispatcher | SessionSink | None,
+    run_id: str,
+    mode: str | None,
+    retry_attempted: bool,
+    transcript: str,
+) -> None:
+    """Parse and persist skeptic, verifier, or oracle findings.
+
+    Requirements: 53-REQ-1.1, 53-REQ-2.1, 53-REQ-3.1
+    """
+    from agent_fox.knowledge.review_store import (
+        insert_drift_findings,
+        insert_findings,
+        insert_verdicts,
+    )
+    from agent_fox.session.review_parser import (
+        parse_drift_findings,
+        parse_review_findings,
+        parse_verification_results,
+    )
+
+    _review_dispatch: dict[str, tuple[Any, Any, str]] = {
+        "skeptic": (parse_review_findings, insert_findings, "review findings"),
+        "verifier": (parse_verification_results, insert_verdicts, "verifier verdicts"),
+        "oracle": (parse_drift_findings, insert_drift_findings, "drift findings"),
+    }
+    parser, inserter, label = _review_dispatch[dispatch_key]
+    records = parser(json_objects, spec_name, task_group, session_id)
+    if records:
+        count = inserter(knowledge_db_conn, records)
+        logger.info("Persisted %d %s for %s", count, label, node_id)
+        _emit_persistence_event(
+            sink,
+            run_id,
+            archetype,
+            node_id,
+            spec_name,
+            task_group,
+            records,
+            count,
+            mode=mode,
+        )
+    else:
+        emit_audit_event(
+            sink,
+            run_id,
+            AuditEventType.REVIEW_PARSE_FAILURE,
+            node_id=node_id,
+            archetype=archetype,
+            severity=AuditSeverity.WARNING,
+            payload={
+                "raw_output": transcript[:2000],
+                "retry_attempted": retry_attempted,
+                "strategy": _STRATEGY_INITIAL,
+            },
+        )
+
+
+def _persist_auditor_findings(
+    audit_result: Any,
+    node_id: str,
+    attempt: int,
+    spec_name: str,
+    task_group: str,
+    knowledge_db_conn: Any,
+    specs_dir: Path | None,
+) -> None:
+    """Persist converged auditor results.
+
+    Requirements: 98-REQ-5.1, 98-REQ-5.2
+    """
+    from agent_fox.session.auditor_output import persist_auditor_results
+
+    if specs_dir is not None:
+        spec_dir = specs_dir / spec_name
+    else:
+        from agent_fox.core.config import AgentFoxConfig, resolve_spec_root
+
+        spec_dir = resolve_spec_root(AgentFoxConfig(), Path.cwd()) / spec_name
+    persist_auditor_results(
+        spec_dir,
+        audit_result,
+        attempt=attempt,
+        project_root=Path.cwd(),
+        conn=knowledge_db_conn,
+        task_group=task_group,
+    )
+
+
 def persist_review_findings(
     transcript: str,
     node_id: str,
@@ -149,24 +314,10 @@ def persist_review_findings(
 ) -> None:
     """Parse and persist structured findings from review archetypes.
 
-    Uses extract_json_array to extract JSON from archetype output, then
-    routes to the correct typed parser and insert function based on
-    archetype and mode:
-    - reviewer (pre-review)   -> parse_review_findings   -> insert_findings
-    - reviewer (drift-review) -> parse_drift_findings    -> insert_drift_findings
-    - reviewer (audit-review) -> parse_auditor_output    -> persist_auditor_results
-    - skeptic  -> parse_review_findings   -> insert_findings (legacy)
-    - verifier -> parse_verification_results -> insert_verdicts
-    - oracle   -> parse_drift_findings    -> insert_drift_findings (legacy)
-
+    Routes to the correct handler based on archetype and mode.
     Non-review archetypes (coder, etc.) are silently skipped.
 
-    When initial extraction fails and session_handle is alive, a single
-    format retry is attempted by appending a user message requesting
-    corrected JSON output (74-REQ-3.*).
-
     Requirements: 53-REQ-1.1, 53-REQ-2.1, 53-REQ-3.1,
-                  53-REQ-1.E1, 53-REQ-2.E1, 53-REQ-3.E1,
                   74-REQ-3.1, 74-REQ-3.2, 74-REQ-3.3, 74-REQ-3.4,
                   74-REQ-3.5, 74-REQ-3.E1, 74-REQ-3.E2,
                   74-REQ-5.1, 74-REQ-5.2, 74-REQ-5.3,
@@ -175,211 +326,77 @@ def persist_review_findings(
     if archetype not in ("skeptic", "verifier", "oracle", "auditor", "reviewer"):
         return
 
-    # Route reviewer archetype by mode to the correct persistence path
     if archetype == "reviewer":
         if mode == "audit-review":
-            # Auditor convergence path — same as legacy "auditor"
             archetype = "auditor"
         elif mode in ("pre-review", "drift-review"):
-            pass  # handled below in the dispatch table
+            pass
         elif mode == "fix-review":
-            # fix-review produces verdicts handled by the fix pipeline, not here
             return
         else:
-            # Unknown reviewer mode — skip silently
             return
 
-    session_id = f"{node_id}:{attempt}"
     tg = str(task_group)
+    session_id = f"{node_id}:{attempt}"
 
-    # Determine effective dispatch key for reviewer modes
     dispatch_key = archetype
     if archetype == "reviewer" and mode:
         if mode == "pre-review":
-            dispatch_key = "skeptic"  # same parser/inserter as legacy skeptic
+            dispatch_key = "skeptic"
         elif mode == "drift-review":
-            dispatch_key = "oracle"  # same parser/inserter as legacy oracle
+            dispatch_key = "oracle"
+
+    retry_kwargs = dict(
+        session_handle=session_handle,
+        sink=sink,
+        run_id=run_id,
+        node_id=node_id,
+        archetype=archetype,
+    )
 
     try:
         if dispatch_key in ("skeptic", "verifier", "oracle"):
-            json_objects = extract_json_array(transcript)
-
-            retry_attempted = False
-
+            json_objects, retry_attempted = _try_extract_with_retry(
+                transcript,
+                extract_json_array,
+                **retry_kwargs,
+            )
             if json_objects is None:
-                # Attempt format retry if session is still alive (74-REQ-3.1)
-                session_is_alive = session_handle is not None and getattr(session_handle, "is_alive", False)
-
-                if session_is_alive:
-                    # 74-REQ-3.5: Append to existing session
-                    logger.warning(
-                        "Initial parse failed for %s %s — attempting format retry",
-                        archetype,
-                        node_id,
-                    )
-                    retry_response = session_handle.append_user_message(FORMAT_RETRY_PROMPT)
-                    retry_attempted = True
-                    # Re-extract from the retry response (74-REQ-3.3: at most 1 retry)
-                    json_objects = extract_json_array(retry_response)
-
-                if json_objects is None:
-                    # All strategies exhausted — emit parse failure
-                    strategy_parts = [_STRATEGY_INITIAL]
-                    if retry_attempted:
-                        strategy_parts.append(_STRATEGY_RETRY)
-                    emit_audit_event(
-                        sink,
-                        run_id,
-                        AuditEventType.REVIEW_PARSE_FAILURE,
-                        node_id=node_id,
-                        archetype=archetype,
-                        severity=AuditSeverity.WARNING,
-                        payload={
-                            "raw_output": transcript[:2000],
-                            "retry_attempted": retry_attempted,
-                            "strategy": ",".join(strategy_parts),
-                        },
-                    )
-                    return
-
-                # Retry succeeded
-                if retry_attempted:
-                    emit_audit_event(
-                        sink,
-                        run_id,
-                        AuditEventType.REVIEW_PARSE_RETRY_SUCCESS,
-                        node_id=node_id,
-                        archetype=archetype,
-                        severity=AuditSeverity.INFO,
-                        payload={"archetype": archetype},
-                    )
-
-            from agent_fox.knowledge.review_store import (
-                insert_drift_findings,
-                insert_findings,
-                insert_verdicts,
+                return
+            _persist_standard_findings(
+                json_objects,
+                dispatch_key,
+                archetype,
+                node_id,
+                session_id,
+                spec_name,
+                tg,
+                knowledge_db_conn,
+                sink,
+                run_id,
+                mode,
+                retry_attempted,
+                transcript,
             )
-            from agent_fox.session.review_parser import (
-                parse_drift_findings,
-                parse_review_findings,
-                parse_verification_results,
-            )
-
-            # Dispatch table: dispatch_key -> (parser, inserter, label)
-            _review_dispatch: dict[str, tuple[Any, Any, str]] = {
-                "skeptic": (
-                    parse_review_findings,
-                    insert_findings,
-                    "review findings",
-                ),
-                "verifier": (
-                    parse_verification_results,
-                    insert_verdicts,
-                    "verifier verdicts",
-                ),
-                "oracle": (
-                    parse_drift_findings,
-                    insert_drift_findings,
-                    "drift findings",
-                ),
-            }
-            parser, inserter, label = _review_dispatch[dispatch_key]
-            records = parser(json_objects, spec_name, tg, session_id)
-            if records:
-                count = inserter(knowledge_db_conn, records)
-                logger.info("Persisted %d %s for %s", count, label, node_id)
-                _emit_persistence_event(
-                    sink,
-                    run_id,
-                    archetype,
-                    node_id,
-                    spec_name,
-                    tg,
-                    records,
-                    count,
-                    mode=mode,
-                )
-            else:
-                emit_audit_event(
-                    sink,
-                    run_id,
-                    AuditEventType.REVIEW_PARSE_FAILURE,
-                    node_id=node_id,
-                    archetype=archetype,
-                    severity=AuditSeverity.WARNING,
-                    payload={
-                        "raw_output": transcript[:2000],
-                        "retry_attempted": retry_attempted,
-                        "strategy": _STRATEGY_INITIAL,
-                    },
-                )
-
         elif archetype == "auditor":
-            from agent_fox.session.auditor_output import persist_auditor_results
             from agent_fox.session.review_parser import parse_auditor_output
 
-            audit_result = parse_auditor_output(transcript)
-            retry_attempted = False
-
-            if audit_result is None:
-                # Attempt format retry if session is still alive (mirrors 74-REQ-3.1)
-                session_is_alive = session_handle is not None and getattr(session_handle, "is_alive", False)
-
-                if session_is_alive:
-                    logger.warning(
-                        "Initial auditor parse failed for %s — attempting format retry",
-                        node_id,
-                    )
-                    retry_response = session_handle.append_user_message(FORMAT_RETRY_PROMPT)
-                    retry_attempted = True
-                    audit_result = parse_auditor_output(retry_response)
-
-                if audit_result is None:
-                    strategy_parts = [_STRATEGY_INITIAL]
-                    if retry_attempted:
-                        strategy_parts.append(_STRATEGY_RETRY)
-                    emit_audit_event(
-                        sink,
-                        run_id,
-                        AuditEventType.REVIEW_PARSE_FAILURE,
-                        node_id=node_id,
-                        archetype=archetype,
-                        severity=AuditSeverity.WARNING,
-                        payload={
-                            "raw_output": transcript[:2000],
-                            "retry_attempted": retry_attempted,
-                            "strategy": ",".join(strategy_parts),
-                        },
-                    )
-                    return
-
-                # Retry succeeded
-                if retry_attempted:
-                    emit_audit_event(
-                        sink,
-                        run_id,
-                        AuditEventType.REVIEW_PARSE_RETRY_SUCCESS,
-                        node_id=node_id,
-                        archetype=archetype,
-                        severity=AuditSeverity.INFO,
-                        payload={"archetype": archetype},
-                    )
-
-            if specs_dir is not None:
-                spec_dir = specs_dir / spec_name
-            else:
-                from agent_fox.core.config import AgentFoxConfig, resolve_spec_root
-
-                spec_dir = resolve_spec_root(AgentFoxConfig(), Path.cwd()) / spec_name
-            persist_auditor_results(
-                spec_dir,
-                audit_result,
-                attempt=attempt,
-                project_root=Path.cwd(),
-                conn=knowledge_db_conn,
-                task_group=tg,
+            audit_result, _ = _try_extract_with_retry(
+                transcript,
+                parse_auditor_output,
+                **retry_kwargs,
             )
-
+            if audit_result is None:
+                return
+            _persist_auditor_findings(
+                audit_result,
+                node_id,
+                attempt,
+                spec_name,
+                tg,
+                knowledge_db_conn,
+                specs_dir,
+            )
     except Exception:
         logger.warning(
             "Failed to persist %s findings for %s, continuing",

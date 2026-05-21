@@ -50,7 +50,6 @@ from agent_fox.engine.dispatch import (
     DispatchManager,
     ParallelDispatcher,
     SerialDispatcher,
-    SerialRunner,
 )
 from agent_fox.engine.graph_sync import GraphSync
 from agent_fox.engine.hot_load import hot_load_into_graph, should_trigger_barrier
@@ -272,10 +271,6 @@ class Orchestrator:
             self._parallel_dispatcher = ParallelDispatcher(self)
 
     @property
-    def _serial_runner(self) -> SerialRunner:
-        return self._dispatch_mgr.serial_runner
-
-    @property
     def _parallel_runner(self):  # noqa: ANN202
         return self._dispatch_mgr.parallel_runner
 
@@ -333,14 +328,8 @@ class Orchestrator:
             payload={"poll_number": poll, "new_tasks_found": new_tasks},
         )
 
-    def _get_node(self, node_id: str) -> Any | None:
-        return self._dispatch_mgr.get_node(node_id)
-
     def _get_node_archetype(self, node_id: str) -> str:
         return self._dispatch_mgr.get_node_archetype(node_id)
-
-    def _get_node_instances(self, node_id: str) -> int:
-        return self._dispatch_mgr.get_node_instances(node_id)
 
     def _get_node_mode(self, node_id: str) -> str | None:
         return self._dispatch_mgr.get_node_mode(node_id)
@@ -392,9 +381,6 @@ class Orchestrator:
             except Exception:
                 pass
         return ""
-
-    def _should_trigger_barrier(self, state: ExecutionState) -> bool:
-        return self._dispatch_mgr.should_trigger_barrier(state)
 
     # -- Init / Run / Watch / Shutdown --------------------------------------
 

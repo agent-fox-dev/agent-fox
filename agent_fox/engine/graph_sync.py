@@ -10,10 +10,12 @@ from __future__ import annotations
 import logging
 from collections import Counter, deque
 
+from agent_fox.core.errors import AgentFoxError
+
 logger = logging.getLogger(__name__)
 
 
-class InvalidTransitionError(ValueError):
+class InvalidTransitionError(AgentFoxError, ValueError):
     """Raised when mark_pending() is called on a node not in ``in_progress`` state."""
 
 

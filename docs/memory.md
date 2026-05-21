@@ -1,6 +1,20 @@
 # Agent-Fox Memory
 
-_3184 facts | last updated: 2026-04-30_
+_3188 facts | last updated: 2026-05-21_
+
+**2026-05-21 Tier 1+2 code simplification (round 3):** Removed 4 dead methods
+from `engine/engine.py` (`_get_node`, `_get_node_instances`, `_serial_runner`
+property, `_should_trigger_barrier`; confirmed unused via grep). Consolidated
+5 duck-typed dispatch methods in `knowledge/sink.py` into a single
+`_dispatch_optional` helper with one-line delegates (−120 lines net).
+Consolidated orphaned exception classes under `AgentFoxError` base
+(`TriageError` in `nightshift/triage.py`, `InvalidTransitionError` in
+`engine/graph_sync.py`). Split 262-line `persist_review_findings` in
+`engine/review_persistence.py` into three focused helpers
+(`_try_extract_with_retry`, `_persist_standard_findings`,
+`_persist_auditor_findings`). Fixed `test_serial.py` import after
+`SerialRunner` removal from engine.py exports. 7 files changed,
+−120 lines net. 4897 tests pass.
 
 **2026-04-30 Tier 3 consolidate `_NodeRetryState` in `result_handler.py`:**
 Replaced 6 parallel `dict[str, ...]` fields (`_timeout_retries`,

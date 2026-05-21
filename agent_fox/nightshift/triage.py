@@ -13,6 +13,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from agent_fox.core.errors import AgentFoxError
 from agent_fox.core.json_extraction import extract_json_object
 from agent_fox.core.prompt_safety import sanitize_prompt_content
 from agent_fox.engine.sdk_params import resolve_model_tier, resolve_security_config
@@ -26,7 +27,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class TriageError(Exception):
+class TriageError(AgentFoxError):
     """Raised when AI triage fails."""
 
 
