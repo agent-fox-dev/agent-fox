@@ -71,8 +71,8 @@ and finally documentation is updated and wiring is verified (group 6).
     - [x] `uv run ruff check agent_fox/nightshift/engine.py agent_fox/workspace/init_project.py`
     - [x] Requirements 1.1, 1.2, 2.1, 2.2, 2.3, 6.1, 6.2 met
 
-- [ ] 3. Simplify streams, CLI, and config
-  - [ ] 3.1 Simplify streams.py
+- [x] 3. Simplify streams, CLI, and config
+  - [x] 3.1 Simplify streams.py
     - Delete `SpecExecutorStream` class
     - Remove hunt-scan `EngineWorkStream` from `build_streams()`
     - Remove parameters: `no_specs`, `no_hunts`, `auto`, `discover_fn`, `orch_factory`
@@ -81,7 +81,7 @@ and finally documentation is updated and wiring is verified (group 6).
     - Simplify platform degradation logic (only fix-pipeline)
     - _Requirements: 3.1, 3.2, 3.3, 3.4, 3.E1_
 
-  - [ ] 3.2 Simplify CLI nightshift.py
+  - [x] 3.2 Simplify CLI nightshift.py
     - Remove `--auto`, `--no-specs`, `--no-hunts`, `--specs-dir` options
     - Remove `_SpecBatchRunner` class
     - Remove spec discovery setup (`_discover_fn`, `_known_specs`, `_specs_dir`,
@@ -95,7 +95,7 @@ and finally documentation is updated and wiring is verified (group 6).
     - Remove `auto_fix=auto` from NightShiftEngine constructor
     - _Requirements: 4.1, 4.2, 4.3, 4.4_
 
-  - [ ] 3.3 Remove unused config fields
+  - [x] 3.3 Remove unused config fields
     - Delete `NightShiftCategoryConfig` class from `agent_fox/core/config.py`
     - Remove fields from `NightShiftConfig`: `hunt_scan_interval`,
       `categories`, `quality_gate_timeout`, `spec_interval`,
@@ -105,11 +105,11 @@ and finally documentation is updated and wiring is verified (group 6).
     - Keep `issue_check_interval`, `push_fix_branch`, and their validators
     - _Requirements: 5.1, 5.2, 5.3, 5.E1_
 
-  - [ ] 3.V Verify task group 3
-    - [ ] Spec tests TS-125-7, TS-125-8, TS-125-9, TS-125-10, TS-125-11 pass
-    - [ ] Spec tests TS-125-E1, TS-125-E2, TS-125-E3, TS-125-E4 pass
-    - [ ] `uv run ruff check agent_fox/nightshift/streams.py agent_fox/cli/nightshift.py agent_fox/core/config.py`
-    - [ ] Requirements 3.1-3.4, 4.1-4.4, 5.1-5.4 met
+  - [x] 3.V Verify task group 3
+    - [x] Spec tests TS-125-7, TS-125-8, TS-125-9, TS-125-10, TS-125-11 pass
+    - [x] Spec tests TS-125-E1, TS-125-E2, TS-125-E3, TS-125-E4 pass
+    - [x] `uv run ruff check agent_fox/nightshift/streams.py agent_fox/cli/nightshift.py agent_fox/core/config.py`
+    - [x] Requirements 3.1-3.4, 4.1-4.4, 5.1-5.4 met
 
 - [ ] 4. Delete hunt-related tests and fix remaining test imports
   - [ ] 4.1 Delete test files for deleted modules

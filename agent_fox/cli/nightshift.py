@@ -1,13 +1,12 @@
-"""CLI command for the night-shift autonomous maintenance daemon.
+"""CLI command for the night-shift autonomous fix daemon.
 
-Runs continuously, scanning the codebase on a timed schedule using both
-static tooling and AI-powered agents to discover maintenance issues.
-Each finding is reported as a platform issue. Issues labelled ``af:fix``
-are automatically processed through the full archetype pipeline and a
-pull request is opened per fix.
+Runs continuously, polling for issues labelled ``af:fix`` and processing
+them through the full archetype pipeline.  A pull request is opened per
+fix.
 
 Requirements: 61-REQ-1.1, 61-REQ-1.2, 61-REQ-1.3, 61-REQ-1.4,
-              85-REQ-2.1, 85-REQ-4.1, 85-REQ-6.1, 85-REQ-10.2
+              85-REQ-2.1, 85-REQ-4.1, 85-REQ-6.1,
+              125-REQ-4.1, 125-REQ-4.2, 125-REQ-4.3, 125-REQ-4.4
 """
 
 from __future__ import annotations
@@ -17,127 +16,30 @@ import logging
 import signal
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
 
 import click
-
-if TYPE_CHECKING:
-    from agent_fox.core.config import AgentFoxConfig
-    from agent_fox.spec.discovery import SpecInfo
-    from agent_fox.ui.progress import ProgressDisplay
 
 logger = logging.getLogger(__name__)
 
 
-class _SpecBatchRunner:
-    """Builds a plan from discovered specs and runs the orchestrator.
-
-    Wraps ``run_code()`` so that ``SpecExecutorStream`` can call
-    ``runner.run()`` and get back an ``ExecutionState`` with
-    ``total_cost``.
-
-    Requirements: 85-REQ-10.2
-    """
-
-    def __init__(
-        self,
-        config: AgentFoxConfig,
-        specs: list[SpecInfo],
-        progress: ProgressDisplay | None = None,
-    ) -> None:
-        self._config = config
-        self._specs = specs
-        self._progress = progress
-
-    async def run(self) -> Any:
-        from agent_fox.engine.run import run_code
-        from agent_fox.graph.builder import build_graph
-        from agent_fox.graph.persistence import save_plan
-        from agent_fox.graph.resolver import resolve_order
-        from agent_fox.knowledge.db import open_knowledge_store
-        from agent_fox.spec.parser import parse_cross_deps, parse_tasks
-
-        # Build plan from the discovered specs
-        task_groups: dict[str, list] = {}
-        cross_deps = []
-        for spec in self._specs:
-            if not spec.has_tasks:
-                continue
-            groups = parse_tasks(spec.path / "tasks.md")
-            if groups:
-                task_groups[spec.name] = groups
-            if spec.has_prd:
-                deps = parse_cross_deps(spec.path / "prd.md", spec_name=spec.name)
-                cross_deps.extend(deps)
-
-        discovered_names = {s.name for s in self._specs}
-        cross_deps = [d for d in cross_deps if d.from_spec in discovered_names and d.to_spec in discovered_names]
-
-        graph = build_graph(
-            self._specs,
-            task_groups,
-            cross_deps,
-            archetypes_config=self._config.archetypes,
-        )
-        graph.order = resolve_order(graph)
-        _knowledge_db = open_knowledge_store(self._config.knowledge)
-        try:
-            save_plan(graph, _knowledge_db.connection)
-        finally:
-            _knowledge_db.close()
-
-        return await run_code(
-            self._config,
-            activity_callback=(self._progress.activity_callback if self._progress else None),
-            task_callback=(self._progress.task_callback if self._progress else None),
-        )
-
-
 @click.command("night-shift")
-@click.option(
-    "--auto",
-    is_flag=True,
-    default=False,
-    help="Auto-assign af:fix label to every issue created during hunt scans.",
-)
-@click.option(
-    "--no-specs",
-    is_flag=True,
-    default=False,
-    help="Disable the spec-executor stream.",
-)
 @click.option(
     "--no-fixes",
     is_flag=True,
     default=False,
     help="Disable the fix-pipeline stream.",
 )
-@click.option(
-    "--no-hunts",
-    is_flag=True,
-    default=False,
-    help="Disable the hunt-scan stream.",
-)
-@click.option(
-    "--specs-dir",
-    type=click.Path(),
-    default=None,
-    help="Path to specs directory (default: from config, or .agent-fox/specs)",
-)
 @click.pass_context
 def night_shift_cmd(
     ctx: click.Context,
-    auto: bool,
-    no_specs: bool,
     no_fixes: bool,
-    no_hunts: bool,
-    specs_dir: str | None,
 ) -> None:
-    """Run the night-shift autonomous maintenance daemon.
+    """Run the night-shift autonomous fix daemon.
 
-    Polls for open issues labelled ``af:fix`` and runs hunt scans on
-    configurable intervals.  Continues until interrupted with Ctrl-C
-    (SIGINT) or until the configured cost limit is reached.
+    Polls for open issues labelled ``af:fix`` and processes them through
+    the archetype pipeline on configurable intervals.  Continues until
+    interrupted with Ctrl-C (SIGINT) or until the configured cost limit
+    is reached.
 
     Exit codes:
       0 -- clean shutdown (single SIGINT or cost limit reached)
@@ -203,13 +105,12 @@ def night_shift_cmd(
     progress.start()
     # -----------------------------------------------------------------------
 
-    # Create the engine for business logic (fix pipeline, hunt scan).
+    # Create the engine for business logic (fix pipeline).
     # Streams delegate to engine methods; the engine is NOT the lifecycle
     # manager.  DaemonRunner handles lifecycle, scheduling, and budget.
     engine = NightShiftEngine(
         config=config,
         platform=platform,
-        auto_fix=auto,
         activity_callback=progress.activity_callback,
         task_callback=progress.task_callback,
         status_callback=progress.print_status,
@@ -222,39 +123,12 @@ def night_shift_cmd(
     max_cost = getattr(getattr(config, "orchestrator", None), "max_cost", None)
     budget = SharedBudget(max_cost=max_cost)
 
-    # Spec discovery closure (85-REQ-10.1) — tracks already-seen specs
-    # across cycles so each spec is only surfaced once per daemon run.
-    from agent_fox.core.config import resolve_spec_root
-    from agent_fox.engine.hot_load import discover_new_specs_gated
-
-    _known_specs: set[str] = set()
-    _specs_dir = Path(specs_dir) if specs_dir else resolve_spec_root(config, project_root)
-    _db_conn = _knowledge_db.connection if _knowledge_db is not None else None
-
-    async def _discover_fn() -> list:
-        found = await discover_new_specs_gated(_specs_dir, _known_specs, project_root, db_conn=_db_conn)
-        for spec in found:
-            _known_specs.add(spec.name)
-        return found
-
-    # Orchestrator factory for the spec-executor stream (85-REQ-10.2).
-    # Each call builds a plan from the discovered specs, then delegates
-    # to run_code() which handles infrastructure setup, orchestrator
-    # creation, execution, and cleanup.
-    def _orch_factory(specs: list) -> _SpecBatchRunner:
-        return _SpecBatchRunner(config, specs, progress=progress)
-
-    # Build work streams with CLI flags (85-REQ-6.1)
+    # Build work streams with CLI flags (85-REQ-6.1, 125-REQ-3.3)
     streams = build_streams(
         config,
-        no_specs=no_specs,
         no_fixes=no_fixes,
-        no_hunts=no_hunts,
-        auto=auto,
         engine=engine,
         budget=budget,
-        discover_fn=_discover_fn,
-        orch_factory=_orch_factory,
     )
 
     # Create the daemon runner (85-REQ-1.2, 85-REQ-2.1, 85-REQ-4.1)
@@ -320,7 +194,6 @@ def night_shift_cmd(
     # Pull detailed stats from the engine state (streams don't track these).
     click.echo(
         f"Night-shift stopped. "
-        f"Scans completed: {engine.state.hunt_scans_completed}, "
         f"Issues fixed: {engine.state.issues_fixed}, "
         f"Total cost: ${daemon_state.total_cost:.4f}"
     )
