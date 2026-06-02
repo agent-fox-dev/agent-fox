@@ -70,8 +70,8 @@ labor:
 - **Verifier** — performs post-implementation verification. Runs the test
   suite, checks each requirement against acceptance criteria, and triggers
   coder retries when verification fails.
-- **Maintainer** — drives night-shift operations with three modes (hunt,
-  fix-triage, extraction). Not assignable to spec tasks.
+- **Maintainer** — drives night-shift operations with two modes (fix-triage,
+  extraction). Not assignable to spec tasks.
 
 Review and verification archetypes can run multiple instances in parallel on
 the same task, with outputs merged using mode-specific convergence strategies.
@@ -82,16 +82,10 @@ in the Architecture Guide.
 ### Night Shift
 
 For ongoing codebase health, `agent-fox night-shift` runs as a continuously
-running maintenance daemon. It hunts for technical debt across eight
-categories — linter debt, dead code, test coverage gaps, dependency freshness,
-deprecated API usage, documentation drift, TODO/FIXME resolution, and quality
-gate failures — then groups findings by root cause and files GitHub issues.
-Issues labelled `af:fix` are automatically picked up and repaired through a
-three-stage pipeline (Triage, Coder, Reviewer in fix-review mode). Use
-`--auto` to label every discovered issue for hands-off repair. Control which
-files the hunt scan analyzes by editing the `.night-shift` file (gitignore
-syntax). Apply the `af:ignore` label to any hunt issue to suppress similar
-findings in the future.
+running fix-only daemon. It polls GitHub for issues labelled `af:fix` and
+processes them through a three-stage pipeline (Triage, Coder, Reviewer in
+fix-review mode). Each fix is implemented on an isolated branch and merged
+back into `develop`.
 
 ### Knowledge System
 

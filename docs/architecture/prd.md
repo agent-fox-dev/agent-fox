@@ -20,7 +20,7 @@ The product eliminates the primary pain point of AI-assisted development: the ne
 - **Spec-driven correctness:** All work flows from structured specifications. Agents that deviate from specs are caught before their code lands.
 - **Adaptive quality gates:** Multiple specialized reviewer roles check work at different stages and block or retry sessions that fall below quality thresholds.
 - **Cost and session control:** Users can set hard limits on total API spend and the number of sessions, with the system halting cleanly when limits are reached.
-- **Continuous maintenance:** A daemon mode keeps codebases healthy over time by hunting for maintenance issues and autonomously resolving them.
+- **Continuous maintenance:** A daemon mode processes `af:fix`-labelled issues autonomously, keeping codebases healthy over time.
 
 ## Non-Goals
 
@@ -40,7 +40,7 @@ A software engineer who writes detailed specifications and wants them implemente
 An engineering leader who uses agent-fox to ship maintenance work, backlog items, and spec-driven features without consuming developer time for repetitive implementation tasks. They use the standup report to track agent activity and compare it against human commits. They care about cost accountability and the quality of landed code.
 
 ### The Solo Developer / Open-Source Maintainer
-A developer maintaining a project alone who uses Night Shift to keep the codebase healthy overnight — catching linter debt, test coverage gaps, and outdated dependencies — and waking up to a queue of labelled GitHub issues, some already fixed by autonomous agents.
+A developer maintaining a project alone who uses Night Shift to keep the codebase healthy overnight — processing `af:fix`-labelled issues and waking up to fixes already merged into develop by autonomous agents.
 
 ### The CI/Script Consumer
 A pipeline or automation script that drives agent-fox in `--json` mode, consuming structured JSON output from every command, piping parameters via stdin, and reacting to exit codes. This persona has no interactive terminal.
@@ -78,11 +78,10 @@ A pipeline or automation script that drives agent-fox in `--json` mode, consumin
 ### 4.4 Night Shift Maintenance
 
 1. The user configures a GitHub platform connection and runs `agent-fox night-shift`.
-2. The daemon immediately begins hunting for maintenance issues across all enabled categories (linter debt, dead code, test coverage gaps, dependency freshness, TODO resolution, deprecated API usage, documentation drift).
-3. Findings are grouped by root cause and filed as GitHub issues with severity, affected files, and suggested fix.
-4. The daemon also polls GitHub for issues labelled `af:fix` and routes each through a review-then-implement pipeline, opening a pull request on completion.
+2. The daemon immediately polls GitHub for issues labelled `af:fix` and routes each through a three-stage pipeline (triage → coder → reviewer in fix-review mode).
+3. Completed fixes are merged into `develop` and the originating issue is closed.
+4. The daemon continues polling for new `af:fix` issues at the configured interval.
 5. The user stops the daemon with Ctrl-C; it completes any active operation before exiting.
-6. With `--auto`, every issue created during a hunt scan is automatically labelled `af:fix`, enabling a fully hands-off maintenance loop.
 
 ### 4.5 Progress Monitoring and Reporting
 
@@ -173,11 +172,8 @@ A pipeline or automation script that drives agent-fox in `--json` mode, consumin
 
 ### 5.10 Night Shift Daemon
 
-- WHEN a user runs `agent-fox night-shift`, the system SHALL immediately begin hunting for maintenance issues and polling for `af:fix`-labelled GitHub issues, repeating both on their configured intervals.
-- WHEN a hunt scan completes, the system SHALL group findings by root cause and create one GitHub issue per group with category, severity, affected files, and a suggested fix.
-- WHEN an `af:fix`-labelled issue is detected, the system SHALL route it through a review-then-implement pipeline and open a pull request.
-- WHEN `--auto` is provided, the system SHALL automatically apply the `af:fix` label to every issue created during hunt scans.
-- WHEN a hunt scan interval fires while a prior scan is still running, the system SHALL skip the overlapping scan.
+- WHEN a user runs `agent-fox night-shift`, the system SHALL immediately begin polling for `af:fix`-labelled GitHub issues, repeating on the configured interval.
+- WHEN an `af:fix`-labelled issue is detected, the system SHALL route it through a three-stage pipeline (triage → coder → reviewer in fix-review mode).
 - WHEN the platform is not configured or the required access token is absent, the system SHALL exit with code 1 at startup.
 - WHEN the accumulated cost reaches the configured maximum, the system SHALL stop dispatching new fix sessions and exit with code 0.
 - WHEN interrupted once (SIGINT), the system SHALL complete the current operation and exit cleanly.
@@ -206,8 +202,7 @@ Key configurable areas:
 | Retry limits | How many times to retry a failed session before escalating |
 | Hot load | Whether the orchestrator watches for new specs after completion |
 | Platform | GitHub connection for Night Shift (type, credentials) |
-| Night Shift intervals | How often hunt scans and issue checks run |
-| Hunt categories | Which maintenance categories are enabled |
+| Night Shift intervals | How often issue checks run |
 | Prompt caching | Cache control policy for system prompts |
 
 When the user re-runs `agent-fox init` after a tool upgrade, new configuration options are added as commented-out entries and removed options are marked deprecated, without disturbing any user-set values.
@@ -241,7 +236,7 @@ All commands accept `--verbose` for debug logging and `--quiet` to suppress info
 - **`agent-fox reset`:** Confirmation of which tasks were reset and which working directories were cleaned up.
 - **`agent-fox export`:** The destination path of the written file.
 - **`agent-fox lint-specs`:** Per-spec finding list with severity, rule, and location; count of auto-fixes applied when `--fix` is used.
-- **`agent-fox night-shift`:** Live log of hunt scan results, issues created, and fix session activity.
+- **`agent-fox night-shift`:** Live log of fix session activity.
 
 ### 7.2 JSON Mode Output
 

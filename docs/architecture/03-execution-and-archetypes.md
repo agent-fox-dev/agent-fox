@@ -340,7 +340,7 @@ the mechanism by which a single registry entry serves multiple distinct roles.
 | **coder** | `fix` | Implementation — writes code, tests, commits |
 | **reviewer** | `pre-review`, `drift-review`, `audit-review`, `fix-review` | Review — examines specs and code, produces structured findings |
 | **verifier** | — | Verification — runs tests, checks requirements, produces verdicts |
-| **maintainer** | `hunt`, `fix-triage`, `extraction` | Night-shift internal — not user-facing |
+| **maintainer** | `fix-triage`, `extraction` | Night-shift internal — not user-facing |
 
 When a mode is specified, the system resolves the effective configuration by
 overlaying the mode's overrides onto the base entry. Fields set to `None` in
@@ -414,8 +414,8 @@ session with the Verifier's findings injected as context.
 
 An internal archetype used exclusively by the night-shift daemon (see
 [Part 4](04-night-shift.md)). It is not user-facing and not assignable to
-task groups. Its modes cover hunt scan analysis (`hunt`), issue triage
-(`fix-triage`), and knowledge extraction (`extraction`).
+task groups. Its modes cover issue triage (`fix-triage`) and knowledge
+extraction (`extraction`).
 
 ### Design Rationale
 

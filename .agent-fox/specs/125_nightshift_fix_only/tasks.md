@@ -159,8 +159,8 @@ and finally documentation is updated and wiring is verified (group 6).
     - [x] No linter warnings introduced: `uv run ruff check agent_fox/ tests/`
     - [x] Requirements 7.1, 7.2, 7.3 met
 
-- [ ] 5. Update documentation
-  - [ ] 5.1 Rewrite `docs/architecture/04-night-shift.md`
+- [x] 5. Update documentation
+  - [x] 5.1 Rewrite `docs/architecture/04-night-shift.md`
     - Remove "The Hunt Phase" section entirely
     - Remove "Conceptual Model" two-phase description
     - Remove references to hunt categories, critic, dedup, ignore
@@ -169,7 +169,7 @@ and finally documentation is updated and wiring is verified (group 6).
     - Keep "The Fix Phase", "Labels", "Staleness Detection"
     - _Requirements: 8.1_
 
-  - [ ] 5.2 Update CLI reference and config reference
+  - [x] 5.2 Update CLI reference and config reference
     - Remove `--auto`, `--no-specs`, `--no-hunts`, `--specs-dir` from
       `docs/cli-reference.md`
     - Update command description to reflect fix-only behavior
@@ -178,14 +178,14 @@ and finally documentation is updated and wiring is verified (group 6).
       `docs/config-reference.md`
     - _Requirements: 8.2, 8.3_
 
-  - [ ] 5.3 Update project README and docs README
+  - [x] 5.3 Update project README and docs README
     - Update `README.md` to describe night-shift as fix-only
     - Remove references to hunt scans, `.night-shift` ignore file,
       spec-executor stream
     - Update `docs/README.md` similarly
     - _Requirements: 8.4, 8.5_
 
-  - [ ] 5.4 Update remaining architecture docs
+  - [x] 5.4 Update remaining architecture docs
     - Update `docs/architecture.md`, `docs/architecture/README.md`,
       `docs/architecture/prd.md`
     - Update `docs/architecture/02-planning.md`,
@@ -196,12 +196,12 @@ and finally documentation is updated and wiring is verified (group 6).
     - Do NOT modify ADRs, audit reports, or errata (historical records)
     - _Requirements: 8.5, 8.6_
 
-  - [ ] 5.V Verify task group 5
-    - [ ] All documentation updated accurately
-    - [ ] No docs outside `docs/adr/`, `docs/audits/`, `docs/errata/` reference
+  - [x] 5.V Verify task group 5
+    - [x] All documentation updated accurately
+    - [x] No docs outside `docs/adr/`, `docs/audits/`, `docs/errata/` reference
           hunt scans, hunt categories, or spec-executor as current functionality
-    - [ ] All existing tests still pass: `uv run pytest -q`
-    - [ ] No linter warnings introduced: `uv run ruff check agent_fox/ tests/`
+    - [x] All existing tests still pass: `uv run pytest -q`
+    - [x] No linter warnings introduced: `uv run ruff check agent_fox/ tests/`
 
 - [ ] 6. Wiring verification
 

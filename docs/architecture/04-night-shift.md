@@ -2,137 +2,34 @@
 
 ## Purpose and Placement
 
-Night-shift is an autonomous maintenance daemon that runs continuously,
-discovering technical debt and fixing it without human intervention. While the
-spec-driven pipeline ([Parts 1–3](01-spec-authoring.md)) implements features
-from authored specifications, night-shift operates in the opposite direction:
-it finds problems in the existing codebase and generates the specifications
-needed to fix them.
+Night-shift is a fix-only maintenance daemon that runs continuously,
+processing `af:fix`-labelled GitHub issues without human intervention. While
+the spec-driven pipeline ([Parts 1–3](01-spec-authoring.md)) implements
+features from authored specifications, night-shift operates in the opposite
+direction: it picks up issues filed against the codebase and generates the
+fixes needed to resolve them.
 
 The two modes are complementary. The spec pipeline builds new capabilities
 by executing a human-authored plan. Night-shift maintains the codebase by
-detecting degradation (stale dependencies, dead code, linter violations,
-test coverage gaps) and either filing issues for human triage or autonomously
-fixing them. The fix pipeline reuses the same session infrastructure — Claude
-agents in isolated workspaces — but with automatically generated specs rather
-than human-authored ones.
+fixing issues that have been triaged and labelled for automatic repair. The
+fix pipeline reuses the same session infrastructure — Claude agents in
+isolated workspaces — but with automatically generated specs rather than
+human-authored ones.
 
 ---
 
 ## Conceptual Model
 
-Night-shift operates as a two-phase loop:
+Night-shift operates as a single-stream fix loop: it polls GitHub for
+issues labelled `af:fix`, determines a safe processing order using
+dependency analysis, and executes a three-stage pipeline
+(Triage → Coder → Reviewer in fix-review mode) for each issue.
 
-1. **Hunt**: Scan the codebase for problems across multiple categories, filter
-   and consolidate findings with an LLM critic, deduplicate against known
-   issues, and create GitHub issues for novel findings.
-
-2. **Fix**: Pick up issues labelled for automatic repair, determine a safe
-   processing order using dependency analysis, and execute a three-stage
-   pipeline (Triage → Coder → Reviewer in fix-review mode) for each issue.
-
-These two phases run on independent timers. The hunt scan runs less frequently
-(default: every six hours) because it is expensive — it executes static
-analysis tools and calls an LLM for consolidation. The issue check runs more
-frequently (default: every fifteen minutes) because it is cheap — it queries
-GitHub for labelled issues and dispatches fix pipelines.
-
-Both phases fire immediately on startup (so the first scan and fix attempt
-happen without waiting for the timer interval) and then repeat at their
-configured intervals.
-
----
-
-## The Hunt Phase
-
-### Categories
-
-A hunt scan dispatches multiple independent category scanners in parallel.
-Each category knows how to find a specific class of problem:
-
-| Category | What It Finds |
-|---|---|
-| Linter Debt | Ruff, mypy, and other linter warnings that have accumulated |
-| Dead Code | Unreachable functions, unused imports, classes with no callers |
-| Test Coverage | Modules, functions, and code paths lacking adequate tests |
-| Dependency Freshness | Outdated packages, known vulnerabilities, stale pins |
-| Deprecated API | Usage of deprecated functions, classes, or patterns |
-| Documentation Drift | Stale docstrings, inaccurate README sections, missing API docs |
-| TODO/FIXME | Comments flagged as temporary that have become permanent |
-| Quality Gate | Failing project checks (tests, linters, type checkers, builds) |
-
-Categories share a common structure: they execute static analysis tools against
-the codebase, then pass the raw output to an LLM for interpretation and
-classification. The LLM transforms tool output into structured findings with
-titles, descriptions, severity levels, affected files, suggested fixes, and
-supporting evidence.
-
-The Quality Gate category is the most sophisticated. It discovers available
-checks from project configuration files (test suites, linters, type checkers,
-build commands), executes each one with a per-check timeout, and routes
-failures through an LLM for root-cause analysis. If the LLM is unavailable,
-it falls back to mechanical findings derived directly from the tool output.
-
-All categories are enabled by default and can be individually disabled via
-configuration.
-
-### The Critic
-
-Raw category output can be noisy — multiple findings may stem from the same
-root cause, evidence may be insufficient, or severity may be miscalibrated.
-The critic is an LLM-powered consolidation stage that addresses this.
-
-For small batches (one or two findings), the critic is bypassed and each
-finding becomes its own group. For larger batches, the critic receives all
-findings and performs four operations:
-
-- **Grouping**: Findings with a common root cause are merged into a single
-  group. A cluster of "unused import" findings across related modules becomes
-  one issue rather than twenty.
-- **Validation**: Findings with insufficient evidence are dropped. The critic
-  requires concrete proof (tool output, code snippets, metrics) — speculation
-  is rejected.
-- **Calibration**: Severity is adjusted based on combined context. A single
-  minor linter warning stays minor; twenty of them in the same module may
-  indicate a systemic problem worth escalating.
-- **Accounting**: Every input finding must appear in exactly one output group
-  or in the explicit "dropped" list with a reason. The critic cannot silently
-  lose findings.
-
-If the LLM call fails or returns malformed output, the critic falls back to
-mechanical grouping: each finding becomes its own group with no consolidation.
-This fail-open design ensures that findings are never silently discarded due
-to infrastructure problems.
-
-### Deduplication
-
-Before creating issues, the system checks whether each finding group has
-already been reported. Deduplication uses a fingerprint — a truncated SHA-256
-hash computed from the category name and the sorted list of affected files.
-The fingerprint is deterministic: the same problem in the same files always
-produces the same hash, even across different scan runs.
-
-Fingerprints are embedded as HTML comments in issue bodies. To check for
-duplicates, the system fetches all open issues with the `af:hunt` label,
-extracts fingerprints from their bodies, and filters out finding groups whose
-fingerprint matches an existing issue.
-
-This approach is intentionally coarse. Two findings that affect the same files
-in the same category are considered duplicates even if their descriptions
-differ. This is a tradeoff: it risks occasional false deduplication (two
-genuinely different problems in the same files) in exchange for avoiding
-duplicate issues, which are more disruptive to triage workflows.
-
-If the platform API is unavailable, deduplication is skipped and all findings
-are reported. This fail-open behavior prefers noise over silence.
-
-### Issue Creation
-
-Each surviving finding group becomes a GitHub issue with the `af:hunt` label.
-The issue body contains a synthesized title, a markdown description, the list
-of affected files, and the embedded fingerprint. The title comes from the
-critic's consolidation; the body aggregates evidence from all findings in the
-group.
+The fix phase runs on a timer (default: every fifteen minutes) because it
+is lightweight — it queries GitHub for labelled issues and dispatches fix
+pipelines. The fix phase fires immediately on startup (so the first fix
+attempt happens without waiting for the timer interval) and then repeats
+at its configured interval.
 
 ---
 
@@ -140,11 +37,9 @@ group.
 
 ### Issue Selection and Triage
 
-The fix phase queries GitHub for open issues with the `af:fix` label. In
-`--auto` mode, every `af:hunt` issue is automatically labelled `af:fix`,
-creating a fully autonomous discover-and-fix loop. Without `--auto`, a human
-must review hunt issues and apply the `af:fix` label to approve automated
-repair.
+The fix phase queries GitHub for open issues with the `af:fix` label.
+A human must review issues and apply the `af:fix` label to approve
+automated repair.
 
 When three or more fixable issues exist, the system performs batch triage
 using an LLM. The triage analysis serves three purposes:
@@ -231,26 +126,26 @@ ephemeral repair specifications that do not represent lasting feature work.
 ### Startup
 
 On startup, the engine validates that a platform is configured (GitHub is
-required for issue management), initializes the platform client, and runs both
-the hunt scan and issue check immediately. This ensures that the first
-maintenance cycle happens without waiting for the timer interval.
+required for issue management), initializes the platform client, and runs
+the issue check immediately. This ensures that the first fix cycle happens
+without waiting for the timer interval.
 
 ### Event Loop
 
 The engine runs a 50-millisecond tick loop. On each tick, it checks elapsed
-time for both the hunt timer and the issue-check timer. When a timer exceeds
-its configured interval, the corresponding phase fires and the timer resets.
-The short tick keeps shutdown responsive without busy-looping. This is simpler
-and more predictable than a scheduler-based approach — the engine always knows
+time for the issue-check timer. When the timer exceeds its configured
+interval, the fix phase fires and the timer resets. The short tick keeps
+shutdown responsive without busy-looping. This is simpler and more
+predictable than a scheduler-based approach — the engine always knows
 exactly when the next phase will fire.
 
 ### Cost and Session Limits
 
 Night-shift enforces its own cost ceiling, set conservatively at 50% of the
 configured maximum. This headroom accounts for the unpredictability of
-autonomous operation — a hunt scan that discovers many issues could trigger
-a cascade of fix pipelines, each consuming tokens. The 50% threshold provides
-a safety margin.
+autonomous operation — a large backlog of issues could trigger a cascade of
+fix pipelines, each consuming tokens. The 50% threshold provides a safety
+margin.
 
 Session limits are also enforced. Both limits trigger graceful shutdown:
 the engine finishes any in-flight work, emits final statistics, and exits.
@@ -264,58 +159,36 @@ two-stage shutdown behavior of the spec-driven orchestrator.
 
 ### State
 
-The engine maintains runtime state: cumulative cost, session count, issues
-created, issues fixed, and hunt scans completed. This state is transient —
-it exists only for the lifetime of the daemon process. Persistent state lives
-in the platform (GitHub issues with labels and fingerprints) and the
-repository (code changes on `develop`).
+The engine maintains runtime state: cumulative cost, session count, and
+issues fixed. This state is transient — it exists only for the lifetime of
+the daemon process. Persistent state lives in the platform (GitHub issues
+with labels) and the repository (code changes on `develop`).
 
 ---
 
 ## Staleness Detection
 
 After completing a round of fixes, the engine checks whether any remaining
-open `af:hunt` issues have become stale. A fix to one issue may resolve
-problems reported in another — for example, fixing a deprecated API usage
-might also resolve the linter warning that flagged it. Staleness detection
-re-evaluates open issues against the current codebase state and closes those
-that no longer apply.
+open issues have become stale. A fix to one issue may resolve problems
+reported in another — for example, fixing a deprecated API usage might also
+resolve the linter warning that flagged it. Staleness detection re-evaluates
+open issues against the current codebase state and closes those that no
+longer apply.
 
 ---
 
 ## Labels
 
-Night-shift uses five GitHub labels to manage its workflow lifecycle:
+Night-shift uses GitHub labels to manage its fix workflow lifecycle:
 
 | Label | Applied by | Meaning |
 |-------|-----------|---------|
-| `af:hunt` | Hunt scan | Finding created by a hunt category |
-| `af:fix` | User or `--auto` | Issue eligible for automatic fixing |
+| `af:fix` | User | Issue eligible for automatic fixing |
 | `af:fixed` | Fix pipeline | Fix successfully merged into develop |
 | `af:no-change` | Fix pipeline | Coder produced no commits; needs human review |
-| `af:ignore` | User | False positive; suppresses semantically similar future findings |
 
-The `af:ignore` label is the primary mechanism for curating hunt results.
-When a user applies this label to a hunt issue, the ignore filter uses
-embedding similarity to suppress future findings that are semantically
-similar to any `af:ignore` issue (open or closed). The similarity threshold
-is controlled by `night_shift.similarity_threshold` (default: 0.85).
-
-All five labels are automatically created on the GitHub repository by
+All labels are automatically created on the GitHub repository by
 `agent-fox init` when a `[platform]` section is configured.
-
----
-
-## File Scope Control
-
-The `.night-shift` file in the project root controls which files the hunt scan
-analyzes. It uses gitignore syntax. Patterns are combined additively with
-`.gitignore` and hardcoded exclusions (`.agent-fox/**`, `.git/**`,
-`node_modules/**`, `__pycache__/**`, `.claude/**`). Negation patterns cannot
-override the hardcoded defaults.
-
-Edit this file to exclude vendored code, generated files, or directories you
-do not maintain. The file is created by `agent-fox init` with a seed template.
 
 ---
 
@@ -330,15 +203,15 @@ The intended workflow is:
 
 - During active development: run the spec pipeline (`agent-fox code`) to
   implement features.
-- During off-hours: run night-shift (`agent-fox night-shift`) to maintain
-  code health.
+- During off-hours: run night-shift (`agent-fox night-shift`) to process
+  fix issues.
 - The merge lock ensures that if both do run concurrently, they serialize
   their merge operations rather than corrupting the branch.
 
 Night-shift issues are visible in GitHub alongside human-filed issues. A human
 reviewing the repository sees a unified view of both feature work (from specs)
-and maintenance work (from night-shift), with clear labels (`af:hunt` for
-discovered issues, `af:fix` for approved repairs) distinguishing the two.
+and maintenance work (from night-shift), with clear labels (`af:fix` for
+approved repairs) distinguishing the two.
 
 ---
 

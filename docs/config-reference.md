@@ -37,7 +37,6 @@ the most commonly changed settings. Add any section below manually to
 - [pricing](#pricing)
 - [planning](#planning)
 - [night_shift](#night_shift)
-  - [night_shift.categories](#night_shiftcategories)
 - [caching](#caching)
 
 ---
@@ -477,48 +476,22 @@ file_conflict_detection = true
 
 ## night_shift
 
-Daemon configuration for the night-shift background scan mode
-(`agent-fox night-shift`). Night-shift periodically scans for issues such as
-stale dependencies, TODO debt, and linter violations.
+Daemon configuration for the night-shift fix-only daemon
+(`agent-fox night-shift`). Night-shift polls for `af:fix`-labelled issues
+and processes them through a three-stage fix pipeline.
 
 > **Note:** This is a hidden section.
 
 | Field | Type | Default | Bounds | Description |
 |-------|------|---------|--------|-------------|
 | `issue_check_interval` | int | `900` | >= 60 | Seconds between issue-tracker checks |
-| `hunt_scan_interval` | int | `21600` | >= 60 | Seconds between full hunt scans |
-| `quality_gate_timeout` | int | `600` | >= 60 | Per-check timeout in seconds |
-| `categories` | table | (all enabled) | -- | Per-category enable/disable toggles |
-| `spec_interval` | int | `300` | >= 10 | Seconds between spec executor cycles |
-| `enabled_streams` | list | `["specs","fixes","hunts"]` | -- | List of enabled work stream names (empty = all enabled) |
 | `push_fix_branch` | bool | `false` | -- | Push fix branches to origin before harvest |
-| `similarity_threshold` | float | `0.85` | 0.0--1.0 | Cosine similarity threshold for duplicate/ignore detection. Higher = stricter matching (fewer suppressed findings). Lower = more aggressive dedup. |
-
-### night_shift.categories
-
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `dependency_freshness` | bool | `true` | Scan for stale or outdated dependencies |
-| `todo_fixme` | bool | `true` | Scan for TODO/FIXME comments |
-| `test_coverage` | bool | `true` | Check test coverage metrics |
-| `deprecated_api` | bool | `true` | Detect usage of deprecated APIs |
-| `linter_debt` | bool | `true` | Surface accumulated linter warnings |
-| `dead_code` | bool | `true` | Identify unreachable or unused code |
-| `documentation_drift` | bool | `true` | Detect stale or missing documentation |
-| `quality_gate` | bool | `true` | Run the project's quality-gate command |
 
 **Example:**
 
 ```toml
 [night_shift]
 issue_check_interval = 1800
-hunt_scan_interval = 7200
-quality_gate_timeout = 300
-similarity_threshold = 0.90
-
-[night_shift.categories]
-dead_code = false
-documentation_drift = false
 ```
 
 ---

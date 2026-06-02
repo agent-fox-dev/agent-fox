@@ -10,7 +10,7 @@ Complete reference for all `agent-fox` commands, options, and configuration.
 | `agent-fox plan` | Build execution plan from `.agent-fox/specs/` |
 | `agent-fox code` | Execute the task plan via orchestrator |
 | `agent-fox standup` | Generate daily activity report |
-| `agent-fox night-shift` | Run autonomous maintenance daemon (hunt scans + issue fixes) |
+| `agent-fox night-shift` | Run autonomous fix-only maintenance daemon |
 | `agent-fox reset` | Reset failed/blocked tasks for retry |
 | `agent-fox lint-specs` | Validate specification files |
 | `agent-fox insights` | Query review findings from the knowledge database |
@@ -134,15 +134,9 @@ overwritten with the latest bundled versions. Works on both fresh init and
 re-init. The output reports the number of skills installed. In JSON mode, the
 output includes a `skills_installed` integer field.
 
-**Night-shift ignore file:** Creates a `.night-shift` file in the project root
-(gitignore syntax) for controlling which files the hunt scan skips. Patterns
-from this file are combined with `.gitignore` and hardcoded defaults
-(`.agent-fox/**`, `.git/**`, `node_modules/**`, `__pycache__/**`,
-`.claude/**`). If the file already exists it is preserved.
-
 **GitHub labels:** When a `[platform]` section with `type = "github"` is
-configured, `init` automatically creates five labels on the repository:
-`af:hunt`, `af:fix`, `af:fixed`, `af:no-change`, and `af:ignore`. If the
+configured, `init` automatically creates labels on the repository for the
+fix pipeline workflow (`af:fix`, `af:fixed`, `af:no-change`). If the
 platform is not configured, this step is silently skipped.
 
 **Exit codes:** `0` success, `1` not inside a git repository.
@@ -402,7 +396,7 @@ Hard reset requires confirmation unless `--yes` or `--json` is provided.
 
 ### night-shift
 
-Run the autonomous maintenance daemon.
+Run the fix-only maintenance daemon.
 
 ```
 agent-fox night-shift [OPTIONS]
@@ -410,30 +404,14 @@ agent-fox night-shift [OPTIONS]
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `--auto` | flag | off | Auto-assign the `af:fix` label to every issue created during hunt scans |
-| `--no-specs` | flag | off | Disable the spec-executor stream |
 | `--no-fixes` | flag | off | Disable the fix-pipeline stream |
-| `--no-hunts` | flag | off | Disable the hunt-scan stream |
-| `--specs-dir PATH` | path | from config | Path to specs directory (default: from config, or `.agent-fox/specs`) |
 
-Night Shift is a continuously-running maintenance daemon that:
-
-1. **Executes specs** -- discovers new specs in the specs directory and runs
-   them through the full orchestrator pipeline.
-2. **Hunts for maintenance issues** -- runs all enabled hunt categories (linter
-   debt, dead code, test coverage gaps, dependency freshness, TODO/FIXME
-   resolution, deprecated API usage, documentation drift, and quality gate
-   checks) at the configured `hunt_scan_interval`. Each category uses static
-   tooling followed by AI analysis to produce structured findings.
-3. **Reports findings as platform issues** -- groups findings by root cause and
-   creates one GitHub issue per group, including category, severity, affected
-   files, and a suggested fix.
-4. **Fixes `af:fix`-labelled issues** -- polls GitHub for open issues with the
-   `af:fix` label at the configured `issue_check_interval`, then runs each
-   through a three-stage pipeline (triage → coder → reviewer in fix-review
-   mode) and opens a pull request. The fix phase drains all eligible issues
-   in a single interval (up to 50 iterations) rather than processing one
-   batch per interval.
+Night Shift is a continuously-running fix-only maintenance daemon that
+polls GitHub for open issues with the `af:fix` label at the configured
+`issue_check_interval`, then runs each through a three-stage pipeline
+(triage → coder → reviewer in fix-review mode). The fix phase drains all
+eligible issues in a single interval (up to 50 iterations) rather than
+processing one batch per interval.
 
 **Requirements:**
 
@@ -441,25 +419,11 @@ Night Shift is a continuously-running maintenance daemon that:
   `GITHUB_PAT` environment variable (or equivalent token). Night Shift aborts
   with exit code 1 if the platform is not configured.
 
-**`--auto` flag:**
-
-When `--auto` is active, every issue created during a hunt scan is
-automatically labelled `af:fix`, making it eligible for autonomous fixing in
-the same run. This enables a fully hands-off maintenance loop.
-
-**Stream disable flags:**
-
-Use `--no-specs`, `--no-fixes`, or `--no-hunts` to selectively disable
-individual work streams. For example, `--no-hunts` runs only the spec executor
-and fix pipeline without periodic hunt scans.
-
 **Scheduling:**
 
-Both intervals run immediately on startup and then repeat on their configured
-period. If a hunt scan is already running when the next interval fires, the
-overlapping scan is skipped (logged as informational). If the platform API is
-temporarily unavailable during an issue check, the error is logged as a
-warning and the next interval retries normally.
+The issue check runs immediately on startup and then repeats on its configured
+interval. If the platform API is temporarily unavailable during an issue check,
+the error is logged as a warning and the next interval retries normally.
 
 **Cost control:**
 
@@ -476,21 +440,13 @@ second signal to abort immediately; exit code is 130.
 **PID file:** The daemon writes a PID file to `.agent-fox/daemon.pid`. The
 `code` and `plan` commands refuse to run while the daemon is active.
 
-**File scope control:** The `.night-shift` file in the project root controls
-which files the hunt scan analyzes (gitignore syntax). Patterns are combined
-with `.gitignore` and hardcoded exclusions. Edit this file to suppress
-findings on vendored code, generated files, or directories you do not
-maintain.
-
-**Labels:** Night Shift uses five GitHub labels to manage its workflow:
+**Labels:** Night Shift uses GitHub labels to manage its fix workflow:
 
 | Label | Applied by | Meaning |
 |-------|-----------|---------|
-| `af:hunt` | Hunt scan | Finding created by a hunt category |
-| `af:fix` | User or `--auto` | Issue eligible for automatic fixing |
+| `af:fix` | User | Issue eligible for automatic fixing |
 | `af:fixed` | Fix pipeline | Fix successfully merged |
 | `af:no-change` | Fix pipeline | Coder produced no commits; needs human review |
-| `af:ignore` | User | False positive; suppresses semantically similar future findings |
 
 **Exit codes:**
 

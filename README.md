@@ -44,19 +44,15 @@ agent-fox standup
 
 See the [CLI reference](docs/cli-reference.md) for all command options.
 
-### Night Shift — Autonomous Maintenance
+### Night Shift — Fix-Only Daemon
 
 Keep your codebase healthy while you sleep. Night Shift is a continuously-running
-maintenance daemon that hunts for linter debt, dead code, test coverage gaps,
-outdated dependencies, and more — then files GitHub issues and autonomously fixes
-the ones labelled `af:fix`.
+fix-only daemon that polls for `af:fix`-labelled GitHub issues and autonomously
+processes them through a three-stage pipeline (triage → coder → reviewer).
 
 ```bash
-# Start the maintenance daemon (Ctrl-C to stop gracefully)
+# Start the fix daemon (Ctrl-C to stop gracefully)
 agent-fox night-shift
-
-# Automatically label every discovered issue as af:fix for hands-off repair
-agent-fox night-shift --auto
 ```
 
 ## Installation
@@ -99,7 +95,7 @@ Full documentation lives in [`docs/`](docs/README.md):
 
 For a deeper understanding of the system's internals — how specs become task
 graphs, how agents are dispatched in parallel, how the knowledge store works,
-and how night-shift discovers and fixes technical debt — see the
+and how night-shift processes fix issues — see the
 [Architecture Guide](docs/architecture/README.md).
 
 ## References

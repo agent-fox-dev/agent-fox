@@ -854,9 +854,8 @@ preceding coder session with the Verifier's verdicts injected as context.
 assignable to task groups in coding session plans (`task_assignable: false`).
 
 **Modes:**
-- `hunt` — Read-only scan for issues in the codebase (`ls`, `cat`, `git`, `wc`,
+- `fix-triage` — Read-only triage of single issues (`ls`, `cat`, `git`, `wc`,
   `head`, `tail`).
-- `fix-triage` — Read-only triage of single issues (same allowlist as hunt).
 - `extraction` — No shell access; pure LLM analysis for knowledge extraction.
 
 ---

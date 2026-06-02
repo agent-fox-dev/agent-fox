@@ -73,11 +73,10 @@ isolation, merge integration, sync barriers, and reset.
 
 ### [Part 4: Night-Shift Mode](04-night-shift.md)
 
-How the system maintains itself. Covers the hunt-and-fix daemon, eight
-hunt categories, the LLM critic for finding consolidation, fingerprint-based
-deduplication, batch triage with dependency and supersession detection, the
-two-agent fix pipeline, in-memory spec construction, cost limits, and
-staleness detection.
+How the system maintains itself. Covers the fix-only daemon, batch triage
+with dependency and supersession detection, the three-stage fix pipeline,
+in-memory spec construction, drain behavior, cost limits, and staleness
+detection.
 
 ### [Part 5: Knowledge System Architecture](05-knowledge-system-architecture.md)
 
