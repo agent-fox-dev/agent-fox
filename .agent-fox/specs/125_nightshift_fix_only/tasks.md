@@ -25,8 +25,8 @@ and finally documentation is updated and wiring is verified (group 6).
 
 ## Tasks
 
-- [ ] 1. Write failing spec tests
-  - [ ] 1.1 Create test file `tests/unit/nightshift/test_nightshift_fix_only.py`
+- [x] 1. Write failing spec tests
+  - [x] 1.1 Create test file `tests/unit/nightshift/test_nightshift_fix_only.py`
     - Add tests for TS-125-1 through TS-125-12 as test functions
     - Add property tests for TS-125-P1, TS-125-P2, TS-125-P3
     - Add edge case tests for TS-125-E1 through TS-125-E4
@@ -34,10 +34,10 @@ and finally documentation is updated and wiring is verified (group 6).
     - _Test Spec: TS-125-1 through TS-125-12, TS-125-P1 through TS-125-P3,
       TS-125-E1 through TS-125-E4_
 
-  - [ ] 1.V Verify task group 1
-    - [ ] All spec tests exist and are syntactically valid
-    - [ ] Spec tests that check for deleted files/classes FAIL (files still exist)
-    - [ ] No linter warnings introduced: `uv run ruff check tests/unit/nightshift/test_nightshift_fix_only.py`
+  - [x] 1.V Verify task group 1
+    - [x] All spec tests exist and are syntactically valid
+    - [x] Spec tests that check for deleted files/classes FAIL (files still exist)
+    - [x] No linter warnings introduced: `uv run ruff check tests/unit/nightshift/test_nightshift_fix_only.py`
 
 - [ ] 2. Delete hunt-scan modules and categories directory
   - [ ] 2.1 Delete hunt source modules
