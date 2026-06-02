@@ -127,7 +127,6 @@ def init_cmd(ctx: click.Context, skills: bool, profiles: bool) -> None:
             "status": "ok",
             "agents_md": result.agents_md,
             "steering_md": result.steering_md,
-            "night_shift_ignore": result.nightshift_ignore,
         }
         if result.skills_installed:
             result_data["skills_installed"] = result.skills_installed
@@ -153,8 +152,6 @@ def init_cmd(ctx: click.Context, skills: bool, profiles: bool) -> None:
         click.echo("Created AGENTS.md.")
     if result.steering_md == "created":
         click.echo("Created steering.md in .agent-fox/.")
-    if result.nightshift_ignore == "created":
-        click.echo("Created .night-shift.")
     if result.skills_installed:
         click.echo(f"Installed {result.skills_installed} skills.")
     if result.labels_ensured:

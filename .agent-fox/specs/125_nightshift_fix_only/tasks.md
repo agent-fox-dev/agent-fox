@@ -39,8 +39,8 @@ and finally documentation is updated and wiring is verified (group 6).
     - [x] Spec tests that check for deleted files/classes FAIL (files still exist)
     - [x] No linter warnings introduced: `uv run ruff check tests/unit/nightshift/test_nightshift_fix_only.py`
 
-- [ ] 2. Delete hunt-scan modules and categories directory
-  - [ ] 2.1 Delete hunt source modules
+- [x] 2. Delete hunt-scan modules and categories directory
+  - [x] 2.1 Delete hunt source modules
     - Delete `agent_fox/nightshift/hunt.py`
     - Delete `agent_fox/nightshift/critic.py`
     - Delete `agent_fox/nightshift/dedup.py`
@@ -50,7 +50,7 @@ and finally documentation is updated and wiring is verified (group 6).
     - Delete `agent_fox/nightshift/categories/` directory (all files)
     - _Requirements: 1.1, 1.2_
 
-  - [ ] 2.2 Remove hunt imports from engine.py
+  - [x] 2.2 Remove hunt imports from engine.py
     - Remove `from agent_fox.nightshift.critic import consolidate_findings`
     - Remove `from agent_fox.nightshift.dedup import filter_known_duplicates`
     - Remove `from agent_fox.nightshift.finding import create_issues_from_groups`
@@ -61,15 +61,15 @@ and finally documentation is updated and wiring is verified (group 6).
     - Remove `embedder` parameter from `__init__`
     - _Requirements: 2.1, 2.2, 2.3_
 
-  - [ ] 2.3 Remove hunt import from init_project.py
+  - [x] 2.3 Remove hunt import from init_project.py
     - Remove `from agent_fox.nightshift.ignore import NIGHTSHIFT_IGNORE_FILENAME, NIGHTSHIFT_IGNORE_SEED`
     - Remove code that creates the `.night-shift` file
     - _Requirements: 6.1, 6.2_
 
-  - [ ] 2.V Verify task group 2
-    - [ ] Spec tests TS-125-1, TS-125-2, TS-125-3, TS-125-4, TS-125-5 pass
-    - [ ] `uv run ruff check agent_fox/nightshift/engine.py agent_fox/workspace/init_project.py`
-    - [ ] Requirements 1.1, 1.2, 2.1, 2.2, 2.3, 6.1, 6.2 met
+  - [x] 2.V Verify task group 2
+    - [x] Spec tests TS-125-1, TS-125-2, TS-125-3, TS-125-4, TS-125-5 pass
+    - [x] `uv run ruff check agent_fox/nightshift/engine.py agent_fox/workspace/init_project.py`
+    - [x] Requirements 1.1, 1.2, 2.1, 2.2, 2.3, 6.1, 6.2 met
 
 - [ ] 3. Simplify streams, CLI, and config
   - [ ] 3.1 Simplify streams.py

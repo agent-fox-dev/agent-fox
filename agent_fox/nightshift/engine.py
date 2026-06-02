@@ -1,4 +1,4 @@
-"""Night Shift engine: business logic for fix pipeline and hunt scans.
+"""Night Shift engine: business logic for the fix pipeline.
 
 Provides the core operations that work streams delegate to.  Lifecycle
 management (scheduling, signals, budget) is handled by ``DaemonRunner``.
@@ -12,20 +12,13 @@ import logging
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from agent_fox.core.config import AgentFoxConfig
 from agent_fox.engine.audit_helpers import emit_audit_event as _emit_audit_event
 from agent_fox.knowledge.audit import AuditEventType, generate_run_id
-from agent_fox.nightshift.critic import consolidate_findings
-from agent_fox.nightshift.dedup import filter_known_duplicates
 from agent_fox.nightshift.dep_graph import build_graph, merge_edges
-from agent_fox.nightshift.finding import (
-    create_issues_from_groups,
-)
 from agent_fox.nightshift.fix_pipeline import FixPipeline
-from agent_fox.nightshift.ignore_filter import filter_ignored
 from agent_fox.nightshift.reference_parser import (
     fetch_github_relationships,
     parse_text_references,
@@ -74,8 +67,7 @@ def validate_night_shift_prerequisites(config: AgentFoxConfig) -> None:
 class NightShiftEngine:
     """Main daemon engine for night-shift.
 
-    Coordinates issue checks, hunt scans, and fix sessions on a
-    timed schedule.
+    Coordinates issue checks and fix sessions on a timed schedule.
 
     Requirements: 61-REQ-1.1, 61-REQ-1.3, 61-REQ-1.4, 61-REQ-1.E2
     """
@@ -89,27 +81,22 @@ class NightShiftEngine:
         config: AgentFoxConfig,
         platform: object,
         *,
-        auto_fix: bool = False,
         activity_callback: ActivityCallback | None = None,
         task_callback: TaskCallback | None = None,
         status_callback: Callable[[str, str], None] | None = None,
         spinner_callback: SpinnerCallback | None = None,
         sink_dispatcher: SinkDispatcher | None = None,
         conn: duckdb.DuckDBPyConnection | None = None,
-        embedder: object | None = None,
     ) -> None:
         self._config = config
         self._platform = platform
-        self._auto_fix = auto_fix
         self._activity_callback = activity_callback
         self._task_callback = task_callback
         self._status_callback = status_callback
         self._spinner_callback = spinner_callback
         self._sink = sink_dispatcher
         self._conn = conn
-        self._embedder = embedder
         self.state = NightShiftState()
-        self._hunt_scan_in_progress = False
         # Track issue numbers processed in this run to guard against
         # re-processing issues that were closed/fixed but still returned
         # by the platform API due to eventual consistency (issue #465).
@@ -369,116 +356,6 @@ class NightShiftEngine:
                         )
 
         self.state.hunt_scans_completed += 1
-
-    async def _run_hunt_scan_inner(
-        self,
-        *,
-        sink: SinkDispatcher | None = None,
-        run_id: str = "",
-    ) -> list[object]:
-        """Execute the hunt scan using all enabled hunt categories.
-
-        Requirements: 61-REQ-3.1, 61-REQ-3.2, 61-REQ-3.4
-        """
-        from agent_fox.nightshift.hunt import HuntCategoryRegistry, HuntScanner
-
-        registry = HuntCategoryRegistry()
-        scanner = HuntScanner(registry, self._config)
-        return await scanner.run(Path.cwd(), sink=sink, run_id=run_id)  # type: ignore[return-value]
-
-    async def _run_hunt_scan(self) -> None:
-        """Execute a full hunt scan and create issues from findings.
-
-        Skips if a hunt scan is already in progress (overlap prevention).
-
-        Requirements: 61-REQ-2.2, 61-REQ-2.E2, 61-REQ-5.1, 61-REQ-5.2,
-                      110-REQ-4.1, 110-REQ-5.1, 110-REQ-6.3, 110-REQ-7.2
-        """
-        self._emit_status("Starting hunt scan\u2026")
-
-        if self._hunt_scan_in_progress:
-            logger.info("Hunt scan already in progress, skipping overlapping scan")
-            return
-
-        hunt_run_id = generate_run_id()
-
-        false_positives: list[str] = []
-
-        self._hunt_scan_in_progress = True
-        try:
-            findings = await self._run_hunt_scan_inner(sink=self._sink, run_id=hunt_run_id)
-        finally:
-            self._hunt_scan_in_progress = False
-
-        _emit_audit_event(
-            self._sink,
-            hunt_run_id,
-            AuditEventType.HUNT_SCAN_COMPLETE,
-            payload={"findings_count": len(findings)},
-        )
-
-        if not findings:
-            self.state.hunt_scans_completed += 1
-            self._emit_status("Hunt scan complete: 0 issues created from 0 findings", "bold green")
-            return
-
-        # 110-REQ-6.1, 110-REQ-6.2: Pass false_positives to critic so it can
-        # proactively drop findings matching known false-positive patterns.
-        groups = await consolidate_findings(  # type: ignore[arg-type]
-            findings,  # type: ignore[arg-type]
-            false_positives=false_positives or None,
-            sink=self._sink,
-            run_id=hunt_run_id,
-        )
-
-        # Dedup gate: skip groups whose fingerprint or embedding matches an
-        # existing af:hunt issue (open or closed). Fails open if the platform
-        # API is unavailable.
-        # Requirements: 79-REQ-4.1, 79-REQ-4.2, 110-REQ-3.1 through 110-REQ-3.5
-        similarity_threshold = self._config.night_shift.similarity_threshold
-        groups = await filter_known_duplicates(  # type: ignore[arg-type]
-            groups,  # type: ignore[arg-type]
-            self._platform,  # type: ignore[arg-type]
-            similarity_threshold=similarity_threshold,
-            embedder=self._embedder,
-        )
-
-        # 110-REQ-4.1: Ignore gate — filter groups similar to af:ignore issues.
-        # Runs after dedup so only novel-by-fingerprint groups are checked.
-        groups = await filter_ignored(  # type: ignore[arg-type]
-            groups,  # type: ignore[arg-type]
-            self._platform,  # type: ignore[arg-type]
-            similarity_threshold=similarity_threshold,
-            embedder=self._embedder,
-        )
-
-        # create_issues_from_groups returns the created IssueResults so we
-        # can assign labels without creating duplicate issues (61-REQ-5.4).
-        created = await create_issues_from_groups(groups, self._platform)  # type: ignore[arg-type]
-        self.state.issues_created += len(created)
-
-        if self._auto_fix:
-            # Assign af:fix label to the issues already created above.
-            for result in created:
-                try:
-                    await self._platform.assign_label(result.number, LABEL_FIX)  # type: ignore[attr-defined]
-                    _emit_audit_event(
-                        self._sink,
-                        hunt_run_id,
-                        AuditEventType.ISSUE_CREATED,
-                        payload={"issue_number": result.number},  # type: ignore[attr-defined]
-                    )
-                except Exception:
-                    logger.warning(
-                        "Failed to assign af:fix label",
-                        exc_info=True,
-                    )
-
-        self.state.hunt_scans_completed += 1
-        self._emit_status(
-            f"Hunt scan complete: {len(created)} issues created from {len(findings)} findings",
-            "bold green",
-        )
 
     def _calculate_fix_cost(self, metrics: object) -> float:
         """Calculate USD cost from FixMetrics token counts."""

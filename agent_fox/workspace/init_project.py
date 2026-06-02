@@ -415,7 +415,6 @@ class InitResult:
     agents_md: str  # "created" | "skipped"
     steering_md: str = "skipped"
     skills_installed: int = 0
-    nightshift_ignore: str = "skipped"  # "created" | "skipped"
     labels_ensured: int = 0  # number of required labels created/verified
 
 
@@ -490,33 +489,6 @@ def _ensure_specs_dirs(project_root: Path) -> None:
         gitkeep.write_text("", encoding="utf-8")
 
 
-def _ensure_nightshift_ignore(project_root: Path) -> str:
-    """Create the .night-shift seed file if it does not already exist.
-
-    Returns ``"created"`` if the file was written, ``"skipped"`` if it already
-    existed or if the file could not be created (permission error).
-
-    Requirements: 106-REQ-4.1, 106-REQ-4.2, 106-REQ-4.E1, 106-REQ-4.E2
-    """
-    from agent_fox.nightshift.ignore import NIGHTSHIFT_IGNORE_FILENAME, NIGHTSHIFT_IGNORE_SEED
-
-    night_shift_path = project_root / NIGHTSHIFT_IGNORE_FILENAME
-    if night_shift_path.exists():
-        return "skipped"
-
-    try:
-        night_shift_path.write_text(NIGHTSHIFT_IGNORE_SEED, encoding="utf-8")
-        return "created"
-    except Exception:
-        logger.warning(
-            "Could not create %s in %s; skipping",
-            NIGHTSHIFT_IGNORE_FILENAME,
-            project_root,
-            exc_info=True,
-        )
-        return "skipped"
-
-
 def init_project(
     path: Path,
     *,
@@ -567,7 +539,6 @@ def init_project(
         if skills:
             skills_count = _install_skills(path)
 
-        nightshift_status = _ensure_nightshift_ignore(path)
         labels_count = _ensure_platform_labels(path)
 
         return InitResult(
@@ -575,7 +546,6 @@ def init_project(
             agents_md=agents_md_status,
             steering_md=steering_status,
             skills_installed=skills_count,
-            nightshift_ignore=nightshift_status,
             labels_ensured=labels_count,
         )
 
@@ -599,7 +569,6 @@ def init_project(
     if skills:
         skills_count = _install_skills(path)
 
-    nightshift_status = _ensure_nightshift_ignore(path)
     labels_count = _ensure_platform_labels(path)
 
     return InitResult(
@@ -607,6 +576,5 @@ def init_project(
         agents_md=agents_md_status,
         steering_md=steering_status,
         skills_installed=skills_count,
-        nightshift_ignore=nightshift_status,
         labels_ensured=labels_count,
     )
