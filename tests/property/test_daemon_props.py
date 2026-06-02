@@ -1,12 +1,9 @@
 """Property tests for daemon framework.
 
-Test Spec: TS-85-P1 through TS-85-P7
-Properties: 1-7 from design.md
-Requirements: 85-REQ-1.3, 85-REQ-1.4, 85-REQ-1.E1, 85-REQ-2.1,
-              85-REQ-2.E1, 85-REQ-3.1, 85-REQ-3.2,
-              85-REQ-5.1, 85-REQ-5.2, 85-REQ-5.E1,
-              85-REQ-6.1, 85-REQ-7.1, 85-REQ-7.E1,
-              85-REQ-9.1, 85-REQ-9.E1
+Test Spec: TS-85-P1 through TS-85-P4
+Properties: 1-4 from design.md
+Requirements: 85-REQ-1.4, 85-REQ-1.E1, 85-REQ-2.1, 85-REQ-2.E1,
+              85-REQ-3.1, 85-REQ-3.2, 85-REQ-5.1, 85-REQ-5.2, 85-REQ-5.E1
 """
 
 from __future__ import annotations
@@ -43,10 +40,10 @@ def _make_mock_stream(
     return stream
 
 
-def _make_config(enabled_streams: list[str] | None = None) -> MagicMock:
+def _make_config() -> MagicMock:
     config = MagicMock()
     ns = MagicMock()
-    ns.enabled_streams = enabled_streams or ["specs", "fixes", "hunts"]
+    ns.issue_check_interval = 900
     config.night_shift = ns
     return config
 
@@ -66,7 +63,9 @@ class TestPidMutualExclusion:
         max_examples=50,
         suppress_health_check=[HealthCheck.function_scoped_fixture],
     )
-    def test_pid_status_matches_process_liveness(self, pid: int, tmp_path: Path) -> None:
+    def test_pid_status_matches_process_liveness(
+        self, pid: int, tmp_path: Path
+    ) -> None:
         """check_pid_file returns ALIVE for alive PIDs, STALE for dead ones."""
         from agent_fox.nightshift.pid import PidStatus, check_pid_file
 
@@ -82,10 +81,10 @@ class TestPidMutualExclusion:
         except ProcessLookupError:
             alive = False
         except PermissionError:
-            # Process exists but we lack permission — treat as alive.
+            # Process exists but we lack permission -- treat as alive.
             alive = True
         except (OverflowError, OSError):
-            # PID out of valid range — not alive.
+            # PID out of valid range -- not alive.
             alive = False
 
         if alive:
@@ -95,7 +94,11 @@ class TestPidMutualExclusion:
 
     def test_write_then_check_returns_alive(self, tmp_path: Path) -> None:
         """write_pid_file + check_pid_file returns ALIVE for current process."""
-        from agent_fox.nightshift.pid import PidStatus, check_pid_file, write_pid_file
+        from agent_fox.nightshift.pid import (
+            PidStatus,
+            check_pid_file,
+            write_pid_file,
+        )
 
         pid_path = tmp_path / "daemon.pid"
         write_pid_file(pid_path)
@@ -115,14 +118,29 @@ class TestCostMonotonicity:
     """SharedBudget total cost is monotonically non-decreasing."""
 
     @given(
-        costs=st.lists(st.floats(min_value=0.0, max_value=100.0, allow_nan=False, allow_infinity=False), max_size=20),
+        costs=st.lists(
+            st.floats(
+                min_value=0.0,
+                max_value=100.0,
+                allow_nan=False,
+                allow_infinity=False,
+            ),
+            max_size=20,
+        ),
         max_cost=st.one_of(
             st.none(),
-            st.floats(min_value=0.0, max_value=1000.0, allow_nan=False, allow_infinity=False),
+            st.floats(
+                min_value=0.0,
+                max_value=1000.0,
+                allow_nan=False,
+                allow_infinity=False,
+            ),
         ),
     )
     @settings(max_examples=100)
-    def test_cost_monotonicity_and_exceeded(self, costs: list[float], max_cost: float | None) -> None:
+    def test_cost_monotonicity_and_exceeded(
+        self, costs: list[float], max_cost: float | None
+    ) -> None:
         """total_cost equals sum of add_cost calls; exceeded triggers correctly."""
         from agent_fox.nightshift.daemon import SharedBudget
 
@@ -156,7 +174,9 @@ class TestStreamIsolation:
         max_examples=20,
         suppress_health_check=[HealthCheck.function_scoped_fixture],
     )
-    def test_failing_stream_does_not_block_others(self, n: int, fail_index: int, tmp_path: Path) -> None:
+    def test_failing_stream_does_not_block_others(
+        self, n: int, fail_index: int, tmp_path: Path
+    ) -> None:
         """Non-failing streams run even when one stream always fails."""
         from agent_fox.nightshift.daemon import DaemonRunner, SharedBudget
 
@@ -172,7 +192,9 @@ class TestStreamIsolation:
 
         budget = SharedBudget(max_cost=None)
         config = _make_config()
-        runner = DaemonRunner(config, None, streams, budget, pid_path=tmp_path / "d.pid")  # type: ignore[arg-type]
+        runner = DaemonRunner(
+            config, None, streams, budget, pid_path=tmp_path / "d.pid"
+        )  # type: ignore[arg-type]
 
         async def run_briefly() -> None:
             t = asyncio.create_task(runner.run())
@@ -208,7 +230,9 @@ class TestShutdownCompleteness:
         streams = [_make_mock_stream(name=f"s-{i}") for i in range(n)]
         budget = SharedBudget(max_cost=None)
         config = _make_config()
-        runner = DaemonRunner(config, None, streams, budget, pid_path=tmp_path / "d.pid")  # type: ignore[arg-type]
+        runner = DaemonRunner(
+            config, None, streams, budget, pid_path=tmp_path / "d.pid"
+        )  # type: ignore[arg-type]
         runner.request_shutdown()
 
         async def run_and_check() -> None:
@@ -217,136 +241,6 @@ class TestShutdownCompleteness:
         asyncio.run(run_and_check())
 
         for i, s in enumerate(streams):
-            assert s.shutdown.call_count == 1, f"stream s-{i} shutdown not called"
-
-
-# ---------------------------------------------------------------------------
-# TS-85-P5: Config interval clamping
-# Property 5: Interval fields always >= their documented minimum
-# Validates: 85-REQ-9.1, 85-REQ-9.E1
-# ---------------------------------------------------------------------------
-
-
-class TestConfigIntervalClamping:
-    """Interval config fields are always >= their documented minimum."""
-
-    @given(
-        spec_interval=st.integers(min_value=-1000, max_value=10000),
-    )
-    @settings(max_examples=100)
-    def test_intervals_clamped(self, spec_interval: int) -> None:
-        """spec_interval >= 10 after validation."""
-        from agent_fox.core.config import NightShiftConfig
-
-        config = NightShiftConfig(
-            spec_interval=spec_interval,
-        )
-        assert config.spec_interval >= 10
-
-
-# ---------------------------------------------------------------------------
-# TS-85-P6: Platform degradation
-# Property 6: With platform.type="none", only spec executor can be enabled
-# Validates: 85-REQ-7.1, 85-REQ-7.E1
-# ---------------------------------------------------------------------------
-
-
-class TestPlatformDegradation:
-    """With platform.type='none', only spec executor can be enabled."""
-
-    @given(no_specs=st.booleans())
-    @settings(max_examples=10)
-    def test_platform_none_subset(self, no_specs: bool) -> None:
-        """Enabled set is subset of {'spec-executor'} with platform none."""
-        from agent_fox.nightshift.streams import build_streams
-
-        config = MagicMock()
-        config.platform.type = "none"
-        ns = MagicMock()
-        ns.enabled_streams = ["specs", "fixes", "hunts"]
-        ns.spec_interval = 60
-        ns.issue_check_interval = 900
-        ns.hunt_scan_interval = 14400
-        config.night_shift = ns
-
-        streams = build_streams(config, no_specs=no_specs)
-        enabled_names = {s.name for s in streams if s.enabled}
-        assert enabled_names.issubset({"spec-executor"})
-        if no_specs:
-            assert enabled_names == set()
-        else:
-            assert enabled_names == {"spec-executor"}
-
-
-# ---------------------------------------------------------------------------
-# TS-85-P7: Enabled stream filtering
-# Property 7: Running streams = intersection of config-enabled and CLI-enabled
-# Validates: 85-REQ-1.3, 85-REQ-6.1, 85-REQ-9.2
-# ---------------------------------------------------------------------------
-
-# Stream name mapping: config name -> stream name
-_CONFIG_TO_STREAM = {
-    "specs": "spec-executor",
-    "fixes": "fix-pipeline",
-    "hunts": "hunt-scan",
-}
-_STREAM_TO_CONFIG = {v: k for k, v in _CONFIG_TO_STREAM.items()}
-_ALL_CONFIG_NAMES = list(_CONFIG_TO_STREAM.keys())
-
-
-class TestEnabledStreamFiltering:
-    """Running streams are the intersection of config-enabled and CLI-enabled."""
-
-    @given(
-        config_enabled=st.lists(
-            st.sampled_from(_ALL_CONFIG_NAMES),
-            min_size=0,
-            max_size=3,
-            unique=True,
-        ),
-        no_specs=st.booleans(),
-        no_fixes=st.booleans(),
-        no_hunts=st.booleans(),
-    )
-    @settings(max_examples=50)
-    def test_intersection(
-        self,
-        config_enabled: list[str],
-        no_specs: bool,
-        no_fixes: bool,
-        no_hunts: bool,
-    ) -> None:
-        """Running set = config-enabled ∩ CLI-enabled."""
-        from agent_fox.nightshift.streams import build_streams
-
-        config = MagicMock()
-        config.platform.type = "github"
-        ns = MagicMock()
-        # Empty list means all enabled per 85-REQ-9.E2
-        ns.enabled_streams = config_enabled if config_enabled else []
-        ns.spec_interval = 60
-        ns.issue_check_interval = 900
-        ns.hunt_scan_interval = 14400
-        config.night_shift = ns
-
-        streams = build_streams(
-            config,
-            no_specs=no_specs,
-            no_fixes=no_fixes,
-            no_hunts=no_hunts,
-        )
-
-        cli_enabled = set()
-        if not no_specs:
-            cli_enabled.add("specs")
-        if not no_fixes:
-            cli_enabled.add("fixes")
-        if not no_hunts:
-            cli_enabled.add("hunts")
-
-        # Empty config_enabled means all enabled
-        effective_config = set(config_enabled) if config_enabled else set(_ALL_CONFIG_NAMES)
-        expected = effective_config & cli_enabled
-
-        actual = {_STREAM_TO_CONFIG[s.name] for s in streams if s.enabled}
-        assert actual == expected
+            assert s.shutdown.call_count == 1, (
+                f"stream s-{i} shutdown not called"
+            )

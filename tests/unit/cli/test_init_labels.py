@@ -183,9 +183,3 @@ class TestLabelConstants:
         assert LABEL_FIX in names
         assert LABEL_HUNT in names
 
-    def test_dedup_fingerprint_label_uses_constant(self) -> None:
-        """TS-358-14: dedup.FINGERPRINT_LABEL equals labels.LABEL_HUNT."""
-        from agent_fox.nightshift.dedup import FINGERPRINT_LABEL
-        from agent_fox.platform.labels import LABEL_HUNT
-
-        assert FINGERPRINT_LABEL == LABEL_HUNT

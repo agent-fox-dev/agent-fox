@@ -61,33 +61,3 @@ class TestLabelInRequiredLabels:
         assert len(specs[0].color) == 6
 
 
-class TestNightShiftConfigSimilarityThreshold:
-    """TS-110-16: NightShiftConfig has similarity_threshold defaulting to 0.85."""
-
-    def test_similarity_threshold_default(self) -> None:
-        """NightShiftConfig().similarity_threshold == 0.85."""
-        from agent_fox.core.config import NightShiftConfig
-
-        config = NightShiftConfig()
-        assert config.similarity_threshold == 0.85
-
-    def test_similarity_threshold_can_be_set(self) -> None:
-        """similarity_threshold can be set to a custom value."""
-        from agent_fox.core.config import NightShiftConfig
-
-        config = NightShiftConfig(similarity_threshold=0.7)
-        assert config.similarity_threshold == 0.7
-
-    def test_similarity_threshold_clamped_above_one(self) -> None:
-        """similarity_threshold is clamped to 1.0 when above 1.0."""
-        from agent_fox.core.config import NightShiftConfig
-
-        config = NightShiftConfig(similarity_threshold=1.5)
-        assert config.similarity_threshold <= 1.0
-
-    def test_similarity_threshold_clamped_below_zero(self) -> None:
-        """similarity_threshold is clamped to 0.0 when below 0.0."""
-        from agent_fox.core.config import NightShiftConfig
-
-        config = NightShiftConfig(similarity_threshold=-0.1)
-        assert config.similarity_threshold >= 0.0

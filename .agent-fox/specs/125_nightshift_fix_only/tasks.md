@@ -111,8 +111,8 @@ and finally documentation is updated and wiring is verified (group 6).
     - [x] `uv run ruff check agent_fox/nightshift/streams.py agent_fox/cli/nightshift.py agent_fox/core/config.py`
     - [x] Requirements 3.1-3.4, 4.1-4.4, 5.1-5.4 met
 
-- [ ] 4. Delete hunt-related tests and fix remaining test imports
-  - [ ] 4.1 Delete test files for deleted modules
+- [x] 4. Delete hunt-related tests and fix remaining test imports
+  - [x] 4.1 Delete test files for deleted modules
     - Delete `tests/unit/nightshift/test_critic.py`
     - Delete `tests/unit/nightshift/test_dedup.py`
     - Delete `tests/unit/nightshift/test_finding.py`
@@ -132,7 +132,7 @@ and finally documentation is updated and wiring is verified (group 6).
     - Delete `tests/test_ignore_filter.py`
     - _Requirements: 7.1_
 
-  - [ ] 4.2 Fix remaining test files that import from deleted modules
+  - [x] 4.2 Fix remaining test files that import from deleted modules
     - `tests/property/nightshift/test_nightshift_props.py`: remove tests
       importing from `finding` and `hunt` modules; keep tests for fix-pipeline
     - `tests/integration/test_daemon_lifecycle.py`: remove test importing
@@ -148,16 +148,16 @@ and finally documentation is updated and wiring is verified (group 6).
       `FINGERPRINT_LABEL` from `dedup` and update affected test
     - _Requirements: 7.2_
 
-  - [ ] 4.3 Run full test suite and fix any remaining breakage
+  - [x] 4.3 Run full test suite and fix any remaining breakage
     - Run `uv run pytest -q` and fix any collection errors or test failures
       caused by dangling imports or references to deleted code
     - _Requirements: 7.3_
 
-  - [ ] 4.V Verify task group 4
-    - [ ] All spec tests pass: `uv run pytest -q tests/unit/nightshift/test_nightshift_fix_only.py`
-    - [ ] All existing tests still pass: `uv run pytest -q`
-    - [ ] No linter warnings introduced: `uv run ruff check agent_fox/ tests/`
-    - [ ] Requirements 7.1, 7.2, 7.3 met
+  - [x] 4.V Verify task group 4
+    - [x] All spec tests pass: `uv run pytest -q tests/unit/nightshift/test_nightshift_fix_only.py`
+    - [x] All existing tests still pass: `uv run pytest -q`
+    - [x] No linter warnings introduced: `uv run ruff check agent_fox/ tests/`
+    - [x] Requirements 7.1, 7.2, 7.3 met
 
 - [ ] 5. Update documentation
   - [ ] 5.1 Rewrite `docs/architecture/04-night-shift.md`

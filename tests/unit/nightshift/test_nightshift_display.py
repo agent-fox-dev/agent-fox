@@ -22,13 +22,11 @@ from agent_fox.ui.progress import ProgressDisplay
 def _make_config(
     *,
     issue_interval: int = 900,
-    hunt_interval: int = 14400,
     max_cost: float | None = None,
     max_sessions: int | None = None,
 ) -> MagicMock:
     config = MagicMock()
     config.night_shift.issue_check_interval = issue_interval
-    config.night_shift.hunt_scan_interval = hunt_interval
     config.orchestrator.max_cost = max_cost
     config.orchestrator.max_sessions = max_sessions
     return config
@@ -91,68 +89,6 @@ class TestPhaseLineIssueCheck:
         )
 
 
-# ---------------------------------------------------------------------------
-# TS-81-11: Phase line emitted on hunt scan start
-# Requirement: 81-REQ-3.2
-# ---------------------------------------------------------------------------
-
-
-class TestPhaseLineHuntScan:
-    """Verify status line emitted when engine starts a hunt scan."""
-
-    @pytest.mark.asyncio
-    async def test_81_phase_line_hunt_scan(self) -> None:
-        """Status line contains 'hunt' or 'scan' on hunt scan start."""
-        lines: list[tuple[str, str]] = []
-
-        config = _make_config()
-        platform = AsyncMock()
-
-        engine = NightShiftEngine(
-            config=config,
-            platform=platform,
-            status_callback=lambda text, style: lines.append((text, style)),
-        )
-
-        # Mock inner scan to avoid real filesystem operations
-        engine._run_hunt_scan_inner = AsyncMock(return_value=[])  # type: ignore[method-assign]
-
-        await engine._run_hunt_scan()
-
-        assert any("hunt" in line.lower() or "scan" in line.lower() for line, _ in lines), (
-            f"Expected phase line mentioning hunt or scan, got: {lines}"
-        )
-
-
-# ---------------------------------------------------------------------------
-# TS-81-12: Phase line on hunt scan complete with counts
-# Requirement: 81-REQ-3.3
-# ---------------------------------------------------------------------------
-
-
-class TestPhaseLineHuntComplete:
-    """Verify status line with counts emitted after hunt scan."""
-
-    @pytest.mark.asyncio
-    async def test_81_phase_line_hunt_complete(self) -> None:
-        """Status line contains issue count after hunt scan completes."""
-        lines: list[tuple[str, str]] = []
-
-        config = _make_config()
-        platform = AsyncMock()
-
-        engine = NightShiftEngine(
-            config=config,
-            platform=platform,
-            status_callback=lambda text, style: lines.append((text, style)),
-        )
-
-        engine._run_hunt_scan_inner = AsyncMock(return_value=[])  # type: ignore[method-assign]
-
-        await engine._run_hunt_scan()
-
-        # Should have a completion line with "0" (no findings)
-        assert any("0" in line for line, _ in lines), f"Expected count in phase line, got: {lines}"
 
 
 # ---------------------------------------------------------------------------
@@ -351,7 +287,6 @@ class TestExitSummary:
 
             mock_engine = MagicMock()
             mock_engine.state = MagicMock()
-            mock_engine.state.hunt_scans_completed = 2
             mock_engine.state.issues_fixed = 3
             MockEngine.return_value = mock_engine
 
@@ -370,7 +305,6 @@ class TestExitSummary:
                 catch_exceptions=False,
             )
 
-            assert "Scans completed: 2" in result.output
             assert "Issues fixed: 3" in result.output
             assert "$1.5" in result.output
 
@@ -461,28 +395,6 @@ class TestPropPhaseLineEmission:
         issue_lines = [(t, s) for t, s in lines if "af:fix" in t or "issue" in t.lower()]
         assert len(issue_lines) == 1
 
-    @pytest.mark.asyncio
-    async def test_81_prop_hunt_scan_emits_start_and_complete(self) -> None:
-        """Hunt scan emits start and complete phase lines."""
-        lines: list[tuple[str, str]] = []
-
-        config = _make_config()
-        platform = AsyncMock()
-
-        engine = NightShiftEngine(
-            config=config,
-            platform=platform,
-            status_callback=lambda text, style: lines.append((text, style)),
-        )
-
-        engine._run_hunt_scan_inner = AsyncMock(return_value=[])  # type: ignore[method-assign]
-
-        await engine._run_hunt_scan()
-
-        start_lines = [(t, s) for t, s in lines if "Starting hunt scan" in t]
-        complete_lines = [(t, s) for t, s in lines if "Hunt scan complete" in t]
-        assert len(start_lines) == 1
-        assert len(complete_lines) == 1
 
     @pytest.mark.asyncio
     async def test_81_prop_fix_emits_start_and_result(self) -> None:

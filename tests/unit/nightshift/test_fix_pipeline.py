@@ -1,7 +1,7 @@
-"""Unit tests for fix pipeline: auto label, in-memory spec, branch naming, PR body.
+"""Unit tests for fix pipeline: in-memory spec, branch naming, PR body.
 
-Test Spec: TS-61-2, TS-61-16, TS-61-17, TS-61-21, TS-61-E2, TS-61-E9
-Requirements: 61-REQ-1.2, 61-REQ-6.1, 61-REQ-6.2, 61-REQ-7.2, 61-REQ-1.E2,
+Test Spec: TS-61-16, TS-61-17, TS-61-21, TS-61-E2, TS-61-E9
+Requirements: 61-REQ-6.1, 61-REQ-6.2, 61-REQ-7.2, 61-REQ-1.E2,
               61-REQ-6.E2
 """
 
@@ -21,65 +21,6 @@ def _mock_workspace() -> WorkspaceInfo:
         spec_name="fix-issue-42",
         task_group=0,
     )
-
-
-# ---------------------------------------------------------------------------
-# TS-61-2: Auto flag assigns af:fix label
-# Requirement: 61-REQ-1.2
-# ---------------------------------------------------------------------------
-
-
-class TestAutoFixLabel:
-    """Verify that --auto causes created issues to get the af:fix label."""
-
-    @pytest.mark.asyncio
-    async def test_auto_assigns_label(self) -> None:
-        """When auto_fix=True, platform.assign_label is called with 'af:fix'."""
-        from unittest.mock import ANY, AsyncMock, MagicMock
-
-        from agent_fox.nightshift.engine import NightShiftEngine
-
-        config = MagicMock()
-        config.orchestrator.max_cost = None
-        config.orchestrator.max_sessions = None
-        config.night_shift.categories.dependency_freshness = True
-        config.night_shift.categories.todo_fixme = False
-        config.night_shift.categories.test_coverage = False
-        config.night_shift.categories.deprecated_api = False
-        config.night_shift.categories.linter_debt = False
-        config.night_shift.categories.dead_code = False
-        config.night_shift.categories.documentation_drift = False
-
-        mock_platform = AsyncMock()
-        mock_platform.create_issue = AsyncMock(return_value=MagicMock(number=1, title="test", html_url="http://test"))
-        mock_platform.assign_label = AsyncMock()
-
-        engine = NightShiftEngine(config=config, platform=mock_platform, auto_fix=True)
-
-        # Simulate a hunt scan that produces a finding
-        from unittest.mock import patch
-
-        from agent_fox.nightshift.finding import Finding
-
-        mock_finding = Finding(
-            category="dependency_freshness",
-            title="Test finding",
-            description="Test",
-            severity="minor",
-            affected_files=["test.py"],
-            suggested_fix="Fix it",
-            evidence="evidence",
-            group_key="test-group",
-        )
-
-        with patch.object(
-            engine,
-            "_run_hunt_scan_inner",
-            AsyncMock(return_value=[mock_finding]),
-        ):
-            await engine._run_hunt_scan()
-
-        mock_platform.assign_label.assert_called_with(ANY, "af:fix")
 
 
 # ---------------------------------------------------------------------------
@@ -412,7 +353,7 @@ class TestSuccessfulFixHarvestsAndCloses:
     async def test_issue_not_closed_when_harvest_returns_no_changes(self) -> None:
         """When reviewer PASS but harvest has no new commits, issue is NOT closed.
 
-        The coder produced no commits — leave the issue open and add a comment
+        The coder produced no commits -- leave the issue open and add a comment
         explaining that no changes were made. Assign af:no-change label.
 
         Requirements: AC-1, AC-2, AC-3 (issue #466)
@@ -568,88 +509,14 @@ class TestEmptyIssueBody:
             f"Expected run_id {run_id!r} in empty-body comment, got: {comments}"
         )
         # AC-5: run_id format must match YYYYMMDD_HHMMSS_<6hex>
-        assert re.fullmatch(r"\d{8}_\d{6}_[0-9a-f]{6}", run_id), f"run_id {run_id!r} does not match expected format"
+        assert re.fullmatch(r"\d{8}_\d{6}_[0-9a-f]{6}", run_id), (
+            f"run_id {run_id!r} does not match expected format"
+        )
 
 
 # ---------------------------------------------------------------------------
-# Issue #226: HuntScanner wired to _run_hunt_scan_inner
-# Issue #227: auto_fix uses returned issue list, never calls create_issue twice
 # Issue #229: supersession_pairs acted on before processing loop
 # ---------------------------------------------------------------------------
-
-
-class TestHuntScanWiring:
-    """_run_hunt_scan_inner delegates to HuntScanner, not a stub."""
-
-    @pytest.mark.asyncio
-    async def test_run_hunt_scan_inner_calls_hunt_scanner(self) -> None:
-        """_run_hunt_scan_inner uses HuntScanner.run, not a hard-coded []."""
-        from unittest.mock import AsyncMock, MagicMock, patch
-
-        from agent_fox.nightshift.engine import NightShiftEngine
-
-        config = MagicMock()
-        config.orchestrator.max_cost = None
-        config.night_shift.categories = MagicMock()
-
-        engine = NightShiftEngine(config=config, platform=AsyncMock())
-
-        with patch("agent_fox.nightshift.hunt.HuntScanner") as MockScanner:
-            mock_scanner_instance = MagicMock()
-            mock_scanner_instance.run = AsyncMock(return_value=[])
-            MockScanner.return_value = mock_scanner_instance
-
-            await engine._run_hunt_scan_inner()
-
-        mock_scanner_instance.run.assert_awaited_once()
-
-
-class TestAutoFixNoDoubleCreate:
-    """--auto labels already-created issues; never calls create_issue twice."""
-
-    @pytest.mark.asyncio
-    async def test_auto_fix_calls_create_issue_once_per_group(self) -> None:
-        """With auto_fix=True, create_issue is called exactly once per group."""
-        from unittest.mock import AsyncMock, MagicMock, patch
-
-        from agent_fox.nightshift.engine import NightShiftEngine
-        from agent_fox.nightshift.finding import Finding, FindingGroup
-
-        config = MagicMock()
-        config.orchestrator.max_cost = None
-
-        mock_platform = AsyncMock()
-        created_issue = MagicMock(number=99)
-        mock_platform.create_issue = AsyncMock(return_value=created_issue)
-        mock_platform.assign_label = AsyncMock()
-
-        engine = NightShiftEngine(config=config, platform=mock_platform, auto_fix=True)
-
-        finding = Finding(
-            category="linter_debt",
-            title="Test",
-            description="desc",
-            severity="minor",
-            affected_files=[],
-            suggested_fix="fix it",
-            evidence="ev",
-            group_key="key",
-        )
-        group = FindingGroup(findings=[finding], title="Test group", body="", category="linter_debt")
-
-        with (
-            patch.object(engine, "_run_hunt_scan_inner", AsyncMock(return_value=[finding])),
-            patch(
-                "agent_fox.nightshift.engine.consolidate_findings",
-                AsyncMock(return_value=[group]),
-            ),
-        ):
-            await engine._run_hunt_scan()
-
-        # create_issue called exactly once (not twice)
-        assert mock_platform.create_issue.await_count == 1
-        # assign_label called with the issue number from that single create
-        mock_platform.assign_label.assert_awaited_once_with(99, "af:fix")
 
 
 class TestSupersessionPairsActedOn:
@@ -805,7 +672,9 @@ class TestReviewerRetryOnParseFailure:
 
         call_count = 0
 
-        async def mock_run_session(archetype: str, workspace: object = None, **kwargs: object) -> MagicMock:
+        async def mock_run_session(
+            archetype: str, workspace: object = None, **kwargs: object
+        ) -> MagicMock:
             nonlocal call_count
             outcome = MagicMock(
                 input_tokens=10,
@@ -854,7 +723,7 @@ class TestReviewerRetryOnParseFailure:
 
         config = MagicMock()
         config.routing.retries_before_escalation = 1
-        config.orchestrator.max_retries = 0  # No coder retries — exhaust immediately
+        config.orchestrator.max_retries = 0  # No coder retries -- exhaust immediately
         mock_platform = AsyncMock()
 
         pipeline = FixPipeline(config=config, platform=mock_platform)
@@ -871,7 +740,9 @@ class TestReviewerRetryOnParseFailure:
             }
         )
 
-        async def mock_run_session(archetype: str, workspace: object = None, **kwargs: object) -> MagicMock:
+        async def mock_run_session(
+            archetype: str, workspace: object = None, **kwargs: object
+        ) -> MagicMock:
             outcome = MagicMock(
                 input_tokens=10,
                 output_tokens=5,
@@ -953,7 +824,9 @@ class TestFixPipelineDbTelemetry:
             }
         )
 
-        async def mock_run_session(archetype: str, workspace: object = None, **kwargs: object) -> MagicMock:
+        async def mock_run_session(
+            archetype: str, workspace: object = None, **kwargs: object
+        ) -> MagicMock:
             outcome = MagicMock()
             outcome.status = "completed"
             outcome.input_tokens = 10
@@ -995,7 +868,8 @@ class TestFixPipelineDbTelemetry:
 
         # record_session called for triage (maintainer), coder, reviewer
         assert mock_record_session.call_count >= 3, (
-            f"Expected at least 3 record_session calls (triage+coder+reviewer), got {mock_record_session.call_count}"
+            f"Expected at least 3 record_session calls (triage+coder+reviewer), "
+            f"got {mock_record_session.call_count}"
         )
 
         # update_run_totals called after each session
@@ -1072,7 +946,9 @@ class TestFixPipelineDbTelemetry:
             }
         )
 
-        async def mock_run_session(archetype: str, workspace: object = None, **kwargs: object) -> MagicMock:
+        async def mock_run_session(
+            archetype: str, workspace: object = None, **kwargs: object
+        ) -> MagicMock:
             outcome = MagicMock()
             outcome.status = "completed"
             outcome.input_tokens = 10
@@ -1100,28 +976,43 @@ class TestFixPipelineDbTelemetry:
 
         recorded: list[SessionOutcomeRecord] = []
 
-        def capture_record_session(conn: object, record: SessionOutcomeRecord) -> None:
+        def capture_record_session(
+            conn: object, record: SessionOutcomeRecord
+        ) -> None:
             recorded.append(record)
 
         with (
-            patch("agent_fox.engine.state.record_session", side_effect=capture_record_session),
+            patch(
+                "agent_fox.engine.state.record_session",
+                side_effect=capture_record_session,
+            ),
             patch("agent_fox.engine.state.update_run_totals"),
             patch("agent_fox.engine.state.create_run"),
             patch("agent_fox.engine.state.complete_run"),
-            patch.object(pipeline, "_harvest_and_push", AsyncMock(return_value="merged")),
+            patch.object(
+                pipeline, "_harvest_and_push", AsyncMock(return_value="merged")
+            ),
         ):
             await pipeline.process_issue(issue, issue_body="Telemetry is broken.")
 
         # All records must have the same run_id as the pipeline
         expected_run_id = pipeline._run_id
         for rec in recorded:
-            assert rec.run_id == expected_run_id, f"Record run_id mismatch: {rec.run_id!r} != {expected_run_id!r}"
+            assert rec.run_id == expected_run_id, (
+                f"Record run_id mismatch: {rec.run_id!r} != {expected_run_id!r}"
+            )
 
         # Archetypes must include maintainer (triage), coder, reviewer
         archetypes_recorded = {rec.archetype for rec in recorded}
-        assert "maintainer" in archetypes_recorded, f"triage (maintainer) not in {archetypes_recorded}"
-        assert "coder" in archetypes_recorded, f"coder not in {archetypes_recorded}"
-        assert "reviewer" in archetypes_recorded, f"reviewer not in {archetypes_recorded}"
+        assert "maintainer" in archetypes_recorded, (
+            f"triage (maintainer) not in {archetypes_recorded}"
+        )
+        assert "coder" in archetypes_recorded, (
+            f"coder not in {archetypes_recorded}"
+        )
+        assert "reviewer" in archetypes_recorded, (
+            f"reviewer not in {archetypes_recorded}"
+        )
 
     @pytest.mark.asyncio
     async def test_no_db_writes_when_conn_is_none(self) -> None:
@@ -1144,7 +1035,13 @@ class TestFixPipelineDbTelemetry:
 
         review_response = json.dumps(
             {
-                "verdicts": [{"criterion_id": "AC-1", "verdict": "PASS", "evidence": "ok"}],
+                "verdicts": [
+                    {
+                        "criterion_id": "AC-1",
+                        "verdict": "PASS",
+                        "evidence": "ok",
+                    }
+                ],
                 "overall_verdict": "PASS",
                 "summary": "ok",
             }
@@ -1154,12 +1051,20 @@ class TestFixPipelineDbTelemetry:
                 "summary": "s",
                 "affected_files": [],
                 "acceptance_criteria": [
-                    {"id": "AC-1", "description": "d", "preconditions": "p", "expected": "e", "assertion": "a"},
+                    {
+                        "id": "AC-1",
+                        "description": "d",
+                        "preconditions": "p",
+                        "expected": "e",
+                        "assertion": "a",
+                    },
                 ],
             }
         )
 
-        async def mock_run_session(archetype: str, workspace: object = None, **kwargs: object) -> MagicMock:
+        async def mock_run_session(
+            archetype: str, workspace: object = None, **kwargs: object
+        ) -> MagicMock:
             outcome = MagicMock()
             outcome.status = "completed"
             outcome.input_tokens = 10
@@ -1186,12 +1091,18 @@ class TestFixPipelineDbTelemetry:
         )
 
         with (
-            patch("agent_fox.engine.state.record_session") as mock_record_session,
+            patch(
+                "agent_fox.engine.state.record_session"
+            ) as mock_record_session,
             patch("agent_fox.engine.state.create_run") as mock_create_run,
             patch("agent_fox.engine.state.complete_run") as mock_complete_run,
-            patch.object(pipeline, "_harvest_and_push", AsyncMock(return_value="merged")),
+            patch.object(
+                pipeline, "_harvest_and_push", AsyncMock(return_value="merged")
+            ),
         ):
-            await pipeline.process_issue(issue, issue_body="Telemetry is broken.")
+            await pipeline.process_issue(
+                issue, issue_body="Telemetry is broken."
+            )
 
         # None of the DB functions should have been called
         mock_record_session.assert_not_called()
@@ -1214,7 +1125,9 @@ class TestFixPipelineDbTelemetry:
         mock_platform = AsyncMock()
         mock_conn = MagicMock()
 
-        engine = NightShiftEngine(config=config, platform=mock_platform, conn=mock_conn)
+        engine = NightShiftEngine(
+            config=config, platform=mock_platform, conn=mock_conn
+        )
 
         issue = IssueResult(
             number=467,
@@ -1225,14 +1138,18 @@ class TestFixPipelineDbTelemetry:
 
         captured_pipelines: list[object] = []
 
-        original_fix_pipeline = __import__("agent_fox.nightshift.fix_pipeline", fromlist=["FixPipeline"]).FixPipeline
+        original_fix_pipeline = __import__(
+            "agent_fox.nightshift.fix_pipeline", fromlist=["FixPipeline"]
+        ).FixPipeline
 
         class CapturingFixPipeline(original_fix_pipeline):  # type: ignore[misc]
             def __init__(self, *args: object, **kwargs: object) -> None:
                 captured_pipelines.append(kwargs.get("conn"))
                 super().__init__(*args, **kwargs)
 
-            async def process_issue(self, *args: object, **kwargs: object) -> object:  # type: ignore[override]
+            async def process_issue(  # type: ignore[override]
+                self, *args: object, **kwargs: object
+            ) -> object:
                 return MagicMock(sessions_run=0)
 
         with patch(
@@ -1243,7 +1160,8 @@ class TestFixPipelineDbTelemetry:
 
         assert len(captured_pipelines) == 1
         assert captured_pipelines[0] is mock_conn, (
-            f"Expected conn={mock_conn!r} to be passed, got {captured_pipelines[0]!r}"
+            f"Expected conn={mock_conn!r} to be passed, "
+            f"got {captured_pipelines[0]!r}"
         )
 
 
@@ -1281,7 +1199,9 @@ class TestScanCounterIncrement:
         assert engine.state.hunt_scans_completed == 1
 
     @pytest.mark.asyncio
-    async def test_scan_counter_incremented_when_issues_processed(self) -> None:
+    async def test_scan_counter_incremented_when_issues_processed(
+        self,
+    ) -> None:
         """Scan counter increments after a full issue-check cycle with issues."""
         from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -1295,7 +1215,9 @@ class TestScanCounterIncrement:
         mock_platform = AsyncMock()
         mock_platform.list_issues_by_label = AsyncMock(
             return_value=[
-                IssueResult(number=1, title="Issue 1", html_url="", body="body"),
+                IssueResult(
+                    number=1, title="Issue 1", html_url="", body="body"
+                ),
             ]
         )
 
@@ -1323,7 +1245,9 @@ class TestScanCounterIncrement:
         config.orchestrator.max_sessions = None
 
         mock_platform = AsyncMock()
-        mock_platform.list_issues_by_label = AsyncMock(side_effect=RuntimeError("API down"))
+        mock_platform.list_issues_by_label = AsyncMock(
+            side_effect=RuntimeError("API down")
+        )
 
         engine = NightShiftEngine(config=config, platform=mock_platform)
         assert engine.state.hunt_scans_completed == 0
@@ -1362,11 +1286,13 @@ class TestScanCounterIncrement:
 
 
 class TestExceptionSanitizationInFailureComment:
-    """Verify that fix session failure comments only expose the exception class name."""
+    """Verify that fix session failure comments only expose the class name."""
 
     @pytest.mark.asyncio
-    async def test_failure_comment_omits_exception_message(self, caplog: pytest.LogCaptureFixture) -> None:
-        """AC-1/AC-2: Comment contains class name only; full message goes to the log."""
+    async def test_failure_comment_omits_exception_message(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """AC-1/AC-2: Comment has class name only; full message in log."""
         import logging
         from unittest.mock import AsyncMock, MagicMock
 
@@ -1380,7 +1306,9 @@ class TestExceptionSanitizationInFailureComment:
         pipeline._setup_workspace = AsyncMock(return_value=_mock_workspace())  # type: ignore[method-assign]
         pipeline._cleanup_workspace = AsyncMock()  # type: ignore[method-assign]
 
-        sensitive_path = "/home/runner/.agent-fox/db/runs.duckdb is locked"
+        sensitive_path = (
+            "/home/runner/.agent-fox/db/runs.duckdb is locked"
+        )
         pipeline._run_session = AsyncMock(  # type: ignore[method-assign]
             side_effect=RuntimeError(sensitive_path)
         )
@@ -1391,11 +1319,19 @@ class TestExceptionSanitizationInFailureComment:
             html_url="https://github.com/test/repo/issues/42",
         )
 
-        with caplog.at_level(logging.WARNING, logger="agent_fox.nightshift.fix_pipeline"):
-            await pipeline.process_issue(issue, issue_body="Something is broken.")
+        with caplog.at_level(
+            logging.WARNING,
+            logger="agent_fox.nightshift.fix_pipeline",
+        ):
+            await pipeline.process_issue(
+                issue, issue_body="Something is broken."
+            )
 
         # Collect all text posted via add_issue_comment
-        posted_comments = [str(call) for call in mock_platform.add_issue_comment.call_args_list]
+        posted_comments = [
+            str(call)
+            for call in mock_platform.add_issue_comment.call_args_list
+        ]
 
         # AC-1: No raw exception message in any posted comment
         for comment in posted_comments:
@@ -1415,8 +1351,10 @@ class TestExceptionSanitizationInFailureComment:
         )
 
     @pytest.mark.asyncio
-    async def test_failure_comment_includes_branch_and_run_id(self) -> None:
-        """AC-3: Branch name and run ID are still included in the sanitized failure comment."""
+    async def test_failure_comment_includes_branch_and_run_id(
+        self,
+    ) -> None:
+        """AC-3: Branch name and run ID in the sanitized failure comment."""
         from unittest.mock import AsyncMock, MagicMock
 
         from agent_fox.nightshift.fix_pipeline import FixPipeline
@@ -1438,23 +1376,38 @@ class TestExceptionSanitizationInFailureComment:
             html_url="https://github.com/test/repo/issues/43",
         )
 
-        await pipeline.process_issue(issue, issue_body="Another problem.")
+        await pipeline.process_issue(
+            issue, issue_body="Another problem."
+        )
 
-        posted_comments = [str(call) for call in mock_platform.add_issue_comment.call_args_list]
+        posted_comments = [
+            str(call)
+            for call in mock_platform.add_issue_comment.call_args_list
+        ]
 
         # Locate the failure comment (contains "Fix session failed")
-        failure_comments = [c for c in posted_comments if "Fix session failed" in c]
-        assert failure_comments, f"No failure comment found; all comments: {posted_comments}"
+        failure_comments = [
+            c for c in posted_comments if "Fix session failed" in c
+        ]
+        assert failure_comments, (
+            f"No failure comment found; all comments: {posted_comments}"
+        )
 
         run_id = pipeline._run_id
         for fc in failure_comments:
-            assert run_id in fc, f"run_id {run_id!r} missing from failure comment: {fc!r}"
-            # Branch: label must be present (actual value is derived from issue number/title)
-            assert "Branch:" in fc, f"'Branch:' label missing from failure comment: {fc!r}"
+            assert run_id in fc, (
+                f"run_id {run_id!r} missing from failure comment: {fc!r}"
+            )
+            # Branch: label must be present
+            assert "Branch:" in fc, (
+                f"'Branch:' label missing from failure comment: {fc!r}"
+            )
 
     @pytest.mark.asyncio
-    async def test_failure_comment_bare_exception_no_message(self) -> None:
-        """AC-4: A bare Exception() with no message produces a well-formed comment."""
+    async def test_failure_comment_bare_exception_no_message(
+        self,
+    ) -> None:
+        """AC-4: A bare Exception() with no message produces well-formed comment."""
         from unittest.mock import AsyncMock, MagicMock
 
         from agent_fox.nightshift.fix_pipeline import FixPipeline
@@ -1476,13 +1429,24 @@ class TestExceptionSanitizationInFailureComment:
             html_url="https://github.com/test/repo/issues/44",
         )
 
-        await pipeline.process_issue(issue, issue_body="Yet another problem.")
+        await pipeline.process_issue(
+            issue, issue_body="Yet another problem."
+        )
 
-        posted_comments = [str(call) for call in mock_platform.add_issue_comment.call_args_list]
-        failure_comments = [c for c in posted_comments if "Fix session failed" in c]
-        assert failure_comments, f"No failure comment posted; all comments: {posted_comments}"
+        posted_comments = [
+            str(call)
+            for call in mock_platform.add_issue_comment.call_args_list
+        ]
+        failure_comments = [
+            c for c in posted_comments if "Fix session failed" in c
+        ]
+        assert failure_comments, (
+            f"No failure comment posted; all comments: {posted_comments}"
+        )
 
         for fc in failure_comments:
-            assert "Exception" in fc, f"Exception class name missing from: {fc!r}"
-            # Ensure the comment is well-formed (no stray formatting artefacts)
+            assert "Exception" in fc, (
+                f"Exception class name missing from: {fc!r}"
+            )
+            # Ensure the comment is well-formed
             assert "Fix session failed: Exception" in fc

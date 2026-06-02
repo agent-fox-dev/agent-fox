@@ -51,7 +51,8 @@ def _make_config() -> MagicMock:
     """Create a mock config."""
     config = MagicMock()
     ns = MagicMock()
-    ns.enabled_streams = ["specs", "fixes", "hunts"]
+    ns.issue_check_interval = 900
+    ns.push_fix_branch = False
     config.night_shift = ns
     return config
 
@@ -232,43 +233,6 @@ class TestSmokeDaemonFullLifecycle:
         assert stream.shutdown.call_count == 1
 
 
-# ---------------------------------------------------------------------------
-# TS-85-SMOKE-2: Spec executor end-to-end
-# Path 2
-# ---------------------------------------------------------------------------
-
-
-class TestSmokeSpecExecutor:
-    """Verify spec executor discovers specs, runs orchestrator, reports cost."""
-
-    async def test_spec_executor_e2e(self) -> None:
-        """discover called, orchestrator run, cost reported."""
-        from agent_fox.nightshift.daemon import SharedBudget
-        from agent_fox.nightshift.streams import SpecExecutorStream
-
-        budget = SharedBudget(max_cost=10.0)
-
-        # Mock discover returning one spec
-        mock_spec = MagicMock()
-        mock_spec.name = "test_spec"
-        mock_discover = AsyncMock(return_value=[mock_spec])
-
-        # Mock orchestrator
-        mock_state = MagicMock()
-        mock_state.total_cost = 1.5
-        mock_orch = MagicMock()
-        mock_orch.run = AsyncMock(return_value=mock_state)
-
-        executor = SpecExecutorStream(
-            config=_make_config(),
-            budget=budget,
-            discover_fn=mock_discover,
-            orch_factory=lambda specs: mock_orch,
-        )
-        await executor.run_once()
-        assert mock_discover.call_count == 1
-        assert mock_orch.run.call_count == 1
-        assert budget.total_cost == 1.5
 
 
 # ---------------------------------------------------------------------------
@@ -306,34 +270,6 @@ class TestSmokeFixPipeline:
         assert budget.total_cost == 3.0
 
 
-# ---------------------------------------------------------------------------
-# TS-85-SMOKE-4: Hunt scan stream end-to-end
-# Path 4
-# ---------------------------------------------------------------------------
-
-
-class TestSmokeHuntScan:
-    """Verify hunt scan stream wraps engine and reports cost."""
-
-    async def test_hunt_scan_e2e(self) -> None:
-        """engine._run_hunt_scan called."""
-        from agent_fox.nightshift.daemon import SharedBudget
-        from agent_fox.nightshift.streams import EngineWorkStream
-
-        budget = SharedBudget(max_cost=10.0)
-        engine = MagicMock()
-        engine.state = MagicMock()
-        engine.state.total_cost = 0.0
-        engine._run_hunt_scan = AsyncMock()
-
-        hunt_stream = EngineWorkStream(
-            stream_name="hunt-scan",
-            engine=engine,
-            method_name="_run_hunt_scan",
-            budget=budget,
-        )
-        await hunt_stream.run_once()
-        assert engine._run_hunt_scan.call_count == 1
 
 
 # ---------------------------------------------------------------------------
