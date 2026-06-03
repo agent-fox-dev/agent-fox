@@ -30,6 +30,18 @@ from agent_fox.ui.progress import TaskCallback, TaskEvent
 logger = logging.getLogger(__name__)
 
 
+def _resolve_overrides(
+    result_handler: Any | None,
+    node_id: str,
+) -> tuple[int | None, int | None]:
+    """Extract timeout and max_turns overrides from the result handler."""
+    if result_handler is None:
+        return None, None
+    timeout = result_handler.get_timeout_override(node_id)
+    has_mt, mt_val = result_handler.get_max_turns_override(node_id)
+    return timeout, mt_val if has_mt else None
+
+
 # ---------------------------------------------------------------------------
 # Known build-artifact patterns for pre-session workspace auto-remediation
 # ---------------------------------------------------------------------------
@@ -183,13 +195,9 @@ class SerialDispatcher:
             if node_archetype == "coder" and orch._result_handler is not None:
                 orch._result_handler.capture_coverage_baseline(node_id, Path.cwd())
 
-            timeout_override: int | None = None
-            max_turns_override: int | None = None
-            if orch._result_handler is not None:
-                timeout_override = orch._result_handler.get_timeout_override(node_id)
-                has_mt, mt_val = orch._result_handler.get_max_turns_override(node_id)
-                if has_mt:
-                    max_turns_override = mt_val
+            timeout_override, max_turns_override = _resolve_overrides(
+                orch._result_handler, node_id
+            )
 
             record = await orch._dispatch_mgr.serial_runner.execute(
                 node_id,
@@ -352,13 +360,9 @@ class ParallelDispatcher:
             if archetype == "coder" and orch._result_handler is not None:
                 orch._result_handler.capture_coverage_baseline(node_id, Path.cwd())
 
-            timeout_override_p: int | None = None
-            max_turns_override_p: int | None = None
-            if orch._result_handler is not None:
-                timeout_override_p = orch._result_handler.get_timeout_override(node_id)
-                has_mt_p, mt_val_p = orch._result_handler.get_max_turns_override(node_id)
-                if has_mt_p:
-                    max_turns_override_p = mt_val_p
+            timeout_override, max_turns_override = _resolve_overrides(
+                orch._result_handler, node_id
+            )
 
             task = asyncio.create_task(
                 orch._dispatch_mgr.parallel_runner.execute_one(
@@ -370,8 +374,8 @@ class ParallelDispatcher:
                     instances=instances,
                     assessed_tier=assessed_tier,
                     run_id=orch._run_id,
-                    timeout_override=timeout_override_p,
-                    max_turns_override=max_turns_override_p,
+                    timeout_override=timeout_override,
+                    max_turns_override=max_turns_override,
                 ),
                 name=f"parallel-{node_id}",
             )
