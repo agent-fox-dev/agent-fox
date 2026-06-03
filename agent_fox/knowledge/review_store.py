@@ -602,12 +602,18 @@ def record_finding_injections(
     """
     if not finding_ids:
         return
+    # Batch-fetch existing pairs to avoid N+1 SELECT queries.
+    placeholders = ",".join("?" * len(finding_ids))
+    existing = {
+        row[0]
+        for row in conn.execute(
+            f"SELECT finding_id FROM finding_injections "  # noqa: S608
+            f"WHERE session_id = ? AND finding_id IN ({placeholders})",
+            [session_id, *finding_ids],
+        ).fetchall()
+    }
     for finding_id in finding_ids:
-        existing = conn.execute(
-            "SELECT 1 FROM finding_injections WHERE finding_id = ? AND session_id = ?",
-            [finding_id, session_id],
-        ).fetchone()
-        if not existing:
+        if finding_id not in existing:
             conn.execute(
                 "INSERT INTO finding_injections (id, finding_id, session_id, injected_at) "
                 "VALUES (?, ?, ?, CURRENT_TIMESTAMP)",
