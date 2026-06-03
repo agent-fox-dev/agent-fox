@@ -92,25 +92,25 @@ and group 3 (additive).
     - [x] No linter warnings introduced: `uv run ruff check agent_fox/`
     - [x] 127-REQ-1.1 through 127-REQ-3.2 acceptance criteria met
 
-- [ ] 3. Add progress display
-  - [ ] 3.1 Add progress callback to run_lint_specs
+- [x] 3. Add progress display
+  - [x] 3.1 Add progress callback to run_lint_specs
     - Add `progress_callback: Callable[[str], None] | None = None` parameter
     - Call callback at phase boundaries: discovery, validation, AI validation
     - Guard each call with `if progress_callback is not None:`
     - _Requirements: 127-REQ-4.2, 127-REQ-4.3, 127-REQ-4.E1_
 
-  - [ ] 3.2 Wire ProgressDisplay into CLI handler
+  - [x] 3.2 Wire ProgressDisplay into CLI handler
     - Import `ProgressDisplay`, `create_theme`
     - Create progress display (suppressed in JSON/quiet mode)
     - Pass `progress.print_status` as progress callback
     - Wrap execution in try/finally with progress.stop()
     - _Requirements: 127-REQ-4.1, 127-REQ-4.4_
 
-  - [ ] 3.V Verify task group 3
-    - [ ] Spec tests TS-127-7, TS-127-8, TS-127-SMOKE-2 pass
-    - [ ] All existing tests still pass: `uv run pytest -q`
-    - [ ] No linter warnings introduced: `uv run ruff check agent_fox/`
-    - [ ] 127-REQ-4.1 through 127-REQ-4.E1 acceptance criteria met
+  - [x] 3.V Verify task group 3
+    - [x] Spec tests TS-127-7, TS-127-8, TS-127-SMOKE-2 pass
+    - [x] All existing tests still pass: `uv run pytest -q`
+    - [x] No linter warnings introduced: `uv run ruff check agent_fox/`
+    - [x] 127-REQ-4.1 through 127-REQ-4.E1 acceptance criteria met
 
 - [ ] 4. Update skill template and documentation
   - [ ] 4.1 Update af-spec skill template

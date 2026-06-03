@@ -23,6 +23,8 @@ from agent_fox.spec.validators import (
     SEVERITY_WARNING,
     Finding,
 )
+from agent_fox.ui.display import create_theme
+from agent_fox.ui.progress import ProgressDisplay
 
 logger = logging.getLogger(__name__)
 
@@ -132,19 +134,33 @@ def lint_specs_cmd(ctx: click.Context, ai: bool, lint_all: bool) -> None:
     json_mode = ctx.obj.get("json", False)
     output_format = "json" if json_mode else "table"
 
-    from agent_fox.core.config import load_config, resolve_spec_root
+    from agent_fox.core.config import ThemeConfig, load_config, resolve_spec_root
 
     project_root = Path.cwd()
     config_path = project_root / ".agent-fox" / "config.toml"
     _config = load_config(config_path if config_path.exists() else None)
     specs_dir = resolve_spec_root(_config, project_root)
 
+    # Progress display: suppressed in JSON or quiet mode (127-REQ-4.1, 127-REQ-4.4)
+    quiet = ctx.obj.get("quiet", False) if isinstance(ctx.obj, dict) else False
+    theme_config = getattr(_config, "theme", None) or ThemeConfig()
+    theme = create_theme(theme_config)
+    progress = ProgressDisplay(theme, quiet=quiet or json_mode)
+    progress.start()
+
     try:
-        result = run_lint_specs(specs_dir, ai=ai, lint_all=lint_all)
+        result = run_lint_specs(
+            specs_dir,
+            ai=ai,
+            lint_all=lint_all,
+            progress_callback=progress.print_status,
+        )
     except PlanError as exc:
         click.echo(f"Error: {exc}", err=True)
         ctx.exit(1)
         return
+    finally:
+        progress.stop()
 
     # Output results
     if output_format == "json":

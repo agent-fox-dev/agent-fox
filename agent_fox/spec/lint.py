@@ -9,6 +9,7 @@ Requirements: 59-REQ-3.1, 59-REQ-3.2, 59-REQ-3.3, 59-REQ-3.E1
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -62,6 +63,7 @@ def run_lint_specs(
     *,
     ai: bool = False,
     lint_all: bool = False,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> LintResult:
     """Run spec linting and return structured results.
 
@@ -69,6 +71,9 @@ def run_lint_specs(
         specs_dir: Path to the specifications directory.
         ai: Enable AI-powered semantic analysis.
         lint_all: Include fully-implemented specs.
+        progress_callback: Optional callable receiving phase-level status
+            messages. Called at each major phase: discovery, validation,
+            and (when ``ai=True``) AI analysis.
 
     Returns:
         LintResult with findings and exit code.
@@ -76,12 +81,15 @@ def run_lint_specs(
     Raises:
         PlanError: If specs_dir does not exist.
 
-    Requirements: 59-REQ-3.1, 59-REQ-3.2, 59-REQ-3.3, 59-REQ-3.E1
+    Requirements: 59-REQ-3.1, 59-REQ-3.2, 59-REQ-3.3, 59-REQ-3.E1,
+                  127-REQ-4.2, 127-REQ-4.3, 127-REQ-4.E1
     """
     if not specs_dir.exists():
         raise PlanError(f"Specs directory not found: {specs_dir}")
 
     # Discover specs
+    if progress_callback is not None:
+        progress_callback("Discovering specs...")
     try:
         discovered: list[SpecInfo] = discover_specs(specs_dir)
     except PlanError:
@@ -110,10 +118,14 @@ def run_lint_specs(
         discovered = filtered
 
     # Run static validation
+    if progress_callback is not None:
+        progress_callback(f"Validating {len(discovered)} spec(s)...")
     findings = validate_specs(specs_dir, discovered)
 
     # Optionally run AI validation
     if ai:
+        if progress_callback is not None:
+            progress_callback("Running AI analysis...")
         findings = _merge_ai_findings(findings, discovered, specs_dir)
 
     exit_code = compute_exit_code(findings)
