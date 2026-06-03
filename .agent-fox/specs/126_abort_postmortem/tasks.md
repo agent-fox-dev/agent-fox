@@ -91,24 +91,24 @@ changes are needed.
     - [x] No linter warnings introduced: `uv run ruff check agent_fox/engine/postmortem.py agent_fox/engine/state.py`
     - [x] Requirements 126-REQ-1.1 through 126-REQ-5.E1, 126-REQ-7.1, 126-REQ-7.2 met
 
-- [ ] 3. Wire into run.py and cli/code.py
-  - [ ] 3.1 Call post-mortem generation in run_code()
+- [x] 3. Wire into run.py and cli/code.py
+  - [x] 3.1 Call post-mortem generation in run_code()
     - In `agent_fox/engine/run.py`, after `state = await orchestrator.run()`:
       wrap in try/except, call `should_dump()`, `build_postmortem()`,
       `write_postmortem()`, set `state.postmortem_path`
     - Import `AUDIT_DIR` from `agent_fox.core.paths`
     - _Requirements: 126-REQ-1.1, 126-REQ-1.E1, 126-REQ-2.E1_
 
-  - [ ] 3.2 Add post-mortem path to CLI summary output
+  - [x] 3.2 Add post-mortem path to CLI summary output
     - In `agent_fox/cli/code.py`, in `_print_summary()`, after the status
       line: print `Post-mortem: {path}` if `state.postmortem_path` is set
     - _Requirements: 126-REQ-6.1, 126-REQ-6.2_
 
-  - [ ] 3.V Verify task group 3
-    - [ ] Spec tests for this group pass: `uv run pytest -q tests/unit/cli/test_code.py -k postmortem`
-    - [ ] All existing tests still pass: `uv run pytest -q`
-    - [ ] No linter warnings introduced: `uv run ruff check agent_fox/engine/run.py agent_fox/cli/code.py`
-    - [ ] Requirements 126-REQ-6.1, 126-REQ-6.2 met
+  - [x] 3.V Verify task group 3
+    - [x] Spec tests for this group pass: `uv run pytest -q tests/unit/cli/test_code.py -k postmortem`
+    - [x] All existing tests still pass: `uv run pytest -q`
+    - [x] No linter warnings introduced: `uv run ruff check agent_fox/engine/run.py agent_fox/cli/code.py`
+    - [x] Requirements 126-REQ-6.1, 126-REQ-6.2 met
 
 - [ ] 4. Wiring verification
 

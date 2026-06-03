@@ -285,6 +285,26 @@ async def run_code(
 
         orchestrator = Orchestrator(orch_config, **orch_kwargs)
         state: ExecutionState = await orchestrator.run()
+
+        # 126-REQ-1.1, 126-REQ-1.E1, 126-REQ-2.E1: Generate post-mortem
+        # for non-successful runs. Wrapped in try/except so failures in
+        # post-mortem generation never block returning the state.
+        try:
+            from agent_fox.engine.postmortem import (
+                build_postmortem,
+                should_dump,
+                write_postmortem,
+            )
+
+            if should_dump(state):
+                from agent_fox.core.paths import AUDIT_DIR
+
+                pm = build_postmortem(state)
+                pm_path = write_postmortem(pm, AUDIT_DIR)
+                state.postmortem_path = str(pm_path)
+        except Exception:
+            logger.warning("Post-mortem generation failed", exc_info=True)
+
         return state
 
     except KeyboardInterrupt:

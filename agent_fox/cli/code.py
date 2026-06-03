@@ -106,6 +106,10 @@ def _print_summary(state: ExecutionState) -> None:
     click.echo(f"Cost:   ${state.total_cost:.2f}")
     click.echo(f"Status: {state.run_status}")
 
+    # 126-REQ-6.1, 126-REQ-6.2: Print post-mortem path when present
+    if state.postmortem_path:
+        click.echo(f"Post-mortem: {state.postmortem_path}")
+
     # 118-REQ-8.3: when a run stalls/fails due to workspace-state errors,
     # include the root cause classification and the original error message.
     if state.run_status in ("stalled", "failed", "block_limit"):
