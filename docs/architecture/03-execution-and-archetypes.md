@@ -199,8 +199,7 @@ breaks:
 
 **Layer 1: Agent base profile.** Loaded from `agent.md`, this layer
 provides instructions shared by every agent regardless of archetype — project
-orientation steps, directory structure conventions, and general policies (e.g.,
-"do not read `docs/memory.md` directly"). This layer replaces the traditional
+orientation steps, directory structure conventions, and general policies. This layer replaces the traditional
 `CLAUDE.md` file for orchestrated sessions.
 
 **Layer 2: Archetype profile.** Loaded from the archetype's profile file

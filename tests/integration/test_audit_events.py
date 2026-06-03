@@ -397,7 +397,7 @@ class TestOrchestratorEvents:
             event_type=AuditEventType.KNOWLEDGE_INGESTED,
             payload={
                 "source_type": "file",
-                "source_path": "docs/memory.md",
+                "source_path": "docs/architecture/prd.md",
                 "item_count": 10,
             },
         )

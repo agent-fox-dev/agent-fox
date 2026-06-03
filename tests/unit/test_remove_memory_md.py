@@ -174,6 +174,10 @@ class TestNoDanglingReferences:
                 continue
             if rel_path.startswith(".agent-fox/specs/"):
                 continue
+            # Exclude this test file itself — it necessarily contains the
+            # search string in its own assertions and docstrings.
+            if rel_path == "tests/unit/test_remove_memory_md.py":
+                continue
 
             full_path = REPO_ROOT / rel_path
             if not full_path.exists():

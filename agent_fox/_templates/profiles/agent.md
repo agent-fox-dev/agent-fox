@@ -23,10 +23,6 @@ Before making any changes, orient yourself:
 **Important:** Only read files tracked by git. Skip anything matched by
 `.gitignore`. When in doubt, run `git ls-files` to see what's tracked.
 
-**DO NOT READ `docs/memory.md`.** Relevant knowledge has already been retrieved
-and injected by the adaptive retrieval pipeline. Reading the file directly
-wastes context window on unfiltered, task-irrelevant content.
-
 Do not implement anything before completing these steps.
 
 ## Project Structure

@@ -188,28 +188,6 @@ class TestInitSeedFiles:
         path = tmp_git_repo / ".agent-fox" / "memory.jsonl"
         assert not path.exists()
 
-    def test_init_creates_docs_memory_md(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
-        """init creates docs/memory.md with placeholder content."""
-        cli_runner.invoke(main, ["init"])
-
-        path = tmp_git_repo / "docs" / "memory.md"
-        assert path.exists()
-        content = path.read_text()
-        assert "Agent-Fox Memory" in content
-
-    def test_reinit_preserves_existing_seed_files(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
-        """Re-running init does not overwrite existing seed files."""
-        cli_runner.invoke(main, ["init"])
-
-        # Write content to docs/memory.md
-        docs_memory = tmp_git_repo / "docs" / "memory.md"
-        docs_memory.write_text("# Custom content\n")
-
-        # Re-init
-        cli_runner.invoke(main, ["init"])
-
-        assert docs_memory.read_text() == "# Custom content\n"
-
 
 class TestInitClaudeSettings:
     """Integration tests for Claude settings creation (Spec 17).

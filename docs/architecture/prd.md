@@ -158,7 +158,7 @@ A pipeline or automation script that drives agent-fox in `--json` mode, consumin
 
 ### 5.8 Knowledge Export
 
-- WHEN a user runs `agent-fox export --memory`, the system SHALL write all active knowledge facts grouped by category to `docs/memory.md` (or `docs/memory.json` in JSON mode).
+- WHEN a user runs `agent-fox export --memory`, the system SHALL write all active knowledge facts grouped by category to stdout (or `docs/knowledge.json` in JSON mode).
 - WHEN a user runs `agent-fox export --db`, the system SHALL write a full knowledge store dump to `.agent-fox/knowledge_dump.md` (or `.agent-fox/knowledge_dump.json` in JSON mode).
 - WHEN both or neither flag is provided, the system SHALL exit with an error.
 
@@ -257,7 +257,7 @@ When `--json` is active:
 ### 7.4 Reports
 
 - `agent-fox standup --output PATH` writes the standup report to the specified file.
-- `agent-fox export --memory` writes `docs/memory.md` (or `docs/memory.json`).
+- `agent-fox export --memory` writes knowledge facts to stdout (or JSON mode).
 - `agent-fox export --db` writes `.agent-fox/knowledge_dump.md` (or `.agent-fox/knowledge_dump.json`).
 - `/af-spec-audit` produces a compliance audit report at `docs/audits/audit-report-{YYYY-MM-DD}.md`.
 

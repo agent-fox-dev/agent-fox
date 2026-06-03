@@ -46,19 +46,19 @@ wiring verification.
     - [x] All spec tests FAIL (red) -- no implementation yet
     - [x] No linter warnings introduced: `uv run ruff check agent_fox/`
 
-- [ ] 2. Remove docs/memory.md and all references
-  - [ ] 2.1 Delete the file
+- [x] 2. Remove docs/memory.md and all references
+  - [x] 2.1 Delete the file
     - `git rm docs/memory.md`
     - _Requirements: 129-REQ-1.1_
 
-  - [ ] 2.2 Remove from init_project.py
+  - [x] 2.2 Remove from init_project.py
     - Delete `_DOCS_MEMORY_CONTENT` constant
     - Remove memory.md creation logic from `_ensure_seed_files()`
     - If `_ensure_seed_files()` has no remaining work, remove the function
       and its call site
     - _Requirements: 129-REQ-2.1, 129-REQ-2.2_
 
-  - [ ] 2.3 Remove from agent instruction templates and project files
+  - [x] 2.3 Remove from agent instruction templates and project files
     - Edit `agent_fox/_templates/agents_md.md`: remove step 2 reference to
       `docs/memory.md` and session completion commit instruction
     - Edit `CLAUDE.md`: remove same 2 references
@@ -67,23 +67,23 @@ wiring verification.
       docs/memory.md" line
     - _Requirements: 129-REQ-3.1, 129-REQ-3.2, 129-REQ-3.3, 129-REQ-3.4_
 
-  - [ ] 2.4 Remove from skill templates
+  - [x] 2.4 Remove from skill templates
     - Edit `agent_fox/_templates/skills/af-fix`: remove `docs/memory.md` line
     - Edit `.claude/skills/af-fix/SKILL.md`: remove same line
     - _Requirements: 129-REQ-4.1, 129-REQ-4.2_
 
-  - [ ] 2.5 Remove from tests
+  - [x] 2.5 Remove from tests
     - Delete `test_init_creates_docs_memory_md` method from
       `tests/integration/test_init.py`
     - Delete `test_reinit_preserves_existing_seed_files` method from same file
     - _Requirements: 129-REQ-5.1_
 
-  - [ ] 2.V Verify task group 2
-    - [ ] All spec tests TS-129-1 through TS-129-9, TS-129-P1, TS-129-P2,
+  - [x] 2.V Verify task group 2
+    - [x] All spec tests TS-129-1 through TS-129-9, TS-129-P1, TS-129-P2,
           TS-129-SMOKE-1 pass
-    - [ ] All existing tests still pass: `uv run pytest -q`
-    - [ ] No linter warnings introduced: `uv run ruff check agent_fox/`
-    - [ ] 129-REQ-1.1 through 129-REQ-6.1 acceptance criteria met
+    - [x] All existing tests still pass: `uv run pytest -q`
+    - [x] No linter warnings introduced: `uv run ruff check agent_fox/`
+    - [x] 129-REQ-1.1 through 129-REQ-6.1 acceptance criteria met
 
 - [ ] 3. Wiring verification
 

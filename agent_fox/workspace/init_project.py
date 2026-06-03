@@ -61,8 +61,6 @@ CANONICAL_PERMISSIONS: list[str] = [
     "Write",
 ]
 
-_DOCS_MEMORY_CONTENT = "# Agent-Fox Memory\n\n_No facts have been recorded yet._\n"
-
 _STEERING_PLACEHOLDER: str = """\
 <!-- steering:placeholder -->
 <!--
@@ -292,20 +290,6 @@ def _ensure_claude_settings(project_root: Path) -> None:
     )
 
 
-def _ensure_seed_files(project_root: Path) -> None:
-    """Create empty seed files so they are tracked in git from the start.
-
-    Creates docs/memory.md if it does not already exist.
-    Idempotent — existing files are never overwritten.
-    """
-    docs_dir = project_root / "docs"
-    docs_dir.mkdir(parents=True, exist_ok=True)
-    docs_memory = docs_dir / "memory.md"
-    if not docs_memory.exists():
-        docs_memory.write_text(_DOCS_MEMORY_CONTENT, encoding="utf-8")
-        logger.debug("Created docs/memory.md")
-
-
 def _ensure_agents_md(project_root: Path) -> str:
     """Create AGENTS.md from template if it does not exist.
 
@@ -528,7 +512,6 @@ def init_project(
         # Ensure structure is complete
         (agent_fox_dir / "worktrees").mkdir(parents=True, exist_ok=True)
         _ensure_specs_dirs(path)
-        _ensure_seed_files(path)
         _update_gitignore(path)
         _ensure_develop_branch(quiet=quiet)
         _ensure_claude_settings(path)
@@ -558,7 +541,6 @@ def init_project(
 
     _secure_write_text(config_path, generate_default_config())
 
-    _ensure_seed_files(path)
     _ensure_develop_branch(quiet=quiet)
     _update_gitignore(path)
     _ensure_claude_settings(path)

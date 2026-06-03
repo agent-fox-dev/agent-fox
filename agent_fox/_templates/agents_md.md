@@ -8,17 +8,14 @@ this repository. Treat this file as mandatory policy for every coding session.
 Before making any changes, orient yourself:
 
 1. **Read `README.md`** for project overview and quick-start.
-2. **Read `docs/memory.md`** — accumulated knowledge from prior automated
-   sessions: gotchas, patterns, decisions, conventions, fragile areas. Skipping
-   this file means repeating mistakes that were already discovered.
-3. **Read `.agent-fox/steering.md`** if it exists — project-level directives that
+2. **Read `.agent-fox/steering.md`** if it exists — project-level directives that
    apply to all agents and skills. Follow any instructions found there.
-4. **Read relevant specs** in `{{SPEC_ROOT}}/` for the area you're working on.
-5. **Read ADRs** in `docs/adr/` for architectural context.
-6. **Explore the codebase:** `<main_package>/` is the main package, `<test_directory>/` has
+3. **Read relevant specs** in `{{SPEC_ROOT}}/` for the area you're working on.
+4. **Read ADRs** in `docs/adr/` for architectural context.
+5. **Explore the codebase:** `<main_package>/` is the main package, `<test_directory>/` has
    unit, property, and integration tests. Their location is language dependent.
-7. **Check git state:** `git log --oneline -20`, `git status --short --branch`.
-8. **Run `make check`** to confirm the baseline is green. If tests fail, fix
+6. **Check git state:** `git log --oneline -20`, `git status --short --branch`.
+7. **Run `make check`** to confirm the baseline is green. If tests fail, fix
    them before starting new work.
 
 **Important:** Read all documents and code in depth — don't skim.
@@ -98,8 +95,6 @@ A session is not complete until:
 
 1. `make check` or `make test` passes (no regressions).
 2. Changes are committed with a clear conventional commit message.
-   - **Always include tracked state files** in the commit:
-     `docs/memory.md`. This file is git-tracked and must not be left dirty.
 3. Changes are merged into `develop` locally.
 4. `git status` shows a clean working tree.
 5. You provide a brief handoff note summarizing what was done and what remains.

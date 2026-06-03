@@ -42,11 +42,10 @@ served three purposes — all now obsolete:
 | `.gitignore` | Remove `!.agent-fox/memory.jsonl` exception |
 | `AGENTS.md`, `_templates/agents_md.md` | Remove `memory.jsonl` from git-tracked state files |
 
-### docs/memory.md Unchanged
+### Legacy Memory File Removed (Spec 129)
 
-`docs/memory.md` continues to be generated at end-of-run from DuckDB for
-external tool consumption (Cursor, Codex, etc.). Agent-fox's own sessions
-do not read this file — the adaptive retriever queries DuckDB directly.
+The legacy memory file was subsequently removed by Spec 129. The automated
+knowledge store (DuckDB + adaptive retrieval) fully replaced the manual file.
 
 ## Impact
 
