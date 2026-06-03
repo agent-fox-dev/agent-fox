@@ -115,9 +115,9 @@ updates (group 2), then wiring verification (group 3).
     - [x] No linter warnings introduced: `make lint`
     - [x] Requirements 131-REQ-1.1 through 131-REQ-4.6 acceptance criteria met
 
-- [ ] 3. Wiring verification
+- [x] 3. Wiring verification
 
-  - [ ] 3.1 Trace every execution path from design.md end-to-end
+  - [x] 3.1 Trace every execution path from design.md end-to-end
     - For Path 1: verify `code_cmd` → `run_code` → `_setup_infrastructure` → `DuckDBSink`
       call chain has no `debug` parameter at any level
     - For Path 2: verify `_check_dry_run_conflicts` signature and body contain
@@ -125,36 +125,39 @@ updates (group 2), then wiring verification (group 3).
     - Every path must be live in production code
     - _Requirements: all_
 
-  - [ ] 3.2 Verify no residual `debug` references in touched files
+  - [x] 3.2 Verify no residual `debug` references in touched files
     - Grep all files modified by this spec for: `debug` as a parameter name,
       `self._debug`, `debug=`, `"--debug"` (in non-test, non-archived files)
     - Each hit must be either: (a) a `logger.debug()` call (acceptable), or
       (b) flagged for removal
     - _Requirements: all_
 
-  - [ ] 3.3 Run the integration smoke tests
+  - [x] 3.3 Run the integration smoke tests
     - All `TS-131-SMOKE-*` tests pass
     - _Test Spec: TS-131-SMOKE-1, TS-131-SMOKE-2_
 
-  - [ ] 3.4 Stub / dead-code audit
+  - [x] 3.4 Stub / dead-code audit
     - Search all files touched by this spec for: `return []`, `return None`
       on non-Optional returns, `pass` in non-abstract methods, `# TODO`,
       `# stub`, `NotImplementedError`
     - Each hit must be justified or replaced
     - Document any intentional stubs here with rationale
+    - Findings: (a) `code.py:246 return []` — correct early-return when
+      `dry_run=False`, not a stub. (b) `duckdb_sink.py:133 pass` — documented
+      no-op in `close()` because connection lifecycle is managed by KnowledgeDB.
 
-  - [ ] 3.5 Cross-spec entry point verification
+  - [x] 3.5 Cross-spec entry point verification
     - Verify `DuckDBSink()` is still constructed in `_setup_infrastructure`
       (now without `debug=`) and that the sink is added to the dispatcher
     - Verify `run_code()` is still called from `code_cmd` (now without `debug=`)
     - _Requirements: all_
 
-  - [ ] 3.V Verify wiring group
-    - [ ] All smoke tests pass
-    - [ ] No unjustified stubs remain in touched files
-    - [ ] All execution paths from design.md are live (traceable in code)
-    - [ ] All cross-spec entry points are called from production code
-    - [ ] All existing tests still pass: `uv run pytest -q`
+  - [x] 3.V Verify wiring group
+    - [x] All smoke tests pass
+    - [x] No unjustified stubs remain in touched files
+    - [x] All execution paths from design.md are live (traceable in code)
+    - [x] All cross-spec entry points are called from production code
+    - [x] All existing tests still pass: `uv run pytest -q`
 
 ## Notes
 
