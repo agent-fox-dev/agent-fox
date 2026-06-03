@@ -23,13 +23,13 @@ the pipeline, group 4 verifies end-to-end.
 
 ## Tasks
 
-- [ ] 1. Write failing spec tests
-  - [ ] 1.1 Create test file
+- [x] 1. Write failing spec tests
+  - [x] 1.1 Create test file
     - Create `tests/unit/nightshift/test_prior_attempts.py`
     - Set up DuckDB test fixtures (in-memory DB with session_outcomes table)
     - _Test Spec: TS-128-1 through TS-128-9_
 
-  - [ ] 1.2 Translate acceptance-criterion tests
+  - [x] 1.2 Translate acceptance-criterion tests
     - TS-128-1: query returns prior sessions, excludes current run
     - TS-128-2: groups by run, returns last session per run
     - TS-128-3: respects max_results limit
@@ -41,7 +41,7 @@ the pipeline, group 4 verifies end-to-end.
     - TS-128-9: pipeline wires query into process_issue
     - _Test Spec: TS-128-1 through TS-128-9_
 
-  - [ ] 1.3 Translate edge-case and property tests
+  - [x] 1.3 Translate edge-case and property tests
     - TS-128-E1: no prior sessions returns empty list
     - TS-128-E2: database query failure returns empty list
     - TS-128-E3: format with empty list returns empty string
@@ -52,14 +52,14 @@ the pipeline, group 4 verifies end-to-end.
     - TS-128-P5: fail-open on query error
     - _Test Spec: TS-128-E1, TS-128-E2, TS-128-E3, TS-128-P1, TS-128-P2, TS-128-P3, TS-128-P4, TS-128-P5_
 
-  - [ ] 1.4 Write integration smoke test
+  - [x] 1.4 Write integration smoke test
     - TS-128-SMOKE-1: full pipeline with prior attempts in prompt
     - _Test Spec: TS-128-SMOKE-1_
 
-  - [ ] 1.V Verify task group 1
-    - [ ] All spec tests exist and are syntactically valid
-    - [ ] All spec tests FAIL (red) -- no implementation yet
-    - [ ] No linter warnings introduced: `uv run ruff check agent_fox/`
+  - [x] 1.V Verify task group 1
+    - [x] All spec tests exist and are syntactically valid
+    - [x] All spec tests FAIL (red) -- no implementation yet
+    - [x] No linter warnings introduced: `uv run ruff check agent_fox/`
 
 - [ ] 2. Implement query and format functions
   - [ ] 2.1 Create `agent_fox/nightshift/prior_attempts.py`
