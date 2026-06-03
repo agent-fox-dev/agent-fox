@@ -19,8 +19,7 @@ from agent_fox.workspace.git import (
     remote_branch_exists,
     run_git,
 )
-from agent_fox.workspace.merge_agent import run_merge_agent
-from agent_fox.workspace.merge_lock import MergeLock
+from agent_fox.workspace.merge_lock import MergeLock, run_merge_agent
 
 logger = logging.getLogger(__name__)
 
