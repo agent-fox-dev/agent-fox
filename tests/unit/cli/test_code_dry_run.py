@@ -143,7 +143,7 @@ class TestDryRunDisplaysAnalysis:
         mock_db = _mock_knowledge_db()
 
         with (
-            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+            patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
             patch("agent_fox.cli.code.open_knowledge_store", return_value=mock_db),
             patch("agent_fox.cli.code.load_plan", return_value=graph),
             patch(
@@ -174,7 +174,7 @@ class TestDryRunSkipsOrchestrator:
 
         with (
             patch("agent_fox.cli.code.run_code") as mock_rc,
-            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+            patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
             patch("agent_fox.cli.code.open_knowledge_store", return_value=mock_db),
             patch("agent_fox.cli.code.load_plan", return_value=graph),
             patch(
@@ -210,7 +210,7 @@ class TestDryRunFiltersCompleted:
         mock_db = _mock_knowledge_db()
 
         with (
-            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+            patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
             patch("agent_fox.cli.code.open_knowledge_store", return_value=mock_db),
             patch("agent_fox.cli.code.load_plan", return_value=graph),
             patch(
@@ -253,7 +253,7 @@ class TestNonDryRunUnchanged:
 
         with (
             patch("agent_fox.cli.code.run_code", mock_rc),
-            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+            patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
         ):
             mock_db_path.exists.return_value = True
             cli_runner.invoke(main, ["code"])
@@ -311,7 +311,7 @@ class TestJsonOutput:
         mock_db = _mock_knowledge_db()
 
         with (
-            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+            patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
             patch("agent_fox.cli.code.open_knowledge_store", return_value=mock_db),
             patch("agent_fox.cli.code.load_plan", return_value=graph),
             patch(
@@ -350,7 +350,7 @@ class TestDaemonGuardBypassed:
         mock_db = _mock_knowledge_db()
 
         with (
-            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+            patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
             patch("agent_fox.cli.code.open_knowledge_store", return_value=mock_db),
             patch("agent_fox.cli.code.load_plan", return_value=graph),
             patch(
@@ -398,7 +398,7 @@ class TestMissingDbDryRun:
 
     def test_missing_db_exits_1(self, cli_runner: CliRunner) -> None:
         """code --dry-run with no DB file exits with code 1."""
-        with patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path:
+        with patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path:
             mock_db_path.exists.return_value = False
             result = cli_runner.invoke(main, ["code", "--dry-run"])
 
@@ -418,7 +418,7 @@ class TestEmptyPlanDryRun:
         mock_db = _mock_knowledge_db()
 
         with (
-            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+            patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
             patch("agent_fox.cli.code.open_knowledge_store", return_value=mock_db),
             patch("agent_fox.cli.code.load_plan", return_value=graph),
         ):
@@ -447,7 +447,7 @@ class TestAllCompletedDryRun:
         mock_db = _mock_knowledge_db()
 
         with (
-            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+            patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
             patch("agent_fox.cli.code.open_knowledge_store", return_value=mock_db),
             patch("agent_fox.cli.code.load_plan", return_value=graph),
         ):
@@ -490,7 +490,7 @@ class TestEmptyPlanJsonDryRun:
         mock_db = _mock_knowledge_db()
 
         with (
-            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+            patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
             patch("agent_fox.cli.code.open_knowledge_store", return_value=mock_db),
             patch("agent_fox.cli.code.load_plan", return_value=graph),
         ):
@@ -535,7 +535,7 @@ class TestPropertyNoOrchestrator:
 
         with (
             patch("agent_fox.cli.code.run_code") as mock_rc,
-            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+            patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
             patch("agent_fox.cli.code.open_knowledge_store", return_value=mock_db),
             patch("agent_fox.cli.code.load_plan", return_value=graph),
             patch(
@@ -575,7 +575,7 @@ class TestPropertyCompletedExclusion:
         mock_db = _mock_knowledge_db()
 
         with (
-            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+            patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
             patch("agent_fox.cli.code.open_knowledge_store", return_value=mock_db),
             patch("agent_fox.cli.code.load_plan", return_value=graph),
             patch(
@@ -646,7 +646,7 @@ class TestPropertyReadOnly:
         mock_db = _mock_knowledge_db()
 
         with (
-            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+            patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
             patch("agent_fox.cli.code.open_knowledge_store", return_value=mock_db),
             patch("agent_fox.cli.code.load_plan", return_value=graph),
             patch("agent_fox.graph.persistence.save_plan") as mock_sp,
@@ -695,7 +695,7 @@ class TestPropertyDaemonBypass:
         mock_db = _mock_knowledge_db()
 
         with (
-            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+            patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
             patch("agent_fox.cli.code.open_knowledge_store", return_value=mock_db),
             patch("agent_fox.cli.code.load_plan", return_value=graph),
             patch(
@@ -737,7 +737,7 @@ class TestSmokeTextOutput:
         mock_db = _mock_knowledge_db()
 
         with (
-            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+            patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
             patch("agent_fox.cli.code.open_knowledge_store", return_value=mock_db),
             patch("agent_fox.cli.code.load_plan", return_value=graph),
             patch(
@@ -780,7 +780,7 @@ class TestSmokeJsonOutput:
         mock_db = _mock_knowledge_db()
 
         with (
-            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+            patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
             patch("agent_fox.cli.code.open_knowledge_store", return_value=mock_db),
             patch("agent_fox.cli.code.load_plan", return_value=graph),
             patch(

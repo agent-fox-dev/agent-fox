@@ -122,7 +122,7 @@ class TestOrchestratorSkipsWhenNoPlatform:
 
         import logging
 
-        with caplog.at_level(logging.WARNING, logger="agent_fox.engine.issue_summary"):
+        with caplog.at_level(logging.WARNING, logger="agent_fox.engine.engine"):
             await orchestrator.run()
 
         # No warnings about issue summaries should be logged
