@@ -64,7 +64,6 @@ from agent_fox.engine.state_manager import (
     load_or_init_state,
     reset_blocked_tasks,
     reset_in_progress_tasks,
-    seed_node_states,
 )
 from agent_fox.graph.injection import ensure_graph_archetypes
 from agent_fox.graph.persistence import load_plan, save_plan
@@ -81,15 +80,7 @@ from agent_fox.ui.progress import TaskCallback
 
 logger = logging.getLogger(__name__)
 
-# Backward-compatibility re-exports so existing imports keep working.
-_build_edges_dict_from_graph = build_edges_dict
-_seed_node_states_from_graph = seed_node_states
-_load_or_init_state = load_or_init_state
-_reset_in_progress_tasks = reset_in_progress_tasks
-_reset_blocked_tasks = reset_blocked_tasks
 _defer_ready_reviews = defer_ready_reviews
-_init_attempt_tracker = init_attempt_tracker
-_init_error_tracker = init_error_tracker
 
 
 class AssessmentManager:
