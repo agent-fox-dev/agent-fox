@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from agent_fox.engine.coverage import (
+from agent_fox.engine.result_handler import (
     CoverageRegression,
     CoverageResult,
     CoverageTool,
@@ -188,9 +188,9 @@ class TestMeasureCoverage:
             command=["sleep", "999"],
             result_path="coverage.json",
         )
-        with patch("agent_fox.engine.coverage._COVERAGE_TIMEOUT", 0):
+        with patch("agent_fox.engine.result_handler._COVERAGE_TIMEOUT", 0):
             with patch(
-                "agent_fox.engine.coverage.subprocess.run",
+                "agent_fox.engine.result_handler.subprocess.run",
                 side_effect=subprocess.TimeoutExpired(cmd="sleep", timeout=0),
             ):
                 result = measure_coverage(tmp_path, tool)
@@ -202,7 +202,7 @@ class TestMeasureCoverage:
             command=["echo", "no-op"],
             result_path="coverage.json",
         )
-        with patch("agent_fox.engine.coverage.subprocess.run"):
+        with patch("agent_fox.engine.result_handler.subprocess.run"):
             result = measure_coverage(tmp_path, tool)
         assert result is None
 
@@ -231,7 +231,7 @@ class TestMeasureCoverage:
             command=["echo", "done"],
             result_path="coverage.json",
         )
-        with patch("agent_fox.engine.coverage.subprocess.run"):
+        with patch("agent_fox.engine.result_handler.subprocess.run"):
             result = measure_coverage(tmp_path, tool)
 
         assert result is not None
@@ -256,7 +256,7 @@ class TestMeasureCoverage:
             command=["echo", "done"],
             result_path="coverage.out",
         )
-        with patch("agent_fox.engine.coverage.subprocess.run"):
+        with patch("agent_fox.engine.result_handler.subprocess.run"):
             result = measure_coverage(tmp_path, tool)
 
         assert result is not None
@@ -287,7 +287,7 @@ class TestMeasureCoverage:
             command=["echo", "done"],
             result_path="tarpaulin-report.json",
         )
-        with patch("agent_fox.engine.coverage.subprocess.run"):
+        with patch("agent_fox.engine.result_handler.subprocess.run"):
             result = measure_coverage(tmp_path, tool)
 
         assert result is not None
@@ -306,7 +306,7 @@ class TestMeasureCoverage:
             command=["echo", "done"],
             result_path="coverage.json",
         )
-        with patch("agent_fox.engine.coverage.subprocess.run"):
+        with patch("agent_fox.engine.result_handler.subprocess.run"):
             measure_coverage(tmp_path, tool)
 
         assert not result_path.exists()
@@ -372,10 +372,10 @@ class TestResultHandlerCoverageIntegration:
             files={"a.py": FileCoverage("a.py", 80, 100)}
         )
         with patch(
-            "agent_fox.engine.coverage.detect_coverage_tool",
+            "agent_fox.engine.result_handler.detect_coverage_tool",
             return_value=CoverageTool("pytest-cov", ["echo"], "coverage.json"),
         ), patch(
-            "agent_fox.engine.coverage.measure_coverage",
+            "agent_fox.engine.result_handler.measure_coverage",
             return_value=baseline,
         ):
             handler.capture_coverage_baseline("spec:1", tmp_path)
@@ -386,7 +386,7 @@ class TestResultHandlerCoverageIntegration:
     def test_capture_baseline_skips_when_no_tool(self, tmp_path: Path) -> None:
         handler = self._make_handler()
         with patch(
-            "agent_fox.engine.coverage.detect_coverage_tool",
+            "agent_fox.engine.result_handler.detect_coverage_tool",
             return_value=None,
         ):
             handler.capture_coverage_baseline("spec:1", tmp_path)
@@ -421,7 +421,7 @@ class TestResultHandlerCoverageIntegration:
         )
         state = MagicMock()
         with patch(
-            "agent_fox.engine.coverage.measure_coverage",
+            "agent_fox.engine.result_handler.measure_coverage",
             return_value=current,
         ):
             result = handler.check_coverage_regression(record, state, tmp_path)
@@ -458,7 +458,7 @@ class TestResultHandlerCoverageIntegration:
         state = MagicMock()
         state.blocked_reasons = {}
         with patch(
-            "agent_fox.engine.coverage.measure_coverage",
+            "agent_fox.engine.result_handler.measure_coverage",
             return_value=current,
         ):
             handler.check_coverage_regression(record, state, tmp_path)

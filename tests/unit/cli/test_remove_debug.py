@@ -228,7 +228,7 @@ class TestDryRunNoDebugMention:
         mock_db.connection = MagicMock()
 
         with (
-            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+            patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
             patch(
                 "agent_fox.cli.code.open_knowledge_store",
                 return_value=mock_db,
@@ -261,7 +261,7 @@ class TestSmokeCodeWithoutDebug:
 
         with (
             patch("agent_fox.cli.code.run_code", mock_rc),
-            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+            patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
         ):
             mock_db_path.exists.return_value = True
             result = cli_runner.invoke(main, ["code"])

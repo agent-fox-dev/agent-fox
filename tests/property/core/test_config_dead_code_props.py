@@ -17,8 +17,7 @@ from hypothesis import strategies as st
 
 from agent_fox.core.config import AgentFoxConfig
 from agent_fox.core.config_gen import (
-    _BOUNDS_MAP,
-    _DEFAULT_DESCRIPTIONS,
+    _BOUNDS_MAP_OVERRIDES,
 )
 
 # ---------------------------------------------------------------------------
@@ -123,33 +122,20 @@ def _get_config_model_by_name(name: str) -> type | None:
 
 
 class TestMetadataKeysMatchFields:
-    """TS-130-P2: Every _BOUNDS_MAP key corresponds to a real Pydantic field.
+    """TS-130-P2: Every _BOUNDS_MAP_OVERRIDES key corresponds to a real Pydantic field.
 
     Property 3 from design.md.
     Requirements: 130-REQ-4.1, 130-REQ-4.2, 130-REQ-1.5, 130-REQ-2.5
     """
 
     def test_bounds_map_keys_match_real_fields(self) -> None:
-        """Every (model_name, field_name) in _BOUNDS_MAP has a real field."""
-        for model_name, field_name in _BOUNDS_MAP:
+        """Every (model_name, field_name) in _BOUNDS_MAP_OVERRIDES has a real field."""
+        for model_name, field_name in _BOUNDS_MAP_OVERRIDES:
             model_cls = _get_config_model_by_name(model_name)
             assert model_cls is not None, (
-                f"_BOUNDS_MAP references non-existent model '{model_name}'"
+                f"_BOUNDS_MAP_OVERRIDES references non-existent model '{model_name}'"
             )
             assert field_name in model_cls.model_fields, (
-                f"_BOUNDS_MAP references non-existent field "
-                f"'{model_name}.{field_name}'"
-            )
-
-    def test_default_descriptions_keys_match_real_fields(self) -> None:
-        """Every (model_name, field_name) in _DEFAULT_DESCRIPTIONS has a real field."""
-        for model_name, field_name in _DEFAULT_DESCRIPTIONS:
-            model_cls = _get_config_model_by_name(model_name)
-            assert model_cls is not None, (
-                f"_DEFAULT_DESCRIPTIONS references non-existent model "
-                f"'{model_name}'"
-            )
-            assert field_name in model_cls.model_fields, (
-                f"_DEFAULT_DESCRIPTIONS references non-existent field "
+                f"_BOUNDS_MAP_OVERRIDES references non-existent field "
                 f"'{model_name}.{field_name}'"
             )

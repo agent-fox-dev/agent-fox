@@ -304,10 +304,10 @@ def test_plan_path_removed() -> None:
     Requirements: 105-REQ-5.1, 105-REQ-3.3, 105-REQ-5.3
     """
     with pytest.raises((ImportError, AttributeError)):
-        from agent_fox.core.paths import PLAN_PATH  # noqa: F401
+        from agent_fox.core.node_id import PLAN_PATH  # noqa: F401
 
     with pytest.raises((ImportError, AttributeError)):
-        from agent_fox.core.paths import STATE_PATH  # noqa: F401
+        from agent_fox.core.node_id import STATE_PATH  # noqa: F401
 
 
 # -- Tests: TS-105-10 No state files created (unit smoke) ---------------------

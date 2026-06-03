@@ -15,8 +15,7 @@ from pathlib import Path
 import agent_fox.core.config as config_mod
 from agent_fox.core.config import AgentFoxConfig, OrchestratorConfig, load_config
 from agent_fox.core.config_gen import (
-    _BOUNDS_MAP,
-    _DEFAULT_DESCRIPTIONS,
+    _BOUNDS_MAP_OVERRIDES,
     _PROMOTED_DEFAULTS,
     _VISIBLE_SECTIONS,
     generate_default_config,
@@ -92,45 +91,47 @@ class TestConfigGenMetadata:
         assert ("orchestrator", "quality_gate") not in _PROMOTED_DEFAULTS_OVERRIDES
 
     def test_phantom_routing_bounds_absent(self) -> None:
-        """TS-130-7: _BOUNDS_MAP has no phantom RoutingConfig entries.
+        """TS-130-7: _BOUNDS_MAP_OVERRIDES has no phantom RoutingConfig entries.
 
         Requirement: 130-REQ-4.1
         """
-        assert ("RoutingConfig", "training_threshold") not in _BOUNDS_MAP
-        assert ("RoutingConfig", "accuracy_threshold") not in _BOUNDS_MAP
-        assert ("RoutingConfig", "retrain_interval") not in _BOUNDS_MAP
+        assert ("RoutingConfig", "training_threshold") not in _BOUNDS_MAP_OVERRIDES
+        assert ("RoutingConfig", "accuracy_threshold") not in _BOUNDS_MAP_OVERRIDES
+        assert ("RoutingConfig", "retrain_interval") not in _BOUNDS_MAP_OVERRIDES
 
     def test_phantom_routing_descriptions_absent(self) -> None:
-        """TS-130-8: _DEFAULT_DESCRIPTIONS has no phantom RoutingConfig entries.
+        """TS-130-8: No phantom RoutingConfig fields exist in the model.
 
         Requirement: 130-REQ-4.2
         """
-        assert ("RoutingConfig", "training_threshold") not in _DEFAULT_DESCRIPTIONS
-        assert ("RoutingConfig", "accuracy_threshold") not in _DEFAULT_DESCRIPTIONS
-        assert ("RoutingConfig", "retrain_interval") not in _DEFAULT_DESCRIPTIONS
+        from agent_fox.core.config import RoutingConfig
+
+        assert "training_threshold" not in RoutingConfig.model_fields
+        assert "accuracy_threshold" not in RoutingConfig.model_fields
+        assert "retrain_interval" not in RoutingConfig.model_fields
 
     def test_drift_bounds_include_none(self) -> None:
         """TS-130-9: drift_review_block_threshold bounds include None.
 
         Requirement: 130-REQ-5.1
         """
-        bounds = _BOUNDS_MAP[("ReviewerConfig", "drift_review_block_threshold")]
+        bounds = _BOUNDS_MAP_OVERRIDES[("ReviewerConfig", "drift_review_block_threshold")]
         assert "None" in bounds
 
-    def test_no_model_config_descriptions(self) -> None:
-        """TS-130-11: No _DEFAULT_DESCRIPTIONS key starts with 'ModelConfig'.
+    def test_no_model_config_in_bounds(self) -> None:
+        """TS-130-11: No _BOUNDS_MAP_OVERRIDES key starts with 'ModelConfig'.
 
         Requirements: 130-REQ-1.5, 130-REQ-2.5
         """
-        model_config_keys = [k for k in _DEFAULT_DESCRIPTIONS if k[0] == "ModelConfig"]
+        model_config_keys = [k for k in _BOUNDS_MAP_OVERRIDES if k[0] == "ModelConfig"]
         assert model_config_keys == []
 
-    def test_no_quality_gate_description(self) -> None:
-        """Verify quality_gate description is also removed.
+    def test_no_quality_gate_in_config(self) -> None:
+        """Verify quality_gate field is absent from OrchestratorConfig.
 
         Requirement: 130-REQ-1.5
         """
-        assert ("OrchestratorConfig", "quality_gate") not in _DEFAULT_DESCRIPTIONS
+        assert "quality_gate" not in OrchestratorConfig.model_fields
 
     def test_schema_deprecated_fields_gone(self) -> None:
         """TS-130-5 (supplemental): _SCHEMA_DEPRECATED_FIELDS is empty or absent.

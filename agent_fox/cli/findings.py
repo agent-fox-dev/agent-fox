@@ -16,7 +16,7 @@ from pathlib import Path
 import click
 import duckdb
 
-from agent_fox.core.paths import DEFAULT_DB_PATH as _DEFAULT_DB_PATH
+from agent_fox.core.node_id import DEFAULT_DB_PATH as _DEFAULT_DB_PATH
 
 logger = logging.getLogger(__name__)
 

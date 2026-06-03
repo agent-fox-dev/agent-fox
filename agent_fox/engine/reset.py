@@ -620,7 +620,7 @@ def run_reset(
 
     Requirements: 59-REQ-5.1, 59-REQ-5.2, 59-REQ-5.3
     """
-    from agent_fox.core.paths import AGENT_FOX_DIR
+    from agent_fox.core.node_id import AGENT_FOX_DIR
 
     project_root = repo_path or Path.cwd()
     agent_dir = project_root / AGENT_FOX_DIR

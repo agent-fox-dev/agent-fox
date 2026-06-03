@@ -15,7 +15,7 @@ from pathlib import Path
 
 import click
 
-from agent_fox.engine.postmortem import build_postmortem, should_dump, write_postmortem
+from agent_fox.engine.run import build_postmortem, should_dump, write_postmortem
 from agent_fox.engine.state import ExecutionState, SessionRecord
 
 # -- Helpers ------------------------------------------------------------------

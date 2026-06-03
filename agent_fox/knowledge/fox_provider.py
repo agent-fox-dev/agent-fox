@@ -18,8 +18,30 @@ from typing import Any, Protocol, runtime_checkable
 from agent_fox.core.config import KnowledgeProviderConfig
 from agent_fox.core.errors import KnowledgeStoreError
 from agent_fox.knowledge.db import KnowledgeDB
+from agent_fox.knowledge.formatting import (
+    _SEVERITY_RANK,
+    _extract_keywords,
+    _score_relevance,
+    format_finding_parts,
+    format_verdict_parts,
+    generate_archetype_summary,
+    sort_findings,
+    sort_verdicts,
+)
 
 logger = logging.getLogger(__name__)
+
+# Re-export formatting helpers so existing importers of fox_provider
+# continue to work unchanged.
+__all__ = [
+    "KnowledgeProvider",
+    "NoOpKnowledgeProvider",
+    "FoxKnowledgeProvider",
+    "_SEVERITY_RANK",
+    "_extract_keywords",
+    "_score_relevance",
+    "generate_archetype_summary",
+]
 
 
 @runtime_checkable
@@ -76,85 +98,6 @@ class NoOpKnowledgeProvider:
     ) -> list[str]:
         """Return an empty list --- no knowledge is available."""
         return []
-
-
-# Severity ordering for sorting — lower value = higher priority.
-_SEVERITY_RANK: dict[str, int] = {"critical": 0, "major": 1, "minor": 2, "observation": 3}
-
-
-def _extract_keywords(task_description: str) -> frozenset[str]:
-    """Extract lowercase words from *task_description* for relevance scoring.
-
-    Returns an empty frozenset when *task_description* is blank, which
-    causes ``_score_relevance`` to return 0 for every item and preserves
-    the existing severity/description sort order (AC-3).
-    """
-    return frozenset(word.lower() for word in task_description.split() if word)
-
-
-def _score_relevance(text: str, keywords: frozenset[str]) -> int:
-    """Count how many *keywords* appear as substrings in *text* (case-insensitive).
-
-    Returns 0 when *keywords* is empty so that an absent or blank
-    ``task_description`` has no effect on ordering (AC-3).
-    """
-    if not keywords:
-        return 0
-    text_lower = text.lower()
-    return sum(1 for kw in keywords if kw in text_lower)
-
-
-def generate_archetype_summary(
-    archetype: str,
-    findings: list[Any] | None = None,
-    verdicts: list[Any] | None = None,
-) -> str:
-    """Generate a summary string for reviewer or verifier sessions.
-
-    For reviewer: counts findings by severity and includes descriptions of
-    up to 3 top-severity findings.
-    For verifier: counts pass/fail verdicts and lists the requirement IDs
-    of all FAIL verdicts.
-
-    Returns a non-empty string even when the input lists are empty
-    (120-REQ-3.E1, 120-REQ-3.E2).
-
-    Requirements: 120-REQ-3.1, 120-REQ-3.2, 120-REQ-3.E1, 120-REQ-3.E2
-    """
-    if archetype == "reviewer":
-        if not findings:
-            return "Reviewer session completed with no findings."
-        severity_counts: dict[str, int] = {}
-        for f in findings:
-            sev = getattr(f, "severity", "unknown")
-            severity_counts[sev] = severity_counts.get(sev, 0) + 1
-        # Build count string ordered by severity rank
-        count_parts: list[str] = []
-        for sev in ["critical", "major", "minor", "observation"]:
-            if sev in severity_counts:
-                count_parts.append(f"{severity_counts[sev]} {sev}")
-        count_str = ", ".join(count_parts) if count_parts else "0 findings"
-        # Include up to 3 top-severity finding descriptions
-        sorted_findings = sorted(
-            findings,
-            key=lambda f: _SEVERITY_RANK.get(getattr(f, "severity", ""), 99),
-        )
-        top_descriptions = [getattr(f, "description", "") for f in sorted_findings[:3]]
-        desc_str = "; ".join(top_descriptions)
-        return f"Reviewer session completed with {count_str}. Top findings: {desc_str}"
-
-    if archetype == "verifier":
-        if not verdicts:
-            return "Verifier session completed with no verdicts."
-        pass_count = sum(1 for v in verdicts if getattr(v, "verdict", "") == "PASS")
-        fail_count = sum(1 for v in verdicts if getattr(v, "verdict", "") == "FAIL")
-        fail_req_ids = [getattr(v, "requirement_id", "") for v in verdicts if getattr(v, "verdict", "") == "FAIL"]
-        parts = [f"Verifier session completed with {pass_count} pass, {fail_count} fail."]
-        if fail_req_ids:
-            parts.append(f"Failed requirements: {', '.join(fail_req_ids)}")
-        return " ".join(parts)
-
-    return f"{archetype} session completed."
 
 
 class FoxKnowledgeProvider:
@@ -465,22 +408,12 @@ class FoxKnowledgeProvider:
 
         keywords = _extract_keywords(task_description)
         actionable = [f for f in findings if f.severity in ("critical", "major")]
-        actionable.sort(
-            key=lambda f: (
-                _SEVERITY_RANK.get(f.severity, 99),
-                -_score_relevance(f"{f.category or ''} {f.description}", keywords),
-                f.description,
-            )
-        )
+        actionable = sort_findings(actionable, keywords)
 
         result: list[str] = []
         ids: list[str] = []
         for f in actionable:
-            parts = [f"[{f.severity}]"]
-            if f.category:
-                parts.append(f"{f.category}:")
-            parts.append(f.description)
-            result.append(f"[REVIEW] {' '.join(parts)}")
+            result.append(f"[REVIEW] {format_finding_parts(f)}")
             ids.append(f.id)
         return result, ids
 
@@ -519,21 +452,11 @@ class FoxKnowledgeProvider:
 
         keywords = _extract_keywords(task_description)
         actionable = [f for f in findings if f.severity in ("critical", "major")]
-        actionable.sort(
-            key=lambda f: (
-                _SEVERITY_RANK.get(f.severity, 99),
-                -_score_relevance(f"{f.category or ''} {f.description}", keywords),
-                f.description,
-            )
-        )
+        actionable = sort_findings(actionable, keywords)
 
         result: list[str] = []
         for f in actionable:
-            parts = [f"[{f.severity}]"]
-            if f.category:
-                parts.append(f"{f.category}:")
-            parts.append(f.description)
-            result.append(f"[CROSS-GROUP] (group {f.task_group}) {' '.join(parts)}")
+            result.append(f"[CROSS-GROUP] (group {f.task_group}) {format_finding_parts(f)}")
         return result
 
     def _query_cross_group_verdicts(
@@ -561,19 +484,11 @@ class FoxKnowledgeProvider:
 
         keywords = _extract_keywords(task_description)
         fail_verdicts = [v for v in verdicts if v.verdict == "FAIL"]
-        fail_verdicts.sort(
-            key=lambda v: (
-                -_score_relevance(f"{v.requirement_id} {v.evidence or ''}", keywords),
-                v.requirement_id,
-            )
-        )
+        fail_verdicts = sort_verdicts(fail_verdicts, keywords)
 
         result: list[str] = []
         for v in fail_verdicts:
-            parts = [f"[FAIL] {v.requirement_id}"]
-            if v.evidence:
-                parts.append(v.evidence)
-            result.append(f"[CROSS-GROUP] (group {v.task_group}) {' '.join(parts)}")
+            result.append(f"[CROSS-GROUP] (group {v.task_group}) {format_verdict_parts(v)}")
         return result
 
     def _query_errata(
@@ -666,20 +581,12 @@ class FoxKnowledgeProvider:
 
         keywords = _extract_keywords(task_description)
         fail_verdicts = [v for v in verdicts if v.verdict == "FAIL"]
-        fail_verdicts.sort(
-            key=lambda v: (
-                -_score_relevance(f"{v.requirement_id} {v.evidence or ''}", keywords),
-                v.requirement_id,
-            )
-        )
+        fail_verdicts = sort_verdicts(fail_verdicts, keywords)
 
         result: list[str] = []
         ids: list[str] = []
         for v in fail_verdicts:
-            parts = [f"[FAIL] {v.requirement_id}"]
-            if v.evidence:
-                parts.append(v.evidence)
-            result.append(f"[VERIFY] {' '.join(parts)}")
+            result.append(f"[VERIFY] {format_verdict_parts(v)}")
             ids.append(v.id)
         return result, ids
 
@@ -778,11 +685,7 @@ class FoxKnowledgeProvider:
 
             findings = query_prior_run_findings(conn, spec_name, self._run_id, max_items=max_items)
             for f in findings:
-                parts = [f"[{f.severity}]"]
-                if f.category:
-                    parts.append(f"{f.category}:")
-                parts.append(f.description)
-                result.append(f"[PRIOR-RUN] (spec {spec_name}) {' '.join(parts)}")
+                result.append(f"[PRIOR-RUN] (spec {spec_name}) {format_finding_parts(f)}")
                 prior_ids.add(f.id)
         except Exception:
             logger.debug(
@@ -795,10 +698,7 @@ class FoxKnowledgeProvider:
 
             verdicts = query_prior_run_verdicts(conn, spec_name, self._run_id, max_items=max_items)
             for v in verdicts:
-                parts = [f"[FAIL] {v.requirement_id}"]
-                if v.evidence:
-                    parts.append(v.evidence)
-                result.append(f"[PRIOR-RUN] (spec {spec_name}) {' '.join(parts)}")
+                result.append(f"[PRIOR-RUN] (spec {spec_name}) {format_verdict_parts(v)}")
                 prior_ids.add(v.id)
         except Exception:
             logger.debug(

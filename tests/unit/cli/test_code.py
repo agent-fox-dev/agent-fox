@@ -108,7 +108,7 @@ class TestSuccessfulExecution:
         state = _make_execution_state(run_status="completed")
         with (
             patch("agent_fox.cli.code.run_code", _mock_run_code(state)),
-            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+            patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
         ):
             mock_db_path.exists.return_value = True
             result = cli_runner.invoke(main, ["code"])
@@ -120,7 +120,7 @@ class TestSuccessfulExecution:
         state = _make_execution_state(run_status="completed")
         with (
             patch("agent_fox.cli.code.run_code", _mock_run_code(state)),
-            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+            patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
         ):
             mock_db_path.exists.return_value = True
             result = cli_runner.invoke(main, ["code"])
@@ -132,7 +132,7 @@ class TestSuccessfulExecution:
         state = _make_execution_state(run_status="completed", total_cost=2.50)
         with (
             patch("agent_fox.cli.code.run_code", _mock_run_code(state)),
-            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+            patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
         ):
             mock_db_path.exists.return_value = True
             result = cli_runner.invoke(main, ["code"])
@@ -144,7 +144,7 @@ class TestSuccessfulExecution:
         state = _make_execution_state(run_status="completed")
         with (
             patch("agent_fox.cli.code.run_code", _mock_run_code(state)),
-            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+            patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
         ):
             mock_db_path.exists.return_value = True
             result = cli_runner.invoke(main, ["code"])
@@ -166,7 +166,7 @@ class TestStalledExitCode:
         )
         with (
             patch("agent_fox.cli.code.run_code", _mock_run_code(state)),
-            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+            patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
         ):
             mock_db_path.exists.return_value = True
             result = cli_runner.invoke(main, ["code"])
@@ -181,7 +181,7 @@ class TestStalledExitCode:
         )
         with (
             patch("agent_fox.cli.code.run_code", _mock_run_code(state)),
-            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+            patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
         ):
             mock_db_path.exists.return_value = True
             result = cli_runner.invoke(main, ["code"])
@@ -200,7 +200,7 @@ class TestCostLimitExitCode:
         state = _make_execution_state(run_status="cost_limit")
         with (
             patch("agent_fox.cli.code.run_code", _mock_run_code(state)),
-            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+            patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
         ):
             mock_db_path.exists.return_value = True
             result = cli_runner.invoke(main, ["code"])
@@ -221,7 +221,7 @@ class TestInterruptedExitCode:
         mock_rc = AsyncMock(return_value=InterruptedResult())
         with (
             patch("agent_fox.cli.code.run_code", mock_rc),
-            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+            patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
         ):
             mock_db_path.exists.return_value = True
             result = cli_runner.invoke(main, ["code"])
@@ -237,7 +237,7 @@ class TestMissingPlanFile:
 
     def test_missing_plan_exits_code_1(self, cli_runner: CliRunner) -> None:
         """The command exits with code 1 when no plan exists."""
-        with patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path:
+        with patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path:
             mock_db_path.exists.return_value = False
             result = cli_runner.invoke(main, ["code"])
 
@@ -245,7 +245,7 @@ class TestMissingPlanFile:
 
     def test_missing_plan_mentions_plan(self, cli_runner: CliRunner) -> None:
         """Error message mentions the plan."""
-        with patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path:
+        with patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path:
             mock_db_path.exists.return_value = False
             result = cli_runner.invoke(main, ["code"])
 
@@ -264,7 +264,7 @@ class TestUnexpectedException:
 
         with (
             patch("agent_fox.cli.code.run_code", mock_rc),
-            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+            patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
         ):
             mock_db_path.exists.return_value = True
             result = cli_runner.invoke(main, ["code"])
@@ -277,7 +277,7 @@ class TestUnexpectedException:
 
         with (
             patch("agent_fox.cli.code.run_code", mock_rc),
-            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+            patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
         ):
             mock_db_path.exists.return_value = True
             result = cli_runner.invoke(main, ["code"])
@@ -300,7 +300,7 @@ class TestEmptyPlan:
         )
         with (
             patch("agent_fox.cli.code.run_code", _mock_run_code(state)),
-            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+            patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
         ):
             mock_db_path.exists.return_value = True
             result = cli_runner.invoke(main, ["code"])
@@ -316,7 +316,7 @@ class TestEmptyPlan:
         )
         with (
             patch("agent_fox.cli.code.run_code", _mock_run_code(state)),
-            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+            patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
         ):
             mock_db_path.exists.return_value = True
             result = cli_runner.invoke(main, ["code"])
@@ -338,7 +338,7 @@ class TestUnknownRunStatus:
         )
         with (
             patch("agent_fox.cli.code.run_code", _mock_run_code(state)),
-            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+            patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
         ):
             mock_db_path.exists.return_value = True
             result = cli_runner.invoke(main, ["code"])
@@ -466,7 +466,7 @@ class TestWorkspaceStateRunSummary:
 
         with (
             patch("agent_fox.cli.code.run_code", _mock_run_code(state)),
-            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+            patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
         ):
             mock_db_path.exists.return_value = True
             result = cli_runner.invoke(main, ["code"])
@@ -482,7 +482,7 @@ class TestWorkspaceStateRunSummary:
 
         with (
             patch("agent_fox.cli.code.run_code", _mock_run_code(state)),
-            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+            patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
         ):
             mock_db_path.exists.return_value = True
             result = cli_runner.invoke(main, ["code"])
@@ -501,7 +501,7 @@ class TestWorkspaceStateRunSummary:
 
         with (
             patch("agent_fox.cli.code.run_code", _mock_run_code(state)),
-            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+            patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
         ):
             mock_db_path.exists.return_value = True
             result = cli_runner.invoke(main, ["code"])
@@ -522,7 +522,7 @@ class TestFinallyBlockCleanup:
         state = _make_execution_state(run_status="completed")
         with (
             patch("agent_fox.cli.code.run_code", _mock_run_code(state)),
-            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+            patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
         ):
             mock_db_path.exists.return_value = True
             result = cli_runner.invoke(main, ["code"])
@@ -534,7 +534,7 @@ class TestFinallyBlockCleanup:
         state = _make_execution_state(run_status="completed")
         with (
             patch("agent_fox.cli.code.run_code", _mock_run_code(state)),
-            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+            patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
         ):
             mock_db_path.exists.return_value = True
             result = cli_runner.invoke(main, ["code"])
@@ -567,7 +567,7 @@ class TestPostmortemPathInSummary:
         )
         with (
             patch("agent_fox.cli.code.run_code", _mock_run_code(state)),
-            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+            patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
         ):
             mock_db_path.exists.return_value = True
             result = cli_runner.invoke(main, ["code"])
@@ -593,7 +593,7 @@ class TestPostmortemPathInSummary:
         )
         with (
             patch("agent_fox.cli.code.run_code", _mock_run_code(state)),
-            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+            patch("agent_fox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
         ):
             mock_db_path.exists.return_value = True
             result = cli_runner.invoke(main, ["code"])
