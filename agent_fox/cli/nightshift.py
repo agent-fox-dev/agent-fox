@@ -23,16 +23,9 @@ logger = logging.getLogger(__name__)
 
 
 @click.command("night-shift")
-@click.option(
-    "--no-fixes",
-    is_flag=True,
-    default=False,
-    help="Disable the fix-pipeline stream.",
-)
 @click.pass_context
 def night_shift_cmd(
     ctx: click.Context,
-    no_fixes: bool,
 ) -> None:
     """Run the night-shift autonomous fix daemon.
 
@@ -126,7 +119,6 @@ def night_shift_cmd(
     # Build work streams with CLI flags (85-REQ-6.1, 125-REQ-3.3)
     streams = build_streams(
         config,
-        no_fixes=no_fixes,
         engine=engine,
         budget=budget,
     )
@@ -193,7 +185,5 @@ def night_shift_cmd(
 
     # Pull detailed stats from the engine state (streams don't track these).
     click.echo(
-        f"Night-shift stopped. "
-        f"Issues fixed: {engine.state.issues_fixed}, "
-        f"Total cost: ${daemon_state.total_cost:.4f}"
+        f"Night-shift stopped. Issues fixed: {engine.state.issues_fixed}, Total cost: ${daemon_state.total_cost:.4f}"
     )

@@ -26,36 +26,6 @@ def _make_config(
 
 
 # ---------------------------------------------------------------------------
-# TS-85-18: CLI --no-fixes disables fix-pipeline
-# Requirement: 85-REQ-6.1
-# ---------------------------------------------------------------------------
-
-
-class TestCliNoFixesFlag:
-    """Verify --no-fixes flag disables fix-pipeline stream."""
-
-    def test_no_fixes_disables_fix_pipeline(self) -> None:
-        """--no-fixes disables fix pipeline."""
-        from agent_fox.nightshift.streams import build_streams
-
-        config = _make_config()
-        streams = build_streams(config, no_fixes=True)
-        assert len(streams) == 1
-        assert streams[0].name == "fix-pipeline"
-        assert streams[0].enabled is False
-
-    def test_default_enables_fix_pipeline(self) -> None:
-        """Default (no flags) enables fix pipeline."""
-        from agent_fox.nightshift.streams import build_streams
-
-        config = _make_config()
-        streams = build_streams(config, no_fixes=False)
-        assert len(streams) == 1
-        assert streams[0].name == "fix-pipeline"
-        assert streams[0].enabled is True
-
-
-# ---------------------------------------------------------------------------
 # TS-85-21: Platform none disables fix-pipeline
 # Requirement: 85-REQ-7.1
 # ---------------------------------------------------------------------------

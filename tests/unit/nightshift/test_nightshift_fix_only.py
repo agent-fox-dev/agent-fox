@@ -222,30 +222,6 @@ class TestBuildStreamsSingleFix:
 
 
 # ---------------------------------------------------------------------------
-# TS-125-9: build_streams with no_fixes disables stream (125-REQ-3.E1)
-# ---------------------------------------------------------------------------
-
-
-class TestBuildStreamsNoFixes:
-    """TS-125-9: no_fixes=True produces a disabled stream."""
-
-    def test_build_streams_no_fixes(self) -> None:
-        from agent_fox.nightshift.daemon import SharedBudget
-        from agent_fox.nightshift.streams import build_streams
-
-        config = _make_config()
-        engine = _make_engine_mock()
-        budget = SharedBudget(max_cost=10.0)
-
-        streams = build_streams(
-            config, no_fixes=True, engine=engine, budget=budget
-        )
-
-        assert len(streams) == 1, f"Expected 1 stream, got {len(streams)}"
-        assert streams[0].enabled is False
-
-
-# ---------------------------------------------------------------------------
 # TS-125-10: Config backward compatibility (125-REQ-5.4)
 # ---------------------------------------------------------------------------
 
@@ -418,12 +394,7 @@ def test_config_ignores_removed_fields(
 # ---------------------------------------------------------------------------
 
 
-@settings(
-    max_examples=10,
-    suppress_health_check=[HealthCheck.too_slow],
-)
-@given(no_fixes=st.booleans())
-def test_build_streams_always_one_stream(no_fixes: bool) -> None:
+def test_build_streams_always_one_stream() -> None:
     """TS-125-P3: build_streams always returns exactly one fix-pipeline stream."""
     from agent_fox.nightshift.daemon import SharedBudget
     from agent_fox.nightshift.streams import build_streams
@@ -432,13 +403,11 @@ def test_build_streams_always_one_stream(no_fixes: bool) -> None:
     engine = _make_engine_mock()
     budget = SharedBudget(max_cost=10.0)
 
-    streams = build_streams(
-        config, no_fixes=no_fixes, engine=engine, budget=budget
-    )
+    streams = build_streams(config, engine=engine, budget=budget)
 
     assert len(streams) == 1
     assert streams[0].name == "fix-pipeline"
-    assert streams[0].enabled == (not no_fixes)
+    assert streams[0].enabled is True
 
 
 # ---------------------------------------------------------------------------

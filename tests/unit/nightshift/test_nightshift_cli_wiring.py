@@ -211,7 +211,7 @@ class TestCredentialPreflightCheck:
             runner = CliRunner()
             result = runner.invoke(
                 night_shift_cmd,
-                ["--no-fixes"],
+                [],
                 obj={"config": _make_config(), "quiet": False},
             )
 

@@ -206,7 +206,6 @@ agent-fox code [OPTIONS]
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `--dry-run` | flag | off | Show plan analysis without running the orchestrator |
-| `--parallel N` | int | from config | Override parallelism (1-8) |
 | `--debug` | flag | off | Enable debug audit trail (JSONL + DuckDB tool signals) |
 | `--specs-dir PATH` | path | from config | Path to specs directory (default: from config, or `.agent-fox/specs`) |
 | `--watch` | flag | off | Keep running and poll for new specs after all tasks complete |
@@ -243,9 +242,9 @@ Completed tasks are excluded from all sections of the output so that only
 remaining work is displayed.
 
 **Mutual exclusion with execution flags:** `--dry-run` cannot be combined with
-`--watch`, `--debug`, `--force-clean`, or `--parallel`. If any of these flags
-are provided alongside `--dry-run`, the command exits with code 1 and an error
-message listing all incompatible flags.
+`--watch`, `--debug`, or `--force-clean`. If any of these flags are provided
+alongside `--dry-run`, the command exits with code 1 and an error message
+listing all incompatible flags.
 
 **Daemon guard bypass:** Because `--dry-run` is a read-only operation, it
 bypasses the night-shift daemon PID guard. You can run `code --dry-run` even
@@ -401,10 +400,6 @@ Run the fix-only maintenance daemon.
 ```
 agent-fox night-shift [OPTIONS]
 ```
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `--no-fixes` | flag | off | Disable the fix-pipeline stream |
 
 Night Shift is a continuously-running fix-only maintenance daemon that
 polls GitHub for open issues with the `af:fix` label at the configured

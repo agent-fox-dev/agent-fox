@@ -231,7 +231,6 @@ def _handle_dry_run(config: object, json_mode: bool, specs_dir: str | None) -> N
 
 def _check_dry_run_conflicts(
     dry_run: bool,
-    parallel: int | None,
     debug: bool,
     watch: bool,
     force_clean: bool,
@@ -250,18 +249,10 @@ def _check_dry_run_conflicts(
         conflicts.append("--debug")
     if force_clean:
         conflicts.append("--force-clean")
-    if parallel is not None:
-        conflicts.append("--parallel")
     return conflicts
 
 
 @click.command("code")
-@click.option(
-    "--parallel",
-    type=int,
-    default=None,
-    help="Override parallelism (1-8)",
-)
 @click.option(
     "--debug",
     is_flag=True,
@@ -301,7 +292,6 @@ def _check_dry_run_conflicts(
 @click.pass_context
 def code_cmd(
     ctx: click.Context,
-    parallel: int | None,
     debug: bool,
     specs_dir: str | None,
     watch: bool,
@@ -318,7 +308,6 @@ def code_cmd(
     # 123-REQ-2.1, 123-REQ-2.E1: mutual exclusion with execution flags
     conflicts = _check_dry_run_conflicts(
         dry_run=dry_run,
-        parallel=parallel,
         debug=debug,
         watch=watch,
         force_clean=force_clean,
@@ -356,9 +345,7 @@ def code_cmd(
 
     # 23-REQ-7.1: read stdin JSON when in JSON mode
     if json_mode:
-        stdin_data = json_io.read_stdin()
-        if parallel is None and "parallel" in stdin_data:
-            parallel = int(stdin_data["parallel"])
+        json_io.read_stdin()
 
     # 16-REQ-1.E1: check plan exists in DB
     from agent_fox.core.paths import DEFAULT_DB_PATH
@@ -383,7 +370,6 @@ def code_cmd(
         result = asyncio.run(
             run_code(
                 config,
-                parallel=parallel,
                 debug=debug,
                 watch=watch,
                 watch_interval=watch_interval,

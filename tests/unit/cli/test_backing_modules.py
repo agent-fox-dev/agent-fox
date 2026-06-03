@@ -132,7 +132,7 @@ class TestRunCodeCallable:
             mock_orch.run = AsyncMock(return_value=mock_state)
             mock_orch_cls.return_value = mock_orch
 
-            result = await run_code(config, parallel=2, max_cost=1.0)
+            result = await run_code(config, max_cost=1.0)
 
         assert result is not None
         assert result.status == "completed"  # type: ignore[union-attr]
@@ -169,36 +169,6 @@ class TestRunCodeReturnsExecutionState:
             "cost_limit",
             "interrupted",
         )
-
-
-class TestRunCodeParallelism:
-    """TS-59-15b: run_code passes parallelism override to orchestrator.
-
-    Requirement: 59-REQ-4.3
-    """
-
-    @pytest.mark.asyncio()
-    async def test_parallel_passed_to_orchestrator(self) -> None:
-        """run_code(config, parallel=4) forwards parallel to orchestrator."""
-        from agent_fox.engine.run import run_code
-
-        config = MagicMock()
-
-        with (
-            patch("agent_fox.engine.run._setup_infrastructure", return_value=None),
-            patch("agent_fox.engine.run.Orchestrator") as mock_orch_cls,
-        ):
-            mock_state = MagicMock()
-            mock_state.status = "completed"
-            mock_orch = MagicMock()
-            mock_orch.run = AsyncMock(return_value=mock_state)
-            mock_orch_cls.return_value = mock_orch
-
-            await run_code(config, parallel=4)
-
-        # Verify parallel=4 was passed somewhere in construction
-        call_kwargs = mock_orch_cls.call_args
-        assert call_kwargs is not None, "Orchestrator was not instantiated"
 
 
 class TestRunCodeKeyboardInterrupt:

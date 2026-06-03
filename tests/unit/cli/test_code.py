@@ -152,38 +152,6 @@ class TestSuccessfulExecution:
         assert "completed" in result.output
 
 
-class TestParallelOverride:
-    """TS-16-3: Parallel override applied.
-
-    Requirements: 16-REQ-2.1, 16-REQ-2.5
-    """
-
-    def test_parallel_override_applied(self, cli_runner: CliRunner) -> None:
-        """The --parallel option is passed to run_code."""
-        state = _make_execution_state()
-        mock_rc = _mock_run_code(state)
-
-        with (
-            patch("agent_fox.cli.code.run_code", mock_rc),
-            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
-        ):
-            mock_db_path.exists.return_value = True
-            cli_runner.invoke(main, ["code", "--parallel", "4"])
-
-        mock_rc.assert_called_once()
-        call_kwargs = mock_rc.call_args
-        assert call_kwargs.kwargs["parallel"] == 4
-
-    def test_parallel_override_revalidates_config(self) -> None:
-        """Out-of-range override values are revalidated/clamped."""
-        from agent_fox.engine.run import _apply_overrides
-
-        base = OrchestratorConfig(parallel=4)
-        updated = _apply_overrides(base, parallel=0, max_cost=None, max_sessions=None)
-
-        assert updated.parallel == 1
-
-
 class TestStalledExitCode:
     """TS-16-6: Stalled execution exits with code 2.
 

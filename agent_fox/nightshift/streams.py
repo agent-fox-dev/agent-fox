@@ -126,15 +126,13 @@ class EngineWorkStream:
 def build_streams(
     config: object,
     *,
-    no_fixes: bool = False,
     engine: object | None = None,
     budget: SharedBudget | None = None,
 ) -> list[WorkStream]:
     """Build work streams with proper enabled/disabled state.
 
     Returns a list containing exactly one ``WorkStream`` — the fix-pipeline
-    stream.  The stream is disabled when ``no_fixes=True`` or the platform
-    type is ``"none"``.
+    stream.  The stream is disabled when the platform type is ``"none"``.
 
     Requirements: 85-REQ-6.1, 85-REQ-7.1, 125-REQ-3.3, 125-REQ-3.4,
                   125-REQ-3.E1
@@ -149,7 +147,7 @@ def build_streams(
     # Platform degradation (85-REQ-7.1): platform.type="none" disables
     # the fix-pipeline stream.
     platform_type = getattr(getattr(config, "platform", None), "type", "github")
-    fixes_enabled = not no_fixes
+    fixes_enabled = True
     if platform_type == "none":
         logger.warning("Platform type is 'none'; disabling fix-pipeline stream")
         fixes_enabled = False

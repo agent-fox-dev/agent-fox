@@ -67,14 +67,12 @@ class TestOverridePreservation:
     """
 
     @given(
-        parallel=st.one_of(st.none(), st.integers(min_value=1, max_value=8)),
         max_cost=st.one_of(st.none(), st.floats(min_value=0.0, max_value=1000.0)),
         max_sessions=st.one_of(st.none(), st.integers(min_value=1, max_value=1000)),
     )
     @settings(max_examples=100)
     def test_overrides_applied_and_defaults_preserved(
         self,
-        parallel: int | None,
         max_cost: float | None,
         max_sessions: int | None,
     ) -> None:
@@ -82,13 +80,7 @@ class TestOverridePreservation:
         from agent_fox.engine.run import _apply_overrides  # type: ignore[import-not-found]  # noqa: I001
 
         default_config = OrchestratorConfig()
-        result = _apply_overrides(default_config, parallel, max_cost, max_sessions)
-
-        # Overridden fields must match the provided value
-        if parallel is not None:
-            assert result.parallel == parallel
-        else:
-            assert result.parallel == default_config.parallel
+        result = _apply_overrides(default_config, max_cost, max_sessions)
 
         if max_cost is not None:
             assert result.max_cost == max_cost
@@ -101,6 +93,7 @@ class TestOverridePreservation:
             assert result.max_sessions == default_config.max_sessions
 
         # Non-overridden fields must remain unchanged
+        assert result.parallel == default_config.parallel
         assert result.max_retries == default_config.max_retries
         assert result.sync_interval == default_config.sync_interval
         assert result.hot_load == default_config.hot_load

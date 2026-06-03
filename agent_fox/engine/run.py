@@ -57,7 +57,6 @@ def _stalled_result() -> ExecutionState:
 
 def _apply_overrides(
     config: OrchestratorConfig,
-    parallel: int | None,
     max_cost: float | None = None,
     max_sessions: int | None = None,
     watch_interval: int | None = None,
@@ -73,8 +72,6 @@ def _apply_overrides(
     from agent_fox.core.config import OrchestratorConfig as OC
 
     overrides: dict[str, object] = {}
-    if parallel is not None:
-        overrides["parallel"] = parallel
     if max_cost is not None:
         overrides["max_cost"] = max_cost
     if max_sessions is not None:
@@ -169,7 +166,6 @@ def _setup_infrastructure(
 async def run_code(
     config: AgentFoxConfig,
     *,
-    parallel: int | None = None,
     max_cost: float | None = None,
     max_sessions: int | None = None,
     debug: bool = False,
@@ -188,7 +184,6 @@ async def run_code(
 
     Args:
         config: Loaded AgentFoxConfig.
-        parallel: Override parallelism (1-8).
         debug: Enable debug audit trail.
         watch: Keep running and poll for new specs.
         watch_interval: Seconds between watch polls.
@@ -205,7 +200,6 @@ async def run_code(
     try:
         orch_config = _apply_overrides(
             config.orchestrator,
-            parallel,
             max_cost=max_cost,
             max_sessions=max_sessions,
             watch_interval=watch_interval,

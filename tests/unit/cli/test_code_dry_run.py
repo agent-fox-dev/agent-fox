@@ -289,20 +289,6 @@ class TestMutualExclusionDebug:
         assert "--debug" in result.output
 
 
-class TestMutualExclusionParallel:
-    """TS-123-7: Mutual exclusion with --parallel.
-
-    Requirement: 123-REQ-2.1
-    """
-
-    def test_dry_run_parallel_rejected(self, cli_runner: CliRunner) -> None:
-        """--dry-run --parallel 4 exits with code 1 and error message."""
-        result = cli_runner.invoke(main, ["code", "--dry-run", "--parallel", "4"])
-
-        assert result.exit_code == 1
-        assert "--parallel" in result.output
-
-
 class TestMutualExclusionForceClean:
     """TS-123-8: Mutual exclusion with --force-clean.
 
@@ -636,16 +622,16 @@ class TestPropertyMutualExclusion:
         "flags",
         [
             combo
-            for r in range(1, 5)
+            for r in range(1, 4)
             for combo in combinations(
-                ["--watch", "--debug", "--force-clean", "--parallel"],
+                ["--watch", "--debug", "--force-clean"],
                 r,
             )
         ],
     )
     def test_all_flag_combos_rejected(self, cli_runner: CliRunner, flags: tuple[str, ...]) -> None:
         """Any non-empty subset of execution flags with --dry-run exits 1."""
-        args = ["code", "--dry-run"] + [f for flag in flags for f in ([flag, "1"] if flag == "--parallel" else [flag])]
+        args = ["code", "--dry-run"] + list(flags)
 
         with patch("agent_fox.cli.code.load_plan") as mock_lp:
             result = cli_runner.invoke(main, args)
