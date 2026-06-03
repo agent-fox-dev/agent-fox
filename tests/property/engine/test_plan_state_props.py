@@ -18,7 +18,6 @@ from agent_fox.engine.state import (  # noqa: F401
     SessionOutcomeRecord,
     complete_run,
     create_run,
-    load_execution_state,
     persist_node_status,
     record_session,
     update_run_totals,
@@ -272,8 +271,9 @@ def test_status_transition_atomicity(statuses: list[str]) -> None:
     node_id = "spec_a:1"
     for status in statuses:
         persist_node_status(conn, node_id, status)
-        loaded = load_execution_state(conn)
-        assert loaded[node_id] == status
+        row = conn.sql(f"SELECT status FROM plan_nodes WHERE id = '{node_id}'").fetchone()
+        assert row is not None
+        assert row[0] == status
 
     conn.close()
 
@@ -386,12 +386,13 @@ def test_run_aggregate_accuracy(deltas: list[tuple[int, int, float]]) -> None:
         expected_output += out
         expected_cost += cost
 
-    from agent_fox.engine.state import load_run
-
-    run = load_run(conn, run_id)
-    assert run is not None
-    assert run.total_input_tokens == expected_input
-    assert run.total_output_tokens == expected_output
-    assert abs(run.total_cost - expected_cost) < 1e-4
+    row = conn.execute(
+        "SELECT total_input_tokens, total_output_tokens, total_cost FROM runs WHERE id = ?",
+        [run_id],
+    ).fetchone()
+    assert row is not None
+    assert row[0] == expected_input
+    assert row[1] == expected_output
+    assert abs(row[2] - expected_cost) < 1e-4
 
     conn.close()

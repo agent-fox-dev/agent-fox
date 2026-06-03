@@ -22,13 +22,7 @@ class AgentFoxError(Exception):
 class ConfigError(AgentFoxError): ...
 
 
-class InitError(AgentFoxError): ...
-
-
 class PlanError(AgentFoxError): ...
-
-
-class SessionError(AgentFoxError): ...
 
 
 class WorkspaceError(AgentFoxError): ...
@@ -49,12 +43,6 @@ class IntegrationError(AgentFoxError):
     def __init__(self, message: str, *, retryable: bool = True, **context: Any) -> None:
         super().__init__(message, **context)
         self.retryable = retryable
-
-
-class SessionTimeoutError(AgentFoxError): ...
-
-
-class CostLimitError(AgentFoxError): ...
 
 
 class SecurityError(AgentFoxError): ...

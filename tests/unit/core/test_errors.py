@@ -11,26 +11,20 @@ import pytest
 from agent_fox.core.errors import (
     AgentFoxError,
     ConfigError,
-    CostLimitError,
-    InitError,
     IntegrationError,
+    KnowledgeStoreError,
     PlanError,
     SecurityError,
-    SessionError,
-    SessionTimeoutError,
     WorkspaceError,
 )
 
 ALL_ERROR_CLASSES = [
     ConfigError,
-    InitError,
     PlanError,
-    SessionError,
     WorkspaceError,
     IntegrationError,
-    SessionTimeoutError,
-    CostLimitError,
     SecurityError,
+    KnowledgeStoreError,
 ]
 
 

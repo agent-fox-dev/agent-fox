@@ -16,7 +16,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from agent_fox.core.errors import PlanError
-from agent_fox.graph.resolver import resolve_order
 from agent_fox.graph.types import Edge, Node, NodeStatus, TaskGraph
 from agent_fox.spec.discovery import SpecInfo, discover_specs  # noqa: F401
 from agent_fox.spec.parser import parse_cross_deps, parse_tasks
@@ -464,63 +463,6 @@ def _build_nodes_and_edges(
         added_spec_names.append(spec_info.name)
 
     return new_nodes, new_edges, added_spec_names
-
-
-def hot_load_specs(
-    graph: TaskGraph,
-    specs_dir: Path,
-) -> tuple[TaskGraph, list[str]]:
-    """Incorporate newly discovered specs into the task graph.
-
-    1. Discover new spec folders not in graph.nodes.
-    2. Parse and validate tasks and dependencies.
-    3. Create nodes and edges for the new specs.
-    4. Re-compute topological ordering.
-
-    Args:
-        graph: The current task graph.
-        specs_dir: Path to the .specs/ directory.
-
-    Returns:
-        Tuple of (updated TaskGraph, list of newly added spec names).
-        If no new specs are found, returns the original graph unchanged
-        and an empty list.
-    """
-    known_specs = {node.spec_name for node in graph.nodes.values()}
-    new_spec_infos = discover_new_specs(specs_dir, known_specs)
-
-    if not new_spec_infos:
-        # 06-REQ-7.E2: no new specs, return unchanged
-        return graph, []
-
-    all_spec_names = known_specs | {s.name for s in new_spec_infos}
-    valid_specs, spec_task_groups, spec_deps = _validate_and_parse_specs(
-        new_spec_infos,
-        all_spec_names,
-    )
-
-    if not valid_specs:
-        return graph, []
-
-    new_nodes, new_edges, added_spec_names = _build_nodes_and_edges(
-        valid_specs,
-        spec_task_groups,
-        spec_deps,
-        graph.nodes,
-        graph.edges,
-    )
-
-    updated_graph = TaskGraph(
-        nodes=new_nodes,
-        edges=new_edges,
-        order=[],
-        metadata=graph.metadata,
-    )
-
-    # 06-REQ-7.3: Re-compute topological ordering
-    updated_graph.order = resolve_order(updated_graph)
-
-    return updated_graph, added_spec_names
 
 
 async def hot_load_into_graph(

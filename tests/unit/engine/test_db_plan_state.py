@@ -17,9 +17,6 @@ from agent_fox.engine.state import (  # noqa: F401
     cleanup_stale_runs,
     complete_run,
     create_run,
-    load_execution_state,
-    load_incomplete_run,
-    load_run,
     persist_node_status,
     record_session,
     reset_in_progress_nodes,
@@ -189,8 +186,9 @@ def test_v3_statuses(
     Requirements: 105-REQ-2.2
     """
     persist_node_status(plan_with_node, "spec_a:1", status)
-    loaded = load_execution_state(plan_with_node)
-    assert loaded["spec_a:1"] == status
+    row = plan_with_node.sql("SELECT status FROM plan_nodes WHERE id = 'spec_a:1'").fetchone()
+    assert row is not None
+    assert row[0] == status
 
 
 def test_nodestatus_enum_has_v3_values() -> None:
@@ -381,30 +379,6 @@ def test_concurrent_read(
     read_conn.close()
 
 
-# -- Edge case tests: TS-105-E1, TS-105-E2 (state module perspective) ---------
-
-
-def test_load_execution_state_empty(db_conn: duckdb.DuckDBPyConnection) -> None:
-    """TS-105-E1: load_execution_state returns empty dict when no plan in DB.
-
-    Requirements: 105-REQ-1.E1
-    """
-    result = load_execution_state(db_conn)
-    assert result == {}
-
-
-def test_load_execution_state_with_nodes(
-    plan_with_node: duckdb.DuckDBPyConnection,
-) -> None:
-    """TS-105-E2 (variant): load_execution_state returns all node statuses.
-
-    Requirements: 105-REQ-1.E2
-    """
-    result = load_execution_state(plan_with_node)
-    assert "spec_a:1" in result
-    assert result["spec_a:1"] == "pending"
-
-
 # -- Edge case tests: TS-105-E3 Crash recovery --------------------------------
 
 
@@ -418,8 +392,9 @@ def test_crash_recovery(plan_with_node: duckdb.DuckDBPyConnection) -> None:
     # Simulate crash and resume: reset in_progress to pending
     reset_in_progress_nodes(plan_with_node)
 
-    loaded = load_execution_state(plan_with_node)
-    assert loaded["spec_a:1"] == "pending"
+    row = plan_with_node.sql("SELECT status FROM plan_nodes WHERE id = 'spec_a:1'").fetchone()
+    assert row is not None
+    assert row[0] == "pending"
 
 
 # -- Edge case tests: TS-105-E4 Null error_message ----------------------------
@@ -456,28 +431,6 @@ def test_null_error_message(db_conn: duckdb.DuckDBPyConnection) -> None:
     assert val_row is not None
     # Must be SQL NULL, not empty string
     assert val_row[0] is None
-
-
-# -- Edge case tests: TS-105-E5 Incomplete run detected on resume --------------
-
-
-def test_incomplete_run_resume(db_conn: duckdb.DuckDBPyConnection) -> None:
-    """TS-105-E5: Crashed run (status=running, completed_at=NULL) is detected.
-
-    Requirements: 105-REQ-4.E1
-    """
-    create_run(db_conn, "run_1", "hash_a")
-
-    # Simulate crash: run_1 still "running", completed_at is NULL
-    run = load_incomplete_run(db_conn)
-    assert run is not None
-    assert run.id == "run_1"
-    assert run.status == "running"
-
-    # Only one run row should exist
-    count_row = db_conn.sql("SELECT count(*) FROM runs").fetchone()
-    assert count_row is not None
-    assert count_row[0] == 1
 
 
 # -- Regression tests: issue #379 — empty plan_nodes must not block session/run loading ---

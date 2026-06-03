@@ -16,7 +16,6 @@ from agent_fox.engine.state import (  # noqa: F401
     SessionOutcomeRecord,
     complete_run,
     create_run,
-    load_execution_state,
     persist_node_status,
     record_session,
     update_run_totals,

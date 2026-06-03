@@ -366,21 +366,6 @@ def persist_node_status(
     )
 
 
-def load_execution_state(conn: duckdb.DuckDBPyConnection) -> dict[str, str]:
-    """Load node_states dict from plan_nodes for GraphSync initialization.
-
-    Returns a mapping of node_id -> status string.  Returns an empty dict
-    if the plan_nodes table is empty or the table does not exist.
-
-    Requirements: 105-REQ-1.E1, 105-REQ-1.E2
-    """
-    try:
-        rows = conn.sql("SELECT id, status FROM plan_nodes").fetchall()
-    except Exception:
-        return {}
-    return {row[0]: row[1] for row in rows}
-
-
 def reset_in_progress_nodes(conn: duckdb.DuckDBPyConnection) -> None:
     """Reset all in_progress nodes to pending (crash recovery on resume).
 
@@ -573,83 +558,3 @@ def run_cleanup_handler(
             run_id,
             exc_info=True,
         )
-
-
-def load_run(
-    conn: duckdb.DuckDBPyConnection,
-    run_id: str | None = None,
-) -> RunRecord | None:
-    """Load the most recent run, or a specific run by ID.
-
-    Requirements: 105-REQ-4.1
-    """
-    if run_id is not None:
-        row = conn.execute(
-            """
-            SELECT id, plan_content_hash, started_at, completed_at, status,
-                   total_input_tokens, total_output_tokens, total_cost, total_sessions
-            FROM runs WHERE id = ?
-            """,
-            [run_id],
-        ).fetchone()
-    else:
-        row = conn.sql(
-            """
-            SELECT id, plan_content_hash, started_at, completed_at, status,
-                   total_input_tokens, total_output_tokens, total_cost, total_sessions
-            FROM runs
-            ORDER BY started_at DESC
-            LIMIT 1
-            """
-        ).fetchone()
-
-    if row is None:
-        return None
-
-    return RunRecord(
-        id=row[0],
-        plan_content_hash=row[1],
-        started_at=_ts(row[2]) or "",
-        completed_at=_ts(row[3]),
-        status=row[4],
-        total_input_tokens=row[5],
-        total_output_tokens=row[6],
-        total_cost=row[7],
-        total_sessions=row[8],
-    )
-
-
-def load_incomplete_run(
-    conn: duckdb.DuckDBPyConnection,
-) -> RunRecord | None:
-    """Load the most recent run that has status='running' and no completed_at.
-
-    Used on orchestrator resume to detect a crashed run.
-
-    Requirements: 105-REQ-4.E1
-    """
-    row = conn.sql(
-        """
-        SELECT id, plan_content_hash, started_at, completed_at, status,
-               total_input_tokens, total_output_tokens, total_cost, total_sessions
-        FROM runs
-        WHERE status = 'running' AND completed_at IS NULL
-        ORDER BY started_at DESC
-        LIMIT 1
-        """
-    ).fetchone()
-
-    if row is None:
-        return None
-
-    return RunRecord(
-        id=row[0],
-        plan_content_hash=row[1],
-        started_at=_ts(row[2]) or "",
-        completed_at=_ts(row[3]),
-        status=row[4],
-        total_input_tokens=row[5],
-        total_output_tokens=row[6],
-        total_cost=row[7],
-        total_sessions=row[8],
-    )

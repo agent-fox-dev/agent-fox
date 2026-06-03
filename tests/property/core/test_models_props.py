@@ -16,14 +16,10 @@ from agent_fox.core.config import PricingConfig
 from agent_fox.core.errors import (
     AgentFoxError,
     ConfigError,
-    CostLimitError,
-    InitError,
     IntegrationError,
     KnowledgeStoreError,
     PlanError,
     SecurityError,
-    SessionError,
-    SessionTimeoutError,
     WorkspaceError,
 )
 from agent_fox.core.models import (
@@ -36,13 +32,9 @@ from agent_fox.core.models import (
 
 ALL_ERROR_CLASSES = [
     ConfigError,
-    InitError,
     PlanError,
-    SessionError,
     WorkspaceError,
     IntegrationError,
-    SessionTimeoutError,
-    CostLimitError,
     SecurityError,
     KnowledgeStoreError,
 ]
