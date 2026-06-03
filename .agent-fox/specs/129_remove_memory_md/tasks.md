@@ -22,8 +22,8 @@ wiring verification.
 
 ## Tasks
 
-- [ ] 1. Write failing spec tests
-  - [ ] 1.1 Create test file `tests/unit/test_remove_memory_md.py`
+- [x] 1. Write failing spec tests
+  - [x] 1.1 Create test file `tests/unit/test_remove_memory_md.py`
     - TS-129-1: file deleted from repo
     - TS-129-2: init does not create memory.md (integration, uses tmp_git_repo)
     - TS-129-3: _DOCS_MEMORY_CONTENT removed from init_project.py
@@ -35,16 +35,16 @@ wiring verification.
     - TS-129-9: no init tests for memory.md
     - _Test Spec: TS-129-1 through TS-129-9_
 
-  - [ ] 1.2 Create property and smoke tests
+  - [x] 1.2 Create property and smoke tests
     - TS-129-P1: no dangling references in any tracked file
     - TS-129-P2: init_project does not create memory.md
     - TS-129-SMOKE-1: full init without memory.md
     - _Test Spec: TS-129-P1, TS-129-P2, TS-129-SMOKE-1_
 
-  - [ ] 1.V Verify task group 1
-    - [ ] All spec tests exist and are syntactically valid
-    - [ ] All spec tests FAIL (red) -- no implementation yet
-    - [ ] No linter warnings introduced: `uv run ruff check agent_fox/`
+  - [x] 1.V Verify task group 1
+    - [x] All spec tests exist and are syntactically valid
+    - [x] All spec tests FAIL (red) -- no implementation yet
+    - [x] No linter warnings introduced: `uv run ruff check agent_fox/`
 
 - [ ] 2. Remove docs/memory.md and all references
   - [ ] 2.1 Delete the file
