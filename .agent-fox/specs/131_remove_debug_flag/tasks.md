@@ -28,8 +28,8 @@ updates (group 2), then wiring verification (group 3).
 
 ## Tasks
 
-- [ ] 1. Write failing spec tests
-  - [ ] 1.1 Create `tests/unit/cli/test_remove_debug.py`
+- [x] 1. Write failing spec tests
+  - [x] 1.1 Create `tests/unit/cli/test_remove_debug.py`
     - Test `--debug` not in help output (TS-131-1)
     - Test `--debug` rejected by Click (TS-131-2)
     - Test `run_code` rejects `debug` keyword (TS-131-3)
@@ -42,20 +42,20 @@ updates (group 2), then wiring verification (group 3).
     - Smoke test: dry-run conflict check without debug (TS-131-SMOKE-2)
     - _Test Spec: TS-131-1, TS-131-2, TS-131-3, TS-131-4, TS-131-7, TS-131-8, TS-131-9, TS-131-E1, TS-131-SMOKE-1, TS-131-SMOKE-2_
 
-  - [ ] 1.2 Create `tests/unit/knowledge/test_remove_debug_sink.py`
+  - [x] 1.2 Create `tests/unit/knowledge/test_remove_debug_sink.py`
     - Test `DuckDBSink` rejects `debug` keyword (TS-131-5)
     - Test `DuckDBSink` has no `_debug` attribute (TS-131-6)
     - Test `DuckDBSink` without `debug` records outcomes (TS-131-E2)
     - _Test Spec: TS-131-5, TS-131-6, TS-131-E2_
 
-  - [ ] 1.3 Create `tests/property/knowledge/test_remove_debug_props.py`
+  - [x] 1.3 Create `tests/property/knowledge/test_remove_debug_props.py`
     - Property test: DuckDB writes unchanged after removal (TS-131-P1)
     - _Test Spec: TS-131-P1_
 
-  - [ ] 1.V Verify task group 1
-    - [ ] All spec tests exist and are syntactically valid
-    - [ ] All spec tests FAIL (red) — no implementation yet
-    - [ ] No linter warnings introduced: `make lint`
+  - [x] 1.V Verify task group 1
+    - [x] All spec tests exist and are syntactically valid
+    - [x] All spec tests FAIL (red) — no implementation yet
+    - [x] No linter warnings introduced: `make lint`
 
 - [ ] 2. Remove `--debug` flag and update all references
   - [ ] 2.1 Remove `--debug` from CLI and dry-run conflict check
