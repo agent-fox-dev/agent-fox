@@ -92,42 +92,45 @@ tests. Group 3 is wiring verification.
     - [x] No linter warnings introduced: `uv run ruff check agent_fox/ tests/`
     - [x] Requirements 130-REQ-1.* through 130-REQ-8.1 acceptance criteria met
 
-- [ ] 3. Wiring verification
+- [x] 3. Wiring verification
 
-  - [ ] 3.1 Trace every execution path from design.md end-to-end
+  - [x] 3.1 Trace every execution path from design.md end-to-end
     - For each path, verify the entry point actually calls the next function
       in the chain (read the calling code, do not assume)
     - Confirm no function in the chain is a stub that was never replaced
     - Every path must be live in production code
     - _Requirements: all_
 
-  - [ ] 3.2 Verify return values propagate correctly
+  - [x] 3.2 Verify return values propagate correctly
     - For every function in this spec that returns data consumed by a caller,
       confirm the caller receives and uses the return value
     - _Requirements: all_
 
-  - [ ] 3.3 Run the integration smoke tests
+  - [x] 3.3 Run the integration smoke tests
     - All `TS-130-SMOKE-*` tests pass using real components (no stub bypass)
     - _Test Spec: TS-130-SMOKE-1, TS-130-SMOKE-2_
 
-  - [ ] 3.4 Stub / dead-code audit
+  - [x] 3.4 Stub / dead-code audit
     - Search all files touched by this spec for: `return []`, `return None`
       on non-Optional returns, `pass` in non-abstract methods, `# TODO`,
       `# stub`, `NotImplementedError`
     - Each hit must be either justified or replaced
     - Document any intentional stubs here with rationale
+    - Findings: 2 `return None` patterns found, both justified:
+      - `config_gen.py:196` — `_resolve_default()` returns `Any`, None is valid
+      - `test_config_dead_code_props.py:122` — `_get_config_model_by_name()` returns `type | None`
 
-  - [ ] 3.5 Cross-spec entry point verification
+  - [x] 3.5 Cross-spec entry point verification
     - Verify that no other spec references `ModelConfig`, `quality_gate`,
       `quality_gate_timeout`, or `QUALITY_GATE_RESULT` in their task or
       requirement files
     - _Requirements: all_
 
-  - [ ] 3.V Verify wiring group
-    - [ ] All smoke tests pass
-    - [ ] No unjustified stubs remain in touched files
-    - [ ] All execution paths from design.md are live (traceable in code)
-    - [ ] All existing tests still pass: `make check`
+  - [x] 3.V Verify wiring group
+    - [x] All smoke tests pass
+    - [x] No unjustified stubs remain in touched files
+    - [x] All execution paths from design.md are live (traceable in code)
+    - [x] All existing tests still pass: `make check`
 
 ## Traceability
 
