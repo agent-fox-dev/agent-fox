@@ -31,6 +31,34 @@ from agent_fox.knowledge.formatting import (
 
 logger = logging.getLogger(__name__)
 
+
+def _query_safe(query_fn, args, *, label: str, spec_name: str, default=None):
+    """Run a query function, returning *default* on any exception.
+
+    Centralises the try/except/log/return-empty pattern used by all
+    ``_query_*`` helpers.  The *query_fn* is called with ``*args`` inside
+    a broad ``except Exception`` handler; failures are logged at DEBUG
+    level (the table may simply not exist in a fresh database).
+
+    Args:
+        query_fn: Callable to invoke.
+        args: Positional arguments forwarded via ``query_fn(*args)``.
+        label: Human-readable label for the debug log message
+            (e.g. ``"review findings"``).
+        spec_name: Spec name included in the debug log message.
+        default: Value returned when *query_fn* raises.  Defaults to
+            ``[]``; callers that expect a tuple should pass an explicit
+            default such as ``([], [])``.
+    """
+    if default is None:
+        default = []
+    try:
+        return query_fn(*args)
+    except Exception:
+        logger.debug("Could not query %s for %s", label, spec_name)
+        return default
+
+
 # Re-export formatting helpers so existing importers of fox_provider
 # continue to work unchanged.
 __all__ = [
@@ -190,15 +218,12 @@ class FoxKnowledgeProvider:
 
         # Build a parallel list of (text, optional_id) so we can track which
         # finding/verdict IDs survive the max_items cap.
-        items_with_ids: list[tuple[str, str | None]] = []
-        for text, id_ in zip(reviews, review_ids):
-            items_with_ids.append((text, id_))
-        for text in errata:
-            items_with_ids.append((text, None))
-        for text in adrs:
-            items_with_ids.append((text, None))
-        for text, id_ in zip(verdicts, verdict_ids):
-            items_with_ids.append((text, id_))
+        items_with_ids: list[tuple[str, str | None]] = [
+            *zip(reviews, review_ids),
+            *((t, None) for t in errata),
+            *((t, None) for t in adrs),
+            *zip(verdicts, verdict_ids),
+        ]
 
         # Cross-group items: findings and FAIL verdicts from other task groups
         # in the same spec.  These are informational (not tracked for injection)
@@ -388,23 +413,18 @@ class FoxKnowledgeProvider:
         the ``if f.severity in (...)`` guard below is defense-in-depth and
         kept consistent with that filter (issue #553).
         """
-        try:
+        # Elevate pre-review (group 0) findings into primary review results
+        # when the session targets a non-zero task group so they are tracked
+        # via finding_injections and can be superseded (120-REQ-2.1, 120-REQ-2.2).
+        include_prereview = task_group is not None and task_group != "0"
+
+        def _do_query():
             from agent_fox.knowledge.review_store import query_active_findings
 
-            # Elevate pre-review (group 0) findings into primary review results
-            # when the session targets a non-zero task group so they are tracked
-            # via finding_injections and can be superseded (120-REQ-2.1, 120-REQ-2.2).
-            include_prereview = task_group is not None and task_group != "0"
-            findings = query_active_findings(
-                conn, spec_name, task_group=task_group, include_prereview=include_prereview
-            )
-        except Exception:
-            # Table may not exist in a fresh database (116-REQ-6.E1).
-            logger.debug(
-                "Could not query review findings for %s",
-                spec_name,
-            )
-            return [], []
+            return query_active_findings(conn, spec_name, task_group=task_group, include_prereview=include_prereview)
+
+        # Table may not exist in a fresh database (116-REQ-6.E1).
+        findings = _query_safe(_do_query, (), label="review findings", spec_name=spec_name)
 
         keywords = _extract_keywords(task_description)
         actionable = [f for f in findings if f.severity in ("critical", "major")]
@@ -435,20 +455,17 @@ class FoxKnowledgeProvider:
         ``finding_injections`` and are not expected to be "fixed" by the
         current session.
         """
-        try:
+        # Exclude pre-review (group 0) findings from cross-group results
+        # when the caller is not group 0 itself, since those findings are
+        # elevated into primary review results (120-REQ-2.3, 120-REQ-2.E2).
+        exclude_prereview = task_group != "0"
+
+        def _do_query():
             from agent_fox.knowledge.review_store import query_cross_group_findings
 
-            # Exclude pre-review (group 0) findings from cross-group results
-            # when the caller is not group 0 itself, since those findings are
-            # elevated into primary review results (120-REQ-2.3, 120-REQ-2.E2).
-            exclude_prereview = task_group != "0"
-            findings = query_cross_group_findings(conn, spec_name, task_group, exclude_prereview=exclude_prereview)
-        except Exception:
-            logger.debug(
-                "Could not query cross-group findings for %s",
-                spec_name,
-            )
-            return []
+            return query_cross_group_findings(conn, spec_name, task_group, exclude_prereview=exclude_prereview)
+
+        findings = _query_safe(_do_query, (), label="cross-group findings", spec_name=spec_name)
 
         keywords = _extract_keywords(task_description)
         actionable = [f for f in findings if f.severity in ("critical", "major")]
@@ -471,16 +488,13 @@ class FoxKnowledgeProvider:
         Returns formatted strings with a ``[CROSS-GROUP]`` prefix.  Only FAIL
         verdicts are returned — PASS verdicts are not actionable.
         """
-        try:
+
+        def _do_query():
             from agent_fox.knowledge.review_store import query_cross_group_verdicts
 
-            verdicts = query_cross_group_verdicts(conn, spec_name, task_group)
-        except Exception:
-            logger.debug(
-                "Could not query cross-group verdicts for %s",
-                spec_name,
-            )
-            return []
+            return query_cross_group_verdicts(conn, spec_name, task_group)
+
+        verdicts = _query_safe(_do_query, (), label="cross-group verdicts", spec_name=spec_name)
 
         keywords = _extract_keywords(task_description)
         fail_verdicts = [v for v in verdicts if v.verdict == "FAIL"]
@@ -501,17 +515,13 @@ class FoxKnowledgeProvider:
         Handles missing ``errata`` table gracefully by returning an
         empty list.
         """
-        try:
+
+        def _do_query():
             from agent_fox.knowledge.errata import format_errata_for_prompt, query_errata
 
-            errata = query_errata(conn, spec_name)
-            return format_errata_for_prompt(errata)
-        except Exception:
-            logger.debug(
-                "Could not query errata for %s",
-                spec_name,
-            )
-            return []
+            return format_errata_for_prompt(query_errata(conn, spec_name))
+
+        return _query_safe(_do_query, (), label="errata", spec_name=spec_name)
 
     def _query_adrs(
         self,
@@ -526,17 +536,13 @@ class FoxKnowledgeProvider:
 
         Requirements: 117-REQ-6.1, 117-REQ-6.3
         """
-        try:
+
+        def _do_query():
             from agent_fox.knowledge.adr import format_adrs_for_prompt, query_adrs
 
-            adrs = query_adrs(conn, spec_name, task_description)
-            return format_adrs_for_prompt(adrs)
-        except Exception:
-            logger.debug(
-                "Could not query ADRs for %s",
-                spec_name,
-            )
-            return []
+            return format_adrs_for_prompt(query_adrs(conn, spec_name, task_description))
+
+        return _query_safe(_do_query, (), label="ADRs", spec_name=spec_name)
 
     def _query_verdicts(
         self,
@@ -568,16 +574,13 @@ class FoxKnowledgeProvider:
 
         Requirements: 555-AC-1, 555-AC-2, 555-AC-3, 555-AC-4
         """
-        try:
+
+        def _do_query():
             from agent_fox.knowledge.review_store import query_active_verdicts
 
-            verdicts = query_active_verdicts(conn, spec_name, task_group=task_group)
-        except Exception:
-            logger.debug(
-                "Could not query verification verdicts for %s",
-                spec_name,
-            )
-            return [], []
+            return query_active_verdicts(conn, spec_name, task_group=task_group)
+
+        verdicts = _query_safe(_do_query, (), label="verification verdicts", spec_name=spec_name)
 
         keywords = _extract_keywords(task_description)
         fail_verdicts = [v for v in verdicts if v.verdict == "FAIL"]
@@ -611,16 +614,12 @@ class FoxKnowledgeProvider:
         if not run_id:
             return []
 
-        try:
+        def _do_query():
             from agent_fox.knowledge.summary_store import query_same_spec_summaries
 
-            records = query_same_spec_summaries(conn, spec_name, task_group, run_id)
-        except Exception:
-            logger.debug(
-                "Could not query same-spec summaries for %s",
-                spec_name,
-            )
-            return []
+            return query_same_spec_summaries(conn, spec_name, task_group, run_id)
+
+        records = _query_safe(_do_query, (), label="same-spec summaries", spec_name=spec_name)
 
         return [f"[CONTEXT] ({r.archetype}, group {r.task_group}, attempt {r.attempt}) {r.summary}" for r in records]
 
@@ -637,16 +636,12 @@ class FoxKnowledgeProvider:
         if not run_id:
             return []
 
-        try:
+        def _do_query():
             from agent_fox.knowledge.summary_store import query_cross_spec_summaries
 
-            records = query_cross_spec_summaries(conn, spec_name, run_id)
-        except Exception:
-            logger.debug(
-                "Could not query cross-spec summaries for %s",
-                spec_name,
-            )
-            return []
+            return query_cross_spec_summaries(conn, spec_name, run_id)
+
+        records = _query_safe(_do_query, (), label="cross-spec summaries", spec_name=spec_name)
 
         return [f"[CROSS-SPEC] ({r.spec_name}, group {r.task_group}) {r.summary}" for r in records]
 
@@ -680,31 +675,25 @@ class FoxKnowledgeProvider:
         result: list[str] = []
         prior_ids: set[str] = set()
 
-        try:
+        def _do_findings_query():
             from agent_fox.knowledge.review_store import query_prior_run_findings
 
-            findings = query_prior_run_findings(conn, spec_name, self._run_id, max_items=max_items)
-            for f in findings:
-                result.append(f"[PRIOR-RUN] (spec {spec_name}) {format_finding_parts(f)}")
-                prior_ids.add(f.id)
-        except Exception:
-            logger.debug(
-                "Could not query prior-run findings for %s",
-                spec_name,
-            )
+            return query_prior_run_findings(conn, spec_name, self._run_id, max_items=max_items)
 
-        try:
+        findings = _query_safe(_do_findings_query, (), label="prior-run findings", spec_name=spec_name)
+        for f in findings:
+            result.append(f"[PRIOR-RUN] (spec {spec_name}) {format_finding_parts(f)}")
+            prior_ids.add(f.id)
+
+        def _do_verdicts_query():
             from agent_fox.knowledge.review_store import query_prior_run_verdicts
 
-            verdicts = query_prior_run_verdicts(conn, spec_name, self._run_id, max_items=max_items)
-            for v in verdicts:
-                result.append(f"[PRIOR-RUN] (spec {spec_name}) {format_verdict_parts(v)}")
-                prior_ids.add(v.id)
-        except Exception:
-            logger.debug(
-                "Could not query prior-run verdicts for %s",
-                spec_name,
-            )
+            return query_prior_run_verdicts(conn, spec_name, self._run_id, max_items=max_items)
+
+        verdicts = _query_safe(_do_verdicts_query, (), label="prior-run verdicts", spec_name=spec_name)
+        for v in verdicts:
+            result.append(f"[PRIOR-RUN] (spec {spec_name}) {format_verdict_parts(v)}")
+            prior_ids.add(v.id)
 
         return result, prior_ids
 

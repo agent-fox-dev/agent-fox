@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import logging
 import warnings
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -411,18 +412,15 @@ def _build_task_summary(node_states: dict[str, str]) -> dict[str, int]:
 
     Requirements: 126-REQ-3.3
     """
-    counts: dict[str, int] = {
+    status_counts = Counter(node_states.values())
+    return {
         "total": len(node_states),
-        "completed": 0,
-        "pending": 0,
-        "blocked": 0,
-        "failed": 0,
-        "in_progress": 0,
+        "completed": status_counts.get("completed", 0),
+        "pending": status_counts.get("pending", 0),
+        "blocked": status_counts.get("blocked", 0),
+        "failed": status_counts.get("failed", 0),
+        "in_progress": status_counts.get("in_progress", 0),
     }
-    for status in node_states.values():
-        if status in counts:
-            counts[status] += 1
-    return counts
 
 
 def _build_blocked_tasks(
