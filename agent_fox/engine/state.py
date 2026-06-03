@@ -127,6 +127,8 @@ class ExecutionState:
     updated_at: str = ""  # ISO 8601
     run_status: str = "running"
     blocked_reasons: dict[str, str] = field(default_factory=dict)
+    run_id: str = ""             # Orchestrator run identifier (126-REQ-7.1)
+    postmortem_path: str = ""    # Path to post-mortem file, empty if none (126-REQ-1.1)
 
 
 # ---------------------------------------------------------------------------

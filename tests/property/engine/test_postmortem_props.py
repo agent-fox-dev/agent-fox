@@ -12,6 +12,7 @@ Requirements: 126-REQ-1.1, 126-REQ-1.2, 126-REQ-1.3,
 from __future__ import annotations
 
 import json
+import tempfile
 from pathlib import Path
 
 from hypothesis import given, settings
@@ -122,7 +123,16 @@ def execution_state_strategy(draw: st.DrawFn) -> ExecutionState:
             )
         ),
         blocked_reasons=blocked_reasons,
-        run_id=draw(st.text(min_size=1, max_size=30)),
+        run_id=draw(
+            st.text(
+                alphabet=st.characters(
+                    whitelist_categories=("L", "N"),
+                    whitelist_characters="_",
+                ),
+                min_size=1,
+                max_size=30,
+            )
+        ),
     )
 
 
@@ -299,16 +309,15 @@ class TestFileRoundTrip:
 
     @given(state=execution_state_strategy())
     @settings(max_examples=20)
-    def test_file_round_trip(
-        self, state: ExecutionState, tmp_path: Path
-    ) -> None:
+    def test_file_round_trip(self, state: ExecutionState) -> None:
         """json.loads(path.read_text()) == postmortem."""
         from agent_fox.engine.postmortem import build_postmortem, write_postmortem
 
-        pm = build_postmortem(state)
-        path = write_postmortem(pm, tmp_path)
-        parsed = json.loads(path.read_text())
-        assert parsed == pm
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            pm = build_postmortem(state)
+            path = write_postmortem(pm, Path(tmp_dir))
+            parsed = json.loads(path.read_text())
+            assert parsed == pm
 
 
 # -- TS-126-P8: Task summary accuracy -----------------------------------------

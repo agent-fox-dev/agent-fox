@@ -428,6 +428,7 @@ class Orchestrator:
                 run_status=RunStatus.COMPLETED,
                 started_at=datetime.now(UTC).isoformat(),
                 updated_at=datetime.now(UTC).isoformat(),
+                run_id=self._run_id,
             )
 
         self._graph = graph
@@ -435,6 +436,7 @@ class Orchestrator:
 
         plan_hash = self._compute_plan_hash()
         state = load_or_init_state(self._knowledge_db_conn, plan_hash, graph)
+        state.run_id = self._run_id  # 126-REQ-7.2
         is_fresh_start = state.total_sessions == 0 and not state.session_history
         reset_in_progress_tasks(state, self._knowledge_db_conn)
         if not is_fresh_start:

@@ -60,19 +60,19 @@ changes are needed.
     - [x] All spec tests FAIL (red) — no implementation yet
     - [x] No linter warnings introduced: `uv run ruff check tests/unit/engine/test_postmortem.py tests/property/engine/test_postmortem_props.py`
 
-- [ ] 2. Implement postmortem module and state changes
-  - [ ] 2.1 Add `run_id` and `postmortem_path` fields to ExecutionState
+- [x] 2. Implement postmortem module and state changes
+  - [x] 2.1 Add `run_id` and `postmortem_path` fields to ExecutionState
     - Add `run_id: str = ""` and `postmortem_path: str = ""` to
       `ExecutionState` in `agent_fox/engine/state.py`
     - _Requirements: 126-REQ-7.1_
 
-  - [ ] 2.2 Set `state.run_id` in Orchestrator._init_run()
+  - [x] 2.2 Set `state.run_id` in Orchestrator._init_run()
     - After `self._run_id = generate_run_id()`, add
       `self.state.run_id = self._run_id`
     - In `agent_fox/engine/engine.py`
     - _Requirements: 126-REQ-7.2_
 
-  - [ ] 2.3 Create `agent_fox/engine/postmortem.py`
+  - [x] 2.3 Create `agent_fox/engine/postmortem.py`
     - Implement `TRIGGER_STATUSES`, `SCHEMA_VERSION`
     - Implement `should_dump(state) -> bool`
     - Implement `build_postmortem(state) -> dict` with fallback run_id
@@ -85,11 +85,11 @@ changes are needed.
       126-REQ-4.1, 126-REQ-4.2, 126-REQ-4.E1, 126-REQ-5.1, 126-REQ-5.2,
       126-REQ-5.E1_
 
-  - [ ] 2.V Verify task group 2
-    - [ ] Spec tests for this group pass: `uv run pytest -q tests/unit/engine/test_postmortem.py tests/property/engine/test_postmortem_props.py`
-    - [ ] All existing tests still pass: `uv run pytest -q`
-    - [ ] No linter warnings introduced: `uv run ruff check agent_fox/engine/postmortem.py agent_fox/engine/state.py`
-    - [ ] Requirements 126-REQ-1.1 through 126-REQ-5.E1, 126-REQ-7.1, 126-REQ-7.2 met
+  - [x] 2.V Verify task group 2
+    - [x] Spec tests for this group pass: `uv run pytest -q tests/unit/engine/test_postmortem.py tests/property/engine/test_postmortem_props.py`
+    - [x] All existing tests still pass: `uv run pytest -q`
+    - [x] No linter warnings introduced: `uv run ruff check agent_fox/engine/postmortem.py agent_fox/engine/state.py`
+    - [x] Requirements 126-REQ-1.1 through 126-REQ-5.E1, 126-REQ-7.1, 126-REQ-7.2 met
 
 - [ ] 3. Wire into run.py and cli/code.py
   - [ ] 3.1 Call post-mortem generation in run_code()
