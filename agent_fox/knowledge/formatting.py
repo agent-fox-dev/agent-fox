@@ -12,6 +12,7 @@ Requirements: 116-REQ-6.1, 120-REQ-3.1, 120-REQ-3.2,
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any
 
 # Severity ordering for sorting — lower value = higher priority.
@@ -60,10 +61,7 @@ def generate_archetype_summary(
     if archetype == "reviewer":
         if not findings:
             return "Reviewer session completed with no findings."
-        severity_counts: dict[str, int] = {}
-        for f in findings:
-            sev = getattr(f, "severity", "unknown")
-            severity_counts[sev] = severity_counts.get(sev, 0) + 1
+        severity_counts = Counter(getattr(f, "severity", "unknown") for f in findings)
         # Build count string ordered by severity rank
         count_parts: list[str] = []
         for sev in ["critical", "major", "minor", "observation"]:

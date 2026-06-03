@@ -12,6 +12,7 @@ Requirements: 53-REQ-1.1, 53-REQ-2.1, 53-REQ-3.1,
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -66,10 +67,7 @@ def _emit_persistence_event(
             dispatch_key = f"reviewer:{mode}"
 
         if dispatch_key in ("skeptic", "reviewer:pre-review"):
-            severity_summary: dict[str, int] = {}
-            for r in records:
-                sev = r.severity
-                severity_summary[sev] = severity_summary.get(sev, 0) + 1
+            severity_summary: dict[str, int] = dict(Counter(r.severity for r in records))
             emit_audit_event(
                 sink,
                 run_id,
@@ -104,10 +102,7 @@ def _emit_persistence_event(
                 },
             )
         elif dispatch_key in ("oracle", "reviewer:drift-review"):
-            severity_summary = {}
-            for r in records:
-                sev = r.severity
-                severity_summary[sev] = severity_summary.get(sev, 0) + 1
+            severity_summary = dict(Counter(r.severity for r in records))
             emit_audit_event(
                 sink,
                 run_id,
