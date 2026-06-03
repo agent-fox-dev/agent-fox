@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, patch
 import duckdb
 import pytest
 
-from agent_fox.engine.preflight import (
+from agent_fox.engine.dispatch import (
     PreflightVerdict,
     has_active_critical_findings,
     is_task_group_done,
@@ -183,7 +183,7 @@ class TestRunPreflight:
         verdict = run_preflight("spec", 1, conn, tmp_path, tmp_path)
         assert verdict == PreflightVerdict.LAUNCH
 
-    @patch("agent_fox.engine.preflight.do_tests_pass", return_value=False)
+    @patch("agent_fox.engine.dispatch.do_tests_pass", return_value=False)
     def test_done_no_findings_tests_fail_returns_launch(
         self, _mock_tests: MagicMock, tmp_path: Path
     ) -> None:
@@ -192,7 +192,7 @@ class TestRunPreflight:
         verdict = run_preflight("spec", 1, conn, tmp_path, tmp_path)
         assert verdict == PreflightVerdict.LAUNCH
 
-    @patch("agent_fox.engine.preflight.do_tests_pass", return_value=True)
+    @patch("agent_fox.engine.dispatch.do_tests_pass", return_value=True)
     def test_all_gates_pass_returns_skip(
         self, _mock_tests: MagicMock, tmp_path: Path
     ) -> None:
@@ -201,7 +201,7 @@ class TestRunPreflight:
         verdict = run_preflight("spec", 1, conn, tmp_path, tmp_path)
         assert verdict == PreflightVerdict.SKIP
 
-    @patch("agent_fox.engine.preflight.do_tests_pass", return_value=True)
+    @patch("agent_fox.engine.dispatch.do_tests_pass", return_value=True)
     def test_short_circuits_on_first_failure(
         self, mock_tests: MagicMock, tmp_path: Path
     ) -> None:
