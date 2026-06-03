@@ -31,7 +31,7 @@ class TestLintSpecsReplacedLintSpec:
         with patch("agent_fox.cli.lint_specs.run_lint_specs") as mock_lint:
             from agent_fox.spec.lint import LintResult
 
-            mock_lint.return_value = LintResult(findings=[], fix_results=[], exit_code=0)
+            mock_lint.return_value = LintResult(findings=[], exit_code=0)
             result = cli_runner.invoke(main, ["lint-specs"])
 
         assert result.exit_code in (0, 1), f"Expected exit code 0 or 1, got {result.exit_code}. Output: {result.output}"
@@ -48,7 +48,7 @@ class TestLintSpecsAcceptsFlags:
         with patch("agent_fox.cli.lint_specs.run_lint_specs") as mock_lint:
             from agent_fox.spec.lint import LintResult
 
-            mock_lint.return_value = LintResult(findings=[], fix_results=[], exit_code=0)
+            mock_lint.return_value = LintResult(findings=[], exit_code=0)
             result = cli_runner.invoke(main, ["lint-specs", "--all"])
 
         assert "no such option" not in (result.output or "").lower(), f"Unexpected error: {result.output}"

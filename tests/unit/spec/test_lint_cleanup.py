@@ -129,10 +129,11 @@ class TestNoFixDispatch:
     def test_no_fix_dispatch_in_lint_py(self) -> None:
         """lint.py has no fix dispatch functions or fixer imports."""
         source = (_REPO_ROOT / "agent_fox" / "spec" / "lint.py").read_text()
+        _FIXERS_PKG = "agent_fox.spec." + "fixers"
         forbidden = [
             "_apply_ai_fixes",
             "_build_known_specs",
-            "agent_fox.spec.fixers",
+            _FIXERS_PKG,
         ]
         for name in forbidden:
             assert name not in source, (
@@ -214,7 +215,10 @@ class TestNoFixerImportsProperty:
     """
 
     def test_no_fixer_imports_in_tracked_files(self) -> None:
-        """No git-tracked .py file imports from agent_fox.spec.fixers."""
+        """No git-tracked .py file imports from the fixers package."""
+        # Use string concatenation so this test file itself does not
+        # contain the target string as a contiguous literal.
+        _FIXERS_PKG = "agent_fox.spec." + "fixers"
         result = subprocess.run(
             ["git", "ls-files"],
             capture_output=True,
@@ -231,10 +235,10 @@ class TestNoFixerImportsProperty:
             if not full_path.is_file():
                 continue
             content = full_path.read_text()
-            if "agent_fox.spec.fixers" in content:
+            if _FIXERS_PKG in content:
                 violations.append(rel_path)
         assert not violations, (
-            f"Files importing agent_fox.spec.fixers: {violations}"
+            f"Files importing from fixers package: {violations}"
         )
 
 

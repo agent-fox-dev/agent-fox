@@ -64,31 +64,6 @@ class TestRunLintSpecsStructuredResult:
         assert hasattr(result, "exit_code")
 
 
-class TestRunLintSpecsFixNoGit:
-    """TS-59-12: run_lint_specs(fix=True) does not create git commits.
-
-    Requirement: 59-REQ-3.3
-    """
-
-    def test_fix_does_not_invoke_git(self, tmp_path: Path) -> None:
-        """run_lint_specs(fix=True) applies fixes without git operations."""
-        from agent_fox.spec.lint import run_lint_specs
-
-        specs_dir = tmp_path / ".specs"
-        specs_dir.mkdir()
-
-        with patch("subprocess.run") as mock_run:
-            result = run_lint_specs(specs_dir, fix=True)
-
-        # Ensure no git commands were invoked
-        for call in mock_run.call_args_list:
-            args = call[0][0] if call[0] else call[1].get("args", [])
-            if isinstance(args, (list, tuple)) and len(args) > 0:
-                assert args[0] != "git", f"Unexpected git command: {args}"
-
-        assert hasattr(result, "fix_results")
-
-
 class TestRunLintSpecsMissingDir:
     """TS-59-13: run_lint_specs() raises PlanError on missing dir.
 
@@ -308,12 +283,12 @@ class TestCliHandlersPassOptions:
     """
 
     def test_lint_specs_passes_named_args(self) -> None:
-        """lint-specs handler passes ai/fix/lint_all as named params."""
+        """lint-specs handler passes ai/lint_all as named params."""
         from agent_fox.cli import lint_specs as lint_mod
 
         source = inspect.getsource(lint_mod)
         assert "run_lint_specs(" in source
         # Check that at least some keyword args are passed
-        assert "ai=" in source or "fix=" in source or "lint_all=" in source, (
+        assert "ai=" in source or "lint_all=" in source, (
             "lint-specs handler must pass options as keyword arguments"
         )

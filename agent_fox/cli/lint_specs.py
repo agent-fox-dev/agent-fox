@@ -2,7 +2,7 @@
 
 Thin CLI handler that delegates to the backing module at
 agent_fox.spec.lint. Contains only argument parsing, output
-formatting, git operations, and exit code mapping.
+formatting, and exit code mapping.
 
 Requirements: 59-REQ-1.3, 59-REQ-1.4, 59-REQ-9.1, 59-REQ-9.2
 """
@@ -11,13 +11,11 @@ from __future__ import annotations
 
 import json
 import logging
-from collections import Counter
-from datetime import UTC, datetime
 from pathlib import Path
 
 import click
 
-from agent_fox.core.errors import AgentFoxError, PlanError
+from agent_fox.core.errors import PlanError
 from agent_fox.spec.lint import run_lint_specs
 from agent_fox.spec.validators import (
     SEVERITY_ERROR,
@@ -25,15 +23,14 @@ from agent_fox.spec.validators import (
     SEVERITY_WARNING,
     Finding,
 )
-from agent_fox.workspace.git import run_git_sync
 
 logger = logging.getLogger(__name__)
 
 
 _SEVERITY_MARKERS = {
-    SEVERITY_ERROR: "\u2717",  # ✗
-    SEVERITY_WARNING: "\u26a0",  # ⚠
-    SEVERITY_HINT: "\u2139",  # ℹ
+    SEVERITY_ERROR: "✗",  # ✗
+    SEVERITY_WARNING: "⚠",  # ⚠
+    SEVERITY_HINT: "ℹ",  # ℹ
 }
 
 
@@ -56,7 +53,7 @@ def _format_table(findings: list[Finding]) -> str:
         return "No findings.\n"
 
     lines: list[str] = []
-    lines.append(f"Spec Validation \u2014 {len(findings)} findings")
+    lines.append(f"Spec Validation — {len(findings)} findings")
 
     specs_seen: list[str] = []
     grouped: dict[str, list[Finding]] = {}
@@ -75,7 +72,7 @@ def _format_table(findings: list[Finding]) -> str:
             loc = f.file
             if f.line is not None:
                 loc = f"{f.file}:{f.line}"
-            lines.append(f"  {marker} {loc}  {f.rule} \u2014 {f.message}")
+            lines.append(f"  {marker} {loc}  {f.rule} — {f.message}")
 
     summary = _build_summary(findings)
     parts = []
@@ -115,53 +112,12 @@ def _format_json(findings: list[Finding]) -> str:
     return json.dumps(data, indent=2)
 
 
-def _format_fix_summary(fix_results: list) -> str:
-    """Format a summary of applied fixes for stderr output."""
-    counts: Counter[str] = Counter()
-    for r in fix_results:
-        counts[r.rule] += 1
-
-    parts = [f"{count} {rule}" for rule, count in sorted(counts.items())]
-    return f"Fixed: {', '.join(parts)}"
-
-
-def _git_current_branch() -> str:
-    """Return the name of the current git branch."""
-    _, out, _ = run_git_sync(["rev-parse", "--abbrev-ref", "HEAD"], cwd=Path.cwd(), check=True)
-    return out.strip()
-
-
-def _create_fix_branch() -> str:
-    """Create and checkout a feature branch for lint-specs fixes."""
-    ts = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
-    branch = f"lint-spec/fix-{ts}"
-    run_git_sync(["checkout", "-b", branch], cwd=Path.cwd(), check=True)
-    return branch
-
-
-def _commit_fixes(fix_summary: str, specs_dir: Path | None = None) -> None:
-    """Stage spec directory changes and commit with a descriptive message."""
-    cwd = Path.cwd()
-    run_git_sync(["add", str(specs_dir) + "/" if specs_dir else ".specs/"], cwd=cwd, check=True)
-    run_git_sync(
-        ["commit", "-m", f"fix(specs): lint-spec auto-fix\n\n{fix_summary}"],
-        cwd=cwd,
-        check=True,
-    )
-
-
 @click.command("lint-specs")
 @click.option(
     "--ai",
     is_flag=True,
     default=False,
     help="Enable AI-powered semantic analysis of acceptance criteria.",
-)
-@click.option(
-    "--fix",
-    is_flag=True,
-    default=False,
-    help="Automatically fix mechanically fixable findings.",
 )
 @click.option(
     "--all",
@@ -171,7 +127,7 @@ def _commit_fixes(fix_summary: str, specs_dir: Path | None = None) -> None:
     help="Lint all specs, including fully-implemented ones.",
 )
 @click.pass_context
-def lint_specs_cmd(ctx: click.Context, ai: bool, fix: bool, lint_all: bool) -> None:
+def lint_specs_cmd(ctx: click.Context, ai: bool, lint_all: bool) -> None:
     """Validate specification files for structural and quality problems."""
     json_mode = ctx.obj.get("json", False)
     output_format = "json" if json_mode else "table"
@@ -184,38 +140,11 @@ def lint_specs_cmd(ctx: click.Context, ai: bool, fix: bool, lint_all: bool) -> N
     specs_dir = resolve_spec_root(_config, project_root)
 
     try:
-        result = run_lint_specs(specs_dir, ai=ai, fix=fix, lint_all=lint_all)
+        result = run_lint_specs(specs_dir, ai=ai, lint_all=lint_all)
     except PlanError as exc:
         click.echo(f"Error: {exc}", err=True)
         ctx.exit(1)
         return
-
-    # Handle git operations for --fix (CLI-specific concern)
-    if fix and result.fix_results:
-        summary = _format_fix_summary(result.fix_results)
-        click.echo(summary, err=True)
-
-        try:
-            original_branch = _git_current_branch()
-            branch = _create_fix_branch()
-            _commit_fixes(summary, specs_dir=specs_dir)
-            run_git_sync(["checkout", original_branch], cwd=Path.cwd(), check=True)
-            click.echo(
-                f"Fixes committed to branch '{branch}'. "
-                f"Review and merge when ready:\n"
-                f"  git diff {original_branch}..{branch}\n"
-                f"  git merge {branch}",
-                err=True,
-            )
-        except AgentFoxError as exc:
-            logger.warning(
-                "Failed to commit fixes to branch: %s",
-                exc,
-            )
-            click.echo(
-                "Warning: fixes applied but could not be committed to a branch. Changes are in your working tree.",
-                err=True,
-            )
 
     # Output results
     if output_format == "json":

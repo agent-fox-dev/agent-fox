@@ -56,12 +56,12 @@ and group 3 (additive).
     - [x] All spec tests FAIL (red) -- no implementation yet
     - [x] No linter warnings introduced: `uv run ruff check agent_fox/`
 
-- [ ] 2. Remove --fix flag and all fix code
-  - [ ] 2.1 Delete the fixers package
+- [x] 2. Remove --fix flag and all fix code
+  - [x] 2.1 Delete the fixers package
     - Delete the entire `agent_fox/spec/fixers/` directory (8 modules)
     - _Requirements: 127-REQ-1.4_
 
-  - [ ] 2.2 Remove fix code from backing module
+  - [x] 2.2 Remove fix code from backing module
     - Remove `fix` parameter from `run_lint_specs()` signature and body
     - Remove `fix_results` field from `LintResult`
     - Remove `_apply_ai_fixes`, `_apply_ai_fixes_async`, `_build_known_specs`
@@ -69,7 +69,7 @@ and group 3 (additive).
     - Remove fixer-related imports
     - _Requirements: 127-REQ-1.2, 127-REQ-1.3, 127-REQ-3.1, 127-REQ-3.2_
 
-  - [ ] 2.3 Remove fix code from CLI handler
+  - [x] 2.3 Remove fix code from CLI handler
     - Remove `--fix` Click option
     - Remove `fix` parameter from `lint_specs_cmd()`
     - Remove `_format_fix_summary`, `_git_current_branch`,
@@ -78,7 +78,7 @@ and group 3 (additive).
     - Remove fix-related output logic (git branch handling)
     - _Requirements: 127-REQ-1.1, 127-REQ-2.1, 127-REQ-2.2_
 
-  - [ ] 2.4 Remove fix-related tests
+  - [x] 2.4 Remove fix-related tests
     - Delete `tests/integration/test_lint_fix.py`
     - Update `tests/unit/cli/test_backing_modules.py` to remove `fix=True`
       from `run_lint_specs()` calls
@@ -86,11 +86,11 @@ and group 3 (additive).
       `--fix` flag
     - _Requirements: 127-REQ-1.1 through 127-REQ-3.2_
 
-  - [ ] 2.V Verify task group 2
-    - [ ] Spec tests TS-127-1 through TS-127-6, TS-127-E1, TS-127-P1 pass
-    - [ ] All existing tests still pass: `uv run pytest -q`
-    - [ ] No linter warnings introduced: `uv run ruff check agent_fox/`
-    - [ ] 127-REQ-1.1 through 127-REQ-3.2 acceptance criteria met
+  - [x] 2.V Verify task group 2
+    - [x] Spec tests TS-127-1 through TS-127-6, TS-127-E1, TS-127-P1 pass
+    - [x] All existing tests still pass: `uv run pytest -q`
+    - [x] No linter warnings introduced: `uv run ruff check agent_fox/`
+    - [x] 127-REQ-1.1 through 127-REQ-3.2 acceptance criteria met
 
 - [ ] 3. Add progress display
   - [ ] 3.1 Add progress callback to run_lint_specs
