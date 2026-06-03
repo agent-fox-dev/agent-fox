@@ -25,22 +25,22 @@ tests. Group 3 is wiring verification.
 
 ## Tasks
 
-- [ ] 1. Write failing spec tests
-  - [ ] 1.1 Create `tests/unit/core/test_config_dead_code_removal.py`
+- [x] 1. Write failing spec tests
+  - [x] 1.1 Create `tests/unit/core/test_config_dead_code_removal.py`
     - Unit tests TS-130-1 through TS-130-13 (field absence, metadata absence, template checks)
     - Edge case tests TS-130-E1 through TS-130-E4 (old configs parse silently)
     - Integration smoke tests TS-130-SMOKE-1 and TS-130-SMOKE-2
     - _Test Spec: TS-130-1 through TS-130-13, TS-130-E1 through TS-130-E4, TS-130-SMOKE-1, TS-130-SMOKE-2_
 
-  - [ ] 1.2 Create `tests/property/core/test_config_dead_code_props.py`
+  - [x] 1.2 Create `tests/property/core/test_config_dead_code_props.py`
     - Property test TS-130-P1 (silent ignore of old config keys)
     - Property test TS-130-P2 (metadata keys match real fields)
     - _Test Spec: TS-130-P1, TS-130-P2_
 
-  - [ ] 1.V Verify task group 1
-    - [ ] All spec tests exist and are syntactically valid
-    - [ ] All spec tests FAIL (red) — no implementation yet
-    - [ ] No linter warnings introduced: `uv run ruff check tests/unit/core/test_config_dead_code_removal.py tests/property/core/test_config_dead_code_props.py`
+  - [x] 1.V Verify task group 1
+    - [x] All spec tests exist and are syntactically valid
+    - [x] All spec tests FAIL (red) — no implementation yet
+    - [x] No linter warnings introduced: `uv run ruff check tests/unit/core/test_config_dead_code_removal.py tests/property/core/test_config_dead_code_props.py`
 
 - [ ] 2. Remove dead config code, metadata, and documentation
   - [ ] 2.1 Remove fields from `agent_fox/core/config.py`
