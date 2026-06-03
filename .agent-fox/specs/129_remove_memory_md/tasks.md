@@ -85,36 +85,36 @@ wiring verification.
     - [x] No linter warnings introduced: `uv run ruff check agent_fox/`
     - [x] 129-REQ-1.1 through 129-REQ-6.1 acceptance criteria met
 
-- [ ] 3. Wiring verification
+- [x] 3. Wiring verification
 
-  - [ ] 3.1 Trace every execution path from design.md end-to-end
+  - [x] 3.1 Trace every execution path from design.md end-to-end
     - Path 1: init_cmd -> init_project -> _ensure_seed_files (verify memory.md
       is not created)
     - _Requirements: all_
 
-  - [ ] 3.2 Verify no dangling references
+  - [x] 3.2 Verify no dangling references
     - Run the TS-129-P1 property test (grep all tracked files)
     - Confirm no file outside audits/specs references docs/memory.md
     - _Requirements: 129-REQ-6.1_
 
-  - [ ] 3.3 Run the integration smoke tests
+  - [x] 3.3 Run the integration smoke tests
     - TS-129-SMOKE-1 passes
     - _Test Spec: TS-129-SMOKE-1_
 
-  - [ ] 3.4 Stub / dead-code audit
+  - [x] 3.4 Stub / dead-code audit
     - Verify no orphaned imports or dead branches from the removal
     - Check if `_ensure_seed_files` is now empty and can be removed
     - _Requirements: all_
 
-  - [ ] 3.5 Cross-spec entry point verification
+  - [x] 3.5 Cross-spec entry point verification
     - Verify `init_project()` still works end-to-end without memory.md creation
     - _Requirements: all_
 
-  - [ ] 3.V Verify wiring group
-    - [ ] All smoke tests pass
-    - [ ] No unjustified stubs remain in touched files
-    - [ ] All execution paths from design.md are live
-    - [ ] All existing tests still pass: `uv run pytest -q`
+  - [x] 3.V Verify wiring group
+    - [x] All smoke tests pass
+    - [x] No unjustified stubs remain in touched files
+    - [x] All execution paths from design.md are live
+    - [x] All existing tests still pass: `uv run pytest -q`
 
 ## Traceability
 
