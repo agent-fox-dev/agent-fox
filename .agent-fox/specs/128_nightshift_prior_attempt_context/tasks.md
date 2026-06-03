@@ -61,8 +61,8 @@ the pipeline, group 4 verifies end-to-end.
     - [x] All spec tests FAIL (red) -- no implementation yet
     - [x] No linter warnings introduced: `uv run ruff check agent_fox/`
 
-- [ ] 2. Implement query and format functions
-  - [ ] 2.1 Create `agent_fox/nightshift/prior_attempts.py`
+- [x] 2. Implement query and format functions
+  - [x] 2.1 Create `agent_fox/nightshift/prior_attempts.py`
     - Define `PriorAttempt` dataclass
     - Implement `query_prior_attempts(conn, spec_name, current_run_id, max_results=3)`
     - SQL: CTE with ROW_NUMBER() OVER (PARTITION BY run_id ORDER BY created_at DESC)
@@ -70,18 +70,18 @@ the pipeline, group 4 verifies end-to-end.
     - Wrap in try/except, log warning on failure, return []
     - _Requirements: 128-REQ-1.1, 128-REQ-1.2, 128-REQ-1.3, 128-REQ-1.E1, 128-REQ-1.E2_
 
-  - [ ] 2.2 Implement `format_prior_attempts(attempts)`
+  - [x] 2.2 Implement `format_prior_attempts(attempts)`
     - Return empty string for empty list
     - Render `## Prior Fix Attempts` heading
     - Numbered entries with date, status, model, truncated error
     - Truncate error_message to 500 chars with `...` marker
     - _Requirements: 128-REQ-2.1, 128-REQ-2.2, 128-REQ-2.3_
 
-  - [ ] 2.V Verify task group 2
-    - [ ] Spec tests TS-128-1 through TS-128-6, TS-128-E1 through TS-128-E3,
+  - [x] 2.V Verify task group 2
+    - [x] Spec tests TS-128-1 through TS-128-6, TS-128-E1 through TS-128-E3,
           TS-128-P1 through TS-128-P5 pass
-    - [ ] All existing tests still pass: `uv run pytest -q`
-    - [ ] No linter warnings introduced: `uv run ruff check agent_fox/`
+    - [x] All existing tests still pass: `uv run pytest -q`
+    - [x] No linter warnings introduced: `uv run ruff check agent_fox/`
 
 - [ ] 3. Wire into fix pipeline
   - [ ] 3.1 Add `prior_context` parameter to `_build_coder_prompt()`
