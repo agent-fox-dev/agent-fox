@@ -98,7 +98,7 @@ def _setup_infrastructure(
 
     Requirements: 108-REQ-5.1
     """
-    from agent_fox.core.paths import AUDIT_DIR
+    from agent_fox.core.node_id import AUDIT_DIR
     from agent_fox.engine.session_lifecycle import NodeSessionRunner
     from agent_fox.nightshift.platform_factory import create_platform_safe
 
@@ -293,7 +293,7 @@ async def run_code(
             )
 
             if should_dump(state):
-                from agent_fox.core.paths import AUDIT_DIR
+                from agent_fox.core.node_id import AUDIT_DIR
 
                 pm = build_postmortem(state)
                 pm_path = write_postmortem(pm, AUDIT_DIR)

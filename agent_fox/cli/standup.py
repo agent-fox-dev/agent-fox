@@ -17,7 +17,7 @@ import click
 from rich.console import Console
 
 from agent_fox.cli import handle_agent_fox_errors
-from agent_fox.core.paths import DEFAULT_DB_PATH
+from agent_fox.core.node_id import DEFAULT_DB_PATH
 from agent_fox.reporting.formatters import (
     OutputFormat,
     get_formatter,

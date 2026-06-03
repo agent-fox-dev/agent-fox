@@ -330,7 +330,7 @@ class NodeSessionRunner:
         Returns the parsed JSON dict or None if the file is absent or
         cannot be parsed.
         """
-        from agent_fox.core.paths import AGENT_FOX_DIR, SESSION_SUMMARY_FILENAME
+        from agent_fox.core.node_id import AGENT_FOX_DIR, SESSION_SUMMARY_FILENAME
 
         summary_path = workspace.path / AGENT_FOX_DIR / SESSION_SUMMARY_FILENAME
         if not summary_path.exists():
@@ -353,7 +353,7 @@ class NodeSessionRunner:
         stale files from leaking into the working directory when worktree
         cleanup is skipped or fails.
         """
-        from agent_fox.core.paths import AGENT_FOX_DIR, SESSION_SUMMARY_FILENAME
+        from agent_fox.core.node_id import AGENT_FOX_DIR, SESSION_SUMMARY_FILENAME
 
         summary_path = workspace.path / AGENT_FOX_DIR / SESSION_SUMMARY_FILENAME
         try:
@@ -633,7 +633,7 @@ class NodeSessionRunner:
         Requirements: 27-REQ-3.1, 113-REQ-1.1, 113-REQ-1.E1, 113-REQ-1.E2
         """
         # 113-REQ-1.1: Reconstruct full transcript from agent trace JSONL
-        from agent_fox.core.paths import AUDIT_DIR
+        from agent_fox.core.node_id import AUDIT_DIR
         from agent_fox.knowledge.agent_trace import reconstruct_transcript
 
         audit_dir = getattr(self, "_audit_dir", None) or AUDIT_DIR

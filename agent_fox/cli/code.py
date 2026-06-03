@@ -133,7 +133,7 @@ def _handle_dry_run(config: object, json_mode: bool, specs_dir: str | None) -> N
     """
     from agent_fox.cli.plan import _edge_to_dict, _metadata_to_dict, _node_to_dict
     from agent_fox.core.config import resolve_spec_root
-    from agent_fox.core.paths import DEFAULT_DB_PATH
+    from agent_fox.core.node_id import DEFAULT_DB_PATH
     from agent_fox.graph.analyzer import compute_phases, critical_path, group_edges
     from agent_fox.graph.planner import format_plan_analysis
     from agent_fox.graph.types import NodeStatus
@@ -341,7 +341,7 @@ def code_cmd(
         json_io.read_stdin()
 
     # 16-REQ-1.E1: check plan exists in DB
-    from agent_fox.core.paths import DEFAULT_DB_PATH
+    from agent_fox.core.node_id import DEFAULT_DB_PATH
 
     if not DEFAULT_DB_PATH.exists():
         _err_msg = "No plan found. Run `agent-fox plan` first to generate a plan."

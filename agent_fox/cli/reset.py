@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 
 import click
 
-from agent_fox.core.paths import AGENT_FOX_DIR, DEFAULT_DB_PATH
+from agent_fox.core.node_id import AGENT_FOX_DIR, DEFAULT_DB_PATH
 from agent_fox.engine.reset import (
     HardResetResult,
     ResetResult,
