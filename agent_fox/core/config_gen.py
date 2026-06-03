@@ -29,31 +29,12 @@ logger = logging.getLogger(__name__)
 # Schema types, metadata, and Pydantic model introspection
 # ---------------------------------------------------------------------------
 
-# Hardcoded bounds map: (model_class_name, field_name) -> bounds string.
-# Bounds are encoded in field_validator functions using _clamp() and cannot
-# be extracted programmatically without source inspection. This map is
-# simpler and sufficient since bounds rarely change.
-_BOUNDS_MAP: dict[tuple[str, str], str] = {
-    # OrchestratorConfig
-    ("OrchestratorConfig", "parallel"): "1-8",
-    ("OrchestratorConfig", "sync_interval"): ">=0",
-    ("OrchestratorConfig", "max_retries"): ">=0",
-    ("OrchestratorConfig", "session_timeout"): ">=1",
-    ("OrchestratorConfig", "inter_session_delay"): ">=0",
-    ("OrchestratorConfig", "watch_interval"): ">=10",
-    # RoutingConfig
-    ("RoutingConfig", "retries_before_escalation"): "0-3",
-    ("RoutingConfig", "max_timeout_retries"): ">=0",
-    ("RoutingConfig", "timeout_multiplier"): ">=1.0",
-    ("RoutingConfig", "timeout_ceiling_factor"): ">=1.0",
-    # ArchetypeInstancesConfig
-    ("ArchetypeInstancesConfig", "reviewer"): "1-5",
+# Bounds for fields whose constraints cannot be introspected from Clamped
+# annotations (e.g. custom field_validators). All other bounds are derived
+# automatically from the Clamped metadata on the field's type annotation.
+_BOUNDS_MAP_OVERRIDES: dict[tuple[str, str], str] = {
     ("ArchetypeInstancesConfig", "verifier"): "1",
-    # ReviewerConfig
-    ("ReviewerConfig", "pre_review_block_threshold"): ">=0",
     ("ReviewerConfig", "drift_review_block_threshold"): ">=1 or None",
-    ("ReviewerConfig", "audit_min_ts_entries"): ">=1",
-    ("ReviewerConfig", "audit_max_retries"): ">=0",
 }
 
 # Sections that appear in the simplified config template (active or commented).
@@ -88,67 +69,6 @@ _PROMOTED_DEFAULTS: set[tuple[str, str]] = {
 # Requirements: 68-REQ-2.1, 68-REQ-2.2, 68-REQ-2.4, 68-REQ-2.5
 _PROMOTED_DEFAULTS_OVERRIDES: dict[tuple[str, str], object] = {
     ("orchestrator", "max_budget_usd"): 8.0,
-}
-
-# Default descriptions for fields that lack description metadata.
-# Keyed by (model_class_name, field_name).
-# Requirements: 68-REQ-3.1, 68-REQ-3.2, 68-REQ-3.3
-_DEFAULT_DESCRIPTIONS: dict[tuple[str, str], str] = {
-    # OrchestratorConfig
-    ("OrchestratorConfig", "parallel"): "Maximum parallel sessions",
-    ("OrchestratorConfig", "sync_interval"): "Sync interval in task groups",
-    ("OrchestratorConfig", "hot_load"): "Hot-load specs between sessions",
-    ("OrchestratorConfig", "max_retries"): "Maximum retries per task group",
-    ("OrchestratorConfig", "session_timeout"): "Session timeout in minutes",
-    ("OrchestratorConfig", "inter_session_delay"): "Delay between sessions in seconds",
-    ("OrchestratorConfig", "max_cost"): "Maximum cost limit",
-    ("OrchestratorConfig", "max_sessions"): "Maximum number of sessions",
-    ("OrchestratorConfig", "max_blocked_fraction"): ("Stop run when this fraction of nodes are blocked"),
-    ("OrchestratorConfig", "max_budget_usd"): ("Per-session budget cap in USD (0 = unlimited)"),
-    # RoutingConfig
-    ("RoutingConfig", "retries_before_escalation"): "Retries before model escalation",
-    ("RoutingConfig", "max_timeout_retries"): (
-        "Maximum timeout retries before falling through to escalation (0 = disable)"
-    ),
-    ("RoutingConfig", "timeout_multiplier"): (
-        "Factor by which max_turns and session_timeout are extended on timeout retry (>=1.0)"
-    ),
-    ("RoutingConfig", "timeout_ceiling_factor"): (
-        "Maximum session_timeout as a factor of the original configured value (>=1.0)"
-    ),
-    # SecurityConfig
-    ("SecurityConfig", "bash_allowlist"): "Allowed bash commands",
-    ("SecurityConfig", "bash_allowlist_extend"): "Additional allowed bash commands",
-    # ThemeConfig
-    ("ThemeConfig", "playful"): "Enable playful output style",
-    ("ThemeConfig", "header"): "Header text style",
-    ("ThemeConfig", "success"): "Success text style",
-    ("ThemeConfig", "error"): "Error text style",
-    ("ThemeConfig", "warning"): "Warning text style",
-    ("ThemeConfig", "info"): "Info text style",
-    ("ThemeConfig", "tool"): "Tool text style",
-    ("ThemeConfig", "muted"): "Muted text style",
-    # PlatformConfig
-    ("PlatformConfig", "type"): "Platform type (none or github)",
-    ("PlatformConfig", "url"): "Issue tracker URL — overrides default for type",
-    # KnowledgeConfig
-    ("KnowledgeConfig", "store_path"): "Path to knowledge store",
-    # ArchetypesConfig
-    ("ArchetypesConfig", "coder"): "Enable coder archetype",
-    ("ArchetypesConfig", "reviewer"): (
-        "Enable reviewer archetype (pre-review, drift-review, audit-review, fix-review modes)"
-    ),
-    ("ArchetypesConfig", "verifier"): ("Post-code verification — runs tests, checks correctness"),
-    ("ArchetypesConfig", "models"): "Per-archetype model overrides",
-    ("ArchetypesConfig", "allowlists"): "Per-archetype command allowlists",
-    # ArchetypeInstancesConfig
-    ("ArchetypeInstancesConfig", "reviewer"): "Number of reviewer instances",
-    ("ArchetypeInstancesConfig", "verifier"): "Verifier instances (clamped to 1)",
-    # ReviewerConfig
-    ("ReviewerConfig", "pre_review_block_threshold"): "Finding count to block merge for pre-review",
-    ("ReviewerConfig", "drift_review_block_threshold"): "Drift count to block (None = advisory)",
-    ("ReviewerConfig", "audit_min_ts_entries"): ("Minimum TS entries to trigger audit-review injection"),
-    ("ReviewerConfig", "audit_max_retries"): "Maximum audit-review/coder retry iterations",
 }
 
 
@@ -245,17 +165,33 @@ def _is_nested_model(annotation: Any) -> bool:
 
 
 def _get_description(model_class: type[BaseModel], field_name: str, field_info: FieldInfo) -> str:
-    """Get description for a field from metadata or fallback map."""
+    """Get description for a field from Field metadata or fallback."""
     if field_info.description:
         return field_info.description
-    key = (model_class.__name__, field_name)
-    return _DEFAULT_DESCRIPTIONS.get(key, field_name.replace("_", " ").title())
+    return field_name.replace("_", " ").title()
 
 
 def _get_bounds(model_class: type[BaseModel], field_name: str) -> str | None:
-    """Get bounds string for a field from the hardcoded map."""
+    """Derive bounds string from Clamped annotations or the override map."""
+    from agent_fox.core.config import Clamped
+
     key = (model_class.__name__, field_name)
-    return _BOUNDS_MAP.get(key)
+    override = _BOUNDS_MAP_OVERRIDES.get(key)
+    if override is not None:
+        return override
+
+    field_info = model_class.model_fields.get(field_name)
+    if field_info is None:
+        return None
+    for meta in field_info.metadata:
+        if isinstance(meta, Clamped):
+            if meta.ge is not None and meta.le is not None:
+                return f"{meta.ge}-{meta.le}"
+            if meta.ge is not None:
+                return f">={meta.ge}"
+            if meta.le is not None:
+                return f"<={meta.le}"
+    return None
 
 
 def extract_schema(model: type[BaseModel], prefix: str = "") -> list[SectionSpec]:
