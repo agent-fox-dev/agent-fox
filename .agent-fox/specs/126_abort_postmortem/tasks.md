@@ -110,9 +110,9 @@ changes are needed.
     - [x] No linter warnings introduced: `uv run ruff check agent_fox/engine/run.py agent_fox/cli/code.py`
     - [x] Requirements 126-REQ-6.1, 126-REQ-6.2 met
 
-- [ ] 4. Wiring verification
+- [x] 4. Wiring verification
 
-  - [ ] 4.1 Trace every execution path from design.md end-to-end
+  - [x] 4.1 Trace every execution path from design.md end-to-end
     - For each path, verify the entry point actually calls the next function
       in the chain (read the calling code, do not assume)
     - Confirm no function in the chain is a stub (`return []`, `return None`,
@@ -121,17 +121,17 @@ changes are needed.
       satisfy this check
     - _Requirements: all_
 
-  - [ ] 4.2 Verify return values propagate correctly
+  - [x] 4.2 Verify return values propagate correctly
     - For every function in this spec that returns data consumed by a caller,
       confirm the caller receives and uses the return value
     - Grep for callers of each such function; confirm none discards the return
     - _Requirements: all_
 
-  - [ ] 4.3 Run the integration smoke tests
+  - [x] 4.3 Run the integration smoke tests
     - All `TS-126-SMOKE-*` tests pass using real components (no stub bypass)
     - _Test Spec: TS-126-SMOKE-1 through TS-126-SMOKE-3_
 
-  - [ ] 4.4 Stub / dead-code audit
+  - [x] 4.4 Stub / dead-code audit
     - Search all files touched by this spec for: `return []`, `return None`
       on non-Optional returns, `pass` in non-abstract methods, `# TODO`,
       `# stub`, `override point`, `NotImplementedError`
@@ -139,7 +139,7 @@ changes are needed.
       is intentional, or (b) replaced with a real implementation
     - Document any intentional stubs here with rationale
 
-  - [ ] 4.5 Cross-spec entry point verification
+  - [x] 4.5 Cross-spec entry point verification
     - Verify `postmortem.should_dump()` is called from `run.py`
     - Verify `postmortem.build_postmortem()` is called from `run.py`
     - Verify `postmortem.write_postmortem()` is called from `run.py`
@@ -147,12 +147,12 @@ changes are needed.
     - Verify `state.postmortem_path` is checked in `cli/code.py`
     - _Requirements: all_
 
-  - [ ] 4.V Verify wiring group
-    - [ ] All smoke tests pass
-    - [ ] No unjustified stubs remain in touched files
-    - [ ] All execution paths from design.md are live (traceable in code)
-    - [ ] All cross-spec entry points are called from production code
-    - [ ] All existing tests still pass: `uv run pytest -q`
+  - [x] 4.V Verify wiring group
+    - [x] All smoke tests pass
+    - [x] No unjustified stubs remain in touched files
+    - [x] All execution paths from design.md are live (traceable in code)
+    - [x] All cross-spec entry points are called from production code
+    - [x] All existing tests still pass: `uv run pytest -q`
 
 ## Traceability
 
