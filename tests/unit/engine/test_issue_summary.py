@@ -27,7 +27,7 @@ class TestParseSourceUrl:
 
         Requirements: 108-REQ-1.1, 108-REQ-1.2
         """
-        from agent_fox.engine.issue_summary import SourceIssue, parse_source_url
+        from agent_fox.engine.engine import SourceIssue, parse_source_url
 
         prd_path = tmp_path / "prd.md"
         prd_path.write_text("# PRD\n\n## Source\n\nSource: https://github.com/agent-fox-dev/agent-fox/issues/359\n")
@@ -46,7 +46,7 @@ class TestParseSourceUrl:
 
         Requirements: 108-REQ-1.E3
         """
-        from agent_fox.engine.issue_summary import parse_source_url
+        from agent_fox.engine.engine import parse_source_url
 
         prd_path = tmp_path / "prd.md"  # does not exist
         assert not prd_path.exists()
@@ -60,7 +60,7 @@ class TestParseSourceUrl:
 
         Requirements: 108-REQ-1.E1
         """
-        from agent_fox.engine.issue_summary import parse_source_url
+        from agent_fox.engine.engine import parse_source_url
 
         prd_path = tmp_path / "prd.md"
         prd_path.write_text("# PRD\n\nNo source section here.\n\n## Overview\n\nSome text.\n")
@@ -74,7 +74,7 @@ class TestParseSourceUrl:
 
         Requirements: 108-REQ-1.E2
         """
-        from agent_fox.engine.issue_summary import parse_source_url
+        from agent_fox.engine.engine import parse_source_url
 
         prd_path = tmp_path / "prd.md"
         prd_path.write_text("## Source\n\nSource: Input provided by user via interactive prompt\n")
@@ -89,7 +89,7 @@ class TestParseSourceUrl:
         Requirements: 108-REQ-1.3
         Each variant returns either SourceIssue or None; nothing raises.
         """
-        from agent_fox.engine.issue_summary import SourceIssue, parse_source_url
+        from agent_fox.engine.engine import SourceIssue, parse_source_url
 
         # Variant 1: missing file
         missing = tmp_path / "nonexistent.md"
@@ -134,7 +134,7 @@ class TestParseSourceUrlEdgeCases:
 
         Requirements: 108-REQ-1.E1
         """
-        from agent_fox.engine.issue_summary import parse_source_url
+        from agent_fox.engine.engine import parse_source_url
 
         prd_path = tmp_path / "prd.md"
         prd_path.write_text("# PRD\n\n## Source\n\nThis section has text but no 'Source:' prefix line.\n")
@@ -148,7 +148,7 @@ class TestParseSourceUrlEdgeCases:
 
         Requirements: 108-REQ-1.1
         """
-        from agent_fox.engine.issue_summary import SourceIssue, parse_source_url
+        from agent_fox.engine.engine import SourceIssue, parse_source_url
 
         prd_path = tmp_path / "prd.md"
         prd_path.write_text(
@@ -181,7 +181,7 @@ class TestBuildSummaryComment:
 
         Requirements: 108-REQ-3.1, 108-REQ-3.2, 108-REQ-3.3, 108-REQ-3.4
         """
-        from agent_fox.engine.issue_summary import build_summary_comment
+        from agent_fox.engine.engine import build_summary_comment
 
         spec_name = "108_issue_session_summary"
         commit_sha = "abc123def"
@@ -202,7 +202,7 @@ class TestBuildSummaryComment:
 
         Requirements: 108-REQ-3.1, 108-REQ-3.2, 108-REQ-3.4
         """
-        from agent_fox.engine.issue_summary import build_summary_comment
+        from agent_fox.engine.engine import build_summary_comment
 
         spec_name = "my_spec"
         commit_sha = "sha123"
@@ -253,7 +253,7 @@ class TestPostIssueSummaries:
 
         Requirements: 108-REQ-4.1, 108-REQ-2.1, 108-REQ-2.2
         """
-        from agent_fox.engine.issue_summary import post_issue_summaries
+        from agent_fox.engine.engine import post_issue_summaries
 
         spec_name = "108_my_spec"
         specs_dir = tmp_path / "specs"
@@ -284,7 +284,7 @@ class TestPostIssueSummaries:
 
         Requirements: 108-REQ-2.E1
         """
-        from agent_fox.engine.issue_summary import post_issue_summaries
+        from agent_fox.engine.engine import post_issue_summaries
 
         spec_name = "108_my_spec"
         specs_dir = tmp_path / "specs"
@@ -310,7 +310,7 @@ class TestPostIssueSummaries:
 
         Requirements: 108-REQ-1.E1, 108-REQ-1.E2
         """
-        from agent_fox.engine.issue_summary import post_issue_summaries
+        from agent_fox.engine.engine import post_issue_summaries
 
         spec_name = "108_my_spec"
         specs_dir = tmp_path / "specs"
@@ -340,7 +340,7 @@ class TestPostIssueSummaries:
 
         Requirements: 108-REQ-4.E1
         """
-        from agent_fox.engine.issue_summary import post_issue_summaries
+        from agent_fox.engine.engine import post_issue_summaries
 
         spec_name = "108_my_spec"
         specs_dir = tmp_path / "specs"
@@ -380,7 +380,7 @@ class TestPostIssueSummariesForgeMismatch:
 
         Requirements: 108-REQ-4.E2
         """
-        from agent_fox.engine.issue_summary import post_issue_summaries
+        from agent_fox.engine.engine import post_issue_summaries
 
         spec_name = "108_my_spec"
         specs_dir = tmp_path / "specs"
@@ -428,7 +428,7 @@ class TestGetDevelopHead:
 
         Requirements: 108-REQ-6.1
         """
-        from agent_fox.engine.issue_summary import _get_develop_head
+        from agent_fox.engine.engine import _get_develop_head
 
         mock_result = MagicMock()
         mock_result.returncode = 0
@@ -444,7 +444,7 @@ class TestGetDevelopHead:
 
         Requirements: 108-REQ-6.E1
         """
-        from agent_fox.engine.issue_summary import _get_develop_head
+        from agent_fox.engine.engine import _get_develop_head
 
         mock_result = MagicMock()
         mock_result.returncode = 1
