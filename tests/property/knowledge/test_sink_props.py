@@ -47,8 +47,7 @@ class TestToolTelemetryAlwaysOnInvariant:
     """TS-11-P4: Tool telemetry always-on invariant (fixes #282).
 
     For any N tool calls and M tool errors (1 <= N, M <= 10), tool_calls
-    and tool_errors tables contain exactly N and M rows respectively,
-    regardless of the debug flag value.
+    and tool_errors tables contain exactly N and M rows respectively.
 
     Property 5 from design.md (updated: always-on replaces debug-gating).
     """
@@ -58,32 +57,11 @@ class TestToolTelemetryAlwaysOnInvariant:
         m=st.integers(min_value=1, max_value=10),
     )
     @settings(max_examples=20)
-    def test_tool_signals_written_when_debug_false(self, n: int, m: int) -> None:
-        """N tool calls and M errors produce exactly N+M rows with debug=False (AC-3)."""
+    def test_tool_signals_written(self, n: int, m: int) -> None:
+        """N tool calls and M errors produce exactly N and M rows."""
         conn = duckdb.connect(":memory:")
         create_schema(conn)
-        sink = DuckDBSink(conn, debug=False)
-
-        for _ in range(n):
-            sink.record_tool_call(ToolCall(tool_name="test"))
-        for _ in range(m):
-            sink.record_tool_error(ToolError(tool_name="test"))
-
-        assert conn.execute("SELECT COUNT(*) FROM tool_calls").fetchone()[0] == n  # type: ignore[index]
-        assert conn.execute("SELECT COUNT(*) FROM tool_errors").fetchone()[0] == m  # type: ignore[index]
-
-        conn.close()
-
-    @given(
-        n=st.integers(min_value=1, max_value=10),
-        m=st.integers(min_value=1, max_value=10),
-    )
-    @settings(max_examples=20)
-    def test_tool_signals_written_when_debug_true(self, n: int, m: int) -> None:
-        """N tool calls and M errors produce exactly N+M rows with debug=True."""
-        conn = duckdb.connect(":memory:")
-        create_schema(conn)
-        sink = DuckDBSink(conn, debug=True)
+        sink = DuckDBSink(conn)
 
         for _ in range(n):
             sink.record_tool_call(ToolCall(tool_name="test"))

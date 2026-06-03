@@ -1,4 +1,4 @@
-"""DuckDB sink: session outcomes (always-on), tool signals (debug-only).
+"""DuckDB sink: session outcomes and tool signals (always-on).
 
 Requirements: 11-REQ-5.1, 11-REQ-5.2, 11-REQ-5.3, 11-REQ-5.4, 11-REQ-5.E1,
               38-REQ-3.1, 40-REQ-5.1, 40-REQ-5.2
@@ -20,20 +20,15 @@ logger = logging.getLogger("agent_fox.knowledge.duckdb_sink")
 class DuckDBSink:
     """SessionSink implementation backed by DuckDB.
 
-    Session outcomes and tool signals are always written.
-    The ``debug`` parameter is retained for API compatibility but is no
-    longer used to gate tool telemetry writes (fixes #282).
+    Session outcomes and tool signals are always written unconditionally.
     DuckDB errors propagate to the caller (38-REQ-3.1).
     """
 
     def __init__(
         self,
         conn: duckdb.DuckDBPyConnection,
-        *,
-        debug: bool = False,
     ) -> None:
         self._conn = conn
-        self._debug = debug  # retained for API compatibility
 
     def record_session_outcome(self, outcome: SessionOutcome) -> None:
         """Insert a single row into session_outcomes.

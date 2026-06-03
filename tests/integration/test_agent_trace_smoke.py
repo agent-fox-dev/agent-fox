@@ -6,7 +6,7 @@ Requirements: 103-REQ-1.1, 103-REQ-2.1, 103-REQ-3.1, 103-REQ-4.1, 103-REQ-6.1,
 
 Execution Paths:
   Path 1 (SMOKE-1): _execute_query → AgentTraceSink → agent_{run_id}.jsonl
-  Path 2 (SMOKE-2): _setup_infrastructure(debug=True) → no .agent-fox/*.jsonl files
+  Path 2 (SMOKE-2): _setup_infrastructure → no .agent-fox/*.jsonl files
 """
 
 from __future__ import annotations
@@ -73,7 +73,7 @@ class MockBackend:
 
 
 class TestFullSessionTrace:
-    """TS-103-SMOKE-1: Full session with debug=True produces a correctly ordered trace.
+    """TS-103-SMOKE-1: Full session produces a correctly ordered trace.
 
     Execution Path 1 from design.md.
     Requirements: 103-REQ-1.1, 103-REQ-2.1, 103-REQ-3.1, 103-REQ-4.1, 103-REQ-6.1
@@ -171,14 +171,14 @@ class TestFullSessionTrace:
 
 
 class TestNoLegacyTraceFiles:
-    """TS-103-SMOKE-2: With debug=True, no files created at .agent-fox/*.jsonl.
+    """TS-103-SMOKE-2: No files created at .agent-fox/*.jsonl.
 
     Execution Path 2 from design.md.
     Requirements: 103-REQ-7.2, 103-REQ-7.3
 
-    Verifies that with debug=True, the infrastructure registers AgentTraceSink
-    (not JsonlSink) and all trace output goes to .agent-fox/audit/agent_*.jsonl,
-    never to .agent-fox/{timestamp}_{session_id}.jsonl.
+    Verifies that the infrastructure registers AgentTraceSink (not JsonlSink)
+    and all trace output goes to .agent-fox/audit/agent_*.jsonl, never to
+    .agent-fox/{timestamp}_{session_id}.jsonl.
     """
 
     def test_no_legacy_trace_files(self, tmp_path: Path) -> None:
@@ -212,7 +212,7 @@ class TestNoLegacyTraceFiles:
         )
 
     def test_setup_infrastructure_registers_agent_trace_sink_not_jsonl_sink(self, tmp_path: Path) -> None:
-        """With debug=True, _setup_infrastructure uses AgentTraceSink, not JsonlSink.
+        """_setup_infrastructure uses AgentTraceSink, not JsonlSink.
 
         Verifies that no JsonlSink instance is created in the SinkDispatcher.
         This test checks the registration logic introduced in task group 3.
@@ -233,9 +233,7 @@ class TestNoLegacyTraceFiles:
             from agent_fox.knowledge.jsonl_sink import JsonlSink  # type: ignore[import]
 
             jsonl_sinks = [s for s in dispatcher._sinks if isinstance(s, JsonlSink)]
-            assert len(jsonl_sinks) == 0, (
-                "JsonlSink must not be registered when debug=True (replaced by AgentTraceSink)"
-            )
+            assert len(jsonl_sinks) == 0, "JsonlSink must not be registered (replaced by AgentTraceSink)"
         except ImportError:
             # Expected state after group 3: module is gone
             pass

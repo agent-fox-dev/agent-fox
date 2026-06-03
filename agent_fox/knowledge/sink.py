@@ -73,11 +73,11 @@ class SessionSink(Protocol):
         ...
 
     def record_tool_call(self, call: ToolCall) -> None:
-        """Record a tool invocation. May be a no-op in non-debug mode."""
+        """Record a tool invocation (always-on)."""
         ...
 
     def record_tool_error(self, error: ToolError) -> None:
-        """Record a tool error. May be a no-op in non-debug mode."""
+        """Record a tool error (always-on)."""
         ...
 
     def emit_audit_event(self, event: AuditEvent) -> None:

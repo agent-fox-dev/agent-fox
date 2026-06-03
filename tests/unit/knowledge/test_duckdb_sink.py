@@ -25,9 +25,9 @@ class TestDuckDBSinkRecordsSessionOutcome:
     Requirements: 11-REQ-5.1, 11-REQ-5.2
     """
 
-    def test_records_outcome_with_debug_false(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
-        """Verify outcome is written even with debug=False."""
-        sink = DuckDBSink(knowledge_conn, debug=False)
+    def test_records_outcome(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
+        """Verify outcome is written unconditionally."""
+        sink = DuckDBSink(knowledge_conn)
 
         outcome = SessionOutcome(
             spec_name="test_spec",
@@ -46,44 +46,18 @@ class TestDuckDBSinkRecordsSessionOutcome:
         assert rows[0][0] == "test_spec"
         assert rows[0][1] == "completed"
 
-    def test_records_outcome_with_debug_true(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
-        """Verify outcome is written with debug=True."""
-        sink = DuckDBSink(knowledge_conn, debug=True)
-
-        outcome = SessionOutcome(
-            spec_name="debug_spec",
-            status="failed",
-        )
-        sink.record_session_outcome(outcome)
-
-        rows = knowledge_conn.execute("SELECT spec_name, status FROM session_outcomes").fetchall()
-        assert len(rows) == 1
-        assert rows[0][0] == "debug_spec"
-        assert rows[0][1] == "failed"
-
 
 class TestDuckDBSinkToolTelemetryAlwaysOn:
-    """AC-3, AC-4: DuckDB sink records tool signals regardless of debug flag.
+    """AC-3, AC-4: DuckDB sink records tool signals unconditionally.
 
     Requirements: 11-REQ-5.3, 11-REQ-5.4 (superseded by fix #282)
 
-    Tool telemetry is now always-on. The ``debug`` parameter is retained
-    for API compatibility but no longer gates tool_calls / tool_errors writes.
+    Tool telemetry is always-on.
     """
 
-    def test_tool_calls_written_when_debug_false(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
-        """Verify tool_calls and tool_errors ARE written even with debug=False (AC-3, AC-4)."""
-        sink = DuckDBSink(knowledge_conn, debug=False)
-
-        sink.record_tool_call(ToolCall(tool_name="bash"))
-        sink.record_tool_error(ToolError(tool_name="bash"))
-
-        assert knowledge_conn.execute("SELECT COUNT(*) FROM tool_calls").fetchone()[0] == 1  # type: ignore[index]
-        assert knowledge_conn.execute("SELECT COUNT(*) FROM tool_errors").fetchone()[0] == 1  # type: ignore[index]
-
-    def test_tool_calls_written_when_debug_true(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
-        """Verify tool_calls and tool_errors are written when debug=True."""
-        sink = DuckDBSink(knowledge_conn, debug=True)
+    def test_tool_calls_and_errors_written(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
+        """Verify tool_calls and tool_errors are written unconditionally."""
+        sink = DuckDBSink(knowledge_conn)
 
         sink.record_tool_call(ToolCall(tool_name="bash"))
         sink.record_tool_error(ToolError(tool_name="bash"))
@@ -93,7 +67,7 @@ class TestDuckDBSinkToolTelemetryAlwaysOn:
 
     def test_tool_name_is_persisted(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
         """Verify tool_name is correctly stored in the tool_calls row."""
-        sink = DuckDBSink(knowledge_conn, debug=False)
+        sink = DuckDBSink(knowledge_conn)
 
         sink.record_tool_call(ToolCall(tool_name="Read"))
 
@@ -111,7 +85,7 @@ class TestDuckDBSinkMultipleTouchedPaths:
 
     def test_creates_one_row_for_multiple_paths(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
         """Verify 3 touched paths produce exactly 1 row with comma-delimited touched_path (AC-1, AC-2)."""
-        sink = DuckDBSink(knowledge_conn, debug=False)
+        sink = DuckDBSink(knowledge_conn)
 
         outcome = SessionOutcome(
             spec_name="multi",
@@ -126,7 +100,7 @@ class TestDuckDBSinkMultipleTouchedPaths:
 
     def test_no_metric_duplication_for_multiple_paths(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
         """Verify duration/token sums are not inflated when multiple files are touched (AC-4)."""
-        sink = DuckDBSink(knowledge_conn, debug=False)
+        sink = DuckDBSink(knowledge_conn)
 
         outcome = SessionOutcome(
             spec_name="metrics",
@@ -148,7 +122,7 @@ class TestDuckDBSinkMultipleTouchedPaths:
         import uuid
 
         some_uuid = uuid.uuid4()
-        sink = DuckDBSink(knowledge_conn, debug=False)
+        sink = DuckDBSink(knowledge_conn)
 
         outcome = SessionOutcome(
             id=some_uuid,
@@ -179,7 +153,7 @@ class TestDuckDBSinkWriteFailurePropagates:
         """Verify write to closed connection raises (38-REQ-3.1)."""
         conn = duckdb.connect(":memory:")
         create_schema(conn)
-        sink = DuckDBSink(conn, debug=False)
+        sink = DuckDBSink(conn)
         conn.close()  # force failure
 
         with pytest.raises(duckdb.ConnectionException):
@@ -189,7 +163,7 @@ class TestDuckDBSinkWriteFailurePropagates:
         """Verify tool call on closed connection raises (38-REQ-3.1)."""
         conn = duckdb.connect(":memory:")
         create_schema(conn)
-        sink = DuckDBSink(conn, debug=False)  # always-on; debug flag irrelevant
+        sink = DuckDBSink(conn)
         conn.close()
 
         with pytest.raises(duckdb.ConnectionException):
@@ -199,7 +173,7 @@ class TestDuckDBSinkWriteFailurePropagates:
         """Verify tool error on closed connection raises (38-REQ-3.1)."""
         conn = duckdb.connect(":memory:")
         create_schema(conn)
-        sink = DuckDBSink(conn, debug=False)  # always-on; debug flag irrelevant
+        sink = DuckDBSink(conn)
         conn.close()
 
         with pytest.raises(duckdb.ConnectionException):
@@ -214,7 +188,7 @@ class TestDuckDBSinkEmptyTouchedPaths:
 
     def test_empty_paths_creates_one_null_row(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
         """Verify empty touched_paths creates one row with NULL touched_path."""
-        sink = DuckDBSink(knowledge_conn, debug=False)
+        sink = DuckDBSink(knowledge_conn)
 
         sink.record_session_outcome(SessionOutcome(status="failed", touched_paths=[]))
 

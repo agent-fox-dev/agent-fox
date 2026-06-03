@@ -57,8 +57,8 @@ updates (group 2), then wiring verification (group 3).
     - [x] All spec tests FAIL (red) — no implementation yet
     - [x] No linter warnings introduced: `make lint`
 
-- [ ] 2. Remove `--debug` flag and update all references
-  - [ ] 2.1 Remove `--debug` from CLI and dry-run conflict check
+- [x] 2. Remove `--debug` flag and update all references
+  - [x] 2.1 Remove `--debug` from CLI and dry-run conflict check
     - Remove `@click.option("--debug", ...)` decorator from `code_cmd` in `agent_fox/cli/code.py`
     - Remove `debug` parameter from `code_cmd` function signature
     - Remove `debug=debug` from `_check_dry_run_conflicts(...)` call
@@ -66,26 +66,26 @@ updates (group 2), then wiring verification (group 3).
     - Remove `debug` parameter from `_check_dry_run_conflicts` function signature and body
     - _Requirements: 131-REQ-1.1, 131-REQ-1.2, 131-REQ-1.3, 131-REQ-1.E1, 131-REQ-3.1_
 
-  - [ ] 2.2 Remove `debug` from engine and sink
+  - [x] 2.2 Remove `debug` from engine and sink
     - Remove `debug` parameter from `run_code()` signature and docstring in `engine/run.py`
     - Remove `debug` parameter from `_setup_infrastructure()` signature in `engine/run.py`
     - Remove `debug=debug` from `DuckDBSink(...)` call in `_setup_infrastructure()`
     - Remove `debug` parameter from `DuckDBSink.__init__()` and `self._debug` in `knowledge/duckdb_sink.py`
     - _Requirements: 131-REQ-2.1, 131-REQ-2.2, 131-REQ-2.3_
 
-  - [ ] 2.3 Update stale docstrings
+  - [x] 2.3 Update stale docstrings
     - Update `DuckDBSink` class docstring to remove debug references (131-REQ-4.1)
     - Update `duckdb_sink.py` module docstring: "debug-only" → "always-on" (131-REQ-4.2)
     - Update `SessionSink.record_tool_call()` docstring to remove "non-debug mode" (131-REQ-4.3)
     - Update `SessionSink.record_tool_error()` docstring to remove "non-debug mode" (131-REQ-4.4)
     - _Requirements: 131-REQ-4.1, 131-REQ-4.2, 131-REQ-4.3, 131-REQ-4.4_
 
-  - [ ] 2.4 Update documentation
+  - [x] 2.4 Update documentation
     - Remove `--debug` row from `docs/cli-reference.md` options table (131-REQ-4.5)
     - Remove `--debug` from dry-run mutual exclusion paragraph in `docs/cli-reference.md` (131-REQ-4.6)
     - _Requirements: 131-REQ-4.5, 131-REQ-4.6_
 
-  - [ ] 2.5 Update existing tests
+  - [x] 2.5 Update existing tests
     - Remove `TestDebugFlag` class from `tests/unit/cli/test_code.py`
     - Remove `TestMutualExclusionDebug` class from `tests/unit/cli/test_code_dry_run.py`
     - Update `TestMultipleIncompatibleFlags` in `tests/unit/cli/test_code_dry_run.py`:
@@ -109,11 +109,11 @@ updates (group 2), then wiring verification (group 3).
       remove `debug=True` references from module docstring, class docstrings,
       and test method docstrings
 
-  - [ ] 2.V Verify task group 2
-    - [ ] Spec tests for this group pass: `uv run pytest -q tests/unit/cli/test_remove_debug.py tests/unit/knowledge/test_remove_debug_sink.py tests/property/knowledge/test_remove_debug_props.py`
-    - [ ] All existing tests still pass: `uv run pytest -q`
-    - [ ] No linter warnings introduced: `make lint`
-    - [ ] Requirements 131-REQ-1.1 through 131-REQ-4.6 acceptance criteria met
+  - [x] 2.V Verify task group 2
+    - [x] Spec tests for this group pass: `uv run pytest -q tests/unit/cli/test_remove_debug.py tests/unit/knowledge/test_remove_debug_sink.py tests/property/knowledge/test_remove_debug_props.py`
+    - [x] All existing tests still pass: `uv run pytest -q`
+    - [x] No linter warnings introduced: `make lint`
+    - [x] Requirements 131-REQ-1.1 through 131-REQ-4.6 acceptance criteria met
 
 - [ ] 3. Wiring verification
 

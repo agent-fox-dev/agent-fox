@@ -275,20 +275,6 @@ class TestMutualExclusionWatch:
         assert "--watch" in result.output
 
 
-class TestMutualExclusionDebug:
-    """TS-123-6: Mutual exclusion with --debug.
-
-    Requirement: 123-REQ-2.1
-    """
-
-    def test_dry_run_debug_rejected(self, cli_runner: CliRunner) -> None:
-        """--dry-run --debug exits with code 1 and error message."""
-        result = cli_runner.invoke(main, ["code", "--dry-run", "--debug"])
-
-        assert result.exit_code == 1
-        assert "--debug" in result.output
-
-
 class TestMutualExclusionForceClean:
     """TS-123-8: Mutual exclusion with --force-clean.
 
@@ -479,12 +465,12 @@ class TestMultipleIncompatibleFlags:
     """
 
     def test_multiple_flags_listed(self, cli_runner: CliRunner) -> None:
-        """--dry-run --watch --debug lists all incompatible flags."""
-        result = cli_runner.invoke(main, ["code", "--dry-run", "--watch", "--debug"])
+        """--dry-run --watch --force-clean lists all incompatible flags."""
+        result = cli_runner.invoke(main, ["code", "--dry-run", "--watch", "--force-clean"])
 
         assert result.exit_code == 1
         assert "--watch" in result.output
-        assert "--debug" in result.output
+        assert "--force-clean" in result.output
 
 
 class TestEmptyPlanJsonDryRun:
@@ -622,9 +608,9 @@ class TestPropertyMutualExclusion:
         "flags",
         [
             combo
-            for r in range(1, 4)
+            for r in range(1, 3)
             for combo in combinations(
-                ["--watch", "--debug", "--force-clean"],
+                ["--watch", "--force-clean"],
                 r,
             )
         ],

@@ -88,7 +88,6 @@ def _apply_overrides(
 def _setup_infrastructure(
     config: AgentFoxConfig,
     *,
-    debug: bool = False,
     activity_callback: ActivityCallback | None = None,
 ) -> dict[str, Any]:
     """Set up knowledge DB, sinks, and other infrastructure.
@@ -106,7 +105,7 @@ def _setup_infrastructure(
     # Create DuckDB sink for session outcome recording
     sink_dispatcher = SinkDispatcher()
     knowledge_db = open_knowledge_store(config.knowledge)
-    sink_dispatcher.add(DuckDBSink(knowledge_db.connection, debug=debug))
+    sink_dispatcher.add(DuckDBSink(knowledge_db.connection))
 
     # Attach agent trace sink unconditionally so that trace-based transcript
     # reconstruction is available for knowledge extraction (113-REQ-1.1).
@@ -168,7 +167,6 @@ async def run_code(
     *,
     max_cost: float | None = None,
     max_sessions: int | None = None,
-    debug: bool = False,
     watch: bool = False,
     watch_interval: int | None = None,
     specs_dir: Path | None = None,
@@ -184,7 +182,6 @@ async def run_code(
 
     Args:
         config: Loaded AgentFoxConfig.
-        debug: Enable debug audit trail.
         watch: Keep running and poll for new specs.
         watch_interval: Seconds between watch polls.
         specs_dir: Path to specs directory (default: .specs).
@@ -217,7 +214,6 @@ async def run_code(
     try:
         infra = _setup_infrastructure(
             config,
-            debug=debug,
             activity_callback=activity_callback,
         )
     except Exception:

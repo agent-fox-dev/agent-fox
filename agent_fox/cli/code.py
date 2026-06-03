@@ -235,13 +235,12 @@ def _handle_dry_run(config: object, json_mode: bool, specs_dir: str | None) -> N
 
 def _check_dry_run_conflicts(
     dry_run: bool,
-    debug: bool,
     watch: bool,
     force_clean: bool,
 ) -> list[str]:
     """Return list of flag names incompatible with --dry-run, or empty list.
 
-    Requirements: 123-REQ-2.1, 123-REQ-2.E1
+    Requirements: 123-REQ-2.1, 123-REQ-2.E1, 131-REQ-3.1
     """
     if not dry_run:
         return []
@@ -249,20 +248,12 @@ def _check_dry_run_conflicts(
     conflicts: list[str] = []
     if watch:
         conflicts.append("--watch")
-    if debug:
-        conflicts.append("--debug")
     if force_clean:
         conflicts.append("--force-clean")
     return conflicts
 
 
 @click.command("code")
-@click.option(
-    "--debug",
-    is_flag=True,
-    default=False,
-    help="Enable debug audit trail (JSONL + DuckDB tool signals)",
-)
 @click.option(
     "--specs-dir",
     type=click.Path(),
@@ -296,7 +287,6 @@ def _check_dry_run_conflicts(
 @click.pass_context
 def code_cmd(
     ctx: click.Context,
-    debug: bool,
     specs_dir: str | None,
     watch: bool,
     watch_interval: int | None,
@@ -312,7 +302,6 @@ def code_cmd(
     # 123-REQ-2.1, 123-REQ-2.E1: mutual exclusion with execution flags
     conflicts = _check_dry_run_conflicts(
         dry_run=dry_run,
-        debug=debug,
         watch=watch,
         force_clean=force_clean,
     )
@@ -374,7 +363,6 @@ def code_cmd(
         result = asyncio.run(
             run_code(
                 config,
-                debug=debug,
                 watch=watch,
                 watch_interval=watch_interval,
                 specs_dir=Path(specs_dir) if specs_dir else None,
