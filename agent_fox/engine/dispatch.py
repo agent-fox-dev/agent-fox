@@ -195,9 +195,7 @@ class SerialDispatcher:
             if node_archetype == "coder" and orch._result_handler is not None:
                 orch._result_handler.capture_coverage_baseline(node_id, Path.cwd())
 
-            timeout_override, max_turns_override = _resolve_overrides(
-                orch._result_handler, node_id
-            )
+            timeout_override, max_turns_override = _resolve_overrides(orch._result_handler, node_id)
 
             record = await orch._dispatch_mgr.serial_runner.execute(
                 node_id,
@@ -360,9 +358,7 @@ class ParallelDispatcher:
             if archetype == "coder" and orch._result_handler is not None:
                 orch._result_handler.capture_coverage_baseline(node_id, Path.cwd())
 
-            timeout_override, max_turns_override = _resolve_overrides(
-                orch._result_handler, node_id
-            )
+            timeout_override, max_turns_override = _resolve_overrides(orch._result_handler, node_id)
 
             task = asyncio.create_task(
                 orch._dispatch_mgr.parallel_runner.execute_one(

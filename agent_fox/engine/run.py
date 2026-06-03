@@ -326,9 +326,7 @@ def _cleanup_infrastructure(infra: dict[str, Any], config: Any) -> None:
 
 SCHEMA_VERSION: int = 1
 
-TRIGGER_STATUSES: frozenset[str] = frozenset(
-    {"stalled", "block_limit", "cost_limit", "session_limit"}
-)
+TRIGGER_STATUSES: frozenset[str] = frozenset({"stalled", "block_limit", "cost_limit", "session_limit"})
 
 
 def should_dump(state: ExecutionState) -> bool:
