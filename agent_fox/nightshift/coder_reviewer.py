@@ -43,6 +43,7 @@ class CoderReviewerLoop:
         triage: TriageResult,
         metrics: Any,
         workspace: WorkspaceInfo,
+        prior_context: str = "",
     ) -> bool:
         """Run the coder-reviewer loop. Returns True on PASS, False on exhaustion."""
         from agent_fox.core.escalation import EscalationLadder
@@ -74,6 +75,7 @@ class CoderReviewerLoop:
                 model_id,
                 review_feedback,
                 attempt,
+                prior_context=prior_context,
             )
 
             review_result = await self._run_reviewer_phase(
@@ -114,11 +116,14 @@ class CoderReviewerLoop:
         model_id: str | None,
         review_feedback: FixReviewResult | None,
         attempt: int,
+        prior_context: str = "",
     ) -> object:
         """Run one coder session, emitting events and tracking metrics."""
         p = self._pipeline
 
-        system_prompt, task_prompt = p._build_coder_prompt(spec, triage, review_feedback=review_feedback)
+        system_prompt, task_prompt = p._build_coder_prompt(
+            spec, triage, review_feedback=review_feedback, prior_context=prior_context,
+        )
         node_id = f"fix-issue-{spec.issue_number}:0:coder"
         attempt_suffix = f" (attempt {attempt + 1})" if attempt > 0 else ""
         p._update_spinner(f"Running coder for issue #{spec.issue_number}{attempt_suffix}…")

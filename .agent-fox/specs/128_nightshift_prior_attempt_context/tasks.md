@@ -83,23 +83,23 @@ the pipeline, group 4 verifies end-to-end.
     - [x] All existing tests still pass: `uv run pytest -q`
     - [x] No linter warnings introduced: `uv run ruff check agent_fox/`
 
-- [ ] 3. Wire into fix pipeline
-  - [ ] 3.1 Add `prior_context` parameter to `_build_coder_prompt()`
+- [x] 3. Wire into fix pipeline
+  - [x] 3.1 Add `prior_context` parameter to `_build_coder_prompt()`
     - Add `prior_context: str = ""` parameter
     - Prepend non-empty prior_context to task_prompt before issue description
     - _Requirements: 128-REQ-3.1, 128-REQ-3.2_
 
-  - [ ] 3.2 Call query in `process_issue()` flow
+  - [x] 3.2 Call query in `process_issue()` flow
     - Import `query_prior_attempts`, `format_prior_attempts`
     - Call before entering coder-reviewer loop
     - Pass `self._conn`, `spec_name`, `self._run_id`
     - Thread `prior_context` string through to `_build_coder_prompt()`
     - _Requirements: 128-REQ-4.1, 128-REQ-4.2_
 
-  - [ ] 3.V Verify task group 3
-    - [ ] Spec tests TS-128-7 through TS-128-9, TS-128-SMOKE-1 pass
-    - [ ] All existing tests still pass: `uv run pytest -q`
-    - [ ] No linter warnings introduced: `uv run ruff check agent_fox/`
+  - [x] 3.V Verify task group 3
+    - [x] Spec tests TS-128-7 through TS-128-9, TS-128-SMOKE-1 pass
+    - [x] All existing tests still pass: `uv run pytest -q`
+    - [x] No linter warnings introduced: `uv run ruff check agent_fox/`
 
 - [ ] 4. Wiring verification
 

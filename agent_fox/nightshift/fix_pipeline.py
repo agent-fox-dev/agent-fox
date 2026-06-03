@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING
 from agent_fox.core.config import AgentFoxConfig
 from agent_fox.engine.audit_helpers import emit_audit_event
 from agent_fox.knowledge.audit import AuditEventType, generate_run_id
+from agent_fox.nightshift.prior_attempts import format_prior_attempts, query_prior_attempts
 from agent_fox.nightshift.spec_builder import InMemorySpec, build_in_memory_spec
 from agent_fox.platform.labels import LABEL_FIXED, LABEL_NO_CHANGE
 from agent_fox.platform.protocol import IssueResult
@@ -537,10 +538,14 @@ class FixPipeline:
         spec: InMemorySpec,
         triage: TriageResult,
         review_feedback: FixReviewResult | None = None,
+        prior_context: str = "",
     ) -> tuple[str, str]:
         """Build system/task prompts with triage criteria and optional feedback.
 
-        Requirements: 82-REQ-7.2, 82-REQ-8.1
+        When *prior_context* is non-empty it is prepended to the task prompt
+        before the issue description so the coder knows what was tried before.
+
+        Requirements: 82-REQ-7.2, 82-REQ-8.1, 128-REQ-3.1, 128-REQ-3.2
         """
         from agent_fox.session.prompt import build_system_prompt
 
@@ -557,8 +562,10 @@ class FixPipeline:
             project_dir=Path.cwd(),
         )
 
-        # Build task prompt, injecting reviewer feedback on retry
+        # Build task prompt, injecting prior attempt context and reviewer feedback
         task_prompt = spec.task_prompt
+        if prior_context:
+            task_prompt = f"{prior_context}\n\n{task_prompt}"
         if review_feedback is not None:
             feedback_section = self._render_review_feedback(review_feedback)
             task_prompt = f"{task_prompt}\n\n{feedback_section}"
@@ -729,6 +736,7 @@ class FixPipeline:
         triage: TriageResult,
         metrics: FixMetrics,
         workspace: WorkspaceInfo,
+        prior_context: str = "",
     ) -> bool:
         """Coder-reviewer loop with retry and escalation.
 
@@ -740,7 +748,9 @@ class FixPipeline:
         """
         from agent_fox.nightshift.coder_reviewer import CoderReviewerLoop
 
-        return await CoderReviewerLoop(self).run(spec, triage, metrics, workspace)
+        return await CoderReviewerLoop(self).run(
+            spec, triage, metrics, workspace, prior_context=prior_context,
+        )
 
     # ------------------------------------------------------------------
     # Main entry point
@@ -842,8 +852,17 @@ class FixPipeline:
             if triage.criteria or triage.summary:
                 metrics.sessions_run += 1
 
+            # 128-REQ-4.1: query prior fix attempts before coder loop
+            spec_name = f"fix-issue-{spec.issue_number}"
+            prior_context = ""
+            if self._conn is not None:
+                prior = query_prior_attempts(self._conn, spec_name, self._run_id)
+                prior_context = format_prior_attempts(prior)
+
             # 82-REQ-7.1: coder-reviewer loop with retry/escalation
-            success = await self._coder_review_loop(spec, triage, metrics, workspace)
+            success = await self._coder_review_loop(
+                spec, triage, metrics, workspace, prior_context=prior_context,
+            )
 
             if not success:
                 # Ladder exhausted — do NOT close issue
