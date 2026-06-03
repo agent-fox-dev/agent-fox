@@ -132,12 +132,12 @@ class TestTemplateGeneration:
                 f"Missing active section header for [{section}]"
             )
 
-        # [models] has no promoted fields so must appear only as a commented header
+        # [models] was removed — must not appear at all
         assert not any(ln.strip() == "[models]" for ln in lines), (
             "[models] must not appear as an active section header"
         )
-        assert any(ln.strip() == "# [models]" for ln in lines), (
-            "[models] must appear as a commented section header"
+        assert not any(ln.strip() == "# [models]" for ln in lines), (
+            "[models] must not appear as a commented section header"
         )
 
         # Security is hidden — must not appear even as a commented header
@@ -226,7 +226,8 @@ class TestConfigMerge:
         merged = merge_existing_config(existing)
 
         # Should have visible sections added
-        assert "[models]" in merged or "# [models]" in merged
+        # [models] was removed — must not appear in merged output
+        assert "[models]" not in merged and "# [models]" not in merged
         assert "[archetypes]" in merged or "# [archetypes]" in merged
         # Hidden sections must NOT be added by merge
         assert "# [routing]" not in merged and "[routing]" not in merged
@@ -280,7 +281,6 @@ class TestSchemaExtraction:
         expected = {
             "orchestrator",
             "routing",
-            "models",
             "security",
             "theme",
             "platform",

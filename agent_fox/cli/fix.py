@@ -278,7 +278,7 @@ def fix_cmd(
 
     # -- Banner (76-REQ-1.1, 76-REQ-1.2, 76-REQ-1.3) --
     if not (quiet or json_mode):
-        render_banner(theme, config.models)
+        render_banner(theme)
 
     # -- Callback handlers for progress display --
     def on_fix_progress(event: FixProgressEvent) -> None:

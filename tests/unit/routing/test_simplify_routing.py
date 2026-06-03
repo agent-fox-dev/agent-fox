@@ -134,16 +134,6 @@ def test_no_record_node_outcome() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_prediction_config_fields_removed() -> None:
-    """RoutingConfig does not have training_threshold, accuracy_threshold, retrain_interval."""
-    from agent_fox.core.config import RoutingConfig
-
-    fields = RoutingConfig.model_fields
-    assert "training_threshold" not in fields, "RoutingConfig.training_threshold must be removed"
-    assert "accuracy_threshold" not in fields, "RoutingConfig.accuracy_threshold must be removed"
-    assert "retrain_interval" not in fields, "RoutingConfig.retrain_interval must be removed"
-
-
 def test_retries_config_retained() -> None:
     """RoutingConfig retains retries_before_escalation."""
     from agent_fox.core.config import RoutingConfig

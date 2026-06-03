@@ -68,7 +68,6 @@ class AuditEventType(StrEnum):
     KNOWLEDGE_INGESTED = "knowledge.ingested"
     SYNC_BARRIER = "sync.barrier"
     CONFIG_RELOADED = "config.reloaded"
-    QUALITY_GATE_RESULT = "quality_gate.result"
     REVIEW_PARSE_FAILURE = "review.parse_failure"
     REVIEW_PARSE_RETRY_SUCCESS = "review.parse_retry_success"
     REVIEW_FINDINGS_PERSISTED = "review.findings_persisted"

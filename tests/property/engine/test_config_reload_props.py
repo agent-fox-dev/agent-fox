@@ -149,8 +149,6 @@ class TestMutableFieldsUpdatedProperty:
         "hot_load",
         "max_sessions",
         "max_blocked_fraction",
-        "quality_gate",
-        "quality_gate_timeout",
         "max_budget_usd",
         "audit_retention_runs",
     ]

@@ -43,9 +43,6 @@ _BOUNDS_MAP: dict[tuple[str, str], str] = {
     ("OrchestratorConfig", "watch_interval"): ">=10",
     # RoutingConfig
     ("RoutingConfig", "retries_before_escalation"): "0-3",
-    ("RoutingConfig", "training_threshold"): "5-1000",
-    ("RoutingConfig", "accuracy_threshold"): "0.5-1.0",
-    ("RoutingConfig", "retrain_interval"): "5-100",
     ("RoutingConfig", "max_timeout_retries"): ">=0",
     ("RoutingConfig", "timeout_multiplier"): ">=1.0",
     ("RoutingConfig", "timeout_ceiling_factor"): ">=1.0",
@@ -54,7 +51,7 @@ _BOUNDS_MAP: dict[tuple[str, str], str] = {
     ("ArchetypeInstancesConfig", "verifier"): "1",
     # ReviewerConfig
     ("ReviewerConfig", "pre_review_block_threshold"): ">=0",
-    ("ReviewerConfig", "drift_review_block_threshold"): ">=1",
+    ("ReviewerConfig", "drift_review_block_threshold"): ">=1 or None",
     ("ReviewerConfig", "audit_min_ts_entries"): ">=1",
     ("ReviewerConfig", "audit_max_retries"): ">=0",
 }
@@ -64,7 +61,6 @@ _BOUNDS_MAP: dict[tuple[str, str], str] = {
 # Requirements: 68-REQ-1.1, 68-REQ-1.2
 _VISIBLE_SECTIONS: set[str] = {
     "orchestrator",
-    "models",
     "archetypes",
     "archetypes.instances",
     "platform",
@@ -76,7 +72,6 @@ _VISIBLE_SECTIONS: set[str] = {
 # as commented # [section] blocks.
 _PROMOTED_DEFAULTS: set[tuple[str, str]] = {
     ("orchestrator", "parallel"),
-    ("orchestrator", "quality_gate"),
     ("orchestrator", "max_budget_usd"),
     ("archetypes", "coder"),
     ("archetypes", "reviewer"),
@@ -88,15 +83,10 @@ _PROMOTED_DEFAULTS: set[tuple[str, str]] = {
 # Fields that are still present in the schema (for backward compatibility) but
 # are deprecated and should be commented out when found active in an existing
 # config during a merge.  Keyed by (section_path, field_name).
-_SCHEMA_DEPRECATED_FIELDS: set[tuple[str, str]] = {
-    ("models", "coding"),
-}
-
 # Template-level value overrides for promoted fields.
 # These override the model's default value in the generated template only.
 # Requirements: 68-REQ-2.1, 68-REQ-2.2, 68-REQ-2.4, 68-REQ-2.5
 _PROMOTED_DEFAULTS_OVERRIDES: dict[tuple[str, str], object] = {
-    ("orchestrator", "quality_gate"): "make check",
     ("orchestrator", "max_budget_usd"): 8.0,
 }
 
@@ -114,13 +104,9 @@ _DEFAULT_DESCRIPTIONS: dict[tuple[str, str], str] = {
     ("OrchestratorConfig", "max_cost"): "Maximum cost limit",
     ("OrchestratorConfig", "max_sessions"): "Maximum number of sessions",
     ("OrchestratorConfig", "max_blocked_fraction"): ("Stop run when this fraction of nodes are blocked"),
-    ("OrchestratorConfig", "quality_gate"): ("Shell command run after each coder session to verify quality"),
     ("OrchestratorConfig", "max_budget_usd"): ("Per-session budget cap in USD (0 = unlimited)"),
     # RoutingConfig
     ("RoutingConfig", "retries_before_escalation"): "Retries before model escalation",
-    ("RoutingConfig", "training_threshold"): "Training data threshold",
-    ("RoutingConfig", "accuracy_threshold"): "Accuracy threshold for routing",
-    ("RoutingConfig", "retrain_interval"): "Retrain interval",
     ("RoutingConfig", "max_timeout_retries"): (
         "Maximum timeout retries before falling through to escalation (0 = disable)"
     ),
@@ -130,9 +116,6 @@ _DEFAULT_DESCRIPTIONS: dict[tuple[str, str], str] = {
     ("RoutingConfig", "timeout_ceiling_factor"): (
         "Maximum session_timeout as a factor of the original configured value (>=1.0)"
     ),
-    # ModelConfig
-    ("ModelConfig", "coding"): ("Model tier for coding tasks: SIMPLE, STANDARD, or ADVANCED"),
-    ("ModelConfig", "memory_extraction"): "Model tier for memory extraction",
     # SecurityConfig
     ("SecurityConfig", "bash_allowlist"): "Allowed bash commands",
     ("SecurityConfig", "bash_allowlist_extend"): "Additional allowed bash commands",
@@ -745,11 +728,9 @@ def _collect_active_fields(
 
         active_fields.setdefault(section_path, set()).add(key)
 
-        if key not in known_fields or (section_path, key) in _SCHEMA_DEPRECATED_FIELDS:
+        if key not in known_fields:
             # Record deprecated field for later processing.
-            # This covers both fields that were removed from the schema and
-            # fields that remain in the schema for backward compatibility but
-            # should no longer be set in configs (e.g. models.coding).
+            # This covers fields that were removed from the schema.
             value = section_data[key]
             value_str = _format_toml_value(value)
             deprecated_entries.append((section_path, key, value_str))

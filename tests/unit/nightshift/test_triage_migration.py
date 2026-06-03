@@ -158,33 +158,3 @@ class TestNightshiftModelTierResolution:
         assert tier == "STANDARD", f"Expected STANDARD tier for maintainer:extraction, got {tier!r}"
 
 
-# ===========================================================================
-# TS-100-E2: Old Triage Config Key
-# Requirement: 100-REQ-2.E1
-# ===========================================================================
-
-
-class TestOldTriageConfigKey:
-    """Verify config with archetypes.triage key is handled gracefully."""
-
-    def test_config_with_triage_key_does_not_raise(self) -> None:
-        """TS-100-E2: Parsing config with archetypes.triage key must not fail.
-
-        Requirement: 100-REQ-2.E1 (log deprecation warning, but not fail)
-        """
-        import tomllib
-
-        from agent_fox.core.config import AgentFoxConfig
-
-        # Try to parse a config dict that includes a 'triage' key under archetypes.
-        # Per 100-REQ-2.E1, this should NOT raise — it should log a deprecation warning.
-        toml_content = b"""
-[archetypes]
-triage = true
-"""
-        raw = tomllib.loads(toml_content.decode())
-        # Config parsing must not raise
-        config = AgentFoxConfig.model_validate(raw)
-        assert config is not None, (
-            "AgentFoxConfig.model_validate should succeed when archetypes.triage is present (100-REQ-2.E1)"
-        )

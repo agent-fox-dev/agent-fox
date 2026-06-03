@@ -113,7 +113,6 @@ class TestAuditEventTypeEnum:
             "fact.causal_links",
             "knowledge.ingested",
             "sync.barrier",
-            "quality_gate.result",
             "review.parse_failure",
             # Night-shift events (spec 61) — regression guard for issue #293
             "night_shift.issue_superseded",

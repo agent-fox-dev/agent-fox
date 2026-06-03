@@ -114,7 +114,7 @@ def main(ctx: click.Context, verbose: bool, quiet: bool, trace: bool, json_mode:
     if not json_mode:
         theme_config = config.theme if config else ThemeConfig()
         theme = create_theme(theme_config)
-        render_banner(theme, config.models, quiet=quiet)
+        render_banner(theme, quiet=quiet)
 
     # 01-REQ-1.3: show help when invoked without a subcommand
     if ctx.invoked_subcommand is None:

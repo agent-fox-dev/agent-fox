@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from agent_fox.core.config import AgentFoxConfig, ModelConfig, OrchestratorConfig
+from agent_fox.core.config import AgentFoxConfig, OrchestratorConfig
 from agent_fox.core.errors import PlanError
 from agent_fox.engine.engine import Orchestrator
 from agent_fox.engine.state import ExecutionState
@@ -222,9 +222,13 @@ class TestBlockedAfterRetries:
             sync_interval=0,
             hot_load=False,
         )
-        # Use STANDARD coding tier so the ladder has room to escalate
-        # (STANDARD → ADVANCED) before exhausting.
-        full_config = AgentFoxConfig(models=ModelConfig(coding="STANDARD"))
+        # Use STANDARD coding tier via overrides so the ladder has room to
+        # escalate (STANDARD → ADVANCED) before exhausting.
+        from agent_fox.core.config import PerArchetypeConfig
+
+        full_config = AgentFoxConfig(
+            archetypes={"overrides": {"coder": PerArchetypeConfig(model_tier="STANDARD")}}
+        )
         orchestrator = Orchestrator(
             config=config,
             session_runner_factory=lambda nid, **kw: mock,

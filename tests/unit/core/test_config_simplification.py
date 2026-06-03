@@ -25,7 +25,6 @@ from agent_fox.core.config_gen import (
 # Sections that must appear (active or commented) in the simplified template.
 _EXPECTED_VISIBLE_SECTIONS = {
     "orchestrator",
-    "models",
     "archetypes",
     "archetypes.instances",
     "platform",
@@ -48,8 +47,6 @@ _FOOTER = _FOOTER_COMMENT
 _EXPECTED_PROMOTED_FIELDS = [
     ("orchestrator", "parallel"),
     ("orchestrator", "max_budget_usd"),
-    ("orchestrator", "quality_gate"),
-    # ("models", "coding") removed — deprecated field no longer promoted (issue #597)
     ("platform", "type"),
     ("archetypes", "coder"),
     ("archetypes", "reviewer"),
@@ -95,7 +92,7 @@ class TestTemplateSectionVisibility:
         """Key visible sections appear as headers in the template."""
         template = generate_default_config()
         headers = _extract_section_headers(template)
-        for section in ["orchestrator", "models", "archetypes"]:
+        for section in ["orchestrator", "archetypes"]:
             assert section in headers, f"[{section}] not found in template"
 
     def test_hidden_sections_not_present(self):
@@ -152,29 +149,6 @@ class TestTemplateLineCount:
         template = generate_default_config()
         lines = template.strip().split("\n")
         assert len(lines) <= 60, f"Template has {len(lines)} lines, expected <= 60"
-
-
-# ---------------------------------------------------------------------------
-# TS-68-5: quality_gate promoted
-# ---------------------------------------------------------------------------
-
-
-class TestQualityGatePromoted:
-    """TS-68-5: quality_gate is promoted with value 'make check'."""
-
-    def test_quality_gate_active_in_template(self):
-        """quality_gate = "make check" must appear as an uncommented line."""
-        template = generate_default_config()
-        assert 'quality_gate = "make check"' in template, "quality_gate is not promoted with value 'make check'"
-
-    def test_quality_gate_line_is_not_commented(self):
-        """The quality_gate line must not start with '#'."""
-        template = generate_default_config()
-        for line in template.split("\n"):
-            if 'quality_gate = "make check"' in line:
-                assert not line.strip().startswith("#"), f"quality_gate line is commented: {line!r}"
-                return
-        pytest.fail('quality_gate = "make check" not found in template')
 
 
 # ---------------------------------------------------------------------------
@@ -503,7 +477,6 @@ _ALL_CONFIG_SECTIONS = [
     "workspace",
     "orchestrator",
     "routing",
-    "models",
     "security",
     "theme",
     "platform",

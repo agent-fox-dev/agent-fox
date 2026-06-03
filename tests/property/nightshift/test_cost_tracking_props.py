@@ -25,7 +25,6 @@ _ARCHETYPES = [
     "hunt_critic",
     "batch_triage",
     "staleness_check",
-    "quality_gate",
 ]
 
 

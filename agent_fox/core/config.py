@@ -147,15 +147,6 @@ class OrchestratorConfig(BaseModel):
             "are exempt. Default 0.34 means at most ~1/3 of slots for reviews."
         ),
     )
-    quality_gate: str = Field(
-        default="",
-        description="Shell command to run after each coder session",
-    )
-    quality_gate_timeout: int = Field(
-        default=300,
-        description="Quality gate timeout in seconds",
-    )
-
     max_budget_usd: float = Field(
         default=8.0,
         ge=0.0,
@@ -175,32 +166,6 @@ class OrchestratorConfig(BaseModel):
         if v is None:
             return v
         return _clamp(v, ge=0.0, le=1.0, field_name="max_blocked_fraction")
-
-
-class ModelConfig(BaseModel):
-    """Deprecated top-level model configuration.
-
-    .. deprecated::
-        The ``[models]`` section is deprecated.  Migrate as follows:
-
-        - ``coding``         → ``[archetypes.overrides.coder] model_tier``
-    """
-
-    model_config = ConfigDict(extra="ignore")
-
-    coding: str | None = Field(default=None, description="Model tier for coding tasks (deprecated)")
-    memory_extraction: str = Field(default="SIMPLE", description="Model tier for memory extraction")
-
-    @model_validator(mode="after")
-    def _warn_deprecated_coding(self) -> Self:
-        """Emit a deprecation warning when models.coding is set to a non-default value."""
-        if self.coding is not None and self.coding != "ADVANCED":
-            logger.warning(
-                "[models] coding is deprecated and will be removed in a future release. "
-                "Use [archetypes.overrides.coder] model_tier = %r instead.",
-                self.coding,
-            )
-        return self
 
 
 class SecurityConfig(BaseModel):
@@ -431,7 +396,7 @@ class ArchetypesConfig(BaseModel):
                   98-REQ-8.1, 98-REQ-8.2, 98-REQ-8.3, 98-REQ-8.E1
     """
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="ignore")
 
     coder: bool = Field(default=True, description="Enable coder archetype")
     reviewer: bool = Field(default=True, description="Enable reviewer archetype (replaces skeptic, oracle, auditor)")
@@ -490,55 +455,6 @@ class ArchetypesConfig(BaseModel):
             if turns < 0:
                 raise ValueError(f"max_turns for '{archetype}' must be >= 0, got {turns}")
         return v
-
-    @model_validator(mode="before")
-    @classmethod
-    def reject_old_archetype_keys(cls, data: Any) -> Any:
-        """Raise a validation error when old archetype config keys are used.
-
-        Keys that were deprecated (not obsolete) are silently stripped with a
-        warning logged, rather than raising a hard error.
-
-        Requirements: 98-REQ-1.E1, 98-REQ-8.E1, 100-REQ-2.E1
-        """
-        if not isinstance(data, dict):
-            return data
-
-        # Deprecated keys that are silently stripped with a deprecation warning
-        # (100-REQ-2.E1: triage absorbed into maintainer:hunt in spec 100)
-        deprecated_keys = {"triage": "maintainer:hunt"}
-        found_deprecated = [k for k in deprecated_keys if k in data]
-        if found_deprecated:
-            for key in found_deprecated:
-                logger.warning(
-                    "Deprecated config key 'archetypes.%s' will be ignored. "
-                    "The triage archetype has been absorbed into maintainer:hunt. "
-                    "Please remove this key from your config. (100-REQ-2.E1)",
-                    key,
-                )
-            data = {k: v for k, v in data.items() if k not in found_deprecated}
-
-        old_keys = {
-            "skeptic": "reviewer (pre-review mode)",
-            "oracle": "reviewer (drift-review mode)",
-            "auditor": "reviewer (audit-review mode)",
-            "skeptic_config": "reviewer_config",
-            "skeptic_settings": "reviewer_config",
-            "oracle_settings": "reviewer_config",
-            "auditor_config": "reviewer_config",
-            "fix_reviewer": "reviewer (fix-review mode)",
-            "fix_coder": "coder (fix mode)",
-        }
-        found = [k for k in old_keys if k in data]
-        if found:
-            guidance = "; ".join(f"'{k}' → use '{old_keys[k]}'" for k in found)
-            raise ValueError(
-                f"Obsolete archetype config key(s) detected: {found!r}. "
-                f"Please migrate to the reviewer archetype with modes. "
-                f"Migration: {guidance}. "
-                f"See docs for the new reviewer config schema."
-            )
-        return data
 
 
 class ModelPricing(BaseModel):
@@ -747,7 +663,6 @@ class AgentFoxConfig(BaseModel):
     workspace: WorkspaceConfig = Field(default_factory=WorkspaceConfig)
     orchestrator: OrchestratorConfig = Field(default_factory=OrchestratorConfig)
     routing: RoutingConfig = Field(default_factory=RoutingConfig)
-    models: ModelConfig = Field(default_factory=ModelConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)
     theme: ThemeConfig = Field(default_factory=ThemeConfig)
     platform: PlatformConfig = Field(default_factory=PlatformConfig)

@@ -223,25 +223,15 @@ class TestConfigOverridePrecedence:
         assert tier == override
 
     @pytest.mark.parametrize("name", _ALL_ARCHETYPES)
-    def test_no_override_uses_global_or_registry_default(self, name: str) -> None:
-        """Without archetype override, global [models] config or registry default is used.
-
-        With models.coding deprecated (issue #597), the global model value is None
-        for coder; the resolver falls through to the registry default (ADVANCED).
-        """
+    def test_no_override_uses_registry_default(self, name: str) -> None:
+        """Without archetype override, registry default tier is used."""
         from agent_fox.core.config import AgentFoxConfig, ArchetypesConfig
-        from agent_fox.engine.sdk_params import _ARCHETYPE_MODEL_KEYS, resolve_model_tier
+        from agent_fox.engine.sdk_params import resolve_model_tier
         from agent_fox.archetypes import ARCHETYPE_REGISTRY
 
         config = AgentFoxConfig(archetypes=ArchetypesConfig(models={}))
         tier = resolve_model_tier(config, name)
-        model_key = _ARCHETYPE_MODEL_KEYS.get(name)
-        if model_key is not None:
-            global_val = getattr(config.models, model_key)
-            # If the global value is None (deprecated field not set), expect registry default
-            expected = global_val if global_val is not None else ARCHETYPE_REGISTRY[name].default_model_tier
-        else:
-            expected = ARCHETYPE_REGISTRY[name].default_model_tier
+        expected = ARCHETYPE_REGISTRY[name].default_model_tier
         assert tier == expected
 
     @pytest.mark.skipif(not HAS_HYPOTHESIS, reason="hypothesis not installed")
@@ -255,9 +245,9 @@ class TestConfigOverridePrecedence:
     )
     @settings(max_examples=50)
     def test_prop_config_override_precedence(self, name: str, override: str | None) -> None:
-        """Property: override → returned; no override → global models or registry default."""
+        """Property: override → returned; no override → registry default."""
         from agent_fox.core.config import AgentFoxConfig, ArchetypesConfig
-        from agent_fox.engine.sdk_params import _ARCHETYPE_MODEL_KEYS, resolve_model_tier
+        from agent_fox.engine.sdk_params import resolve_model_tier
         from agent_fox.archetypes import ARCHETYPE_REGISTRY
 
         models = {name: override} if override is not None else {}
@@ -267,11 +257,4 @@ class TestConfigOverridePrecedence:
         if override is not None:
             assert result == override
         else:
-            model_key = _ARCHETYPE_MODEL_KEYS.get(name)
-            if model_key is not None:
-                global_val = getattr(config.models, model_key)
-                # If global value is None (deprecated field not set), expect registry default
-                expected = global_val if global_val is not None else ARCHETYPE_REGISTRY[name].default_model_tier
-                assert result == expected
-            else:
-                assert result == ARCHETYPE_REGISTRY[name].default_model_tier
+            assert result == ARCHETYPE_REGISTRY[name].default_model_tier

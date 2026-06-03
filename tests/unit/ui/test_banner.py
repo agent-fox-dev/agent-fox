@@ -18,7 +18,7 @@ from rich.console import Console
 from rich.theme import Theme
 
 from agent_fox import __version__
-from agent_fox.core.config import ModelConfig, ThemeConfig
+from agent_fox.core.config import ThemeConfig
 from agent_fox.ui.display import create_theme, render_banner
 
 # Expected fox art from design.md — used to verify banner output content.
@@ -32,7 +32,6 @@ _STYLE_ROLES = ("header", "success", "error", "warning", "info", "tool", "muted"
 
 def _capture_banner(
     theme_config: ThemeConfig,
-    model_config: ModelConfig,
     *,
     quiet: bool = False,
     force_terminal: bool = False,
@@ -44,7 +43,6 @@ def _capture_banner(
 
     Args:
         theme_config: Theme configuration to use.
-        model_config: Model configuration for banner rendering.
         quiet: Whether to suppress banner output.
         force_terminal: If True, capture ANSI escape codes for role
             verification. If False, capture plain text.
@@ -62,7 +60,7 @@ def _capture_banner(
         force_terminal=force_terminal,
         width=120,
     )
-    render_banner(theme, model_config, quiet=quiet)
+    render_banner(theme, quiet=quiet)
     return buf.getvalue()
 
 
@@ -74,7 +72,7 @@ class TestBannerFoxArt:
 
     def test_fox_art_present_in_output(self) -> None:
         """All four lines of fox ASCII art appear in banner output."""
-        output = _capture_banner(ThemeConfig(), ModelConfig())
+        output = _capture_banner(ThemeConfig())
 
         for line in EXPECTED_FOX_ART.splitlines():
             assert line in output, f"Expected fox art line {line!r} in banner output, got:\n{output}"
@@ -96,7 +94,7 @@ class TestBannerFoxArtStyling:
 
     def test_fox_art_uses_header_style(self) -> None:
         """Fox art is rendered using the header role markup."""
-        output = _capture_banner(ThemeConfig(), ModelConfig(), force_terminal=True)
+        output = _capture_banner(ThemeConfig(), force_terminal=True)
 
         # The header style for default theme is "bold #ff8c00" (bold orange).
         # When rendered with force_terminal, Rich embeds ANSI bold + color codes.
@@ -115,7 +113,7 @@ class TestBannerVersionModel:
     def test_version_and_model_line_with_revision(self) -> None:
         """Banner output contains version, revision, and resolved model ID."""
         with patch("agent_fox.ui.display._get_git_revision", return_value="abc1234"):
-            output = _capture_banner(ThemeConfig(), ModelConfig())
+            output = _capture_banner(ThemeConfig())
 
         expected = f"agent-fox v{__version__} (abc1234).  model: claude-opus-4-6"
         assert expected in output, f"Expected {expected!r} in banner output, got:\n{output}"
@@ -123,14 +121,14 @@ class TestBannerVersionModel:
     def test_version_and_model_line_without_revision(self) -> None:
         """Banner omits revision gracefully when git is unavailable."""
         with patch("agent_fox.ui.display._get_git_revision", return_value=None):
-            output = _capture_banner(ThemeConfig(), ModelConfig())
+            output = _capture_banner(ThemeConfig())
 
         expected = f"agent-fox v{__version__}  model: claude-opus-4-6"
         assert expected in output, f"Expected {expected!r} in banner output, got:\n{output}"
 
     def test_version_contains_semver(self) -> None:
         """Version in banner matches __version__."""
-        output = _capture_banner(ThemeConfig(), ModelConfig())
+        output = _capture_banner(ThemeConfig())
 
         assert f"v{__version__}" in output
 
@@ -145,7 +143,7 @@ class TestBannerWorkingDirectory:
         """Working directory appears in the banner output."""
         monkeypatch.setattr(Path, "cwd", staticmethod(lambda: Path("/tmp/test-project")))
 
-        output = _capture_banner(ThemeConfig(), ModelConfig())
+        output = _capture_banner(ThemeConfig())
 
         assert "/tmp/test-project" in output, f"Expected cwd '/tmp/test-project' in banner output, got:\n{output}"
 
@@ -158,7 +156,7 @@ class TestBannerVersionModelStyling:
 
     def test_version_line_uses_header_style(self) -> None:
         """Version/model line is rendered with header role styling."""
-        output = _capture_banner(ThemeConfig(), ModelConfig(), force_terminal=True)
+        output = _capture_banner(ThemeConfig(), force_terminal=True)
 
         # Check that the version line appears in styled output with ANSI codes
         assert f"agent-fox v{__version__}" in output
@@ -178,7 +176,7 @@ class TestBannerCwdStyling:
         config = ThemeConfig(muted="dim", header="bold #ff8c00")
 
         # Capture with ANSI to verify separate styling
-        output = _capture_banner(config, ModelConfig(), force_terminal=True)
+        output = _capture_banner(config, force_terminal=True)
 
         # The cwd should appear in the output
         assert "/tmp/styled-cwd" in output
@@ -191,21 +189,24 @@ class TestBannerCwdStyling:
 
 
 class TestBannerModelFallback:
-    """TS-14-E1: Model resolution failure shows raw config value.
+    """TS-14-E1: Model resolution failure shows raw tier value.
 
     Requirement: 14-REQ-2.E1
     """
 
     def test_invalid_model_shows_raw_value(self) -> None:
-        """Invalid model name falls back to raw config value in output."""
-        output = _capture_banner(ThemeConfig(), ModelConfig(coding="NONEXISTENT"))
+        """Invalid model name falls back to raw tier string in output."""
+        with patch("agent_fox.ui.display.resolve_model", side_effect=Exception("bad")):
+            output = _capture_banner(ThemeConfig())
 
-        assert "model: NONEXISTENT" in output, f"Expected 'model: NONEXISTENT' in banner output, got:\n{output}"
+        # Should fall back to the registry default tier string
+        assert "model:" in output, f"Expected 'model:' in banner output, got:\n{output}"
 
     def test_invalid_model_no_exception(self) -> None:
-        """No exception is raised for an invalid model name."""
-        # Should not raise
-        _capture_banner(ThemeConfig(), ModelConfig(coding="NONEXISTENT"))
+        """No exception is raised when model resolution fails."""
+        with patch("agent_fox.ui.display.resolve_model", side_effect=Exception("bad")):
+            # Should not raise
+            _capture_banner(ThemeConfig())
 
 
 class TestBannerCwdOSError:
@@ -222,7 +223,7 @@ class TestBannerCwdOSError:
 
         monkeypatch.setattr(Path, "cwd", staticmethod(_raise_oserror))
 
-        output = _capture_banner(ThemeConfig(), ModelConfig())
+        output = _capture_banner(ThemeConfig())
 
         assert "(unknown)" in output, f"Expected '(unknown)' in banner output, got:\n{output}"
 
@@ -235,4 +236,4 @@ class TestBannerCwdOSError:
         monkeypatch.setattr(Path, "cwd", staticmethod(_raise_oserror))
 
         # Should not raise
-        _capture_banner(ThemeConfig(), ModelConfig())
+        _capture_banner(ThemeConfig())

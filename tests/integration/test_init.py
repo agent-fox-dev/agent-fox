@@ -263,9 +263,6 @@ class TestInitConfigGeneration:
         # Verify key defaults
         assert config.orchestrator.parallel == 2
         assert config.theme.playful is True
-        # models.coding is no longer promoted in the default template (issue #597);
-        # the field defaults to None and coder gets ADVANCED via the archetype registry.
-        assert config.models.coding is None
 
     def test_fresh_config_contains_all_sections(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
         """Fresh config.toml contains section headers for all visible sections.
@@ -278,10 +275,13 @@ class TestInitConfigGeneration:
         config_path = tmp_git_repo / ".agent-fox" / "config.toml"
         content = config_path.read_text()
 
-        # Visible sections must appear
-        for section in ["orchestrator", "models", "platform", "archetypes"]:
+        # Visible sections must appear ([models] removed in spec 130)
+        for section in ["orchestrator", "platform", "archetypes"]:
             # Sections may be active [section] or commented # [section]
             assert f"[{section}]" in content, f"Missing section header: {section}"
+
+        # [models] was removed — must not appear
+        assert "[models]" not in content, "[models] section should have been removed"
 
         # Hidden sections must NOT appear
         for section in ["routing", "hooks", "theme", "security", "knowledge"]:
@@ -306,8 +306,8 @@ class TestInitConfigGeneration:
         content = config_path.read_text()
         # User value preserved
         assert "parallel = 4" in content
-        # Visible sections added when missing
-        assert "# [models]" in content or "[models]" in content
+        # [models] was removed — must not appear
+        assert "[models]" not in content
         assert "# [archetypes]" in content or "[archetypes]" in content
         # Hidden sections must NOT be added by merge
         assert "# [routing]" not in content and "[routing]" not in content

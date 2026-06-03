@@ -42,15 +42,15 @@ tests. Group 3 is wiring verification.
     - [x] All spec tests FAIL (red) — no implementation yet
     - [x] No linter warnings introduced: `uv run ruff check tests/unit/core/test_config_dead_code_removal.py tests/property/core/test_config_dead_code_props.py`
 
-- [ ] 2. Remove dead config code, metadata, and documentation
-  - [ ] 2.1 Remove fields from `agent_fox/core/config.py`
+- [x] 2. Remove dead config code, metadata, and documentation
+  - [x] 2.1 Remove fields from `agent_fox/core/config.py`
     - Delete `quality_gate` and `quality_gate_timeout` fields from `OrchestratorConfig`
     - Delete entire `ModelConfig` class (lines 180–203)
     - Delete `models` field from `AgentFoxConfig`
     - Delete `_handle_archetype_config_keys` model validator from `ArchetypesConfig` (lines ~500–541)
     - _Requirements: 130-REQ-1.1, 130-REQ-1.2, 130-REQ-2.1, 130-REQ-2.2, 130-REQ-3.1, 130-REQ-3.2, 130-REQ-3.3_
 
-  - [ ] 2.2 Clean up `agent_fox/core/config_gen.py`
+  - [x] 2.2 Clean up `agent_fox/core/config_gen.py`
     - Delete phantom `_BOUNDS_MAP` entries for `training_threshold`, `accuracy_threshold`, `retrain_interval`
     - Delete `("orchestrator", "quality_gate")` from `_PROMOTED_DEFAULTS`
     - Delete `("orchestrator", "quality_gate")` from `_PROMOTED_DEFAULTS_OVERRIDES`
@@ -61,11 +61,11 @@ tests. Group 3 is wiring verification.
     - Fix `drift_review_block_threshold` bounds: `">=1"` → `">=1 or None"`
     - _Requirements: 130-REQ-1.3, 130-REQ-1.4, 130-REQ-1.5, 130-REQ-2.3, 130-REQ-2.4, 130-REQ-2.5, 130-REQ-4.1, 130-REQ-4.2, 130-REQ-5.1_
 
-  - [ ] 2.3 Remove `QUALITY_GATE_RESULT` from `agent_fox/knowledge/audit.py`
+  - [x] 2.3 Remove `QUALITY_GATE_RESULT` from `agent_fox/knowledge/audit.py`
     - Delete the enum member
     - _Requirements: 130-REQ-6.1_
 
-  - [ ] 2.4 Update `docs/config-reference.md`
+  - [x] 2.4 Update `docs/config-reference.md`
     - Remove `quality_gate` and `quality_gate_timeout` rows from `## orchestrator` table
     - Remove `quality_gate` from the TOML example in `## orchestrator`
     - Remove entire `## models` section (lines ~136–163)
@@ -75,7 +75,7 @@ tests. Group 3 is wiring verification.
     - Update "General behavior" paragraph about `[archetypes]` rejecting unknown keys — change to say it silently ignores unknown keys like other sections
     - _Requirements: 130-REQ-7.1, 130-REQ-7.2, 130-REQ-7.3, 130-REQ-7.4, 130-REQ-7.5_
 
-  - [ ] 2.5 Update existing tests that reference removed items
+  - [x] 2.5 Update existing tests that reference removed items
     - `tests/unit/core/test_config_simplification.py`: Remove `("orchestrator", "quality_gate")` from `_EXPECTED_PROMOTED_FIELDS`, remove `test_quality_gate_active_in_template` and `test_quality_gate_line_is_not_commented` tests
     - `tests/property/core/test_config_props.py`: Remove assertions for `config.models.coding` and `config.models.memory_extraction`
     - `tests/unit/routing/test_simplify_routing.py`: Remove `test_prediction_config_fields_removed` (now vacuously true — fields and phantom metadata are both gone)
@@ -86,11 +86,11 @@ tests. Group 3 is wiring verification.
     - `tests/property/nightshift/test_cost_tracking_props.py`: Remove `"quality_gate"` from any field lists
     - _Requirements: 130-REQ-8.1_
 
-  - [ ] 2.V Verify task group 2
-    - [ ] Spec tests for this group pass: `uv run pytest -q tests/unit/core/test_config_dead_code_removal.py tests/property/core/test_config_dead_code_props.py`
-    - [ ] All existing tests still pass: `make check`
-    - [ ] No linter warnings introduced: `uv run ruff check agent_fox/ tests/`
-    - [ ] Requirements 130-REQ-1.* through 130-REQ-8.1 acceptance criteria met
+  - [x] 2.V Verify task group 2
+    - [x] Spec tests for this group pass: `uv run pytest -q tests/unit/core/test_config_dead_code_removal.py tests/property/core/test_config_dead_code_props.py`
+    - [x] All existing tests still pass: `make check`
+    - [x] No linter warnings introduced: `uv run ruff check agent_fox/ tests/`
+    - [x] Requirements 130-REQ-1.* through 130-REQ-8.1 acceptance criteria met
 
 - [ ] 3. Wiring verification
 

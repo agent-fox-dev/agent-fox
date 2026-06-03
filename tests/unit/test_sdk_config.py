@@ -99,44 +99,19 @@ class TestBudgetDefault:
 
 
 # ---------------------------------------------------------------------------
-# AC-3: models.coding deprecation warning
+# AC-3: models.coding — [models] section removed (spec 130)
+# The entire [models] section is silently ignored. No deprecation warnings
+# are emitted; archetypes.overrides.coder still takes precedence.
 # ---------------------------------------------------------------------------
 
 
-class TestModelsCodingDeprecationWarning:
-    """Verify deprecation warning for [models] coding field (AC-3)."""
+class TestModelsSectionSilentlyIgnored:
+    """Verify [models] section is silently ignored after removal (spec 130)."""
 
-    def test_deprecation_warning_emitted_when_coding_non_default(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """AC-3: Loading config with models.coding != 'ADVANCED' emits a deprecation warning."""
-        import logging
-
-        config_file = tmp_path / "config.toml"
-        config_file.write_text('[models]\ncoding = "STANDARD"\n')
-        with caplog.at_level(logging.WARNING, logger="agent_fox.core.config"):
-            load_config(path=config_file)
-        warning_texts = " ".join(caplog.messages)
-        assert "deprecated" in warning_texts.lower()
-        assert "archetypes.overrides.coder" in warning_texts
-
-    def test_no_deprecation_warning_when_coding_is_default(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """AC-3: No deprecation warning when models.coding is the default 'ADVANCED'."""
-        import logging
-
-        config_file = tmp_path / "config.toml"
-        config_file.write_text('[models]\ncoding = "ADVANCED"\n')
-        with caplog.at_level(logging.WARNING, logger="agent_fox.core.config"):
-            load_config(path=config_file)
-        # No deprecation warning for the default value
-        assert not any("archetypes.overrides.coder" in m for m in caplog.messages)
-
-    def test_archetypes_overrides_coder_takes_precedence_over_models_coding(
+    def test_archetypes_overrides_coder_works_without_models(
         self, tmp_path: Path
     ) -> None:
-        """AC-3: archetypes.overrides.coder.model_tier takes precedence over models.coding."""
+        """archetypes.overrides.coder.model_tier works even when [models] is present."""
         from agent_fox.engine.sdk_params import resolve_model_tier
 
         config_file = tmp_path / "config.toml"
@@ -147,38 +122,10 @@ class TestModelsCodingDeprecationWarning:
         config = load_config(path=config_file)
         assert resolve_model_tier(config, "coder") == "SIMPLE"
 
-
-class TestNoCodingWarningAfterInit:
-    """AC-2: After agent-fox init, no deprecation warning fires during engine run."""
-
-    def test_ac2_no_warning_when_models_section_absent(
+    def test_no_deprecation_warning_for_models_coding(
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """AC-2: Config without [models] section must not trigger coding deprecation warning."""
-        import logging
-
-        from agent_fox.engine.sdk_params import resolve_model_tier
-
-        config_file = tmp_path / "config.toml"
-        # Simulate the fresh template — no [models] section at all
-        config_file.write_text("[orchestrator]\nparallel = 2\n")
-        config = load_config(path=config_file)
-
-        with caplog.at_level(logging.WARNING, logger="agent_fox.engine.sdk_params"):
-            resolve_model_tier(config, "coder")
-
-        coding_warnings = [
-            r for r in caplog.records
-            if r.levelno >= logging.WARNING and "coding" in r.message and "deprecated" in r.message
-        ]
-        assert not coding_warnings, (
-            "resolve_model_tier must not emit a deprecation warning when [models] coding is absent"
-        )
-
-    def test_ac3_warning_fires_for_nondefault_coding_via_resolve(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """AC-3: resolve_model_tier must emit a warning when coding is explicitly set."""
+        """No deprecation warning when [models] coding is set — section is silently ignored."""
         import logging
 
         from agent_fox.engine.sdk_params import resolve_model_tier
@@ -194,8 +141,8 @@ class TestNoCodingWarningAfterInit:
             r for r in caplog.records
             if r.levelno >= logging.WARNING and "coding" in r.message and "deprecated" in r.message
         ]
-        assert coding_warnings, (
-            "resolve_model_tier must emit a deprecation warning when [models] coding is explicitly set"
+        assert not coding_warnings, (
+            "resolve_model_tier must not emit a deprecation warning — [models] is removed"
         )
 
 

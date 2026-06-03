@@ -333,37 +333,6 @@ class TestReviewerConfig:
 
 
 # ---------------------------------------------------------------------------
-# TS-98-E1: Old Config Key Rejected
-# Requirements: 98-REQ-1.E1, 98-REQ-8.E1
-# ---------------------------------------------------------------------------
-
-
-class TestOldConfigKeyRejected:
-    """Config with old archetype keys raises validation error."""
-
-    def test_old_config_rejected_skeptic(self) -> None:
-        """TS-98-E1: Config with archetypes.skeptic raises ValidationError."""
-        from pydantic import ValidationError
-
-        from agent_fox.core.config import ArchetypesConfig
-
-        with pytest.raises((ValidationError, ValueError)) as exc_info:
-            # If extra="forbid" or a model_validator catches this, it raises
-            # For now we test that the old key is rejected with a meaningful error
-            cfg = ArchetypesConfig.model_validate({"skeptic": True})
-            # If we get here without error, the field must be explicitly absent
-            assert not hasattr(cfg, "skeptic"), (
-                "ArchetypesConfig silently accepted 'skeptic' key — should raise ValidationError"
-            )
-
-        err_str = str(exc_info.value)
-        # Error should mention "reviewer" in guidance
-        assert "reviewer" in err_str.lower() or "reviewer" in err_str, (
-            f"ValidationError should mention 'reviewer', got: {err_str}"
-        )
-
-
-# ---------------------------------------------------------------------------
 # TS-98-E2: Coder Without Mode
 # Requirement: 98-REQ-2.E1
 # ---------------------------------------------------------------------------

@@ -27,43 +27,39 @@ class TestCoordinatorTemplateDeleted:
 
 
 # -------------------------------------------------------------------
-# TS-62-8: ModelConfig Has No Coordinator Field
+# TS-62-8: ModelConfig Removed (was: No Coordinator Field)
 # Requirement: 62-REQ-6.1
 # -------------------------------------------------------------------
 
 
-class TestModelConfigNoCoordinatorField:
-    """TS-62-8: Verify ModelConfig does not have a coordinator field."""
+class TestModelConfigRemoved:
+    """TS-62-8: Verify ModelConfig class is no longer defined."""
 
-    def test_model_config_no_coordinator_field(self) -> None:
-        """ModelConfig must not declare a 'coordinator' field."""
-        from agent_fox.core.config import ModelConfig
+    def test_model_config_absent(self) -> None:
+        """ModelConfig class must not exist in config module."""
+        import agent_fox.core.config as config_mod
 
-        assert "coordinator" not in ModelConfig.model_fields, (
-            "ModelConfig still has a 'coordinator' field; it should be removed"
+        assert not hasattr(config_mod, "ModelConfig"), (
+            "ModelConfig should have been removed entirely"
         )
 
 
 # -------------------------------------------------------------------
-# TS-62-E1: Config With Coordinator Field Loads Successfully
+# TS-62-E1: Config With [models] Section Loads Successfully
 # Requirement: 62-REQ-6.E1
 # -------------------------------------------------------------------
 
 
-class TestConfigWithCoordinatorFieldLoadsOk:
-    """TS-62-E1: TOML config with coordinator field loads without error."""
+class TestConfigWithModelsFieldLoadsOk:
+    """TS-62-E1: TOML config with [models] section loads without error."""
 
-    def test_config_with_coordinator_loads_ok(self, tmp_path: Path) -> None:
-        """A config file with coordinator under [models] loads successfully."""
+    def test_config_with_models_section_loads_ok(self, tmp_path: Path) -> None:
+        """A config file with [models] section loads successfully (silently ignored)."""
         from agent_fox.core.config import load_config
 
         config_file = tmp_path / "config.toml"
         config_file.write_text('[models]\ncoordinator = "STANDARD"\n')
 
-        from agent_fox.core.config import ModelConfig
-
-        # Must not raise
-        load_config(path=config_file)
-
-        # The coordinator field must be silently ignored (not present on model)
-        assert "coordinator" not in ModelConfig.model_fields, "coordinator should be silently ignored by ModelConfig"
+        # Must not raise — entire [models] section is silently ignored
+        config = load_config(path=config_file)
+        assert config is not None

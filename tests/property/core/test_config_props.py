@@ -48,11 +48,6 @@ class TestConfigDefaultsCompleteness:
         assert config.theme.info == "#daa520"
         assert config.theme.tool == "bold #cd853f"
         assert config.theme.muted == "dim"
-        # models.coding defaults to None (issue #597): the deprecated [models] coding
-        # field no longer has a hard-coded default; the coder's ADVANCED tier is
-        # supplied by the archetype registry (archetypes.py) instead.
-        assert config.models.coding is None
-        assert config.models.memory_extraction == "SIMPLE"
 
 
 class TestConfigNumericClamping:

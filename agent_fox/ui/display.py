@@ -23,7 +23,7 @@ from rich.theme import Theme
 
 from agent_fox import __version__
 from agent_fox._build_info import GIT_REVISION
-from agent_fox.core.config import ModelConfig, ThemeConfig
+from agent_fox.core.config import ThemeConfig
 from agent_fox.core.models import resolve_model
 
 logger = logging.getLogger(__name__)
@@ -210,21 +210,17 @@ def _get_git_revision() -> str | None:
     return None
 
 
-def _resolve_coding_model_display(model_config: ModelConfig) -> str:
+def _resolve_coding_model_display() -> str:
     """Resolve the coding model to a display string.
 
     Returns the model ID (e.g., 'claude-opus-4-6') on success,
     or the raw tier string (e.g., 'ADVANCED') on failure.
 
-    When ``model_config.coding`` is None (i.e., not explicitly configured),
-    the coder archetype's registry default tier is used so that the banner
-    always shows a meaningful model name.
+    Uses the coder archetype's registry default tier.
     """
     from agent_fox.archetypes import ARCHETYPE_REGISTRY
 
-    tier = model_config.coding
-    if tier is None:
-        tier = ARCHETYPE_REGISTRY["coder"].default_model_tier
+    tier = ARCHETYPE_REGISTRY["coder"].default_model_tier
     try:
         entry = resolve_model(tier)
         return entry.model_id
@@ -234,14 +230,12 @@ def _resolve_coding_model_display(model_config: ModelConfig) -> str:
 
 def render_banner(
     theme: AppTheme,
-    model_config: ModelConfig,
     quiet: bool = False,
 ) -> None:
     """Render the CLI banner with fox art, version, model, and cwd.
 
     Args:
         theme: The app theme for styled output.
-        model_config: The model configuration to resolve the coding model.
         quiet: If True, suppress all banner output.
     """
     if quiet:
@@ -256,7 +250,7 @@ def render_banner(
         console.print(line, style="header", highlight=False)
 
     # 14-REQ-2.1, 14-REQ-2.2, 14-REQ-2.3, 14-REQ-2.E1: Version + model line
-    model_display = _resolve_coding_model_display(model_config)
+    model_display = _resolve_coding_model_display()
     revision = _get_git_revision()
     version_part = f"agent-fox v{__version__}"
     if revision:

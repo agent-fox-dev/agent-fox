@@ -13,9 +13,8 @@ the most commonly changed settings. Add any section below manually to
 - **Out-of-range values clamped.** Numeric values outside their valid bounds
   are silently clamped to the nearest bound (e.g., `parallel = 20` becomes
   `8`). A warning is logged when clamping occurs.
-- **Unknown keys.** Most sections silently ignore unknown keys (typos use the
-  default). The `[archetypes]` section is the exception — it rejects unknown
-  keys with a validation error to catch obsolete archetype names.
+- **Unknown keys.** All sections silently ignore unknown keys (typos use the
+  default).
 
 ## Table of Contents
 
@@ -23,7 +22,6 @@ the most commonly changed settings. Add any section below manually to
 - [workspace](#workspace)
 - [orchestrator](#orchestrator)
 - [routing](#routing)
-- [models](#models)
 - [security](#security)
 - [theme](#theme)
 - [platform](#platform)
@@ -73,13 +71,11 @@ force_clean = false
 
 ## orchestrator
 
-Controls the orchestration loop: parallelism, retries, timeouts, and quality gates.
+Controls the orchestration loop: parallelism, retries, timeouts, and budgets.
 
 | Field | Type | Default | Bounds | Description |
 |-------|------|---------|--------|-------------|
 | `parallel` | int | `2` | 1--8 | Maximum number of parallel coding sessions |
-| `quality_gate` | str | `""` | -- | Shell command run after each coder session to verify code quality (e.g. `"make check"`) |
-| `quality_gate_timeout` | int | `300` | -- | Timeout in seconds for the quality-gate command |
 | `max_budget_usd` | float | `8.0` | >= 0 | Per-session spend cap in USD; `0` means unlimited |
 | `sync_interval` | int | `5` | >= 0 | Task-group sync interval in number of sessions |
 | `hot_load` | bool | `true` | -- | Hot-reload spec files between sessions without restarting the orchestrator |
@@ -98,7 +94,6 @@ Controls the orchestration loop: parallelism, retries, timeouts, and quality gat
 ```toml
 [orchestrator]
 parallel = 4
-quality_gate = "make check"
 max_budget_usd = 10.0
 session_timeout = 45
 max_retries = 3
@@ -129,37 +124,6 @@ retries_before_escalation = 2
 max_timeout_retries = 3
 timeout_multiplier = 1.5
 timeout_ceiling_factor = 2.0
-```
-
----
-
-## models
-
-> **Deprecated:** The `[models]` section is deprecated and will be removed in a future release.
-> Migrate to the following locations:
->
-> | Old field | New location |
-> |-----------|-------------|
-> | `coding` | `[archetypes.overrides.coder] model_tier` |
-
-Selects the model tier for each task category. Valid tier values are
-`"SIMPLE"`, `"STANDARD"`, and `"ADVANCED"`.
-
-| Field | Type | Default | Bounds | Description |
-|-------|------|---------|--------|-------------|
-| `coding` | str | `"ADVANCED"` | -- | **Deprecated.** Model tier for coding tasks. Use `[archetypes.overrides.coder] model_tier` instead. |
-| `memory_extraction` | str | `"SIMPLE"` | -- | Model tier for memory/fact extraction |
-
-**Migration example:**
-
-```toml
-# Before (deprecated):
-[models]
-coding = "ADVANCED"
-
-# After (preferred):
-[archetypes.overrides.coder]
-model_tier = "ADVANCED"
 ```
 
 ---
@@ -320,11 +284,6 @@ models = {coder = "STANDARD", reviewer = "ADVANCED"}
 max_turns = {coder = 100, verifier = 50}
 ```
 
-**Obsolete keys:** Using `skeptic`, `oracle`, `auditor`, `skeptic_config`,
-`skeptic_settings`, `oracle_settings`, `auditor_config`, `fix_reviewer`, or
-`fix_coder` will produce a validation error with migration guidance. The
-`triage` key is silently stripped with a deprecation warning.
-
 ### archetypes.instances
 
 Controls how many parallel instances of each archetype are spawned.
@@ -380,7 +339,7 @@ Each override is keyed by archetype name and supports:
 **Example:**
 
 ```toml
-# Override the coder archetype model tier (replaces deprecated [models] coding):
+# Override the coder archetype model tier:
 [archetypes.overrides.coder]
 model_tier = "ADVANCED"
 

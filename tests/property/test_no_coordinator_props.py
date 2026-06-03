@@ -62,18 +62,17 @@ class TestConfigToleranceExtraModelFields:
         ["coordinator", "planner", "reviewer", "analyzer"],
     )
     def test_config_tolerance_extra_model_fields(self, tmp_path: Path, field_name: str) -> None:
-        """Config with extra [models] field loads and the field is not present."""
-        from agent_fox.core.config import load_config
+        """Config with extra [models] field loads and is silently ignored."""
+        from agent_fox.core.config import AgentFoxConfig, load_config
 
         config_file = tmp_path / f"config_{field_name}.toml"
         config_file.write_text(f'[models]\n{field_name} = "STANDARD"\n')
 
-        from agent_fox.core.config import ModelConfig
+        # Must not raise — entire [models] section is silently ignored
+        config = load_config(path=config_file)
+        assert config is not None
 
-        # Must not raise
-        load_config(path=config_file)
-
-        # Extra field must be silently ignored (not present on model class)
-        assert field_name not in ModelConfig.model_fields, (
-            f"Extra field '{field_name}' should be silently ignored by ModelConfig"
+        # The models field no longer exists on AgentFoxConfig
+        assert "models" not in AgentFoxConfig.model_fields, (
+            "AgentFoxConfig should not have a 'models' field"
         )
