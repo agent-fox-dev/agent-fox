@@ -101,39 +101,39 @@ the pipeline, group 4 verifies end-to-end.
     - [x] All existing tests still pass: `uv run pytest -q`
     - [x] No linter warnings introduced: `uv run ruff check agent_fox/`
 
-- [ ] 4. Wiring verification
+- [x] 4. Wiring verification
 
-  - [ ] 4.1 Trace every execution path from design.md end-to-end
+  - [x] 4.1 Trace every execution path from design.md end-to-end
     - Path 1: process_issue -> query_prior_attempts -> format -> _build_coder_prompt
     - Path 2: process_issue -> query_prior_attempts returns [] -> format returns "" -> prompt unchanged
     - Path 3: process_issue -> query_prior_attempts catches error -> returns [] -> prompt unchanged
     - _Requirements: all_
 
-  - [ ] 4.2 Verify return values propagate correctly
+  - [x] 4.2 Verify return values propagate correctly
     - query_prior_attempts returns list[PriorAttempt] consumed by format_prior_attempts
     - format_prior_attempts returns str consumed by _build_coder_prompt
     - _Requirements: all_
 
-  - [ ] 4.3 Run the integration smoke tests
+  - [x] 4.3 Run the integration smoke tests
     - TS-128-SMOKE-1 passes with real DuckDB and real pipeline code
     - _Test Spec: TS-128-SMOKE-1_
 
-  - [ ] 4.4 Stub / dead-code audit
+  - [x] 4.4 Stub / dead-code audit
     - Verify no stubs in prior_attempts.py
     - Verify no orphaned imports
     - _Requirements: all_
 
-  - [ ] 4.5 Cross-spec entry point verification
+  - [x] 4.5 Cross-spec entry point verification
     - Verify query_prior_attempts is called from fix_pipeline.py process_issue()
     - Verify format_prior_attempts is called from fix_pipeline.py
     - _Requirements: all_
 
-  - [ ] 4.V Verify wiring group
-    - [ ] All smoke tests pass
-    - [ ] No unjustified stubs remain in touched files
-    - [ ] All execution paths from design.md are live
-    - [ ] All cross-spec entry points are called from production code
-    - [ ] All existing tests still pass: `uv run pytest -q`
+  - [x] 4.V Verify wiring group
+    - [x] All smoke tests pass
+    - [x] No unjustified stubs remain in touched files
+    - [x] All execution paths from design.md are live
+    - [x] All cross-spec entry points are called from production code
+    - [x] All existing tests still pass: `uv run pytest -q`
 
 ## Traceability
 
