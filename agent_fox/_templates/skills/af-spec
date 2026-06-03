@@ -1016,17 +1016,33 @@ If the PRD was provided as a GitHub issue, save the finalized PRD as `{{SPEC_ROO
 
 ---
 
+## Step 7: Validate with lint-specs
+
+After generating all 5 spec files, run the linter to catch structural issues:
+
+1. Run `agent-fox lint-specs` on the generated spec folder.
+2. Review any errors or warnings in the output.
+3. Fix all lint errors and warnings before presenting the spec to the user.
+4. Re-run `agent-fox lint-specs` to confirm all issues are resolved.
+
+This automated validation catches missing sections, malformed requirement IDs,
+broken cross-references, and other structural problems. It does NOT validate
+semantic quality — use the manual checks in the completeness checklist below
+for those.
+
+---
+
 ## Completeness Checklist
 
-After generating all 5 spec files, verify the following before presenting to the
-user. These checks mirror what `agent-fox lint-spec` validates:
+After generating all 5 spec files and running `agent-fox lint-specs`, verify
+the following before presenting to the user:
 
 ### Requirements (requirements.md)
 - [ ] Every acceptance criterion contains the EARS keyword `SHALL`
 - [ ] All requirement IDs use bracket format `[NN-REQ-N.C]` (not bold `**NN-REQ-N.C:**`)
 - [ ] `## Introduction` and `## Glossary` sections are present
-- [ ] Every domain-specific term used in criteria appears in the Glossary
-- [ ] No more than 10 requirements per spec
+- [ ] Every domain-specific term used in criteria appears in the Glossary (manual check)
+- [ ] No more than 10 requirements per spec (manual check)
 
 ### Design (design.md)
 - [ ] `## Correctness Properties` section with at least one `### Property N:` entry
@@ -1034,22 +1050,22 @@ user. These checks mirror what `agent-fox lint-spec` validates:
 - [ ] `## Definition of Done` section is present
 - [ ] `## Overview`, `## Architecture` sections are present
 - [ ] Every requirement ID in the error table exists in requirements.md
-- [ ] `## Execution Paths` section present with one numbered call chain per user-visible feature, naming exact module+function at each step and showing return types where data flows between steps
+- [ ] `## Execution Paths` section present with one numbered call chain per user-visible feature, naming exact module+function at each step and showing return types where data flows between steps (manual check)
 
 ### Requirements (requirements.md — additional checks)
-- [ ] Every function whose output is consumed by a caller has a return value contract in its requirement (not just an action statement)
+- [ ] Every function whose output is consumed by a caller has a return value contract in its requirement (not just an action statement) (manual check)
 
 ### Test Specification (test_spec.md)
 - [ ] Every acceptance criterion has a `TS-NN-N` entry
 - [ ] Every correctness property has a `TS-NN-PN` entry
 - [ ] Every edge case has a `TS-NN-EN` entry
 - [ ] `## Coverage Matrix` section with a table listing every requirement ID
-- [ ] `## Integration Smoke Tests` section with one `TS-NN-SMOKE-N` entry per execution path from design.md
-- [ ] Each smoke test names which components must NOT be mocked (the ones in the execution path)
+- [ ] `## Integration Smoke Tests` section with one `TS-NN-SMOKE-N` entry per execution path from design.md (manual check)
+- [ ] Each smoke test names which components must NOT be mocked (the ones in the execution path) (manual check)
 
 ### Implementation Tasks (tasks.md)
 - [ ] Task group 1 is "Write failing spec tests"
-- [ ] Every `TS-NN-N` entry is referenced by at least one task
+- [ ] Every `TS-NN-N` entry is referenced by at least one task (manual check)
 - [ ] Each task group has a verification subtask (N.V)
 - [ ] `## Traceability` section with a table listing every requirement ID
 - [ ] No task group has more than 6 non-verification subtasks

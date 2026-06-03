@@ -466,7 +466,6 @@ agent-fox lint-specs [OPTIONS]
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `--ai` | flag | off | Enable AI-powered semantic analysis |
-| `--fix` | flag | off | Auto-fix findings where possible |
 | `--all` | flag | off | Lint all specs, including fully-implemented ones |
 
 Use `agent-fox --json lint-specs` for structured JSON output.
@@ -478,20 +477,9 @@ criteria, broken cross-spec dependencies, and untraced requirements.
 With `--ai`, additionally checks for vague or implementation-leaking acceptance
 criteria.
 
-With `--fix`, applies mechanical auto-fixes for supported rules (e.g., missing
-verification subtasks, missing acceptance criteria).
-
-With `--ai --fix`, additionally rewrites criteria flagged as `vague-criterion`
-or `implementation-leak` using an AI-powered rewrite step. The system sends a
-batched rewrite request per spec to the STANDARD-tier model, which returns
-EARS-formatted replacement text. Rewrites preserve the original requirement ID
-and are applied in-place to `requirements.md`. After rewrites, the spec is
-re-validated to produce the final findings list. If the AI rewrite call fails,
-the original criteria are left unchanged.
-
-When `--fix` produces changes, they are committed on a timestamped feature
-branch (`lint-spec/fix-YYYYMMDD-HHMMSS`). The original branch is restored
-after the commit.
+A progress spinner with phase-level status messages is displayed during
+execution to provide feedback on long-running operations. The progress display
+is automatically suppressed in `--json` or `--quiet` mode.
 
 **Exit codes:** `0` no errors (warnings OK), `1` error-severity findings.
 

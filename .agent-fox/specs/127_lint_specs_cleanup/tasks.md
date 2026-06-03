@@ -112,27 +112,27 @@ and group 3 (additive).
     - [x] No linter warnings introduced: `uv run ruff check agent_fox/`
     - [x] 127-REQ-4.1 through 127-REQ-4.E1 acceptance criteria met
 
-- [ ] 4. Update skill template and documentation
-  - [ ] 4.1 Update af-spec skill template
+- [x] 4. Update skill template and documentation
+  - [x] 4.1 Update af-spec skill template
     - Edit `agent_fox/_templates/skills/af-spec` to add lint-specs validation
       step after all documents are generated
     - Mark manual-only checklist items with "(manual check)"
     - _Requirements: 127-REQ-5.1, 127-REQ-5.2, 127-REQ-5.3_
 
-  - [ ] 4.2 Update installed skill copy
+  - [x] 4.2 Update installed skill copy
     - Edit `.claude/skills/af-spec/SKILL.md` with same changes
     - _Requirements: 127-REQ-5.1, 127-REQ-5.2, 127-REQ-5.3_
 
-  - [ ] 4.3 Update CLI reference documentation
+  - [x] 4.3 Update CLI reference documentation
     - Remove `--fix` from lint-specs options table in `docs/cli-reference.md`
     - Remove all mentions of auto-fix, git branch creation, criteria rewriting
     - Add note about progress spinner display
     - _Requirements: 127-REQ-6.1, 127-REQ-6.2_
 
-  - [ ] 4.V Verify task group 4
-    - [ ] Spec test TS-127-9 passes
-    - [ ] All existing tests still pass: `uv run pytest -q`
-    - [ ] 127-REQ-5.1 through 127-REQ-6.2 acceptance criteria met
+  - [x] 4.V Verify task group 4
+    - [x] Spec test TS-127-9 passes
+    - [x] All existing tests still pass: `uv run pytest -q`
+    - [x] 127-REQ-5.1 through 127-REQ-6.2 acceptance criteria met
 
 - [ ] 5. Wiring verification
 
