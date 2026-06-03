@@ -778,68 +778,39 @@ def dismiss_finding_by_id(
     """
     marker = f"dismissed:{datetime.now(UTC).isoformat()}"
 
-    # Try review_findings (skeptic archetype)
-    row = conn.execute(
-        "SELECT description, severity FROM review_findings "  # noqa: S608
-        "WHERE id::VARCHAR = ? AND superseded_by IS NULL",
-        [finding_id],
-    ).fetchone()
-    if row is not None:
-        description, severity = row
-        conn.execute(
-            "UPDATE review_findings SET superseded_by = ? WHERE id::VARCHAR = ? AND superseded_by IS NULL",
-            [marker, finding_id],
-        )
-        logger.info(
-            "Dismissed review finding %s (%s): %s [reason: %s]",
-            finding_id,
-            severity,
-            description,
-            reason,
-        )
-        return f"[{severity}] {description}"
+    # Table configs: (table, select_columns, log_label)
+    # col_a/col_b positions: review_findings & drift_findings use
+    # (description, severity) → label="[severity] description";
+    # verification_results uses (requirement_id, verdict) →
+    # label="[verdict] requirement_id".
+    _tables = [
+        ("review_findings", "description, severity", "review finding"),
+        ("drift_findings", "description, severity", "drift finding"),
+        ("verification_results", "requirement_id, verdict", "verification result"),
+    ]
 
-    # Try drift_findings (oracle archetype)
-    row = conn.execute(
-        "SELECT description, severity FROM drift_findings "  # noqa: S608
-        "WHERE id::VARCHAR = ? AND superseded_by IS NULL",
-        [finding_id],
-    ).fetchone()
-    if row is not None:
-        description, severity = row
-        conn.execute(
-            "UPDATE drift_findings SET superseded_by = ? WHERE id::VARCHAR = ? AND superseded_by IS NULL",
-            [marker, finding_id],
-        )
-        logger.info(
-            "Dismissed drift finding %s (%s): %s [reason: %s]",
-            finding_id,
-            severity,
-            description,
-            reason,
-        )
-        return f"[{severity}] {description}"
-
-    # Try verification_results (verifier archetype)
-    row = conn.execute(
-        "SELECT requirement_id, verdict FROM verification_results "  # noqa: S608
-        "WHERE id::VARCHAR = ? AND superseded_by IS NULL",
-        [finding_id],
-    ).fetchone()
-    if row is not None:
-        requirement_id, verdict = row
-        conn.execute(
-            "UPDATE verification_results SET superseded_by = ? WHERE id::VARCHAR = ? AND superseded_by IS NULL",
-            [marker, finding_id],
-        )
-        logger.info(
-            "Dismissed verification result %s (%s): %s [reason: %s]",
-            finding_id,
-            verdict,
-            requirement_id,
-            reason,
-        )
-        return f"[{verdict}] {requirement_id}"
+    for table, select_cols, log_label in _tables:
+        row = conn.execute(
+            f"SELECT {select_cols} FROM {table} "  # noqa: S608
+            "WHERE id::VARCHAR = ? AND superseded_by IS NULL",
+            [finding_id],
+        ).fetchone()
+        if row is not None:
+            col_a, col_b = row
+            conn.execute(
+                f"UPDATE {table} SET superseded_by = ? "  # noqa: S608
+                "WHERE id::VARCHAR = ? AND superseded_by IS NULL",
+                [marker, finding_id],
+            )
+            logger.info(
+                "Dismissed %s %s (%s): %s [reason: %s]",
+                log_label,
+                finding_id,
+                col_b,
+                col_a,
+                reason,
+            )
+            return f"[{col_b}] {col_a}"
 
     return None
 
