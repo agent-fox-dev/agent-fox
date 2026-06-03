@@ -28,15 +28,15 @@ changes are needed.
 
 ## Tasks
 
-- [ ] 1. Write failing spec tests
-  - [ ] 1.1 Create test file for postmortem module
+- [x] 1. Write failing spec tests
+  - [x] 1.1 Create test file for postmortem module
     - Create `tests/unit/engine/test_postmortem.py`
     - Implement TS-126-1 through TS-126-9, TS-126-12 as unit tests
     - Use local imports within test methods for not-yet-existing module
     - Tests MUST fail (module does not exist yet)
     - _Test Spec: TS-126-1 through TS-126-9, TS-126-12_
 
-  - [ ] 1.2 Create property test file
+  - [x] 1.2 Create property test file
     - Create `tests/property/engine/test_postmortem_props.py`
     - Implement TS-126-P1 through TS-126-P8 using Hypothesis
     - Build ExecutionState strategy generating random node_states,
@@ -44,21 +44,21 @@ changes are needed.
     - Tests MUST fail (module does not exist yet)
     - _Test Spec: TS-126-P1 through TS-126-P8_
 
-  - [ ] 1.3 Add CLI post-mortem path tests
+  - [x] 1.3 Add CLI post-mortem path tests
     - Add TS-126-10 and TS-126-11 to existing `tests/unit/cli/test_code.py`
     - Tests verify `_print_summary()` output includes/excludes
       post-mortem path based on `postmortem_path` field
     - Tests MUST fail (field does not exist yet)
     - _Test Spec: TS-126-10, TS-126-11_
 
-  - [ ] 1.4 Create edge case tests
+  - [x] 1.4 Create edge case tests
     - Add TS-126-E1 through TS-126-E5 to `tests/unit/engine/test_postmortem.py`
     - _Test Spec: TS-126-E1 through TS-126-E5_
 
-  - [ ] 1.V Verify task group 1
-    - [ ] All spec tests exist and are syntactically valid
-    - [ ] All spec tests FAIL (red) — no implementation yet
-    - [ ] No linter warnings introduced: `uv run ruff check tests/unit/engine/test_postmortem.py tests/property/engine/test_postmortem_props.py`
+  - [x] 1.V Verify task group 1
+    - [x] All spec tests exist and are syntactically valid
+    - [x] All spec tests FAIL (red) — no implementation yet
+    - [x] No linter warnings introduced: `uv run ruff check tests/unit/engine/test_postmortem.py tests/property/engine/test_postmortem_props.py`
 
 - [ ] 2. Implement postmortem module and state changes
   - [ ] 2.1 Add `run_id` and `postmortem_path` fields to ExecutionState

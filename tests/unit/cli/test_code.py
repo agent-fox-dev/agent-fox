@@ -610,3 +610,62 @@ class TestFinallyBlockCleanup:
             result = cli_runner.invoke(main, ["code"])
 
         assert result.exit_code == 0
+
+
+class TestPostmortemPathInSummary:
+    """TS-126-10, TS-126-11: Post-mortem path in CLI summary output.
+
+    Requirements: 126-REQ-6.1, 126-REQ-6.2
+    """
+
+    def test_postmortem_path_printed_when_present(self, cli_runner: CliRunner) -> None:
+        """TS-126-10: _print_summary() outputs post-mortem path when set.
+
+        Requirement: 126-REQ-6.1
+        """
+        state = ExecutionState(
+            plan_hash="abc123",
+            node_states={"a": "blocked"},
+            run_status="stalled",
+            total_input_tokens=100_000,
+            total_output_tokens=50_000,
+            total_cost=2.50,
+            total_sessions=3,
+            started_at="2026-06-03T10:00:00+00:00",
+            updated_at="2026-06-03T10:15:00+00:00",
+            postmortem_path=".agent-fox/audit/postmortem_123.json",
+        )
+        with (
+            patch("agent_fox.cli.code.run_code", _mock_run_code(state)),
+            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+        ):
+            mock_db_path.exists.return_value = True
+            result = cli_runner.invoke(main, ["code"])
+
+        assert "Post-mortem: .agent-fox/audit/postmortem_123.json" in result.output
+
+    def test_postmortem_path_not_printed_when_absent(self, cli_runner: CliRunner) -> None:
+        """TS-126-11: _print_summary() omits post-mortem line when empty.
+
+        Requirement: 126-REQ-6.2
+        """
+        state = ExecutionState(
+            plan_hash="abc123",
+            node_states={"a": "completed", "b": "completed", "c": "completed"},
+            run_status="completed",
+            total_input_tokens=100_000,
+            total_output_tokens=50_000,
+            total_cost=2.50,
+            total_sessions=3,
+            started_at="2026-06-03T10:00:00+00:00",
+            updated_at="2026-06-03T10:15:00+00:00",
+            postmortem_path="",
+        )
+        with (
+            patch("agent_fox.cli.code.run_code", _mock_run_code(state)),
+            patch("agent_fox.core.paths.DEFAULT_DB_PATH") as mock_db_path,
+        ):
+            mock_db_path.exists.return_value = True
+            result = cli_runner.invoke(main, ["code"])
+
+        assert "Post-mortem:" not in result.output
