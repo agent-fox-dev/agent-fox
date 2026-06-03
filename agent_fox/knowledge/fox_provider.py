@@ -190,15 +190,12 @@ class FoxKnowledgeProvider:
 
         # Build a parallel list of (text, optional_id) so we can track which
         # finding/verdict IDs survive the max_items cap.
-        items_with_ids: list[tuple[str, str | None]] = []
-        for text, id_ in zip(reviews, review_ids):
-            items_with_ids.append((text, id_))
-        for text in errata:
-            items_with_ids.append((text, None))
-        for text in adrs:
-            items_with_ids.append((text, None))
-        for text, id_ in zip(verdicts, verdict_ids):
-            items_with_ids.append((text, id_))
+        items_with_ids: list[tuple[str, str | None]] = [
+            *zip(reviews, review_ids),
+            *((t, None) for t in errata),
+            *((t, None) for t in adrs),
+            *zip(verdicts, verdict_ids),
+        ]
 
         # Cross-group items: findings and FAIL verdicts from other task groups
         # in the same spec.  These are informational (not tracked for injection)
