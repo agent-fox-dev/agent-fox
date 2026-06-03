@@ -23,15 +23,15 @@ and group 3 (additive).
 
 ## Tasks
 
-- [ ] 1. Write failing spec tests
-  - [ ] 1.1 Create test file for CLI changes
+- [x] 1. Write failing spec tests
+  - [x] 1.1 Create test file for CLI changes
     - Create `tests/unit/cli/test_lint_specs_cleanup.py`
     - Tests for TS-127-1 (--fix rejected), TS-127-E1 (error message)
     - Tests for TS-127-5 (no git operations in source)
     - Tests for TS-127-SMOKE-1, TS-127-SMOKE-2 (integration smoke tests)
     - _Test Spec: TS-127-1, TS-127-E1, TS-127-5, TS-127-SMOKE-1, TS-127-SMOKE-2_
 
-  - [ ] 1.2 Create test file for backing module changes
+  - [x] 1.2 Create test file for backing module changes
     - Create `tests/unit/spec/test_lint_cleanup.py`
     - Tests for TS-127-2 (no fix parameter), TS-127-3 (no fix_results)
     - Tests for TS-127-4 (fixers package deleted)
@@ -40,21 +40,21 @@ and group 3 (additive).
     - Tests for TS-127-E2 (progress callback None edge case)
     - _Test Spec: TS-127-2, TS-127-3, TS-127-4, TS-127-6, TS-127-7, TS-127-8, TS-127-E2_
 
-  - [ ] 1.3 Create property and remaining unit tests
+  - [x] 1.3 Create property and remaining unit tests
     - Tests for TS-127-P1 (no fixer imports in any tracked file)
     - Tests for TS-127-P2 (CLI rejects --fix)
     - Tests for TS-127-P3 (LintResult no fix_results)
     - Tests for TS-127-P4 (progress callback optional)
     - _Test Spec: TS-127-P1, TS-127-P2, TS-127-P3, TS-127-P4_
 
-  - [ ] 1.4 Create test for documentation
+  - [x] 1.4 Create test for documentation
     - Tests for TS-127-9 (docs updated)
     - _Test Spec: TS-127-9_
 
-  - [ ] 1.V Verify task group 1
-    - [ ] All spec tests exist and are syntactically valid
-    - [ ] All spec tests FAIL (red) -- no implementation yet
-    - [ ] No linter warnings introduced: `uv run ruff check agent_fox/`
+  - [x] 1.V Verify task group 1
+    - [x] All spec tests exist and are syntactically valid
+    - [x] All spec tests FAIL (red) -- no implementation yet
+    - [x] No linter warnings introduced: `uv run ruff check agent_fox/`
 
 - [ ] 2. Remove --fix flag and all fix code
   - [ ] 2.1 Delete the fixers package
