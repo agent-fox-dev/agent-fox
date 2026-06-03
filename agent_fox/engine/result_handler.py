@@ -730,6 +730,71 @@ class SessionResultHandler:
             },
         )
 
+    def _handle_non_retryable(
+        self,
+        record: SessionRecord,
+        state: ExecutionState,
+    ) -> None:
+        """Handle a non-retryable workspace-state error by blocking immediately.
+
+        118-REQ-3.2, 118-REQ-3.3: Non-retryable errors are blocked without
+        consuming escalation ladder retries.
+        """
+        node_id = record.node_id
+        logger.warning(
+            "Non-retryable workspace-state error for %s, blocking immediately: %s",
+            node_id,
+            record.error_message,
+        )
+        self._block_task(
+            node_id,
+            state,
+            f"workspace-state: {record.error_message}",
+        )
+        self._check_block_budget(state)
+
+    def _handle_budget_exhausted(
+        self,
+        record: SessionRecord,
+        state: ExecutionState,
+    ) -> None:
+        """Handle budget exhaustion by blocking without retry.
+
+        The session did real work but the SDK terminated it when the
+        max-budget-usd cap was reached.  Retrying would just burn the same
+        budget again with no progress.
+        """
+        node_id = record.node_id
+        logger.warning(
+            "Budget exhausted for %s, blocking without retry: %s",
+            node_id,
+            record.error_message,
+        )
+        self._block_task(
+            node_id,
+            state,
+            f"Budget exhausted for {node_id}: {record.error_message}",
+        )
+        self._check_block_budget(state)
+
+    def _handle_transport_error(
+        self,
+        record: SessionRecord,
+    ) -> None:
+        """Handle a transport error by resetting to pending without consuming escalation.
+
+        The ClaudeBackend already retried internally; this path is reached only
+        when all transport retries were exhausted.  Reset the node to pending
+        so the orchestrator re-dispatches it without touching the ladder.
+        """
+        node_id = record.node_id
+        logger.warning(
+            "Transport error for %s (not consuming escalation retry): %s",
+            node_id,
+            record.error_message,
+        )
+        self._graph_sync.mark_pending(node_id, reason="transport error retry")
+
     def _handle_failure(
         self,
         record: SessionRecord,
@@ -745,47 +810,17 @@ class SessionResultHandler:
         # 118-REQ-3.2, 118-REQ-3.3: Non-retryable errors (workspace-state)
         # are blocked immediately without consuming escalation ladder retries.
         if getattr(record, "is_non_retryable", False):
-            logger.warning(
-                "Non-retryable workspace-state error for %s, blocking immediately: %s",
-                node_id,
-                record.error_message,
-            )
-            self._block_task(
-                node_id,
-                state,
-                f"workspace-state: {record.error_message}",
-            )
-            self._check_block_budget(state)
+            self._handle_non_retryable(record, state)
             return
 
-        # Budget exhaustion is not retryable — the session did real work but
-        # the SDK terminated it when the max-budget-usd cap was reached.
-        # Retrying would just burn the same budget again with no progress.
+        # Budget exhaustion is not retryable.
         if getattr(record, "is_budget_exhausted", False):
-            logger.warning(
-                "Budget exhausted for %s, blocking without retry: %s",
-                node_id,
-                record.error_message,
-            )
-            self._block_task(
-                node_id,
-                state,
-                f"Budget exhausted for {node_id}: {record.error_message}",
-            )
-            self._check_block_budget(state)
+            self._handle_budget_exhausted(record, state)
             return
 
         # Transport errors are retried without consuming an escalation attempt.
-        # The ClaudeBackend already retried internally; this path is reached only
-        # when all transport retries were exhausted.  Reset the node to pending
-        # so the orchestrator re-dispatches it without touching the ladder.
         if getattr(record, "is_transport_error", False):
-            logger.warning(
-                "Transport error for %s (not consuming escalation retry): %s",
-                node_id,
-                record.error_message,
-            )
-            self._graph_sync.mark_pending(node_id, reason="transport error retry")
+            self._handle_transport_error(record)
             return
 
         # 26-REQ-9.3: Retry-predecessor for archetypes with the flag
