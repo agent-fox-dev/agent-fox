@@ -191,7 +191,9 @@ class TestAC1AutoCleanKnownArtifacts:
 
     @pytest.mark.asyncio
     async def test_unknown_file_does_not_trigger_auto_clean(self) -> None:
-        """An unknown untracked file is NOT auto-remediated; node is blocked."""
+        """An unknown untracked file is NOT auto-remediated; dispatch is skipped
+        for this cycle (returns None) but the task is NOT permanently blocked
+        (AC-4: _block_task_fn must not be called)."""
         dirty_report = HealthReport(
             untracked_files=["some_unexpected_file.txt"],
             dirty_index_files=[],
@@ -206,7 +208,8 @@ class TestAC1AutoCleanKnownArtifacts:
             result = await mgr.prepare_launch("spec:1", state, {}, {})
 
         mock_clean.assert_not_called()
-        mgr._block_task_fn.assert_called_once()
+        # AC-4: _block_task_fn must NOT be called — task stays re-dispatchable
+        mgr._block_task_fn.assert_not_called()
         assert result is None
 
 
@@ -241,7 +244,9 @@ class TestAC2ForceCleanConfig:
 
     @pytest.mark.asyncio
     async def test_force_clean_false_does_not_remediate_unknown_file(self) -> None:
-        """force_clean=False does not trigger remediation for unknown files."""
+        """force_clean=False does not trigger remediation for unknown files.
+        The dispatch cycle is skipped (returns None) but the task is NOT permanently
+        blocked (AC-4: _block_task_fn must not be called)."""
         dirty_report = HealthReport(
             untracked_files=["some_arbitrary_file.txt"],
             dirty_index_files=[],
@@ -256,7 +261,8 @@ class TestAC2ForceCleanConfig:
             result = await mgr.prepare_launch("spec:1", state, {}, {})
 
         mock_clean.assert_not_called()
-        mgr._block_task_fn.assert_called_once()
+        # AC-4: _block_task_fn must NOT be called — task stays re-dispatchable
+        mgr._block_task_fn.assert_not_called()
         assert result is None
 
 
@@ -304,15 +310,22 @@ class TestAC3CascadeScope:
 
 
 # ---------------------------------------------------------------------------
-# Block only when remediation fails
+# Skip dispatch cycle when remediation fails (AC-4: no permanent block)
 # ---------------------------------------------------------------------------
 
 
 class TestBlockOnlyWhenRemediationFails:
-    """When force_clean returns a non-empty report, the node is still blocked."""
+    """When force_clean returns a non-empty report, the dispatch cycle is skipped
+    (returns None) but the task is NOT permanently blocked (AC-4).
+
+    Prior behavior was to call _block_task_fn; AC-4 changes this to a
+    skip-and-retry approach so stale workspace conditions don't cascade-block.
+    """
 
     @pytest.mark.asyncio
-    async def test_remediation_failure_blocks_node(self) -> None:
+    async def test_remediation_failure_skips_dispatch_cycle(self) -> None:
+        """When auto-remediation fails (still dirty), the cycle is skipped
+        without permanently blocking the task (AC-4: no _block_task_fn call)."""
         dirty_report = HealthReport(
             untracked_files=["tests/test_property.proptest-regressions"],
             dirty_index_files=[],
@@ -330,7 +343,8 @@ class TestBlockOnlyWhenRemediationFails:
         ):
             result = await mgr.prepare_launch("spec:1", state, {}, {})
 
-        mgr._block_task_fn.assert_called_once()
+        # AC-4: Must NOT call _block_task_fn — task remains re-dispatchable
+        mgr._block_task_fn.assert_not_called()
         assert result is None
 
 

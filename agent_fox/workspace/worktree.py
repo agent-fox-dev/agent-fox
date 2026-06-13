@@ -191,6 +191,8 @@ async def create_worktree(
 async def destroy_worktree(
     repo_root: Path,
     workspace: WorkspaceInfo,
+    *,
+    preserve_branch: bool = False,
 ) -> None:
     """Remove a git worktree and its feature branch.
 
@@ -199,6 +201,11 @@ async def destroy_worktree(
     branch. Cleans up empty ancestor directories.
 
     Does not raise if the worktree or branch is already gone.
+
+    When *preserve_branch* is True, the feature branch is renamed to
+    ``stalled/<original-branch-name>`` instead of being deleted, so that
+    committed work is recoverable after a harvest failure.  The worktree
+    directory is still removed.
 
     Requirements: 80-REQ-1.1, 80-REQ-1.E1, 80-REQ-3.1
     """
@@ -231,6 +238,22 @@ async def destroy_worktree(
             "Branch '%s' is still referenced by a worktree after two prune attempts; skipping branch deletion",
             workspace.branch,
         )
+    elif preserve_branch:
+        # AC-3: Rename instead of deleting so committed coder work is recoverable.
+        stalled_name = f"stalled/{workspace.branch}"
+        rc, _, _ = await run_git(
+            ["branch", "-m", workspace.branch, stalled_name],
+            cwd=repo_root,
+            check=False,
+        )
+        if rc == 0:
+            logger.warning(
+                "Harvest failed: preserved feature branch as '%s' for recovery",
+                stalled_name,
+            )
+        else:
+            # Rename failed (branch may not exist) — fall back to delete
+            await delete_branch(repo_root, workspace.branch, force=True)
     else:
         # Delete the feature branch (03-REQ-2.E2: log warning if not found)
         await delete_branch(repo_root, workspace.branch, force=True)

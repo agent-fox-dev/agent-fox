@@ -547,15 +547,18 @@ class DispatchManager:
                         report = HealthReport(untracked_files=[], dirty_index_files=[])
 
                 if report.has_issues:
-                    # 118-REQ-4.2: Block node with diagnostic message
+                    # AC-4: Do NOT permanently block the task on workspace-state
+                    # failures. A concurrent spec may be about to merge, resolving
+                    # the orphan files. Return None to skip this dispatch cycle and
+                    # allow re-evaluation on the next cycle without calling
+                    # _block_task_fn (which triggers an irreversible mark_blocked).
                     diagnostic = format_health_diagnostic(report)
                     logger.warning(
-                        "Pre-session health check failed for %s: %s",
+                        "Pre-session health check failed for %s: %s — "
+                        "skipping this dispatch cycle (task remains re-dispatchable)",
                         node_id,
                         diagnostic,
                     )
-                    if hasattr(self, "_block_task_fn"):
-                        self._block_task_fn(node_id, state, f"workspace-state: {diagnostic}")
                     return None
         except Exception:
             # 118-REQ-4.E1: Fail-open on git command errors

@@ -339,3 +339,68 @@ class TestWorktreeCleanupOnFailure:
         assert not ws.path.exists()
         branches = list_branches(tmp_worktree_repo)
         assert ws.branch not in branches
+
+
+class TestPreserveBranchOnHarvestFailure:
+    """AC-3: Feature branch is preserved (renamed to stalled/) when harvest fails.
+
+    When harvest fails, the feature branch should not be deleted. Instead it
+    is renamed to stalled/<original-branch-name> so committed coder work can
+    be recovered.
+    """
+
+    @pytest.mark.asyncio
+    async def test_preserve_branch_renames_to_stalled(
+        self,
+        tmp_worktree_repo: Path,
+    ) -> None:
+        """AC-3: destroy_worktree with preserve_branch=True renames the branch
+        to stalled/<original-branch-name> instead of deleting it.
+
+        Asserts (a) worktree directory no longer exists, (b) original branch
+        name no longer exists, (c) stalled/<original> branch exists.
+        """
+        ws = await create_worktree(tmp_worktree_repo, "spec_b", 1)
+        # Add a commit on the feature branch so stalled/ has real content
+        add_commit_to_branch(ws.path, "some_work.py", "work in progress\n")
+
+        original_tip = get_branch_tip(tmp_worktree_repo, ws.branch)
+
+        # Simulate harvest failure: destroy with preserve_branch=True
+        await destroy_worktree(tmp_worktree_repo, ws, preserve_branch=True)
+
+        # (a) Worktree directory no longer exists
+        assert not ws.path.exists(), "Worktree directory should be removed"
+
+        branches = list_branches(tmp_worktree_repo)
+
+        # (b) Original branch name no longer exists
+        assert ws.branch not in branches, (
+            f"Original branch '{ws.branch}' should not exist after preserve"
+        )
+
+        # (c) stalled/<original-branch-name> branch exists with same commits
+        stalled_branch = f"stalled/{ws.branch}"
+        assert stalled_branch in branches, (
+            f"Stalled branch '{stalled_branch}' should exist"
+        )
+
+        stalled_tip = get_branch_tip(tmp_worktree_repo, stalled_branch)
+        assert stalled_tip == original_tip, (
+            "Stalled branch should point to the same commit as the original branch"
+        )
+
+    @pytest.mark.asyncio
+    async def test_preserve_branch_false_still_deletes(
+        self,
+        tmp_worktree_repo: Path,
+    ) -> None:
+        """With preserve_branch=False (default), branch is deleted as normal."""
+        ws = await create_worktree(tmp_worktree_repo, "spec_normal", 1)
+        add_commit_to_branch(ws.path, "work.py", "content\n")
+
+        await destroy_worktree(tmp_worktree_repo, ws, preserve_branch=False)
+
+        branches = list_branches(tmp_worktree_repo)
+        assert ws.branch not in branches
+        assert f"stalled/{ws.branch}" not in branches

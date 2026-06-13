@@ -12,6 +12,7 @@ Requirements: 03-REQ-7.1 through 03-REQ-7.E2,
 from __future__ import annotations
 
 import logging
+import shutil
 from pathlib import Path
 
 from agent_fox.core.errors import IntegrationError
@@ -229,15 +230,32 @@ async def _clean_conflicting_untracked(
 
     if divergent:
         if force_clean:
-            # 118-REQ-2.3: Remove divergent files when force_clean is enabled
+            # AC-2: Backup divergent files before removal so committed coder
+            # work is not silently destroyed.
+            branch_slug = feature_branch.replace("/", "-")
+            conflicts_dir = repo_root / ".agent-fox" / "conflicts" / branch_slug
+            conflicts_dir.mkdir(parents=True, exist_ok=True)
             logger.warning(
-                "Force-clean: removing %d divergent untracked file(s) for feature branch '%s': %s",
+                "Force-clean: backing up %d divergent untracked file(s) to '%s' "
+                "for feature branch '%s': %s",
                 len(divergent),
+                conflicts_dir,
                 feature_branch,
                 ", ".join(divergent),
             )
             for path in divergent:
                 full = repo_root / path
+                backup_path = conflicts_dir / path
+                try:
+                    backup_path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(full, backup_path)
+                    logger.warning(
+                        "Force-clean: backed up divergent file '%s' to '%s'",
+                        path,
+                        backup_path,
+                    )
+                except OSError:
+                    logger.debug("Could not back up divergent file %s", full)
                 try:
                     full.unlink(missing_ok=True)
                 except OSError:
@@ -258,7 +276,7 @@ async def _clean_conflicting_untracked(
                 f"  git clean -fd          # remove untracked files\n"
                 f"\n"
                 f"Or re-run with --force-clean to automatically clean the workspace.",
-                retryable=False,
+                retryable=True,
                 branch=feature_branch,
             )
 

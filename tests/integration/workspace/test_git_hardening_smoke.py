@@ -195,21 +195,25 @@ class TestForceCleanEnablesHarvest:
 
 
 # ---------------------------------------------------------------------------
-# TS-118-SMOKE-3: Non-retryable error skips escalation ladder
+# TS-118-SMOKE-3: Retryable error on divergent untracked files (AC-1)
 # ---------------------------------------------------------------------------
 
 
 class TestNonRetryableErrorSkipsEscalation:
-    """TS-118-SMOKE-3: Divergent files produce IntegrationError(retryable=False).
+    """TS-118-SMOKE-3: Divergent files produce IntegrationError(retryable=True).
+
+    AC-1: Changed from retryable=False to retryable=True so the orchestrator
+    can retry rather than permanently cascade-blocking downstream tasks.
 
     Uses real git repos and real _clean_conflicting_untracked.
     """
 
     @pytest.mark.asyncio
-    async def test_divergent_files_raise_nonretryable_error(
+    async def test_divergent_files_raise_retryable_error(
         self, tmp_path: Path
     ) -> None:
-        """_clean_conflicting_untracked raises IntegrationError(retryable=False)."""
+        """AC-1: _clean_conflicting_untracked raises IntegrationError(retryable=True)
+        so the engine can retry the task on the next cycle."""
         repo = _make_repo(tmp_path)
 
         # Create feature branch with a file
@@ -242,7 +246,8 @@ class TestNonRetryableErrorSkipsEscalation:
         with pytest.raises(IntegrationError) as exc_info:
             await _clean_conflicting_untracked(repo, "feature/diverge")
 
-        assert exc_info.value.retryable is False
+        # AC-1: must be retryable=True so the orchestrator can retry
+        assert exc_info.value.retryable is True
         msg = str(exc_info.value)
         assert "git clean" in msg
         assert "--force-clean" in msg

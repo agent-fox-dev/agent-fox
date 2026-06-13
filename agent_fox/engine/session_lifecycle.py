@@ -816,6 +816,10 @@ class NodeSessionRunner:
                 attempt=attempt,
             )
 
+        # AC-3: Track whether the session completed but harvest/merge failed so
+        # execute() can preserve the feature branch for recovery.
+        is_harvest_failure = outcome.status == "completed" and status == "failed"
+
         return SessionRecord(
             node_id=node_id,
             attempt=attempt,
@@ -833,6 +837,7 @@ class NodeSessionRunner:
             is_transport_error=getattr(outcome, "is_transport_error", False),
             is_budget_exhausted=is_budget_exhausted,
             is_non_retryable=is_non_retryable,
+            is_harvest_failure=is_harvest_failure,
         )
 
     def _persist_review_findings(
@@ -1026,10 +1031,15 @@ class NodeSessionRunner:
         """
         repo_root = Path.cwd()
         workspace: WorkspaceInfo | None = None
+        _preserve_branch = False  # set True when session completed but harvest failed
 
         try:
             workspace = await self._setup_workspace(repo_root, node_id)
-            return await self._run_session_lifecycle(node_id, attempt, previous_error, repo_root, workspace)
+            record = await self._run_session_lifecycle(node_id, attempt, previous_error, repo_root, workspace)
+            # AC-3: Preserve the feature branch when harvest failed so the
+            # committed coder work can be recovered.
+            _preserve_branch = record.is_harvest_failure
+            return record
 
         except Exception as exc:
             logger.error(
@@ -1052,10 +1062,11 @@ class NodeSessionRunner:
             )
 
         finally:
-            # 03-REQ-2.1: Always clean up the worktree
+            # 03-REQ-2.1: Always clean up the worktree. When harvest failed,
+            # preserve the feature branch so committed work is recoverable.
             if workspace is not None:
                 try:
-                    await destroy_worktree(repo_root, workspace)
+                    await destroy_worktree(repo_root, workspace, preserve_branch=_preserve_branch)
                 except Exception:
                     logger.warning(
                         "Failed to clean up worktree for %s",

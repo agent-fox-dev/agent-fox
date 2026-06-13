@@ -534,6 +534,9 @@ class TestCleanConflictingUntracked:
 class TestForceCleanDuringHarvest:
     """TS-118-6: harvest with force_clean=True removes divergent files.
 
+    AC-2: Before removing divergent files, they are backed up to
+    .agent-fox/conflicts/<branch-slug>/.
+
     Requirements: 118-REQ-2.3
     """
 
@@ -555,9 +558,62 @@ class TestForceCleanDuringHarvest:
         files = await harvest(tmp_worktree_repo, ws, force_clean=True)
         assert len(files) > 0
 
+    @pytest.mark.asyncio
+    async def test_force_clean_backs_up_divergent_file(
+        self,
+        tmp_worktree_repo: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """AC-2: When force_clean=True, divergent untracked files are backed
+        up to .agent-fox/conflicts/<branch-slug>/ before removal.
+
+        Asserts (a) original path is removed from working directory,
+        (b) a backup file exists under .agent-fox/conflicts/,
+        (c) a WARNING log referencing the backup path is emitted.
+        """
+        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1)
+        add_commit_to_branch(ws.path, "new_file.py", "branch content\n")
+
+        # Place divergent content as untracked on develop
+        untracked = tmp_worktree_repo / "new_file.py"
+        divergent_content = "local divergent content\n"
+        untracked.write_text(divergent_content)
+
+        with caplog.at_level(logging.WARNING, logger="agent_fox.workspace.harvest"):
+            files = await harvest(tmp_worktree_repo, ws, force_clean=True)
+
+        # (a) A backup file exists under .agent-fox/conflicts/ — this is the key
+        # check: the divergent content was preserved before the file was overwritten.
+        conflicts_root = tmp_worktree_repo / ".agent-fox" / "conflicts"
+        assert conflicts_root.exists(), ".agent-fox/conflicts/ should be created"
+        backup_files = list(conflicts_root.rglob("new_file.py"))
+        assert backup_files, "Backup of new_file.py should exist under .agent-fox/conflicts/"
+        # The backup preserves the divergent content (not the branch content)
+        assert backup_files[0].read_text() == divergent_content, (
+            "Backup should contain the original divergent content"
+        )
+
+        # (b) A WARNING log references the backup path
+        warning_messages = [
+            r.message for r in caplog.records if r.levelno == logging.WARNING
+        ]
+        assert any("conflicts" in msg for msg in warning_messages), (
+            f"Expected WARNING mentioning backup location; got: {warning_messages}"
+        )
+
+        # Merge should have proceeded — branch content should be in working tree
+        assert len(files) > 0
+        # After merge, the file contains the branch content (not the divergent content)
+        assert untracked.read_text() == "branch content\n", (
+            "After merge, file should contain branch content"
+        )
+
 
 class TestNonRetryableErrorOnDivergent:
-    """TS-118-7: _clean_conflicting_untracked raises IntegrationError(retryable=False).
+    """TS-118-7: _clean_conflicting_untracked raises IntegrationError(retryable=True).
+
+    AC-1: Divergent untracked file errors must be retryable so the engine
+    can retry the task rather than permanently blocking it.
 
     Requirements: 118-REQ-3.1
     """
@@ -568,7 +624,8 @@ class TestNonRetryableErrorOnDivergent:
         tmp_worktree_repo: Path,
     ) -> None:
         """When divergent untracked files are found, _clean_conflicting_untracked
-        raises IntegrationError with retryable=False."""
+        raises IntegrationError with retryable=True (AC-1: must be retryable so the
+        engine can retry instead of permanently blocking)."""
         ws = await create_worktree(tmp_worktree_repo, "test_spec", 1)
         add_commit_to_branch(ws.path, "new_file.py", "branch content\n")
 
@@ -579,7 +636,8 @@ class TestNonRetryableErrorOnDivergent:
         with pytest.raises(IntegrationError) as exc_info:
             await _clean_conflicting_untracked(tmp_worktree_repo, ws.branch)
 
-        assert exc_info.value.retryable is False
+        # AC-1: must be retryable=True so the orchestrator can retry
+        assert exc_info.value.retryable is True
 
 
 class TestMergeConflictRemainsRetryable:
@@ -730,3 +788,88 @@ class TestCleanConflictingUntrackedSymlinkEscape:
         # A WARNING must have been logged about skipping the path
         messages = " ".join(r.message for r in caplog.records)
         assert "outside repo root" in messages or "skipping" in messages.lower()
+
+
+# ---------------------------------------------------------------------------
+# AC-5: Shared-directory campaign scenarios (issue #600)
+# ---------------------------------------------------------------------------
+
+
+class TestSharedDirectoryCampaign:
+    """AC-5: Two specs writing to the same directory must not cascade-block.
+
+    Scenario: Spec A creates test_alpha.py and merges. Spec B (worktree
+    created before Spec A merged) creates test_beta.py. An orphan untracked
+    copy of test_alpha.py exists in the main working directory from Spec A's
+    CWD leak, with divergent content.
+
+    Sub-scenario 1: test_alpha.py is NOT in spec B's incoming changes
+      → harvest should succeed (test_alpha.py is not a conflict).
+
+    Sub-scenario 2: test_alpha.py IS in spec B's incoming changes (divergent)
+      → harvest raises a retryable IntegrationError (.retryable=True).
+    """
+
+    @pytest.mark.asyncio
+    async def test_orphan_file_not_in_incoming_harvest_succeeds(
+        self,
+        tmp_worktree_repo: Path,
+    ) -> None:
+        """AC-5 sub-scenario 1: An orphan untracked file that is NOT in the
+        feature branch's incoming changes does not block harvest.
+
+        Spec B's branch only touches test_beta.py; the orphan test_alpha.py
+        is not in the incoming set, so it is not a conflict.
+        """
+        # Create feature branch that only touches test_beta.py
+        ws = await create_worktree(tmp_worktree_repo, "spec_b", 1)
+        add_commit_to_branch(ws.path, "packages/foo/tests/test_beta.py", "def test_beta(): pass\n")
+
+        # Place an orphan untracked copy of test_alpha.py in main repo
+        # (simulating CWD leak from spec A). It is NOT in ws.branch's changes.
+        orphan = tmp_worktree_repo / "packages" / "foo" / "tests" / "test_alpha.py"
+        orphan.parent.mkdir(parents=True, exist_ok=True)
+        orphan.write_text("orphan divergent content from spec A CWD leak\n")
+
+        # Harvest should succeed: test_alpha.py is not in the incoming set
+        files = await harvest(tmp_worktree_repo, ws)
+        assert "packages/foo/tests/test_beta.py" in files
+
+    @pytest.mark.asyncio
+    async def test_orphan_file_in_incoming_raises_retryable(
+        self,
+        tmp_worktree_repo: Path,
+    ) -> None:
+        """AC-5 sub-scenario 2: An orphan untracked file that IS in the
+        feature branch's incoming changes raises a retryable IntegrationError.
+
+        This allows the engine to retry the task on the next cycle (e.g. after
+        the workspace is cleaned) rather than permanently blocking it.
+        """
+        # Create feature branch that touches BOTH test_alpha.py (divergent)
+        # and test_beta.py
+        ws = await create_worktree(tmp_worktree_repo, "spec_b", 1)
+        add_commit_to_branch(
+            ws.path,
+            "packages/foo/tests/test_alpha.py",
+            "branch version of alpha\n",
+        )
+        add_commit_to_branch(
+            ws.path,
+            "packages/foo/tests/test_beta.py",
+            "def test_beta(): pass\n",
+        )
+
+        # Place a divergent orphan copy of test_alpha.py in main repo
+        orphan = tmp_worktree_repo / "packages" / "foo" / "tests" / "test_alpha.py"
+        orphan.parent.mkdir(parents=True, exist_ok=True)
+        orphan.write_text("orphan divergent content from spec A CWD leak\n")
+
+        # Harvest should raise a retryable IntegrationError so the orchestrator
+        # can retry (AC-1: retryable=True) rather than cascade-blocking.
+        with pytest.raises(IntegrationError) as exc_info:
+            await harvest(tmp_worktree_repo, ws)
+
+        assert exc_info.value.retryable is True, (
+            "Divergent untracked file error must be retryable=True (AC-1/AC-5)"
+        )

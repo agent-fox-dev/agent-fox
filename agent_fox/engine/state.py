@@ -61,6 +61,7 @@ class SessionRecord:
     is_transport_error: bool = False  # True when failure was a transient connection error
     is_budget_exhausted: bool = False  # True when failure was caused by SDK budget limit
     is_non_retryable: bool = False  # True when failure is non-retryable (workspace-state error)
+    is_harvest_failure: bool = False  # True when session completed but harvest/merge failed
 
 
 @dataclass
