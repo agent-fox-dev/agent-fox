@@ -686,13 +686,15 @@ class NodeSessionRunner:
             cache_creation_input_tokens=outcome.cache_creation_input_tokens,
         )
 
-        # Detect budget exhaustion: SDK returns is_error=True with no message
-        # when the max-budget-usd limit is hit.  The session did real work
-        # (high token count) so retrying would just burn the same budget again.
+        # Detect budget exhaustion: the session failed and the computed cost
+        # meets or exceeds the configured budget threshold.  The session did
+        # real work (high token count) so retrying would just burn the same
+        # budget again.  We use cost ratio alone — not an error-message sentinel
+        # — so the check remains correct regardless of what diagnostic string
+        # _map_message composes from the SDK ResultMessage.
         resolved_budget = resolve_max_budget(self._config)
         is_budget_exhausted = (
             outcome.status == "failed"
-            and (outcome.error_message or "") in ("Unknown error", "")
             and resolved_budget is not None
             and cost >= resolved_budget * _BUDGET_EXHAUST_RATIO
         )

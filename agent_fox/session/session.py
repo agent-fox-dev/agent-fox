@@ -319,7 +319,7 @@ async def _execute_query(
         # 03-REQ-3.E2: Check is_error flag
         if message.is_error:
             query_state.status = "failed"
-            query_state.error_message = message.error_message or "Unknown error"
+            query_state.error_message = message.error_message
             query_state.is_transport_error = getattr(message, "is_transport_error", False)
             # Record tool error when the session fails after a tool invocation
             if sink_dispatcher is not None and last_tool_name is not None:

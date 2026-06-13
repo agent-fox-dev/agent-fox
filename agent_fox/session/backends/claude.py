@@ -285,7 +285,24 @@ class ClaudeBackend:
             is_error = bool(getattr(message, "is_error", False))
             error_message: str | None = None
             if is_error:
-                error_message = getattr(message, "result", None) or "Unknown error"
+                result_str = getattr(message, "result", None)
+                if result_str:
+                    error_message = result_str
+                else:
+                    # Compose a diagnostic string from available SDK fields so
+                    # that the actual failure reason is preserved in audit logs.
+                    # Falls back to "Unknown error" only when all fields are absent.
+                    parts: list[str] = []
+                    subtype = getattr(message, "subtype", None)
+                    if subtype:
+                        parts.append(f"subtype={subtype}")
+                    num_turns = getattr(message, "num_turns", None)
+                    if num_turns is not None:
+                        parts.append(f"num_turns={num_turns}")
+                    total_cost_usd = getattr(message, "total_cost_usd", None)
+                    if total_cost_usd is not None:
+                        parts.append(f"total_cost_usd={total_cost_usd:.4f}")
+                    error_message = ", ".join(parts) if parts else "Unknown error"
             status = "failed" if is_error else "completed"
 
             return [

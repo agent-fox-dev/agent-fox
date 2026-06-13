@@ -461,3 +461,175 @@ class TestBuildPromptsPassesTaskGroup:
         assert call_kwargs.kwargs.get("task_group") == "2", (
             f"Expected task_group='2', got: {call_kwargs}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Issue #599: Budget exhaustion detection no longer uses "Unknown error" sentinel
+# AC-4
+# ---------------------------------------------------------------------------
+
+
+class TestBudgetExhaustionDetection:
+    """AC-4: Budget exhaustion uses cost ratio alone, not an error-message sentinel.
+
+    The old condition included `(outcome.error_message or "") in ("Unknown error", "")`
+    which would never fire once _map_message starts producing diagnostic strings.
+    After the fix the check is purely cost-based.
+    """
+
+    @pytest.mark.asyncio
+    async def test_budget_exhausted_with_diagnostic_error_message(self) -> None:
+        """Session with a diagnostic error_message and cost >= 90% of budget is
+        correctly detected as budget-exhausted and not re-queued."""
+        config = AgentFoxConfig()
+        # Set a max_budget_usd so resolve_max_budget returns a value
+        config.orchestrator.max_budget_usd = 10.0
+
+        sink = MagicMock()
+        runner = NodeSessionRunner("spec:1", config, knowledge_db=_MOCK_KB, sink_dispatcher=sink)
+
+        workspace = WorkspaceInfo(
+            path=Path("/tmp/ws"),
+            spec_name="spec",
+            task_group=1,
+            branch="feature/spec/1",
+        )
+
+        # Outcome: session failed with a non-sentinel diagnostic message
+        # (as produced by the fixed _map_message) and large token usage
+        failed_outcome = SessionOutcome(
+            spec_name="spec",
+            task_group="1",
+            node_id="spec:1",
+            status="failed",
+            error_message="subtype=error, num_turns=350, total_cost_usd=9.1500",
+            input_tokens=4_000_000,
+            output_tokens=200_000,
+            cache_read_input_tokens=9_000_000,
+            cache_creation_input_tokens=0,
+            duration_ms=1_500_000,
+        )
+
+        audit_calls: list = []
+
+        def capture_emit(sink_arg, run_id, event_type, **kwargs):
+            audit_calls.append(event_type)
+
+        with (
+            patch.object(
+                runner,
+                "_execute_session",
+                new_callable=AsyncMock,
+                return_value=failed_outcome,
+            ),
+            patch.object(
+                runner,
+                "_harvest_and_integrate",
+                new_callable=AsyncMock,
+                return_value=("failed", "subtype=error, num_turns=350, total_cost_usd=9.1500", [], False),
+            ),
+            patch(
+                "agent_fox.engine.session_lifecycle.calculate_session_cost",
+                return_value=9.5,  # >= 10.0 * 0.9 = 9.0
+            ),
+            patch(
+                "agent_fox.engine.session_lifecycle._capture_develop_head",
+                new_callable=AsyncMock,
+                return_value="",
+            ),
+            patch(
+                "agent_fox.engine.session_lifecycle.emit_audit_event",
+                side_effect=capture_emit,
+            ),
+            patch.object(
+                runner,
+                "_extract_knowledge_and_findings",
+                new_callable=AsyncMock,
+            ),
+        ):
+            record = await runner._run_and_harvest(
+                "spec:1", 1, workspace, "sys", "task", Path("/tmp"),
+            )
+
+        # Budget-exhausted sessions get a "Budget exhausted" error_message
+        assert record.error_message is not None
+        assert "Budget exhausted" in record.error_message, (
+            f"Expected 'Budget exhausted' in error_message, got: {record.error_message!r}"
+        )
+        assert record.is_budget_exhausted is True
+
+    @pytest.mark.asyncio
+    async def test_not_budget_exhausted_when_cost_below_threshold(self) -> None:
+        """Session with low cost is NOT marked as budget-exhausted,
+        regardless of what the error_message contains."""
+        config = AgentFoxConfig()
+        config.orchestrator.max_budget_usd = 10.0
+
+        sink = MagicMock()
+        runner = NodeSessionRunner("spec:1", config, knowledge_db=_MOCK_KB, sink_dispatcher=sink)
+
+        workspace = WorkspaceInfo(
+            path=Path("/tmp/ws"),
+            spec_name="spec",
+            task_group=1,
+            branch="feature/spec/1",
+        )
+
+        failed_outcome = SessionOutcome(
+            spec_name="spec",
+            task_group="1",
+            node_id="spec:1",
+            status="failed",
+            error_message="subtype=error, num_turns=5, total_cost_usd=0.5000",
+            input_tokens=10_000,
+            output_tokens=5_000,
+            cache_read_input_tokens=0,
+            cache_creation_input_tokens=0,
+            duration_ms=5_000,
+        )
+
+        audit_calls: list = []
+
+        def capture_emit(sink_arg, run_id, event_type, **kwargs):
+            audit_calls.append(event_type)
+
+        with (
+            patch.object(
+                runner,
+                "_execute_session",
+                new_callable=AsyncMock,
+                return_value=failed_outcome,
+            ),
+            patch.object(
+                runner,
+                "_harvest_and_integrate",
+                new_callable=AsyncMock,
+                return_value=("failed", "subtype=error, num_turns=5, total_cost_usd=0.5000", [], False),
+            ),
+            patch(
+                "agent_fox.engine.session_lifecycle.calculate_session_cost",
+                return_value=0.5,  # < 10.0 * 0.9 = 9.0
+            ),
+            patch(
+                "agent_fox.engine.session_lifecycle._capture_develop_head",
+                new_callable=AsyncMock,
+                return_value="",
+            ),
+            patch(
+                "agent_fox.engine.session_lifecycle.emit_audit_event",
+                side_effect=capture_emit,
+            ),
+            patch.object(
+                runner,
+                "_extract_knowledge_and_findings",
+                new_callable=AsyncMock,
+            ),
+        ):
+            record = await runner._run_and_harvest(
+                "spec:1", 1, workspace, "sys", "task", Path("/tmp"),
+            )
+
+        # Cost below threshold: should not be budget-exhausted
+        assert record.is_budget_exhausted is False
+        if record.error_message:
+            assert "Budget exhausted" not in record.error_message

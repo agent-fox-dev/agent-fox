@@ -89,6 +89,103 @@ class TestMapMessageResultType:
         assert canonical.error_message == "session crashed"
 
 
+# ---------------------------------------------------------------------------
+# Issue #599: Diagnostic error string when result field is empty
+# AC-1, AC-2
+# ---------------------------------------------------------------------------
+
+
+class TestMapMessageDiagnosticError:
+    """Issue #599: _map_message composes a diagnostic error string when result is empty."""
+
+    def test_non_empty_result_takes_precedence(self) -> None:
+        """AC-1: When result is non-empty, error_message equals result verbatim."""
+        msg = SimpleNamespace(
+            type="result",
+            is_error=True,
+            result="session crashed",
+            subtype="error",
+            num_turns=42,
+            total_cost_usd=1.23,
+            usage={"input_tokens": 50, "output_tokens": 20},
+            duration_ms=150,
+        )
+        results = ClaudeBackend._map_message(msg)
+        assert len(results) == 1
+        canonical = results[0]
+        assert isinstance(canonical, ResultMessage)
+        assert canonical.error_message == "session crashed"
+
+    def test_diagnostic_string_when_result_is_none(self) -> None:
+        """AC-2: When result is None, error_message is built from subtype and num_turns."""
+        msg = SimpleNamespace(
+            type="result",
+            is_error=True,
+            result=None,
+            subtype="error",
+            num_turns=350,
+            total_cost_usd=9.15,
+            usage={"input_tokens": 100, "output_tokens": 50},
+            duration_ms=200,
+        )
+        results = ClaudeBackend._map_message(msg)
+        assert len(results) == 1
+        canonical = results[0]
+        assert isinstance(canonical, ResultMessage)
+        assert canonical.status == "failed"
+        assert canonical.is_error is True
+        assert canonical.error_message != "Unknown error"
+        assert "subtype=error" in canonical.error_message
+        assert "num_turns=350" in canonical.error_message
+
+    def test_diagnostic_string_when_result_is_empty_string(self) -> None:
+        """AC-2: When result is empty string, error_message is built from other fields."""
+        msg = SimpleNamespace(
+            type="result",
+            is_error=True,
+            result="",
+            subtype="error",
+            num_turns=42,
+            total_cost_usd=1.23,
+            usage={"input_tokens": 50, "output_tokens": 20},
+            duration_ms=150,
+        )
+        results = ClaudeBackend._map_message(msg)
+        canonical = results[0]
+        assert canonical.error_message != "Unknown error"
+        assert "subtype=error" in canonical.error_message
+        assert "num_turns=42" in canonical.error_message
+
+    def test_diagnostic_string_includes_total_cost(self) -> None:
+        """AC-2: Diagnostic string includes total_cost_usd when present."""
+        msg = SimpleNamespace(
+            type="result",
+            is_error=True,
+            result=None,
+            subtype="error",
+            num_turns=10,
+            total_cost_usd=2.5,
+            usage={"input_tokens": 50, "output_tokens": 20},
+            duration_ms=150,
+        )
+        results = ClaudeBackend._map_message(msg)
+        canonical = results[0]
+        assert "total_cost_usd=" in canonical.error_message
+
+    def test_fallback_to_unknown_when_all_fields_absent(self) -> None:
+        """When all diagnostic fields are absent, fallback to 'Unknown error'."""
+        msg = SimpleNamespace(
+            type="result",
+            is_error=True,
+            result=None,
+            usage={"input_tokens": 0, "output_tokens": 0},
+            duration_ms=0,
+        )
+        results = ClaudeBackend._map_message(msg)
+        canonical = results[0]
+        assert canonical.error_message == "Unknown error"
+
+
 class TestMapMessageToolUse:
     """Verify _map_message correctly maps tool-use messages."""
 
