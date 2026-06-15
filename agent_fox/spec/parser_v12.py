@@ -18,7 +18,7 @@ from pathlib import Path
 import afspec
 from afspec.models import Subtask, SubtaskState, TaskDependency, TaskGroup
 
-from agent_fox.spec.parser import CrossSpecDep, SubtaskDef, TaskGroupDef
+from agent_fox.spec.types import CrossSpecDep, SubtaskDef, TaskGroupDef
 
 # ---------------------------------------------------------------------------
 # Internal mapper functions

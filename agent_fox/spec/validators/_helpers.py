@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
 
 from agent_fox.spec._patterns import (
     H2_HEADING as _H2_HEADING,
@@ -14,44 +13,13 @@ from agent_fox.spec._patterns import (
 from agent_fox.spec._patterns import (
     normalize_heading as _normalize_heading,
 )
-
-# -- Severity constants -------------------------------------------------------
-
-SEVERITY_ERROR = "error"
-SEVERITY_WARNING = "warning"
-SEVERITY_HINT = "hint"
-
-# Sorting order: error < warning < hint
-SEVERITY_ORDER = {SEVERITY_ERROR: 0, SEVERITY_WARNING: 1, SEVERITY_HINT: 2}
-
-
-# -- Finding data model -------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class Finding:
-    """A single validation finding."""
-
-    spec_name: str  # e.g., "01_core_foundation"
-    file: str  # e.g., "tasks.md"
-    rule: str  # e.g., "missing-file", "oversized-group"
-    severity: str  # "error" | "warning" | "hint"
-    message: str  # Human-readable description
-    line: int | None  # Source line number, if available
-
-
-def sort_findings(findings: list[Finding]) -> list[Finding]:
-    """Sort findings by spec_name, file, then severity (error < warning < hint)."""
-    return sorted(
-        findings,
-        key=lambda f: (f.spec_name, f.file, SEVERITY_ORDER.get(f.severity, 99)),
-    )
-
-
-def compute_exit_code(findings: list[Finding]) -> int:
-    """Determine exit code from findings: 1 if any errors, 0 otherwise."""
-    return 1 if any(f.severity == SEVERITY_ERROR for f in findings) else 0
-
+from agent_fox.spec.types import SEVERITY_ERROR as SEVERITY_ERROR
+from agent_fox.spec.types import SEVERITY_HINT as SEVERITY_HINT
+from agent_fox.spec.types import SEVERITY_ORDER as SEVERITY_ORDER
+from agent_fox.spec.types import SEVERITY_WARNING as SEVERITY_WARNING
+from agent_fox.spec.types import Finding as Finding
+from agent_fox.spec.types import compute_exit_code as compute_exit_code
+from agent_fox.spec.types import sort_findings as sort_findings
 
 # -- Constants -----------------------------------------------------------------
 

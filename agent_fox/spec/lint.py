@@ -20,12 +20,8 @@ import afspec
 from agent_fox.core.errors import PlanError
 from agent_fox.core.models import resolve_model
 from agent_fox.spec.discovery import SpecFormat, SpecInfo, discover_specs
-from agent_fox.spec.validators import (
-    Finding,
-    compute_exit_code,
-    sort_findings,
-    validate_specs,
-)
+from agent_fox.spec.types import Finding, compute_exit_code, sort_findings
+from agent_fox.spec.validators import validate_specs
 
 logger = logging.getLogger(__name__)
 

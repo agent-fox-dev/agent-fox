@@ -460,17 +460,23 @@ class TestNoParserImportsInEngineModules:
         ],
     )
     def test_engine_module_no_parser_import(self, module_path: str) -> None:
-        """137-REQ-5.3: No engine module imports from spec.parser."""
+        """137-REQ-5.3: No engine module imports from spec.parser.
+
+        Uses 'from agent_fox.spec.parser import' to avoid false-positive
+        matches on 'from agent_fox.spec.parser_v12 import'.
+        """
         content = _read_source(module_path)
-        assert "from agent_fox.spec.parser" not in content
+        assert "from agent_fox.spec.parser import" not in content
 
     def test_planner_no_parser_import(self) -> None:
         """137-REQ-5.2: planner.py does not import from spec.parser.
 
         Addresses skeptic finding: planner.py was missing from TS-137-8.
+        Uses 'from agent_fox.spec.parser import' to avoid false-positive
+        matches on 'from agent_fox.spec.parser_v12 import'.
         """
         content = _read_source("agent_fox/graph/planner.py")
-        assert "from agent_fox.spec.parser" not in content
+        assert "from agent_fox.spec.parser import" not in content
 
     def test_verification_checklist_no_parser_import(self) -> None:
         """137-REQ-4.3: verification_checklist.py does not import from
@@ -478,9 +484,11 @@ class TestNoParserImportsInEngineModules:
 
         Addresses skeptic finding: TS-137-9 (filename grep) cannot
         detect import statements.
+        Uses 'from agent_fox.spec.parser import' to avoid false-positive
+        matches on 'from agent_fox.spec.parser_v12 import'.
         """
         content = _read_source("agent_fox/spec/verification_checklist.py")
-        assert "from agent_fox.spec.parser" not in content
+        assert "from agent_fox.spec.parser import" not in content
 
 
 # ===================================================================
@@ -522,7 +530,10 @@ class TestNoV1FilenameStringsInSource:
 
     def test_no_parser_imports_anywhere(self) -> None:
         """137-REQ-5.E1: No module under agent_fox/ (excluding
-        fix/spec_gen.py) contains 'from agent_fox.spec.parser'.
+        fix/spec_gen.py) contains 'from agent_fox.spec.parser import'.
+
+        Uses 'from agent_fox.spec.parser import' to avoid false-positive
+        matches on 'from agent_fox.spec.parser_v12 import'.
 
         Addresses skeptic critical finding: TS-137-8 only covered four
         engine modules; this test scans the entire agent_fox/ tree.
@@ -534,7 +545,7 @@ class TestNoV1FilenameStringsInSource:
         for p in py_files:
             content = p.read_text(encoding="utf-8")
             for i, line in enumerate(content.splitlines(), start=1):
-                if "from agent_fox.spec.parser" in line:
+                if "from agent_fox.spec.parser import" in line:
                     matches.append(f"{p}:{i}: {line.strip()}")
         assert matches == [], (
             "parser imports found in source:\n"

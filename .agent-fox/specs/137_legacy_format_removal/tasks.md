@@ -82,8 +82,8 @@ Similarly, `parse_cross_deps(prd_path, spec_name)` becomes
     - [x] All existing tests still pass: `uv run pytest -q`
     - [x] No linter warnings introduced: `uv run ruff check`
 
-- [ ] 3. Rewire spec-layer and graph-layer imports
-  - [ ] 3.1 Rewire spec-layer imports
+- [x] 3. Rewire spec-layer and graph-layer imports
+  - [x] 3.1 Rewire spec-layer imports
     - Update `spec/parser_v12.py`: import `TaskGroupDef`, `SubtaskDef`,
       `CrossSpecDep` from `spec.types` instead of `spec.parser`
     - Update `spec/lint.py`: import `Finding`, `compute_exit_code`,
@@ -93,7 +93,7 @@ Similarly, `parse_cross_deps(prd_path, spec_name)` becomes
       `spec.validators`
     - _Requirements: 1.3, 5.4_
 
-  - [ ] 3.2 Rewire graph-layer imports
+  - [x] 3.2 Rewire graph-layer imports
     - Update `graph/builder.py`: import `TaskGroupDef`, `CrossSpecDep`
       from `spec.types` instead of `spec.parser`
     - Update `graph/planner.py`: import `CrossSpecDep` from `spec.types`,
@@ -104,9 +104,9 @@ Similarly, `parse_cross_deps(prd_path, spec_name)` becomes
       path — update call sites accordingly
     - _Requirements: 5.1, 5.2_
 
-  - [ ] 3.V Verify task group 3
-    - [ ] All existing tests still pass: `uv run pytest -q`
-    - [ ] No linter warnings introduced: `uv run ruff check`
+  - [x] 3.V Verify task group 3
+    - [x] All existing tests still pass: `uv run pytest -q`
+    - [x] No linter warnings introduced: `uv run ruff check`
 
 - [ ] 4. Rewire engine-layer imports
   - [ ] 4.1 Rewire `engine/engine.py`

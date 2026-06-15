@@ -17,7 +17,7 @@ import click
 
 from agent_fox.core.errors import PlanError
 from agent_fox.spec.lint import run_lint_specs
-from agent_fox.spec.validators import (
+from agent_fox.spec.types import (
     SEVERITY_ERROR,
     SEVERITY_HINT,
     SEVERITY_WARNING,

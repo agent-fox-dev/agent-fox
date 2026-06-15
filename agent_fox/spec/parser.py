@@ -8,8 +8,14 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass
 from pathlib import Path
+
+# Re-export shared types from their canonical location (spec.types).
+# This maintains backward compatibility until parser.py is deleted in
+# spec 137 task group 6.
+from agent_fox.spec.types import CrossSpecDep as CrossSpecDep  # noqa: E402
+from agent_fox.spec.types import SubtaskDef as SubtaskDef  # noqa: E402
+from agent_fox.spec.types import TaskGroupDef as TaskGroupDef  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -46,37 +52,6 @@ _KNOWN_ARCHETYPES = {
     "verifier",
 }
 
-
-@dataclass(frozen=True)
-class SubtaskDef:
-    """A single nested subtask within a task group."""
-
-    id: str  # e.g., "1.2"
-    title: str  # subtask description text
-    completed: bool  # checkbox state
-
-
-@dataclass(frozen=True)
-class TaskGroupDef:
-    """A parsed top-level task group from tasks.md."""
-
-    number: int  # group number (1, 2, 3, ...)
-    title: str  # group title text
-    optional: bool  # True if marked with *
-    completed: bool  # True if checkbox is [x]
-    subtasks: tuple[SubtaskDef, ...]  # nested subtasks
-    body: str  # full raw text of the group
-    archetype: str | None = None  # 26-REQ-5.1: from [archetype: X] tag
-
-
-@dataclass(frozen=True)
-class CrossSpecDep:
-    """A cross-spec dependency declaration from a prd.md table."""
-
-    from_spec: str  # source spec name (the spec declaring the dependency)
-    from_group: int  # source group number (0 = first group, resolved by builder)
-    to_spec: str  # target spec name (the spec being depended on)
-    to_group: int  # target group number (0 = last group, resolved by builder)
 
 
 def parse_tasks(tasks_path: Path) -> list[TaskGroupDef]:
