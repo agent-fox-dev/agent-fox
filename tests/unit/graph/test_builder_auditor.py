@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 if TYPE_CHECKING:
-    from agent_fox.spec.parser import TaskGroupDef
+    from agent_fox.spec.types import TaskGroupDef
 
 try:
     from hypothesis import assume, given, settings
@@ -27,7 +27,7 @@ except ImportError:
 
 def _tgd(number: int, title: str = "T", **kw: Any) -> TaskGroupDef:
     """Build a TaskGroupDef with short defaults."""
-    from agent_fox.spec.parser import TaskGroupDef
+    from agent_fox.spec.types import TaskGroupDef
 
     defaults: dict[str, Any] = dict(optional=False, completed=False, subtasks=(), body="")
     defaults.update(kw)

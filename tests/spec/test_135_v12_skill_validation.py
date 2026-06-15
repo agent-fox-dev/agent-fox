@@ -22,7 +22,7 @@ from hypothesis import strategies as st
 
 from agent_fox.spec.discovery import SpecFormat, SpecInfo
 from agent_fox.spec.lint import LintResult, run_lint_specs
-from agent_fox.spec.validators import Finding
+from agent_fox.spec.types import Finding
 
 # ---------------------------------------------------------------------------
 # Repo root and skill template path
@@ -433,7 +433,7 @@ class TestMixedFormatValidation:
             result = run_lint_specs(mixed_specs_root)
             # Findings should be sorted by spec name, file, severity
             if len(result.findings) >= 2:
-                from agent_fox.spec.validators import SEVERITY_ORDER
+                from agent_fox.spec.types import SEVERITY_ORDER
 
                 for i in range(len(result.findings) - 1):
                     a, b = result.findings[i], result.findings[i + 1]
@@ -1047,7 +1047,7 @@ class TestMixedFormatLintSmoke:
             )
             # Findings should be sorted
             if len(result.findings) >= 2:
-                from agent_fox.spec.validators import SEVERITY_ORDER
+                from agent_fox.spec.types import SEVERITY_ORDER
 
                 for i in range(len(result.findings) - 1):
                     a, b = result.findings[i], result.findings[i + 1]

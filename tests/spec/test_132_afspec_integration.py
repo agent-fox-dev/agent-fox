@@ -307,16 +307,12 @@ class TestAfspecLoadSpec:
 
 
 class TestSpecFormatEnum:
-    """TS-132-3: Verify SpecFormat enum exists with V1_MARKDOWN and V1_2_JSON.
+    """TS-132-3: Verify SpecFormat enum exists with V1_2_JSON.
 
     Requirement: 132-REQ-2.1
+
+    Note: V1_MARKDOWN was removed by spec 137 (legacy format removal).
     """
-
-    def test_v1_markdown_value(self) -> None:
-        """SpecFormat.V1_MARKDOWN has value 'v1_markdown'."""
-        from agent_fox.spec.discovery import SpecFormat
-
-        assert SpecFormat.V1_MARKDOWN.value == "v1_markdown"
 
     def test_v1_2_json_value(self) -> None:
         """SpecFormat.V1_2_JSON has value 'v1_2_json'."""
@@ -350,20 +346,6 @@ class TestSpecInfoFormatField:
         )
         assert info.format == SpecFormat.V1_2_JSON
 
-    def test_format_field_v1_markdown(self) -> None:
-        """SpecInfo format field can hold V1_MARKDOWN."""
-        from agent_fox.spec.discovery import SpecFormat
-
-        info = SpecInfo(
-            name="test",
-            prefix=1,
-            path=Path("/tmp"),
-            has_tasks=True,
-            has_prd=True,
-            format=SpecFormat.V1_MARKDOWN,
-        )
-        assert info.format == SpecFormat.V1_MARKDOWN
-
 
 # ===========================================================================
 # TS-132-5: Format detection identifies v1.2 by requirements.json
@@ -386,29 +368,6 @@ class TestDetectFormatJson:
 
         result = _detect_format(spec_dir)
         assert result == SpecFormat.V1_2_JSON
-
-
-# ===========================================================================
-# TS-132-6: Format detection identifies v1 by requirements.md
-# ===========================================================================
-
-
-class TestDetectFormatMarkdown:
-    """TS-132-6: A folder with requirements.md but no requirements.json is V1_MARKDOWN.
-
-    Requirement: 132-REQ-3.2
-    """
-
-    def test_requirements_md_only(self, tmp_path: Path) -> None:
-        """Folder with only requirements.md is detected as V1_MARKDOWN."""
-        from agent_fox.spec.discovery import SpecFormat, _detect_format
-
-        spec_dir = tmp_path / "spec"
-        spec_dir.mkdir()
-        (spec_dir / "requirements.md").write_text("# Requirements\n")
-
-        result = _detect_format(spec_dir)
-        assert result == SpecFormat.V1_MARKDOWN
 
 
 # ===========================================================================
@@ -579,11 +538,9 @@ class TestFormatDetectionDeterminism:
         result2 = _detect_format(spec_dir)
         assert result1 == result2
 
-        # Verify correctness of classification
+        # Verify correctness of classification for v1.2
         if has_req_json:
             assert result1 == SpecFormat.V1_2_JSON
-        else:
-            assert result1 == SpecFormat.V1_MARKDOWN
 
 
 # ===========================================================================

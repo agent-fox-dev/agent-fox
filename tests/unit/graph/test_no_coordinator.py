@@ -11,12 +11,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from agent_fox.spec.parser import TaskGroupDef
+    from agent_fox.spec.types import TaskGroupDef
 
 
 def _tgd(number: int, title: str = "Task", **kw: Any) -> TaskGroupDef:
     """Build a TaskGroupDef with short defaults."""
-    from agent_fox.spec.parser import TaskGroupDef
+    from agent_fox.spec.types import TaskGroupDef
 
     defaults: dict[str, Any] = dict(optional=False, completed=False, subtasks=(), body="")
     defaults.update(kw)

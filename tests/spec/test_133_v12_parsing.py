@@ -20,7 +20,7 @@ from afspec.models import SubtaskState
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from agent_fox.spec.parser import CrossSpecDep, SubtaskDef, TaskGroupDef
+from agent_fox.spec.types import CrossSpecDep, SubtaskDef, TaskGroupDef
 
 # ---------------------------------------------------------------------------
 # afspec model helpers

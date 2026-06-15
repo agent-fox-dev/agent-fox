@@ -224,7 +224,7 @@ class TestHotLoadReviewerInjection:
         from agent_fox.graph.builder import build_graph
         from agent_fox.graph.types import NodeStatus
         from agent_fox.spec.discovery import SpecInfo
-        from agent_fox.spec.parser import TaskGroupDef
+        from agent_fox.spec.types import TaskGroupDef
 
         config = ArchetypesConfig(reviewer=True)
         new_spec = SpecInfo(

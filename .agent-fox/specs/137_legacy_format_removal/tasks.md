@@ -164,8 +164,8 @@ Similarly, `parse_cross_deps(prd_path, spec_name)` becomes
     - [x] Grep confirms no engine module imports from `spec.parser`:
       `grep -rn "from agent_fox.spec.parser" agent_fox/engine/`
 
-- [ ] 5. Rewire test file imports
-  - [ ] 5.1 Update test imports for shared types
+- [x] 5. Rewire test file imports
+  - [x] 5.1 Update test imports for shared types
     - In all test files that import `TaskGroupDef`, `SubtaskDef`, or
       `CrossSpecDep` from `agent_fox.spec.parser`, change to import from
       `agent_fox.spec.types`. Known files:
@@ -180,7 +180,7 @@ Similarly, `parse_cross_deps(prd_path, spec_name)` becomes
       - `tests/spec/test_133_v12_parsing.py`
     - _Requirements: 7.E1_
 
-  - [ ] 5.2 Update test imports for validation types
+  - [x] 5.2 Update test imports for validation types
     - In all test files that import `Finding` or severity constants from
       `agent_fox.spec.validators`, change to import from
       `agent_fox.spec.types`. Known files:
@@ -189,16 +189,16 @@ Similarly, `parse_cross_deps(prd_path, spec_name)` becomes
       - `tests/spec/test_135_v12_skill_validation.py`
     - _Requirements: 7.1_
 
-  - [ ] 5.3 Update SpecFormat-related tests
+  - [x] 5.3 Update SpecFormat-related tests
     - Update `tests/spec/test_132_afspec_integration.py`: remove tests
       that assert `SpecFormat.V1_MARKDOWN` existence, update tests that
       construct `SpecInfo` with `V1_MARKDOWN` format
     - _Requirements: 7.1_
 
-  - [ ] 5.V Verify task group 5
-    - [ ] All existing tests still pass: `uv run pytest -q`
-    - [ ] No linter warnings introduced: `uv run ruff check`
-    - [ ] Grep confirms no test file imports from `spec.parser`:
+  - [x] 5.V Verify task group 5
+    - [x] All existing tests still pass: `uv run pytest -q`
+    - [x] No linter warnings introduced: `uv run ruff check`
+    - [x] Grep confirms no test file imports from `spec.parser`:
       `grep -rn "from agent_fox.spec.parser" tests/`
 
 - [ ] 6. Delete legacy modules and v1 test files

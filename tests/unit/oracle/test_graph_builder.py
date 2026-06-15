@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from agent_fox.spec.discovery import SpecInfo
-from agent_fox.spec.parser import TaskGroupDef
+from agent_fox.spec.types import TaskGroupDef
 
 
 def _spec(name: str = "spec") -> SpecInfo:
