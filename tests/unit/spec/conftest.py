@@ -205,9 +205,11 @@ PRD_MD_BOTH_FORMATS_BROKEN = """\
 
 @pytest.fixture
 def specs_dir_sorted(tmp_path: Path) -> Path:
-    """Create .specs/ with 03_foo, 01_bar, 02_baz, each with tasks.md.
+    """Create .specs/ with 03_foo, 01_bar, 02_baz, each with v1.2 artifacts.
 
     Used by TS-02-1 (sorted discovery).
+    Uses v1.2 format (requirements.json + tasks.json) so discover_specs
+    includes them after the 132 format filter.
     """
     specs_dir = tmp_path / ".specs"
     specs_dir.mkdir()
@@ -215,6 +217,8 @@ def specs_dir_sorted(tmp_path: Path) -> Path:
     for name in ["03_foo", "01_bar", "02_baz"]:
         spec = specs_dir / name
         spec.mkdir()
+        (spec / "requirements.json").write_text("{}")
+        (spec / "tasks.json").write_text("{}")
         (spec / "tasks.md").write_text(TASKS_MD_STANDARD)
 
     return specs_dir
@@ -222,9 +226,11 @@ def specs_dir_sorted(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def specs_dir_two_specs(tmp_path: Path) -> Path:
-    """Create .specs/ with 01_alpha and 02_beta, each with tasks.md.
+    """Create .specs/ with 01_alpha and 02_beta, each with v1.2 artifacts.
 
     Used by TS-02-2 (filter) and TS-02-E2 (filter miss).
+    Uses v1.2 format (requirements.json + tasks.json) so discover_specs
+    includes them after the 132 format filter.
     """
     specs_dir = tmp_path / ".specs"
     specs_dir.mkdir()
@@ -232,6 +238,8 @@ def specs_dir_two_specs(tmp_path: Path) -> Path:
     for name in ["01_alpha", "02_beta"]:
         spec = specs_dir / name
         spec.mkdir()
+        (spec / "requirements.json").write_text("{}")
+        (spec / "tasks.json").write_text("{}")
         (spec / "tasks.md").write_text(TASKS_MD_STANDARD)
 
     return specs_dir
@@ -239,19 +247,25 @@ def specs_dir_two_specs(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def specs_dir_missing_tasks(tmp_path: Path) -> Path:
-    """Create .specs/ with 01_alpha (no tasks.md) and 02_beta (with tasks.md).
+    """Create .specs/ with 01_alpha (no tasks.json) and 02_beta (with tasks.json).
 
-    Used by TS-02-E3 (spec folder without tasks.md).
+    Used by TS-02-E3 (spec folder without tasks file).
+    Both are v1.2 format (have requirements.json). has_tasks checks
+    tasks.json for v1.2 specs.
     """
     specs_dir = tmp_path / ".specs"
     specs_dir.mkdir()
 
-    # 01_alpha: no tasks.md
-    (specs_dir / "01_alpha").mkdir()
+    # 01_alpha: v1.2 format, no tasks.json
+    alpha = specs_dir / "01_alpha"
+    alpha.mkdir()
+    (alpha / "requirements.json").write_text("{}")
 
-    # 02_beta: has tasks.md
+    # 02_beta: v1.2 format, has tasks.json
     beta = specs_dir / "02_beta"
     beta.mkdir()
+    (beta / "requirements.json").write_text("{}")
+    (beta / "tasks.json").write_text("{}")
     (beta / "tasks.md").write_text(TASKS_MD_STANDARD)
 
     return specs_dir

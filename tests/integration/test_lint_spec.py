@@ -45,6 +45,8 @@ def _create_spec_with_tasks(
     spec_dir.mkdir(exist_ok=True)
     for filename in ["prd.md", "requirements.md", "design.md", "test_spec.md"]:
         (spec_dir / filename).write_text(f"# {filename}\n")
+    # v1.2 format marker for discover_specs format detection
+    (spec_dir / "requirements.json").write_text("{}")
     (spec_dir / "requirements.md").write_text(
         f"# Requirements\n\n## Introduction\n\nTest.\n\n## Glossary\n\nNone.\n\n"
         f"### Requirement 1: Thing\n\n"
@@ -66,6 +68,7 @@ def _create_spec_with_tasks(
     )
     cb1 = "x" if all_completed else " "
     cb2 = "x" if all_completed else " "
+    (spec_dir / "tasks.json").write_text("{}")
     (spec_dir / "tasks.md").write_text(
         f"# Tasks\n\n## Traceability\n\n"
         f"| Requirement | Test Spec Entry | Implemented By Task | Verified By Test |\n"
@@ -105,6 +108,12 @@ def _setup_project_with_specs(
         dst = specs_dir / f"{i:02d}_{fixture_name}"
         if src.exists():
             shutil.copytree(src, dst)
+            # Add v1.2 format markers so discover_specs includes the spec
+            # after the 132 format filter (requires requirements.json).
+            if not (dst / "requirements.json").exists():
+                (dst / "requirements.json").write_text("{}")
+            if (dst / "tasks.md").exists() and not (dst / "tasks.json").exists():
+                (dst / "tasks.json").write_text("{}")
 
 
 # -- TS-09-E1: No specs directory ----------------------------------------------
@@ -434,10 +443,11 @@ class TestAllFlagDefaultSkipsImplemented:
         specs_dir = tmp_path / ".specs"
         specs_dir.mkdir(exist_ok=True)
 
-        # Create a spec with no tasks.md
+        # Create a spec with no tasks.md (v1.2 format for discovery)
         spec_dir = specs_dir / "01_no_tasks"
         spec_dir.mkdir()
         (spec_dir / "prd.md").write_text("# PRD\n")
+        (spec_dir / "requirements.json").write_text("{}")
         (spec_dir / "requirements.md").write_text("# Requirements\n")
 
         original_dir = os.getcwd()

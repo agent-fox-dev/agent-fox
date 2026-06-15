@@ -67,7 +67,8 @@ def _mock_graph() -> MagicMock:
 def _setup_specs(base: Path, *spec_names: str) -> Path:
     """Create a specs directory with minimal spec(s).
 
-    Each spec gets a tasks.md with two task groups.
+    Each spec gets v1.2 format artifacts (requirements.json + tasks.json)
+    plus a tasks.md with two task groups for the parser.
     Returns the specs directory path.
     """
     specs_dir = base / ".specs"
@@ -76,6 +77,8 @@ def _setup_specs(base: Path, *spec_names: str) -> Path:
     for name in spec_names:
         spec_dir = specs_dir / name
         spec_dir.mkdir(exist_ok=True)
+        (spec_dir / "requirements.json").write_text("{}")
+        (spec_dir / "tasks.json").write_text("{}")
         (spec_dir / "tasks.md").write_text(
             "# Tasks\n\n"
             "- [ ] 1. Write tests\n"

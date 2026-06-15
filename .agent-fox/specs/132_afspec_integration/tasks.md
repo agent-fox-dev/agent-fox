@@ -56,35 +56,35 @@ v1.2 format. Three task groups: write tests, implement changes, verify wiring.
     - [x] All spec tests FAIL (red) — no implementation yet
     - [x] No linter warnings introduced: `uv run ruff check`
 
-- [ ] 2. Add afspec dependency and update discovery
-  - [ ] 2.1 Add afspec to pyproject.toml
+- [x] 2. Add afspec dependency and update discovery
+  - [x] 2.1 Add afspec to pyproject.toml
     - Add `afspec = {path = "../af-core/packages/afspec"}` to dependencies
     - Run `uv sync` to install
     - Verify `import afspec` works
     - _Requirements: 1.1, 1.2_
 
-  - [ ] 2.2 Add SpecFormat enum to discovery.py
+  - [x] 2.2 Add SpecFormat enum to discovery.py
     - Add `SpecFormat` enum with `V1_MARKDOWN` and `V1_2_JSON` values
     - Add `format` field to `SpecInfo` dataclass
     - _Requirements: 2.1, 2.2_
 
-  - [ ] 2.3 Implement format detection
+  - [x] 2.3 Implement format detection
     - Add `_detect_format(spec_dir: Path) -> SpecFormat` function
     - Detection based on presence of `requirements.json`
     - _Requirements: 3.1, 3.2_
 
-  - [ ] 2.4 Update discover_specs to filter by format
+  - [x] 2.4 Update discover_specs to filter by format
     - Call `_detect_format()` for each candidate folder
     - Skip `V1_MARKDOWN` folders
     - Update `has_tasks` to check `tasks.json` for v1.2 specs
     - Update `has_prd` to still check `prd.md`
     - _Requirements: 3.3, 3.4_
 
-  - [ ] 2.V Verify task group 2
-    - [ ] Spec tests pass: `uv run pytest -q tests/spec/test_132_afspec_integration.py`
-    - [ ] All existing tests still pass: `uv run pytest -q`
-    - [ ] No linter warnings introduced: `uv run ruff check`
-    - [ ] Requirements 1.1-3.4 acceptance criteria met
+  - [x] 2.V Verify task group 2
+    - [x] Spec tests pass: `uv run pytest -q tests/spec/test_132_afspec_integration.py`
+    - [x] All existing tests still pass: `uv run pytest -q`
+    - [x] No linter warnings introduced: `uv run ruff check`
+    - [x] Requirements 1.1-3.4 acceptance criteria met
 
 - [ ] 3. Wiring verification
   - [ ] 3.1 Trace every execution path from design.md end-to-end

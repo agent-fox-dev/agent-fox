@@ -247,9 +247,15 @@ def _make_config() -> MagicMock:
 
 
 def _setup_temp_specs(tmp_path: Path) -> Path:
-    """Create a minimal specs directory for run_plan tests."""
+    """Create a minimal specs directory for run_plan tests.
+
+    Uses v1.2 format (requirements.json + tasks.json) so discover_specs
+    includes the spec after the 132 format filter.
+    """
     spec_dir = tmp_path / ".specs" / "01_test"
     spec_dir.mkdir(parents=True)
+    (spec_dir / "requirements.json").write_text("{}")
+    (spec_dir / "tasks.json").write_text("{}")
     (spec_dir / "tasks.md").write_text(
         "# Tasks\n\n"
         "- [ ] 1. Write tests\n"

@@ -64,15 +64,21 @@ def _make_sample_graph() -> TaskGraph:
 
 
 def _setup_project(project_dir: Path) -> None:
-    """Create a minimal project structure for CLI tests."""
+    """Create a minimal project structure for CLI tests.
+
+    Uses v1.2 format (requirements.json + tasks.json) so discover_specs
+    includes the spec after the 132 format filter.
+    """
     # Create .agent-fox/config.toml
     agent_fox_dir = project_dir / ".agent-fox"
     agent_fox_dir.mkdir(exist_ok=True)
     (agent_fox_dir / "config.toml").write_text("")
 
-    # Create .specs/01_test/tasks.md
+    # Create .specs/01_test/ with v1.2 format artifacts
     spec_dir = project_dir / ".specs" / "01_test"
     spec_dir.mkdir(parents=True)
+    (spec_dir / "requirements.json").write_text("{}")
+    (spec_dir / "tasks.json").write_text("{}")
     (spec_dir / "tasks.md").write_text(
         "# Tasks\n\n"
         "- [ ] 1. Write tests\n"
@@ -243,6 +249,8 @@ class TestPlanCLIEndToEnd:
 
         second_spec = tmp_git_repo / ".specs" / "02_other"
         second_spec.mkdir(parents=True)
+        (second_spec / "requirements.json").write_text("{}")
+        (second_spec / "tasks.json").write_text("{}")
         (second_spec / "tasks.md").write_text("# Tasks\n\n- [ ] 1. Add second feature\n  - [ ] 1.1 Implement\n")
 
         first = cli_runner.invoke(main, ["plan"])

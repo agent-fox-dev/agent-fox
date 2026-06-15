@@ -24,6 +24,9 @@ def _create_spec_dir(specs_dir: Path) -> None:
     spec = specs_dir / "01_test"
     spec.mkdir(parents=True, exist_ok=True)
     (spec / "prd.md").write_text("# PRD\n\n## Source\nTest\n")
+    # v1.2 format markers for discover_specs format detection
+    (spec / "requirements.json").write_text("{}")
+    (spec / "tasks.json").write_text("{}")
     (spec / "requirements.md").write_text(
         "# Requirements Document\n\n## Introduction\nTest.\n\n"
         "## Glossary\n- **Test**: A test term.\n\n"
