@@ -60,21 +60,21 @@ and wiring verification.
     - [x] All spec tests FAIL (red) -- no implementation yet
     - [x] No linter warnings introduced: `uv run ruff check`
 
-- [ ] 2. Update lint-specs format routing
-  - [ ] 2.1 Add _map_afspec_findings function to lint.py
+- [x] 2. Update lint-specs format routing
+  - [x] 2.1 Add _map_afspec_findings function to lint.py
     - Implement `_map_afspec_findings(spec_name, errors)` that maps each
       `afspec.ValidationError` to a `Finding`
     - Handle unknown severity by defaulting to "error"
     - _Requirements: 2.1, 2.2_
 
-  - [ ] 2.2 Add _validate_v12_spec function to lint.py
+  - [x] 2.2 Add _validate_v12_spec function to lint.py
     - Implement `_validate_v12_spec(spec)` that calls `afspec.validate()`
       and maps the result via `_map_afspec_findings()`
     - Catch exceptions and return a single error Finding with rule
       `afspec-error`
     - _Requirements: 1.1, 1.E1_
 
-  - [ ] 2.3 Update run_lint_specs to partition by format
+  - [x] 2.3 Update run_lint_specs to partition by format
     - Import `SpecFormat` from discovery module
     - Partition discovered specs into v1 and v1.2 lists by `spec.format`
     - Route v1 specs to `validate_specs()`, v1.2 specs to
@@ -82,17 +82,17 @@ and wiring verification.
     - Merge findings from both validators and sort
     - _Requirements: 1.1, 1.2, 1.3_
 
-  - [ ] 2.4 Update _is_spec_implemented for v1.2 format
+  - [x] 2.4 Update _is_spec_implemented for v1.2 format
     - For v1.2 specs, check `tasks.json` instead of `tasks.md`
     - Use `afspec.load_spec()` to parse tasks if available
     - _Requirements: 3.2_
 
-  - [ ] 2.V Verify task group 2
-    - [ ] Spec tests for routing pass: TS-135-1 through TS-135-5, TS-135-E1
+  - [x] 2.V Verify task group 2
+    - [x] Spec tests for routing pass: TS-135-1 through TS-135-5, TS-135-E1
       through TS-135-E3
-    - [ ] All existing tests still pass: `uv run pytest -q`
-    - [ ] No linter warnings introduced: `uv run ruff check`
-    - [ ] Requirements 1.1-2.2 acceptance criteria met
+    - [x] All existing tests still pass: `uv run pytest -q`
+    - [x] No linter warnings introduced: `uv run ruff check`
+    - [x] Requirements 1.1-2.2 acceptance criteria met
 
 - [ ] 3. Update af-spec skill template
   - [ ] 3.1 Update artifact references
