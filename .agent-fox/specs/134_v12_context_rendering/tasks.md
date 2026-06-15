@@ -63,30 +63,30 @@ helpers and checklist, wiring verification.
     - [x] All spec tests FAIL (red) -- no implementation yet
     - [x] No linter warnings introduced: `uv run ruff check`
 
-- [ ] 2. Implement v1.2 context assembly
-  - [ ] 2.1 Add v1.2 detection helper to context.py
+- [x] 2. Implement v1.2 context assembly
+  - [x] 2.1 Add v1.2 detection helper to context.py
     - Add `_is_v12_spec(spec_dir: Path) -> bool` function
     - Add `_V12_SECTION_HEADERS` constant mapping artifact names to headers
     - _Requirements: 1.1, 1.2_
 
-  - [ ] 2.2 Add v1.2 rendering function to context.py
+  - [x] 2.2 Add v1.2 rendering function to context.py
     - Add `_render_v12_sections(spec_dir: Path) -> list[str]` function
     - Load spec via `afspec.load_spec()`, render via `afspec.render_individual()`
     - Read `architecture.md` from disk when present
     - Sanitize all rendered content via `sanitize_prompt_content()`
     - _Requirements: 2.1, 2.2, 2.3, 2.E1_
 
-  - [ ] 2.3 Update assemble_context to branch on format
+  - [x] 2.3 Update assemble_context to branch on format
     - Before the `_CORE_SPEC_FILES` loop, check `_is_v12_spec()`
     - If v1.2: call `_render_v12_sections()`, use result as `file_sections`
     - If v1.2 and LoadError: log warning, fall through to v1 path
     - If v1: use existing `_CORE_SPEC_FILES` loop unchanged
     - _Requirements: 1.1, 1.2, 1.E1_
 
-  - [ ] 2.V Verify task group 2
-    - [ ] Context assembly tests pass: TS-134-1 through TS-134-4, TS-134-E1, TS-134-E2, TS-134-P1, TS-134-P2
-    - [ ] All existing tests still pass: `uv run pytest -q`
-    - [ ] No linter warnings introduced: `uv run ruff check`
+  - [x] 2.V Verify task group 2
+    - [x] Context assembly tests pass: TS-134-1 through TS-134-4, TS-134-E1, TS-134-E2, TS-134-P1, TS-134-P2
+    - [x] All existing tests still pass: `uv run pytest -q`
+    - [x] No linter warnings introduced: `uv run ruff check`
 
 - [ ] 3. Implement v1.2-aware helpers and checklist
   - [ ] 3.1 Update count_ts_entries in spec_helpers.py

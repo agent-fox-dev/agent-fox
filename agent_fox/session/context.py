@@ -60,6 +60,54 @@ _ARCHETYPE_SPEC_FILES: list[tuple[str, str]] = [
     ("verification.md", "## Verification Report"),
 ]
 
+# v1.2 artifact-to-header mapping for JSON-based specs rendered via afspec.
+# Requirements: 134-REQ-1.1, 134-REQ-2.1
+_V12_SECTION_HEADERS: dict[str, str] = {
+    "requirements": "## Requirements",
+    "test_spec": "## Test Specification",
+    "tasks": "## Tasks",
+}
+
+
+def _is_v12_spec(spec_dir: Path) -> bool:
+    """Detect whether a spec folder uses the v1.2 JSON format.
+
+    Returns True when ``requirements.json`` is present in the directory.
+
+    Requirements: 134-REQ-1.1, 134-REQ-1.2
+    """
+    return (spec_dir / "requirements.json").is_file()
+
+
+def _render_v12_sections(spec_dir: Path) -> list[str]:
+    """Load a v1.2 spec and render per-artifact markdown sections.
+
+    Returns a list of rendered section strings.  Raises ``afspec.LoadError``
+    on malformed specs (caller handles fallback).
+
+    Requirements: 134-REQ-2.1, 134-REQ-2.2, 134-REQ-2.3, 134-REQ-2.E1
+    """
+    import afspec
+
+    spec = afspec.load_spec(spec_dir)
+    rendered = afspec.render_individual(spec)
+
+    sections: list[str] = []
+    for key, header in _V12_SECTION_HEADERS.items():
+        content = rendered.get(key, "")
+        if content:
+            safe = sanitize_prompt_content(content, label="spec")
+            sections.append(f"{header}\n\n{safe}")
+
+    # architecture.md is a plain markdown file in v1.2
+    arch_path = spec_dir / "architecture.md"
+    if arch_path.is_file():
+        arch_content = arch_path.read_text(encoding="utf-8")
+        safe = sanitize_prompt_content(arch_content, label="spec")
+        sections.append(f"## Architecture\n\n{safe}")
+
+    return sections
+
 
 def _render_severity_findings(
     findings: list,
@@ -341,21 +389,38 @@ def assemble_context(
     if drift_md is not None:
         sections.append(drift_md)
 
-    # 03-REQ-4.1: Read spec documents
+    # 03-REQ-4.1, 134-REQ-1.1, 134-REQ-1.2: Read spec documents
     file_sections: list[str] = []
-    for filename, header in _CORE_SPEC_FILES:
-        filepath = spec_dir / filename
-        if not filepath.exists():
-            # 03-REQ-4.E1: Skip missing files with a warning
+    _v12_rendered = False
+
+    if _is_v12_spec(spec_dir):
+        # v1.2 JSON format — render via afspec (134-REQ-1.1, 134-REQ-2.1)
+        try:
+            file_sections = _render_v12_sections(spec_dir)
+            _v12_rendered = True
+        except Exception:
+            # 134-REQ-1.E1: LoadError fallback to raw markdown reads
             logger.warning(
-                "Spec file '%s' not found in %s, skipping",
-                filename,
+                "Failed to load v1.2 spec in %s, falling back to markdown files",
                 spec_dir,
+                exc_info=True,
             )
-            continue
-        content = filepath.read_text(encoding="utf-8")
-        safe_content = sanitize_prompt_content(content, label="spec")
-        file_sections.append(f"{header}\n\n{safe_content}")
+
+    if not _v12_rendered:
+        # v1 markdown format — read raw files (134-REQ-1.2)
+        for filename, header in _CORE_SPEC_FILES:
+            filepath = spec_dir / filename
+            if not filepath.exists():
+                # 03-REQ-4.E1: Skip missing files with a warning
+                logger.warning(
+                    "Spec file '%s' not found in %s, skipping",
+                    filename,
+                    spec_dir,
+                )
+                continue
+            content = filepath.read_text(encoding="utf-8")
+            safe_content = sanitize_prompt_content(content, label="spec")
+            file_sections.append(f"{header}\n\n{safe_content}")
 
     # Include archetype-produced files (review.md, verification.md) only
     # when they exist on disk and weren't already rendered from the DB.
