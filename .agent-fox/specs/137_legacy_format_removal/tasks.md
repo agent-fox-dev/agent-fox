@@ -38,33 +38,33 @@ Similarly, `parse_cross_deps(prd_path, spec_name)` becomes
 
 ## Tasks
 
-- [ ] 1. Write failing spec tests
-  - [ ] 1.1 Create test file structure
+- [x] 1. Write failing spec tests
+  - [x] 1.1 Create test file structure
     - Create `tests/spec/test_137_legacy_removal.py`
     - _Test Spec: TS-137-1 through TS-137-10_
 
-  - [ ] 1.2 Translate acceptance-criterion tests
+  - [x] 1.2 Translate acceptance-criterion tests
     - Test types.py exports (TS-137-1, TS-137-2, TS-137-3)
     - Test file deletions (TS-137-4, TS-137-5, TS-137-6)
     - Test import rewiring (TS-137-7, TS-137-8, TS-137-9, TS-137-10)
     - _Test Spec: TS-137-1 through TS-137-10_
 
-  - [ ] 1.3 Translate edge-case and property tests
+  - [x] 1.3 Translate edge-case and property tests
     - Test ImportError from deleted modules (TS-137-E1, TS-137-E2)
     - Test no deleted module imports in tests (TS-137-E3)
     - Test type identity preserved (TS-137-P1)
     - Test full package importability (TS-137-P2)
     - _Test Spec: TS-137-E1 through TS-137-E3, TS-137-P1, TS-137-P2_
 
-  - [ ] 1.4 Translate smoke tests
+  - [x] 1.4 Translate smoke tests
     - Test full test suite passes (TS-137-SMOKE-1)
     - Test lint-specs works after deletion (TS-137-SMOKE-2)
     - _Test Spec: TS-137-SMOKE-1, TS-137-SMOKE-2_
 
-  - [ ] 1.V Verify task group 1
-    - [ ] All spec tests exist and are syntactically valid
-    - [ ] All spec tests FAIL (red) — no implementation yet
-    - [ ] No linter warnings introduced: `uv run ruff check`
+  - [x] 1.V Verify task group 1
+    - [x] All spec tests exist and are syntactically valid
+    - [x] All spec tests FAIL (red) — no implementation yet
+    - [x] No linter warnings introduced: `uv run ruff check`
 
 - [ ] 2. Create `spec/types.py` with shared types
   - [ ] 2.1 Create `agent_fox/spec/types.py`
