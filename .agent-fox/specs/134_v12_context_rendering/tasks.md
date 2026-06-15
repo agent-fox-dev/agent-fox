@@ -23,33 +23,33 @@ helpers and checklist, wiring verification.
 
 ## Tasks
 
-- [ ] 1. Write failing spec tests
-  - [ ] 1.1 Create test file and fixtures
+- [x] 1. Write failing spec tests
+  - [x] 1.1 Create test file and fixtures
     - Create `tests/spec/test_134_v12_context.py`
     - Create shared fixtures: v1.2 spec directory with valid JSON artifacts (prd.md with frontmatter, requirements.json, test_spec.json, tasks.json)
     - Create shared fixtures: v1 spec directory with markdown artifacts (requirements.md, design.md, test_spec.md, tasks.md)
     - Create shared fixtures: mock DuckDB connection returning no findings
     - _Test Spec: TS-134-1 through TS-134-9_
 
-  - [ ] 1.2 Translate context assembly tests
+  - [x] 1.2 Translate context assembly tests
     - Test v1.2 format detection in assemble_context (TS-134-1)
     - Test v1 format unchanged in assemble_context (TS-134-2)
     - Test architecture.md included for v1.2 (TS-134-3)
     - Test architecture.md omitted when absent (TS-134-4)
     - _Test Spec: TS-134-1 through TS-134-4_
 
-  - [ ] 1.3 Translate spec helper tests
+  - [x] 1.3 Translate spec helper tests
     - Test count_ts_entries with v1.2 test_spec.json (TS-134-5)
     - Test count_ts_entries with v1 test_spec.md (TS-134-6)
     - Test spec_has_existing_code with v1.2 architecture.md (TS-134-7)
     - _Test Spec: TS-134-5 through TS-134-7_
 
-  - [ ] 1.4 Translate verification checklist tests
+  - [x] 1.4 Translate verification checklist tests
     - Test v1.2 task checkbox audit from tasks.json (TS-134-8)
     - Test v1.2 requirement coverage from requirements.json (TS-134-9)
     - _Test Spec: TS-134-8, TS-134-9_
 
-  - [ ] 1.5 Translate edge-case and property tests
+  - [x] 1.5 Translate edge-case and property tests
     - Test LoadError fallback in assemble_context (TS-134-E1)
     - Test empty render_individual artifact omitted (TS-134-E2)
     - Test count_ts_entries returns 0 on load failure (TS-134-E3)
@@ -58,10 +58,10 @@ helpers and checklist, wiring verification.
     - Test v1.2 section order preserved (TS-134-P2)
     - _Test Spec: TS-134-E1 through TS-134-E4, TS-134-P1, TS-134-P2_
 
-  - [ ] 1.V Verify task group 1
-    - [ ] All spec tests exist and are syntactically valid
-    - [ ] All spec tests FAIL (red) -- no implementation yet
-    - [ ] No linter warnings introduced: `uv run ruff check`
+  - [x] 1.V Verify task group 1
+    - [x] All spec tests exist and are syntactically valid
+    - [x] All spec tests FAIL (red) -- no implementation yet
+    - [x] No linter warnings introduced: `uv run ruff check`
 
 - [ ] 2. Implement v1.2 context assembly
   - [ ] 2.1 Add v1.2 detection helper to context.py
