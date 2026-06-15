@@ -57,33 +57,33 @@ planner update, verify wiring.
     - [x] All spec tests FAIL (red) — no implementation yet
     - [x] No linter warnings introduced: `uv run ruff check`
 
-- [ ] 2. Implement v1.2 parser and update planner
-  - [ ] 2.1 Create parser_v12.py with mapper functions
+- [x] 2. Implement v1.2 parser and update planner
+  - [x] 2.1 Create parser_v12.py with mapper functions
     - Create `agent_fox/spec/parser_v12.py`
     - Implement `_map_subtask(subtask: afspec.Subtask) -> SubtaskDef`
     - Implement `_render_group_body(group: afspec.TaskGroup) -> str`
     - Implement `_map_task_group(group: afspec.TaskGroup) -> TaskGroupDef`
-    - Implement `_map_dependency(dep: afspec.TaskDependency, current_spec: str) -> CrossSpecDep`
+    - Implement `_map_dependency(dep: afspec.TaskDependency, current_spec: str) -> CrossSpecDef`
     - _Requirements: 1.1, 1.2, 2.1, 2.2, 2.3, 2.4, 3.1_
 
-  - [ ] 2.2 Implement parse_tasks_v12 and parse_cross_deps_v12
+  - [x] 2.2 Implement parse_tasks_v12 and parse_cross_deps_v12
     - Implement `parse_tasks_v12(spec_dir: Path) -> list[TaskGroupDef]`
     - Implement `parse_cross_deps_v12(spec_dir: Path, spec_name: str) -> list[CrossSpecDep]`
     - Both call `afspec.load_spec(spec_dir)` internally
     - _Requirements: 1.1, 2.1, 3.1, 4.1_
 
-  - [ ] 2.3 Update planner.py build_plan() for format routing
+  - [x] 2.3 Update planner.py build_plan() for format routing
     - Import `parse_tasks_v12` and `parse_cross_deps_v12` from `parser_v12`
     - Import `SpecFormat` from `discovery`
     - Add format check in the spec iteration loop
     - Route V1_2_JSON specs to new parser, keep existing path for v1
     - _Requirements: 4.1, 4.2_
 
-  - [ ] 2.V Verify task group 2
-    - [ ] Spec tests pass: `uv run pytest -q tests/spec/test_133_v12_parsing.py`
-    - [ ] All existing tests still pass: `uv run pytest -q`
-    - [ ] No linter warnings introduced: `uv run ruff check`
-    - [ ] Requirements 1.1-4.2 acceptance criteria met
+  - [x] 2.V Verify task group 2
+    - [x] Spec tests pass: `uv run pytest -q tests/spec/test_133_v12_parsing.py`
+    - [x] All existing tests still pass: `uv run pytest -q`
+    - [x] No linter warnings introduced: `uv run ruff check`
+    - [x] Requirements 1.1-4.2 acceptance criteria met
 
 - [ ] 3. Wiring verification
   - [ ] 3.1 Trace every execution path from design.md end-to-end

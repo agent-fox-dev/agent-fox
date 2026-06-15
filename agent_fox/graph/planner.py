@@ -17,8 +17,9 @@ from agent_fox import __version__
 from agent_fox.graph.builder import build_graph
 from agent_fox.graph.resolver import apply_fast_mode, resolve_order
 from agent_fox.graph.types import NodeStatus, PlanMetadata, TaskGraph
-from agent_fox.spec.discovery import SpecInfo, discover_specs
+from agent_fox.spec.discovery import SpecFormat, SpecInfo, discover_specs
 from agent_fox.spec.parser import CrossSpecDep, parse_cross_deps, parse_tasks
+from agent_fox.spec.parser_v12 import parse_cross_deps_v12, parse_tasks_v12
 
 if TYPE_CHECKING:
     from agent_fox.core.config import AgentFoxConfig
@@ -56,16 +57,27 @@ def build_plan(
     for spec in specs:
         if not spec.has_tasks:
             continue
-        tasks_path = spec.path / "tasks.md"
-        groups = parse_tasks(tasks_path)
-        if groups:
-            task_groups[spec.name] = groups
 
-        # Parse cross-spec deps from prd.md if present
-        if spec.has_prd:
-            prd_path = spec.path / "prd.md"
-            deps = parse_cross_deps(prd_path, spec_name=spec.name)
-            cross_deps.extend(deps)
+        if spec.format == SpecFormat.V1_2_JSON:
+            # 133-REQ-4.1: route v1.2 specs through the new parser
+            groups = parse_tasks_v12(spec.path)
+            if groups:
+                task_groups[spec.name] = groups
+
+            if spec.has_prd:
+                deps = parse_cross_deps_v12(spec.path, spec_name=spec.name)
+                cross_deps.extend(deps)
+        else:
+            # 133-REQ-4.2: retain existing v1 markdown path
+            tasks_path = spec.path / "tasks.md"
+            groups = parse_tasks(tasks_path)
+            if groups:
+                task_groups[spec.name] = groups
+
+            if spec.has_prd:
+                prd_path = spec.path / "prd.md"
+                deps = parse_cross_deps(prd_path, spec_name=spec.name)
+                cross_deps.extend(deps)
 
     # Filter cross-deps to only reference specs present in the discovered set.
     # This prevents dangling references when --spec filters to a single spec.
