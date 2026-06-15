@@ -22,14 +22,14 @@ planner update, verify wiring.
 
 ## Tasks
 
-- [ ] 1. Write failing spec tests
-  - [ ] 1.1 Create test file and fixtures
+- [x] 1. Write failing spec tests
+  - [x] 1.1 Create test file and fixtures
     - Create `tests/spec/test_133_v12_parsing.py`
     - Create helper functions to build afspec model instances (Subtask, TaskGroup, TaskDependency) for use in tests
     - Create temporary v1.2 spec directory fixtures with valid JSON artifacts
     - _Test Spec: all_
 
-  - [ ] 1.2 Translate subtask and task group mapper tests
+  - [x] 1.2 Translate subtask and task group mapper tests
     - Test subtask mapping with DONE state (TS-133-1)
     - Test subtask mapping with non-DONE states (TS-133-1)
     - Test task group mapping fields (TS-133-2)
@@ -38,13 +38,13 @@ planner update, verify wiring.
     - Test group body contains markdown (TS-133-5)
     - _Test Spec: TS-133-1 through TS-133-5_
 
-  - [ ] 1.3 Translate dependency mapper and integration tests
+  - [x] 1.3 Translate dependency mapper and integration tests
     - Test dependency mapping field assignment (TS-133-6)
     - Test parse_tasks_v12 returns TaskGroupDef list (TS-133-7)
     - Test parse_cross_deps_v12 returns CrossSpecDep list (TS-133-8)
     - _Test Spec: TS-133-6 through TS-133-8_
 
-  - [ ] 1.4 Translate edge-case and property tests
+  - [x] 1.4 Translate edge-case and property tests
     - Test dropped subtasks excluded from completion (TS-133-E1)
     - Test no dependencies returns empty list (TS-133-E2)
     - Test load error propagation (TS-133-E3)
@@ -52,10 +52,10 @@ planner update, verify wiring.
     - Test group completion consistent with subtask states (TS-133-P2)
     - _Test Spec: TS-133-E1 through TS-133-E3, TS-133-P1, TS-133-P2_
 
-  - [ ] 1.V Verify task group 1
-    - [ ] All spec tests exist and are syntactically valid
-    - [ ] All spec tests FAIL (red) — no implementation yet
-    - [ ] No linter warnings introduced: `uv run ruff check`
+  - [x] 1.V Verify task group 1
+    - [x] All spec tests exist and are syntactically valid
+    - [x] All spec tests FAIL (red) — no implementation yet
+    - [x] No linter warnings introduced: `uv run ruff check`
 
 - [ ] 2. Implement v1.2 parser and update planner
   - [ ] 2.1 Create parser_v12.py with mapper functions
