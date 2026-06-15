@@ -86,32 +86,32 @@ v1.2 format. Three task groups: write tests, implement changes, verify wiring.
     - [x] No linter warnings introduced: `uv run ruff check`
     - [x] Requirements 1.1-3.4 acceptance criteria met
 
-- [ ] 3. Wiring verification
-  - [ ] 3.1 Trace every execution path from design.md end-to-end
+- [x] 3. Wiring verification
+  - [x] 3.1 Trace every execution path from design.md end-to-end
     - Verify discover_specs actually calls _detect_format
     - Verify the result list excludes v1 folders
     - Verify afspec.load_spec can load a spec found by discover_specs
     - _Requirements: all_
 
-  - [ ] 3.2 Verify return values propagate correctly
+  - [x] 3.2 Verify return values propagate correctly
     - discover_specs returns list[SpecInfo] with format field populated
     - afspec.load_spec returns Spec with all artifacts
     - _Requirements: all_
 
-  - [ ] 3.3 Run the integration smoke tests
+  - [x] 3.3 Run the integration smoke tests
     - TS-132-SMOKE-1 passes using real components
     - _Test Spec: TS-132-SMOKE-1_
 
-  - [ ] 3.4 Stub / dead-code audit
+  - [x] 3.4 Stub / dead-code audit
     - Search all files touched for: return [], return None, pass, # TODO, NotImplementedError
     - Each hit must be justified or replaced
     - _Requirements: all_
 
-  - [ ] 3.V Verify wiring group
-    - [ ] All smoke tests pass
-    - [ ] No unjustified stubs remain in touched files
-    - [ ] All execution paths from design.md are live
-    - [ ] All existing tests still pass: `uv run pytest -q`
+  - [x] 3.V Verify wiring group
+    - [x] All smoke tests pass
+    - [x] No unjustified stubs remain in touched files
+    - [x] All execution paths from design.md are live
+    - [x] All existing tests still pass: `uv run pytest -q`
 
 ## Traceability
 

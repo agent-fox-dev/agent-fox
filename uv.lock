@@ -5,7 +5,7 @@ requires-python = ">=3.12"
 [[package]]
 name = "afspec"
 version = "0.9.0"
-source = { directory = "../../../../../af-core/packages/afspec" }
+source = { directory = "../af-core/packages/afspec" }
 dependencies = [
     { name = "jsonschema" },
     { name = "pydantic" },
@@ -83,7 +83,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "afspec", directory = "../../../../../af-core/packages/afspec" },
+    { name = "afspec", directory = "../af-core/packages/afspec" },
     { name = "anthropic", extras = ["vertex", "bedrock"], specifier = ">=0.97" },
     { name = "claude-agent-sdk", specifier = ">=0.1.68" },
     { name = "click", specifier = ">=8.1" },
