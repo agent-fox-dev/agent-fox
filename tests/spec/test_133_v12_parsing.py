@@ -15,6 +15,8 @@ import json
 from pathlib import Path
 
 import pytest
+from afspec import LoadError
+from afspec.models import SubtaskState
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
@@ -869,10 +871,10 @@ class TestLoadErrorPropagates:
     """
 
     def test_malformed_json_raises(self, malformed_spec_dir: Path) -> None:
-        """Malformed tasks.json causes an error that propagates uncaught."""
+        """Malformed tasks.json causes a LoadError that propagates uncaught."""
         from agent_fox.spec.parser_v12 import parse_tasks_v12
 
-        with pytest.raises(Exception):
+        with pytest.raises(LoadError):
             parse_tasks_v12(malformed_spec_dir)
 
 
@@ -891,15 +893,11 @@ class TestCompletionIsFunctionOfState:
     @pytest.mark.property
     @settings(max_examples=20, deadline=None)
     @given(
-        state_index=st.integers(min_value=0, max_value=5),
+        state=st.sampled_from(list(SubtaskState)),
     )
-    def test_completed_equals_state_is_done(self, state_index: int) -> None:
+    def test_completed_equals_state_is_done(self, state: SubtaskState) -> None:
         """_map_subtask(s).completed == (s.state == SubtaskState.DONE)."""
-        from afspec.models import SubtaskState
         from agent_fox.spec.parser_v12 import _map_subtask
-
-        all_states = list(SubtaskState)
-        state = all_states[state_index]
 
         subtask = _make_subtask(id="1.1", title="task", state=state.value)
         result = _map_subtask(subtask)
@@ -922,21 +920,20 @@ class TestGroupCompletionConsistent:
     @pytest.mark.property
     @settings(max_examples=50, deadline=None)
     @given(
-        state_indices=st.lists(
-            st.integers(min_value=0, max_value=5),
+        states=st.lists(
+            st.sampled_from(list(SubtaskState)),
             min_size=1,
             max_size=6,
         ),
     )
-    def test_group_completion_invariant(self, state_indices: list[int]) -> None:
+    def test_group_completion_invariant(self, states: list[SubtaskState]) -> None:
         """TaskGroupDef.completed matches the expected invariant."""
-        from afspec.models import SubtaskState
         from agent_fox.spec.parser_v12 import _map_task_group
 
-        all_states = list(SubtaskState)
-        states = [all_states[i] for i in state_indices]
-
-        subtasks = [_make_subtask(id=f"1.{j + 1}", title=f"task {j + 1}", state=s.value) for j, s in enumerate(states)]
+        subtasks = [
+            _make_subtask(id=f"1.{j + 1}", title=f"task {j + 1}", state=s.value)
+            for j, s in enumerate(states)
+        ]
 
         group = _make_task_group(id=1, subtasks=subtasks)
         result = _map_task_group(group)
