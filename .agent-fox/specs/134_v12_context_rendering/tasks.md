@@ -120,8 +120,8 @@ helpers and checklist, wiring verification.
     - [x] All existing tests still pass: `uv run pytest -q`
     - [x] No linter warnings introduced: `uv run ruff check`
 
-- [ ] 4. Wiring verification
-  - [ ] 4.1 Trace every execution path from design.md end-to-end
+- [x] 4. Wiring verification
+  - [x] 4.1 Trace every execution path from design.md end-to-end
     - Verify assemble_context branches to v1.2 path for v1.2 specs
     - Verify assemble_context uses v1 path for v1 specs
     - Verify LoadError fallback actually works end-to-end
@@ -129,21 +129,21 @@ helpers and checklist, wiring verification.
     - Verify verification checklist routes to correct branch
     - _Requirements: all_
 
-  - [ ] 4.2 Run the integration smoke tests
+  - [x] 4.2 Run the integration smoke tests
     - TS-134-SMOKE-1 passes using real afspec components
     - TS-134-SMOKE-2 passes using real afspec components
     - _Test Spec: TS-134-SMOKE-1, TS-134-SMOKE-2_
 
-  - [ ] 4.3 Stub / dead-code audit
+  - [x] 4.3 Stub / dead-code audit
     - Search all files touched for: return [], return None, pass, # TODO, NotImplementedError
     - Each hit must be justified or replaced
     - _Requirements: all_
 
-  - [ ] 4.V Verify wiring group
-    - [ ] All smoke tests pass
-    - [ ] No unjustified stubs remain in touched files
-    - [ ] All execution paths from design.md are live
-    - [ ] All existing tests still pass: `uv run pytest -q`
+  - [x] 4.V Verify wiring group
+    - [x] All smoke tests pass
+    - [x] No unjustified stubs remain in touched files
+    - [x] All execution paths from design.md are live
+    - [x] All existing tests still pass: `uv run pytest -q`
 
 ## Traceability
 
