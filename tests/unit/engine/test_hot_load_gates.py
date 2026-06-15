@@ -25,7 +25,7 @@ from agent_fox.engine.hot_load import (
     lint_spec_gate,
 )
 
-REQUIRED_FILES = ["prd.md", "requirements.md", "design.md", "test_spec.md", "tasks.md"]
+REQUIRED_FILES = ["prd.md", "requirements.json", "test_spec.json", "tasks.json"]
 
 
 def _create_spec_files(
@@ -169,15 +169,15 @@ class TestCompletenessGateMissingFile:
     Requirements: 51-REQ-5.2
     """
 
-    def test_missing_design_md(self, tmp_path: Path) -> None:
-        """Returns (False, ['design.md']) when design.md is missing."""
+    def test_missing_requirements_json(self, tmp_path: Path) -> None:
+        """Returns (False, ['requirements.json']) when requirements.json is missing."""
         spec_path = tmp_path / "42_feature"
-        files = [f for f in REQUIRED_FILES if f != "design.md"]
+        files = [f for f in REQUIRED_FILES if f != "requirements.json"]
         _create_spec_files(spec_path, files=files)
 
         passed, missing = is_spec_complete(spec_path)
         assert passed is False
-        assert "design.md" in missing
+        assert "requirements.json" in missing
 
 
 # ---------------------------------------------------------------------------
@@ -191,14 +191,14 @@ class TestCompletenessGateEmptyFile:
     Requirements: 51-REQ-5.E1
     """
 
-    def test_empty_requirements_md(self, tmp_path: Path) -> None:
-        """Empty requirements.md is treated as incomplete."""
+    def test_empty_requirements_json(self, tmp_path: Path) -> None:
+        """Empty requirements.json is treated as incomplete."""
         spec_path = tmp_path / "42_feature"
-        _create_spec_files(spec_path, empty=["requirements.md"])
+        _create_spec_files(spec_path, empty=["requirements.json"])
 
         passed, missing = is_spec_complete(spec_path)
         assert passed is False
-        assert "requirements.md" in missing
+        assert "requirements.json" in missing
 
 
 # ---------------------------------------------------------------------------
@@ -212,14 +212,14 @@ class TestCompletenessGateEmptyTasksMd:
     Requirements: 51-REQ-5.E1
     """
 
-    def test_empty_tasks_md(self, tmp_path: Path) -> None:
-        """Empty tasks.md is treated as incomplete."""
+    def test_empty_tasks_json(self, tmp_path: Path) -> None:
+        """Empty tasks.json is treated as incomplete."""
         spec_path = tmp_path / "42_feature"
-        _create_spec_files(spec_path, empty=["tasks.md"])
+        _create_spec_files(spec_path, empty=["tasks.json"])
 
         passed, missing = is_spec_complete(spec_path)
         assert passed is False
-        assert "tasks.md" in missing
+        assert "tasks.json" in missing
 
 
 # ---------------------------------------------------------------------------
@@ -233,35 +233,16 @@ class TestLintGateAcceptsClean:
     Requirements: 51-REQ-6.1, 51-REQ-6.3
     """
 
-    def test_warnings_only_passes(self, tmp_path: Path) -> None:
-        """Spec with only warning-level findings passes."""
-        from agent_fox.spec.validators import Finding
-
-        mock_findings = [
-            Finding(
-                spec_name="42_feature",
-                file="tasks.md",
-                rule="oversized-group",
-                severity="warning",
-                message="Group too large",
-                line=10,
-            ),
-            Finding(
-                spec_name="42_feature",
-                file="prd.md",
-                rule="missing-heading",
-                severity="warning",
-                message="Missing heading",
-                line=5,
-            ),
-        ]
-
+    def test_no_errors_passes(self, tmp_path: Path) -> None:
+        """Spec with no validation errors passes."""
         spec_path = tmp_path / "42_feature"
         spec_path.mkdir(parents=True)
 
-        with patch(
-            "agent_fox.engine.hot_load.validate_specs",
-            return_value=mock_findings,
+        mock_spec = type("MockSpec", (), {})()
+
+        with (
+            patch("afspec.load_spec", return_value=mock_spec),
+            patch("afspec.validate", return_value=[]),
         ):
             passed, errors = lint_spec_gate("42_feature", spec_path)
 
@@ -282,33 +263,19 @@ class TestLintGateRejectsErrors:
 
     def test_error_finding_fails_gate(self, tmp_path: Path) -> None:
         """Spec with error-severity finding is rejected."""
-        from agent_fox.spec.validators import Finding
+        mock_error = type("MockValidationError", (), {
+            "rule": "missing-file",
+            "message": "Expected file 'requirements.json' is missing",
+            "file": "requirements.json",
+        })()
 
-        mock_findings = [
-            Finding(
-                spec_name="42_feature",
-                file="design.md",
-                rule="missing-file",
-                severity="error",
-                message="Expected file 'design.md' is missing",
-                line=None,
-            ),
-            Finding(
-                spec_name="42_feature",
-                file="tasks.md",
-                rule="oversized-group",
-                severity="warning",
-                message="Group too large",
-                line=10,
-            ),
-        ]
-
+        mock_spec = type("MockSpec", (), {})()
         spec_path = tmp_path / "42_feature"
         spec_path.mkdir(parents=True)
 
-        with patch(
-            "agent_fox.engine.hot_load.validate_specs",
-            return_value=mock_findings,
+        with (
+            patch("afspec.load_spec", return_value=mock_spec),
+            patch("afspec.validate", return_value=[mock_error]),
         ):
             passed, errors = lint_spec_gate("42_feature", spec_path)
 
@@ -334,7 +301,7 @@ class TestLintGateValidatorException:
         spec_path.mkdir(parents=True)
 
         with patch(
-            "agent_fox.engine.hot_load.validate_specs",
+            "afspec.load_spec",
             side_effect=RuntimeError("boom"),
         ):
             passed, errors = lint_spec_gate("42_feature", spec_path)
@@ -449,9 +416,9 @@ class TestSkippedSpecReEvaluation:
         """Spec skipped at barrier N passes at barrier N+1 after being fixed."""
         specs_dir = tmp_path / ".specs"
         spec_path = specs_dir / "42_feature"
-        # First: create incomplete spec (missing design.md)
-        files_without_design = [f for f in REQUIRED_FILES if f != "design.md"]
-        _create_spec_files(spec_path, files=files_without_design)
+        # First: create incomplete spec (missing test_spec.json)
+        files_without_test_spec = [f for f in REQUIRED_FILES if f != "test_spec.json"]
+        _create_spec_files(spec_path, files=files_without_test_spec)
 
         from agent_fox.spec.discovery import SpecInfo
 
@@ -487,8 +454,8 @@ class TestSkippedSpecReEvaluation:
             result_1 = await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path)
             assert result_1 == []
 
-            # Fix spec: add design.md
-            (spec_path / "design.md").write_text("# Design\nContent\n")
+            # Fix spec: add test_spec.json
+            (spec_path / "test_spec.json").write_text('{"test_cases": []}\n')
 
             # Barrier N+1: spec now passes
             result_2 = await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path)
@@ -500,80 +467,68 @@ class TestSkippedSpecReEvaluation:
 # TS-444-1: are_all_tasks_done
 # ---------------------------------------------------------------------------
 
-_COMPLETED_TASKS_MD = """\
-# Tasks
-
-- [x] 1. First task group
-  - [x] 1.1 Subtask one
-  - [x] 1.2 Subtask two
-- [x] 2. Second task group
-  - [x] 2.1 Subtask one
-"""
-
-_INCOMPLETE_TASKS_MD = """\
-# Tasks
-
-- [x] 1. First task group
-  - [x] 1.1 Subtask one
-- [ ] 2. Second task group
-  - [ ] 2.1 Subtask one
-"""
-
-_ALL_INCOMPLETE_TASKS_MD = """\
-# Tasks
-
-- [ ] 1. First task group
-  - [ ] 1.1 Subtask one
-- [ ] 2. Second task group
-  - [ ] 2.1 Subtask one
-"""
-
-
 class TestAreAllTasksDone:
-    """TS-444-1: tasks.md checkbox gate for completed specs.
+    """TS-444-1: task group checkbox gate for completed specs.
 
     Requirements: 444-AC-1
     """
 
     def test_all_groups_completed(self, tmp_path: Path) -> None:
-        """Returns True when all task groups are marked [x]."""
+        """Returns True when all task groups are marked completed."""
+        from agent_fox.spec.types import SubtaskDef, TaskGroupDef
+
         spec_path = tmp_path / "42_feature"
         spec_path.mkdir()
-        (spec_path / "tasks.md").write_text(_COMPLETED_TASKS_MD)
 
-        assert are_all_tasks_done(spec_path) is True
+        groups = [
+            TaskGroupDef(number=1, title="First", optional=False, completed=True,
+                         subtasks=(SubtaskDef(id="1.1", title="s1", completed=True),), body="", archetype=None),
+            TaskGroupDef(number=2, title="Second", optional=False, completed=True,
+                         subtasks=(SubtaskDef(id="2.1", title="s2", completed=True),), body="", archetype=None),
+        ]
+
+        with patch("agent_fox.engine.hot_load.parse_tasks_v12", return_value=groups):
+            assert are_all_tasks_done(spec_path) is True
 
     def test_some_groups_incomplete(self, tmp_path: Path) -> None:
         """Returns False when some groups are not completed."""
+        from agent_fox.spec.types import SubtaskDef, TaskGroupDef
+
         spec_path = tmp_path / "42_feature"
         spec_path.mkdir()
-        (spec_path / "tasks.md").write_text(_INCOMPLETE_TASKS_MD)
 
-        assert are_all_tasks_done(spec_path) is False
+        groups = [
+            TaskGroupDef(number=1, title="First", optional=False, completed=True,
+                         subtasks=(SubtaskDef(id="1.1", title="s1", completed=True),), body="", archetype=None),
+            TaskGroupDef(number=2, title="Second", optional=False, completed=False,
+                         subtasks=(SubtaskDef(id="2.1", title="s2", completed=False),), body="", archetype=None),
+        ]
+
+        with patch("agent_fox.engine.hot_load.parse_tasks_v12", return_value=groups):
+            assert are_all_tasks_done(spec_path) is False
 
     def test_no_groups_found(self, tmp_path: Path) -> None:
-        """Returns False when tasks.md has no parseable groups."""
+        """Returns False when parser returns empty list."""
         spec_path = tmp_path / "42_feature"
         spec_path.mkdir()
-        (spec_path / "tasks.md").write_text("# Tasks\n\nNo task groups here.\n")
 
-        assert are_all_tasks_done(spec_path) is False
+        with patch("agent_fox.engine.hot_load.parse_tasks_v12", return_value=[]):
+            assert are_all_tasks_done(spec_path) is False
 
-    def test_tasks_md_missing(self, tmp_path: Path) -> None:
-        """Returns False when tasks.md does not exist."""
+    def test_spec_dir_missing(self, tmp_path: Path) -> None:
+        """Returns False when spec directory does not exist."""
         spec_path = tmp_path / "42_feature"
-        spec_path.mkdir()
+        # directory NOT created
 
         assert are_all_tasks_done(spec_path) is False
 
     def test_parse_error(self, tmp_path: Path) -> None:
-        """Returns False when parse_tasks raises an exception."""
+        """Returns False when parse_tasks_v12 raises an exception."""
         spec_path = tmp_path / "42_feature"
         spec_path.mkdir()
-        (spec_path / "tasks.md").write_text(_COMPLETED_TASKS_MD)
 
         with patch(
-            "agent_fox.engine.hot_load.parse_tasks",
+            "agent_fox.engine.hot_load.parse_tasks_v12",
             side_effect=RuntimeError("parse error"),
         ):
             assert are_all_tasks_done(spec_path) is False
@@ -583,21 +538,22 @@ class TestAreAllTasksDone:
 
         Acceptance criterion: 444-AC-4
         """
-        tasks_with_new = """\
-# Tasks
+        from agent_fox.spec.types import SubtaskDef, TaskGroupDef
 
-- [x] 1. First task group
-  - [x] 1.1 Subtask one
-- [x] 2. Second task group
-  - [x] 2.1 Subtask one
-- [ ] 3. New task group added later
-  - [ ] 3.1 New subtask
-"""
         spec_path = tmp_path / "42_feature"
         spec_path.mkdir()
-        (spec_path / "tasks.md").write_text(tasks_with_new)
 
-        assert are_all_tasks_done(spec_path) is False
+        groups = [
+            TaskGroupDef(number=1, title="First", optional=False, completed=True,
+                         subtasks=(SubtaskDef(id="1.1", title="s1", completed=True),), body="", archetype=None),
+            TaskGroupDef(number=2, title="Second", optional=False, completed=True,
+                         subtasks=(SubtaskDef(id="2.1", title="s2", completed=True),), body="", archetype=None),
+            TaskGroupDef(number=3, title="New task", optional=False, completed=False,
+                         subtasks=(SubtaskDef(id="3.1", title="s3", completed=False),), body="", archetype=None),
+        ]
+
+        with patch("agent_fox.engine.hot_load.parse_tasks_v12", return_value=groups):
+            assert are_all_tasks_done(spec_path) is False
 
 
 # ---------------------------------------------------------------------------
@@ -678,7 +634,7 @@ class TestTasksCompleteGatePipeline:
 
     @pytest.mark.asyncio
     async def test_both_signals_done_skips_spec(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
-        """Spec skipped when tasks.md all [x] AND plan nodes all completed in DB."""
+        """Spec skipped when all tasks done AND plan nodes all completed in DB."""
         import duckdb
 
         from agent_fox.spec.discovery import SpecInfo
@@ -686,7 +642,6 @@ class TestTasksCompleteGatePipeline:
         specs_dir = tmp_path / ".specs"
         spec_path = specs_dir / "42_feature"
         _create_spec_files(spec_path)
-        (spec_path / "tasks.md").write_text(_COMPLETED_TASKS_MD)
 
         # Create in-memory DuckDB with completed plan nodes
         conn = duckdb.connect(":memory:")
@@ -715,6 +670,7 @@ class TestTasksCompleteGatePipeline:
             patch("agent_fox.engine.hot_load.is_spec_tracked_on_develop", side_effect=mock_is_tracked),
             patch("agent_fox.engine.hot_load.is_spec_complete", return_value=(True, [])),
             patch("agent_fox.engine.hot_load.lint_spec_gate", side_effect=mock_lint_gate),
+            patch("agent_fox.engine.hot_load.are_all_tasks_done", return_value=True),
             caplog.at_level(logging.INFO, logger="agent_fox.engine.hot_load"),
         ):
             result = await discover_new_specs_gated(
@@ -727,7 +683,7 @@ class TestTasksCompleteGatePipeline:
 
     @pytest.mark.asyncio
     async def test_tasks_done_but_nodes_not_done(self, tmp_path: Path) -> None:
-        """Spec NOT skipped when tasks.md all [x] but plan nodes are pending."""
+        """Spec NOT skipped when all tasks done but plan nodes are pending."""
         import duckdb
 
         from agent_fox.spec.discovery import SpecInfo
@@ -735,7 +691,6 @@ class TestTasksCompleteGatePipeline:
         specs_dir = tmp_path / ".specs"
         spec_path = specs_dir / "42_feature"
         _create_spec_files(spec_path)
-        (spec_path / "tasks.md").write_text(_COMPLETED_TASKS_MD)
 
         conn = duckdb.connect(":memory:")
         conn.execute(
@@ -762,6 +717,7 @@ class TestTasksCompleteGatePipeline:
             patch("agent_fox.engine.hot_load.is_spec_tracked_on_develop", side_effect=mock_is_tracked),
             patch("agent_fox.engine.hot_load.is_spec_complete", return_value=(True, [])),
             patch("agent_fox.engine.hot_load.lint_spec_gate", side_effect=mock_lint_gate),
+            patch("agent_fox.engine.hot_load.are_all_tasks_done", return_value=True),
         ):
             result = await discover_new_specs_gated(
                 specs_dir, known_specs=set(), repo_root=tmp_path, db_conn=conn
@@ -773,7 +729,7 @@ class TestTasksCompleteGatePipeline:
 
     @pytest.mark.asyncio
     async def test_nodes_done_but_tasks_not_done(self, tmp_path: Path) -> None:
-        """Spec NOT skipped when plan nodes completed but tasks.md has unchecked boxes."""
+        """Spec NOT skipped when plan nodes completed but tasks not all done."""
         import duckdb
 
         from agent_fox.spec.discovery import SpecInfo
@@ -781,7 +737,6 @@ class TestTasksCompleteGatePipeline:
         specs_dir = tmp_path / ".specs"
         spec_path = specs_dir / "42_feature"
         _create_spec_files(spec_path)
-        (spec_path / "tasks.md").write_text(_INCOMPLETE_TASKS_MD)
 
         conn = duckdb.connect(":memory:")
         conn.execute(
@@ -808,6 +763,7 @@ class TestTasksCompleteGatePipeline:
             patch("agent_fox.engine.hot_load.is_spec_tracked_on_develop", side_effect=mock_is_tracked),
             patch("agent_fox.engine.hot_load.is_spec_complete", return_value=(True, [])),
             patch("agent_fox.engine.hot_load.lint_spec_gate", side_effect=mock_lint_gate),
+            patch("agent_fox.engine.hot_load.are_all_tasks_done", return_value=False),
         ):
             result = await discover_new_specs_gated(
                 specs_dir, known_specs=set(), repo_root=tmp_path, db_conn=conn
@@ -824,7 +780,6 @@ class TestTasksCompleteGatePipeline:
         specs_dir = tmp_path / ".specs"
         spec_path = specs_dir / "42_feature"
         _create_spec_files(spec_path)
-        (spec_path / "tasks.md").write_text(_COMPLETED_TASKS_MD)
 
         mock_spec = SpecInfo(
             name="42_feature",
@@ -845,6 +800,7 @@ class TestTasksCompleteGatePipeline:
             patch("agent_fox.engine.hot_load.is_spec_tracked_on_develop", side_effect=mock_is_tracked),
             patch("agent_fox.engine.hot_load.is_spec_complete", return_value=(True, [])),
             patch("agent_fox.engine.hot_load.lint_spec_gate", side_effect=mock_lint_gate),
+            patch("agent_fox.engine.hot_load.are_all_tasks_done", return_value=True),
         ):
             # No db_conn argument — backward compatible
             result = await discover_new_specs_gated(

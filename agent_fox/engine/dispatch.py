@@ -840,20 +840,20 @@ def is_task_group_done_file(
     spec_name: str,
     group_number: int,
 ) -> bool:
-    """Check tasks.md checkbox state for a specific task group.
+    """Check task group checkbox state for a specific task group.
 
     Returns True only when the task group exists and has completed=True.
     """
-    from agent_fox.spec.parser import parse_tasks
+    from agent_fox.spec.parser_v12 import parse_tasks_v12
 
-    tasks_path = specs_dir / spec_name / "tasks.md"
-    if not tasks_path.is_file():
+    spec_dir = specs_dir / spec_name
+    if not spec_dir.is_dir():
         return False
     try:
-        groups = parse_tasks(tasks_path)
+        groups = parse_tasks_v12(spec_dir)
     except Exception:
         logger.debug(
-            "Failed to parse tasks.md for %s",
+            "Failed to parse tasks for %s",
             spec_name,
             exc_info=True,
         )

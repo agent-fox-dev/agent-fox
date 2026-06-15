@@ -21,12 +21,12 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from agent_fox.engine.hot_load import (
+    _EXPECTED_V12_FILES,
     discover_new_specs_gated,
     is_spec_complete,
     is_spec_tracked_on_develop,
     lint_spec_gate,
 )
-from agent_fox.spec.validators import EXPECTED_FILES
 
 # Strategy for spec states
 spec_state_strategy = st.fixed_dictionaries(
@@ -76,11 +76,11 @@ class TestGatePipelineMonotonicFiltering:
                 spec_path = specs_dir / name
                 spec_path.mkdir(parents=True)
                 # Create files based on completeness state
-                for f in EXPECTED_FILES:
+                for f in _EXPECTED_V12_FILES:
                     (spec_path / f).write_text(f"# {f}\nContent\n")
                 if not state["complete"]:
                     # Remove one file to make incomplete
-                    (spec_path / "design.md").unlink()
+                    (spec_path / "requirements.json").unlink()
 
                 specs.append(
                     SpecInfo(
@@ -194,13 +194,13 @@ class TestCompletenessGateCorrectness:
 
     @given(
         present_files=st.lists(
-            st.sampled_from(EXPECTED_FILES),
+            st.sampled_from(_EXPECTED_V12_FILES),
             min_size=0,
             max_size=5,
             unique=True,
         ),
         empty_files=st.lists(
-            st.sampled_from(EXPECTED_FILES),
+            st.sampled_from(_EXPECTED_V12_FILES),
             min_size=0,
             max_size=5,
             unique=True,
@@ -230,7 +230,7 @@ class TestCompletenessGateCorrectness:
             passed, missing = is_spec_complete(spec_path)
 
             expected_missing = []
-            for f in EXPECTED_FILES:
+            for f in _EXPECTED_V12_FILES:
                 if f not in present_files or f in empty_files:
                     expected_missing.append(f)
 
@@ -268,19 +268,16 @@ class TestLintGateCorrectness:
         raises: bool,
     ) -> None:
         """Passes iff no error findings and no exception."""
-        from agent_fox.spec.validators import Finding
+        from unittest.mock import MagicMock
 
-        findings = [
-            Finding(
-                spec_name="test_spec",
-                file="test.md",
-                rule=f"rule_{i}",
-                severity=sev,
-                message=f"Finding {i}",
-                line=i,
-            )
-            for i, sev in enumerate(severities)
-        ]
+        # Build mock afspec validation errors (only errors cause failure)
+        mock_errors = []
+        for i, sev in enumerate(severities):
+            if sev == "error":
+                err = MagicMock()
+                err.rule = f"rule_{i}"
+                err.message = f"Finding {i}"
+                mock_errors.append(err)
 
         with tempfile.TemporaryDirectory() as tmp:
             spec_path = Path(tmp) / "test_spec"
@@ -288,15 +285,16 @@ class TestLintGateCorrectness:
 
             if raises:
                 with patch(
-                    "agent_fox.engine.hot_load.validate_specs",
+                    "afspec.load_spec",
                     side_effect=RuntimeError("boom"),
                 ):
                     passed, errors = lint_spec_gate("test_spec", spec_path)
                 assert passed is False
             else:
-                with patch(
-                    "agent_fox.engine.hot_load.validate_specs",
-                    return_value=findings,
+                mock_loaded = MagicMock()
+                with (
+                    patch("afspec.load_spec", return_value=mock_loaded),
+                    patch("afspec.validate", return_value=mock_errors),
                 ):
                     passed, errors = lint_spec_gate("test_spec", spec_path)
 
@@ -346,11 +344,11 @@ class TestStatelessReEvaluation:
                     shutil.rmtree(spec_path)
                 spec_path.mkdir(parents=True)
                 if state["complete"]:
-                    for f in EXPECTED_FILES:
+                    for f in _EXPECTED_V12_FILES:
                         (spec_path / f).write_text(f"# {f}\nContent\n")
                 else:
                     # Create only some files
-                    for f in EXPECTED_FILES[:3]:
+                    for f in _EXPECTED_V12_FILES[:3]:
                         (spec_path / f).write_text(f"# {f}\nContent\n")
 
             mock_spec = SpecInfo(

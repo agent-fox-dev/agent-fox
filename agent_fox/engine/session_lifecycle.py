@@ -41,7 +41,7 @@ from agent_fox.session.prompt import (
     build_task_prompt,
 )
 from agent_fox.session.session import run_session
-from agent_fox.spec.parser import _GROUP_PATTERN, _SUBTASK_PATTERN, parse_tasks
+from agent_fox.spec.parser_v12 import parse_tasks_v12
 from agent_fox.ui.progress import ActivityCallback
 from agent_fox.workspace import (
     WorkspaceInfo,
@@ -64,70 +64,55 @@ _BUDGET_EXHAUST_RATIO: float = 0.9
 
 
 def extract_subtask_descriptions(spec_dir: Path, task_group: int) -> list[str]:
-    """Extract the first non-metadata bullet from each subtask in a task group.
+    """Extract the first non-metadata detail from each subtask in a task group.
 
-    Scans tasks.md line-by-line: locates the target task group, then iterates
-    its body to find each subtask line (matching _SUBTASK_PATTERN) and captures
-    the first bullet whose text does not start with '_'.
-
-    We scan the raw file rather than using TaskGroupDef.body because
-    parse_tasks() strips the body string, which removes leading whitespace
-    from the first line and causes _SUBTASK_PATTERN (which requires ^\\s+) to
-    miss the first subtask.
+    Parses the v1.2 spec via ``parse_tasks_v12`` and scans the rendered body
+    of the target group.  Each subtask line (``- [...] ID Title``) starts a
+    new subtask; subsequent indented bullets (``  - text``) are details.  The
+    first detail whose text does not start with ``_`` is captured.
 
     Args:
         spec_dir: Path to the spec folder (e.g., .specs/12_rate_limiting/).
         task_group: The task group number to extract from.
 
     Returns:
-        List of description strings. Empty if tasks.md is missing, the group
-        is not found, or no subtasks have non-metadata bullets.
+        List of description strings. Empty if the spec cannot be loaded, the
+        group is not found, or no subtasks have non-metadata details.
 
     Requirements: 94-REQ-1.1, 94-REQ-1.2, 94-REQ-1.E1, 94-REQ-1.E2
     """
-    tasks_path = spec_dir / "tasks.md"
-    if not tasks_path.exists():
+    if not spec_dir.is_dir():
         return []
 
     try:
-        lines = tasks_path.read_text(encoding="utf-8").splitlines()
+        groups = parse_tasks_v12(spec_dir)
     except Exception:
-        logger.debug("extract_subtask_descriptions: failed to read %s", tasks_path, exc_info=True)
+        logger.debug("extract_subtask_descriptions: failed to parse %s", spec_dir, exc_info=True)
         return []
 
-    # Verify the group exists by also parsing (cheap; validates group number)
-    try:
-        groups = parse_tasks(tasks_path)
-    except Exception:
-        logger.debug("extract_subtask_descriptions: failed to parse %s", tasks_path, exc_info=True)
+    target_group = None
+    for g in groups:
+        if g.number == task_group:
+            target_group = g
+            break
+
+    if target_group is None:
         return []
 
-    if not any(g.number == task_group for g in groups):
-        return []
-
+    # Parse the rendered body to extract first non-metadata detail per subtask.
+    # Body format from _render_group_body:
+    #   - [x] 1.1 Title
+    #     - detail 1
+    #     - detail 2
+    #   - [ ] 1.2 Another title
+    #     - detail 3
     descriptions: list[str] = []
-    in_target_group = False
     in_subtask = False
     found_first = False
 
-    for line in lines:
-        group_match = _GROUP_PATTERN.match(line)
-        if group_match:
-            group_num = int(group_match.group(3))
-            if group_num == task_group:
-                in_target_group = True
-                in_subtask = False
-                found_first = False
-            elif in_target_group:
-                # Reached the next top-level group — stop
-                break
-            continue
-
-        if not in_target_group:
-            continue
-
-        if _SUBTASK_PATTERN.match(line):
-            # Starting a new subtask — reset the "found first bullet" flag
+    for line in target_group.body.splitlines():
+        # Subtask line: starts with "- [" at column 0
+        if line.startswith("- ["):
             in_subtask = True
             found_first = False
             continue
@@ -137,7 +122,6 @@ def extract_subtask_descriptions(spec_dir: Path, task_group: int) -> list[str]:
             if stripped.startswith("- "):
                 bullet_text = stripped[2:].strip()
                 if not bullet_text.startswith("_"):
-                    # First non-metadata bullet for this subtask
                     descriptions.append(bullet_text)
                     found_first = True
 

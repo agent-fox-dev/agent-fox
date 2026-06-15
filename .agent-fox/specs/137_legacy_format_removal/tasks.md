@@ -108,8 +108,8 @@ Similarly, `parse_cross_deps(prd_path, spec_name)` becomes
     - [x] All existing tests still pass: `uv run pytest -q`
     - [x] No linter warnings introduced: `uv run ruff check`
 
-- [ ] 4. Rewire engine-layer imports
-  - [ ] 4.1 Rewire `engine/engine.py`
+- [x] 4. Rewire engine-layer imports
+  - [x] 4.1 Rewire `engine/engine.py`
     - In `build_summary_comment()`: replace late import of `parse_tasks`
       from `spec.parser` with `parse_tasks_v12` from `spec.parser_v12`
     - Change `parse_tasks(tasks_path)` to `parse_tasks_v12(spec_path)`
@@ -118,7 +118,7 @@ Similarly, `parse_cross_deps(prd_path, spec_name)` becomes
       group list (matching current behavior for missing tasks.md)
     - _Requirements: 5.3_
 
-  - [ ] 4.2 Rewire `engine/dispatch.py`
+  - [x] 4.2 Rewire `engine/dispatch.py`
     - In `is_task_group_done_file()`: replace late import of `parse_tasks`
       from `spec.parser` with `parse_tasks_v12` from `spec.parser_v12`
     - Change `parse_tasks(tasks_path)` to `parse_tasks_v12(specs_dir /
@@ -128,7 +128,7 @@ Similarly, `parse_cross_deps(prd_path, spec_name)` becomes
       directory exists
     - _Requirements: 5.3_
 
-  - [ ] 4.3 Rewire `engine/session_lifecycle.py`
+  - [x] 4.3 Rewire `engine/session_lifecycle.py`
     - Replace import of `_GROUP_PATTERN`, `_SUBTASK_PATTERN`, `parse_tasks`
       from `spec.parser` with `parse_tasks_v12` from `spec.parser_v12`
     - Adapt `extract_subtask_descriptions()`: instead of regex-parsing
@@ -138,7 +138,7 @@ Similarly, `parse_cross_deps(prd_path, spec_name)` becomes
     - Preserve the function's return type and caller contract
     - _Requirements: 5.3_
 
-  - [ ] 4.4 Rewire `engine/hot_load.py`
+  - [x] 4.4 Rewire `engine/hot_load.py`
     - Replace `from agent_fox.spec.parser import parse_cross_deps, parse_tasks`
       with imports from `spec.parser_v12`
     - Replace `from agent_fox.spec.validators import EXPECTED_FILES, Finding,
@@ -158,10 +158,10 @@ Similarly, `parse_cross_deps(prd_path, spec_name)` becomes
       `parse_cross_deps_v12(spec_info.path, spec_info.name)`
     - _Requirements: 5.3, 3.4_
 
-  - [ ] 4.V Verify task group 4
-    - [ ] All existing tests still pass: `uv run pytest -q`
-    - [ ] No linter warnings introduced: `uv run ruff check`
-    - [ ] Grep confirms no engine module imports from `spec.parser`:
+  - [x] 4.V Verify task group 4
+    - [x] All existing tests still pass: `uv run pytest -q`
+    - [x] No linter warnings introduced: `uv run ruff check`
+    - [x] Grep confirms no engine module imports from `spec.parser`:
       `grep -rn "from agent_fox.spec.parser" agent_fox/engine/`
 
 - [ ] 5. Rewire test file imports
