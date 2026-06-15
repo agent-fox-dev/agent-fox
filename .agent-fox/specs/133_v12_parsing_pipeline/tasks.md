@@ -85,34 +85,34 @@ planner update, verify wiring.
     - [x] No linter warnings introduced: `uv run ruff check`
     - [x] Requirements 1.1-4.2 acceptance criteria met
 
-- [ ] 3. Wiring verification
-  - [ ] 3.1 Trace every execution path from design.md end-to-end
+- [x] 3. Wiring verification
+  - [x] 3.1 Trace every execution path from design.md end-to-end
     - Verify parse_tasks_v12 calls afspec.load_spec and maps all groups
     - Verify parse_cross_deps_v12 calls afspec.load_spec and maps all deps
     - Verify build_plan routes V1_2_JSON specs to parser_v12 functions
     - Verify build_plan does NOT call markdown parser for V1_2_JSON specs
     - _Requirements: all_
 
-  - [ ] 3.2 Verify return values propagate correctly
+  - [x] 3.2 Verify return values propagate correctly
     - parse_tasks_v12 returns list[TaskGroupDef] consumable by build_graph
     - parse_cross_deps_v12 returns list[CrossSpecDep] consumable by build_graph
     - build_graph produces valid TaskGraph from v1.2-parsed input
     - _Requirements: all_
 
-  - [ ] 3.3 Run the integration smoke test
+  - [x] 3.3 Run the integration smoke test
     - TS-133-SMOKE-1 passes using real components (no mocks)
     - _Test Spec: TS-133-SMOKE-1_
 
-  - [ ] 3.4 Stub / dead-code audit
+  - [x] 3.4 Stub / dead-code audit
     - Search all files touched for: return [], return None, pass, # TODO, NotImplementedError
     - Each hit must be justified or replaced
     - _Requirements: all_
 
-  - [ ] 3.V Verify wiring group
-    - [ ] All smoke tests pass
-    - [ ] No unjustified stubs remain in touched files
-    - [ ] All execution paths from design.md are live
-    - [ ] All existing tests still pass: `uv run pytest -q`
+  - [x] 3.V Verify wiring group
+    - [x] All smoke tests pass
+    - [x] No unjustified stubs remain in touched files
+    - [x] All execution paths from design.md are live
+    - [x] All existing tests still pass: `uv run pytest -q`
 
 ## Traceability
 
