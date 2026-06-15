@@ -66,8 +66,8 @@ Similarly, `parse_cross_deps(prd_path, spec_name)` becomes
     - [x] All spec tests FAIL (red) — no implementation yet
     - [x] No linter warnings introduced: `uv run ruff check`
 
-- [ ] 2. Create `spec/types.py` with shared types
-  - [ ] 2.1 Create `agent_fox/spec/types.py`
+- [x] 2. Create `spec/types.py` with shared types
+  - [x] 2.1 Create `agent_fox/spec/types.py`
     - Copy `TaskGroupDef`, `SubtaskDef`, `CrossSpecDep` dataclasses from
       `parser.py` with identical field signatures
     - Copy `Finding` dataclass from `validators/_helpers.py`
@@ -77,10 +77,10 @@ Similarly, `parse_cross_deps(prd_path, spec_name)` becomes
       or validators/)
     - _Requirements: 1.1, 1.2_
 
-  - [ ] 2.V Verify task group 2
-    - [ ] `types.py` exports are importable: `python -c "from agent_fox.spec.types import TaskGroupDef, Finding"`
-    - [ ] All existing tests still pass: `uv run pytest -q`
-    - [ ] No linter warnings introduced: `uv run ruff check`
+  - [x] 2.V Verify task group 2
+    - [x] `types.py` exports are importable: `python -c "from agent_fox.spec.types import TaskGroupDef, Finding"`
+    - [x] All existing tests still pass: `uv run pytest -q`
+    - [x] No linter warnings introduced: `uv run ruff check`
 
 - [ ] 3. Rewire spec-layer and graph-layer imports
   - [ ] 3.1 Rewire spec-layer imports
