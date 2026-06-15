@@ -2,13 +2,17 @@
 
 Extracted to break the circular dependency between builder.py and injection.py.
 
-Requirements: 46-REQ-3.1, 46-REQ-3.2, 46-REQ-4.4
+Requirements: 46-REQ-3.1, 46-REQ-3.2, 46-REQ-4.4,
+              134-REQ-3.1, 134-REQ-3.2, 134-REQ-3.3, 134-REQ-3.E1
 """
 
 from __future__ import annotations
 
+import logging
 import re
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Test-writing group detection (46-REQ-3.1, 46-REQ-3.2)
@@ -32,12 +36,38 @@ def is_test_writing_group(title: str) -> bool:
 
 
 def count_ts_entries(spec_dir: Path) -> int:
-    """Count TS-NN-N entries in a spec's test_spec.md.
+    """Count test entries in a spec's test specification.
 
-    Returns 0 if the file does not exist.
+    For v1.2 specs (containing ``test_spec.json``), loads the spec via
+    afspec and returns the total count of test cases, property tests,
+    edge case tests, and smoke tests.
 
-    Requirements: 46-REQ-4.4
+    For v1 specs, counts ``### TS-`` headings in ``test_spec.md``.
+
+    Returns 0 if neither file exists or if loading fails.
+
+    Requirements: 46-REQ-4.4, 134-REQ-3.1, 134-REQ-3.2, 134-REQ-3.E1
     """
+    # v1.2 branch: count from afspec models (134-REQ-3.1)
+    test_spec_json = spec_dir / "test_spec.json"
+    if test_spec_json.is_file():
+        try:
+            import afspec
+
+            spec = afspec.load_spec(spec_dir)
+            ts = spec.test_spec
+            return (
+                len(ts.test_cases)
+                + len(ts.property_tests)
+                + len(ts.edge_case_tests)
+                + len(ts.smoke_tests)
+            )
+        except Exception:
+            # 134-REQ-3.E1: return 0 and log warning on load failure
+            logger.warning("Failed to load test_spec.json in %s", spec_dir)
+            return 0
+
+    # v1 fallback: count ### TS- headings (134-REQ-3.2)
     test_spec = spec_dir / "test_spec.md"
     if not test_spec.exists():
         return 0
@@ -59,16 +89,26 @@ _DESIGN_FILE_REF = re.compile(
 
 
 def spec_has_existing_code(spec_path: Path) -> bool:
-    """Check whether a spec's design.md references files that already exist.
+    """Check whether a spec's design document references files that already exist.
 
-    Reads design.md, extracts paths marked ``(modified)``, and returns True
-    if at least one of those paths exists on disk.  Returns True (safe
-    default) when design.md is missing or unreadable so the oracle is not
-    accidentally suppressed.
+    For v1.2 specs (containing ``requirements.json``), reads
+    ``architecture.md`` instead of ``design.md``.
+
+    Extracts paths marked ``(modified)`` and returns True if at least one
+    of those paths exists on disk.  Returns True (safe default) when the
+    target file is missing or unreadable so the oracle is not accidentally
+    suppressed.
+
+    Requirements: 134-REQ-3.3
     """
-    design_md = spec_path / "design.md"
+    # v1.2: check architecture.md instead of design.md (134-REQ-3.3)
+    if (spec_path / "requirements.json").is_file():
+        target = spec_path / "architecture.md"
+    else:
+        target = spec_path / "design.md"
+
     try:
-        content = design_md.read_text(encoding="utf-8")
+        content = target.read_text(encoding="utf-8")
     except OSError:
         # No design.md or unreadable — assume code exists (safe default)
         return True

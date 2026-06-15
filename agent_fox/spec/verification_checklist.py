@@ -80,7 +80,54 @@ def build_verification_checklist(
 
 
 def _audit_task_checkboxes(spec_dir: Path) -> list[SubtaskAuditEntry]:
-    """Parse tasks.md and audit every subtask checkbox state."""
+    """Parse tasks and audit every subtask checkbox state.
+
+    For v1.2 specs (containing ``tasks.json``), loads via afspec and
+    extracts subtask state from Pydantic models.  For v1 specs, parses
+    ``tasks.md`` with the existing markdown parser.
+
+    Requirements: 134-REQ-4.1, 134-REQ-4.E1
+    """
+    # v1.2 branch: load tasks.json via afspec (134-REQ-4.1)
+    if (spec_dir / "tasks.json").is_file():
+        return _audit_task_checkboxes_v12(spec_dir)
+    return _audit_task_checkboxes_v1(spec_dir)
+
+
+def _audit_task_checkboxes_v12(spec_dir: Path) -> list[SubtaskAuditEntry]:
+    """Load tasks.json via afspec and extract subtask audit entries.
+
+    Requirements: 134-REQ-4.1, 134-REQ-4.E1
+    """
+    try:
+        import afspec
+
+        spec = afspec.load_spec(spec_dir)
+    except Exception:
+        # 134-REQ-4.E1: return empty list and log warning on load failure
+        logger.warning("Failed to load tasks.json via afspec in %s", spec_dir)
+        return []
+
+    entries: list[SubtaskAuditEntry] = []
+    for group in spec.tasks.task_groups:
+        for subtask in group.subtasks:
+            # Map SubtaskState enum to checked/skipped booleans
+            checked = subtask.state.value == "done"
+            skipped = subtask.state.value == "dropped"
+            entries.append(
+                SubtaskAuditEntry(
+                    group_number=group.id,
+                    subtask_id=subtask.id,
+                    title=subtask.title,
+                    checked=checked,
+                    skipped=skipped,
+                )
+            )
+    return entries
+
+
+def _audit_task_checkboxes_v1(spec_dir: Path) -> list[SubtaskAuditEntry]:
+    """Parse tasks.md and audit every subtask checkbox state (v1 path)."""
     tasks_path = spec_dir / "tasks.md"
     if not tasks_path.is_file():
         return []
@@ -138,17 +185,77 @@ def scan_requirement_test_coverage(
 ) -> list[RequirementMapping]:
     """Map requirement IDs to test file coverage.
 
-    For each requirement ID found in requirements.md, scans test files
-    for references (in comments, docstrings, or function names).
+    For v1.2 specs (containing ``requirements.json``), extracts
+    requirement IDs from the afspec model.  For v1 specs, parses
+    ``requirements.md`` with regex.
 
     Args:
-        spec_dir: Path to the spec directory containing requirements.md.
+        spec_dir: Path to the spec directory.
         tests_dir: Path to the project's tests directory. If None or
             non-existent, all requirements are marked uncovered.
 
     Returns:
         List of RequirementMapping, one per requirement ID.
+
+    Requirements: 134-REQ-4.2, 134-REQ-4.E1
     """
+    # v1.2 branch: extract IDs from requirements.json (134-REQ-4.2)
+    if (spec_dir / "requirements.json").is_file():
+        return _scan_req_coverage_v12(spec_dir, tests_dir)
+    return _scan_req_coverage_v1(spec_dir, tests_dir)
+
+
+def _scan_req_coverage_v12(
+    spec_dir: Path,
+    tests_dir: Path | None,
+) -> list[RequirementMapping]:
+    """Extract requirement IDs from requirements.json via afspec.
+
+    Requirements: 134-REQ-4.2, 134-REQ-4.E1
+    """
+    try:
+        import afspec
+
+        spec = afspec.load_spec(spec_dir)
+    except Exception:
+        # 134-REQ-4.E1: return empty list and log warning on load failure
+        logger.warning("Failed to load requirements.json via afspec in %s", spec_dir)
+        return []
+
+    # Extract all criterion IDs from acceptance_criteria and edge_cases
+    req_ids: list[str] = []
+    for req in spec.requirements.requirements:
+        for criterion in req.acceptance_criteria:
+            if criterion.id:
+                req_ids.append(criterion.id)
+        for edge_case in req.edge_cases:
+            if edge_case.id:
+                req_ids.append(edge_case.id)
+
+    req_ids = sorted(set(req_ids))
+    if not req_ids:
+        return []
+
+    test_content = _load_test_file_contents(tests_dir)
+
+    mappings: list[RequirementMapping] = []
+    for req_id in req_ids:
+        test_files = _find_test_files_for_req(req_id, test_content)
+        mappings.append(
+            RequirementMapping(
+                requirement_id=req_id,
+                covered=len(test_files) > 0,
+                test_files=test_files,
+            )
+        )
+    return mappings
+
+
+def _scan_req_coverage_v1(
+    spec_dir: Path,
+    tests_dir: Path | None,
+) -> list[RequirementMapping]:
+    """Extract requirement IDs from requirements.md via regex (v1 path)."""
     req_path = spec_dir / "requirements.md"
     if not req_path.is_file():
         return []

@@ -88,37 +88,37 @@ helpers and checklist, wiring verification.
     - [x] All existing tests still pass: `uv run pytest -q`
     - [x] No linter warnings introduced: `uv run ruff check`
 
-- [ ] 3. Implement v1.2-aware helpers and checklist
-  - [ ] 3.1 Update count_ts_entries in spec_helpers.py
+- [x] 3. Implement v1.2-aware helpers and checklist
+  - [x] 3.1 Update count_ts_entries in spec_helpers.py
     - Add v1.2 branch: check for test_spec.json, load via afspec, count test entries
     - Preserve v1 branch unchanged
     - Handle load failures: return 0, log warning
     - _Requirements: 3.1, 3.2, 3.E1_
 
-  - [ ] 3.2 Update spec_has_existing_code in spec_helpers.py
+  - [x] 3.2 Update spec_has_existing_code in spec_helpers.py
     - Add v1.2 branch: check for requirements.json, read architecture.md instead of design.md
     - Preserve v1 branch unchanged
     - _Requirements: 3.3_
 
-  - [ ] 3.3 Update _audit_task_checkboxes in verification_checklist.py
+  - [x] 3.3 Update _audit_task_checkboxes in verification_checklist.py
     - Add v1.2 branch: check for tasks.json, load via afspec
     - Map TaskGroup.subtasks to SubtaskAuditEntry objects
     - Use Subtask.state enum for checked/skipped fields
     - Handle load failures: return empty list, log warning
     - _Requirements: 4.1, 4.E1_
 
-  - [ ] 3.4 Update scan_requirement_test_coverage in verification_checklist.py
+  - [x] 3.4 Update scan_requirement_test_coverage in verification_checklist.py
     - Add v1.2 branch: check for requirements.json, load via afspec
     - Extract requirement IDs from Requirements.requirements[*].id
     - Preserve test file scanning logic unchanged
     - Handle load failures: return empty list, log warning
     - _Requirements: 4.2, 4.E1_
 
-  - [ ] 3.V Verify task group 3
-    - [ ] Helper tests pass: TS-134-5 through TS-134-7, TS-134-E3
-    - [ ] Checklist tests pass: TS-134-8, TS-134-9, TS-134-E4
-    - [ ] All existing tests still pass: `uv run pytest -q`
-    - [ ] No linter warnings introduced: `uv run ruff check`
+  - [x] 3.V Verify task group 3
+    - [x] Helper tests pass: TS-134-5 through TS-134-7, TS-134-E3
+    - [x] Checklist tests pass: TS-134-8, TS-134-9, TS-134-E4
+    - [x] All existing tests still pass: `uv run pytest -q`
+    - [x] No linter warnings introduced: `uv run ruff check`
 
 - [ ] 4. Wiring verification
   - [ ] 4.1 Trace every execution path from design.md end-to-end
