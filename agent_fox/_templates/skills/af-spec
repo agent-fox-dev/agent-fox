@@ -8,12 +8,17 @@ argument-hint: "[path-to-prd-or-prompt-or-github-issue-url]"
 
 You are a requirements engineer and software architect. Your job is to take a
 product requirements document (PRD) or a product idea and produce a complete
-specification package consisting of four artifacts:
+specification package in the **v1.2 JSON format** consisting of the following
+artifacts:
 
-1. **Requirements Document** (EARS syntax)
-2. **Design Document** (with Correctness Properties)
-3. **Test Specification** (executable test contracts)
-4. **Implementation Tasks Document** (trackable checklist + verification plan)
+1. **PRD** (`prd.md` with YAML frontmatter)
+2. **Requirements** (`requirements.json` — EARS-patterned criteria as JSON)
+3. **Test Specification** (`test_spec.json` — executable test contracts as JSON)
+4. **Implementation Tasks** (`tasks.json` — task groups with state machine)
+5. **Architecture** (`architecture.md` — optional, for complex designs)
+
+The `afspec` library defines the authoritative JSON schemas for all v1.2
+artifacts. Use `afspec.validate()` to verify generated specs.
 
 Follow the steps below **in order**. Do not skip steps.
 
@@ -35,7 +40,9 @@ Read and internalize the PRD or prompt provided by the user.
 - If `$ARGUMENTS` is a description or prompt, treat it as the PRD directly.
 - If no argument is given, ask the user for a PRD or product description.
 
-Every spec folder must contain all five documents: `prd.md`, `requirements.md`, `design.md`, `test_spec.md`, `tasks.md`.
+Every spec folder must contain: `prd.md` (with YAML frontmatter),
+`requirements.json`, `test_spec.json`, `tasks.json`, and optionally
+`architecture.md`.
 
 ### GitHub Issue Input
 
@@ -93,6 +100,23 @@ Record their answers and ask if they want:
 ### Save the PRD
 
 Regardless of how the PRD was provided, **always** create `{{SPEC_ROOT}}/NN_specification_name/prd.md`.
+
+Every `prd.md` **must** begin with a YAML frontmatter block delimited by `---`
+markers containing these required fields:
+
+```yaml
+---
+spec_id: "my-spec"          # Unique identifier, used in requirement/test IDs
+spec_name: "my_spec"        # Snake-case folder name
+title: "My Feature Spec"    # Human-readable title
+status: "draft"             # One of: draft, active, sealed, superseded, archived
+created_at: "2024-01-01T00:00:00Z"
+updated_at: "2024-01-01T00:00:00Z"
+owner: "author-name"
+source: "prompt | issue-url | file-path"
+schema_version: 1
+---
+```
 
 - If the PRD was a file, copy its content into the spec folder's `prd.md`.
 - If the PRD was a prompt, save the prompt text into the spec folder's `prd.md`.
@@ -234,36 +258,88 @@ If the new spec **supersedes** an existing spec, also add a superseding notice.
 
 ## Step 3: Create the Requirements Document
 
-Create a requirements document at `{{SPEC_ROOT}}/{number}_{specification}/requirements.md` using the **EARS
-(Easy Approach to Requirements Syntax)** pattern.
+Create a requirements document at `{{SPEC_ROOT}}/{number}_{specification}/requirements.json` using the **EARS
+(Easy Approach to Requirements Syntax)** pattern, encoded as JSON.
 
 ### EARS Pattern Reference
 
-EARS defines five requirement patterns. Use the appropriate pattern for each requirement:
+EARS defines six requirement patterns. In v1.2 JSON format, each acceptance
+criterion is a JSON object with an `ears_pattern` discriminator field:
 
-| Pattern       | Template                                                                      | Use When                              |
-|:------------- |:----------------------------------------------------------------------------- |:------------------------------------- |
-| Ubiquitous    | THE \<system\> SHALL \<action\>                                               | Always-active behavior                |
-| Event-Driven  | WHEN \<trigger\>, THE \<system\> SHALL \<action\>                             | Response to an event                  |
-| Complex-Event | WHEN \<trigger\> AND \<condition\>, THE \<system\> SHALL \<action\>           | Response to a complex event           |
-| State-Driven  | WHILE \<state\>, THE \<system\> SHALL \<action\>                              | Behavior during a state               |
-| Unwanted      | IF \<condition\>, THEN THE \<system\> SHALL \<action\>                        | Error/exception handling              |
-| Optional      | WHERE \<feature\>, THE \<system\> SHALL \<action\>                            | Configurable/optional behavior        |
+| Pattern       | `ears_pattern` value | Pattern-specific fields | Template |
+|:------------- |:------------------- |:---------------------- |:-------- |
+| Ubiquitous    | `ubiquitous`        | _(none)_               | THE {system} SHALL {action} |
+| Event-Driven  | `event_driven`      | `trigger`              | WHEN {trigger}, THE {system} SHALL {action} |
+| Complex-Event | `complex_event`     | `trigger`, `condition` | WHEN {trigger} AND {condition}, THE {system} SHALL {action} |
+| State-Driven  | `state_driven`      | `state`                | WHILE {state}, THE {system} SHALL {action} |
+| Unwanted      | `unwanted`          | `error_condition`      | IF {error_condition}, THEN THE {system} SHALL {action} |
+| Optional      | `optional`          | `feature`              | WHERE {feature}, THE {system} SHALL {action} |
 
-### Good vs. Bad Requirements
+### EARS JSON Structure (Discriminated Union on `ears_pattern`)
 
-Every acceptance criterion line **must** contain the EARS keyword `SHALL`.
-The `lint-spec` validator flags criteria missing `SHALL` as `missing-ears-keyword`.
+Each acceptance criterion in `requirements.json` is a JSON object using a
+discriminated union keyed on the `ears_pattern` field. Common fields shared
+by all patterns:
 
-**Bad** (vague, untestable, no EARS keyword):
-- `[05-REQ-1.1] The system should handle errors gracefully.`
-- `[05-REQ-1.2] Data processing must be fast and efficient.`
-- `[05-REQ-1.3] The system validates user input.`
+```json
+{
+  "id": "{spec_id}-REQ-{N}",
+  "ears_pattern": "ubiquitous | event_driven | complex_event | state_driven | unwanted | optional",
+  "system": "the system component",
+  "action": "the SHALL clause — what the system must do",
+  "return_contract": "optional — what the function returns"
+}
+```
 
-**Good** (precise, testable, EARS syntax):
-- `[05-REQ-1.1] IF an API call returns an HTTP 5xx status, THEN THE system SHALL retry up to 3 times with exponential backoff starting at 1 second.`
-- `[05-REQ-1.2] WHEN the user submits a batch of records, THE system SHALL process all records within 500ms per record.`
-- `[05-REQ-1.3] WHEN the user submits input, THE system SHALL validate all fields against the schema and return a 400 response listing each invalid field.`
+**Pattern-specific fields:**
+
+- **`ubiquitous`**: No extra fields. Example:
+  ```json
+  {
+    "id": "myspec-REQ-1",
+    "ears_pattern": "ubiquitous",
+    "system": "the CLI",
+    "action": "display a help message when invoked with --help"
+  }
+  ```
+
+- **`event_driven`**: Adds `trigger` (the event that fires the action). Example:
+  ```json
+  {
+    "id": "myspec-REQ-2",
+    "ears_pattern": "event_driven",
+    "trigger": "the user submits a batch of records",
+    "system": "the system",
+    "action": "process all records within 500ms per record"
+  }
+  ```
+
+- **`complex_event`**: Adds `trigger` and `condition`. Example:
+  ```json
+  {
+    "id": "myspec-REQ-3",
+    "ears_pattern": "complex_event",
+    "trigger": "the user submits input",
+    "condition": "the input contains invalid fields",
+    "system": "the system",
+    "action": "return a 400 response listing each invalid field"
+  }
+  ```
+
+- **`state_driven`**: Adds `state` (the system state during which the action applies).
+
+- **`unwanted`**: Adds `error_condition` (the error scenario that triggers the action). Example:
+  ```json
+  {
+    "id": "myspec-REQ-4",
+    "ears_pattern": "unwanted",
+    "error_condition": "an API call returns an HTTP 5xx status",
+    "system": "the system",
+    "action": "retry up to 3 times with exponential backoff starting at 1 second"
+  }
+  ```
+
+- **`optional`**: Adds `feature` (the optional feature gate).
 
 ### Identify Edge Cases
 
@@ -275,60 +351,86 @@ For each requirement, ask:
 - What if the user is not authorized?
 - What if there are concurrent operations?
 
-### Document Structure
+### JSON Document Structure
 
-Follow this structure:
+The `requirements.json` file follows this top-level structure:
 
-```markdown
-# Requirements Document
-
-## Introduction
-Brief description of the system being specified.
-
-## Glossary
-Define all domain-specific terms used in this document.
-
-## Requirements
-
-### Requirement N: <Title>
-
-**User Story:** As a <role>, I want <goal>, so that <benefit>.
-
-#### Acceptance Criteria
-1. <EARS-patterned requirement>
-2. <EARS-patterned requirement>
-...
-
-#### Edge Cases
-1. <EARS-patterned edge-case>
-2. <EARS-patterned edge-case>
-...
+```json
+{
+  "spec_id": "my-spec",
+  "spec_name": "my_spec",
+  "schema_version": 1,
+  "introduction": "Brief description of the system being specified.",
+  "glossary": {
+    "term": "definition"
+  },
+  "requirements": [
+    {
+      "id": "{spec_id}-REQ-1",
+      "title": "Requirement Title",
+      "user_story": {
+        "role": "developer",
+        "goal": "what the user wants",
+        "benefit": "why the user wants it"
+      },
+      "acceptance_criteria": [
+        { "id": "{spec_id}-REQ-1.1", "ears_pattern": "event_driven", "trigger": "...", "system": "...", "action": "..." }
+      ],
+      "edge_cases": [
+        { "id": "{spec_id}-REQ-1.E1", "ears_pattern": "unwanted", "error_condition": "...", "system": "...", "action": "..." }
+      ]
+    }
+  ],
+  "correctness_properties": [
+    {
+      "id": "{spec_id}-PROP-1",
+      "title": "Property Name",
+      "for_any": "universal quantifier over inputs/states",
+      "invariant": "what must hold for all inputs",
+      "validates": ["{spec_id}-REQ-1.1", "{spec_id}-REQ-1.2"]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "path-1",
+      "title": "Path description",
+      "steps": [
+        { "actor": "module.function", "action": "what it does" }
+      ]
+    }
+  ],
+  "error_handling": [
+    {
+      "id": "err-1",
+      "condition": "error condition",
+      "behavior": "system behavior",
+      "requirement_id": "{spec_id}-REQ-1.E1"
+    }
+  ]
+}
 ```
 
 ### Requirement ID Format
 
-Prefix all requirement IDs with the spec number to create globally unique identifiers.
+Prefix all requirement IDs with the `spec_id` from the PRD frontmatter to
+create globally unique identifiers:
 
-- Format: `[{NN}-REQ-{N}.{C}]` where NN is the spec number, N is the requirement number, and C is the criterion number.
-- Example: `[05-REQ-3.2]` means spec 05, requirement 3, acceptance criterion 2.
-- Edge cases use the same prefix: `[05-REQ-3.E1]`.
-
-**Always use bracket format** `[NN-REQ-N.C]` — never the bold format `**NN-REQ-N.C:**`.
-The validator flags mixed formats as inconsistent. Bracket format is the standard.
-
-Use these global IDs in cross-spec references, design doc property validation links, and traceability tables.
+- Requirements: `{spec_id}-REQ-{N}` (e.g., `myspec-REQ-3`)
+- Acceptance criteria: `{spec_id}-REQ-{N}.{C}` (e.g., `myspec-REQ-3.2`)
+- Edge cases: `{spec_id}-REQ-{N}.E{C}` (e.g., `myspec-REQ-3.E1`)
+- Correctness properties: `{spec_id}-PROP-{N}` (e.g., `myspec-PROP-2`)
+- Test cases: `{spec_id}-TS-{N}` (e.g., `myspec-TS-5`)
 
 ### Guidelines
 
 - Each requirement must be **testable** and **unambiguous**.
-- Use EARS keywords (WHEN, WHILE, WHERE, IF/THEN, SHALL) in CAPS for clarity.
-- Number acceptance criteria within each requirement for cross-referencing.
-- Include error-handling requirements using the Unwanted (IF/THEN) pattern.
+- Use EARS keywords (WHEN, WHILE, WHERE, IF/THEN, SHALL) for the `action`
+  field content.
+- Include error-handling requirements using the `unwanted` pattern.
 - Include a glossary entry for every domain term or abbreviation.
-- **Glossary cross-check:** After writing requirements.md, scan all acceptance
-  criteria for domain-specific terms. Every term that is not common English must
-  appear in the `## Glossary` section. If you used a term that readers might
-  interpret differently, define it.
+- **Glossary cross-check:** After writing requirements.json, scan all
+  criteria for domain-specific terms. Every term that is not common English
+  must appear in the glossary object.
 - Group related requirements logically.
 - Add explicit non-functional requirements where relevant (latency, throughput, reliability, security, observability, compatibility).
 - For each external dependency, specify failure behavior and fallback strategy.
@@ -387,17 +489,22 @@ If you find yourself listing specific values, file paths, or implementation deta
 
 ---
 
-## Step 4: Create the Design Document
+## Step 4: Create the Architecture Document (Optional)
 
-Create a design document at `{{SPEC_ROOT}}/{number}_{specification}/design.md` that specifies the high-level
-architecture and includes **Correctness Properties** for verification.
+Create an architecture document at `{{SPEC_ROOT}}/{number}_{specification}/architecture.md` if
+the spec involves complex design decisions, multiple modules, or non-trivial
+data flows. Simple specs may omit this file.
+
+Note: In v1.2 format, correctness properties and execution paths are part of
+`requirements.json` (not a separate design doc). The architecture document
+focuses purely on high-level design and diagrams.
 
 ### Document Structure
 
 Follow this structure:
 
 ```markdown
-# Design Document: <Project Name>
+# Architecture: <Project Name>
 
 ## Overview
 Brief architectural summary.
@@ -479,7 +586,12 @@ the correctness properties.
 
 ### Correctness Properties
 
-This is the most important section of the design document.
+In v1.2 format, correctness properties live in `requirements.json` under the
+`correctness_properties` array (see Step 3). If an architecture.md file is
+present, it may reference properties by their `{spec_id}-PROP-{N}` IDs but
+should not duplicate the formal definitions.
+
+This is the most important section of the specification.
 
 **Definition:** A property is a characteristic or behavior that should hold true
 across all valid executions of a system -- a formal statement about what the
@@ -546,7 +658,7 @@ A task group is complete when ALL of the following are true:
 
 ## Step 5: Create the Test Specification
 
-Create a test specification at `{{SPEC_ROOT}}/{number}_{specification}/test_spec.md` that
+Create a test specification at `{{SPEC_ROOT}}/{number}_{specification}/test_spec.json` that
 translates every acceptance criterion and correctness property into a concrete,
 language-agnostic test contract. This document bridges the gap between
 human-readable requirements and executable tests — it defines **what "done"
@@ -556,335 +668,238 @@ The coding agent will translate these test contracts into actual failing tests
 (in the project's test framework) as the **first task group** of the
 implementation plan.
 
-### Document Structure
+### Test Spec JSON Structure
 
-Follow this structure:
+The `test_spec.json` file follows this top-level structure:
 
-```markdown
-# Test Specification: <Project Name>
-
-## Overview
-Brief description of testing approach and how test cases map to requirements
-and correctness properties.
-
-## Test Cases
-
-### TS-{NN}-{N}: {Short Name}
-
-**Requirement:** {NN}-REQ-{X}.{Y}
-**Type:** unit | integration
-**Description:** One-sentence description of what this test verifies.
-
-**Preconditions:**
-- System state or setup required before the test runs.
-
-**Input:**
-- Concrete input values or descriptions of input shape.
-
-**Expected:**
-- Concrete expected output, return value, side effect, or state change.
-
-**Assertion pseudocode:**
-```
-result = module.function(input)
-ASSERT result == expected
-```
-
-...
-
-## Property Test Cases
-
-### TS-{NN}-P{N}: {Short Name}
-
-**Property:** Property {N} from design.md
-**Validates:** {NN}-REQ-{X}.{Y}, {NN}-REQ-{X}.{Z}
-**Type:** property
-**Description:** One-sentence description of the invariant being tested.
-
-**For any:** {universal quantifier — describes the input generation strategy}
-**Invariant:** {formal statement of what must hold for all generated inputs}
-
-**Assertion pseudocode:**
-```
-FOR ANY input IN strategy:
-    result = module.function(input)
-    ASSERT invariant(result, input)
-```
-
-...
-
-## Edge Case Tests
-
-### TS-{NN}-E{N}: {Short Name}
-
-**Requirement:** {NN}-REQ-{X}.E{Y}
-**Type:** unit
-**Description:** One-sentence description of the edge case.
-
-**Preconditions:**
-- Edge-case setup (e.g., empty input, boundary value, missing resource).
-
-**Input:**
-- The edge-case input.
-
-**Expected:**
-- Expected error, fallback behavior, or graceful degradation.
-
-**Assertion pseudocode:**
-```
-result = module.function(edge_input)
-ASSERT result == expected_fallback
-```
-
-...
-
-## Coverage Matrix
-
-| Requirement | Test Spec Entry | Type |
-|-------------|-----------------|------|
-| {NN}-REQ-1.1 | TS-{NN}-1 | unit |
-| {NN}-REQ-1.E1 | TS-{NN}-E1 | unit |
-| Property 1 | TS-{NN}-P1 | property |
+```json
+{
+  "spec_id": "my-spec",
+  "spec_name": "my_spec",
+  "schema_version": 1,
+  "test_cases": [
+    {
+      "id": "{spec_id}-TS-{N}",
+      "requirement_id": "{spec_id}-REQ-{X}.{Y}",
+      "kind": "unit | integration",
+      "description": "One-sentence description of what this test verifies.",
+      "preconditions": ["System state or setup required."],
+      "input": "Concrete input values or description.",
+      "expected": "Expected output, return value, or side effect.",
+      "assertion_pseudocode": "result = module.function(input)\nASSERT result == expected"
+    }
+  ],
+  "property_tests": [
+    {
+      "id": "{spec_id}-TS-P{N}",
+      "property_id": "{spec_id}-PROP-{N}",
+      "description": "One-sentence description of the invariant.",
+      "validates": ["{spec_id}-REQ-{X}.{Y}"],
+      "for_any_strategy": "universal quantifier — input generation strategy",
+      "invariant_check": "formal statement of what must hold"
+    }
+  ],
+  "edge_case_tests": [
+    {
+      "id": "{spec_id}-TS-E{N}",
+      "requirement_id": "{spec_id}-REQ-{X}.E{Y}",
+      "kind": "unit",
+      "description": "One-sentence description of the edge case.",
+      "preconditions": ["Edge-case setup."],
+      "input": "The edge-case input.",
+      "expected": "Expected error or fallback behavior.",
+      "assertion_pseudocode": "..."
+    }
+  ],
+  "smoke_tests": [
+    {
+      "id": "{spec_id}-TS-SMOKE-{N}",
+      "execution_path_id": "path-{N}",
+      "description": "End-to-end behavior verified.",
+      "trigger": "How the path is invoked.",
+      "real_components": ["Components that must NOT be mocked"],
+      "mockable": ["External I/O that may be stubbed"],
+      "expected_effects": ["Observable outcomes"]
+    }
+  ],
+  "coverage": {
+    "requirements_covered": ["{spec_id}-REQ-1.1"],
+    "properties_covered": ["{spec_id}-PROP-1"],
+    "paths_covered": ["path-1"],
+    "gaps": []
+  }
+}
 ```
 
 ### Test Case ID Format
 
-- **Acceptance criterion tests:** `TS-{NN}-{N}` where NN is the spec number
-  and N is a running number.
-- **Property tests:** `TS-{NN}-P{N}` where N matches the property number
-  from design.md.
-- **Edge case tests:** `TS-{NN}-E{N}` where N is a running number.
+In v1.2 format, test IDs use the `spec_id` from PRD frontmatter:
+
+- **Acceptance criterion tests:** `{spec_id}-TS-{N}` (e.g., `myspec-TS-3`)
+- **Property tests:** `{spec_id}-TS-P{N}` (e.g., `myspec-TS-P2`)
+- **Edge case tests:** `{spec_id}-TS-E{N}` (e.g., `myspec-TS-E1`)
+- **Smoke tests:** `{spec_id}-TS-SMOKE-{N}` (e.g., `myspec-TS-SMOKE-1`)
 
 ### Guidelines
 
-- **One test case per acceptance criterion.** Every `{NN}-REQ-{X}.{Y}` entry
-  in requirements.md must have a corresponding `TS-{NN}-{N}` entry.
-- **One property test case per correctness property.** Every `Property N` in
-  design.md must have a corresponding `TS-{NN}-P{N}` entry.
-- **One edge case test per edge case requirement.** Every `{NN}-REQ-{X}.E{Y}`
-  must have a corresponding `TS-{NN}-E{N}` entry.
-- **Language-agnostic pseudocode.** Use simple imperative pseudocode for
-  assertions. Reference module and function names from design.md interfaces,
-  but do not use language-specific syntax.
+- **One test case per acceptance criterion.** Every criterion in
+  `requirements.json` must have a corresponding test case entry.
+- **One property test case per correctness property.** Every property in
+  the `correctness_properties` array must have a corresponding property test.
+- **One edge case test per edge case requirement.** Every edge case criterion
+  must have a corresponding edge case test.
+- **Language-agnostic pseudocode.** Use the `assertion_pseudocode` field for
+  simple imperative pseudocode. Reference module and function names from
+  architecture.md interfaces, but do not use language-specific syntax.
 - **Concrete inputs and outputs.** Avoid vague descriptions like "valid input."
   Provide specific values, shapes, or ranges that the test will use.
 - **Preconditions are explicit.** State every assumption about system state,
   configuration, or environment that the test depends on.
-- **Test type classification.** Mark each test as `unit`, `integration`, or
-  `property` to guide the coding agent's choice of test framework and fixtures.
+- **Test type classification.** Use the `kind` field to mark each test as
+  `unit` or `integration` to guide the coding agent's choice of test framework.
 
 ### Integration Smoke Tests (Mandatory)
 
-For every **Execution Path** defined in `design.md`, write at least one
-integration smoke test that traverses the full path from entry point to
-observable side effect. This test must **not** mock the component that is
-the subject of the path — it may stub only external I/O (network, filesystem,
-platform API).
+For every **Execution Path** in `requirements.json`, write at least one smoke
+test entry in the `smoke_tests` array. This test must **not** mock the
+component that is the subject of the path — it may stub only external I/O.
 
 The critical rule: **an integration smoke test cannot pass if the execution
-path has a gap.** If `_run_hunt_scan_inner` returns `[]`, the smoke test for
-"hunt scan produces GitHub issues" must fail, not pass silently.
+path has a gap.**
 
-Add these tests in a dedicated section:
-
-```markdown
-## Integration Smoke Tests
-
-### TS-{NN}-SMOKE-{N}: {Short Name}
-
-**Execution Path:** Path N from design.md
-**Description:** One sentence describing what end-to-end behavior is verified.
-
-**Setup:** Describe what is stubbed/mocked (only external I/O; NOT the
-components named in the execution path).
-
-**Trigger:** How the path is invoked (CLI call, method call, event).
-
-**Expected side effects:**
-- Concrete observable outcomes: API called with specific args, file written,
-  return value shape, etc.
-
-**Must NOT satisfy with:** List any mocks that would allow this test to pass
-despite the path being broken (these are forbidden in this test).
-
-**Assertion pseudocode:**
-```
-platform = MockPlatform()
-engine = NightShiftEngine(config, platform)   # real engine, not mocked
-engine._run_hunt_scan_inner = real_scanner_call  # NOT stubbed
-await engine._run_hunt_scan()
-ASSERT platform.create_issue.called_count >= 1
-```
-```
-
-Write one smoke test per execution path. If a path cannot be smoke-tested
-(e.g., requires expensive real infrastructure), document why and propose a
-minimal integration test that gets as close as possible.
+Smoke tests use the `real_components` field to list components that must NOT
+be mocked, and `mockable` for external I/O that may be stubbed.
 
 ### Coverage Check
 
-After writing all test cases, verify complete coverage:
+After writing all test cases, verify complete coverage using the `coverage`
+object:
 
-1. Does every acceptance criterion in requirements.md have at least one
-   `TS-{NN}-{N}` entry?
-2. Does every correctness property in design.md have a `TS-{NN}-P{N}` entry?
-3. Does every edge case requirement have a `TS-{NN}-E{N}` entry?
-4. Does the coverage matrix account for every requirement and property?
-
-If any requirement or property lacks a test case, add one or document why
-testing is infeasible (this should be rare — see Step 3 guidelines on
-testability).
+1. Does `requirements_covered` list every criterion ID?
+2. Does `properties_covered` list every property ID?
+3. Does `paths_covered` list every execution path ID?
+4. Is the `gaps` array empty (or each gap justified)?
 
 ---
 
 ## Step 6: Create the Implementation Tasks Document
 
-Create a tasks document at `{{SPEC_ROOT}}/{number}_{specification}/tasks.md` that breaks the
-implementation into ordered, trackable tasks.
+Create a tasks document at `{{SPEC_ROOT}}/{number}_{specification}/tasks.json` that breaks the
+implementation into ordered, trackable task groups.
 
-### Document Structure
+### Tasks JSON Structure
 
-Follow this structure:
+In v1.2 format, `tasks.json` replaces the markdown checkbox format with a
+JSON state machine. Each subtask has a `state` field instead of a checkbox:
 
-```markdown
-# Implementation Plan: <Project Name>
+| State | Meaning | Replaces |
+|-------|---------|----------|
+| `not_started` | Task not yet begun | `- [ ]` |
+| `queued` | Task is queued for execution | `- [~]` |
+| `in_progress` | Task is actively being worked on | `- [-]` |
+| `completed` | Task finished successfully | `- [x]` |
+| `optional` | Task is not required | `- [ ]*` |
 
-<!-- AGENT INSTRUCTIONS
-- Implement exactly ONE top-level task group per session
-- Task group 1 writes failing tests from test_spec.md — all subsequent groups
-  implement code to make those tests pass
-- Follow the git-flow: feature branch from develop -> implement -> test -> merge to develop
-- Update checkbox states as you go: [-] in progress, [x] complete
--->
+The `tasks.json` file follows this top-level structure:
 
-## Overview
-Brief description of implementation approach and ordering rationale.
-
-## Test Commands
-
-- Spec tests: `<command to run spec tests only>`
-- Unit tests: `<specific unit test command>`
-- Property tests: `<specific property test command>`
-- All tests: `<full test suite command>`
-- Linter: `<linter command>`
-
-## Tasks
-
-- [ ] 1. Write failing spec tests
-  - [ ] 1.1 Set up test file structure
-    - Create test files for each module referenced in test_spec.md
-    - Use the project's existing test framework and conventions
-    - _Test Spec: TS-{NN}-1 through TS-{NN}-N_
-
-  - [ ] 1.2 Translate acceptance-criterion tests from test_spec.md
-    - One test function per TS-{NN}-{N} entry
-    - Tests MUST fail (assert against not-yet-implemented behavior)
-    - _Test Spec: TS-{NN}-1 through TS-{NN}-N_
-
-  - [ ] 1.3 Translate edge-case tests from test_spec.md
-    - One test function per TS-{NN}-E{N} entry
-    - Tests MUST fail (assert against not-yet-implemented behavior)
-    - _Test Spec: TS-{NN}-E1 through TS-{NN}-EN_
-
-  - [ ] 1.4 Translate property tests from test_spec.md
-    - One property test per TS-{NN}-P{N} entry
-    - _Test Spec: TS-{NN}-P1 through TS-{NN}-PN_
-
-  - [ ] 1.V Verify task group 1
-    - [ ] All spec tests exist and are syntactically valid
-    - [ ] All spec tests FAIL (red) — no implementation yet
-    - [ ] No linter warnings introduced: `<linter command>`
-
-- [ ] 2. <Task Group Name>
-  - [ ] 2.1 <Subtask>
-    - Implementation details as bullet points
-    - _Requirements: X.Y, X.Z_
-
-  - [ ] 2.2 <Subtask>
-    ...
-
-  - [ ] 2.V Verify task group 2
-    - [ ] Spec tests for this group pass: `<command for TS-{NN}-X entries>`
-    - [ ] All existing tests still pass: `<full test suite command>`
-    - [ ] No linter warnings introduced: `<linter command>`
-    - [ ] Requirements X.Y, X.Z acceptance criteria met
-
-- [ ] 3. Checkpoint - <Module> Complete
-  - Ensure all tests pass, ask the user if questions arise.
-  - Create or update documentation in e.g. README.md, docs/ etc.
-
-- [ ] 4. <Task Group Name>
-  ...
-
-  - [ ] 4.V Verify task group 4
-    - [ ] Spec tests for this group pass: `<command for TS-{NN}-X entries>`
-    - [ ] All existing tests still pass: `<full test suite command>`
-    - [ ] No linter warnings introduced: `<linter command>`
-    - [ ] Requirements X.Y, X.Z acceptance criteria met
-
-...
-
-### Checkbox States
-
-| Syntax   | Meaning                |
-|----------|------------------------|
-| `- [ ]`  | Not started (required) |
-| `- [ ]*` | Not started (optional) |
-| `- [x]`  | Completed              |
-| `- [-]`  | In progress            |
-| `- [~]`  | Queued                 |
-
-Tasks are **required by default**. Mark optional tasks with `*` after checkbox: `- [ ]* Optional task`
-
-### Test Task Annotations
-
-- Spec test references: `_Test Spec: TS-{NN}-{N}_` (links subtask to test_spec.md entries)
-- Unit/integration tests: `**Validates: Requirements X.Y**`
-- Property-based tests: `**Property N: [Name]**` (references design doc properties)
-- Add deterministic verification commands when possible (for example, `uv run pytest -q tests/test_foo.py::test_bar`)
-
-## Traceability
-
-Maintain bidirectional links:
-
-- Acceptance criteria → Test spec entries → Tasks → Executable tests
-- Property tests → Design correctness properties
-- Use glossary terms consistently across all documents
-
-Add a compact traceability table at the bottom of `tasks.md`:
-
-| Requirement | Test Spec Entry | Implemented By Task | Verified By Test |
-|-------------|-----------------|---------------------|------------------|
-
-This table makes verification coverage visible and ensures every requirement
-has a pre-written test contract, an implementation task, and an executable test.
-
-## Notes
-- Implementation constraints and testing guidelines
+```json
+{
+  "spec_id": "my-spec",
+  "spec_name": "my_spec",
+  "schema_version": 1,
+  "test_commands": {
+    "spec_tests": "uv run pytest -q tests/spec/test_my_spec.py",
+    "all_tests": "uv run pytest -q",
+    "linter": "uv run ruff check"
+  },
+  "dependencies": [
+    {
+      "depends_on_spec": "01_base_module",
+      "from_group": 3,
+      "to_group": 1,
+      "relationship": "Imports types defined in group 3"
+    }
+  ],
+  "task_groups": [
+    {
+      "id": 1,
+      "kind": "tests",
+      "title": "Write failing spec tests",
+      "subtasks": [
+        {
+          "id": "1.1",
+          "title": "Set up test file structure",
+          "details": ["Create test files for each module"],
+          "test_spec_refs": ["{spec_id}-TS-1"],
+          "requirement_refs": [],
+          "state": "not_started",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "1.V",
+        "checks": [
+          "All spec tests exist and are syntactically valid",
+          "All spec tests FAIL (red)",
+          "No linter warnings introduced"
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "kind": "standard",
+      "title": "Implement core feature",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Implement the module",
+          "details": ["Implementation details"],
+          "requirement_refs": ["{spec_id}-REQ-1.1"],
+          "state": "not_started"
+        }
+      ],
+      "verification": {
+        "id": "2.V",
+        "checks": ["Spec tests pass", "All existing tests still pass"]
+      }
+    }
+  ],
+  "traceability": [
+    {
+      "requirement_id": "{spec_id}-REQ-1.1",
+      "test_spec_id": "{spec_id}-TS-1",
+      "task_id": "2.1",
+      "test_path": "tests/test_module.py::test_function"
+    }
+  ]
+}
 ```
+
+### Task Group Kinds
+
+Each task group has a `kind` field indicating its purpose:
+
+| Kind | Purpose |
+|------|---------|
+| `tests` | Write failing spec tests (always group 1) |
+| `standard` | Implementation work |
+| `checkpoint` | Milestone verification |
+| `wiring_verification` | Final integration check (always last group) |
 
 ### Guidelines
 
-- **Task group 1 is always "Write failing spec tests."** This is mandatory and
-  non-negotiable. The coding agent's first session translates `test_spec.md`
-  into executable, failing tests using the project's test framework.
+- **Task group 1 is always `"kind": "tests"` — "Write failing spec tests."**
+  This is mandatory and non-negotiable. The coding agent's first session
+  translates `test_spec.json` into executable, failing tests.
 - **Subsequent task groups implement code to make spec tests pass.** Each
-  implementation group's verification subtask must reference the specific
-  spec tests (by `TS-{NN}-{N}` ID) that should turn green.
+  group's verification checks must reference the specific test spec IDs that
+  should turn green.
 - Order tasks so dependencies are built before dependents.
 - Group related subtasks under numbered task groups.
-- Insert **checkpoint tasks** at logical milestones where all tests should pass.
-- Link every implementation subtask to the requirements it satisfies using
-  `_Requirements: X.Y_` notation.
-- Link every implementation subtask to the test spec entries it should make
-  pass using `_Test Spec: TS-{NN}-{N}_` notation.
-- Focus on end-to-end testability as early as possible.
-- Use markdown checkboxes (`- [ ]` / `- [x]`) so progress can be tracked.
-- Include a Notes section with testing strategy and constraints.
+- Use `test_spec_refs` to link subtasks to test spec entries.
+- Use `requirement_refs` to link subtasks to requirements.
 - Size task groups for one coding session where practical.
-- Add explicit verification commands per task group (for example:
-  `uv run pytest -q tests/test_module.py`).
-- Include a final traceability table: Requirement -> Test Spec Entry -> Task -> Test.
+- Include a final traceability array linking requirements → tests → tasks.
 
 ### Wiring Verification Task (Mandatory Final Group)
 
@@ -892,11 +907,11 @@ The **last task group** of every spec must be a wiring verification group. Its
 purpose is to catch integration gaps before the spec is declared done. It
 cannot be satisfied by checking that components work in isolation.
 
-**Hard rule:** An execution path from design.md that is not live in production
-code **fails** the wiring verification. Writing an erratum or deferring the
-wire to a follow-up task does NOT satisfy the checkbox. If a path cannot be
-made live within the spec's scope, the spec must either (a) implement the
-missing caller, or (b) remove the path from design.md and file an issue for
+**Hard rule:** An execution path from `requirements.json` that is not live in
+production code **fails** the wiring verification. Writing an erratum or
+deferring the wire to a follow-up task does NOT satisfy the checkbox. If a
+path cannot be made live within the spec's scope, the spec must either
+(a) implement the missing caller, or (b) remove the path and file an issue for
 the deferred work. A completed wiring verification means every path is
 traceable in code — no exceptions, no deferrals.
 
@@ -1004,10 +1019,11 @@ Create all spec files under a `{{SPEC_ROOT}}/NN_specification_name` directory (s
 
 ```
 specs/NN_specification_name/
-  requirements.md
-  design.md
-  test_spec.md
-  tasks.md
+  prd.md              # PRD with YAML frontmatter (required)
+  requirements.json   # EARS requirements as JSON (required)
+  test_spec.json      # Test contracts as JSON (required)
+  tasks.json          # Implementation plan as JSON (required)
+  architecture.md     # Architecture document (optional)
 ```
 
 If the PRD was provided as a file, leave it in its original location.
@@ -1018,15 +1034,23 @@ If the PRD was provided as a GitHub issue, save the finalized PRD as `{{SPEC_ROO
 
 ## Step 7: Validate with lint-specs
 
-After generating all 5 spec files, run the linter to catch structural issues:
+After generating all spec artifacts, run the linter to validate the v1.2 JSON
+files against the `afspec` format specification:
 
 1. Run `agent-fox lint-specs` on the generated spec folder.
-2. Review any errors or warnings in the output.
+2. Review any errors or warnings in the output. For v1.2 specs, the linter
+   uses `afspec.validate()` which checks JSON schema conformance and
+   cross-file integrity (e.g., requirement IDs referenced in test_spec.json
+   must exist in requirements.json).
 3. Fix all lint errors and warnings before presenting the spec to the user.
 4. Re-run `agent-fox lint-specs` to confirm all issues are resolved.
 
-This automated validation catches missing sections, malformed requirement IDs,
-broken cross-references, and other structural problems. It does NOT validate
+The `afspec` library is the authoritative source for the v1.2 artifact
+schemas. If the linter reports schema errors, consult the afspec documentation
+or source to understand the expected JSON structure.
+
+This automated validation catches malformed JSON, missing required fields,
+broken cross-references, and schema violations. It does NOT validate
 semantic quality — use the manual checks in the completeness checklist below
 for those.
 
@@ -1034,39 +1058,43 @@ for those.
 
 ## Completeness Checklist
 
-After generating all 5 spec files and running `agent-fox lint-specs`, verify
+After generating all spec artifacts and running `agent-fox lint-specs`, verify
 the following before presenting to the user:
 
-### Requirements (requirements.md)
-- [ ] Every acceptance criterion contains the EARS keyword `SHALL`
-- [ ] All requirement IDs use bracket format `[NN-REQ-N.C]` (not bold `**NN-REQ-N.C:**`)
-- [ ] `## Introduction` and `## Glossary` sections are present
-- [ ] Every domain-specific term used in criteria appears in the Glossary (manual check)
+### PRD (prd.md)
+- [ ] YAML frontmatter present with all required fields (spec_id, spec_name, title, status, etc.)
+- [ ] `## Source` section present at the end
+
+### Requirements (requirements.json)
+- [ ] Valid JSON that passes `afspec.validate()`
+- [ ] Every acceptance criterion `action` field contains the concept of SHALL
+- [ ] All requirement IDs use `{spec_id}-REQ-{N}` format
+- [ ] `introduction` and `glossary` fields are populated
+- [ ] Every domain-specific term used in criteria appears in the glossary (manual check)
 - [ ] No more than 10 requirements per spec (manual check)
+- [ ] `correctness_properties` array has at least one entry
+- [ ] `execution_paths` array has entries for each user-visible feature
+- [ ] `error_handling` array references valid requirement IDs
+- [ ] Every function whose output is consumed by a caller has a `return_contract` (manual check)
 
-### Design (design.md)
-- [ ] `## Correctness Properties` section with at least one `### Property N:` entry
-- [ ] `## Error Handling` section with a markdown table referencing requirement IDs
-- [ ] `## Definition of Done` section is present
-- [ ] `## Overview`, `## Architecture` sections are present
-- [ ] Every requirement ID in the error table exists in requirements.md
-- [ ] `## Execution Paths` section present with one numbered call chain per user-visible feature, naming exact module+function at each step and showing return types where data flows between steps (manual check)
+### Test Specification (test_spec.json)
+- [ ] Valid JSON that passes `afspec.validate()`
+- [ ] Every acceptance criterion has a test case entry
+- [ ] Every correctness property has a property test entry
+- [ ] Every edge case has an edge case test entry
+- [ ] `smoke_tests` array has one entry per execution path
+- [ ] Each smoke test lists `real_components` that must NOT be mocked (manual check)
+- [ ] `coverage` object accounts for all requirements and properties
 
-### Requirements (requirements.md — additional checks)
-- [ ] Every function whose output is consumed by a caller has a return value contract in its requirement (not just an action statement) (manual check)
-
-### Test Specification (test_spec.md)
-- [ ] Every acceptance criterion has a `TS-NN-N` entry
-- [ ] Every correctness property has a `TS-NN-PN` entry
-- [ ] Every edge case has a `TS-NN-EN` entry
-- [ ] `## Coverage Matrix` section with a table listing every requirement ID
-- [ ] `## Integration Smoke Tests` section with one `TS-NN-SMOKE-N` entry per execution path from design.md (manual check)
-- [ ] Each smoke test names which components must NOT be mocked (the ones in the execution path) (manual check)
-
-### Implementation Tasks (tasks.md)
-- [ ] Task group 1 is "Write failing spec tests"
-- [ ] Every `TS-NN-N` entry is referenced by at least one task (manual check)
-- [ ] Each task group has a verification subtask (N.V)
-- [ ] `## Traceability` section with a table listing every requirement ID
+### Implementation Tasks (tasks.json)
+- [ ] Valid JSON that passes `afspec.validate()`
+- [ ] First task group has `"kind": "tests"`
+- [ ] Every test spec entry is referenced by at least one subtask `test_spec_refs` (manual check)
+- [ ] Each task group has a `verification` subtask
+- [ ] `traceability` array lists every requirement ID
 - [ ] No task group has more than 6 non-verification subtasks
-- [ ] Final task group is "Wiring verification" containing: execution path trace, return value propagation check, smoke test run, stub/dead-code audit, cross-spec entry point verification
+- [ ] Last task group has `"kind": "wiring_verification"`
+
+### Architecture (architecture.md — if present)
+- [ ] `## Overview` and `## Architecture` sections are present
+- [ ] References property IDs from requirements.json where appropriate

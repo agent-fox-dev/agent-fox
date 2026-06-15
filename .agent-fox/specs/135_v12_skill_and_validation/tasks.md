@@ -94,8 +94,8 @@ and wiring verification.
     - [x] No linter warnings introduced: `uv run ruff check`
     - [x] Requirements 1.1-2.2 acceptance criteria met
 
-- [ ] 3. Update af-spec skill template
-  - [ ] 3.1 Update artifact references
+- [x] 3. Update af-spec skill template
+  - [x] 3.1 Update artifact references
     - Replace `requirements.md` with `requirements.json` in output instructions
     - Replace `design.md` with `architecture.md` (optional) in output
       instructions
@@ -104,14 +104,14 @@ and wiring verification.
     - Keep `prd.md` but add YAML frontmatter instructions
     - _Requirements: 4.1_
 
-  - [ ] 3.2 Update ID format references
+  - [x] 3.2 Update ID format references
     - Replace `[{NN}-REQ-{N}.{C}]` with `{spec_id}-REQ-{N}` format
     - Add `{spec_id}-PROP-{N}` for property references
     - Add `{spec_id}-TS-{N}` for test case references
     - Update all examples and templates throughout the skill file
     - _Requirements: 4.2_
 
-  - [ ] 3.3 Add EARS JSON structure documentation
+  - [x] 3.3 Add EARS JSON structure documentation
     - Document the discriminated union on `ears_pattern`
     - Document each pattern type (ubiquitous, event_driven, complex_event,
       state_driven, unwanted, optional) with their fields
@@ -119,24 +119,24 @@ and wiring verification.
     - Replace markdown EARS examples with JSON examples
     - _Requirements: 6.1, 4.3_
 
-  - [ ] 3.4 Add tasks JSON structure documentation
+  - [x] 3.4 Add tasks JSON structure documentation
     - Document task groups with subtasks array
     - Document state machine (not_started, in_progress, completed, queued,
       optional) replacing checkboxes
     - Document dependency and traceability fields in JSON format
     - _Requirements: 6.2, 4.3_
 
-  - [ ] 3.5 Update validation step
+  - [x] 3.5 Update validation step
     - Update Step 7 to reference v1.2 validation
     - Add reference to `afspec`'s format specification as authoritative source
     - _Requirements: 5.1, 5.2_
 
-  - [ ] 3.V Verify task group 3
-    - [ ] Skill template content tests pass: TS-135-7 through TS-135-10,
+  - [x] 3.V Verify task group 3
+    - [x] Skill template content tests pass: TS-135-7 through TS-135-10,
       TS-135-SMOKE-2
-    - [ ] All existing tests still pass: `uv run pytest -q`
-    - [ ] No linter warnings introduced: `uv run ruff check`
-    - [ ] Requirements 4.1-6.2 acceptance criteria met
+    - [x] All existing tests still pass: `uv run pytest -q`
+    - [x] No linter warnings introduced: `uv run ruff check`
+    - [x] Requirements 4.1-6.2 acceptance criteria met
 
 - [ ] 4. Wiring verification
   - [ ] 4.1 Trace every execution path from design.md end-to-end
