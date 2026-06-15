@@ -21,14 +21,14 @@ v1.2 format. Three task groups: write tests, implement changes, verify wiring.
 
 ## Tasks
 
-- [ ] 1. Write failing spec tests
-  - [ ] 1.1 Create test file structure
+- [x] 1. Write failing spec tests
+  - [x] 1.1 Create test file structure
     - Create `tests/spec/test_132_afspec_integration.py`
     - Create test fixtures with v1.2 spec directories (valid JSON artifacts)
     - Create test fixtures with v1 spec directories (markdown artifacts)
     - _Test Spec: TS-132-1 through TS-132-9_
 
-  - [ ] 1.2 Translate acceptance-criterion tests
+  - [x] 1.2 Translate acceptance-criterion tests
     - Test afspec import (TS-132-1)
     - Test afspec load (TS-132-2)
     - Test SpecFormat enum values (TS-132-3)
@@ -40,21 +40,21 @@ v1.2 format. Three task groups: write tests, implement changes, verify wiring.
     - Test render_combined output (TS-132-9)
     - _Test Spec: TS-132-1 through TS-132-9_
 
-  - [ ] 1.3 Translate edge-case tests
+  - [x] 1.3 Translate edge-case tests
     - Test folder with no requirements file skipped (TS-132-E1)
     - Test JSON precedence over markdown (TS-132-E2)
     - Test malformed JSON raises LoadError (TS-132-E3)
     - _Test Spec: TS-132-E1 through TS-132-E3_
 
-  - [ ] 1.4 Translate property tests
+  - [x] 1.4 Translate property tests
     - Test format detection determinism (TS-132-P1)
     - Test discovery returns only v1.2 (TS-132-P2)
     - _Test Spec: TS-132-P1, TS-132-P2_
 
-  - [ ] 1.V Verify task group 1
-    - [ ] All spec tests exist and are syntactically valid
-    - [ ] All spec tests FAIL (red) — no implementation yet
-    - [ ] No linter warnings introduced: `uv run ruff check`
+  - [x] 1.V Verify task group 1
+    - [x] All spec tests exist and are syntactically valid
+    - [x] All spec tests FAIL (red) — no implementation yet
+    - [x] No linter warnings introduced: `uv run ruff check`
 
 - [ ] 2. Add afspec dependency and update discovery
   - [ ] 2.1 Add afspec to pyproject.toml
