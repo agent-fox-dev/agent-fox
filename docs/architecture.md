@@ -14,16 +14,19 @@ to how knowledge is harvested and fed forward to future sessions.
 
 ### 1.1 The Contract Model
 
-Everything agent-fox does traces back to a **spec** — a set of five structured
-artifacts that together define a coherent unit of work:
+Everything agent-fox does traces back to a **spec** — a set of structured
+artifacts that together define a coherent unit of work. The system supports two
+spec formats; new specs use v1.2 (JSON-based), while legacy specs remain in v1
+(all-markdown). See
+[Part 6: Spec Format v1.2](architecture/06-spec-format-v12.md) for details.
 
-| Artifact | Role |
-|---|---|
-| `prd.md` | Why the feature exists; cross-spec dependency declarations |
-| `requirements.md` | Testable acceptance criteria in EARS syntax (`NN-REQ-M.S` identifiers) |
-| `design.md` | Interfaces, data models, correctness properties, definition of done |
-| `test_spec.md` | Language-agnostic test contracts keyed by `TS-NN-N` identifiers |
-| `tasks.md` | Sequenced task groups with checkboxes; the planner's primary input |
+| v1 Artifact | v1.2 Artifact | Role |
+|---|---|---|
+| `prd.md` | `prd.md` | Why the feature exists; cross-spec dependency declarations |
+| `requirements.md` | `requirements.json` | Testable acceptance criteria in EARS syntax (`NN-REQ-M.S` identifiers) |
+| `design.md` | `architecture.md` (optional) | Interfaces, data models, correctness properties, definition of done |
+| `test_spec.md` | `test_spec.json` | Language-agnostic test contracts keyed by `TS-NN-N` identifiers |
+| `tasks.md` | `tasks.json` | Sequenced task groups; the planner's primary input |
 
 A spec is not documentation written after the fact. It is the input artifact
 that drives every downstream decision: which agents run, in what order, with
@@ -156,10 +159,13 @@ versions of agent-fox are brought up to date transparently.
 
 Before any planning occurs, the system discovers specs by scanning
 `.agent-fox/specs/` for directories matching the `NN_name` pattern. Each
-discovered spec becomes a `SpecInfo` record.
+discovered spec becomes a `SpecInfo` record carrying its detected format
+(`V1_2_JSON` or `V1_MARKDOWN`). By default, only v1.2 specs are returned.
 
-Static validation runs ~30 rules against the spec artifacts:
-- Structural checks (all five artifacts present)
+Validation is format-aware. For v1.2 specs, `afspec.validate()` runs schema
+and cross-file integrity checks. For v1 markdown specs, static validation
+runs ~30 rules:
+- Structural checks (all required artifacts present)
 - EARS syntax on requirements
 - Traceability chain integrity (every requirement traced through test spec and
   tasks; every test entry traced back to a requirement)
@@ -177,10 +183,11 @@ vague requirements and stale dependency identifiers.
 Given validated specs, the planner builds a directed acyclic graph in four
 phases.
 
-**Phase 1: Base Nodes and Intra-Spec Edges.** For each spec with a `tasks.md`,
-the planner creates one `Node` per task group. Consecutive groups within a spec
-get intra-spec edges: group N → group N+1. Groups already marked `[x]` in
-`tasks.md` start as `COMPLETED`. The node ID format is `spec_name:group_number`.
+**Phase 1: Base Nodes and Intra-Spec Edges.** For each spec with a tasks file,
+the planner parses task groups (routing to the appropriate parser by format) and
+creates one `Node` per group. Consecutive groups within a spec get intra-spec
+edges: group N → group N+1. Groups already marked complete start as
+`COMPLETED`. The node ID format is `spec_name:group_number`.
 
 **Phase 2: Archetype Injection.** The planner inserts non-coder agent nodes at
 three injection points in each spec's chain:
@@ -190,8 +197,8 @@ three injection points in each spec's chain:
   drift-review node is only injected if the spec references files that already
   exist on disk — there is nothing to drift-check against for brand-new specs.
 - **`auto_mid`** (after test-writing groups): Reviewer in `audit-review` mode
-  (test coverage validation against `test_spec.md` contracts). Only injected
-  if `test_spec.md` has at least a configurable minimum number of entries.
+  (test coverage validation against test spec contracts). Only injected
+  if the test spec has at least a configurable minimum number of entries.
 - **`auto_post`** (after the last coder group): Verifier (runs tests, checks
   requirements against implementation).
 
@@ -229,7 +236,7 @@ missing nodes into the in-memory graph at startup and persists the updated plan.
 
 **Hot-load discovery.** During sync barriers, the orchestrator checks for new
 specs that have appeared since the plan was built. A spec passes four gates
-before admission: git-tracked on develop, all five artifacts present and
+before admission: git-tracked on develop, all required artifacts present and
 non-empty, passes static lint validation, and not fully implemented. Admitted
 specs are merged into the live graph — new nodes, new edges, archetype injection
 — and the `GraphSync` state machine is rebuilt.
@@ -682,9 +689,10 @@ without modifying the package.
 
 **Layer 3 — Task context.** Assembled from six sources in order:
 
-1. **Spec documents.** `requirements.md`, `design.md`, `test_spec.md`,
-   `tasks.md` — formatted under markdown section headers. Missing files are
-   logged as warnings but do not prevent the session.
+1. **Spec documents.** Spec artifacts rendered as markdown section headers. For
+   v1.2 specs, JSON artifacts are loaded via `afspec` and rendered to markdown;
+   for v1 specs, the markdown files are read directly. Missing files are logged
+   as warnings but do not prevent the session.
 
 2. **DB-backed findings.** Review findings, drift findings, and verification
    verdicts are queried from DuckDB and rendered as structured markdown
@@ -1080,7 +1088,7 @@ dispatch and runs a synchronization sequence:
 
 3. **Hot-load discovery.** Scan `.agent-fox/specs/` for new specs that weren't
    present when the plan was built. Each candidate passes four gates:
-   git-tracked on develop, all five artifacts non-empty, passes static lint,
+   git-tracked on develop, all required artifacts non-empty, passes static lint,
    not fully implemented. Admitted specs are merged into the live graph.
    Current node statuses are persisted back to DuckDB immediately after
    hot-loading so a crash does not lose new specs.
@@ -1125,7 +1133,8 @@ Human Intent
     │
     ▼
 Spec Artifacts (.agent-fox/specs/NN_name/)
-    │  prd.md, requirements.md, design.md, test_spec.md, tasks.md
+    │  v1.2: prd.md, requirements.json, test_spec.json, tasks.json
+    │  v1:   prd.md, requirements.md, design.md, test_spec.md, tasks.md
     ▼
 Planner  [deterministic, zero LLM]
     │  Static validation → Graph construction → Topo sort

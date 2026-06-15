@@ -45,7 +45,7 @@ unaffected. The knowledge system never blocks the coding session lifecycle.
 
 ## Document Map
 
-The architecture is documented in five parts that follow the user's workflow.
+The architecture is documented in six parts that follow the user's workflow.
 
 ### [Part 1: Spec Authoring and Spec Structure](01-spec-authoring.md)
 
@@ -86,6 +86,14 @@ eight-category retrieval pipeline, the closed-loop finding lifecycle
 DuckDB-backed knowledge store, the quality assurance layer (review findings,
 drift findings, verification results, multi-instance convergence), and the
 audit trail.
+
+### [Part 6: Spec Format v1.2](06-spec-format-v12.md)
+
+How specs evolved from markdown to JSON. Covers the v1.2 file structure
+(JSON artifacts validated by `afspec`), format detection, the parsing pipeline
+that maps `afspec` models to format-invariant agent-fox types, context
+assembly and rendering, format-aware validation routing, the dual-format
+coexistence model, and migration status.
 
 ## See Also
 

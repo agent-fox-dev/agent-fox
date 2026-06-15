@@ -24,7 +24,13 @@ lives in a numbered directory under `.agent-fox/specs/` — for example,
 order and provides a stable namespace for cross-spec references. The name after
 the prefix is a snake_case descriptor chosen by the author.
 
-Each spec directory contains exactly five artifacts:
+The system supports two spec formats. New specs use v1.2 (JSON-based); legacy
+specs remain in v1 (all-markdown). For a detailed treatment of the v1.2
+format, see [Part 6: Spec Format v1.2](06-spec-format-v12.md).
+
+### v1 Format (Markdown)
+
+The original format uses five markdown artifacts:
 
 | Artifact | Role |
 |---|---|
@@ -34,25 +40,44 @@ Each spec directory contains exactly five artifacts:
 | `test_spec.md` | Language-agnostic test contracts. Each entry describes what must be tested, not how. The Coder writes actual tests from these contracts; the Reviewer (audit-review mode) verifies alignment. |
 | `tasks.md` | Implementation plan as a dependency-ordered list of task groups with subtasks. This is what the planner parses into the task graph. |
 
-These five artifacts form a closed traceability chain: requirements define what
-must be true, test specs define how to verify it, tasks define how to build it,
-design defines the shape of the solution, and the PRD provides the motivation.
-The validation system enforces this chain — untraced requirements, orphaned test
-entries, and missing coverage matrix rows are all flagged.
+### v1.2 Format (JSON)
 
-### Why Five Artifacts Instead of One
+The current format uses four required files and one optional file:
+
+| Artifact | Role |
+|---|---|
+| `prd.md` | Product requirements document. Same as v1. |
+| `requirements.json` | Acceptance criteria with decomposed EARS fields, glossary, correctness properties, execution paths, and error handling. Replaces `requirements.md`. |
+| `test_spec.json` | Structured test cases with typed entries and computed coverage. Replaces `test_spec.md`. |
+| `tasks.json` | Task groups with subtask state machine, dependencies, and traceability. Replaces `tasks.md`. |
+| `architecture.md` | Optional free-form architecture documentation. Absorbs the role of the former `design.md`. |
+
+The v1.2 format moves structured data into schema-validated JSON while keeping
+narrative content in markdown. The `afspec` library (from af-core) provides the
+data models, validation, and rendering. See
+[Part 6](06-spec-format-v12.md) for details on format detection, parsing,
+and the dual-format coexistence model.
+
+### Traceability
+
+In both formats, the artifacts form a closed traceability chain: requirements
+define what must be true, test specs define how to verify it, tasks define how
+to build it, design (or architecture) defines the shape of the solution, and the
+PRD provides the motivation. The validation system enforces this chain —
+untraced requirements, orphaned test entries, and missing coverage matrix rows
+are all flagged.
+
+### Why Multiple Artifacts Instead of One
 
 A single document would be simpler to author but harder to consume
-programmatically. The planner only needs `tasks.md` and `prd.md`. The Coder
-needs `requirements.md`, `design.md`, `test_spec.md`, and `tasks.md`. The
-Verifier needs `requirements.md`. Splitting by concern means each consumer reads
-only what it needs, and validation rules can target specific artifacts without
-parsing a monolith.
+programmatically. The planner only needs tasks and the PRD. The Coder
+needs requirements, design, test specs, and tasks. The Verifier needs
+requirements. Splitting by concern means each consumer reads only what it needs,
+and validation rules can target specific artifacts without parsing a monolith.
 
 The separation also enables independent evolution. A design change does not
-require re-parsing the task list. A new requirement can be added to
-`requirements.md` and traced through `test_spec.md` and `tasks.md` without
-touching the PRD.
+require re-parsing the task list. A new requirement can be added and traced
+through test specs and tasks without touching the PRD.
 
 ---
 
@@ -161,8 +186,17 @@ correct identifier.
 Discovery is the entry point for both planning and linting. The system scans
 `.agent-fox/specs/` for subdirectories matching the `NN_name` pattern (numeric prefix,
 underscore, descriptive name). Each matching directory becomes a `SpecInfo`
-record carrying the spec's name, numeric prefix, path, and which of the five
-core artifacts are present.
+record carrying the spec's name, numeric prefix, path, detected format
+(`V1_2_JSON` or `V1_MARKDOWN`), and which core artifacts are present.
+
+Format detection is based on a single discriminator: the presence of
+`requirements.json` in the spec directory. If the file exists, the spec is
+v1.2; otherwise it is v1.
+
+By default, discovery returns only v1.2 specs. V1 markdown specs are excluded
+from the active set — they remain on disk as historical records but are not
+processed for planning or validation. This filtering reflects the current
+transition state where new specs are created in v1.2 format.
 
 Discovery is deterministic: specs are sorted by numeric prefix, producing a
 stable ordering across runs. An optional filter can restrict operations to a
@@ -170,20 +204,28 @@ single spec by name.
 
 The system requires at least one discoverable spec. If the `.agent-fox/specs/` directory
 is empty or contains no matching subdirectories, a hard error is raised. Specs
-without a `tasks.md` file are discovered but cannot be planned — they may exist
-as reference material or work-in-progress.
+without a tasks file (`tasks.json` for v1.2, `tasks.md` for v1) are discovered
+but cannot be planned — they may exist as reference material or
+work-in-progress.
 
 ---
 
 ## Validation
 
-Validation is a layered pipeline with two stages: static validation (fast,
-deterministic, no LLM calls) and AI validation (slower, non-deterministic, uses
-an LLM for semantic analysis).
+Validation is a layered pipeline that routes specs to the appropriate validator
+based on their detected format.
 
-### Static Validation
+### v1.2 Validation
 
-Static validation runs nearly thirty rules organized into phases:
+For v1.2 specs, validation delegates to `afspec.validate()`, which runs JSON
+Schema validation and cross-file referential integrity checks. Results are
+mapped to agent-fox `Finding` objects so the CLI output format is unchanged.
+See [Part 6: Spec Format v1.2](06-spec-format-v12.md#validation) for details.
+
+### v1 Static Validation
+
+For v1 markdown specs, static validation runs nearly thirty rules organized
+into phases:
 
 **Structural checks** verify that all five core artifacts exist. Missing files
 are errors — they prevent planning.
@@ -308,12 +350,14 @@ has since evolved. The `--all` flag overrides this for auditing purposes.
 
 The typical authoring workflow is:
 
-1. Create a numbered directory under `.agent-fox/specs/` with the five artifact files.
-   The `/af-spec` skill can generate these from a PRD, a GitHub issue URL, or
-   a plain-English description.
-2. Run `agent-fox lint-specs` to validate. Fix errors manually or with
-   `--fix`. Address warnings as appropriate.
-3. Run `agent-fox lint-specs --ai` for semantic analysis if desired.
+1. Create a numbered directory under `.agent-fox/specs/` with the spec artifact
+   files. The `/af-spec` skill generates the full v1.2 package (PRD + three
+   JSON files) from a PRD, a GitHub issue URL, or a plain-English description.
+2. Run `agent-fox lint-specs` to validate. For v1.2 specs, this runs `afspec`
+   schema and integrity checks. Fix errors manually or with `--fix`. Address
+   warnings as appropriate.
+3. Run `agent-fox lint-specs --ai` for semantic analysis if desired (v1 specs
+   only).
 4. Run `agent-fox plan` to build the task graph (see
    [Part 2: Planning](02-planning.md)).
 

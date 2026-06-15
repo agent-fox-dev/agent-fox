@@ -237,10 +237,15 @@ uses an empty profile.
 
 The task context layer is assembled from the following sources, in order:
 
-1. **Spec documents.** The four core spec files — `requirements.md`,
-   `design.md`, `test_spec.md`, `tasks.md` — are read from the spec directory
-   and formatted under markdown section headers. Missing files are logged as
-   warnings but do not prevent the session from running.
+1. **Spec documents.** The spec artifacts are read and formatted under markdown
+   section headers. For v1.2 specs, JSON artifacts (`requirements.json`,
+   `test_spec.json`, `tasks.json`) are loaded via `afspec` and rendered to
+   markdown; `architecture.md` is read directly. For v1 specs, the four
+   markdown files (`requirements.md`, `design.md`, `test_spec.md`, `tasks.md`)
+   are read as-is. Missing files are logged as warnings but do not prevent the
+   session from running. See
+   [Part 6: Spec Format v1.2](06-spec-format-v12.md#context-assembly) for
+   details on the rendering pipeline.
 
 2. **DB-backed findings.** Review findings, drift findings, and verification
    verdicts are queried from DuckDB and rendered as structured markdown
@@ -567,8 +572,8 @@ and performs synchronization work:
 - **Worktree verification**: Check for orphaned worktrees and clean them up.
 - **Hot-load discovery**: Check for new specs in `.agent-fox/specs/` that were not present
   when the plan was built. New specs pass four gates (git-tracked on develop,
-  all five artifacts present and non-empty, passes static lint, not fully
-  implemented) before being added to the live graph.
+  all required artifacts for their format present and non-empty, passes static
+  lint, not fully implemented) before being added to the live graph.
 - **Config reload**: Re-read `config.toml` and apply changes (new cost limits,
   archetype settings, etc.) without restarting. The `parallel` field is
   immutable and cannot be changed at runtime.

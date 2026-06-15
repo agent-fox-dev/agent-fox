@@ -53,18 +53,22 @@ Graph construction is a four-phase process.
 
 ### Phase 1: Base Nodes and Intra-Spec Edges
 
-For each spec with a `tasks.md` file, the planner parses task groups and creates
-one node per group. Each node carries the spec name, group number, completion
-state (from the checkbox), optional flag, subtask count, and body text.
+For each spec with a tasks file, the planner parses task groups and creates one
+node per group. The planner routes parsing by format: for v1.2 specs it uses
+`parse_tasks_v12()` which loads `tasks.json` via `afspec`; for v1 specs it uses
+`parse_tasks()` which parses `tasks.md` markdown. Both paths produce the same
+`TaskGroupDef` type, so the rest of graph construction is format-agnostic (see
+[Part 6: Spec Format v1.2](06-spec-format-v12.md#parsing-pipeline)).
 
-Consecutive groups within a spec are connected by intra-spec edges: the node for
-group N is a predecessor of the node for group N+1. This creates a linear chain
-per spec, reflecting the sequential nature of the task list.
+Each node carries the spec name, group number, completion state, optional flag,
+subtask count, and body text. Consecutive groups within a spec are connected by
+intra-spec edges: the node for group N is a predecessor of the node for group
+N+1. This creates a linear chain per spec, reflecting the sequential nature of
+the task list.
 
-Nodes that are already marked complete in `tasks.md` (checkbox state `[x]`)
-start in the COMPLETED state. The engine will skip them during execution but
-their completion status still satisfies dependency edges — downstream nodes see
-them as done.
+Nodes that are already marked complete start in the COMPLETED state. The engine
+will skip them during execution but their completion status still satisfies
+dependency edges — downstream nodes see them as done.
 
 ### Phase 2: Archetype Injection
 
@@ -78,9 +82,10 @@ drift detection). These agents examine the spec and existing codebase before
 any implementation begins, providing early warning of problems.
 
 The drift-review node has a gating rule: if the spec references no files that
-currently exist in the repository (determined by scanning `design.md` for file
-paths and checking the filesystem), the node is skipped. There is nothing to
-validate drift against if the code does not yet exist.
+currently exist in the repository (determined by scanning the design artifact
+for file paths and checking the filesystem), the node is skipped. For v1.2
+specs this scans `architecture.md`; for v1 specs it scans `design.md`. There is
+nothing to validate drift against if the code does not yet exist.
 
 **Mid-execution agents** (injection point: `auto_mid`) are added after
 test-writing groups. Currently this is the Reviewer in audit-review mode, which
@@ -116,9 +121,11 @@ points in their task sequence, not just at the three automatic injection points.
 
 ### Phase 4: Cross-Spec Edges
 
-Cross-spec dependencies parsed from `prd.md` files create edges between nodes
-in different specs. If spec A's group 3 depends on spec B's group 2, an edge is
-added from B:2 to A:3 — B:2 must complete before A:3 can start.
+Cross-spec dependencies create edges between nodes in different specs. For v1.2
+specs, dependencies are declared in `tasks.json`; for v1 specs, they are parsed
+from `prd.md` tables. In both cases, the result is the same `CrossSpecDep` type.
+If spec A's group 3 depends on spec B's group 2, an edge is added from B:2 to
+A:3 — B:2 must complete before A:3 can start.
 
 Standard-format dependencies (which declare spec-level rather than group-level
 dependencies) use sentinel group numbers that resolve to the first or last
@@ -178,9 +185,11 @@ how to interpret SKIPPED nodes.
 ## File Impact Analysis
 
 Before parallel dispatch, the engine needs to know which task groups might
-modify the same files. The file impact analyzer scans `tasks.md` and `design.md`
-for backtick-quoted file paths, using regex patterns that match common source
-file extensions. This produces a predicted set of affected files per node.
+modify the same files. The file impact analyzer scans the tasks and design
+artifacts for backtick-quoted file paths, using regex patterns that match common
+source file extensions. For v1.2 specs this scans `tasks.json` and
+`architecture.md`; for v1 specs it scans `tasks.md` and `design.md`. This
+produces a predicted set of affected files per node.
 
 Conflict detection compares these sets pairwise. If two nodes predict
 overlapping file modifications, they are considered conflicting and should not
@@ -243,11 +252,11 @@ the injected nodes survive a restart.
 **Hot-load discovery**: During sync barriers (periodic pauses in execution),
 the engine checks for new specs that have appeared in `.agent-fox/specs/` since the plan
 was built. A new spec must pass four gates before admission: it is git-tracked
-on develop, it contains all five core artifacts (non-empty), it passes lint
-validation with no error-severity findings, and it is not already fully
-implemented (all task groups complete). Specs that pass are added to the live
-graph. This enables long-running sessions to pick up new work without a manual
-replan.
+on develop, it contains all required artifacts for its format (non-empty), it
+passes lint validation with no error-severity findings, and it is not already
+fully implemented (all task groups complete). Specs that pass are added to the
+live graph. This enables long-running sessions to pick up new work without a
+manual replan.
 
 ---
 

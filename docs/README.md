@@ -13,13 +13,13 @@ extracts learnings into structured memory, and merges clean commits to
 The typical workflow has four stages:
 
 1. **Write specs.** Describe your feature as a structured specification
-   package under `.agent-fox/specs/` — a PRD, acceptance criteria (EARS syntax),
-   design document, test contracts, and a task list. Each spec maps to one coherent
-   feature or change. Use the `/af-spec` skill in Claude Code to generate the
-   full five-file package from a PRD, a GitHub issue URL, or a plain-English
-   description. Run `agent-fox lint-specs` to validate specs before planning;
-   use `--fix` to auto-repair common issues and `--ai` for semantic analysis
-   of acceptance criteria.
+   package under `.agent-fox/specs/`. New specs use the v1.2 JSON format: a PRD
+   (`prd.md`), requirements (`requirements.json`), test spec (`test_spec.json`),
+   and tasks (`tasks.json`), plus an optional `architecture.md`. Each spec maps
+   to one coherent feature or change. Use the `/af-spec` skill in Claude Code to
+   generate the full spec package from a PRD, a GitHub issue URL, or a
+   plain-English description. Run `agent-fox lint-specs` to validate specs
+   before planning; use `--fix` to auto-repair common issues.
 
 2. **Plan.** Run `agent-fox plan` to compile your specs into a dependency
    graph of tasks. The planner is deterministic — same specs, same graph,
@@ -142,3 +142,4 @@ snippets or class hierarchies.
 | [Profiles](profiles.md) | Agent profiles, resolution, and customization |
 | [Skills](skills.md) | Claude Code skill reference |
 | [Architecture Guide](architecture/README.md) | Topic-specific architecture deep dives |
+| [Spec Format v1.2](architecture/06-spec-format-v12.md) | JSON-based spec format, format detection, dual-format coexistence |

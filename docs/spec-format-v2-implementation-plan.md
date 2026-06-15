@@ -5,6 +5,36 @@ the current all-markdown spec format to the new JSON-based format defined in
 `af-spec/docs/spec-format.md` (v1.1). It is intended as input for spec
 creation — each section below maps to a proposed spec.
 
+## Progress (June 2026)
+
+The migration took a different path than originally planned. Instead of
+building schemas, parsers, and validators in-house (Specs A through E), the
+project adopted the `afspec` library from af-core, which provides Pydantic
+data models, schema validation, and rendering. This significantly reduced
+scope — several planned specs became unnecessary.
+
+Four agent-fox specs implemented the integration:
+
+| agent-fox Spec | Covers from this plan | Status |
+|---|---|---|
+| 132: afspec Integration | Spec F (format detection, SpecFormat enum, SpecInfo.format) | Done |
+| 133: v1.2 Parsing Pipeline | Spec K (parser_v12.py mapper, planner routing) | Done |
+| 134: v1.2 Context Rendering | Specs K, J (context assembly, verification checklist, helpers) | Done |
+| 135: v1.2 Skill and Validation | Specs H, L (lint routing, af-spec skill template) | Done |
+
+Remaining items from this plan:
+- **Specs A-E (schemas, data models)**: Superseded by `afspec` library
+- **Spec B (prd.md frontmatter, lifecycle)**: Not yet implemented
+- **Spec G (cross-file integrity)**: Handled by `afspec.validate()`
+- **Spec I (mutation engine)**: Not yet implemented
+- **Spec J (renderer)**: Partially covered by `afspec.render_individual()`
+- **Spec M (legacy code removal)**: Deferred; v1 code paths remain
+
+See [Spec Format v1.2 Architecture](architecture/06-spec-format-v12.md) for
+the current state of the system.
+
+---
+
 ## 1. Change Summary
 
 ### What changes
