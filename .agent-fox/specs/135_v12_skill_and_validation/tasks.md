@@ -138,8 +138,8 @@ and wiring verification.
     - [x] No linter warnings introduced: `uv run ruff check`
     - [x] Requirements 4.1-6.2 acceptance criteria met
 
-- [ ] 4. Wiring verification
-  - [ ] 4.1 Trace every execution path from design.md end-to-end
+- [x] 4. Wiring verification
+  - [x] 4.1 Trace every execution path from design.md end-to-end
     - For each path (1-3), verify the entry point actually calls the next
       function in the chain (read the calling code, do not assume)
     - Confirm no function in the chain is a stub (`return []`, `return None`,
@@ -148,7 +148,7 @@ and wiring verification.
       not satisfy this check
     - _Requirements: all_
 
-  - [ ] 4.2 Verify return values propagate correctly
+  - [x] 4.2 Verify return values propagate correctly
     - For `_map_afspec_findings`: confirm callers use the returned
       `list[Finding]`
     - For `_validate_v12_spec`: confirm `run_lint_specs` uses the returned
@@ -156,12 +156,12 @@ and wiring verification.
     - Grep for callers of each function; confirm none discards the return
     - _Requirements: all_
 
-  - [ ] 4.3 Run the integration smoke tests
+  - [x] 4.3 Run the integration smoke tests
     - TS-135-SMOKE-1 passes (mixed format lint end-to-end)
     - TS-135-SMOKE-2 passes (skill template content validation)
     - _Test Spec: TS-135-SMOKE-1, TS-135-SMOKE-2_
 
-  - [ ] 4.4 Stub / dead-code audit
+  - [x] 4.4 Stub / dead-code audit
     - Search all files touched by this spec for: `return []`, `return None`
       on non-Optional returns, `pass` in non-abstract methods, `# TODO`,
       `# stub`, `override point`, `NotImplementedError`
@@ -170,19 +170,19 @@ and wiring verification.
     - Document any intentional stubs here with rationale
     - _Requirements: all_
 
-  - [ ] 4.5 Cross-spec entry point verification
+  - [x] 4.5 Cross-spec entry point verification
     - Verify that `afspec.validate()` is callable from agent-fox (dependency
       from spec 132 is live)
     - Verify that `SpecInfo.format` field is populated by discovery (spec 132)
     - Verify that the skill template is loadable by the skills framework
     - _Requirements: all_
 
-  - [ ] 4.V Verify wiring group
-    - [ ] All smoke tests pass
-    - [ ] No unjustified stubs remain in touched files
-    - [ ] All execution paths from design.md are live (traceable in code)
-    - [ ] All cross-spec entry points are called from production code
-    - [ ] All existing tests still pass: `uv run pytest -q`
+  - [x] 4.V Verify wiring group
+    - [x] All smoke tests pass
+    - [x] No unjustified stubs remain in touched files
+    - [x] All execution paths from design.md are live (traceable in code)
+    - [x] All cross-spec entry points are called from production code
+    - [x] All existing tests still pass: `uv run pytest -q`
 
 ## Traceability
 
