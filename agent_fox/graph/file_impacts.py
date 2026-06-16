@@ -1,7 +1,7 @@
 """Predictive file conflict detection for parallel task dispatch.
 
 Extracts predicted file modification sets from spec documents (tasks.md,
-design.md) and detects overlapping files between task groups to prevent
+architecture.md) and detects overlapping files between task groups to prevent
 merge conflicts when dispatching tasks in parallel.
 
 Requirements: 39-REQ-9.1, 39-REQ-9.2, 39-REQ-9.3, 39-REQ-9.E1
@@ -40,12 +40,12 @@ def extract_file_impacts(
 ) -> set[str]:
     """Extract predicted file modifications from spec documents.
 
-    Scans tasks.md and design.md for backtick-quoted file paths
+    Scans tasks.md and architecture.md for backtick-quoted file paths
     within the specified task group's section.
 
     Args:
         spec_dir: Path to the spec directory containing tasks.md and/or
-            design.md.
+            architecture.md.
         task_group: The task group number to extract impacts for.
 
     Returns:
@@ -63,11 +63,11 @@ def extract_file_impacts(
         section = _extract_task_group_section(content, task_group)
         files.update(_extract_file_paths(section))
 
-    # Extract from design.md
-    design_md = spec_dir / "design.md"
+    # Extract from architecture.md
+    design_md = spec_dir / "architecture.md"
     if design_md.exists():
         content = design_md.read_text()
-        # For design.md, scan the entire document since file references
+        # For architecture.md, scan the entire document since file references
         # may not be grouped by task group
         files.update(_extract_file_paths(content))
 

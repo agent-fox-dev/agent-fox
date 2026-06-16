@@ -49,10 +49,10 @@ The architecture is documented in six parts that follow the user's workflow.
 
 ### [Part 1: Spec Authoring and Spec Structure](01-spec-authoring.md)
 
-How human intent enters the system. Covers the five-artifact spec model
-(PRD, requirements, design, test spec, tasks), the traceability chain between
-them, task groups and dependency declarations, spec discovery, the static and
-AI validation pipeline, severity model, auto-fixers, and the lint command.
+How human intent enters the system. Covers the spec artifact model
+(PRD, requirements, test spec, tasks, optional architecture), the traceability
+chain between them, task groups and dependency declarations, spec discovery,
+the validation pipeline, severity model, auto-fixers, and the lint command.
 
 ### [Part 2: Planning — From Specs to Task Graphs](02-planning.md)
 
@@ -89,11 +89,10 @@ audit trail.
 
 ### [Part 6: Spec Format v1.2](06-spec-format-v12.md)
 
-How specs evolved from markdown to JSON. Covers the v1.2 file structure
-(JSON artifacts validated by `afspec`), format detection, the parsing pipeline
-that maps `afspec` models to format-invariant agent-fox types, context
-assembly and rendering, format-aware validation routing, the dual-format
-coexistence model, and migration status.
+The JSON-based spec format. Covers the v1.2 file structure (JSON artifacts
+validated by `afspec`), the parsing pipeline that maps `afspec` models to
+agent-fox types, context assembly and rendering, validation, and the
+verification checklist.
 
 ## See Also
 

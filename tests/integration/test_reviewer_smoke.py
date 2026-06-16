@@ -148,8 +148,8 @@ class TestDriftReviewGatingEndToEnd:
         # Spec directory with no source file references
         spec_dir = tmp_path / "00_nocode_spec"
         spec_dir.mkdir()
-        (spec_dir / "design.md").write_text(
-            "# Design\n\nThis spec introduces a brand new concept.\nNo existing files will be modified.\n",
+        (spec_dir / "architecture.md").write_text(
+            "# Architecture\n\nThis spec introduces a brand new concept.\nNo existing files will be modified.\n",
             encoding="utf-8",
         )
 
@@ -168,12 +168,12 @@ class TestDriftReviewGatingEndToEnd:
         """TS-98-SMOKE-2 (code path): Drift-review included when spec references existing code."""
         from agent_fox.graph.injection import collect_enabled_auto_pre
 
-        # Spec directory with design.md referencing a real existing file
+        # Spec directory with architecture.md referencing a real existing file
         existing_file = Path("agent_fox/archetypes.py")
         spec_dir = tmp_path / "00_hascode_spec"
         spec_dir.mkdir()
-        (spec_dir / "design.md").write_text(
-            f"# Design\n\nThis spec modifies **`{existing_file}`** (modified).\n",
+        (spec_dir / "architecture.md").write_text(
+            f"# Architecture\n\nThis spec modifies **`{existing_file}`** (modified).\n",
             encoding="utf-8",
         )
 

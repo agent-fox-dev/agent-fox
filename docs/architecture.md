@@ -15,18 +15,17 @@ to how knowledge is harvested and fed forward to future sessions.
 ### 1.1 The Contract Model
 
 Everything agent-fox does traces back to a **spec** — a set of structured
-artifacts that together define a coherent unit of work. The system supports two
-spec formats; new specs use v1.2 (JSON-based), while legacy specs remain in v1
-(all-markdown). See
+artifacts that together define a coherent unit of work. Specs use the v1.2
+JSON-based format. See
 [Part 6: Spec Format v1.2](architecture/06-spec-format-v12.md) for details.
 
-| v1 Artifact | v1.2 Artifact | Role |
-|---|---|---|
-| `prd.md` | `prd.md` | Why the feature exists; cross-spec dependency declarations |
-| `requirements.md` | `requirements.json` | Testable acceptance criteria in EARS syntax (`NN-REQ-M.S` identifiers) |
-| `design.md` | `architecture.md` (optional) | Interfaces, data models, correctness properties, definition of done |
-| `test_spec.md` | `test_spec.json` | Language-agnostic test contracts keyed by `TS-NN-N` identifiers |
-| `tasks.md` | `tasks.json` | Sequenced task groups; the planner's primary input |
+| Artifact | Role |
+|---|---|
+| `prd.md` | Why the feature exists; cross-spec dependency declarations |
+| `requirements.json` | Testable acceptance criteria in EARS syntax (`NN-REQ-M.S` identifiers) |
+| `architecture.md` (optional) | Interfaces, data models, correctness properties, definition of done |
+| `test_spec.json` | Language-agnostic test contracts keyed by `TS-NN-N` identifiers |
+| `tasks.json` | Sequenced task groups; the planner's primary input |
 
 A spec is not documentation written after the fact. It is the input artifact
 that drives every downstream decision: which agents run, in what order, with
@@ -159,24 +158,20 @@ versions of agent-fox are brought up to date transparently.
 
 Before any planning occurs, the system discovers specs by scanning
 `.agent-fox/specs/` for directories matching the `NN_name` pattern. Each
-discovered spec becomes a `SpecInfo` record carrying its detected format
-(`V1_2_JSON` or `V1_MARKDOWN`). By default, only v1.2 specs are returned.
+discovered spec becomes a `SpecInfo` record.
 
-Validation is format-aware. For v1.2 specs, `afspec.validate()` runs schema
-and cross-file integrity checks. For v1 markdown specs, static validation
-runs ~30 rules:
+Validation delegates to `afspec.validate()`, which runs JSON Schema validation
+and cross-file integrity checks:
 - Structural checks (all required artifacts present)
 - EARS syntax on requirements
 - Traceability chain integrity (every requirement traced through test spec and
   tasks; every test entry traced back to a requirement)
 - Cross-spec dependency validity (referenced specs exist, referenced group
   numbers exist, no cycles)
-- Section schema checks (expected headings present)
 
 Findings are severity-classified as error (blocks planning), warning (quality
 gap), or hint (stylistic). An auto-fixer can mechanically resolve many
-warnings. AI validation is an optional second pass that uses an LLM to detect
-vague requirements and stale dependency identifiers.
+warnings.
 
 ### 3.2 Graph Construction — Four Phases
 
@@ -184,8 +179,8 @@ Given validated specs, the planner builds a directed acyclic graph in four
 phases.
 
 **Phase 1: Base Nodes and Intra-Spec Edges.** For each spec with a tasks file,
-the planner parses task groups (routing to the appropriate parser by format) and
-creates one `Node` per group. Consecutive groups within a spec get intra-spec
+the planner parses task groups from `tasks.json` via `afspec` and creates one
+`Node` per group. Consecutive groups within a spec get intra-spec
 edges: group N → group N+1. Groups already marked complete start as
 `COMPLETED`. The node ID format is `spec_name:group_number`.
 
@@ -203,7 +198,7 @@ three injection points in each spec's chain:
   requirements against implementation).
 
 **Phase 3: Archetype Tag Overrides.** If a task group carries an `[archetype:
-<name>]` tag in `tasks.md`, that group's node is reassigned from the default
+<name>]` tag in `tasks.json`, that group's node is reassigned from the default
 `coder` archetype to the tagged archetype. This takes highest priority over
 both injection rules and defaults.
 
@@ -370,7 +365,7 @@ Before dispatching a task, the `DispatchManager` runs a preparation pipeline:
 3. **Circuit breaker check.** The per-task retry limit is evaluated. If
    exhausted, the task is blocked.
 4. **Preflight check** (coder tasks only, first attempt). The preflight
-   verifier checks whether all checkboxes in `tasks.md` are already marked
+   verifier checks whether all checkboxes in `tasks.json` are already marked
    complete, no active critical findings exist, and tests pass. If all three
    hold, the session is skipped — the work is already done.
 5. **Parameter resolution.** The archetype's model tier, security allowlist,
@@ -689,10 +684,10 @@ without modifying the package.
 
 **Layer 3 — Task context.** Assembled from six sources in order:
 
-1. **Spec documents.** Spec artifacts rendered as markdown section headers. For
-   v1.2 specs, JSON artifacts are loaded via `afspec` and rendered to markdown;
-   for v1 specs, the markdown files are read directly. Missing files are logged
-   as warnings but do not prevent the session.
+1. **Spec documents.** Spec artifacts rendered as markdown section headers.
+   JSON artifacts are loaded via `afspec` and rendered to markdown;
+   `architecture.md` is read directly. Missing files are logged as warnings
+   but do not prevent the session.
 
 2. **DB-backed findings.** Review findings, drift findings, and verification
    verdicts are queried from DuckDB and rendered as structured markdown
@@ -759,7 +754,7 @@ knowledge is available.
 The task prompt is short and archetype-specific:
 
 - **Coder sessions** receive explicit instructions: implement task group N from
-  specification X, update checkbox states in `tasks.md`, commit with conventional
+  specification X, update checkbox states in `tasks.json`, commit with conventional
   messages, and run quality gates before finalizing. For retry attempts, the
   previous error and active critical/major findings are prepended.
 
@@ -785,7 +780,7 @@ configuration that references a built-in archetype for tool access rules.
 gates, commits with conventional messages.
 
 **Execution model:** One task group per session. By convention, task group 1
-writes failing tests from `test_spec.md` without implementing production code.
+writes failing tests from `test_spec.json` without implementing production code.
 Subsequent groups implement code to make those tests pass. The Coder runs
 quality checks, verifies its work against the requirements, and produces a
 session summary artifact.
@@ -1134,7 +1129,6 @@ Human Intent
     ▼
 Spec Artifacts (.agent-fox/specs/NN_name/)
     │  v1.2: prd.md, requirements.json, test_spec.json, tasks.json
-    │  v1:   prd.md, requirements.md, design.md, test_spec.md, tasks.md
     ▼
 Planner  [deterministic, zero LLM]
     │  Static validation → Graph construction → Topo sort

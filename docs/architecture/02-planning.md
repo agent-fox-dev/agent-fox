@@ -23,14 +23,14 @@ the plan without reasoning about probabilistic behavior.
 
 The task graph is a DAG where nodes represent units of work and edges represent
 "must complete before" relationships. Each node corresponds to either a task
-group from `tasks.md` or an automatically injected archetype agent (a review or
+group from `tasks.json` or an automatically injected archetype agent (a review or
 validation step that the system adds without the author declaring it).
 
 The graph has three kinds of structure:
 
 - **Intra-spec chains**: Within a single spec, task groups execute sequentially
   by group number. Group 1 must complete before group 2 starts. This is the
-  default ordering inherited from the linear structure of `tasks.md`.
+  default ordering inherited from the linear structure of `tasks.json`.
 
 - **Cross-spec edges**: Dependencies declared in `prd.md` create edges between
   groups in different specs. These are the only mechanism for expressing that
@@ -54,10 +54,9 @@ Graph construction is a four-phase process.
 ### Phase 1: Base Nodes and Intra-Spec Edges
 
 For each spec with a tasks file, the planner parses task groups and creates one
-node per group. The planner routes parsing by format: for v1.2 specs it uses
-`parse_tasks_v12()` which loads `tasks.json` via `afspec`; for v1 specs it uses
-`parse_tasks()` which parses `tasks.md` markdown. Both paths produce the same
-`TaskGroupDef` type, so the rest of graph construction is format-agnostic (see
+node per group. The planner calls `parse_tasks_v12()` which loads `tasks.json`
+via `afspec` and produces `TaskGroupDef` types for the rest of graph
+construction (see
 [Part 6: Spec Format v1.2](06-spec-format-v12.md#parsing-pipeline)).
 
 Each node carries the spec name, group number, completion state, optional flag,
@@ -83,14 +82,14 @@ any implementation begins, providing early warning of problems.
 
 The drift-review node has a gating rule: if the spec references no files that
 currently exist in the repository (determined by scanning the design artifact
-for file paths and checking the filesystem), the node is skipped. For v1.2
-specs this scans `architecture.md`; for v1 specs it scans `design.md`. There is
+for file paths and checking the filesystem), the node is skipped. This scans
+`architecture.md` for file path references. There is
 nothing to validate drift against if the code does not yet exist.
 
 **Mid-execution agents** (injection point: `auto_mid`) are added after
 test-writing groups. Currently this is the Reviewer in audit-review mode, which
 validates that the tests written in earlier groups actually cover the test spec
-contracts. The audit-review node is only injected if the spec's `test_spec.md`
+contracts. The audit-review node is only injected if the spec's `test_spec.json`
 contains at least a configurable minimum number of test entries — below that
 threshold, auditing has insufficient material to work with.
 
@@ -104,13 +103,13 @@ the last coder group, and mid-execution nodes are spliced between the relevant
 groups.
 
 **Completion propagation.** When all coder nodes in a spec are already marked
-as completed (from `tasks.md` checkboxes), the builder automatically propagates
+as completed (from `tasks.json` checkboxes), the builder automatically propagates
 completed status to all non-coder archetype nodes in that spec. This skips
 review and verification for specs whose implementation work is already done.
 
 ### Phase 3: Archetype Tag Overrides
 
-After injection, the planner applies archetype tag overrides from `tasks.md`.
+After injection, the planner applies archetype tag overrides from `tasks.json`.
 If a task group carries an `[archetype: skeptic]` tag, that group's node is
 reassigned from the default "coder" archetype to "skeptic." These tags are the
 highest-priority assignment mechanism — they override both the builder's default
@@ -121,9 +120,8 @@ points in their task sequence, not just at the three automatic injection points.
 
 ### Phase 4: Cross-Spec Edges
 
-Cross-spec dependencies create edges between nodes in different specs. For v1.2
-specs, dependencies are declared in `tasks.json`; for v1 specs, they are parsed
-from `prd.md` tables. In both cases, the result is the same `CrossSpecDep` type.
+Cross-spec dependencies create edges between nodes in different specs.
+Dependencies are declared in `tasks.json` and parsed into `CrossSpecDep` types.
 If spec A's group 3 depends on spec B's group 2, an edge is added from B:2 to
 A:3 — B:2 must complete before A:3 can start.
 
@@ -169,7 +167,7 @@ spec-level cycles are also caught during validation, but group-level cycles
 
 Fast mode is an alternative planning strategy for situations where speed matters
 more than completeness. When enabled, the planner identifies all optional nodes
-(those with the optional flag from `tasks.md`) and removes them from the
+(those with the optional flag from `tasks.json`) and removes them from the
 execution order.
 
 Removal is non-destructive: optional nodes remain in the graph with a SKIPPED
@@ -187,8 +185,7 @@ how to interpret SKIPPED nodes.
 Before parallel dispatch, the engine needs to know which task groups might
 modify the same files. The file impact analyzer scans the tasks and design
 artifacts for backtick-quoted file paths, using regex patterns that match common
-source file extensions. For v1.2 specs this scans `tasks.json` and
-`architecture.md`; for v1 specs it scans `tasks.md` and `design.md`. This
+source file extensions, scanning `tasks.json` and `architecture.md`. This
 produces a predicted set of affected files per node.
 
 Conflict detection compares these sets pairwise. If two nodes predict
@@ -252,7 +249,7 @@ the injected nodes survive a restart.
 **Hot-load discovery**: During sync barriers (periodic pauses in execution),
 the engine checks for new specs that have appeared in `.agent-fox/specs/` since the plan
 was built. A new spec must pass four gates before admission: it is git-tracked
-on develop, it contains all required artifacts for its format (non-empty), it
+on develop, it contains all required artifacts (non-empty), it
 passes lint validation with no error-severity findings, and it is not already
 fully implemented (all task groups complete). Specs that pass are added to the
 live graph. This enables long-running sessions to pick up new work without a

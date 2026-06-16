@@ -234,7 +234,7 @@ async def discover_new_specs_gated(
     2. Gate 1: git-tracked on develop.
     3. Gate 2: all 5 required files present and non-empty.
     4. Gate 3: no lint errors from validator.
-    5. Gate 4: not already fully implemented (tasks.md + plan state).
+    5. Gate 4: not already fully implemented (tasks.json + plan state).
 
     Returns only specs that pass all gates.  Skipped specs are
     re-evaluated at the next barrier with a clean slate (51-REQ-7.2).
@@ -288,7 +288,7 @@ async def discover_new_specs_gated(
             continue
 
         # Gate 4: tasks-complete — skip specs that are fully implemented.
-        # Both tasks.md AND plan node state must agree the spec is done.
+        # Both tasks.json AND plan node state must agree the spec is done.
         if are_all_tasks_done(spec.path) and _are_all_plan_nodes_done(spec.name, db_conn):
             logger.info(
                 "Spec '%s' is fully implemented (all tasks complete, all plan nodes done), skipping",

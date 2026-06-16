@@ -42,7 +42,7 @@ def count_ts_entries(spec_dir: Path) -> int:
     afspec and returns the total count of test cases, property tests,
     edge case tests, and smoke tests.
 
-    For v1 specs, counts ``### TS-`` headings in ``test_spec.md``.
+    Returns 0 if ``test_spec.json`` is missing or loading fails.
 
     Returns 0 if neither file exists or if loading fails.
 
@@ -67,15 +67,7 @@ def count_ts_entries(spec_dir: Path) -> int:
             logger.warning("Failed to load test_spec.json in %s", spec_dir)
             return 0
 
-    # v1 fallback: count ### TS- headings (134-REQ-3.2)
-    test_spec = spec_dir / "test_spec.md"
-    if not test_spec.exists():
-        return 0
-    count = 0
-    for line in test_spec.read_text().splitlines():
-        if line.strip().startswith("### TS-"):
-            count += 1
-    return count
+    return 0
 
 
 # ---------------------------------------------------------------------------
@@ -92,7 +84,7 @@ def spec_has_existing_code(spec_path: Path) -> bool:
     """Check whether a spec's design document references files that already exist.
 
     For v1.2 specs (containing ``requirements.json``), reads
-    ``architecture.md`` instead of ``design.md``.
+    ``architecture.md``.
 
     Extracts paths marked ``(modified)`` and returns True if at least one
     of those paths exists on disk.  Returns True (safe default) when the
@@ -101,16 +93,12 @@ def spec_has_existing_code(spec_path: Path) -> bool:
 
     Requirements: 134-REQ-3.3
     """
-    # v1.2: check architecture.md instead of design.md (134-REQ-3.3)
-    if (spec_path / "requirements.json").is_file():
-        target = spec_path / "architecture.md"
-    else:
-        target = spec_path / "design.md"
+    target = spec_path / "architecture.md"
 
     try:
         content = target.read_text(encoding="utf-8")
     except OSError:
-        # No design.md or unreadable — assume code exists (safe default)
+        # No architecture.md or unreadable — assume code exists (safe default)
         return True
 
     refs = _DESIGN_FILE_REF.findall(content)

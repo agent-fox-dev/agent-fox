@@ -637,6 +637,8 @@ class TestNoDeletedModuleImportsInTests:
         py_files = _collect_py_files(_TESTS_ROOT)
         matches: list[str] = []
         for p in py_files:
+            if p.name == "test_137_legacy_removal.py":
+                continue
             content = p.read_text(encoding="utf-8")
             for i, line in enumerate(content.splitlines(), start=1):
                 if pattern.search(line):
@@ -762,8 +764,8 @@ class TestFullPackageImportability:
             except ImportError as exc:
                 failures.append(f"{modname}: {exc}")
             except Exception:
-                # Non-import errors (e.g. missing env vars) are not
-                # our concern -- we only care about ImportError.
+                pass
+            except SystemExit:
                 pass
         assert failures == [], (
             "ImportError raised for modules:\n" + "\n".join(failures)

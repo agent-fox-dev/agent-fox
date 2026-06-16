@@ -21,6 +21,7 @@ Four agent-fox specs implemented the integration:
 | 133: v1.2 Parsing Pipeline | Spec K (parser_v12.py mapper, planner routing) | Done |
 | 134: v1.2 Context Rendering | Specs K, J (context assembly, verification checklist, helpers) | Done |
 | 135: v1.2 Skill and Validation | Specs H, L (lint routing, af-spec skill template) | Done |
+| 137: Legacy v1 Code Removal | Spec M (remove v1 parser, validators, code paths) | Done |
 
 Remaining items from this plan:
 - **Specs A-E (schemas, data models)**: Superseded by `afspec` library
@@ -28,7 +29,7 @@ Remaining items from this plan:
 - **Spec G (cross-file integrity)**: Handled by `afspec.validate()`
 - **Spec I (mutation engine)**: Not yet implemented
 - **Spec J (renderer)**: Partially covered by `afspec.render_individual()`
-- **Spec M (legacy code removal)**: Deferred; v1 code paths remain
+- **Spec M (legacy code removal)**: Done (spec 137)
 
 See [Spec Format v1.2 Architecture](architecture/06-spec-format-v12.md) for
 the current state of the system.

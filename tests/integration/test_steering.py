@@ -9,6 +9,7 @@ Requirements: 64-REQ-2.1, 64-REQ-2.2
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import duckdb
@@ -18,13 +19,40 @@ from tests.unit.knowledge.conftest import SCHEMA_DDL
 
 
 def _make_spec_dir(root: Path) -> Path:
-    """Create a spec directory with minimal required files."""
+    """Create a spec directory with minimal required v1.2 files."""
     spec_dir = root / "specs" / "64_steering_test"
     spec_dir.mkdir(parents=True, exist_ok=True)
-    (spec_dir / "requirements.md").write_text("# Requirements\n\nReq content.\n")
-    (spec_dir / "design.md").write_text("# Design\n\nDesign content.\n")
-    (spec_dir / "test_spec.md").write_text("# Test Spec\n\nTest content.\n")
-    (spec_dir / "tasks.md").write_text("# Tasks\n\nTask content.\n")
+    (spec_dir / "prd.md").write_text(
+        '---\nspec_id: "t"\nspec_name: "t"\ntitle: "T"\n'
+        'status: "draft"\ncreated_at: "2024-01-01T00:00:00Z"\n'
+        'updated_at: "2024-01-01T00:00:00Z"\nowner: "t"\n'
+        'source: "t"\nschema_version: 1\n---\n# T\n'
+    )
+    (spec_dir / "requirements.json").write_text(json.dumps({
+        "spec_id": "t", "spec_name": "t", "schema_version": 1,
+        "introduction": "REQ", "glossary": {},
+        "requirements": [], "correctness_properties": [],
+        "execution_paths": [], "error_handling": [],
+    }))
+    (spec_dir / "test_spec.json").write_text(json.dumps({
+        "spec_id": "t", "spec_name": "t", "schema_version": 1,
+        "test_cases": [], "property_tests": [],
+        "edge_case_tests": [], "smoke_tests": [],
+        "coverage": {
+            "requirements_covered": [],
+            "properties_covered": [],
+            "paths_covered": [],
+            "gaps": [],
+        },
+    }))
+    (spec_dir / "tasks.json").write_text(json.dumps({
+        "spec_id": "t", "spec_name": "t", "schema_version": 1,
+        "test_commands": {
+            "spec_tests": "", "all_tests": "", "linter": "",
+        },
+        "dependencies": [], "task_groups": [],
+        "traceability": [],
+    }))
     return spec_dir
 
 
