@@ -2,6 +2,32 @@ version = 1
 revision = 3
 requires-python = ">=3.12"
 
+[manifest]
+members = [
+    "af",
+    "agent-fox",
+    "agentfox",
+]
+
+[[package]]
+name = "af"
+version = "4.0.0rc1"
+source = { editable = "packages/af" }
+dependencies = [
+    { name = "agentfox" },
+    { name = "click" },
+    { name = "duckdb" },
+    { name = "rich" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "agentfox", editable = "packages/agentfox" },
+    { name = "click", specifier = ">=8.1" },
+    { name = "duckdb", specifier = ">=1.5" },
+    { name = "rich", specifier = ">=15.0" },
+]
+
 [[package]]
 name = "afspec"
 version = "0.9.0"
@@ -34,7 +60,40 @@ dev = [
 [[package]]
 name = "agent-fox"
 version = "4.0.0rc1"
-source = { editable = "." }
+source = { virtual = "." }
+dependencies = [
+    { name = "af" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "hypothesis" },
+    { name = "mypy" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-xdist" },
+    { name = "ruff" },
+    { name = "types-pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "af", editable = "packages/af" }]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "hypothesis", specifier = ">=6.0" },
+    { name = "mypy", specifier = ">=1.20" },
+    { name = "pytest", specifier = ">=9.0" },
+    { name = "pytest-asyncio", specifier = ">=1.0" },
+    { name = "pytest-xdist", specifier = ">=3.8.0" },
+    { name = "ruff", specifier = ">=0.15" },
+    { name = "types-pyyaml", specifier = ">=6.0" },
+]
+
+[[package]]
+name = "agentfox"
+version = "4.0.0rc1"
+source = { editable = "packages/agentfox" }
 dependencies = [
     { name = "afspec" },
     { name = "anthropic", extra = ["bedrock", "vertex"] },
@@ -68,17 +127,6 @@ dependencies = [
     { name = "tree-sitter-rust" },
     { name = "tree-sitter-swift" },
     { name = "tree-sitter-typescript" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "hypothesis" },
-    { name = "mypy" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "pytest-xdist" },
-    { name = "ruff" },
-    { name = "types-pyyaml" },
 ]
 
 [package.metadata]
@@ -115,17 +163,6 @@ requires-dist = [
     { name = "tree-sitter-rust", specifier = ">=0.24" },
     { name = "tree-sitter-swift", specifier = ">=0.0.1" },
     { name = "tree-sitter-typescript", specifier = ">=0.23" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "hypothesis", specifier = ">=6.0" },
-    { name = "mypy", specifier = ">=1.20" },
-    { name = "pytest", specifier = ">=9.0" },
-    { name = "pytest-asyncio", specifier = ">=1.0" },
-    { name = "pytest-xdist", specifier = ">=3.8.0" },
-    { name = "ruff", specifier = ">=0.15" },
-    { name = "types-pyyaml", specifier = ">=6.0" },
 ]
 
 [[package]]
