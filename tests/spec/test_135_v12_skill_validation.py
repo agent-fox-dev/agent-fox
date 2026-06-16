@@ -320,136 +320,17 @@ class TestV12RoutedToAfspec:
 
 
 # ===========================================================================
-# TS-135-2: v1 spec routed to custom validators
+# TS-135-2: (Removed) v1 spec routed to custom validators
+# v1 routing was removed in spec 137 (legacy format removal).
+# All specs now go through afspec validation.
 # ===========================================================================
 
 
-class TestV1RoutedToCustom:
-    """TS-135-2: Verify v1 spec is validated using custom validate_specs().
-
-    Requirement: 135-REQ-1.2
-
-    Note: discover_specs() filters out V1_MARKDOWN specs (132-REQ-3.3),
-    so this test mocks discover_specs to return a v1 SpecInfo directly.
-    See errata 135_discover_specs_v1_filtering.md.
-    """
-
-    def test_v1_routed_to_custom_validators(self, v1_specs_root: Path) -> None:
-        """A V1_MARKDOWN spec should be validated via validate_specs()."""
-        v1_spec = _make_v1_spec_info(v1_specs_root, "01_legacy", 1)
-
-        with (
-            patch(
-                "agent_fox.spec.lint.discover_specs", return_value=[v1_spec]
-            ),
-            patch(
-                "agent_fox.spec.lint.validate_specs", return_value=[]
-            ) as mock_v1,
-            patch("afspec.validate") as mock_v12,
-        ):
-            result = run_lint_specs(v1_specs_root)
-            assert mock_v1.called, (
-                "validate_specs() should be called for v1 specs"
-            )
-            assert not mock_v12.called, (
-                "afspec.validate() should NOT be called for v1 specs"
-            )
-            assert isinstance(result, LintResult)
-
-
 # ===========================================================================
-# TS-135-3: Mixed format specs validated by correct validators
+# TS-135-3: (Removed) Mixed format specs validated by correct validators
+# v1/v1.2 mixed routing was removed in spec 137 (legacy format removal).
+# All specs now go through afspec validation exclusively.
 # ===========================================================================
-
-
-class TestMixedFormatValidation:
-    """TS-135-3: Verify mixed v1/v1.2 specs are routed to correct validators.
-
-    Requirement: 135-REQ-1.3
-
-    Note: discover_specs() filters out V1_MARKDOWN specs, so this test
-    mocks discover_specs to return both v1 and v1.2 SpecInfo objects.
-    See errata 135_discover_specs_v1_filtering.md.
-    """
-
-    def test_mixed_format_uses_both_validators(
-        self, mixed_specs_root: Path
-    ) -> None:
-        """Both validators should be called for mixed-format spec sets."""
-        v1_spec = _make_v1_spec_info(mixed_specs_root, "01_legacy", 1)
-        v12_spec = _make_v12_spec_info(mixed_specs_root, "02_modern", 2)
-
-        with (
-            patch(
-                "agent_fox.spec.lint.discover_specs",
-                return_value=[v1_spec, v12_spec],
-            ),
-            patch(
-                "agent_fox.spec.lint.validate_specs", return_value=[]
-            ) as mock_v1,
-            patch("afspec.validate", return_value=[]) as mock_v12,
-        ):
-            result = run_lint_specs(mixed_specs_root)
-            assert mock_v1.called, (
-                "validate_specs() should be called for v1 specs"
-            )
-            assert mock_v12.called, (
-                "afspec.validate() should be called for v1.2 specs"
-            )
-            assert isinstance(result, LintResult)
-
-    def test_mixed_findings_sorted(self, mixed_specs_root: Path) -> None:
-        """Findings from both validators should be merged and sorted."""
-        v1_spec = _make_v1_spec_info(mixed_specs_root, "01_legacy", 1)
-        v12_spec = _make_v12_spec_info(mixed_specs_root, "02_modern", 2)
-
-        v1_finding = Finding(
-            spec_name="01_legacy",
-            file="requirements.md",
-            rule="test-v1",
-            severity="warning",
-            message="v1 finding",
-            line=None,
-        )
-        import afspec
-
-        v12_error = afspec.ValidationError(
-            file="requirements.json",
-            rule="test-v12",
-            message="v12 finding",
-        )
-
-        with (
-            patch(
-                "agent_fox.spec.lint.discover_specs",
-                return_value=[v1_spec, v12_spec],
-            ),
-            patch(
-                "agent_fox.spec.lint.validate_specs",
-                return_value=[v1_finding],
-            ),
-            patch("afspec.validate", return_value=[v12_error]),
-        ):
-            result = run_lint_specs(mixed_specs_root)
-            # Findings should be sorted by spec name, file, severity
-            if len(result.findings) >= 2:
-                from agent_fox.spec.types import SEVERITY_ORDER
-
-                for i in range(len(result.findings) - 1):
-                    a, b = result.findings[i], result.findings[i + 1]
-                    key_a = (
-                        a.spec_name,
-                        a.file,
-                        SEVERITY_ORDER.get(a.severity, 99),
-                    )
-                    key_b = (
-                        b.spec_name,
-                        b.file,
-                        SEVERITY_ORDER.get(b.severity, 99),
-                    )
-                    assert key_a <= key_b, (
-                        f"Findings not sorted: {key_a} > {key_b}"
-                    )
 
 
 # ===========================================================================
@@ -916,152 +797,46 @@ class TestFindingMappingPreservesFields:
 
 
 # ===========================================================================
-# TS-135-P2: Format routing is exhaustive (property test)
+# TS-135-P2: (Removed) Format routing is exhaustive (property test)
+# v1/v1.2 format routing was removed in spec 137 (legacy format removal).
+# All specs now go through afspec validation exclusively.
 # ===========================================================================
 
 
-class TestFormatRoutingExhaustive:
-    """TS-135-P2: Every spec is validated by exactly one validator.
-
-    Property: Property 1 from design.md
-    Validates: 135-REQ-1.1, 135-REQ-1.2
-
-    Note: discover_specs() filters out v1 specs, so this test mocks
-    discover_specs to control the format mix. See errata
-    135_discover_specs_v1_filtering.md.
-    """
-
-    @pytest.mark.property
-    @settings(max_examples=10, deadline=None)
-    @given(
-        num_v1=st.integers(min_value=0, max_value=3),
-        num_v12=st.integers(min_value=0, max_value=3),
-    )
-    def test_each_spec_validated_by_exactly_one(
-        self,
-        tmp_path_factory: pytest.TempPathFactory,
-        num_v1: int,
-        num_v12: int,
-    ) -> None:
-        """Each spec should be processed by exactly one validator."""
-        if num_v1 == 0 and num_v12 == 0:
-            return  # No specs to validate
-
-        root = tmp_path_factory.mktemp("prop_routing")
-
-        specs: list[SpecInfo] = []
-        for i in range(num_v1):
-            name = f"{i + 1:02d}_v1_spec_{i}"
-            _write_v1_spec(root / name)
-            specs.append(_make_v1_spec_info(root, name, i + 1))
-
-        for i in range(num_v12):
-            name = f"{num_v1 + i + 1:02d}_v12_spec_{i}"
-            _write_v12_spec(root / name)
-            specs.append(
-                _make_v12_spec_info(root, name, num_v1 + i + 1)
-            )
-
-        v1_validated: list[str] = []
-        v12_validated: list[str] = []
-
-        def track_v1(
-            specs_dir: Path, discovered: list[SpecInfo]
-        ) -> list[Finding]:
-            for s in discovered:
-                v1_validated.append(s.name)
-            return []
-
-        def track_v12(spec_obj: object) -> list:
-            return []
-
-        with (
-            patch(
-                "agent_fox.spec.lint.discover_specs",
-                return_value=specs,
-            ),
-            patch(
-                "agent_fox.spec.lint.validate_specs",
-                side_effect=track_v1,
-            ),
-            patch("afspec.validate", side_effect=track_v12),
-            patch("afspec.load_spec"),
-        ):
-            run_lint_specs(root)
-
-            # v1 specs should go to validate_specs only
-            for s in specs:
-                if s.format == SpecFormat.V1_MARKDOWN:
-                    assert s.name in v1_validated, (
-                        f"v1 spec {s.name} not validated by "
-                        f"validate_specs"
-                    )
-                    assert s.name not in v12_validated
-
-            # v1.2 specs should go to afspec.validate only
-            assert len(v12_validated) == 0 or all(
-                s.format == SpecFormat.V1_2_JSON
-                for s in specs
-                if s.name in v12_validated
-            )
-
-
 # ===========================================================================
-# TS-135-SMOKE-1: Mixed format lint end-to-end
+# TS-135-SMOKE-1: (Simplified) Lint end-to-end
+# Mixed-format routing was removed in spec 137. This now tests that all
+# specs go through afspec validation.
 # ===========================================================================
 
 
-class TestMixedFormatLintSmoke:
-    """TS-135-SMOKE-1: End-to-end lint with both v1 and v1.2 specs.
+class TestLintSmoke:
+    """TS-135-SMOKE-1: End-to-end lint with v1.2 specs.
 
     Execution Path: Path 3 from design.md
 
-    Note: discover_specs() filters out v1 specs, so this test mocks
-    discover_specs to return both formats. See errata
-    135_discover_specs_v1_filtering.md.
+    Updated for spec 137: all specs now go through afspec validation.
     """
 
-    def test_mixed_lint_end_to_end(self, mixed_specs_root: Path) -> None:
-        """Linting a mixed set should invoke both validators."""
-        v1_spec = _make_v1_spec_info(mixed_specs_root, "01_legacy", 1)
-        v12_spec = _make_v12_spec_info(
-            mixed_specs_root, "02_modern", 2
-        )
+    def test_lint_end_to_end(self, v12_specs_root: Path) -> None:
+        """Linting v1.2 specs should invoke afspec validation."""
+        v12_spec = _make_v12_spec_info(v12_specs_root, "02_modern", 2)
 
         with (
             patch(
                 "agent_fox.spec.lint.discover_specs",
-                return_value=[v1_spec, v12_spec],
+                return_value=[v12_spec],
             ),
             patch(
                 "afspec.validate", return_value=[]
             ) as mock_v12,
             patch("afspec.load_spec"),
         ):
-            # Don't mock validate_specs -- let it run real v1 validation
-            result = run_lint_specs(mixed_specs_root, lint_all=True)
+            result = run_lint_specs(v12_specs_root, lint_all=True)
             assert isinstance(result, LintResult)
-            # v1.2 validator should have been called
             assert mock_v12.called, (
                 "afspec.validate() should be called for v1.2 specs"
             )
-            # Findings should be sorted
-            if len(result.findings) >= 2:
-                from agent_fox.spec.types import SEVERITY_ORDER
-
-                for i in range(len(result.findings) - 1):
-                    a, b = result.findings[i], result.findings[i + 1]
-                    key_a = (
-                        a.spec_name,
-                        a.file,
-                        SEVERITY_ORDER.get(a.severity, 99),
-                    )
-                    key_b = (
-                        b.spec_name,
-                        b.file,
-                        SEVERITY_ORDER.get(b.severity, 99),
-                    )
-                    assert key_a <= key_b
 
 
 # ===========================================================================

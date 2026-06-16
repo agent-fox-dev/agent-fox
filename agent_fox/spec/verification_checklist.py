@@ -1,6 +1,6 @@
 """Verification checklist builder for the verifier archetype.
 
-Builds a structured checklist from tasks.md checkboxes, requirements.md
+Builds a structured checklist from tasks.json checkboxes, requirements.json
 acceptance criteria, and errata — injected into the verifier's session
 context so it can enforce task completion and requirement coverage.
 """
@@ -12,9 +12,6 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-
-from agent_fox.spec._patterns import REQ_ID_BARE
-from agent_fox.spec.parser import parse_tasks
 
 logger = logging.getLogger(__name__)
 
@@ -82,16 +79,12 @@ def build_verification_checklist(
 def _audit_task_checkboxes(spec_dir: Path) -> list[SubtaskAuditEntry]:
     """Parse tasks and audit every subtask checkbox state.
 
-    For v1.2 specs (containing ``tasks.json``), loads via afspec and
-    extracts subtask state from Pydantic models.  For v1 specs, parses
-    ``tasks.md`` with the existing markdown parser.
+    Loads tasks.json via afspec and extracts subtask state from Pydantic
+    models.
 
     Requirements: 134-REQ-4.1, 134-REQ-4.E1
     """
-    # v1.2 branch: load tasks.json via afspec (134-REQ-4.1)
-    if (spec_dir / "tasks.json").is_file():
-        return _audit_task_checkboxes_v12(spec_dir)
-    return _audit_task_checkboxes_v1(spec_dir)
+    return _audit_task_checkboxes_v12(spec_dir)
 
 
 def _audit_task_checkboxes_v12(spec_dir: Path) -> list[SubtaskAuditEntry]:
@@ -126,46 +119,6 @@ def _audit_task_checkboxes_v12(spec_dir: Path) -> list[SubtaskAuditEntry]:
     return entries
 
 
-def _audit_task_checkboxes_v1(spec_dir: Path) -> list[SubtaskAuditEntry]:
-    """Parse tasks.md and audit every subtask checkbox state (v1 path)."""
-    tasks_path = spec_dir / "tasks.md"
-    if not tasks_path.is_file():
-        return []
-
-    try:
-        groups = parse_tasks(tasks_path)
-    except Exception:
-        logger.warning("Failed to parse tasks.md for checklist audit in %s", spec_dir)
-        return []
-
-    entries: list[SubtaskAuditEntry] = []
-    for group in groups:
-        for subtask in group.subtasks:
-            entries.append(
-                SubtaskAuditEntry(
-                    group_number=group.number,
-                    subtask_id=subtask.id,
-                    title=subtask.title,
-                    checked=subtask.completed,
-                    skipped=_is_subtask_skipped(tasks_path, subtask.id),
-                )
-            )
-    return entries
-
-
-_SUBTASK_SKIP_PATTERN = re.compile(r"^\s+- \[([~\-])\] (\d+\.(?:\d+|V))")
-
-
-def _is_subtask_skipped(tasks_path: Path, subtask_id: str) -> bool:
-    """Check if a subtask is marked with [-] or [~] (intentionally skipped)."""
-    text = tasks_path.read_text(encoding="utf-8")
-    for line in text.splitlines():
-        m = _SUBTASK_SKIP_PATTERN.match(line)
-        if m and m.group(2) == subtask_id:
-            return True
-    return False
-
-
 def _check_errata_exist(conn: Any, spec_name: str) -> bool:
     """Check if any errata exist for this spec in the DB."""
     try:
@@ -185,9 +138,7 @@ def scan_requirement_test_coverage(
 ) -> list[RequirementMapping]:
     """Map requirement IDs to test file coverage.
 
-    For v1.2 specs (containing ``requirements.json``), extracts
-    requirement IDs from the afspec model.  For v1 specs, parses
-    ``requirements.md`` with regex.
+    Extracts requirement IDs from the afspec model (requirements.json).
 
     Args:
         spec_dir: Path to the spec directory.
@@ -199,10 +150,7 @@ def scan_requirement_test_coverage(
 
     Requirements: 134-REQ-4.2, 134-REQ-4.E1
     """
-    # v1.2 branch: extract IDs from requirements.json (134-REQ-4.2)
-    if (spec_dir / "requirements.json").is_file():
-        return _scan_req_coverage_v12(spec_dir, tests_dir)
-    return _scan_req_coverage_v1(spec_dir, tests_dir)
+    return _scan_req_coverage_v12(spec_dir, tests_dir)
 
 
 def _scan_req_coverage_v12(
@@ -233,35 +181,6 @@ def _scan_req_coverage_v12(
                 req_ids.append(edge_case.id)
 
     req_ids = sorted(set(req_ids))
-    if not req_ids:
-        return []
-
-    test_content = _load_test_file_contents(tests_dir)
-
-    mappings: list[RequirementMapping] = []
-    for req_id in req_ids:
-        test_files = _find_test_files_for_req(req_id, test_content)
-        mappings.append(
-            RequirementMapping(
-                requirement_id=req_id,
-                covered=len(test_files) > 0,
-                test_files=test_files,
-            )
-        )
-    return mappings
-
-
-def _scan_req_coverage_v1(
-    spec_dir: Path,
-    tests_dir: Path | None,
-) -> list[RequirementMapping]:
-    """Extract requirement IDs from requirements.md via regex (v1 path)."""
-    req_path = spec_dir / "requirements.md"
-    if not req_path.is_file():
-        return []
-
-    req_text = req_path.read_text(encoding="utf-8")
-    req_ids = sorted(set(REQ_ID_BARE.findall(req_text)))
     if not req_ids:
         return []
 

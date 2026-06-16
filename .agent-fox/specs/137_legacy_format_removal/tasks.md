@@ -204,8 +204,8 @@ Similarly, `parse_cross_deps(prd_path, spec_name)` becomes
     - [x] Grep confirms no test file imports from `spec.parser`:
       `grep -rn "from agent_fox.spec.parser" tests/`
 
-- [ ] 6. Remove last legacy imports from production code
-  - [ ] 6.1 Remove v1 code paths from `spec/lint.py`
+- [x] 6. Remove last legacy imports from production code
+  - [x] 6.1 Remove v1 code paths from `spec/lint.py`
     - Remove `from agent_fox.spec.validators import validate_specs`
       (line 24)
     - Remove the `v1_specs`/`v12_specs` partitioning (lines 214-215)
@@ -223,7 +223,7 @@ Similarly, `parse_cross_deps(prd_path, spec_name)` becomes
       it degrades gracefully once the module is deleted
     - _Requirements: 3.2, 3.3, 6.3_
 
-  - [ ] 6.2 Remove v1 code paths from `spec/verification_checklist.py`
+  - [x] 6.2 Remove v1 code paths from `spec/verification_checklist.py`
     - Replace `from agent_fox.spec.parser import parse_tasks` (line 17)
       with `from agent_fox.spec.parser_v12 import parse_tasks_v12`
     - In `audit_task_checkboxes()` (~line 88): remove the v1/v1.2
@@ -236,19 +236,19 @@ Similarly, `parse_cross_deps(prd_path, spec_name)` becomes
       v1.2 equivalents
     - _Requirements: 4.2, 4.3_
 
-  - [ ] 6.3 Remove `extract_test_spec_ids()` from `spec/_patterns.py`
+  - [x] 6.3 Remove `extract_test_spec_ids()` from `spec/_patterns.py`
     - Delete the function `extract_test_spec_ids()` (starts at line 37)
       which reads `test_spec.md` — its only callers were in the
       `validators/` package being deleted
     - _Requirements: 4.3_
 
-  - [ ] 6.V Verify task group 6
-    - [ ] All tests pass: `uv run pytest -q`
-    - [ ] Grep confirms no production code imports from legacy modules:
+  - [x] 6.V Verify task group 6
+    - [x] All tests pass: `uv run pytest -q`
+    - [x] Grep confirms no production code imports from legacy modules:
           `grep -rn "from agent_fox.spec.parser import\|from agent_fox.spec.validators import\|from agent_fox.spec.ai_validation import" agent_fox/ --include="*.py" | grep -v __pycache__ | grep -v "spec/parser.py\|spec/ai_validation.py\|spec/validators/"`
           (hits within the legacy modules themselves are OK — they're
           deleted next)
-    - [ ] No linter warnings introduced: `uv run ruff check`
+    - [x] No linter warnings introduced: `uv run ruff check`
 
 - [ ] 7. Delete legacy source modules
   - [ ] 7.1 Delete v1 source modules

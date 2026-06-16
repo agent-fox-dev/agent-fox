@@ -35,7 +35,12 @@ def normalize_heading(text: str) -> str:
 
 
 def extract_test_spec_ids(spec_path: Path) -> set[str]:
-    """Extract all TS-NN-N IDs from test_spec.md headings."""
+    """Extract all TS-NN-N IDs from test_spec.md headings.
+
+    .. deprecated:: Scheduled for removal when the ``validators/``
+       package is deleted (task group 7). Only used by v1 traceability
+       validators.
+    """
     ts_path = spec_path / "test_spec.md"
     if not ts_path.is_file():
         return set()

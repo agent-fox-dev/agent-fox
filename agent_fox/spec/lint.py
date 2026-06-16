@@ -18,10 +18,8 @@ from pathlib import Path
 import afspec
 
 from agent_fox.core.errors import PlanError
-from agent_fox.core.models import resolve_model
-from agent_fox.spec.discovery import SpecFormat, SpecInfo, discover_specs
+from agent_fox.spec.discovery import SpecInfo, discover_specs
 from agent_fox.spec.types import Finding, compute_exit_code, sort_findings
-from agent_fox.spec.validators import validate_specs
 
 logger = logging.getLogger(__name__)
 
@@ -108,43 +106,23 @@ def _validate_v12_spec(spec: SpecInfo) -> list[Finding]:
 def _is_spec_implemented(spec: SpecInfo) -> bool:
     """Check whether a spec is fully implemented based on its tasks.
 
-    For v1.2 specs, checks tasks.json via afspec.load_spec().
-    For v1 specs, checks tasks.md via the markdown parser.
+    Checks tasks.json via afspec.load_spec().
 
     Requirements: 135-REQ-3.2
     """
-    # 135-REQ-3.2: v1.2 specs use tasks.json
-    if spec.format == SpecFormat.V1_2_JSON:
-        try:
-            loaded = afspec.load_spec(spec.path)
-            if not loaded.tasks or not loaded.tasks.task_groups:
-                return False
-            return all(
-                all(
-                    st.state == afspec.SubtaskState.DONE
-                    for st in g.subtasks
-                )
-                for g in loaded.tasks.task_groups
-            )
-        except Exception:
-            return False
-
-    # v1 markdown specs use tasks.md
-    tasks_path = spec.path / "tasks.md"
-    if not tasks_path.is_file():
-        return False
-
-    from agent_fox.spec.parser import parse_tasks
-
     try:
-        groups = parse_tasks(tasks_path)
+        loaded = afspec.load_spec(spec.path)
+        if not loaded.tasks or not loaded.tasks.task_groups:
+            return False
+        return all(
+            all(
+                st.state == afspec.SubtaskState.DONE
+                for st in g.subtasks
+            )
+            for g in loaded.tasks.task_groups
+        )
     except Exception:
         return False
-
-    if not groups:
-        return False
-
-    return all(g.completed for g in groups)
 
 
 def run_lint_specs(
@@ -158,11 +136,10 @@ def run_lint_specs(
 
     Args:
         specs_dir: Path to the specifications directory.
-        ai: Enable AI-powered semantic analysis.
+        ai: Deprecated — accepted for CLI compatibility but has no effect.
         lint_all: Include fully-implemented specs.
         progress_callback: Optional callable receiving phase-level status
-            messages. Called at each major phase: discovery, validation,
-            and (when ``ai=True``) AI analysis.
+            messages. Called at each major phase: discovery and validation.
 
     Returns:
         LintResult with findings and exit code.
@@ -206,53 +183,19 @@ def run_lint_specs(
             return LintResult(findings=[], exit_code=0)
         discovered = filtered
 
-    # 135-REQ-1.1, 135-REQ-1.2, 135-REQ-1.3: Partition by format and
-    # route to the appropriate validator.
+    # Validate all specs using afspec (v1.2 JSON format).
     if progress_callback is not None:
         progress_callback(f"Validating {len(discovered)} spec(s)...")
 
-    v1_specs = [s for s in discovered if s.format == SpecFormat.V1_MARKDOWN]
-    v12_specs = [s for s in discovered if s.format == SpecFormat.V1_2_JSON]
-
     findings: list[Finding] = []
 
-    # Validate v1 markdown specs with custom validators
-    if v1_specs:
-        findings.extend(validate_specs(specs_dir, v1_specs))
-
-    # Validate v1.2 JSON specs with afspec
-    for spec in v12_specs:
+    for spec in discovered:
         findings.extend(_validate_v12_spec(spec))
 
     findings = sort_findings(findings)
-
-    # Optionally run AI validation
-    if ai:
-        if progress_callback is not None:
-            progress_callback("Running AI analysis...")
-        findings = _merge_ai_findings(findings, discovered, specs_dir)
 
     exit_code = compute_exit_code(findings)
     return LintResult(
         findings=findings,
         exit_code=exit_code,
     )
-
-
-def _merge_ai_findings(
-    findings: list[Finding],
-    discovered: list[SpecInfo],
-    specs_dir: Path,
-) -> list[Finding]:
-    """Run AI validation and merge results into existing findings."""
-    import asyncio
-
-    try:
-        from agent_fox.spec.ai_validation import run_ai_validation
-
-        standard_model = resolve_model("STANDARD").model_id
-        ai_findings = asyncio.run(run_ai_validation(discovered, standard_model, specs_dir=specs_dir))
-        return sort_findings(findings + ai_findings)
-    except Exception as exc:
-        logger.warning("AI validation failed: %s", exc)
-        return findings
