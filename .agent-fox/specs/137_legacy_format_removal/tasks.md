@@ -10,7 +10,7 @@
 
 ## Overview
 
-Nine implementation groups after writing tests. Each group is designed to
+Twelve implementation groups after writing tests. Each group is designed to
 leave `make test` passing (no intentional breakage between groups):
 
 1. Write failing tests
@@ -18,10 +18,13 @@ leave `make test` passing (no intentional breakage between groups):
 3. Rewire spec-layer and graph-layer imports (low risk)
 4. Rewire engine-layer imports (high risk — critical runtime paths)
 5. Rewire test file imports (while old modules still exist, so both paths work)
-6. Delete legacy modules and v1 test files (safe — all imports already rewired)
-7. Remove format-routing and v1 references from remaining source
-8. Update documentation
-9. Wiring verification
+6. Remove last legacy imports from production code (prerequisite for deletion)
+7. Delete legacy source modules (safe — all production imports now rewired)
+8. Delete v1 test files and fix edge-case tests
+9. Simplify discovery and remove v1 code from lint/context
+10. Remove v1 references from graph and spec modules
+11. Update documentation
+12. Wiring verification
 
 **Critical API difference:** `parse_tasks(file_path)` takes a Path to
 `tasks.md`, but `parse_tasks_v12(spec_dir)` takes a Path to the spec
@@ -201,19 +204,72 @@ Similarly, `parse_cross_deps(prd_path, spec_name)` becomes
     - [x] Grep confirms no test file imports from `spec.parser`:
       `grep -rn "from agent_fox.spec.parser" tests/`
 
-- [ ] 6. Delete legacy modules and v1 test files
-  - [ ] 6.1 Delete v1 source modules
+- [ ] 6. Remove last legacy imports from production code
+  - [ ] 6.1 Remove v1 code paths from `spec/lint.py`
+    - Remove `from agent_fox.spec.validators import validate_specs`
+      (line 24)
+    - Remove the `v1_specs`/`v12_specs` partitioning (lines 214-215)
+      and the `if v1_specs: findings.extend(validate_specs(...))` block
+      (lines 220-221) — keep only the `for spec in ...:
+      _validate_v12_spec()` loop, iterating over all `discovered` specs
+    - Remove the late import `from agent_fox.spec.parser import
+      parse_tasks` inside `_is_spec_implemented()` (line 137) and
+      replace with `from agent_fox.spec.parser_v12 import
+      parse_tasks_v12`; update the call from `parse_tasks(tasks_path)`
+      to `parse_tasks_v12(spec.path)` (spec directory, not tasks.md)
+    - Remove the late import `from agent_fox.spec.ai_validation import
+      run_ai_validation` (line 251) and its surrounding `try/except`
+      block — or gate it behind `if importlib.util.find_spec(...)` so
+      it degrades gracefully once the module is deleted
+    - _Requirements: 3.2, 3.3, 6.3_
+
+  - [ ] 6.2 Remove v1 code paths from `spec/verification_checklist.py`
+    - Replace `from agent_fox.spec.parser import parse_tasks` (line 17)
+      with `from agent_fox.spec.parser_v12 import parse_tasks_v12`
+    - In `audit_task_checkboxes()` (~line 88): remove the v1/v1.2
+      branching — call `_audit_task_checkboxes_v12()` unconditionally
+    - Delete `_audit_task_checkboxes_v1()` (starts at line 129) — the
+      entire function that reads `tasks.md` and calls `parse_tasks()`
+    - Delete `_extract_requirement_ids_v1()` (starts at ~line 258) —
+      the function that reads `requirements.md` via regex
+    - Update any remaining callers of the deleted functions to use the
+      v1.2 equivalents
+    - _Requirements: 4.2, 4.3_
+
+  - [ ] 6.3 Remove `extract_test_spec_ids()` from `spec/_patterns.py`
+    - Delete the function `extract_test_spec_ids()` (starts at line 37)
+      which reads `test_spec.md` — its only callers were in the
+      `validators/` package being deleted
+    - _Requirements: 4.3_
+
+  - [ ] 6.V Verify task group 6
+    - [ ] All tests pass: `uv run pytest -q`
+    - [ ] Grep confirms no production code imports from legacy modules:
+          `grep -rn "from agent_fox.spec.parser import\|from agent_fox.spec.validators import\|from agent_fox.spec.ai_validation import" agent_fox/ --include="*.py" | grep -v __pycache__ | grep -v "spec/parser.py\|spec/ai_validation.py\|spec/validators/"`
+          (hits within the legacy modules themselves are OK — they're
+          deleted next)
+    - [ ] No linter warnings introduced: `uv run ruff check`
+
+- [ ] 7. Delete legacy source modules
+  - [ ] 7.1 Delete v1 source modules
     - `git rm agent_fox/spec/parser.py`
     - `git rm agent_fox/spec/ai_validation.py`
     - `git rm -r agent_fox/spec/validators/`
     - _Requirements: 2.1, 3.1, 4.1_
 
-  - [ ] 6.2 Verify package importability after deletion
+  - [ ] 7.2 Verify package importability after deletion
     - Run `python -c "import agent_fox"` to confirm no dangling imports
-    - If any ImportError, investigate and fix the remaining reference
+    - If any ImportError, grep for the symbol and fix the remaining
+      reference — the likely source is a late import that was missed
     - _Requirements: 2.2_
 
-  - [ ] 6.3 Delete v1-only test files
+  - [ ] 7.V Verify task group 7
+    - [ ] All tests pass: `uv run pytest -q`
+    - [ ] `parser.py`, `validators/`, `ai_validation.py` do not exist
+    - [ ] No linter warnings introduced: `uv run ruff check`
+
+- [ ] 8. Delete v1 test files and fix edge-case tests
+  - [ ] 8.1 Delete v1-only test files
     - `git rm tests/unit/spec/test_parser.py`
     - `git rm tests/unit/spec/test_validator.py`
     - `git rm tests/unit/spec/test_validator_coverage_gaps.py`
@@ -221,25 +277,48 @@ Similarly, `parse_cross_deps(prd_path, spec_name)` becomes
     - `git rm tests/unit/spec/test_validator_robustness_rules.py`
     - `git rm tests/unit/spec/test_ai_validator.py`
     - `git rm tests/unit/spec/test_stale_dependency.py`
+    - `git rm tests/property/spec/test_validator_props.py`
     - _Requirements: 7.2, 7.3, 7.4_
 
-  - [ ] 6.4 Handle edge-case test files
-    - Remove `_KNOWN_ARCHETYPES` test method from
-      `tests/unit/session/test_no_coordinator.py` (keep other tests)
-    - Remove `_KNOWN_ARCHETYPES` test methods from
-      `tests/property/test_no_coordinator_props.py` (keep other tests)
-    - Update or rewrite `tests/unit/spec/test_verification_checklist.py`
-      to test only v1.2 code paths (remove v1 fixture creation)
+  - [ ] 8.2 Fix `tests/unit/graph/test_builder_archetypes.py`
+    - Three late imports of `parse_tasks` from `agent_fox.spec.parser`
+      (lines 184, 200, 464) — change each to `from
+      agent_fox.spec.parser_v12 import parse_tasks_v12` and update the
+      call sites from `parse_tasks(path)` to `parse_tasks_v12(spec_dir)`
+      (spec directory, not tasks.md path)
+    - _Requirements: 7.E1_
+
+  - [ ] 8.3 Fix `tests/unit/session/test_no_coordinator.py`
+    - Delete class `TestParserKnownArchetypesExcludesCoordinator`
+      (line 65) containing method
+      `test_parser_known_archetypes_excludes_coordinator` (line 68) —
+      it imports `_KNOWN_ARCHETYPES` from `spec.parser` which no longer
+      exists. Keep all other test classes in this file.
     - _Requirements: 7.1_
 
-  - [ ] 6.V Verify task group 6
+  - [ ] 8.4 Fix `tests/property/test_no_coordinator_props.py`
+    - Delete method `test_no_coordinator_in_known_archetypes` (line 31)
+      and the related method at line 40 — both import
+      `_KNOWN_ARCHETYPES` from `spec.parser`. Keep all other tests.
+    - _Requirements: 7.1_
+
+  - [ ] 8.5 Fix `tests/unit/spec/test_verification_checklist.py`
+    - Remove any test fixtures or helpers that create v1 `tasks.md` or
+      `requirements.md` files
+    - Remove test methods that exercise the now-deleted
+      `_audit_task_checkboxes_v1` or `_extract_requirement_ids_v1`
+      functions
+    - Keep tests that exercise v1.2 code paths (JSON-based fixtures)
+    - _Requirements: 7.1_
+
+  - [ ] 8.V Verify task group 8
     - [ ] All tests pass: `uv run pytest -q`
-    - [ ] `parser.py`, `validators/`, `ai_validation.py` do not exist
-    - [ ] No test file imports from deleted modules (grep check)
+    - [ ] No test file imports from deleted modules:
+          `grep -rn "from agent_fox.spec.parser import\|from agent_fox.spec.validators import\|from agent_fox.spec.ai_validation import" tests/ --include="*.py"`
     - [ ] No linter warnings introduced: `uv run ruff check`
 
-- [ ] 7. Remove format-routing and v1 filename references
-  - [ ] 7.1 Simplify `discovery.py`
+- [ ] 9. Simplify discovery and remove v1 code from lint/context
+  - [ ] 9.1 Simplify `spec/discovery.py`
     - Remove `V1_MARKDOWN` from `SpecFormat` enum (keep `V1_2_JSON`)
     - Change `SpecInfo.format` default from `SpecFormat.V1_MARKDOWN` to
       `SpecFormat.V1_2_JSON`
@@ -252,47 +331,50 @@ Similarly, `parse_cross_deps(prd_path, spec_name)` becomes
       `tasks.md`
     - _Requirements: 6.1, 6.2, 6.E1_
 
-  - [ ] 7.2 Remove v1 code paths from lint and context
-    - In `spec/lint.py`: remove `v1_specs`/`v12_specs` partitioning,
-      remove `validate_specs()` call, keep only `_validate_v12_spec` path
-    - In `spec/lint.py`: remove v1 branch from `_is_spec_implemented()`
-    - In `session/context.py`: remove `_CORE_SPEC_FILES` constant and
-      its usage, remove v1 file-reading path from context assembly
-    - _Requirements: 6.3, 3.2, 3.3_
+  - [ ] 9.2 Remove v1 code from `session/context.py`
+    - Delete the `_CORE_SPEC_FILES` constant (line 48) which lists
+      `requirements.md`, `design.md`, `test_spec.md`
+    - Remove the v1 file-reading loop at ~line 411 that iterates over
+      `_CORE_SPEC_FILES` — replace with v1.2 context assembly (or
+      remove if already superseded by `afspec.render_individual()`)
+    - Remove the comment block listing v1 filenames (~lines 337-339)
+    - _Requirements: 3.2, 3.3, 6.3_
 
-  - [ ] 7.3 Remove v1 references from graph modules
-    - In `graph/injection.py`: change `requirements.md` existence check
-      to `requirements.json` in `build_review_only_graph()` — HIGH RISK:
-      without this, Verifier nodes won't be injected for v1.2 specs in
+  - [ ] 9.V Verify task group 9
+    - [ ] All tests pass: `uv run pytest -q`
+    - [ ] No `V1_MARKDOWN` in `discovery.py`
+    - [ ] No `_CORE_SPEC_FILES` in `context.py`
+    - [ ] No linter warnings introduced: `uv run ruff check`
+
+- [ ] 10. Remove v1 references from graph and spec modules
+  - [ ] 10.1 Remove v1 references from graph modules
+    - In `graph/injection.py` line 426: change
+      `(spec_dir / "requirements.md").exists()` to
+      `(spec_dir / "requirements.json").exists()` — HIGH RISK: without
+      this, Verifier nodes won't be injected for v1.2 specs in
       review-only mode
-    - In `graph/spec_helpers.py`: remove v1 branches that check
-      `design.md` and `test_spec.md`, keep only `architecture.md` and
-      `test_spec.json` paths
-    - In `graph/file_impacts.py`: change `design.md` reference to
-      `architecture.md`
+    - In `graph/spec_helpers.py` line 71: remove the v1 branch that
+      checks `test_spec.md`, keep only `test_spec.json` path
+    - In `graph/spec_helpers.py` line 108: remove the `design.md`
+      fallback, keep only `architecture.md`
+    - In `graph/file_impacts.py` line 67: change `design.md` reference
+      to `architecture.md`
     - _Requirements: 6.4_
 
-  - [ ] 7.4 Strip v1 code from spec modules
-    - In `spec/verification_checklist.py`: remove v1 code paths
-      (`_audit_task_checkboxes_v1`, v1 requirement scanning), remove
-      `tasks.md`/`requirements.md` string references, remove import of
-      `parse_tasks` from `spec.parser`
-    - In `spec/_patterns.py`: remove `extract_test_spec_ids()` function
-      and `test_spec.md` reference (only callers were in deleted
-      validators)
-    - _Requirements: 4.2, 4.3_
+  - [ ] 10.2 Remove v1 branch from `spec/lint.py`
+    - In `_is_spec_implemented()`: if the v1 branch (checking
+      `tasks.md`) was not fully removed in group 6.1, remove it now
+    - _Requirements: 6.3_
 
-  - [ ] 7.V Verify task group 7
+  - [ ] 10.V Verify task group 10
     - [ ] All tests pass: `uv run pytest -q`
     - [ ] Grep confirms no v1 filename strings in source (excluding
           `fix/spec_gen.py`, comments, and docstrings):
           `grep -rn "requirements\.md\|design\.md\|test_spec\.md" agent_fox/ --include="*.py" | grep -v spec_gen | grep -v __pycache__`
-    - [ ] No `_CORE_SPEC_FILES` in `context.py`
-    - [ ] No `V1_MARKDOWN` in `discovery.py`
     - [ ] No linter warnings introduced: `uv run ruff check`
 
-- [ ] 8. Update documentation
-  - [ ] 8.1 Update architecture docs
+- [ ] 11. Update documentation
+  - [ ] 11.1 Update architecture docs
     - Update `docs/architecture/06-spec-format-v12.md`: describe v1.2 as
       the sole format, remove "Dual-Format Coexistence" section, remove
       "Migration Status" framing, simplify to describe the current state
@@ -305,7 +387,7 @@ Similarly, `parse_cross_deps(prd_path, spec_name)` becomes
     - Update `docs/architecture/README.md`: update Part 6 summary
     - _Requirements: 8.1, 8.2_
 
-  - [ ] 8.2 Update top-level docs
+  - [ ] 11.2 Update top-level docs
     - Update `docs/architecture.md`: remove dual-format spec artifacts
       table, list only v1.2 files
     - Update `docs/README.md`: simplify spec format description to
@@ -314,14 +396,14 @@ Similarly, `parse_cross_deps(prd_path, spec_name)` becomes
       as complete, note that legacy code has been removed
     - _Requirements: 8.3, 8.4_
 
-  - [ ] 8.V Verify task group 8
+  - [ ] 11.V Verify task group 11
     - [ ] All tests pass: `uv run pytest -q`
     - [ ] Documentation renders correctly (no broken links)
     - [ ] No linter warnings introduced: `uv run ruff check`
 
-- [ ] 9. Wiring verification
+- [ ] 12. Wiring verification
 
-  - [ ] 9.1 Trace every execution path from design.md end-to-end
+  - [ ] 12.1 Trace every execution path from design.md end-to-end
     - Path 1 (lint validates spec): trace from `lint_specs.py` through
       `lint.py` → `_validate_v12_spec()` → `afspec.validate()` →
       `_map_afspec_findings()` → `compute_exit_code()`. Verify each
@@ -334,7 +416,7 @@ Similarly, `parse_cross_deps(prd_path, spec_name)` becomes
       `verification_checklist.py`. Verify no v1 fallback path remains.
     - _Requirements: all_
 
-  - [ ] 9.2 Verify hot-load pipeline end-to-end
+  - [ ] 12.2 Verify hot-load pipeline end-to-end
     - Trace `discover_new_specs_gated()` → `is_spec_complete()` (v1.2
       file list) → `lint_spec_gate()` (`afspec.validate()`) →
       `are_all_tasks_done()` (`parse_tasks_v12`) →
@@ -344,25 +426,25 @@ Similarly, `parse_cross_deps(prd_path, spec_name)` becomes
       tasks.md)
     - _Requirements: all_
 
-  - [ ] 9.3 Verify review-only graph injection
+  - [ ] 12.3 Verify review-only graph injection
     - Confirm `build_review_only_graph()` in `injection.py` checks for
       `requirements.json` (not `requirements.md`)
     - Verify a v1.2 spec directory with `requirements.json` would
       produce a Verifier node
     - _Requirements: all_
 
-  - [ ] 9.4 Run the integration smoke tests
+  - [ ] 12.4 Run the integration smoke tests
     - All `TS-137-SMOKE-*` tests pass using real components
     - _Test Spec: TS-137-SMOKE-1, TS-137-SMOKE-2_
 
-  - [ ] 9.5 Stub / dead-code audit
+  - [ ] 12.5 Stub / dead-code audit
     - Search all files touched by this spec for: `return []`, `return None`
       on non-Optional returns, `pass` in non-abstract methods, `# TODO`,
       `# stub`, `NotImplementedError`
     - Each hit must be either justified or replaced
     - _Requirements: all_
 
-  - [ ] 9.V Verify wiring group
+  - [ ] 12.V Verify wiring group
     - [ ] All smoke tests pass
     - [ ] No unjustified stubs remain in touched files
     - [ ] All execution paths from design.md are live
@@ -375,33 +457,33 @@ Similarly, `parse_cross_deps(prd_path, spec_name)` becomes
 | 137-REQ-1.1 | TS-137-1 | 2.1 | tests/spec/test_137_legacy_removal.py |
 | 137-REQ-1.2 | TS-137-2 | 2.1 | tests/spec/test_137_legacy_removal.py |
 | 137-REQ-1.3 | TS-137-3 | 3.1 | tests/spec/test_137_legacy_removal.py |
-| 137-REQ-1.E1 | TS-137-E1 | 6.1 | tests/spec/test_137_legacy_removal.py |
-| 137-REQ-2.1 | TS-137-4 | 6.1 | tests/spec/test_137_legacy_removal.py |
-| 137-REQ-2.2 | TS-137-P2 | 3-4, 6.2 | tests/spec/test_137_legacy_removal.py |
-| 137-REQ-3.1 | TS-137-5 | 6.1 | tests/spec/test_137_legacy_removal.py |
-| 137-REQ-3.2 | TS-137-7 | 7.2 | tests/spec/test_137_legacy_removal.py |
-| 137-REQ-3.3 | TS-137-7 | 7.2 | tests/spec/test_137_legacy_removal.py |
+| 137-REQ-1.E1 | TS-137-E1 | 7.1 | tests/spec/test_137_legacy_removal.py |
+| 137-REQ-2.1 | TS-137-4 | 7.1 | tests/spec/test_137_legacy_removal.py |
+| 137-REQ-2.2 | TS-137-P2 | 3-4, 7.2 | tests/spec/test_137_legacy_removal.py |
+| 137-REQ-3.1 | TS-137-5 | 7.1 | tests/spec/test_137_legacy_removal.py |
+| 137-REQ-3.2 | TS-137-7 | 6.1, 9.2 | tests/spec/test_137_legacy_removal.py |
+| 137-REQ-3.3 | TS-137-7 | 6.1, 9.2 | tests/spec/test_137_legacy_removal.py |
 | 137-REQ-3.4 | TS-137-8 | 4.4 | tests/spec/test_137_legacy_removal.py |
-| 137-REQ-3.E1 | TS-137-E2 | 6.1 | tests/spec/test_137_legacy_removal.py |
-| 137-REQ-4.1 | TS-137-6 | 6.1 | tests/spec/test_137_legacy_removal.py |
-| 137-REQ-4.2 | TS-137-9 | 7.4 | tests/spec/test_137_legacy_removal.py |
-| 137-REQ-4.3 | TS-137-9 | 7.4 | tests/spec/test_137_legacy_removal.py |
+| 137-REQ-3.E1 | TS-137-E2 | 7.1 | tests/spec/test_137_legacy_removal.py |
+| 137-REQ-4.1 | TS-137-6 | 7.1 | tests/spec/test_137_legacy_removal.py |
+| 137-REQ-4.2 | TS-137-9 | 6.2 | tests/spec/test_137_legacy_removal.py |
+| 137-REQ-4.3 | TS-137-9 | 6.2, 6.3 | tests/spec/test_137_legacy_removal.py |
 | 137-REQ-5.1 | TS-137-3 | 3.2 | tests/spec/test_137_legacy_removal.py |
 | 137-REQ-5.2 | TS-137-8 | 3.2 | tests/spec/test_137_legacy_removal.py |
 | 137-REQ-5.3 | TS-137-8 | 4.1-4.4 | tests/spec/test_137_legacy_removal.py |
 | 137-REQ-5.4 | TS-137-7 | 3.1 | tests/spec/test_137_legacy_removal.py |
-| 137-REQ-5.E1 | TS-137-9 | 3-4, 7.2-7.4 | tests/spec/test_137_legacy_removal.py |
-| 137-REQ-6.1 | TS-137-9 | 7.1 | tests/spec/test_137_legacy_removal.py |
-| 137-REQ-6.2 | TS-137-SMOKE-2 | 7.1 | tests/spec/test_137_legacy_removal.py |
-| 137-REQ-6.3 | TS-137-10 | 7.2 | tests/spec/test_137_legacy_removal.py |
-| 137-REQ-6.4 | TS-137-9 | 7.3-7.4 | tests/spec/test_137_legacy_removal.py |
-| 137-REQ-6.E1 | TS-137-SMOKE-2 | 7.1 | tests/spec/test_137_legacy_removal.py |
-| 137-REQ-7.1 | TS-137-SMOKE-1 | 5-6 | tests/spec/test_137_legacy_removal.py |
-| 137-REQ-7.2 | TS-137-E3 | 5.1, 6.3 | tests/spec/test_137_legacy_removal.py |
-| 137-REQ-7.3 | TS-137-E3 | 5.2, 6.3 | tests/spec/test_137_legacy_removal.py |
-| 137-REQ-7.4 | TS-137-E3 | 6.3 | tests/spec/test_137_legacy_removal.py |
+| 137-REQ-5.E1 | TS-137-9 | 3-4, 6.1-6.3, 9-10 | tests/spec/test_137_legacy_removal.py |
+| 137-REQ-6.1 | TS-137-9 | 9.1 | tests/spec/test_137_legacy_removal.py |
+| 137-REQ-6.2 | TS-137-SMOKE-2 | 9.1 | tests/spec/test_137_legacy_removal.py |
+| 137-REQ-6.3 | TS-137-10 | 6.1, 9.2 | tests/spec/test_137_legacy_removal.py |
+| 137-REQ-6.4 | TS-137-9 | 6.2, 6.3, 10.1 | tests/spec/test_137_legacy_removal.py |
+| 137-REQ-6.E1 | TS-137-SMOKE-2 | 9.1 | tests/spec/test_137_legacy_removal.py |
+| 137-REQ-7.1 | TS-137-SMOKE-1 | 5, 7-8 | tests/spec/test_137_legacy_removal.py |
+| 137-REQ-7.2 | TS-137-E3 | 5.1, 8.1 | tests/spec/test_137_legacy_removal.py |
+| 137-REQ-7.3 | TS-137-E3 | 5.2, 8.1 | tests/spec/test_137_legacy_removal.py |
+| 137-REQ-7.4 | TS-137-E3 | 8.1 | tests/spec/test_137_legacy_removal.py |
 | 137-REQ-7.E1 | TS-137-E3 | 5.1 | tests/spec/test_137_legacy_removal.py |
-| 137-REQ-8.1 | TS-137-SMOKE-1 | 8.1 | manual review |
-| 137-REQ-8.2 | TS-137-SMOKE-1 | 8.1 | manual review |
-| 137-REQ-8.3 | TS-137-SMOKE-1 | 8.2 | manual review |
-| 137-REQ-8.4 | TS-137-SMOKE-1 | 8.2 | manual review |
+| 137-REQ-8.1 | TS-137-SMOKE-1 | 11.1 | manual review |
+| 137-REQ-8.2 | TS-137-SMOKE-1 | 11.1 | manual review |
+| 137-REQ-8.3 | TS-137-SMOKE-1 | 11.2 | manual review |
+| 137-REQ-8.4 | TS-137-SMOKE-1 | 11.2 | manual review |
