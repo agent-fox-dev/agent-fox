@@ -263,7 +263,7 @@ The system uses a modular architecture.
 # ---------------------------------------------------------------------------
 
 
-def _write_v12_spec(
+def _write_spec(
     spec_dir: Path,
     *,
     include_architecture: bool = False,
@@ -301,7 +301,7 @@ def knowledge_conn() -> duckdb.DuckDBPyConnection:
 def v12_spec_dir(tmp_path: Path) -> Path:
     """A v1.2 spec directory with all valid artifacts (no architecture.md)."""
     spec_dir = tmp_path / "specs" / "134_test_spec"
-    _write_v12_spec(spec_dir)
+    _write_spec(spec_dir)
     return spec_dir
 
 
@@ -309,7 +309,7 @@ def v12_spec_dir(tmp_path: Path) -> Path:
 def v12_spec_dir_with_arch(tmp_path: Path) -> Path:
     """A v1.2 spec directory with architecture.md included."""
     spec_dir = tmp_path / "specs" / "134_test_spec_arch"
-    _write_v12_spec(spec_dir, include_architecture=True)
+    _write_spec(spec_dir, include_architecture=True)
     return spec_dir
 
 
@@ -769,7 +769,7 @@ class TestSmokeV12Assembly:
         (agent_fox_dir / "steering.md").write_text("")
 
         spec_dir = project_root / ".agent-fox" / "specs" / "134_smoke_test"
-        _write_v12_spec(spec_dir, include_architecture=True)
+        _write_spec(spec_dir, include_architecture=True)
 
         context = assemble_context(
             spec_dir,

@@ -63,7 +63,7 @@ def _make_sample_graph() -> TaskGraph:
     )
 
 
-def _write_v12_spec(spec_dir: Path, *, task_groups: list[dict] | None = None) -> None:
+def _write_spec(spec_dir: Path, *, task_groups: list[dict] | None = None) -> None:
     """Populate a directory with valid v1.2 spec artifacts for afspec.load_spec()."""
     import json
 
@@ -121,7 +121,7 @@ def _setup_project(project_dir: Path) -> None:
     (agent_fox_dir / "config.toml").write_text("")
 
     # Create .specs/01_test/ with v1.2 format artifacts
-    _write_v12_spec(project_dir / ".specs" / "01_test")
+    _write_spec(project_dir / ".specs" / "01_test")
 
 
 class TestPlanPersistAndLoad:
@@ -282,7 +282,7 @@ class TestPlanCLIEndToEnd:
         """Running --spec after cached unfiltered plan rebuilds and filters nodes."""
         _setup_project(tmp_git_repo)
 
-        _write_v12_spec(
+        _write_spec(
             tmp_git_repo / ".specs" / "02_other",
             task_groups=[{
                 "id": 1, "kind": "standard", "title": "Add second feature",

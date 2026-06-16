@@ -7,8 +7,7 @@ from __future__ import annotations
 
 import logging
 import re
-from dataclasses import dataclass, field
-from enum import Enum
+from dataclasses import dataclass
 from pathlib import Path
 
 from agent_fox.core.errors import PlanError
@@ -18,14 +17,6 @@ logger = logging.getLogger(__name__)
 # Pattern: numeric prefix (2+ digits), underscore, descriptive name
 _SPEC_DIR_PATTERN = re.compile(r"^(\d+)_(.+)$")
 
-
-class SpecFormat(Enum):
-    """Discriminator for spec folder format.
-
-    Only V1_2_JSON is supported after legacy format removal (spec 137).
-    """
-
-    V1_2_JSON = "v1_2_json"
 
 
 @dataclass(frozen=True)
@@ -37,7 +28,6 @@ class SpecInfo:
     path: Path  # e.g., Path(".specs/01_core_foundation")
     has_tasks: bool  # whether tasks.json exists
     has_prd: bool  # whether prd.md exists
-    format: SpecFormat = field(default=SpecFormat.V1_2_JSON)
 
 
 def discover_specs(

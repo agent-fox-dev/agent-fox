@@ -77,7 +77,7 @@ class TestIsTaskGroupDoneFile:
                 body="", archetype=None,
             ),
         ]
-        with patch("agent_fox.spec.parser_v12.parse_tasks_v12", return_value=mock_groups):
+        with patch("agent_fox.spec.parser.parse_tasks", return_value=mock_groups):
             assert is_task_group_done_file(tmp_path, "my_spec", 1) is True
 
     def test_incomplete_group_returns_false(self, tmp_path: Path) -> None:
@@ -92,7 +92,7 @@ class TestIsTaskGroupDoneFile:
                 body="", archetype=None,
             ),
         ]
-        with patch("agent_fox.spec.parser_v12.parse_tasks_v12", return_value=mock_groups):
+        with patch("agent_fox.spec.parser.parse_tasks", return_value=mock_groups):
             assert is_task_group_done_file(tmp_path, "my_spec", 1) is False
 
     def test_missing_tasks_file_returns_false(self, tmp_path: Path) -> None:
@@ -110,7 +110,7 @@ class TestIsTaskGroupDoneFile:
                 body="", archetype=None,
             ),
         ]
-        with patch("agent_fox.spec.parser_v12.parse_tasks_v12", return_value=mock_groups):
+        with patch("agent_fox.spec.parser.parse_tasks", return_value=mock_groups):
             assert is_task_group_done_file(tmp_path, "my_spec", 99) is False
 
 
@@ -129,7 +129,7 @@ class TestIsTaskGroupDone:
                 body="", archetype=None,
             ),
         ]
-        with patch("agent_fox.spec.parser_v12.parse_tasks_v12", return_value=mock_groups):
+        with patch("agent_fox.spec.parser.parse_tasks", return_value=mock_groups):
             assert is_task_group_done(conn, "spec", 1, tmp_path) is False
 
     def test_falls_back_to_file_when_db_missing(self, tmp_path: Path) -> None:
@@ -145,7 +145,7 @@ class TestIsTaskGroupDone:
                 body="", archetype=None,
             ),
         ]
-        with patch("agent_fox.spec.parser_v12.parse_tasks_v12", return_value=mock_groups):
+        with patch("agent_fox.spec.parser.parse_tasks", return_value=mock_groups):
             assert is_task_group_done(conn, "spec", 1, tmp_path) is True
 
     def test_falls_back_to_file_when_conn_none(self, tmp_path: Path) -> None:
@@ -160,7 +160,7 @@ class TestIsTaskGroupDone:
                 body="", archetype=None,
             ),
         ]
-        with patch("agent_fox.spec.parser_v12.parse_tasks_v12", return_value=mock_groups):
+        with patch("agent_fox.spec.parser.parse_tasks", return_value=mock_groups):
             assert is_task_group_done(None, "spec", 1, tmp_path) is True
 
 

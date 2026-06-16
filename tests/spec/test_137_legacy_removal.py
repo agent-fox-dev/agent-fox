@@ -144,7 +144,7 @@ TASKS_JSON_VALID = json.dumps(
 )
 
 
-def _write_v12_spec(spec_dir: Path) -> None:
+def _write_spec(spec_dir: Path) -> None:
     """Populate a directory with valid v1.2 spec artifacts."""
     spec_dir.mkdir(parents=True, exist_ok=True)
     (spec_dir / "prd.md").write_text(PRD_MD_VALID)
@@ -343,33 +343,22 @@ class TestTypesExportsFinding:
 
 
 class TestParserV12ImportsFromTypes:
-    """TS-137-3: parser_v12.py imports shared types from spec.types."""
+    """TS-137-3: parser.py imports shared types from spec.types."""
 
     def test_parser_v12_imports_from_types(self) -> None:
-        content = _read_source("agent_fox/spec/parser_v12.py")
+        content = _read_source("agent_fox/spec/parser.py")
         assert "from agent_fox.spec.types import" in content
 
     def test_builder_imports_from_types(self) -> None:
         """Additional test for 137-REQ-5.1: builder.py imports from types.
 
         Addresses skeptic finding: TS-137-3 originally only checked
-        parser_v12.py but REQ-5.1 requires builder.py to import from types.
+        parser.py but REQ-5.1 requires builder.py to import from types.
         """
         content = _read_source("agent_fox/graph/builder.py")
         assert "from agent_fox.spec.types import" in content
 
 
-# ===================================================================
-# TS-137-4: parser.py deleted
-# Requirement: 137-REQ-2.1
-# ===================================================================
-
-
-class TestParserDeleted:
-    """TS-137-4: parser.py does not exist on disk."""
-
-    def test_parser_py_does_not_exist(self) -> None:
-        assert not (_AGENT_FOX_ROOT / "spec" / "parser.py").exists()
 
 
 # ===================================================================
@@ -436,48 +425,6 @@ class TestNoValidatorImports:
         assert "agent_fox.spec.validators" not in content
 
 
-# ===================================================================
-# TS-137-8: No parser imports in engine modules
-# Requirement: 137-REQ-5.3
-# Extended: 137-REQ-5.2 (planner.py), 137-REQ-4.3 (verification_checklist.py)
-# ===================================================================
-
-
-class TestNoParserImportsInEngineModules:
-    """TS-137-8: Engine modules do not import from agent_fox.spec.parser.
-
-    Extended to also cover planner.py (REQ-5.2) and
-    verification_checklist.py (REQ-4.3) per skeptic findings.
-    """
-
-    @pytest.mark.parametrize(
-        "module_path",
-        [
-            "agent_fox/engine/session_lifecycle.py",
-            "agent_fox/engine/hot_load.py",
-            "agent_fox/engine/engine.py",
-            "agent_fox/engine/dispatch.py",
-        ],
-    )
-    def test_engine_module_no_parser_import(self, module_path: str) -> None:
-        """137-REQ-5.3: No engine module imports from spec.parser.
-
-        Uses 'from agent_fox.spec.parser import' to avoid false-positive
-        matches on 'from agent_fox.spec.parser_v12 import'.
-        """
-        content = _read_source(module_path)
-        assert "from agent_fox.spec.parser import" not in content
-
-    def test_planner_no_parser_import(self) -> None:
-        """137-REQ-5.2: planner.py does not import from spec.parser.
-
-        Addresses skeptic finding: planner.py was missing from TS-137-8.
-        Uses 'from agent_fox.spec.parser import' to avoid false-positive
-        matches on 'from agent_fox.spec.parser_v12 import'.
-        """
-        content = _read_source("agent_fox/graph/planner.py")
-        assert "from agent_fox.spec.parser import" not in content
-
     def test_verification_checklist_no_parser_import(self) -> None:
         """137-REQ-4.3: verification_checklist.py does not import from
         spec.parser.
@@ -485,7 +432,7 @@ class TestNoParserImportsInEngineModules:
         Addresses skeptic finding: TS-137-9 (filename grep) cannot
         detect import statements.
         Uses 'from agent_fox.spec.parser import' to avoid false-positive
-        matches on 'from agent_fox.spec.parser_v12 import'.
+        matches on 'from agent_fox.spec.parser import'.
         """
         content = _read_source("agent_fox/spec/verification_checklist.py")
         assert "from agent_fox.spec.parser import" not in content
@@ -528,29 +475,6 @@ class TestNoV1FilenameStringsInSource:
             + "\n".join(matches)
         )
 
-    def test_no_parser_imports_anywhere(self) -> None:
-        """137-REQ-5.E1: No module under agent_fox/ (excluding
-        fix/spec_gen.py) contains 'from agent_fox.spec.parser import'.
-
-        Uses 'from agent_fox.spec.parser import' to avoid false-positive
-        matches on 'from agent_fox.spec.parser_v12 import'.
-
-        Addresses skeptic critical finding: TS-137-8 only covered four
-        engine modules; this test scans the entire agent_fox/ tree.
-        """
-        py_files = _collect_py_files(
-            _AGENT_FOX_ROOT, exclude=("spec_gen",)
-        )
-        matches: list[str] = []
-        for p in py_files:
-            content = p.read_text(encoding="utf-8")
-            for i, line in enumerate(content.splitlines(), start=1):
-                if "from agent_fox.spec.parser import" in line:
-                    matches.append(f"{p}:{i}: {line.strip()}")
-        assert matches == [], (
-            "parser imports found in source:\n"
-            + "\n".join(matches)
-        )
 
 
 # ===================================================================
@@ -567,30 +491,6 @@ class TestNoCoreSpecFilesConstant:
         assert "_CORE_SPEC_FILES" not in content
 
 
-# ===================================================================
-# TS-137-E1: Import from deleted parser raises error
-# Requirement: 137-REQ-1.E1
-# ===================================================================
-
-
-class TestDeletedParserImportError:
-    """TS-137-E1: Importing from deleted parser.py raises ImportError."""
-
-    def test_import_from_deleted_parser_raises(self) -> None:
-        result = subprocess.run(
-            [
-                sys.executable,
-                "-c",
-                "from agent_fox.spec.parser import parse_tasks",
-            ],
-            capture_output=True,
-            text=True,
-        )
-        assert result.returncode != 0
-        assert (
-            "ImportError" in result.stderr
-            or "ModuleNotFoundError" in result.stderr
-        )
 
 
 # ===================================================================
@@ -630,8 +530,7 @@ class TestNoDeletedModuleImportsInTests:
 
     def test_no_deleted_module_imports_in_tests(self) -> None:
         pattern = re.compile(
-            r"from agent_fox\.spec\.parser import"
-            r"|from agent_fox\.spec\.validators"
+            r"from agent_fox\.spec\.validators"
             r"|from agent_fox\.spec\.ai_validation import"
         )
         py_files = _collect_py_files(_TESTS_ROOT)
@@ -815,11 +714,11 @@ class TestSmokeLintSpecs:
     after validator deletion."""
 
     @pytest.mark.smoke
-    def test_lint_specs_works_with_v12_spec(self, tmp_path: Path) -> None:
+    def test_lint_specs_works_with_spec(self, tmp_path: Path) -> None:
         """Create a valid v1.2 spec and run lint on it."""
         specs_dir = tmp_path / "specs"
         spec_dir = specs_dir / "01_test_fixture"
-        _write_v12_spec(spec_dir)
+        _write_spec(spec_dir)
 
         from agent_fox.spec.lint import run_lint_specs
 

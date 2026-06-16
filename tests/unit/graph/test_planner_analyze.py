@@ -246,7 +246,7 @@ def _make_config() -> MagicMock:
     return config
 
 
-def _write_v12_spec(spec_dir: Path, *, task_groups: list[dict] | None = None) -> None:
+def _write_spec(spec_dir: Path, *, task_groups: list[dict] | None = None) -> None:
     """Populate a directory with valid v1.2 spec artifacts for afspec.load_spec()."""
     import json
 
@@ -298,7 +298,7 @@ def _setup_temp_specs(tmp_path: Path) -> Path:
 
     Uses v1.2 format with valid artifacts so afspec.load_spec() can parse them.
     """
-    _write_v12_spec(tmp_path / ".specs" / "01_test")
+    _write_spec(tmp_path / ".specs" / "01_test")
     return tmp_path / ".specs"
 
 

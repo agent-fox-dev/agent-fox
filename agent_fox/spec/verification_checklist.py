@@ -84,14 +84,6 @@ def _audit_task_checkboxes(spec_dir: Path) -> list[SubtaskAuditEntry]:
 
     Requirements: 134-REQ-4.1, 134-REQ-4.E1
     """
-    return _audit_task_checkboxes_v12(spec_dir)
-
-
-def _audit_task_checkboxes_v12(spec_dir: Path) -> list[SubtaskAuditEntry]:
-    """Load tasks.json via afspec and extract subtask audit entries.
-
-    Requirements: 134-REQ-4.1, 134-REQ-4.E1
-    """
     try:
         import afspec
 
@@ -147,17 +139,6 @@ def scan_requirement_test_coverage(
 
     Returns:
         List of RequirementMapping, one per requirement ID.
-
-    Requirements: 134-REQ-4.2, 134-REQ-4.E1
-    """
-    return _scan_req_coverage_v12(spec_dir, tests_dir)
-
-
-def _scan_req_coverage_v12(
-    spec_dir: Path,
-    tests_dir: Path | None,
-) -> list[RequirementMapping]:
-    """Extract requirement IDs from requirements.json via afspec.
 
     Requirements: 134-REQ-4.2, 134-REQ-4.E1
     """

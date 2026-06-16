@@ -111,7 +111,7 @@ TASKS_MD_LEGACY = """\
 # ---------------------------------------------------------------------------
 
 
-def _write_v12_spec(spec_dir: Path, *, include_tasks: bool = True) -> None:
+def _write_spec(spec_dir: Path, *, include_tasks: bool = True) -> None:
     """Populate a directory with valid v1.2 spec artifacts."""
     spec_dir.mkdir(parents=True, exist_ok=True)
     (spec_dir / "prd.md").write_text(PRD_MD_VALID)
@@ -133,7 +133,7 @@ def _write_v1_spec(spec_dir: Path) -> None:
 def v12_spec_dir(tmp_path: Path) -> Path:
     """A single v1.2 spec directory with all valid artifacts."""
     spec_dir = tmp_path / "01_test_spec"
-    _write_v12_spec(spec_dir)
+    _write_spec(spec_dir)
     return spec_dir
 
 
@@ -142,7 +142,7 @@ def v12_specs_root(tmp_path: Path) -> Path:
     """A specs root with one v1.2 spec folder."""
     root = tmp_path / "specs"
     root.mkdir()
-    _write_v12_spec(root / "02_modern")
+    _write_spec(root / "02_modern")
     return root
 
 
@@ -155,7 +155,7 @@ def mixed_specs_root(tmp_path: Path) -> Path:
     root = tmp_path / "specs"
     root.mkdir()
     _write_v1_spec(root / "01_legacy")
-    _write_v12_spec(root / "02_modern")
+    _write_spec(root / "02_modern")
     return root
 
 
@@ -164,7 +164,7 @@ def v12_specs_root_with_tasks(tmp_path: Path) -> Path:
     """A specs root with a v1.2 spec that has tasks.json."""
     root = tmp_path / "specs"
     root.mkdir()
-    _write_v12_spec(root / "01_with_tasks", include_tasks=True)
+    _write_spec(root / "01_with_tasks", include_tasks=True)
     return root
 
 
@@ -174,7 +174,7 @@ def v12_specs_root_without_tasks(tmp_path: Path) -> Path:
     root = tmp_path / "specs"
     root.mkdir()
     spec_dir = root / "01_no_tasks_json"
-    _write_v12_spec(spec_dir, include_tasks=False)
+    _write_spec(spec_dir, include_tasks=False)
     # Add a tasks.md to verify we check tasks.json, not tasks.md
     (spec_dir / "tasks.md").write_text(TASKS_MD_LEGACY)
     return root
@@ -204,7 +204,7 @@ def both_formats_specs_root(tmp_path: Path) -> Path:
     root = tmp_path / "specs"
     root.mkdir()
     spec_dir = root / "01_both"
-    _write_v12_spec(spec_dir)
+    _write_spec(spec_dir)
     # Also add requirements.md
     (spec_dir / "requirements.md").write_text(REQUIREMENTS_MD_LEGACY)
     return root
@@ -301,69 +301,10 @@ class TestAfspecLoadSpec:
         assert spec.tasks is not None
 
 
-# ===========================================================================
-# TS-132-3: SpecFormat enum has expected values
-# ===========================================================================
 
 
-class TestSpecFormatEnum:
-    """TS-132-3: Verify SpecFormat enum exists with V1_2_JSON.
-
-    Requirement: 132-REQ-2.1
-
-    Note: V1_MARKDOWN was removed by spec 137 (legacy format removal).
-    """
-
-    def test_v1_2_json_value(self) -> None:
-        """SpecFormat.V1_2_JSON has value 'v1_2_json'."""
-        from agent_fox.spec.discovery import SpecFormat
-
-        assert SpecFormat.V1_2_JSON.value == "v1_2_json"
 
 
-# ===========================================================================
-# TS-132-4: SpecInfo has format field
-# ===========================================================================
-
-
-class TestSpecInfoFormatField:
-    """TS-132-4: Verify SpecInfo dataclass includes a format field.
-
-    Requirement: 132-REQ-2.2
-    """
-
-    def test_format_field_accessible(self) -> None:
-        """SpecInfo accepts and exposes a format field."""
-        from agent_fox.spec.discovery import SpecFormat
-
-        info = SpecInfo(
-            name="test",
-            prefix=1,
-            path=Path("/tmp"),
-            has_tasks=True,
-            has_prd=True,
-            format=SpecFormat.V1_2_JSON,
-        )
-        assert info.format == SpecFormat.V1_2_JSON
-
-
-# ===========================================================================
-# TS-132-5: Format detection identifies v1.2 by requirements.json
-# ===========================================================================
-
-
-class TestDetectFormatJson:
-    """TS-132-5: Only V1_2_JSON format exists after legacy removal (spec 137).
-
-    Requirement: 132-REQ-3.1
-    """
-
-    def test_only_v12_format_exists(self) -> None:
-        """SpecFormat only has V1_2_JSON after legacy format removal."""
-        from agent_fox.spec.discovery import SpecFormat
-
-        assert hasattr(SpecFormat, "V1_2_JSON")
-        assert not hasattr(SpecFormat, "V1_MARKDOWN")
 
 
 # ===========================================================================
@@ -379,12 +320,9 @@ class TestDiscoveryExcludesV1:
 
     def test_only_v12_returned(self, mixed_specs_root: Path) -> None:
         """Only v1.2 specs appear in discovery results."""
-        from agent_fox.spec.discovery import SpecFormat
-
         specs = discover_specs(mixed_specs_root)
         assert len(specs) == 1
         assert specs[0].name == "02_modern"
-        assert specs[0].format == SpecFormat.V1_2_JSON
 
     def test_v1_excluded(self, mixed_specs_root: Path) -> None:
         """v1 markdown specs are excluded from discovery results."""
@@ -475,11 +413,8 @@ class TestJsonPrecedence:
 
     def test_both_formats_classified_as_json(self, both_formats_specs_root: Path) -> None:
         """Folder with both requirements files is classified as V1_2_JSON."""
-        from agent_fox.spec.discovery import SpecFormat
-
         specs = discover_specs(both_formats_specs_root)
         assert len(specs) == 1
-        assert specs[0].format == SpecFormat.V1_2_JSON
 
 
 # ===========================================================================
@@ -556,8 +491,6 @@ class TestDiscoveryOnlyV12:
         num_v12: int,
     ) -> None:
         """Every SpecInfo in discovery results has format V1_2_JSON."""
-        from agent_fox.spec.discovery import SpecFormat
-
         root = tmp_path_factory.mktemp("prop_disc")
 
         # Create v1 spec folders
@@ -568,7 +501,7 @@ class TestDiscoveryOnlyV12:
         # Create v1.2 spec folders
         for i in range(num_v12):
             prefix = num_v1 + i + 1
-            _write_v12_spec(root / f"{prefix:02d}_v12_spec_{i}")
+            _write_spec(root / f"{prefix:02d}_spec_{i}")
 
         if num_v1 == 0 and num_v12 == 0:
             # No folders means discover_specs may raise — skip
@@ -581,7 +514,7 @@ class TestDiscoveryOnlyV12:
             return
 
         for info in results:
-            assert info.format == SpecFormat.V1_2_JSON
+            pass
 
 
 # ===========================================================================
@@ -599,11 +532,8 @@ class TestDiscoveryToLoadSmoke:
         """Discover v1.2 spec and load it via afspec end-to-end."""
         import afspec
 
-        from agent_fox.spec.discovery import SpecFormat
-
         specs = discover_specs(v12_specs_root)
         assert len(specs) == 1
-        assert specs[0].format == SpecFormat.V1_2_JSON
 
         spec = afspec.load_spec(specs[0].path)
         assert spec.prd.frontmatter.spec_id != ""
