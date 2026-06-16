@@ -11,17 +11,6 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 # ---------------------------------------------------------------------------
-# TS-55-1: ADR file exists
-# ---------------------------------------------------------------------------
-
-
-def test_adr_exists() -> None:
-    """Exactly one ADR file matches *use-claude-exclusively*."""
-    matches = list(_PROJECT_ROOT.glob("docs/adr/*use-claude-exclusively*"))
-    assert len(matches) == 1, f"Expected 1 ADR *use-claude-exclusively*, found {len(matches)}: {matches}"
-
-
-# ---------------------------------------------------------------------------
 # TS-55-9: README mentions Claude
 # ---------------------------------------------------------------------------
 

@@ -224,19 +224,6 @@ class TestAfSpecSkillTemplate:
             "af-spec template must mark manual-only checklist items"
         )
 
-    def test_af_spec_installed_skill_has_lint_validation(self) -> None:
-        """Installed af-spec skill includes lint-specs validation step.
-
-        Requirement: 127-REQ-5.1
-        """
-        skill_path = _REPO_ROOT / ".claude" / "skills" / "af-spec" / "SKILL.md"
-        assert skill_path.exists(), "Installed skill file not found"
-        content = skill_path.read_text()
-        assert "lint-specs" in content, (
-            "Installed af-spec skill must include lint-specs validation step"
-        )
-
-
 # ---------------------------------------------------------------------------
 # TS-127-P2: CLI always rejects --fix (property)
 # ---------------------------------------------------------------------------

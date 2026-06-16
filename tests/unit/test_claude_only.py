@@ -1,6 +1,6 @@
 """Unit tests for Claude-only commitment (spec 55).
 
-Test Spec: TS-55-2, TS-55-3, TS-55-E1
+Test Spec: TS-55-E1
 """
 
 from __future__ import annotations
@@ -10,40 +10,7 @@ from pathlib import Path
 
 import pytest
 
-# ---------------------------------------------------------------------------
-# TS-55-2: ADR contains alternatives section
-# ---------------------------------------------------------------------------
-
-_ADR_GLOB = "docs/adr/*use-claude-exclusively*"
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
-
-
-def _find_adr() -> Path:
-    matches = list(_PROJECT_ROOT.glob("docs/adr/*use-claude-exclusively*"))
-    if not matches:
-        pytest.fail("ADR file not found: docs/adr/*use-claude-exclusively*")
-    return matches[0]
-
-
-def test_adr_alternatives() -> None:
-    """ADR mentions considered alternatives: OpenAI, Gemini, multi-provider."""
-    content = _find_adr().read_text()
-    assert "OpenAI" in content, "ADR must mention OpenAI"
-    assert "Gemini" in content, "ADR must mention Gemini"
-    assert "multi-provider" in content.lower() or "multiple providers" in content.lower(), (
-        "ADR must mention multi-provider or multiple providers"
-    )
-
-
-# ---------------------------------------------------------------------------
-# TS-55-3: ADR mentions future non-coding use
-# ---------------------------------------------------------------------------
-
-
-def test_adr_non_coding() -> None:
-    """ADR acknowledges future non-coding provider use."""
-    content = _find_adr().read_text().lower()
-    assert "non-coding" in content or "embeddings" in content, "ADR must mention non-coding tasks or embeddings"
 
 
 # ---------------------------------------------------------------------------

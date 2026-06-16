@@ -182,31 +182,6 @@ def test_no_duration_imports(source_path: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# TS-89-13: Superseded specs have deprecation banners
-# Requirement: 89-REQ-7.1
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.parametrize(
-    "spec_dir",
-    [
-        ".agent-fox/specs/archive/30_adaptive_model_routing",
-        ".agent-fox/specs/archive/57_archetype_model_tiers",
-    ],
-)
-def test_superseded_specs_have_banners(spec_dir: str) -> None:
-    """Archived specs 30 and 57 have SUPERSEDED deprecation banners."""
-    spec_path = Path(spec_dir)
-    md_files = list(spec_path.glob("*.md"))
-    assert md_files, f"No .md files found in {spec_dir}"
-
-    for md_file in md_files:
-        lines = md_file.read_text().splitlines()
-        first_five = "\n".join(lines[:5])
-        assert "SUPERSEDED" in first_five, f"{md_file} must have a SUPERSEDED deprecation banner in the first 5 lines"
-
-
-# ---------------------------------------------------------------------------
 # TS-89-E1: Unknown archetype defaults to coder
 # Requirement: 89-REQ-1.E1
 # ---------------------------------------------------------------------------

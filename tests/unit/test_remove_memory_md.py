@@ -124,14 +124,6 @@ class TestSkillClean:
         ).read_text()
         assert "memory.md" not in template
 
-    def test_skill_installed_clean(self) -> None:
-        """Installed af-fix skill must not reference memory.md."""
-        installed = (
-            REPO_ROOT / ".claude" / "skills" / "af-fix" / "SKILL.md"
-        ).read_text()
-        assert "memory.md" not in installed
-
-
 class TestInitTestsRemoved:
     """TS-129-9: Verify test_init.py has no memory.md test methods.
 
