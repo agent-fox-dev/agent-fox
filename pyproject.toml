@@ -4,49 +4,36 @@ version = "4.0.0-rc1"
 description = "Autonomous coding-agent orchestrator"
 requires-python = ">=3.12"
 dependencies = [
-    "afspec>=0.9.0",
-    "click>=8.1",
-    "pydantic>=2.10",
-    "rich>=15.0",
-    "anthropic[vertex,bedrock]>=0.97",
-    "claude-agent-sdk>=0.1.68",
-    "pyyaml>=6.0",
-    "duckdb>=1.5",
-    "sentence-transformers>=5.0",
-    "scikit-learn>=1.8",
-    "pathspec>=1.0",
-    "tomlkit>=0.13",
-    "tree-sitter>=0.25",
-    "tree-sitter-python>=0.25",
-    "tree-sitter-go>=0.25",
-    "tree-sitter-rust>=0.24",
-    "tree-sitter-javascript>=0.25",
-    "tree-sitter-typescript>=0.23",
-    "tree-sitter-java>=0.23",
-    "tree-sitter-c>=0.24",
-    "tree-sitter-cpp>=0.23",
-    "tree-sitter-ruby>=0.23",
-    "tree-sitter-c-sharp>=0.23",
-    "tree-sitter-elixir>=0.3.4",
-    "tree-sitter-kotlin>=1.0",
-    "tree-sitter-dart-orchard>=0.3.1",
-    "tree-sitter-bash>=0.25.1",
-    "tree-sitter-html>=0.23.2",
-    "tree-sitter-json>=0.24.8",
-    "tree-sitter-css>=0.25.0",
-    "tree-sitter-regex>=0.25.0",
-    "tree-sitter-swift>=0.0.1",
+    "af>=4.0.0rc1",
 ]
 
-[project.scripts]
-agent-fox = "agent_fox.cli.app:main"
+[dependency-groups]
+dev = [
+    "pytest>=9.0",
+    "pytest-asyncio>=1.0",
+    "hypothesis>=6.0",
+    "ruff>=0.15",
+    "mypy>=1.20",
+    "types-pyyaml>=6.0",
+    "pytest-xdist>=3.8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["packages/agentfox/tests", "packages/af/tests"]
+pythonpath = ["packages/agentfox"]
+asyncio_mode = "auto"
+addopts = "-n auto"
+markers = [
+    "property: Hypothesis property-based test",
+]
+
+[tool.uv.workspace]
+members = ["packages/*"]
 
 [tool.uv.sources]
+af = { workspace = true }
+agentfox = { workspace = true }
 afspec = { path = "../af-core/packages/afspec" }
-
-[build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
 
 [tool.ruff]
 target-version = "py312"
@@ -60,22 +47,3 @@ select = ["E", "F", "W", "I", "UP"]
 python_version = "3.12"
 check_untyped_defs = true
 exclude = [".claude/worktrees"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-asyncio_mode = "auto"
-addopts = "-n auto"
-markers = [
-    "property: Hypothesis property-based test",
-]
-
-[dependency-groups]
-dev = [
-    "pytest>=9.0",
-    "pytest-asyncio>=1.0",
-    "hypothesis>=6.0",
-    "ruff>=0.15",
-    "mypy>=1.20",
-    "types-pyyaml>=6.0",
-    "pytest-xdist>=3.8.0",
-]

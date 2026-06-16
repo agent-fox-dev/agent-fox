@@ -5,24 +5,26 @@ clean:
 	find . -type f -name '*.pyc' -delete 2>/dev/null || true
 	find . -type f -name '*.pyo' -delete 2>/dev/null || true
 	rm -rf .pytest_cache/ *.egg-info/ dist/ .ruff_cache/ .mypy_cache/ .hypothesis/
+	rm -rf packages/*/.pytest_cache packages/*/.mypy_cache packages/*/.ruff_cache
+	rm -rf packages/*/build packages/*/dist packages/*/*.egg-info
 
 test:
 	uv run pytest -q
 
 test-unit:
-	uv run pytest tests/unit/ -q
+	uv run pytest packages/agentfox/tests/unit/ packages/af/tests/unit/ -q
 
 test-property:
-	uv run pytest tests/property/ -q
+	uv run pytest packages/agentfox/tests/property/ packages/af/tests/property/ -q
 
 test-integration:
-	uv run pytest tests/integration/ -q
+	uv run pytest packages/agentfox/tests/integration/ packages/af/tests/integration/ -q
 
 lint:
-	uv run ruff check agent_fox/ && uv run ruff format --check agent_fox/
+	uv run ruff check packages/ && uv run ruff format --check packages/
 
 format:
-	uv run ruff format agent_fox/ tests/
+	uv run ruff format packages/
 
 check: lint test
 
@@ -30,7 +32,7 @@ clean-branches:
 	@git branch --list 'feature/*' | xargs -r git branch -D
 	@git branch --list 'fix/*' | xargs -r git branch -D
 
-SKILLS_TEMPLATES_DIR := $(CURDIR)/agent_fox/_templates/skills
+SKILLS_TEMPLATES_DIR := $(CURDIR)/packages/agentfox/agentfox/_templates/skills
 CLAUDE_SKILLS_DIR := $(HOME)/.claude/skills
 
 install-skills:

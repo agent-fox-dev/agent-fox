@@ -1,0 +1,394 @@
+"""Auditor output persistence, GitHub issue filing, and audit events.
+
+Handles writing audit reports, filing/closing GitHub issues on auditor verdicts,
+and creating audit event payloads for the retry loop.
+
+Requirements: 46-REQ-8.1, 46-REQ-8.2, 46-REQ-8.3, 46-REQ-8.4,
+              46-REQ-8.E1, 46-REQ-8.E2, 46-REQ-7.6,
+              92-REQ-1.1, 92-REQ-1.2, 92-REQ-1.3, 92-REQ-1.E1,
+              92-REQ-2.1, 92-REQ-3.1, 92-REQ-3.E1, 92-REQ-3.E2,
+              92-REQ-4.2, 92-REQ-4.E1, 92-REQ-4.E2
+"""
+
+from __future__ import annotations
+
+import logging
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from agentfox.session.convergence import AuditResult
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Output persistence (46-REQ-8.1, 46-REQ-8.E2, 92-REQ-1.1–1.3, 92-REQ-2.1,
+#                    92-REQ-3.1, 92-REQ-3.E1, 92-REQ-3.E2)
+# ---------------------------------------------------------------------------
+
+
+def persist_auditor_results(
+    spec_dir: Path,
+    result: AuditResult,
+    *,
+    attempt: int = 1,
+    project_root: Path | None = None,
+    conn: Any = None,
+    task_group: str = "0",
+) -> None:
+    """Write audit findings to .agent-fox/audit/audit_{spec_name}.md.
+
+    For PASS verdicts, deletes any existing audit report and writes nothing.
+    For non-PASS verdicts, creates the audit directory if needed and writes
+    (or overwrites) the report.
+
+    When a DuckDB connection is provided via ``conn``, also persists non-PASS
+    audit entries to the ``review_findings`` table with ``category='audit'``
+    so they can be injected into subsequent coder prompts (113-REQ-4.1).
+
+    Handles filesystem errors gracefully — logs and does not raise.
+
+    Args:
+        spec_dir: Path to the spec directory (e.g. ``.specs/05_foo``).
+        result: The audit result to persist.
+        attempt: The attempt number for the audit report header.
+        project_root: Root directory of the project (parent of
+            ``.agent-fox/``).  Falls back to ``spec_dir.parent.parent``
+            when not supplied, for backward compatibility.
+        conn: Optional DuckDB connection for persisting findings to
+            review_findings table (113-REQ-4.1).
+        task_group: The task group string derived from the audit-review node
+            context (e.g. ``"3"`` from node_id ``foo:3:reviewer:audit-review``).
+            Passed through to each ``ReviewFinding`` so supersession matches
+            on the correct ``(spec_name, task_group)`` pair. Defaults to
+            ``"0"`` for backward compatibility.
+
+    Requirements: 46-REQ-8.1, 46-REQ-8.E2,
+                  92-REQ-1.1, 92-REQ-1.2, 92-REQ-1.3, 92-REQ-1.E1,
+                  92-REQ-2.1, 92-REQ-3.1, 92-REQ-3.E1, 92-REQ-3.E2,
+                  113-REQ-4.1, 113-REQ-4.3
+    """
+    spec_name = spec_dir.name
+    root = project_root if project_root is not None else spec_dir.parent.parent
+    audit_dir = root / ".agent-fox" / "audit"
+    audit_path = audit_dir / f"audit_{spec_name}.md"
+
+    # PASS verdict: delete existing report and return (do not write).
+    # Requirements: 92-REQ-3.1, 92-REQ-3.E1, 92-REQ-3.E2
+    if result.overall_verdict == "PASS":
+        try:
+            audit_path.unlink(missing_ok=True)
+            logger.info("Removed audit report for %s (PASS verdict)", spec_name)
+        except OSError:
+            logger.error(
+                "Failed to delete audit report for %s",
+                spec_name,
+                exc_info=True,
+            )
+        return
+
+    # Non-PASS: ensure output directory exists before writing.
+    # Requirements: 92-REQ-1.2, 92-REQ-1.E1
+    try:
+        audit_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        logger.error(
+            "Failed to create audit directory %s",
+            audit_dir,
+            exc_info=True,
+        )
+        return
+
+    # Write (or overwrite) the audit report.
+    # Requirements: 92-REQ-1.1, 92-REQ-1.3, 92-REQ-2.1
+    try:
+        now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
+        lines = [
+            f"# Audit Report: {spec_name}",
+            "",
+            f"**Overall Verdict:** {result.overall_verdict}",
+            f"**Date:** {now}",
+            f"**Attempt:** {attempt}",
+            "",
+            "## Per-Entry Results",
+            "",
+            "| TS Entry | Verdict | Test Functions | Notes |",
+            "|----------|---------|----------------|-------|",
+        ]
+
+        for entry in result.entries:
+            funcs = ", ".join(entry.test_functions) if entry.test_functions else "-"
+            notes = entry.notes or "-"
+            lines.append(f"| {entry.ts_entry} | {entry.verdict} | {funcs} | {notes} |")
+
+        lines.extend(
+            [
+                "",
+                "## Summary",
+                "",
+                result.summary or "No summary provided.",
+                "",
+            ]
+        )
+
+        audit_path.write_text("\n".join(lines))
+        logger.info("Wrote audit report to %s", audit_path)
+    except OSError:
+        logger.error("Failed to write audit report to %s", audit_path, exc_info=True)
+
+    # 113-REQ-4.1: Persist non-PASS audit entries to review_findings table
+    if conn is not None:
+        _persist_audit_findings_to_db(conn, spec_name, result, attempt, task_group=task_group)
+
+
+def _persist_audit_findings_to_db(
+    conn: Any,
+    spec_name: str,
+    result: AuditResult,
+    attempt: int,
+    *,
+    task_group: str,
+) -> None:
+    """Persist audit entries as review findings with category='audit'.
+
+    Converts each non-PASS AuditEntry to a ReviewFinding and inserts
+    into the review_findings table. Failures are logged and do not raise.
+
+    The ``task_group`` must be the real group number from the audit-review
+    node context (e.g. ``"3"`` for node ``foo:3:reviewer:audit-review``),
+    so that supersession correctly matches on ``(spec_name, task_group)``.
+
+    Requirements: 113-REQ-4.1, 113-REQ-4.E1
+    """
+    try:
+        import uuid
+
+        from agentfox.knowledge.review_store import ReviewFinding, insert_findings
+
+        findings: list[ReviewFinding] = []
+        session_id = f"{spec_name}:audit:{attempt}"
+
+        for entry in result.entries:
+            # Derive severity: prefer explicit severity field, fall back from verdict.
+            # PASS → observation (via _verdict_to_severity), which is non-actionable.
+            severity = entry.severity if entry.severity else _verdict_to_severity(entry.verdict)
+            # Skip non-actionable severities (minor/observation) to avoid storing
+            # dead rows that have no downstream consumers (issue #553).
+            if severity not in ("critical", "major"):
+                continue
+            # Derive description: prefer explicit description, fall back to notes/ts_entry
+            description = (
+                entry.description if entry.description else (entry.notes or f"[{entry.verdict}] {entry.ts_entry}")
+            )
+
+            finding = ReviewFinding(
+                id=str(uuid.uuid4()),
+                severity=severity,
+                description=description,
+                requirement_ref=None,
+                spec_name=spec_name,
+                task_group=task_group,
+                session_id=session_id,
+                superseded_by=None,
+                category="audit",
+            )
+            findings.append(finding)
+
+        if findings:
+            insert_findings(conn, findings)
+            logger.info(
+                "Persisted %d audit findings for %s",
+                len(findings),
+                spec_name,
+            )
+    except Exception:
+        logger.warning(
+            "Failed to persist audit findings to DB for %s",
+            spec_name,
+            exc_info=True,
+        )
+
+
+def _verdict_to_severity(verdict: str) -> str:
+    """Map audit verdict to review finding severity.
+
+    MISSING/MISALIGNED → critical, WEAK → major, PASS → observation.
+    """
+    mapping = {
+        "MISSING": "critical",
+        "MISALIGNED": "critical",
+        "WEAK": "major",
+        "PASS": "observation",
+    }
+    return mapping.get(verdict, "major")
+
+
+# ---------------------------------------------------------------------------
+# Completion cleanup (92-REQ-4.2, 92-REQ-4.E1, 92-REQ-4.E2)
+# ---------------------------------------------------------------------------
+
+
+def cleanup_completed_spec_audits(
+    project_root: Path,
+    completed_specs: set[str],
+) -> None:
+    """Delete audit report files for fully-completed specs.
+
+    Iterates the given spec names and deletes each matching audit file
+    from ``.agent-fox/audit/``.  Per-spec OSErrors are logged as warnings
+    and do not stop processing of the remaining specs.
+
+    Args:
+        project_root: Root directory of the project (parent of
+            ``.agent-fox/``).
+        completed_specs: Set of spec folder names (e.g. ``"05_foo"``)
+            whose audit reports should be removed.
+
+    Requirements: 92-REQ-4.2, 92-REQ-4.E1, 92-REQ-4.E2
+    """
+    audit_dir = project_root / ".agent-fox" / "audit"
+    for spec in completed_specs:
+        audit_path = audit_dir / f"audit_{spec}.md"
+        try:
+            audit_path.unlink(missing_ok=True)
+            logger.info("Removed audit report for completed spec %s", spec)
+        except OSError:
+            logger.warning(
+                "Failed to delete audit report for completed spec %s",
+                spec,
+                exc_info=True,
+            )
+
+
+# ---------------------------------------------------------------------------
+# GitHub issue filing (46-REQ-8.2, 46-REQ-8.3, 46-REQ-8.E1, 46-REQ-7.6)
+# ---------------------------------------------------------------------------
+
+
+def create_circuit_breaker_issue_title(spec_name: str) -> str:
+    """Create the GitHub issue title for a circuit breaker trip.
+
+    Requirement: 46-REQ-7.6
+    """
+    return f"[Auditor] {spec_name}: circuit breaker tripped"
+
+
+def _create_fail_issue_title(spec_name: str) -> str:
+    """Create the GitHub issue title for a FAIL verdict.
+
+    Requirement: 46-REQ-8.2
+    """
+    return f"[Auditor] {spec_name}: FAIL"
+
+
+async def handle_auditor_github_issue(
+    spec_name: str,
+    result: AuditResult,
+    *,
+    platform: Any | None = None,
+) -> None:
+    """File or close GitHub issues based on auditor verdict.
+
+    - FAIL: file issue with search-before-create pattern
+    - PASS: close existing issue if found
+
+    If platform is None or unavailable, logs warning and returns.
+
+    Requirements: 46-REQ-8.2, 46-REQ-8.3, 46-REQ-8.E1
+    """
+    if platform is None:
+        logger.warning(
+            "No GitHub platform available; skipping auditor issue management for %s",
+            spec_name,
+        )
+        return
+
+    try:
+        if result.overall_verdict == "FAIL":
+            title = _create_fail_issue_title(spec_name)
+            # Search before create
+            prefix = f"[Auditor] {spec_name}"
+            existing = await platform.search_issues(title_prefix=prefix)
+            if not existing:
+                body = _format_issue_body(spec_name, result)
+                await platform.create_issue(title=title, body=body)
+                logger.info("Filed auditor FAIL issue for %s", spec_name)
+            else:
+                logger.info(
+                    "Auditor FAIL issue already exists for %s (#%d)",
+                    spec_name,
+                    existing[0].number,
+                )
+        elif result.overall_verdict == "PASS":
+            # Close existing issue if found
+            prefix = f"[Auditor] {spec_name}"
+            existing = await platform.search_issues(title_prefix=prefix)
+            if existing:
+                await platform.close_issue(
+                    issue_number=existing[0].number,
+                    comment="Auditor verdict is now PASS. Closing.",
+                )
+                logger.info(
+                    "Closed auditor issue #%d for %s",
+                    existing[0].number,
+                    spec_name,
+                )
+    except Exception:
+        logger.warning(
+            "Failed to manage GitHub issue for auditor verdict on %s",
+            spec_name,
+            exc_info=True,
+        )
+
+
+def _format_issue_body(spec_name: str, result: AuditResult) -> str:
+    """Format the GitHub issue body for an auditor FAIL verdict."""
+    lines = [
+        f"## Auditor Report: {spec_name}",
+        "",
+        f"**Overall Verdict:** {result.overall_verdict}",
+        "",
+        "### Per-Entry Results",
+        "",
+        "| TS Entry | Verdict | Notes |",
+        "|----------|---------|-------|",
+    ]
+
+    for entry in result.entries:
+        notes = entry.notes or "-"
+        lines.append(f"| {entry.ts_entry} | {entry.verdict} | {notes} |")
+
+    lines.extend(
+        [
+            "",
+            "### Summary",
+            "",
+            result.summary or "No summary.",
+        ]
+    )
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Audit events (46-REQ-8.4)
+# ---------------------------------------------------------------------------
+
+
+def create_auditor_retry_event(
+    spec_name: str,
+    group_number: int | float,
+    attempt: int,
+) -> dict[str, Any]:
+    """Create an auditor.retry audit event payload.
+
+    Requirement: 46-REQ-8.4
+    """
+    return {
+        "event_type": "auditor.retry",
+        "spec_name": spec_name,
+        "group_number": group_number,
+        "attempt": attempt,
+    }

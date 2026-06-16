@@ -1,0 +1,309 @@
+"""Unit tests for context rendering from DB records.
+
+Test Spec: TS-27-9, TS-27-10, TS-27-11, TS-27-14, TS-27-17, TS-27-18
+Requirements: 27-REQ-5.1, 27-REQ-5.2, 27-REQ-5.3, 27-REQ-5.E1, 27-REQ-5.E2,
+              27-REQ-7.1, 27-REQ-7.2, 27-REQ-10.1, 27-REQ-10.2, 27-REQ-10.E1
+"""
+
+from __future__ import annotations
+
+import json
+import uuid
+from collections.abc import Generator
+from pathlib import Path
+
+import duckdb
+import pytest
+from agentfox.knowledge.review_store import (
+    ReviewFinding,
+    VerificationResult,
+    insert_findings,
+    insert_verdicts,
+)
+from agentfox.session.prompt import (
+    assemble_context,
+    render_review_context,
+    render_verification_context,
+)
+
+
+@pytest.fixture
+def review_conn() -> Generator[duckdb.DuckDBPyConnection, None, None]:
+    """In-memory DuckDB with review tables."""
+    from tests.unit.knowledge.conftest import create_schema
+
+    conn = duckdb.connect(":memory:")
+    create_schema(conn)
+    yield conn  # type: ignore[misc]
+    try:
+        conn.close()
+    except Exception:
+        pass
+
+
+def _make_finding(
+    severity: str = "major",
+    description: str = "Test finding",
+    spec_name: str = "test_spec",
+    session_id: str = "s1",
+) -> ReviewFinding:
+    return ReviewFinding(
+        id=str(uuid.uuid4()),
+        severity=severity,
+        description=description,
+        requirement_ref=None,
+        spec_name=spec_name,
+        task_group="1",
+        session_id=session_id,
+    )
+
+
+def _make_verdict(
+    requirement_id: str = "05-REQ-1.1",
+    verdict: str = "PASS",
+    evidence: str | None = "Tests pass",
+    spec_name: str = "test_spec",
+    session_id: str = "s1",
+) -> VerificationResult:
+    return VerificationResult(
+        id=str(uuid.uuid4()),
+        requirement_id=requirement_id,
+        verdict=verdict,
+        evidence=evidence,
+        spec_name=spec_name,
+        task_group="1",
+        session_id=session_id,
+    )
+
+
+def _write_spec(spec_dir: Path) -> None:
+    """Write minimal v1.2 spec fixture files."""
+    (spec_dir / "prd.md").write_text(
+        '---\nspec_id: "t"\nspec_name: "t"\ntitle: "T"\n'
+        'status: "draft"\ncreated_at: "2024-01-01T00:00:00Z"\n'
+        'updated_at: "2024-01-01T00:00:00Z"\nowner: "t"\n'
+        'source: "t"\nschema_version: 1\n---\n# T\n'
+    )
+    (spec_dir / "requirements.json").write_text(json.dumps({
+        "spec_id": "t", "spec_name": "t", "schema_version": 1,
+        "introduction": "REQ", "glossary": {},
+        "requirements": [], "correctness_properties": [],
+        "execution_paths": [], "error_handling": [],
+    }))
+    (spec_dir / "test_spec.json").write_text(json.dumps({
+        "spec_id": "t", "spec_name": "t", "schema_version": 1,
+        "test_cases": [], "property_tests": [],
+        "edge_case_tests": [], "smoke_tests": [],
+        "coverage": {
+            "requirements_covered": [], "properties_covered": [],
+            "paths_covered": [], "gaps": [],
+        },
+    }))
+    (spec_dir / "tasks.json").write_text(json.dumps({
+        "spec_id": "t", "spec_name": "t", "schema_version": 1,
+        "test_commands": {"spec_tests": "", "all_tests": "", "linter": ""},
+        "dependencies": [], "task_groups": [], "traceability": [],
+    }))
+
+
+class TestRenderReviewContext:
+    """TS-27-9: render review context from DB."""
+
+    def test_render_review_context(self, review_conn: duckdb.DuckDBPyConnection) -> None:
+        """Active actionable findings are rendered as Skeptic Review markdown.
+
+        Only critical/major findings reach the DB (issue #553); observation
+        findings are dropped at write time and must not appear in the render.
+        """
+        findings = [
+            _make_finding(severity="critical", description="Big problem"),
+            _make_finding(severity="major", description="Significant issue"),
+        ]
+        insert_findings(review_conn, findings)
+
+        result = render_review_context(review_conn, "test_spec")
+        assert result is not None
+        assert "## Skeptic Review" in result
+        assert "### Critical Findings" in result
+        # Content must appear (may be wrapped in nonce-tagged boundary)
+        assert "Big problem" in result
+        assert "Significant issue" in result
+        assert "Summary:" in result
+
+
+class TestRenderVerificationContext:
+    """TS-27-10: render verification context from DB."""
+
+    def test_render_verification_context(self, review_conn: duckdb.DuckDBPyConnection) -> None:
+        """Active verdicts are rendered as Verification Report markdown."""
+        verdicts = [
+            _make_verdict(requirement_id="05-REQ-1.1", verdict="PASS"),
+            _make_verdict(requirement_id="05-REQ-2.1", verdict="FAIL", evidence="Not implemented"),
+        ]
+        insert_verdicts(review_conn, verdicts)
+
+        result = render_verification_context(review_conn, "test_spec")
+        assert result is not None
+        assert "## Verification Report" in result
+        assert "05-REQ-1.1" in result
+        assert "PASS" in result
+        assert "FAIL" in result
+        assert "Verdict: FAIL" in result
+
+
+class TestRenderedFormatMatchesLegacy:
+    """TS-27-11: rendered format matches legacy template format."""
+
+    def test_rendered_format_matches_legacy(self, review_conn: duckdb.DuckDBPyConnection) -> None:
+        """Rendered markdown matches the expected structure."""
+        findings = [
+            _make_finding(severity="critical", description="Issue 1"),
+            _make_finding(severity="major", description="Issue 2"),
+        ]
+        insert_findings(review_conn, findings)
+
+        result = render_review_context(review_conn, "test_spec")
+        assert result is not None
+
+        # Check structure matches legacy format
+        lines = result.split("\n")
+        assert lines[0] == "## Skeptic Review"
+        assert "### Critical Findings" in result
+        assert "### Major Findings" in result
+        assert "### Minor Findings" in result
+        assert "### Observations" in result
+        assert "Summary:" in result
+
+    def test_verification_format_matches_legacy(self, review_conn: duckdb.DuckDBPyConnection) -> None:
+        """Verification context has table format."""
+        verdicts = [_make_verdict()]
+        insert_verdicts(review_conn, verdicts)
+
+        result = render_verification_context(review_conn, "test_spec")
+        assert result is not None
+
+        # Check table structure
+        assert "| Requirement | Status | Notes |" in result
+        assert "|-------------|--------|-------|" in result
+        assert "Verdict:" in result
+
+
+class TestNoFindingsOmitsSection:
+    """TS-27-E7: no findings means section is omitted."""
+
+    def test_no_findings_omits_section(self, review_conn: duckdb.DuckDBPyConnection) -> None:
+        """render_review_context returns None when no findings."""
+        result = render_review_context(review_conn, "nonexistent_spec")
+        assert result is None
+
+    def test_no_verdicts_omits_section(self, review_conn: duckdb.DuckDBPyConnection) -> None:
+        """render_verification_context returns None when no verdicts."""
+        result = render_verification_context(review_conn, "nonexistent_spec")
+        assert result is None
+
+
+class TestDbUnavailableFallback:
+    """TS-27-E6: DB unavailable falls back to file reading.
+
+    Updated for spec 38: DuckDB is now mandatory; conn=None no longer valid.
+    The file fallback test is replaced by a test that validates DB-backed
+    rendering works correctly.
+    """
+
+    def test_db_backed_review_rendering(self, tmp_path: Path) -> None:
+        """assemble_context renders review from DB (38-REQ-4.2)."""
+        from tests.unit.knowledge.conftest import create_schema
+
+        spec_dir = tmp_path / "test_spec"
+        spec_dir.mkdir()
+        _write_spec(spec_dir)
+        (spec_dir / "review.md").write_text("# Skeptic Review\n\n## Critical Findings\n- [severity: major] Test\n")
+
+        conn = duckdb.connect(":memory:")
+        create_schema(conn)
+
+        # conn provided — DB-backed rendering with legacy migration
+        result = assemble_context(spec_dir, 1, conn=conn)
+        assert "Requirements" in result
+        conn.close()
+
+    def test_db_error_propagates(self, tmp_path: Path) -> None:
+        """assemble_context propagates DB errors (38-REQ-3.E1).
+
+        Updated from fallback behavior to error propagation per spec 38.
+        """
+        spec_dir = tmp_path / "test_spec"
+        spec_dir.mkdir()
+        _write_spec(spec_dir)
+        (spec_dir / "review.md").write_text("# Skeptic Review\n- [severity: minor] Fallback test\n")
+
+        # Use a closed connection to trigger an error
+        conn = duckdb.connect(":memory:")
+        conn.close()
+
+        with pytest.raises(duckdb.ConnectionException):
+            assemble_context(spec_dir, 1, conn=conn)
+
+
+class TestLegacyFileMigration:
+    """TS-27-17, TS-27-18: Legacy file migration via assemble_context."""
+
+    def test_legacy_review_migration(self, tmp_path: Path) -> None:
+        """Legacy review.md is migrated to DB on context assembly."""
+        from tests.unit.knowledge.conftest import create_schema
+
+        spec_dir = tmp_path / "test_spec"
+        spec_dir.mkdir()
+        _write_spec(spec_dir)
+        (spec_dir / "review.md").write_text(
+            "# Skeptic Review\n\n## Critical Findings\n- [severity: critical] Legacy finding\n"
+        )
+
+        conn = duckdb.connect(":memory:")
+        create_schema(conn)
+
+        result = assemble_context(spec_dir, 1, conn=conn)
+        # Should contain the migrated finding rendered from DB
+        assert "critical" in result.lower()
+        assert "Legacy finding" in result
+        conn.close()
+
+    def test_legacy_verification_migration(self, tmp_path: Path) -> None:
+        """Legacy verification.md is migrated to DB on context assembly."""
+        from tests.unit.knowledge.conftest import create_schema
+
+        spec_dir = tmp_path / "test_spec"
+        spec_dir.mkdir()
+        _write_spec(spec_dir)
+        (spec_dir / "verification.md").write_text(
+            "# Verification Report\n\n"
+            "| Requirement | Status | Notes |\n"
+            "|-------------|--------|-------|\n"
+            "| 05-REQ-1.1 | PASS | OK |\n"
+        )
+
+        conn = duckdb.connect(":memory:")
+        create_schema(conn)
+
+        result = assemble_context(spec_dir, 1, conn=conn)
+        assert "05-REQ-1.1" in result
+        assert "PASS" in result
+        conn.close()
+
+    def test_legacy_parse_failure_skips(self, tmp_path: Path) -> None:
+        """Bad legacy files are skipped without blocking."""
+        from tests.unit.knowledge.conftest import create_schema
+
+        spec_dir = tmp_path / "test_spec"
+        spec_dir.mkdir()
+        _write_spec(spec_dir)
+        # Write something that won't match the pattern
+        (spec_dir / "review.md").write_text("Random garbage content\n")
+
+        conn = duckdb.connect(":memory:")
+        create_schema(conn)
+
+        # Should not raise
+        result = assemble_context(spec_dir, 1, conn=conn)
+        assert "Requirements" in result
+        conn.close()

@@ -1,0 +1,26 @@
+[project]
+name = "af"
+version = "4.0.0-rc1"
+description = "CLI for the agent-fox autonomous coding-agent orchestrator"
+requires-python = ">=3.12"
+dependencies = [
+    "agentfox>=4.0.0rc1",
+    "click>=8.1",
+    "rich>=15.0",
+    "duckdb>=1.5",
+]
+
+[project.scripts]
+af = "af.app:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+agentfox = { workspace = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["../agentfox"]
+asyncio_mode = "auto"

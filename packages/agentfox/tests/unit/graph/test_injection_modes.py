@@ -1,0 +1,313 @@
+"""Unit/integration tests for reviewer-mode injection logic.
+
+Covers:
+- collect_enabled_auto_pre returns reviewer mode entries (TS-98-8)
+- ensure_graph_archetypes creates reviewer mode nodes (TS-98-9)
+- Drift-review gating when spec has no existing code (TS-98-10)
+
+Test Spec: TS-98-8, TS-98-9, TS-98-10
+Requirements: 98-REQ-4.1, 98-REQ-4.2, 98-REQ-4.3, 98-REQ-4.4, 98-REQ-4.5,
+              98-REQ-4.E1
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_coder_graph(spec_name: str = "myspec", group_number: int = 1):
+    """Build a minimal TaskGraph with one coder node."""
+    from agentfox.graph.types import Node, PlanMetadata, TaskGraph
+
+    node = Node(
+        id=f"{spec_name}:{group_number}",
+        spec_name=spec_name,
+        group_number=group_number,
+        title="Test Task",
+        optional=False,
+        archetype="coder",
+    )
+    return TaskGraph(
+        nodes={node.id: node},
+        edges=[],
+        order=[node.id],
+        metadata=PlanMetadata(created_at="2026-01-01T00:00:00"),
+    )
+
+
+def _make_reviewer_config(reviewer: bool = True):
+    """Build a minimal ArchetypesConfig with reviewer enabled/disabled."""
+    from agentfox.core.config import ArchetypesConfig
+
+    return ArchetypesConfig(reviewer=reviewer)
+
+
+# ---------------------------------------------------------------------------
+# TS-98-8: collect_enabled_auto_pre Returns Reviewer Modes
+# Requirements: 98-REQ-4.1, 98-REQ-4.5
+# ---------------------------------------------------------------------------
+
+
+class TestCollectEnabledAutoPreReviewerModes:
+    """Verify auto_pre collection returns reviewer mode entries."""
+
+    def test_auto_pre_reviewer_entries(self) -> None:
+        """TS-98-8: collect_enabled_auto_pre returns reviewer entries with modes."""
+        from agentfox.graph.injection import collect_enabled_auto_pre
+
+        config = _make_reviewer_config(reviewer=True)
+        entries = collect_enabled_auto_pre(config)
+
+        # Extract (name, mode) pairs
+        try:
+            names_and_modes = [(e.name, e.mode) for e in entries]
+        except AttributeError as err:
+            pytest.fail(f"ArchetypeEntry in injection.py lacks 'mode' field: {err}")
+
+        assert ("reviewer", "pre-review") in names_and_modes, (
+            f"Expected ('reviewer', 'pre-review') in entries, got {names_and_modes}"
+        )
+        assert ("reviewer", "drift-review") in names_and_modes, (
+            f"Expected ('reviewer', 'drift-review') in entries, got {names_and_modes}"
+        )
+
+    def test_no_old_archetype_names(self) -> None:
+        """TS-98-8: collect_enabled_auto_pre returns no skeptic or oracle entries."""
+        from agentfox.graph.injection import collect_enabled_auto_pre
+
+        config = _make_reviewer_config(reviewer=True)
+        entries = collect_enabled_auto_pre(config)
+
+        old_names = {e.name for e in entries}
+        assert "skeptic" not in old_names, (
+            f"'skeptic' should not be in auto_pre entries after consolidation, got {old_names}"
+        )
+        assert "oracle" not in old_names, (
+            f"'oracle' should not be in auto_pre entries after consolidation, got {old_names}"
+        )
+
+    def test_reviewer_enable_check(self) -> None:
+        """TS-98-8 (4.5): is_archetype_enabled checks archetypes.reviewer for all reviewer modes."""
+        from agentfox.graph.injection import collect_enabled_auto_pre
+
+        # When reviewer=False, no reviewer entries returned
+        config_off = _make_reviewer_config(reviewer=False)
+        entries_off = collect_enabled_auto_pre(config_off)
+        reviewer_names = [e.name for e in entries_off if e.name == "reviewer"]
+        assert len(reviewer_names) == 0, f"Expected no reviewer entries when reviewer=False, got {reviewer_names}"
+
+
+# ---------------------------------------------------------------------------
+# TS-98-9: Injection Creates Reviewer Mode Nodes
+# Requirements: 98-REQ-4.2, 98-REQ-4.3
+# ---------------------------------------------------------------------------
+
+
+class TestInjectReviewerModeNodes:
+    """Verify ensure_graph_archetypes creates reviewer mode nodes."""
+
+    def test_inject_reviewer_nodes(self) -> None:
+        """TS-98-9: ensure_graph_archetypes creates reviewer:pre-review node."""
+        from agentfox.graph.injection import ensure_graph_archetypes
+
+        graph = _make_coder_graph()
+        # Pass ArchetypesConfig directly (that's what ensure_graph_archetypes expects)
+        config = _make_reviewer_config(reviewer=True)
+        ensure_graph_archetypes(graph, config)
+
+        reviewer_nodes = [n for n in graph.nodes.values() if n.archetype == "reviewer"]
+        assert len(reviewer_nodes) >= 1, (
+            f"Expected at least one reviewer node, got nodes: {[(n.archetype, n.mode) for n in graph.nodes.values()]}"
+        )
+
+        modes = {n.mode for n in reviewer_nodes}
+        assert "pre-review" in modes, f"Expected 'pre-review' mode in reviewer nodes, got modes: {modes}"
+
+    def test_no_old_archetype_nodes(self) -> None:
+        """TS-98-9: After injection, no nodes with archetype 'skeptic' or 'oracle'."""
+        from agentfox.graph.injection import ensure_graph_archetypes
+
+        graph = _make_coder_graph()
+        # Pass ArchetypesConfig directly (that's what ensure_graph_archetypes expects)
+        config = _make_reviewer_config(reviewer=True)
+        ensure_graph_archetypes(graph, config)
+
+        all_archetypes = {n.archetype for n in graph.nodes.values()}
+        assert "skeptic" not in all_archetypes, (
+            f"'skeptic' should not appear as a node archetype after consolidation, got archetypes: {all_archetypes}"
+        )
+        assert "oracle" not in all_archetypes, (
+            f"'oracle' should not appear as a node archetype after consolidation, got archetypes: {all_archetypes}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# TS-98-10: Drift-review Gating
+# Requirement: 98-REQ-4.4
+# ---------------------------------------------------------------------------
+
+
+class TestDriftReviewGating:
+    """Verify drift-review is skipped when spec has no existing code."""
+
+    def test_drift_gating_no_code_spec(self, tmp_path: Path) -> None:
+        """TS-98-10: collect_enabled_auto_pre skips drift-review for no-code spec."""
+        from agentfox.graph.injection import collect_enabled_auto_pre
+
+        # Create a spec dir with an architecture.md that has no (modified) file references
+        spec_dir = tmp_path / "00_nocode"
+        spec_dir.mkdir()
+        (spec_dir / "architecture.md").write_text(
+            "# Design\n\nThis spec describes a new feature with no existing code.\n",
+            encoding="utf-8",
+        )
+
+        config = _make_reviewer_config(reviewer=True)
+        entries = collect_enabled_auto_pre(config, spec_path=spec_dir)
+
+        reviewer_modes = []
+        for e in entries:
+            if e.name == "reviewer":
+                try:
+                    reviewer_modes.append(e.mode)
+                except AttributeError:
+                    pytest.fail("ArchetypeEntry lacks 'mode' field")
+
+        assert "pre-review" in reviewer_modes, (
+            f"pre-review should still be injected when spec has no code, got modes: {reviewer_modes}"
+        )
+        assert "drift-review" not in reviewer_modes, (
+            f"drift-review should be skipped when spec has no existing code, got modes: {reviewer_modes}"
+        )
+
+    def test_drift_gating_has_code_spec(self, tmp_path: Path) -> None:
+        """TS-98-10: collect_enabled_auto_pre includes drift-review when spec references code."""
+        from agentfox.graph.injection import collect_enabled_auto_pre
+
+        # Create a spec dir with an architecture.md that references an existing file
+        # Use injection.py as the existing file reference
+        existing_file = Path("packages/agentfox/agentfox/graph/injection.py")
+        spec_dir = tmp_path / "00_hascode"
+        spec_dir.mkdir()
+        (spec_dir / "architecture.md").write_text(
+            f"# Design\n\n**`{existing_file}`** (modified)\n",
+            encoding="utf-8",
+        )
+
+        config = _make_reviewer_config(reviewer=True)
+        entries = collect_enabled_auto_pre(config, spec_path=spec_dir)
+
+        reviewer_modes = []
+        for e in entries:
+            if e.name == "reviewer":
+                try:
+                    reviewer_modes.append(e.mode)
+                except AttributeError:
+                    pytest.fail("ArchetypeEntry lacks 'mode' field")
+
+        assert "drift-review" in reviewer_modes, (
+            f"drift-review should be included when spec references existing code, got modes: {reviewer_modes}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# AC-5 (issue #534): ensure_graph_archetypes runtime injection must use the
+# same 3-part node_id format as the plan builder — no phantom sequential
+# group numbers.
+# ---------------------------------------------------------------------------
+
+
+def _make_multigroup_coder_graph(spec_name: str = "myspec", n_groups: int = 6):
+    """Build a TaskGraph with n_groups sequential coder nodes (no verifier)."""
+    from agentfox.graph.types import Edge, Node, PlanMetadata, TaskGraph
+
+    nodes = {}
+    edges = []
+    order = []
+    for g in range(1, n_groups + 1):
+        nid = f"{spec_name}:{g}"
+        nodes[nid] = Node(
+            id=nid,
+            spec_name=spec_name,
+            group_number=g,
+            title=f"Task {g}",
+            optional=False,
+            archetype="coder",
+        )
+        if g > 1:
+            edges.append(Edge(source=f"{spec_name}:{g-1}", target=nid, kind="intra_spec"))
+        order.append(nid)
+
+    return TaskGraph(
+        nodes=nodes,
+        edges=edges,
+        order=order,
+        metadata=PlanMetadata(created_at="2026-01-01T00:00:00"),
+    )
+
+
+class TestEnsureGraphArchetypesAutoPostFix:
+    """AC-5: Runtime auto_post injection must use the same 3-part node_id
+    convention as the plan builder (issue #534 regression guard)."""
+
+    def test_runtime_verifier_node_id_has_arch_suffix(self) -> None:
+        """Verifier injected at runtime must use sentinel group_number=0.
+
+        AC-1/AC-5: group_number must NOT coincide with any real task group.
+        The node_id must use the sentinel '0' (not last_group or last+1).
+        """
+        from agentfox.core.config import ArchetypesConfig
+        from agentfox.graph.injection import ensure_graph_archetypes
+
+        n_groups = 6
+        graph = _make_multigroup_coder_graph(n_groups=n_groups)
+        config = ArchetypesConfig(verifier=True)
+
+        injected = ensure_graph_archetypes(graph, config)
+        assert injected, "Expected at least one node to be injected"
+
+        verifier_nodes = [n for n in graph.nodes.values() if n.archetype == "verifier"]
+        assert len(verifier_nodes) == 1
+        vn = verifier_nodes[0]
+
+        # Node ID must use the 3-part format, not the phantom sequential 2-part format
+        parts = vn.id.split(":")
+        assert len(parts) == 3, f"Expected 3-part node_id, got: {vn.id!r}"
+        assert parts[2] == "verifier"
+
+        # Must use sentinel "0" in node_id, not any real group number
+        assert parts[1] == "0", (
+            f"Runtime-injected verifier node_id must embed sentinel '0', got: {vn.id!r}"
+        )
+
+        # AC-1 (key assertion): group_number must NOT be in the set of real task groups
+        real_group_numbers = set(range(1, n_groups + 1))
+        assert vn.group_number not in real_group_numbers, (
+            f"Runtime verifier group_number={vn.group_number} coincides with a real "
+            f"task group; real groups: {real_group_numbers}"
+        )
+        assert vn.group_number == 0, (
+            f"Runtime verifier group_number must be sentinel 0, got {vn.group_number}"
+        )
+
+    def test_runtime_verifier_idempotent(self) -> None:
+        """Calling ensure_graph_archetypes twice must not inject duplicate verifiers."""
+        from agentfox.core.config import ArchetypesConfig
+        from agentfox.graph.injection import ensure_graph_archetypes
+
+        graph = _make_multigroup_coder_graph(n_groups=3)
+        config = ArchetypesConfig(verifier=True)
+
+        ensure_graph_archetypes(graph, config)
+        ensure_graph_archetypes(graph, config)
+
+        verifier_nodes = [n for n in graph.nodes.values() if n.archetype == "verifier"]
+        assert len(verifier_nodes) == 1, (
+            f"Expected exactly 1 verifier node after 2 injection calls, got {len(verifier_nodes)}"
+        )
