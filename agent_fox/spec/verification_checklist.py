@@ -1,6 +1,6 @@
 """Verification checklist builder for the verifier archetype.
 
-Builds a structured checklist from tasks.md checkboxes, requirements.md
+Builds a structured checklist from tasks.json checkboxes, requirements.json
 acceptance criteria, and errata — injected into the verifier's session
 context so it can enforce task completion and requirement coverage.
 """
@@ -12,9 +12,6 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-
-from agent_fox.spec._patterns import REQ_ID_BARE
-from agent_fox.spec.parser import parse_tasks
 
 logger = logging.getLogger(__name__)
 
@@ -80,43 +77,38 @@ def build_verification_checklist(
 
 
 def _audit_task_checkboxes(spec_dir: Path) -> list[SubtaskAuditEntry]:
-    """Parse tasks.md and audit every subtask checkbox state."""
-    tasks_path = spec_dir / "tasks.md"
-    if not tasks_path.is_file():
-        return []
+    """Parse tasks and audit every subtask checkbox state.
 
+    Loads tasks.json via afspec and extracts subtask state from Pydantic
+    models.
+
+    Requirements: 134-REQ-4.1, 134-REQ-4.E1
+    """
     try:
-        groups = parse_tasks(tasks_path)
+        import afspec
+
+        spec = afspec.load_spec(spec_dir)
     except Exception:
-        logger.warning("Failed to parse tasks.md for checklist audit in %s", spec_dir)
+        # 134-REQ-4.E1: return empty list and log warning on load failure
+        logger.warning("Failed to load tasks.json via afspec in %s", spec_dir)
         return []
 
     entries: list[SubtaskAuditEntry] = []
-    for group in groups:
+    for group in spec.tasks.task_groups:
         for subtask in group.subtasks:
+            # Map SubtaskState enum to checked/skipped booleans
+            checked = subtask.state.value == "done"
+            skipped = subtask.state.value == "dropped"
             entries.append(
                 SubtaskAuditEntry(
-                    group_number=group.number,
+                    group_number=group.id,
                     subtask_id=subtask.id,
                     title=subtask.title,
-                    checked=subtask.completed,
-                    skipped=_is_subtask_skipped(tasks_path, subtask.id),
+                    checked=checked,
+                    skipped=skipped,
                 )
             )
     return entries
-
-
-_SUBTASK_SKIP_PATTERN = re.compile(r"^\s+- \[([~\-])\] (\d+\.(?:\d+|V))")
-
-
-def _is_subtask_skipped(tasks_path: Path, subtask_id: str) -> bool:
-    """Check if a subtask is marked with [-] or [~] (intentionally skipped)."""
-    text = tasks_path.read_text(encoding="utf-8")
-    for line in text.splitlines():
-        m = _SUBTASK_SKIP_PATTERN.match(line)
-        if m and m.group(2) == subtask_id:
-            return True
-    return False
 
 
 def _check_errata_exist(conn: Any, spec_name: str) -> bool:
@@ -138,23 +130,38 @@ def scan_requirement_test_coverage(
 ) -> list[RequirementMapping]:
     """Map requirement IDs to test file coverage.
 
-    For each requirement ID found in requirements.md, scans test files
-    for references (in comments, docstrings, or function names).
+    Extracts requirement IDs from the afspec model (requirements.json).
 
     Args:
-        spec_dir: Path to the spec directory containing requirements.md.
+        spec_dir: Path to the spec directory.
         tests_dir: Path to the project's tests directory. If None or
             non-existent, all requirements are marked uncovered.
 
     Returns:
         List of RequirementMapping, one per requirement ID.
+
+    Requirements: 134-REQ-4.2, 134-REQ-4.E1
     """
-    req_path = spec_dir / "requirements.md"
-    if not req_path.is_file():
+    try:
+        import afspec
+
+        spec = afspec.load_spec(spec_dir)
+    except Exception:
+        # 134-REQ-4.E1: return empty list and log warning on load failure
+        logger.warning("Failed to load requirements.json via afspec in %s", spec_dir)
         return []
 
-    req_text = req_path.read_text(encoding="utf-8")
-    req_ids = sorted(set(REQ_ID_BARE.findall(req_text)))
+    # Extract all criterion IDs from acceptance_criteria and edge_cases
+    req_ids: list[str] = []
+    for req in spec.requirements.requirements:
+        for criterion in req.acceptance_criteria:
+            if criterion.id:
+                req_ids.append(criterion.id)
+        for edge_case in req.edge_cases:
+            if edge_case.id:
+                req_ids.append(edge_case.id)
+
+    req_ids = sorted(set(req_ids))
     if not req_ids:
         return []
 

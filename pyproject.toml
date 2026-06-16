@@ -4,6 +4,7 @@ version = "3.7.2"
 description = "Autonomous coding-agent orchestrator"
 requires-python = ">=3.12"
 dependencies = [
+    "afspec>=0.9.0",
     "click>=8.1",
     "pydantic>=2.10",
     "rich>=15.0",
@@ -39,6 +40,9 @@ dependencies = [
 
 [project.scripts]
 agent-fox = "agent_fox.cli.app:main"
+
+[tool.uv.sources]
+afspec = { path = "../af-core/packages/afspec" }
 
 [build-system]
 requires = ["hatchling"]

@@ -63,24 +63,65 @@ def _make_sample_graph() -> TaskGraph:
     )
 
 
+def _write_spec(spec_dir: Path, *, task_groups: list[dict] | None = None) -> None:
+    """Populate a directory with valid v1.2 spec artifacts for afspec.load_spec()."""
+    import json
+
+    spec_dir.mkdir(parents=True, exist_ok=True)
+    (spec_dir / "prd.md").write_text(
+        '---\nspec_id: "test"\nspec_name: "test"\ntitle: "Test"\n'
+        'status: "draft"\ncreated_at: "2024-01-01T00:00:00Z"\n'
+        'updated_at: "2024-01-01T00:00:00Z"\nowner: "test"\n'
+        'source: "test"\nschema_version: 1\n---\n# Test\n'
+    )
+    (spec_dir / "requirements.json").write_text(json.dumps({
+        "spec_id": "test", "spec_name": "test", "schema_version": 1,
+        "introduction": "", "glossary": {}, "requirements": [],
+        "correctness_properties": [], "execution_paths": [], "error_handling": [],
+    }))
+    (spec_dir / "test_spec.json").write_text(json.dumps({
+        "spec_id": "test", "spec_name": "test", "schema_version": 1,
+        "test_cases": [], "property_tests": [], "edge_case_tests": [],
+        "smoke_tests": [], "coverage": {
+            "requirements_covered": [], "properties_covered": [],
+            "paths_covered": [], "gaps": [],
+        },
+    }))
+    default_groups = task_groups or [
+        {
+            "id": 1, "kind": "standard", "title": "Write tests",
+            "subtasks": [{"id": "1.1", "title": "Unit tests", "state": "pending",
+                          "details": [], "test_spec_refs": [], "requirement_refs": [],
+                          "optional": False}],
+            "verification": {"id": "", "checks": []},
+        },
+        {
+            "id": 2, "kind": "standard", "title": "Implement feature",
+            "subtasks": [{"id": "2.1", "title": "Core logic", "state": "pending",
+                          "details": [], "test_spec_refs": [], "requirement_refs": [],
+                          "optional": False}],
+            "verification": {"id": "", "checks": []},
+        },
+    ]
+    (spec_dir / "tasks.json").write_text(json.dumps({
+        "spec_id": "test", "spec_name": "test", "schema_version": 1,
+        "test_commands": {"spec_tests": "", "all_tests": "", "linter": ""},
+        "dependencies": [], "task_groups": default_groups, "traceability": [],
+    }))
+
+
 def _setup_project(project_dir: Path) -> None:
-    """Create a minimal project structure for CLI tests."""
+    """Create a minimal project structure for CLI tests.
+
+    Uses v1.2 format with valid artifacts so afspec.load_spec() can parse them.
+    """
     # Create .agent-fox/config.toml
     agent_fox_dir = project_dir / ".agent-fox"
     agent_fox_dir.mkdir(exist_ok=True)
     (agent_fox_dir / "config.toml").write_text("")
 
-    # Create .specs/01_test/tasks.md
-    spec_dir = project_dir / ".specs" / "01_test"
-    spec_dir.mkdir(parents=True)
-    (spec_dir / "tasks.md").write_text(
-        "# Tasks\n\n"
-        "- [ ] 1. Write tests\n"
-        "  - [ ] 1.1 Unit tests\n"
-        "\n"
-        "- [ ] 2. Implement feature\n"
-        "  - [ ] 2.1 Core logic\n"
-    )
+    # Create .specs/01_test/ with v1.2 format artifacts
+    _write_spec(project_dir / ".specs" / "01_test")
 
 
 class TestPlanPersistAndLoad:
@@ -241,9 +282,16 @@ class TestPlanCLIEndToEnd:
         """Running --spec after cached unfiltered plan rebuilds and filters nodes."""
         _setup_project(tmp_git_repo)
 
-        second_spec = tmp_git_repo / ".specs" / "02_other"
-        second_spec.mkdir(parents=True)
-        (second_spec / "tasks.md").write_text("# Tasks\n\n- [ ] 1. Add second feature\n  - [ ] 1.1 Implement\n")
+        _write_spec(
+            tmp_git_repo / ".specs" / "02_other",
+            task_groups=[{
+                "id": 1, "kind": "standard", "title": "Add second feature",
+                "subtasks": [{"id": "1.1", "title": "Implement", "state": "pending",
+                              "details": [], "test_spec_refs": [], "requirement_refs": [],
+                              "optional": False}],
+                "verification": {"id": "", "checks": []},
+            }],
+        )
 
         first = cli_runner.invoke(main, ["plan"])
         assert first.exit_code == 0
@@ -286,19 +334,19 @@ class TestPlanCLIEndToEnd:
         first = cli_runner.invoke(main, ["plan"])
         assert first.exit_code == 0, f"First plan invocation failed:\n{first.output}"
 
-        # Add a new task group to the spec
-        tasks_path = tmp_git_repo / ".specs" / "01_test" / "tasks.md"
-        tasks_path.write_text(
-            "# Tasks\n\n"
-            "- [ ] 1. Write tests\n"
-            "  - [ ] 1.1 Unit tests\n"
-            "\n"
-            "- [ ] 2. Implement feature\n"
-            "  - [ ] 2.1 Core logic\n"
-            "\n"
-            "- [ ] 3. new_group: Deploy changes\n"
-            "  - [ ] 3.1 Deploy to staging\n"
-        )
+        # Add a new task group to the spec's tasks.json (v1.2 format)
+        import json
+
+        tasks_path = tmp_git_repo / ".specs" / "01_test" / "tasks.json"
+        tasks_data = json.loads(tasks_path.read_text())
+        tasks_data["task_groups"].append({
+            "id": 3, "kind": "standard", "title": "new_group: Deploy changes",
+            "subtasks": [{"id": "3.1", "title": "Deploy to staging", "state": "pending",
+                          "details": [], "test_spec_refs": [], "requirement_refs": [],
+                          "optional": False}],
+            "verification": {"id": "", "checks": []},
+        })
+        tasks_path.write_text(json.dumps(tasks_data))
 
         # Second run — must reflect the new task group
         second = cli_runner.invoke(main, ["plan"])

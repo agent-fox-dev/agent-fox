@@ -26,7 +26,7 @@ from agent_fox.graph.spec_helpers import (
 )
 from agent_fox.graph.types import Edge, Node, NodeStatus, PlanMetadata, TaskGraph
 from agent_fox.spec.discovery import SpecInfo
-from agent_fox.spec.parser import CrossSpecDep, TaskGroupDef
+from agent_fox.spec.types import CrossSpecDep, TaskGroupDef
 
 logger = logging.getLogger(__name__)
 

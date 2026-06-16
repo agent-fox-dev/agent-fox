@@ -18,7 +18,7 @@ from agent_fox.graph.builder import build_graph
 from agent_fox.graph.resolver import apply_fast_mode
 from agent_fox.graph.types import Edge, Node, NodeStatus, PlanMetadata, TaskGraph
 from agent_fox.spec.discovery import SpecInfo
-from agent_fox.spec.parser import TaskGroupDef
+from agent_fox.spec.types import TaskGroupDef
 
 # -- Helpers -----------------------------------------------------------------
 

@@ -30,54 +30,162 @@ def cli_runner() -> CliRunner:
     return CliRunner()
 
 
+def _v12_prd_content(spec_id: str, name: str) -> str:
+    """Generate a valid v1.2 prd.md with YAML frontmatter."""
+    return (
+        f"---\n"
+        f'spec_id: "{spec_id}"\n'
+        f'spec_name: "{name}"\n'
+        f'title: "Test Spec {name}"\n'
+        f'status: "draft"\n'
+        f'created_at: "2024-01-01T00:00:00Z"\n'
+        f'updated_at: "2024-01-01T00:00:00Z"\n'
+        f'owner: "test"\n'
+        f'source: "test"\n'
+        f"schema_version: 1\n"
+        f"---\n"
+        f"# {name}\n\nTest PRD.\n"
+    )
+
+
+def _v12_requirements_json(spec_id: str, name: str) -> str:
+    """Generate valid v1.2 requirements.json content."""
+    return json.dumps(
+        {
+            "spec_id": spec_id,
+            "spec_name": name,
+            "schema_version": 1,
+            "introduction": "Test requirements",
+            "glossary": {},
+            "requirements": [],
+            "correctness_properties": [],
+            "execution_paths": [],
+            "error_handling": [],
+        },
+        indent=2,
+    )
+
+
+def _v12_test_spec_json(spec_id: str, name: str) -> str:
+    """Generate valid v1.2 test_spec.json content."""
+    return json.dumps(
+        {
+            "spec_id": spec_id,
+            "spec_name": name,
+            "schema_version": 1,
+            "test_cases": [],
+            "property_tests": [],
+            "edge_case_tests": [],
+            "smoke_tests": [],
+            "coverage": {
+                "requirements_covered": [],
+                "properties_covered": [],
+                "paths_covered": [],
+                "gaps": [],
+            },
+        },
+        indent=2,
+    )
+
+
+def _v12_tasks_json(
+    spec_id: str,
+    name: str,
+    *,
+    all_completed: bool = False,
+    produce_finding: bool = False,
+) -> str:
+    """Generate v1.2 tasks.json content.
+
+    If all_completed, all subtasks have state "done".
+    Otherwise, subtasks have state "pending".
+
+    If produce_finding, the last task group uses kind "standard" instead
+    of "wiring_verification", which triggers a schema validation error
+    from afspec.validate().
+    """
+    state = "done" if all_completed else "pending"
+    last_kind = "standard" if produce_finding else "wiring_verification"
+    return json.dumps(
+        {
+            "spec_id": spec_id,
+            "spec_name": name,
+            "schema_version": 1,
+            "test_commands": {"spec_tests": "", "all_tests": "", "linter": ""},
+            "dependencies": [],
+            "task_groups": [
+                {
+                    "id": 1,
+                    "title": "Write tests",
+                    "kind": "tests",
+                    "subtasks": [
+                        {
+                            "id": f"{spec_id}-T-1.1",
+                            "title": "Test thing",
+                            "state": state,
+                            "requirement_refs": [],
+                            "test_spec_refs": [],
+                        },
+                    ],
+                    "verification": {
+                        "id": f"{spec_id}-T-1.V",
+                        "checks": [],
+                    },
+                },
+                {
+                    "id": 2,
+                    "title": "Wiring verification",
+                    "kind": last_kind,
+                    "subtasks": [
+                        {
+                            "id": f"{spec_id}-T-2.1",
+                            "title": "Verify wiring",
+                            "state": state,
+                            "requirement_refs": [],
+                            "test_spec_refs": [],
+                        },
+                    ],
+                    "verification": {
+                        "id": f"{spec_id}-T-2.V",
+                        "checks": [],
+                    },
+                },
+            ],
+            "traceability": [],
+        },
+        indent=2,
+    )
+
+
 def _create_spec_with_tasks(
     specs_dir: Path,
     name: str,
     *,
     all_completed: bool = False,
 ) -> Path:
-    """Create a minimal spec directory with a tasks.md file.
+    """Create a minimal v1.2 spec directory with proper JSON artifacts.
 
-    If all_completed is True, all task group checkboxes are [x].
-    Otherwise, at least one is [ ].
+    If all_completed is True, all subtask states are "completed".
+    Otherwise, subtask states are "not_started".
     """
     spec_dir = specs_dir / name
     spec_dir.mkdir(exist_ok=True)
-    for filename in ["prd.md", "requirements.md", "design.md", "test_spec.md"]:
-        (spec_dir / filename).write_text(f"# {filename}\n")
-    (spec_dir / "requirements.md").write_text(
-        f"# Requirements\n\n## Introduction\n\nTest.\n\n## Glossary\n\nNone.\n\n"
-        f"### Requirement 1: Thing\n\n"
-        f"1. [{name[:2]}-REQ-1.1] THE system SHALL do thing.\n"
+
+    # Use spec name prefix as spec_id (e.g., "01" from "01_done_spec")
+    spec_id = f"test-{name[:2]}"
+
+    # v1.2 artifacts
+    (spec_dir / "prd.md").write_text(_v12_prd_content(spec_id, name))
+    (spec_dir / "requirements.json").write_text(
+        _v12_requirements_json(spec_id, name)
     )
-    (spec_dir / "test_spec.md").write_text(
-        f"# Test Spec\n\n**Requirement:** {name[:2]}-REQ-1.1\n\n"
-        f"## Coverage Matrix\n\n"
-        f"| Requirement | Test Spec Entry | Type |\n"
-        f"|-------------|-----------------|------|\n"
-        f"| {name[:2]}-REQ-1.1 | TS-{name[:2]}-1 | unit |\n"
+    (spec_dir / "test_spec.json").write_text(
+        _v12_test_spec_json(spec_id, name)
     )
-    (spec_dir / "design.md").write_text(
-        "# Design\n\n## Overview\n\nTest.\n\n## Architecture\n\nNone.\n\n"
-        "## Correctness Properties\n\n### Property 1: Test\n\nTest.\n\n"
-        "## Error Handling\n\n| Error | Behavior | Requirement |\n"
-        "|-------|----------|-------------|\n\n"
-        "## Definition of Done\n\nDone.\n"
-    )
-    cb1 = "x" if all_completed else " "
-    cb2 = "x" if all_completed else " "
-    (spec_dir / "tasks.md").write_text(
-        f"# Tasks\n\n## Traceability\n\n"
-        f"| Requirement | Test Spec Entry | Implemented By Task | Verified By Test |\n"
-        f"|-------------|-----------------|---------------------|------------------|\n"
-        f"| {name[:2]}-REQ-1.1 | TS-{name[:2]}-1 | 1.1 | test_thing |\n\n"
-        f"## Tasks\n\n"
-        f"- [{cb1}] 1. Write tests\n"
-        f"  - [{cb1}] 1.1 Test thing\n"
-        f"  - [{cb1}] 1.V Verify\n\n"
-        f"- [{cb2}] 2. Implement\n"
-        f"  - [{cb2}] 2.1 Do thing\n"
-        f"  - [{cb2}] 2.V Verify\n"
+    (spec_dir / "tasks.json").write_text(
+        _v12_tasks_json(
+            spec_id, name, all_completed=all_completed, produce_finding=True
+        )
     )
     return spec_dir
 
@@ -85,11 +193,17 @@ def _create_spec_with_tasks(
 def _setup_project_with_specs(
     project_dir: Path,
     spec_fixtures: list[str],
+    *,
+    produce_finding: bool = False,
 ) -> None:
     """Create a minimal project with selected fixture specs.
 
     Creates .agent-fox/config.toml and copies fixture spec directories
-    into .specs/ with NN_ prefixes.
+    into .specs/ with NN_ prefixes.  Adds valid v1.2 JSON artifacts so
+    discover_specs (which filters out v1 markdown) includes them.
+
+    When produce_finding is True, the tasks.json uses 'standard' as the
+    last group kind, which triggers a schema validation error.
     """
     # Create config directory
     agent_fox_dir = project_dir / ".agent-fox"
@@ -105,6 +219,31 @@ def _setup_project_with_specs(
         dst = specs_dir / f"{i:02d}_{fixture_name}"
         if src.exists():
             shutil.copytree(src, dst)
+            name = dst.name
+            spec_id = f"test-{i:02d}"
+
+            # Add valid v1.2 artifacts so discover_specs includes the
+            # spec and afspec.load_spec() can parse it.
+            if not (dst / "requirements.json").exists():
+                (dst / "requirements.json").write_text(
+                    _v12_requirements_json(spec_id, name)
+                )
+            if not (dst / "test_spec.json").exists():
+                (dst / "test_spec.json").write_text(
+                    _v12_test_spec_json(spec_id, name)
+                )
+            if not (dst / "tasks.json").exists():
+                (dst / "tasks.json").write_text(
+                    _v12_tasks_json(
+                        spec_id, name, produce_finding=produce_finding
+                    )
+                )
+            # Ensure prd.md has YAML frontmatter for afspec.load_spec()
+            prd_path = dst / "prd.md"
+            if prd_path.exists():
+                existing = prd_path.read_text()
+                if not existing.startswith("---"):
+                    prd_path.write_text(_v12_prd_content(spec_id, name))
 
 
 # -- TS-09-E1: No specs directory ----------------------------------------------
@@ -224,7 +363,9 @@ class TestTableOutputSummary:
 
     def test_table_output_contains_error_text(self, cli_runner: CliRunner, tmp_path: Path) -> None:
         """Table output contains 'error' severity text."""
-        _setup_project_with_specs(tmp_path, ["incomplete_spec"])
+        _setup_project_with_specs(
+            tmp_path, ["incomplete_spec"], produce_finding=True
+        )
 
         original_dir = os.getcwd()
         os.chdir(tmp_path)
@@ -410,6 +551,11 @@ class TestAllFlagDefaultSkipsImplemented:
         # Create an active spec that depends on the archived one
         _create_spec_with_tasks(specs_dir, "02_active_spec", all_completed=False)
         (specs_dir / "02_active_spec" / "prd.md").write_text(
+            '---\nspec_id: "test-02"\nspec_name: "02_active_spec"\n'
+            'title: "Active Spec"\nstatus: "draft"\n'
+            'created_at: "2024-01-01T00:00:00Z"\n'
+            'updated_at: "2024-01-01T00:00:00Z"\n'
+            'owner: "test"\nsource: "test"\nschema_version: 1\n---\n'
             "# PRD\n\n## Dependencies\n\n"
             "| This Spec | Depends On | What It Uses |\n"
             "|-----------|-----------|---------------|\n"
@@ -434,10 +580,11 @@ class TestAllFlagDefaultSkipsImplemented:
         specs_dir = tmp_path / ".specs"
         specs_dir.mkdir(exist_ok=True)
 
-        # Create a spec with no tasks.md
+        # Create a spec with no tasks.md (v1.2 format for discovery)
         spec_dir = specs_dir / "01_no_tasks"
         spec_dir.mkdir()
         (spec_dir / "prd.md").write_text("# PRD\n")
+        (spec_dir / "requirements.json").write_text("{}")
         (spec_dir / "requirements.md").write_text("# Requirements\n")
 
         original_dir = os.getcwd()

@@ -23,15 +23,15 @@ and wiring verification.
 
 ## Tasks
 
-- [ ] 1. Write failing spec tests
-  - [ ] 1.1 Create test file structure
+- [x] 1. Write failing spec tests
+  - [x] 1.1 Create test file structure
     - Create `tests/spec/test_135_v12_skill_validation.py`
     - Create test fixtures with v1.2 spec directories (valid JSON artifacts)
     - Create test fixtures with v1 markdown spec directories
     - Create mock/patch helpers for `afspec.validate` and `ValidationError`
     - _Test Spec: TS-135-1 through TS-135-10_
 
-  - [ ] 1.2 Translate acceptance-criterion tests
+  - [x] 1.2 Translate acceptance-criterion tests
     - Test v1.2 routed to afspec.validate (TS-135-1)
     - Test v1 routed to custom validators (TS-135-2)
     - Test mixed format validation (TS-135-3)
@@ -44,37 +44,37 @@ and wiring verification.
     - Test skill template describes tasks JSON structure (TS-135-10)
     - _Test Spec: TS-135-1 through TS-135-10_
 
-  - [ ] 1.3 Translate edge-case tests
+  - [x] 1.3 Translate edge-case tests
     - Test afspec.validate exception handling (TS-135-E1)
     - Test empty validation result (TS-135-E2)
     - Test unknown severity mapping (TS-135-E3)
     - _Test Spec: TS-135-E1 through TS-135-E3_
 
-  - [ ] 1.4 Translate property tests
+  - [x] 1.4 Translate property tests
     - Test Finding mapping preserves all fields (TS-135-P1)
     - Test format routing is exhaustive (TS-135-P2)
     - _Test Spec: TS-135-P1, TS-135-P2_
 
-  - [ ] 1.V Verify task group 1
-    - [ ] All spec tests exist and are syntactically valid
-    - [ ] All spec tests FAIL (red) -- no implementation yet
-    - [ ] No linter warnings introduced: `uv run ruff check`
+  - [x] 1.V Verify task group 1
+    - [x] All spec tests exist and are syntactically valid
+    - [x] All spec tests FAIL (red) -- no implementation yet
+    - [x] No linter warnings introduced: `uv run ruff check`
 
-- [ ] 2. Update lint-specs format routing
-  - [ ] 2.1 Add _map_afspec_findings function to lint.py
+- [x] 2. Update lint-specs format routing
+  - [x] 2.1 Add _map_afspec_findings function to lint.py
     - Implement `_map_afspec_findings(spec_name, errors)` that maps each
       `afspec.ValidationError` to a `Finding`
     - Handle unknown severity by defaulting to "error"
     - _Requirements: 2.1, 2.2_
 
-  - [ ] 2.2 Add _validate_v12_spec function to lint.py
+  - [x] 2.2 Add _validate_v12_spec function to lint.py
     - Implement `_validate_v12_spec(spec)` that calls `afspec.validate()`
       and maps the result via `_map_afspec_findings()`
     - Catch exceptions and return a single error Finding with rule
       `afspec-error`
     - _Requirements: 1.1, 1.E1_
 
-  - [ ] 2.3 Update run_lint_specs to partition by format
+  - [x] 2.3 Update run_lint_specs to partition by format
     - Import `SpecFormat` from discovery module
     - Partition discovered specs into v1 and v1.2 lists by `spec.format`
     - Route v1 specs to `validate_specs()`, v1.2 specs to
@@ -82,20 +82,20 @@ and wiring verification.
     - Merge findings from both validators and sort
     - _Requirements: 1.1, 1.2, 1.3_
 
-  - [ ] 2.4 Update _is_spec_implemented for v1.2 format
+  - [x] 2.4 Update _is_spec_implemented for v1.2 format
     - For v1.2 specs, check `tasks.json` instead of `tasks.md`
     - Use `afspec.load_spec()` to parse tasks if available
     - _Requirements: 3.2_
 
-  - [ ] 2.V Verify task group 2
-    - [ ] Spec tests for routing pass: TS-135-1 through TS-135-5, TS-135-E1
+  - [x] 2.V Verify task group 2
+    - [x] Spec tests for routing pass: TS-135-1 through TS-135-5, TS-135-E1
       through TS-135-E3
-    - [ ] All existing tests still pass: `uv run pytest -q`
-    - [ ] No linter warnings introduced: `uv run ruff check`
-    - [ ] Requirements 1.1-2.2 acceptance criteria met
+    - [x] All existing tests still pass: `uv run pytest -q`
+    - [x] No linter warnings introduced: `uv run ruff check`
+    - [x] Requirements 1.1-2.2 acceptance criteria met
 
-- [ ] 3. Update af-spec skill template
-  - [ ] 3.1 Update artifact references
+- [x] 3. Update af-spec skill template
+  - [x] 3.1 Update artifact references
     - Replace `requirements.md` with `requirements.json` in output instructions
     - Replace `design.md` with `architecture.md` (optional) in output
       instructions
@@ -104,14 +104,14 @@ and wiring verification.
     - Keep `prd.md` but add YAML frontmatter instructions
     - _Requirements: 4.1_
 
-  - [ ] 3.2 Update ID format references
+  - [x] 3.2 Update ID format references
     - Replace `[{NN}-REQ-{N}.{C}]` with `{spec_id}-REQ-{N}` format
     - Add `{spec_id}-PROP-{N}` for property references
     - Add `{spec_id}-TS-{N}` for test case references
     - Update all examples and templates throughout the skill file
     - _Requirements: 4.2_
 
-  - [ ] 3.3 Add EARS JSON structure documentation
+  - [x] 3.3 Add EARS JSON structure documentation
     - Document the discriminated union on `ears_pattern`
     - Document each pattern type (ubiquitous, event_driven, complex_event,
       state_driven, unwanted, optional) with their fields
@@ -119,27 +119,27 @@ and wiring verification.
     - Replace markdown EARS examples with JSON examples
     - _Requirements: 6.1, 4.3_
 
-  - [ ] 3.4 Add tasks JSON structure documentation
+  - [x] 3.4 Add tasks JSON structure documentation
     - Document task groups with subtasks array
     - Document state machine (not_started, in_progress, completed, queued,
       optional) replacing checkboxes
     - Document dependency and traceability fields in JSON format
     - _Requirements: 6.2, 4.3_
 
-  - [ ] 3.5 Update validation step
+  - [x] 3.5 Update validation step
     - Update Step 7 to reference v1.2 validation
     - Add reference to `afspec`'s format specification as authoritative source
     - _Requirements: 5.1, 5.2_
 
-  - [ ] 3.V Verify task group 3
-    - [ ] Skill template content tests pass: TS-135-7 through TS-135-10,
+  - [x] 3.V Verify task group 3
+    - [x] Skill template content tests pass: TS-135-7 through TS-135-10,
       TS-135-SMOKE-2
-    - [ ] All existing tests still pass: `uv run pytest -q`
-    - [ ] No linter warnings introduced: `uv run ruff check`
-    - [ ] Requirements 4.1-6.2 acceptance criteria met
+    - [x] All existing tests still pass: `uv run pytest -q`
+    - [x] No linter warnings introduced: `uv run ruff check`
+    - [x] Requirements 4.1-6.2 acceptance criteria met
 
-- [ ] 4. Wiring verification
-  - [ ] 4.1 Trace every execution path from design.md end-to-end
+- [x] 4. Wiring verification
+  - [x] 4.1 Trace every execution path from design.md end-to-end
     - For each path (1-3), verify the entry point actually calls the next
       function in the chain (read the calling code, do not assume)
     - Confirm no function in the chain is a stub (`return []`, `return None`,
@@ -148,7 +148,7 @@ and wiring verification.
       not satisfy this check
     - _Requirements: all_
 
-  - [ ] 4.2 Verify return values propagate correctly
+  - [x] 4.2 Verify return values propagate correctly
     - For `_map_afspec_findings`: confirm callers use the returned
       `list[Finding]`
     - For `_validate_v12_spec`: confirm `run_lint_specs` uses the returned
@@ -156,12 +156,12 @@ and wiring verification.
     - Grep for callers of each function; confirm none discards the return
     - _Requirements: all_
 
-  - [ ] 4.3 Run the integration smoke tests
+  - [x] 4.3 Run the integration smoke tests
     - TS-135-SMOKE-1 passes (mixed format lint end-to-end)
     - TS-135-SMOKE-2 passes (skill template content validation)
     - _Test Spec: TS-135-SMOKE-1, TS-135-SMOKE-2_
 
-  - [ ] 4.4 Stub / dead-code audit
+  - [x] 4.4 Stub / dead-code audit
     - Search all files touched by this spec for: `return []`, `return None`
       on non-Optional returns, `pass` in non-abstract methods, `# TODO`,
       `# stub`, `override point`, `NotImplementedError`
@@ -170,19 +170,19 @@ and wiring verification.
     - Document any intentional stubs here with rationale
     - _Requirements: all_
 
-  - [ ] 4.5 Cross-spec entry point verification
+  - [x] 4.5 Cross-spec entry point verification
     - Verify that `afspec.validate()` is callable from agent-fox (dependency
       from spec 132 is live)
     - Verify that `SpecInfo.format` field is populated by discovery (spec 132)
     - Verify that the skill template is loadable by the skills framework
     - _Requirements: all_
 
-  - [ ] 4.V Verify wiring group
-    - [ ] All smoke tests pass
-    - [ ] No unjustified stubs remain in touched files
-    - [ ] All execution paths from design.md are live (traceable in code)
-    - [ ] All cross-spec entry points are called from production code
-    - [ ] All existing tests still pass: `uv run pytest -q`
+  - [x] 4.V Verify wiring group
+    - [x] All smoke tests pass
+    - [x] No unjustified stubs remain in touched files
+    - [x] All execution paths from design.md are live (traceable in code)
+    - [x] All cross-spec entry points are called from production code
+    - [x] All existing tests still pass: `uv run pytest -q`
 
 ## Traceability
 

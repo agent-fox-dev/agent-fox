@@ -389,7 +389,7 @@ def build_review_only_graph(
 
     - If the spec directory contains source files (.py, .ts, .go, .rs,
       .java, .js), Skeptic and Oracle nodes are created.
-    - If the spec directory contains a ``requirements.md`` file, a
+    - If the spec directory contains a ``requirements.json`` file, a
       Verifier node is created.
 
     When *spec_filter* is provided, only the spec whose directory name
@@ -422,8 +422,7 @@ def build_review_only_graph(
         # Check for source files
         has_source = any(f.suffix in _SOURCE_EXTENSIONS for f in spec_dir.iterdir() if f.is_file())
 
-        # Check for requirements.md
-        has_reqs = (spec_dir / "requirements.md").exists()
+        has_reqs = (spec_dir / "requirements.json").exists()
 
         if has_source:
             pre_id = f"{spec_name}:0:reviewer:pre-review"

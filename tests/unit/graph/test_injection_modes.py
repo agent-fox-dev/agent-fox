@@ -160,10 +160,10 @@ class TestDriftReviewGating:
         """TS-98-10: collect_enabled_auto_pre skips drift-review for no-code spec."""
         from agent_fox.graph.injection import collect_enabled_auto_pre
 
-        # Create a spec dir with a design.md that has no (modified) file references
+        # Create a spec dir with an architecture.md that has no (modified) file references
         spec_dir = tmp_path / "00_nocode"
         spec_dir.mkdir()
-        (spec_dir / "design.md").write_text(
+        (spec_dir / "architecture.md").write_text(
             "# Design\n\nThis spec describes a new feature with no existing code.\n",
             encoding="utf-8",
         )
@@ -190,12 +190,12 @@ class TestDriftReviewGating:
         """TS-98-10: collect_enabled_auto_pre includes drift-review when spec references code."""
         from agent_fox.graph.injection import collect_enabled_auto_pre
 
-        # Create a spec dir with a design.md that references an existing file
+        # Create a spec dir with an architecture.md that references an existing file
         # Use injection.py as the existing file reference
         existing_file = Path("agent_fox/graph/injection.py")
         spec_dir = tmp_path / "00_hascode"
         spec_dir.mkdir()
-        (spec_dir / "design.md").write_text(
+        (spec_dir / "architecture.md").write_text(
             f"# Design\n\n**`{existing_file}`** (modified)\n",
             encoding="utf-8",
         )

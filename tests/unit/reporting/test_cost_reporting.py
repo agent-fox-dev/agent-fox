@@ -156,7 +156,6 @@ class TestCallSiteInstrumentation:
             "nightshift_ai_call",
         }
         files = [
-            "agent_fox/spec/ai_validation.py",
             "agent_fox/fix/clusterer.py",
         ]
         for filepath in files:

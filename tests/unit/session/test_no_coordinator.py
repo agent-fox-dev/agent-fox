@@ -56,17 +56,3 @@ class TestGetArchetypeCoordinatorFallback:
         )
 
 
-# -------------------------------------------------------------------
-# TS-62-7: Parser Known Archetypes Excludes Coordinator
-# Requirement: 62-REQ-5.1
-# -------------------------------------------------------------------
-
-
-class TestParserKnownArchetypesExcludesCoordinator:
-    """TS-62-7: Verify spec parser's _KNOWN_ARCHETYPES excludes coordinator."""
-
-    def test_parser_known_archetypes_excludes_coordinator(self) -> None:
-        """The parser's known archetypes set must not include 'coordinator'."""
-        from agent_fox.spec.parser import _KNOWN_ARCHETYPES
-
-        assert "coordinator" not in _KNOWN_ARCHETYPES

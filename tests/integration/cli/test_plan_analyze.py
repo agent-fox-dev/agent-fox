@@ -67,8 +67,8 @@ def _mock_graph() -> MagicMock:
 def _setup_specs(base: Path, *spec_names: str) -> Path:
     """Create a specs directory with minimal spec(s).
 
-    Each spec gets a tasks.md with two task groups.
-    Returns the specs directory path.
+    Each spec gets valid v1.2 format artifacts so afspec.load_spec() can
+    parse them. Returns the specs directory path.
     """
     specs_dir = base / ".specs"
     specs_dir.mkdir(parents=True, exist_ok=True)
@@ -76,14 +76,47 @@ def _setup_specs(base: Path, *spec_names: str) -> Path:
     for name in spec_names:
         spec_dir = specs_dir / name
         spec_dir.mkdir(exist_ok=True)
-        (spec_dir / "tasks.md").write_text(
-            "# Tasks\n\n"
-            "- [ ] 1. Write tests\n"
-            "  - [ ] 1.1 Unit tests\n"
-            "\n"
-            "- [ ] 2. Implement feature\n"
-            "  - [ ] 2.1 Core logic\n"
+        (spec_dir / "prd.md").write_text(
+            '---\nspec_id: "test"\nspec_name: "test"\ntitle: "Test"\n'
+            'status: "draft"\ncreated_at: "2024-01-01T00:00:00Z"\n'
+            'updated_at: "2024-01-01T00:00:00Z"\nowner: "test"\n'
+            'source: "test"\nschema_version: 1\n---\n# Test\n'
         )
+        (spec_dir / "requirements.json").write_text(json.dumps({
+            "spec_id": "test", "spec_name": "test", "schema_version": 1,
+            "introduction": "", "glossary": {}, "requirements": [],
+            "correctness_properties": [], "execution_paths": [], "error_handling": [],
+        }))
+        (spec_dir / "test_spec.json").write_text(json.dumps({
+            "spec_id": "test", "spec_name": "test", "schema_version": 1,
+            "test_cases": [], "property_tests": [], "edge_case_tests": [],
+            "smoke_tests": [], "coverage": {
+                "requirements_covered": [], "properties_covered": [],
+                "paths_covered": [], "gaps": [],
+            },
+        }))
+        (spec_dir / "tasks.json").write_text(json.dumps({
+            "spec_id": "test", "spec_name": "test", "schema_version": 1,
+            "test_commands": {"spec_tests": "", "all_tests": "", "linter": ""},
+            "dependencies": [],
+            "task_groups": [
+                {
+                    "id": 1, "kind": "standard", "title": "Write tests",
+                    "subtasks": [{"id": "1.1", "title": "Unit tests", "state": "pending",
+                                  "details": [], "test_spec_refs": [], "requirement_refs": [],
+                                  "optional": False}],
+                    "verification": {"id": "", "checks": []},
+                },
+                {
+                    "id": 2, "kind": "standard", "title": "Implement feature",
+                    "subtasks": [{"id": "2.1", "title": "Core logic", "state": "pending",
+                                  "details": [], "test_spec_refs": [], "requirement_refs": [],
+                                  "optional": False}],
+                    "verification": {"id": "", "checks": []},
+                },
+            ],
+            "traceability": [],
+        }))
 
     return specs_dir
 

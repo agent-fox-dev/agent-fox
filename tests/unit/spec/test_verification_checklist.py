@@ -3,14 +3,17 @@
 Verifies that the checklist correctly audits task completion, maps
 requirements to test functions, and renders a structured markdown
 document for verifier context injection.
+
+Updated for spec 137: all fixtures use v1.2 JSON format (tasks.json,
+requirements.json) instead of v1 markdown files.
 """
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import duckdb
-import pytest
 
 from agent_fox.knowledge.migrations import run_migrations
 from agent_fox.spec.verification_checklist import (
@@ -29,24 +32,119 @@ def _make_conn() -> duckdb.DuckDBPyConnection:
     return conn
 
 
-def _write_tasks(spec_dir: Path, content: str) -> None:
-    (spec_dir / "tasks.md").write_text(content, encoding="utf-8")
+def _make_requirement(
+    req_id: str,
+    title: str = "Core Feature",
+    criteria: list[dict] | None = None,
+    edge_cases: list[dict] | None = None,
+) -> dict:
+    """Build a valid afspec requirement dict."""
+    return {
+        "id": req_id,
+        "title": title,
+        "user_story": {"role": "user", "goal": "do things", "benefit": "value"},
+        "acceptance_criteria": criteria or [],
+        "edge_cases": edge_cases or [],
+    }
 
 
-def _write_requirements(spec_dir: Path, content: str) -> None:
-    (spec_dir / "requirements.md").write_text(content, encoding="utf-8")
+def _make_criterion(criterion_id: str, text: str = "The system SHALL do X.") -> dict:
+    """Build a valid afspec acceptance criterion dict."""
+    return {
+        "id": criterion_id,
+        "ears_pattern": "ubiquitous",
+        "criterion": text,
+    }
+
+
+def _write_spec(
+    spec_dir: Path,
+    *,
+    task_groups: list[dict] | None = None,
+    requirements: list[dict] | None = None,
+) -> None:
+    """Write v1.2 spec artifacts (prd.md, requirements.json, tasks.json).
+
+    Provides minimal valid JSON structures for testing.
+    """
+    spec_dir.mkdir(parents=True, exist_ok=True)
+    (spec_dir / "prd.md").write_text(
+        "---\n"
+        'spec_id: "test"\n'
+        'spec_name: "test"\n'
+        'title: "Test"\n'
+        'status: "draft"\n'
+        'created_at: "2024-01-01T00:00:00Z"\n'
+        'updated_at: "2024-01-01T00:00:00Z"\n'
+        'owner: "test"\n'
+        'source: "test"\n'
+        "schema_version: 1\n"
+        "---\n# Test PRD\n",
+        encoding="utf-8",
+    )
+    req_data = {
+        "spec_id": "test",
+        "spec_name": "test",
+        "schema_version": 1,
+        "introduction": "Test",
+        "glossary": {},
+        "requirements": requirements or [],
+        "correctness_properties": [],
+        "execution_paths": [],
+        "error_handling": [],
+    }
+    (spec_dir / "requirements.json").write_text(
+        json.dumps(req_data, indent=2), encoding="utf-8"
+    )
+    tasks_data = {
+        "spec_id": "test",
+        "spec_name": "test",
+        "schema_version": 1,
+        "test_commands": {"spec_tests": "", "all_tests": "", "linter": ""},
+        "dependencies": [],
+        "task_groups": task_groups or [],
+        "traceability": [],
+    }
+    (spec_dir / "tasks.json").write_text(
+        json.dumps(tasks_data, indent=2), encoding="utf-8"
+    )
+    test_spec_data = {
+        "spec_id": "test",
+        "spec_name": "test",
+        "schema_version": 1,
+        "test_cases": [],
+        "property_tests": [],
+        "edge_case_tests": [],
+        "smoke_tests": [],
+        "coverage": {
+            "requirements_covered": [],
+            "properties_covered": [],
+            "paths_covered": [],
+            "gaps": [],
+        },
+    }
+    (spec_dir / "test_spec.json").write_text(
+        json.dumps(test_spec_data, indent=2), encoding="utf-8"
+    )
 
 
 class TestSubtaskAudit:
     def test_all_checked_returns_no_unchecked(self, tmp_path: Path) -> None:
         spec_dir = tmp_path / "10_my_spec"
-        spec_dir.mkdir()
-        _write_tasks(
+        _write_spec(
             spec_dir,
-            "- [x] 1. Write failing tests\n"
-            "  - [x] 1.1 Write unit tests\n"
-            "  - [x] 1.2 Write integration tests\n"
-            "  - [x] 1.V Verify task group 1\n",
+            task_groups=[{
+                "id": 1, "kind": "standard", "title": "Write failing tests",
+                "subtasks": [
+                    {"id": "1.1", "title": "Write unit tests", "state": "done",
+                     "details": [], "test_spec_refs": [], "requirement_refs": [], "optional": False},
+                    {"id": "1.2", "title": "Write integration tests", "state": "done",
+                     "details": [], "test_spec_refs": [], "requirement_refs": [], "optional": False},
+                    {"id": "1.V", "title": "Verify task group 1", "state": "done",
+                     "details": [], "test_spec_refs": [], "requirement_refs": [], "optional": False},
+                ],
+                "verification": {"id": "", "checks": []},
+            }],
         )
         conn = _make_conn()
         checklist = build_verification_checklist(spec_dir, conn)
@@ -55,13 +153,20 @@ class TestSubtaskAudit:
 
     def test_unchecked_subtasks_flagged(self, tmp_path: Path) -> None:
         spec_dir = tmp_path / "10_my_spec"
-        spec_dir.mkdir()
-        _write_tasks(
+        _write_spec(
             spec_dir,
-            "- [ ] 1. Write failing tests\n"
-            "  - [x] 1.1 Write unit tests\n"
-            "  - [ ] 1.2 Write integration tests\n"
-            "  - [ ] 1.V Verify task group 1\n",
+            task_groups=[{
+                "id": 1, "kind": "standard", "title": "Write failing tests",
+                "subtasks": [
+                    {"id": "1.1", "title": "Write unit tests", "state": "done",
+                     "details": [], "test_spec_refs": [], "requirement_refs": [], "optional": False},
+                    {"id": "1.2", "title": "Write integration tests", "state": "pending",
+                     "details": [], "test_spec_refs": [], "requirement_refs": [], "optional": False},
+                    {"id": "1.V", "title": "Verify task group 1", "state": "pending",
+                     "details": [], "test_spec_refs": [], "requirement_refs": [], "optional": False},
+                ],
+                "verification": {"id": "", "checks": []},
+            }],
         )
         conn = _make_conn()
         checklist = build_verification_checklist(spec_dir, conn)
@@ -73,11 +178,16 @@ class TestSubtaskAudit:
 
     def test_erratum_covers_unchecked_subtask(self, tmp_path: Path) -> None:
         spec_dir = tmp_path / "10_my_spec"
-        spec_dir.mkdir()
-        _write_tasks(
+        _write_spec(
             spec_dir,
-            "- [ ] 1. Write failing tests\n"
-            "  - [ ] 1.1 Skipped subtask\n",
+            task_groups=[{
+                "id": 1, "kind": "standard", "title": "Write failing tests",
+                "subtasks": [
+                    {"id": "1.1", "title": "Skipped subtask", "state": "pending",
+                     "details": [], "test_spec_refs": [], "requirement_refs": [], "optional": False},
+                ],
+                "verification": {"id": "", "checks": []},
+            }],
         )
         conn = _make_conn()
         conn.execute(
@@ -90,14 +200,28 @@ class TestSubtaskAudit:
 
     def test_multiple_groups_audited(self, tmp_path: Path) -> None:
         spec_dir = tmp_path / "10_my_spec"
-        spec_dir.mkdir()
-        _write_tasks(
+        _write_spec(
             spec_dir,
-            "- [x] 1. Write failing tests\n"
-            "  - [x] 1.1 Unit tests\n"
-            "- [ ] 2. Implement\n"
-            "  - [x] 2.1 Core logic\n"
-            "  - [ ] 2.2 Edge cases\n",
+            task_groups=[
+                {
+                    "id": 1, "kind": "standard", "title": "Write failing tests",
+                    "subtasks": [
+                        {"id": "1.1", "title": "Unit tests", "state": "done",
+                         "details": [], "test_spec_refs": [], "requirement_refs": [], "optional": False},
+                    ],
+                    "verification": {"id": "", "checks": []},
+                },
+                {
+                    "id": 2, "kind": "standard", "title": "Implement",
+                    "subtasks": [
+                        {"id": "2.1", "title": "Core logic", "state": "done",
+                         "details": [], "test_spec_refs": [], "requirement_refs": [], "optional": False},
+                        {"id": "2.2", "title": "Edge cases", "state": "pending",
+                         "details": [], "test_spec_refs": [], "requirement_refs": [], "optional": False},
+                    ],
+                    "verification": {"id": "", "checks": []},
+                },
+            ],
         )
         conn = _make_conn()
         checklist = build_verification_checklist(spec_dir, conn)
@@ -106,15 +230,22 @@ class TestSubtaskAudit:
         assert 2 in groups
 
     def test_skipped_subtasks_excluded(self, tmp_path: Path) -> None:
-        """Subtasks marked with [-] or [~] are intentionally skipped."""
+        """Subtasks marked as dropped are intentionally skipped."""
         spec_dir = tmp_path / "10_my_spec"
-        spec_dir.mkdir()
-        _write_tasks(
+        _write_spec(
             spec_dir,
-            "- [-] 1. Partially done\n"
-            "  - [x] 1.1 Done\n"
-            "  - [-] 1.2 Skipped intentionally\n"
-            "  - [~] 1.3 Not applicable\n",
+            task_groups=[{
+                "id": 1, "kind": "standard", "title": "Partially done",
+                "subtasks": [
+                    {"id": "1.1", "title": "Done", "state": "done",
+                     "details": [], "test_spec_refs": [], "requirement_refs": [], "optional": False},
+                    {"id": "1.2", "title": "Skipped intentionally", "state": "dropped",
+                     "details": [], "test_spec_refs": [], "requirement_refs": [], "optional": False},
+                    {"id": "1.3", "title": "Not applicable", "state": "dropped",
+                     "details": [], "test_spec_refs": [], "requirement_refs": [], "optional": False},
+                ],
+                "verification": {"id": "", "checks": []},
+            }],
         )
         conn = _make_conn()
         checklist = build_verification_checklist(spec_dir, conn)
@@ -125,12 +256,11 @@ class TestSubtaskAudit:
 class TestRequirementTestCoverage:
     def test_requirement_found_in_test_docstring(self, tmp_path: Path) -> None:
         spec_dir = tmp_path / "10_my_spec"
-        spec_dir.mkdir()
-        _write_requirements(
+        _write_spec(
             spec_dir,
-            "## Requirements\n\n"
-            "### Requirement 1: Core Feature\n"
-            "**[10-REQ-1.1]** The system SHALL do X.\n",
+            requirements=[
+                _make_requirement("req-1", criteria=[_make_criterion("10-REQ-1.1")]),
+            ],
         )
         tests_dir = tmp_path / "tests"
         tests_dir.mkdir()
@@ -146,11 +276,11 @@ class TestRequirementTestCoverage:
 
     def test_requirement_found_in_function_name(self, tmp_path: Path) -> None:
         spec_dir = tmp_path / "10_my_spec"
-        spec_dir.mkdir()
-        _write_requirements(
+        _write_spec(
             spec_dir,
-            "## Requirements\n\n"
-            "**[10-REQ-1.1]** The system SHALL do X.\n",
+            requirements=[
+                _make_requirement("req-1", criteria=[_make_criterion("10-REQ-1.1")]),
+            ],
         )
         tests_dir = tmp_path / "tests"
         tests_dir.mkdir()
@@ -165,12 +295,17 @@ class TestRequirementTestCoverage:
 
     def test_unmapped_requirement_flagged(self, tmp_path: Path) -> None:
         spec_dir = tmp_path / "10_my_spec"
-        spec_dir.mkdir()
-        _write_requirements(
+        _write_spec(
             spec_dir,
-            "## Requirements\n\n"
-            "**[10-REQ-1.1]** The system SHALL do X.\n"
-            "**[10-REQ-1.2]** The system SHALL do Y.\n",
+            requirements=[
+                _make_requirement(
+                    "req-1",
+                    criteria=[
+                        _make_criterion("10-REQ-1.1"),
+                        _make_criterion("10-REQ-1.2", "The system SHALL do Y."),
+                    ],
+                ),
+            ],
         )
         tests_dir = tmp_path / "tests"
         tests_dir.mkdir()
@@ -193,10 +328,11 @@ class TestRequirementTestCoverage:
 
     def test_no_tests_dir(self, tmp_path: Path) -> None:
         spec_dir = tmp_path / "10_my_spec"
-        spec_dir.mkdir()
-        _write_requirements(
+        _write_spec(
             spec_dir,
-            "**[10-REQ-1.1]** The system SHALL do X.\n",
+            requirements=[
+                _make_requirement("req-1", criteria=[_make_criterion("10-REQ-1.1")]),
+            ],
         )
         tests_dir = tmp_path / "nonexistent"
         mappings = scan_requirement_test_coverage(spec_dir, tests_dir)
@@ -207,12 +343,18 @@ class TestRequirementTestCoverage:
 class TestRenderChecklistMarkdown:
     def test_renders_task_audit_section(self, tmp_path: Path) -> None:
         spec_dir = tmp_path / "10_my_spec"
-        spec_dir.mkdir()
-        _write_tasks(
+        _write_spec(
             spec_dir,
-            "- [ ] 1. Write tests\n"
-            "  - [x] 1.1 Unit tests\n"
-            "  - [ ] 1.2 Integration tests\n",
+            task_groups=[{
+                "id": 1, "kind": "standard", "title": "Write tests",
+                "subtasks": [
+                    {"id": "1.1", "title": "Unit tests", "state": "done",
+                     "details": [], "test_spec_refs": [], "requirement_refs": [], "optional": False},
+                    {"id": "1.2", "title": "Integration tests", "state": "pending",
+                     "details": [], "test_spec_refs": [], "requirement_refs": [], "optional": False},
+                ],
+                "verification": {"id": "", "checks": []},
+            }],
         )
         conn = _make_conn()
         checklist = build_verification_checklist(spec_dir, conn)
@@ -264,20 +406,33 @@ class TestRenderChecklistMarkdown:
 class TestBuildVerificationChecklist:
     def test_full_checklist_integration(self, tmp_path: Path) -> None:
         spec_dir = tmp_path / "10_my_spec"
-        spec_dir.mkdir()
-        _write_tasks(
+        _write_spec(
             spec_dir,
-            "- [x] 1. Write failing tests\n"
-            "  - [x] 1.1 Unit tests\n"
-            "  - [x] 1.V Verify\n"
-            "- [x] 2. Implement\n"
-            "  - [x] 2.1 Core\n"
-            "  - [x] 2.V Verify\n",
-        )
-        _write_requirements(
-            spec_dir,
-            "## Requirements\n\n"
-            "**[10-REQ-1.1]** The system SHALL do X.\n",
+            task_groups=[
+                {
+                    "id": 1, "kind": "standard", "title": "Write failing tests",
+                    "subtasks": [
+                        {"id": "1.1", "title": "Unit tests", "state": "done",
+                         "details": [], "test_spec_refs": [], "requirement_refs": [], "optional": False},
+                        {"id": "1.V", "title": "Verify", "state": "done",
+                         "details": [], "test_spec_refs": [], "requirement_refs": [], "optional": False},
+                    ],
+                    "verification": {"id": "", "checks": []},
+                },
+                {
+                    "id": 2, "kind": "standard", "title": "Implement",
+                    "subtasks": [
+                        {"id": "2.1", "title": "Core", "state": "done",
+                         "details": [], "test_spec_refs": [], "requirement_refs": [], "optional": False},
+                        {"id": "2.V", "title": "Verify", "state": "done",
+                         "details": [], "test_spec_refs": [], "requirement_refs": [], "optional": False},
+                    ],
+                    "verification": {"id": "", "checks": []},
+                },
+            ],
+            requirements=[
+                _make_requirement("req-1", criteria=[_make_criterion("10-REQ-1.1")]),
+            ],
         )
         tests_dir = tmp_path / "tests"
         tests_dir.mkdir()

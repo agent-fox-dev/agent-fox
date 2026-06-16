@@ -15,7 +15,7 @@ from agent_fox.core.errors import PlanError
 from agent_fox.graph.builder import build_graph
 from agent_fox.graph.types import NodeStatus
 from agent_fox.spec.discovery import SpecInfo
-from agent_fox.spec.parser import CrossSpecDep, TaskGroupDef
+from agent_fox.spec.types import CrossSpecDep, TaskGroupDef
 
 # -- Helpers to create test data ---------------------------------------------
 

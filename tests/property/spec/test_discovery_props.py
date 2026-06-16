@@ -73,6 +73,8 @@ class TestDiscoverySortOrder:
         for p in prefixes:
             folder = specs_dir / f"{p:02d}_spec_{p}"
             folder.mkdir()
+            (folder / "requirements.json").write_text("{}")
+            (folder / "tasks.json").write_text("{}")
             (folder / "tasks.md").write_text(f"- [ ] 1. Task for spec {p}\n")
 
         # Run discovery

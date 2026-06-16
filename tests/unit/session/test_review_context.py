@@ -7,6 +7,7 @@ Requirements: 27-REQ-5.1, 27-REQ-5.2, 27-REQ-5.3, 27-REQ-5.E1, 27-REQ-5.E2,
 
 from __future__ import annotations
 
+import json
 import uuid
 from collections.abc import Generator
 from pathlib import Path
@@ -74,6 +75,36 @@ def _make_verdict(
         task_group="1",
         session_id=session_id,
     )
+
+
+def _write_spec(spec_dir: Path) -> None:
+    """Write minimal v1.2 spec fixture files."""
+    (spec_dir / "prd.md").write_text(
+        '---\nspec_id: "t"\nspec_name: "t"\ntitle: "T"\n'
+        'status: "draft"\ncreated_at: "2024-01-01T00:00:00Z"\n'
+        'updated_at: "2024-01-01T00:00:00Z"\nowner: "t"\n'
+        'source: "t"\nschema_version: 1\n---\n# T\n'
+    )
+    (spec_dir / "requirements.json").write_text(json.dumps({
+        "spec_id": "t", "spec_name": "t", "schema_version": 1,
+        "introduction": "REQ", "glossary": {},
+        "requirements": [], "correctness_properties": [],
+        "execution_paths": [], "error_handling": [],
+    }))
+    (spec_dir / "test_spec.json").write_text(json.dumps({
+        "spec_id": "t", "spec_name": "t", "schema_version": 1,
+        "test_cases": [], "property_tests": [],
+        "edge_case_tests": [], "smoke_tests": [],
+        "coverage": {
+            "requirements_covered": [], "properties_covered": [],
+            "paths_covered": [], "gaps": [],
+        },
+    }))
+    (spec_dir / "tasks.json").write_text(json.dumps({
+        "spec_id": "t", "spec_name": "t", "schema_version": 1,
+        "test_commands": {"spec_tests": "", "all_tests": "", "linter": ""},
+        "dependencies": [], "task_groups": [], "traceability": [],
+    }))
 
 
 class TestRenderReviewContext:
@@ -186,7 +217,7 @@ class TestDbUnavailableFallback:
 
         spec_dir = tmp_path / "test_spec"
         spec_dir.mkdir()
-        (spec_dir / "requirements.md").write_text("# Requirements\n")
+        _write_spec(spec_dir)
         (spec_dir / "review.md").write_text("# Skeptic Review\n\n## Critical Findings\n- [severity: major] Test\n")
 
         conn = duckdb.connect(":memory:")
@@ -204,7 +235,7 @@ class TestDbUnavailableFallback:
         """
         spec_dir = tmp_path / "test_spec"
         spec_dir.mkdir()
-        (spec_dir / "requirements.md").write_text("# Requirements\n")
+        _write_spec(spec_dir)
         (spec_dir / "review.md").write_text("# Skeptic Review\n- [severity: minor] Fallback test\n")
 
         # Use a closed connection to trigger an error
@@ -224,7 +255,7 @@ class TestLegacyFileMigration:
 
         spec_dir = tmp_path / "test_spec"
         spec_dir.mkdir()
-        (spec_dir / "requirements.md").write_text("# Requirements\n")
+        _write_spec(spec_dir)
         (spec_dir / "review.md").write_text(
             "# Skeptic Review\n\n## Critical Findings\n- [severity: critical] Legacy finding\n"
         )
@@ -244,7 +275,7 @@ class TestLegacyFileMigration:
 
         spec_dir = tmp_path / "test_spec"
         spec_dir.mkdir()
-        (spec_dir / "requirements.md").write_text("# Requirements\n")
+        _write_spec(spec_dir)
         (spec_dir / "verification.md").write_text(
             "# Verification Report\n\n"
             "| Requirement | Status | Notes |\n"
@@ -266,7 +297,7 @@ class TestLegacyFileMigration:
 
         spec_dir = tmp_path / "test_spec"
         spec_dir.mkdir()
-        (spec_dir / "requirements.md").write_text("# Requirements\n")
+        _write_spec(spec_dir)
         # Write something that won't match the pattern
         (spec_dir / "review.md").write_text("Random garbage content\n")
 

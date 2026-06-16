@@ -19,7 +19,6 @@ from agent_fox.core.errors import PlanError
 from agent_fox.graph.types import Edge, Node, NodeStatus, TaskGraph
 from agent_fox.spec.discovery import SpecInfo, discover_specs  # noqa: F401
 from agent_fox.spec.parser import parse_cross_deps, parse_tasks
-from agent_fox.spec.validators import EXPECTED_FILES, Finding, validate_specs
 from agent_fox.workspace.git import run_git
 
 if TYPE_CHECKING:
@@ -115,8 +114,11 @@ async def is_spec_tracked_on_develop(
         return True
 
 
+_EXPECTED_V12_FILES = ["prd.md", "requirements.json", "test_spec.json", "tasks.json"]
+
+
 def is_spec_complete(spec_path: Path) -> tuple[bool, list[str]]:
-    """Check if all 5 required files exist and are non-empty.
+    """Check if all required v1.2 files exist and are non-empty.
 
     Returns:
         Tuple of (passed, list_of_missing_or_empty_filenames).
@@ -124,7 +126,7 @@ def is_spec_complete(spec_path: Path) -> tuple[bool, list[str]]:
     Requirements: 51-REQ-5.1, 51-REQ-5.2, 51-REQ-5.E1
     """
     missing_or_empty: list[str] = []
-    for filename in EXPECTED_FILES:
+    for filename in _EXPECTED_V12_FILES:
         fp = spec_path / filename
         if not fp.is_file() or fp.stat().st_size == 0:
             missing_or_empty.append(filename)
@@ -134,6 +136,8 @@ def is_spec_complete(spec_path: Path) -> tuple[bool, list[str]]:
 def lint_spec_gate(spec_name: str, spec_path: Path) -> tuple[bool, list[str]]:
     """Run the spec validator and check for error-severity findings.
 
+    Uses ``afspec.validate()`` to check the v1.2 spec for errors.
+
     Returns:
         Tuple of (passed, error_messages).
         Passes if no findings have severity ``"error"``.
@@ -142,25 +146,12 @@ def lint_spec_gate(spec_name: str, spec_path: Path) -> tuple[bool, list[str]]:
     Requirements: 51-REQ-6.1, 51-REQ-6.2, 51-REQ-6.3, 51-REQ-6.E1
     """
     try:
-        # Extract numeric prefix; default to 0 if not parseable
-        prefix = 0
-        parts = spec_name.split("_", 1)
-        if parts[0].isdigit():
-            prefix = int(parts[0])
-        spec_info = SpecInfo(
-            name=spec_name,
-            prefix=prefix,
-            path=spec_path,
-            has_tasks=(spec_path / "tasks.md").is_file(),
-            has_prd=(spec_path / "prd.md").is_file(),
-        )
-        findings: list[Finding] = validate_specs(
-            specs_dir=spec_path.parent,
-            discovered_specs=[spec_info],
-        )
-        error_findings = [f for f in findings if f.severity == "error"]
-        if error_findings:
-            error_messages = [f"{f.rule}: {f.message}" for f in error_findings]
+        import afspec
+
+        loaded = afspec.load_spec(spec_path)
+        errors = afspec.validate(loaded)
+        if errors:
+            error_messages = [f"{e.rule}: {e.message}" for e in errors]
             return (False, error_messages)
         return (True, [])
     except Exception as exc:
@@ -168,10 +159,10 @@ def lint_spec_gate(spec_name: str, spec_path: Path) -> tuple[bool, list[str]]:
 
 
 def are_all_tasks_done(spec_path: Path) -> bool:
-    """Check if all task groups in tasks.md are marked complete.
+    """Check if all task groups are marked complete.
 
-    Returns True only when tasks.md exists, contains at least one group,
-    and every group has ``completed=True``.
+    Returns True only when the spec directory can be parsed, contains at
+    least one group, and every group has ``completed=True``.
 
     Args:
         spec_path: Path to the spec folder (e.g., ``.specs/42_feature``).
@@ -179,11 +170,10 @@ def are_all_tasks_done(spec_path: Path) -> bool:
     Returns:
         True if all task groups are completed, False otherwise.
     """
-    tasks_path = spec_path / "tasks.md"
-    if not tasks_path.is_file():
+    if not spec_path.is_dir():
         return False
     try:
-        groups = parse_tasks(tasks_path)
+        groups = parse_tasks(spec_path)
     except Exception:
         return False
     if not groups:
@@ -244,7 +234,7 @@ async def discover_new_specs_gated(
     2. Gate 1: git-tracked on develop.
     3. Gate 2: all 5 required files present and non-empty.
     4. Gate 3: no lint errors from validator.
-    5. Gate 4: not already fully implemented (tasks.md + plan state).
+    5. Gate 4: not already fully implemented (tasks.json + plan state).
 
     Returns only specs that pass all gates.  Skipped specs are
     re-evaluated at the next barrier with a clean slate (51-REQ-7.2).
@@ -298,7 +288,7 @@ async def discover_new_specs_gated(
             continue
 
         # Gate 4: tasks-complete — skip specs that are fully implemented.
-        # Both tasks.md AND plan node state must agree the spec is done.
+        # Both tasks.json AND plan node state must agree the spec is done.
         if are_all_tasks_done(spec.path) and _are_all_plan_nodes_done(spec.name, db_conn):
             logger.info(
                 "Spec '%s' is fully implemented (all tasks complete, all plan nodes done), skipping",
@@ -353,17 +343,16 @@ def _validate_and_parse_specs(
     for spec_info in new_spec_infos:
         if not spec_info.has_tasks:
             logger.warning(
-                "New spec '%s' has no tasks.md, skipping",
+                "New spec '%s' has no tasks, skipping",
                 spec_info.name,
             )
             continue
 
-        tasks_path = spec_info.path / "tasks.md"
         try:
-            task_groups = parse_tasks(tasks_path)
+            task_groups = parse_tasks(spec_info.path)
         except Exception:
             logger.warning(
-                "Failed to parse tasks.md for spec '%s', skipping",
+                "Failed to parse tasks for spec '%s', skipping",
                 spec_info.name,
             )
             continue
@@ -379,7 +368,7 @@ def _validate_and_parse_specs(
         dep_names = _parse_dep_specs_from_prd(prd_path)
 
         if not dep_names:
-            cross_deps = parse_cross_deps(prd_path, spec_name=spec_info.name)
+            cross_deps = parse_cross_deps(spec_info.path, spec_name=spec_info.name)
             dep_names = [d.to_spec for d in cross_deps]
 
         # 06-REQ-7.E1: Validate all dependencies exist

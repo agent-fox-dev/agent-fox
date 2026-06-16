@@ -949,14 +949,15 @@ def build_summary_comment(
     """
     from agent_fox.spec.parser import parse_tasks  # noqa: PLC0415
 
-    # Extract task group titles from tasks.md
+    # Extract task group titles from spec directory
     group_lines: list[str] = []
     try:
-        if tasks_path.exists():
-            groups = parse_tasks(tasks_path)
+        spec_dir = tasks_path.parent
+        if spec_dir.is_dir():
+            groups = parse_tasks(spec_dir)
             group_lines = [f"- {g.title}" for g in groups]
     except Exception:
-        logger.debug("Failed to parse tasks.md for summary comment", exc_info=True)
+        logger.debug("Failed to parse tasks for summary comment", exc_info=True)
 
     task_section = "\n".join(group_lines) if group_lines else "*(no task groups found)*"
 

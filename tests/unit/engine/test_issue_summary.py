@@ -181,15 +181,28 @@ class TestBuildSummaryComment:
 
         Requirements: 108-REQ-3.1, 108-REQ-3.2, 108-REQ-3.3, 108-REQ-3.4
         """
+        from unittest.mock import patch
+
         from agent_fox.engine.engine import build_summary_comment
+        from agent_fox.spec.types import SubtaskDef, TaskGroupDef
 
         spec_name = "108_issue_session_summary"
         commit_sha = "abc123def"
 
-        tasks_path = tmp_path / "tasks.md"
-        tasks_path.write_text("## Tasks\n\n- [x] 1. Write failing tests\n- [x] 2. Implement feature\n")
+        # tasks_path is passed for backward compat; parent is the spec dir
+        spec_dir = tmp_path / "108_issue_session_summary"
+        spec_dir.mkdir()
+        tasks_path = spec_dir / "tasks.json"
 
-        comment = build_summary_comment(spec_name, commit_sha, tasks_path)
+        mock_groups = [
+            TaskGroupDef(number=1, title="Write failing tests", optional=False, completed=True,
+                         subtasks=(SubtaskDef(id="1.1", title="t1", completed=True),), body="", archetype=None),
+            TaskGroupDef(number=2, title="Implement feature", optional=False, completed=True,
+                         subtasks=(SubtaskDef(id="2.1", title="t2", completed=True),), body="", archetype=None),
+        ]
+
+        with patch("agent_fox.spec.parser.parse_tasks", return_value=mock_groups):
+            comment = build_summary_comment(spec_name, commit_sha, tasks_path)
 
         assert spec_name in comment, "Comment must contain spec name"
         assert commit_sha in comment, "Comment must contain commit SHA"

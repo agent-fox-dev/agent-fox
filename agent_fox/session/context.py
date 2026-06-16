@@ -44,14 +44,6 @@ class PriorFinding:
 # Findings rendering
 # ---------------------------------------------------------------------------
 
-# Core spec files — always expected to exist for every spec.
-_CORE_SPEC_FILES: list[tuple[str, str]] = [
-    ("requirements.md", "## Requirements"),
-    ("design.md", "## Design"),
-    ("test_spec.md", "## Test Specification"),
-    ("tasks.md", "## Tasks"),
-]
-
 # Archetype-produced files — only present after the corresponding archetype
 # (Skeptic / Verifier) has run.  Included silently when they exist on disk,
 # skipped silently when they don't.
@@ -59,6 +51,44 @@ _ARCHETYPE_SPEC_FILES: list[tuple[str, str]] = [
     ("review.md", "## Skeptic Review"),
     ("verification.md", "## Verification Report"),
 ]
+
+# v1.2 artifact-to-header mapping for JSON-based specs rendered via afspec.
+# Requirements: 134-REQ-1.1, 134-REQ-2.1
+_SECTION_HEADERS: dict[str, str] = {
+    "requirements": "## Requirements",
+    "test_spec": "## Test Specification",
+    "tasks": "## Tasks",
+}
+
+
+def _render_spec_sections(spec_dir: Path) -> list[str]:
+    """Load a v1.2 spec and render per-artifact markdown sections.
+
+    Returns a list of rendered section strings.  Raises ``afspec.LoadError``
+    on malformed specs (caller handles fallback).
+
+    Requirements: 134-REQ-2.1, 134-REQ-2.2, 134-REQ-2.3, 134-REQ-2.E1
+    """
+    import afspec
+
+    spec = afspec.load_spec(spec_dir)
+    rendered = afspec.render_individual(spec)
+
+    sections: list[str] = []
+    for key, header in _SECTION_HEADERS.items():
+        content = rendered.get(key, "")
+        if content:
+            safe = sanitize_prompt_content(content, label="spec")
+            sections.append(f"{header}\n\n{safe}")
+
+    # architecture.md is a plain markdown file in v1.2
+    arch_path = spec_dir / "architecture.md"
+    if arch_path.is_file():
+        arch_content = arch_path.read_text(encoding="utf-8")
+        safe = sanitize_prompt_content(arch_content, label="spec")
+        sections.append(f"## Architecture\n\n{safe}")
+
+    return sections
 
 
 def _render_severity_findings(
@@ -285,11 +315,7 @@ def assemble_context(
 ) -> str:
     """Assemble task-specific context for a coding session.
 
-    Reads the following files from spec_dir (if they exist):
-    - requirements.md
-    - design.md
-    - test_spec.md
-    - tasks.md
+    Renders spec documents via afspec (v1.2 JSON format).
 
     Renders review/verification/drift sections from DuckDB
     (27-REQ-5.1, 27-REQ-5.2, 38-REQ-4.1, 38-REQ-4.2).
@@ -341,21 +367,17 @@ def assemble_context(
     if drift_md is not None:
         sections.append(drift_md)
 
-    # 03-REQ-4.1: Read spec documents
+    # 03-REQ-4.1, 134-REQ-1.1: Read spec documents via afspec (v1.2 JSON)
     file_sections: list[str] = []
-    for filename, header in _CORE_SPEC_FILES:
-        filepath = spec_dir / filename
-        if not filepath.exists():
-            # 03-REQ-4.E1: Skip missing files with a warning
-            logger.warning(
-                "Spec file '%s' not found in %s, skipping",
-                filename,
-                spec_dir,
-            )
-            continue
-        content = filepath.read_text(encoding="utf-8")
-        safe_content = sanitize_prompt_content(content, label="spec")
-        file_sections.append(f"{header}\n\n{safe_content}")
+
+    try:
+        file_sections = _render_spec_sections(spec_dir)
+    except Exception:
+        logger.warning(
+            "Failed to load spec in %s",
+            spec_dir,
+            exc_info=True,
+        )
 
     # Include archetype-produced files (review.md, verification.md) only
     # when they exist on disk and weren't already rendered from the DB.

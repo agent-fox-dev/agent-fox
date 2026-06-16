@@ -25,8 +25,12 @@ class TestDiscoverNewSpecs:
     def test_finds_unknown_specs(self, tmp_specs_dir: Path) -> None:
         """Specs not in known_specs are returned."""
         (tmp_specs_dir / "01_existing").mkdir()
+        (tmp_specs_dir / "01_existing" / "requirements.json").write_text("{}")
+        (tmp_specs_dir / "01_existing" / "tasks.json").write_text("{}")
         (tmp_specs_dir / "01_existing" / "tasks.md").write_text(_make_minimal_tasks_md())
         (tmp_specs_dir / "07_new_feature").mkdir()
+        (tmp_specs_dir / "07_new_feature" / "requirements.json").write_text("{}")
+        (tmp_specs_dir / "07_new_feature" / "tasks.json").write_text("{}")
         (tmp_specs_dir / "07_new_feature" / "tasks.md").write_text(_make_minimal_tasks_md())
 
         new_specs = discover_new_specs(tmp_specs_dir, known_specs={"01_existing"})
@@ -37,6 +41,8 @@ class TestDiscoverNewSpecs:
     def test_returns_empty_when_all_known(self, tmp_specs_dir: Path) -> None:
         """Returns empty list when all specs are already known."""
         (tmp_specs_dir / "01_existing").mkdir()
+        (tmp_specs_dir / "01_existing" / "requirements.json").write_text("{}")
+        (tmp_specs_dir / "01_existing" / "tasks.json").write_text("{}")
         (tmp_specs_dir / "01_existing" / "tasks.md").write_text(_make_minimal_tasks_md())
 
         new_specs = discover_new_specs(tmp_specs_dir, known_specs={"01_existing"})

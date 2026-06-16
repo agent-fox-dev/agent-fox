@@ -11,7 +11,6 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import duckdb
-import pytest
 
 from agent_fox.engine.dispatch import (
     PreflightVerdict,
@@ -67,54 +66,102 @@ class TestIsTaskGroupDoneDb:
 
 class TestIsTaskGroupDoneFile:
     def test_completed_group_returns_true(self, tmp_path: Path) -> None:
+        from agent_fox.spec.types import SubtaskDef, TaskGroupDef
+
         spec_dir = tmp_path / "my_spec"
         spec_dir.mkdir()
-        (spec_dir / "tasks.md").write_text(
-            "- [x] 1. First task\n  - Some details\n"
-        )
-        assert is_task_group_done_file(tmp_path, "my_spec", 1) is True
+        mock_groups = [
+            TaskGroupDef(
+                number=1, title="First task", optional=False, completed=True,
+                subtasks=(SubtaskDef(id="1.1", title="detail", completed=True),),
+                body="", archetype=None,
+            ),
+        ]
+        with patch("agent_fox.spec.parser.parse_tasks", return_value=mock_groups):
+            assert is_task_group_done_file(tmp_path, "my_spec", 1) is True
 
     def test_incomplete_group_returns_false(self, tmp_path: Path) -> None:
+        from agent_fox.spec.types import SubtaskDef, TaskGroupDef
+
         spec_dir = tmp_path / "my_spec"
         spec_dir.mkdir()
-        (spec_dir / "tasks.md").write_text(
-            "- [ ] 1. First task\n  - Some details\n"
-        )
-        assert is_task_group_done_file(tmp_path, "my_spec", 1) is False
+        mock_groups = [
+            TaskGroupDef(
+                number=1, title="First task", optional=False, completed=False,
+                subtasks=(SubtaskDef(id="1.1", title="detail", completed=False),),
+                body="", archetype=None,
+            ),
+        ]
+        with patch("agent_fox.spec.parser.parse_tasks", return_value=mock_groups):
+            assert is_task_group_done_file(tmp_path, "my_spec", 1) is False
 
     def test_missing_tasks_file_returns_false(self, tmp_path: Path) -> None:
         assert is_task_group_done_file(tmp_path, "my_spec", 1) is False
 
     def test_wrong_group_number_returns_false(self, tmp_path: Path) -> None:
+        from agent_fox.spec.types import SubtaskDef, TaskGroupDef
+
         spec_dir = tmp_path / "my_spec"
         spec_dir.mkdir()
-        (spec_dir / "tasks.md").write_text(
-            "- [x] 1. First task\n  - Some details\n"
-        )
-        assert is_task_group_done_file(tmp_path, "my_spec", 99) is False
+        mock_groups = [
+            TaskGroupDef(
+                number=1, title="First task", optional=False, completed=True,
+                subtasks=(SubtaskDef(id="1.1", title="detail", completed=True),),
+                body="", archetype=None,
+            ),
+        ]
+        with patch("agent_fox.spec.parser.parse_tasks", return_value=mock_groups):
+            assert is_task_group_done_file(tmp_path, "my_spec", 99) is False
 
 
 class TestIsTaskGroupDone:
     def test_db_takes_precedence_over_file(self, tmp_path: Path) -> None:
+        from agent_fox.spec.types import SubtaskDef, TaskGroupDef
+
         conn = _make_conn()
         _insert_plan_node(conn, "spec:1", "spec", 1, "pending")
         spec_dir = tmp_path / "spec"
         spec_dir.mkdir()
-        (spec_dir / "tasks.md").write_text("- [x] 1. Done task\n")
-        assert is_task_group_done(conn, "spec", 1, tmp_path) is False
+        mock_groups = [
+            TaskGroupDef(
+                number=1, title="Done task", optional=False, completed=True,
+                subtasks=(SubtaskDef(id="1.1", title="t", completed=True),),
+                body="", archetype=None,
+            ),
+        ]
+        with patch("agent_fox.spec.parser.parse_tasks", return_value=mock_groups):
+            assert is_task_group_done(conn, "spec", 1, tmp_path) is False
 
     def test_falls_back_to_file_when_db_missing(self, tmp_path: Path) -> None:
+        from agent_fox.spec.types import SubtaskDef, TaskGroupDef
+
         conn = _make_conn()
         spec_dir = tmp_path / "spec"
         spec_dir.mkdir()
-        (spec_dir / "tasks.md").write_text("- [x] 1. Done task\n")
-        assert is_task_group_done(conn, "spec", 1, tmp_path) is True
+        mock_groups = [
+            TaskGroupDef(
+                number=1, title="Done task", optional=False, completed=True,
+                subtasks=(SubtaskDef(id="1.1", title="t", completed=True),),
+                body="", archetype=None,
+            ),
+        ]
+        with patch("agent_fox.spec.parser.parse_tasks", return_value=mock_groups):
+            assert is_task_group_done(conn, "spec", 1, tmp_path) is True
 
     def test_falls_back_to_file_when_conn_none(self, tmp_path: Path) -> None:
+        from agent_fox.spec.types import SubtaskDef, TaskGroupDef
+
         spec_dir = tmp_path / "spec"
         spec_dir.mkdir()
-        (spec_dir / "tasks.md").write_text("- [x] 1. Done task\n")
-        assert is_task_group_done(None, "spec", 1, tmp_path) is True
+        mock_groups = [
+            TaskGroupDef(
+                number=1, title="Done task", optional=False, completed=True,
+                subtasks=(SubtaskDef(id="1.1", title="t", completed=True),),
+                body="", archetype=None,
+            ),
+        ]
+        with patch("agent_fox.spec.parser.parse_tasks", return_value=mock_groups):
+            assert is_task_group_done(None, "spec", 1, tmp_path) is True
 
 
 class TestHasActiveCriticalFindings:

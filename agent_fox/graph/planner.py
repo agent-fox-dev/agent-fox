@@ -18,7 +18,8 @@ from agent_fox.graph.builder import build_graph
 from agent_fox.graph.resolver import apply_fast_mode, resolve_order
 from agent_fox.graph.types import NodeStatus, PlanMetadata, TaskGraph
 from agent_fox.spec.discovery import SpecInfo, discover_specs
-from agent_fox.spec.parser import CrossSpecDep, parse_cross_deps, parse_tasks
+from agent_fox.spec.parser import parse_cross_deps, parse_tasks
+from agent_fox.spec.types import CrossSpecDep
 
 if TYPE_CHECKING:
     from agent_fox.core.config import AgentFoxConfig
@@ -56,15 +57,13 @@ def build_plan(
     for spec in specs:
         if not spec.has_tasks:
             continue
-        tasks_path = spec.path / "tasks.md"
-        groups = parse_tasks(tasks_path)
+
+        groups = parse_tasks(spec.path)
         if groups:
             task_groups[spec.name] = groups
 
-        # Parse cross-spec deps from prd.md if present
         if spec.has_prd:
-            prd_path = spec.path / "prd.md"
-            deps = parse_cross_deps(prd_path, spec_name=spec.name)
+            deps = parse_cross_deps(spec.path, spec_name=spec.name)
             cross_deps.extend(deps)
 
     # Filter cross-deps to only reference specs present in the discovered set.

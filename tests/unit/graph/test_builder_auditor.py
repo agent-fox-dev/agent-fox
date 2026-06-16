@@ -7,6 +7,7 @@ Requirements: 46-REQ-3.*, 46-REQ-4.*
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -14,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 if TYPE_CHECKING:
-    from agent_fox.spec.parser import TaskGroupDef
+    from agent_fox.spec.types import TaskGroupDef
 
 try:
     from hypothesis import assume, given, settings
@@ -25,9 +26,59 @@ except ImportError:
     HAS_HYPOTHESIS = False
 
 
+def _write_test_spec_json(spec_dir: Path, prefix: str, n: int) -> None:
+    """Write a test_spec.json with n test cases using the given ID prefix."""
+    cases = [
+        {
+            "id": f"TS-{prefix}-{i}",
+            "title": f"Description {i}",
+            "requirement_refs": [],
+            "steps": [],
+            "expected": "pass",
+        }
+        for i in range(1, n + 1)
+    ]
+    data = {
+        "spec_id": "test",
+        "spec_name": "test",
+        "schema_version": 1,
+        "test_cases": cases,
+        "property_tests": [],
+        "edge_case_tests": [],
+        "smoke_tests": [],
+        "coverage": {
+            "requirements_covered": [],
+            "properties_covered": [],
+            "paths_covered": [],
+            "gaps": [],
+        },
+    }
+    spec_dir.mkdir(parents=True, exist_ok=True)
+    (spec_dir / "test_spec.json").write_text(json.dumps(data))
+    if not (spec_dir / "prd.md").exists():
+        (spec_dir / "prd.md").write_text(
+            '---\nspec_id: "test"\nspec_name: "test"\ntitle: "T"\n'
+            'status: "draft"\ncreated_at: "2024-01-01T00:00:00Z"\n'
+            'updated_at: "2024-01-01T00:00:00Z"\nowner: "t"\n'
+            'source: "t"\nschema_version: 1\n---\n# T\n'
+        )
+    if not (spec_dir / "requirements.json").exists():
+        (spec_dir / "requirements.json").write_text(json.dumps({
+            "spec_id": "test", "spec_name": "test", "schema_version": 1,
+            "introduction": "", "glossary": {}, "requirements": [],
+            "correctness_properties": [], "execution_paths": [], "error_handling": [],
+        }))
+    if not (spec_dir / "tasks.json").exists():
+        (spec_dir / "tasks.json").write_text(json.dumps({
+            "spec_id": "test", "spec_name": "test", "schema_version": 1,
+            "test_commands": {"spec_tests": "", "all_tests": "", "linter": ""},
+            "dependencies": [], "task_groups": [], "traceability": [],
+        }))
+
+
 def _tgd(number: int, title: str = "T", **kw: Any) -> TaskGroupDef:
     """Build a TaskGroupDef with short defaults."""
-    from agent_fox.spec.parser import TaskGroupDef
+    from agent_fox.spec.types import TaskGroupDef
 
     defaults: dict[str, Any] = dict(optional=False, completed=False, subtasks=(), body="")
     defaults.update(kw)
@@ -127,11 +178,10 @@ class TestAutoMidInjection:
         from agent_fox.core.config import ArchetypesConfig, ReviewerConfig
         from agent_fox.graph.builder import build_graph
 
-        # Create a test_spec.md with enough TS entries
+        # Create a test_spec.json with enough TS entries
         spec_dir = tmp_path / ".specs" / "spec"
         spec_dir.mkdir(parents=True)
-        ts_content = "\n".join(f"### TS-46-{i}\nDescription {i}\n" for i in range(1, 8))
-        (spec_dir / "test_spec.md").write_text(ts_content)
+        _write_test_spec_json(spec_dir, "46", 7)
 
         config = ArchetypesConfig(
             reviewer=True,
@@ -202,11 +252,10 @@ class TestInjectionSkippedBelowThreshold:
         from agent_fox.core.config import ArchetypesConfig, ReviewerConfig
         from agent_fox.graph.builder import build_graph
 
-        # Create test_spec.md with only 3 TS entries (below threshold of 5)
+        # Create test_spec.json with only 3 TS entries (below threshold of 5)
         spec_dir = tmp_path / ".specs" / "spec"
         spec_dir.mkdir(parents=True)
-        ts_content = "\n".join(f"### TS-46-{i}\nDescription {i}\n" for i in range(1, 4))
-        (spec_dir / "test_spec.md").write_text(ts_content)
+        _write_test_spec_json(spec_dir, "46", 3)
 
         config = ArchetypesConfig(
             reviewer=True,
@@ -243,8 +292,7 @@ class TestInjectionLastGroup:
 
         spec_dir = tmp_path / ".specs" / "spec"
         spec_dir.mkdir(parents=True)
-        ts_content = "\n".join(f"### TS-46-{i}\nDescription {i}\n" for i in range(1, 8))
-        (spec_dir / "test_spec.md").write_text(ts_content)
+        _write_test_spec_json(spec_dir, "46", 7)
 
         config = ArchetypesConfig(
             reviewer=True,
@@ -284,8 +332,7 @@ class TestCoexistencePreReviewAndAuditReview:
 
         spec_dir = tmp_path / ".specs" / "spec"
         spec_dir.mkdir(parents=True)
-        ts_content = "\n".join(f"### TS-46-{i}\nDescription {i}\n" for i in range(1, 8))
-        (spec_dir / "test_spec.md").write_text(ts_content)
+        _write_test_spec_json(spec_dir, "46", 7)
 
         config = ArchetypesConfig(
             reviewer=True,
@@ -322,8 +369,7 @@ class TestMultipleTestGroups:
 
         spec_dir = tmp_path / ".specs" / "spec"
         spec_dir.mkdir(parents=True)
-        ts_content = "\n".join(f"### TS-46-{i}\nDescription {i}\n" for i in range(1, 8))
-        (spec_dir / "test_spec.md").write_text(ts_content)
+        _write_test_spec_json(spec_dir, "46", 7)
 
         config = ArchetypesConfig(
             reviewer=True,
@@ -387,8 +433,7 @@ class TestTSEntryCount:
 
         spec_dir = tmp_path / "spec"
         spec_dir.mkdir()
-        ts_content = "\n".join(f"### TS-46-{i}\nDescription {i}\n" for i in range(1, 8))
-        (spec_dir / "test_spec.md").write_text(ts_content)
+        _write_test_spec_json(spec_dir, "46", 7)
 
         count = count_ts_entries(spec_dir)
         assert count == 7
@@ -514,11 +559,10 @@ class TestPropertyInjectionIntegrity:
         idx = test_group_idx.draw(st.integers(min_value=0, max_value=n_groups - 1))
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Create test_spec.md with enough entries
+            # Create test_spec.json with enough entries
             spec_dir = Path(tmpdir) / ".specs" / "spec"
             spec_dir.mkdir(parents=True, exist_ok=True)
-            ts_content = "\n".join(f"### TS-46-{i}\nDescription {i}\n" for i in range(1, 8))
-            (spec_dir / "test_spec.md").write_text(ts_content)
+            _write_test_spec_json(spec_dir, "46", 7)
 
             config = ArchetypesConfig(
                 reviewer=True,
@@ -571,13 +615,18 @@ class TestAutoMidUsesSpecsDir:
         custom_specs = tmp_path / "custom_specs"
         spec_dir = custom_specs / "myspec"
         spec_dir.mkdir(parents=True)
-        ts_content = "\n".join(f"### TS-X-{i}\nDesc\n" for i in range(1, 8))
-        (spec_dir / "test_spec.md").write_text(ts_content)
+        _write_test_spec_json(spec_dir, "X", 7)
 
         # Build a graph with two coder groups, one test-writing
         nodes = {
-            "myspec:1": Node(id="myspec:1", spec_name="myspec", group_number=1, title="Write failing spec tests", optional=False),
-            "myspec:2": Node(id="myspec:2", spec_name="myspec", group_number=2, title="Implement core", optional=False),
+            "myspec:1": Node(
+                id="myspec:1", spec_name="myspec", group_number=1,
+                title="Write failing spec tests", optional=False,
+            ),
+            "myspec:2": Node(
+                id="myspec:2", spec_name="myspec", group_number=2,
+                title="Implement core", optional=False,
+            ),
         }
         edges = [Edge(source="myspec:1", target="myspec:2", kind="intra_spec")]
         graph = TaskGraph(nodes=nodes, edges=edges, order=["myspec:1", "myspec:2"])
@@ -600,8 +649,14 @@ class TestAutoMidUsesSpecsDir:
         from agent_fox.graph.types import Edge, Node, TaskGraph
 
         nodes = {
-            "myspec:1": Node(id="myspec:1", spec_name="myspec", group_number=1, title="Write failing spec tests", optional=False),
-            "myspec:2": Node(id="myspec:2", spec_name="myspec", group_number=2, title="Implement core", optional=False),
+            "myspec:1": Node(
+                id="myspec:1", spec_name="myspec", group_number=1,
+                title="Write failing spec tests", optional=False,
+            ),
+            "myspec:2": Node(
+                id="myspec:2", spec_name="myspec", group_number=2,
+                title="Implement core", optional=False,
+            ),
         }
         edges = [Edge(source="myspec:1", target="myspec:2", kind="intra_spec")]
         graph = TaskGraph(nodes=nodes, edges=edges, order=["myspec:1", "myspec:2"])
@@ -611,7 +666,7 @@ class TestAutoMidUsesSpecsDir:
             reviewer_config=ReviewerConfig(audit_min_ts_entries=5),
         )
 
-        injected = ensure_graph_archetypes(graph, config, specs_dir=None)
+        ensure_graph_archetypes(graph, config, specs_dir=None)
 
         audit_nodes = [n for n in graph.nodes.values() if n.archetype == "reviewer" and n.mode == "audit-review"]
         assert len(audit_nodes) == 0, "auto_mid should not inject when specs_dir is None"

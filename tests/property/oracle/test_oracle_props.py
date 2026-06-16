@@ -56,7 +56,7 @@ def _spec(name: str = "spec"):
 
 
 def _tgd(number: int, title: str = "T"):
-    from agent_fox.spec.parser import TaskGroupDef
+    from agent_fox.spec.types import TaskGroupDef
 
     return TaskGroupDef(
         number=number,

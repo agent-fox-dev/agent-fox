@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 _SPEC_DIR_PATTERN = re.compile(r"^(\d+)_(.+)$")
 
 
+
 @dataclass(frozen=True)
 class SpecInfo:
     """Metadata about a discovered specification folder."""
@@ -25,7 +26,7 @@ class SpecInfo:
     name: str  # e.g., "01_core_foundation"
     prefix: int  # e.g., 1
     path: Path  # e.g., Path(".specs/01_core_foundation")
-    has_tasks: bool  # whether tasks.md exists
+    has_tasks: bool  # whether tasks.json exists
     has_prd: bool  # whether prd.md exists
 
 
@@ -34,6 +35,8 @@ def discover_specs(
     filter_spec: str | None = None,
 ) -> list[SpecInfo]:
     """Discover spec folders in the given directory.
+
+    Only returns specs with a requirements.json file present.
 
     Args:
         specs_dir: Path to the .specs/ directory.
@@ -51,6 +54,7 @@ def discover_specs(
 
     # Scan for subdirectories matching NN_name pattern
     specs: list[SpecInfo] = []
+    found_candidates = False
     for entry in sorted(specs_dir.iterdir()):
         if not entry.is_dir():
             continue
@@ -58,14 +62,23 @@ def discover_specs(
         if not match:
             continue
 
+        found_candidates = True
         prefix = int(match.group(1))
-        has_tasks = (entry / "tasks.md").is_file()
+
+        # Skip folders without requirements.json (not a valid spec)
+        if not (entry / "requirements.json").is_file():
+            logger.debug(
+                "Spec folder '%s' has no requirements.json, skipping",
+                entry.name,
+            )
+            continue
+
+        has_tasks = (entry / "tasks.json").is_file()
         has_prd = (entry / "prd.md").is_file()
 
-        # 02-REQ-1.3: log warning when tasks.md is missing
         if not has_tasks:
             logger.warning(
-                "Spec folder '%s' has no tasks.md, skipping for planning",
+                "Spec folder '%s' has no tasks.json, skipping for planning",
                 entry.name,
             )
 
@@ -79,9 +92,11 @@ def discover_specs(
             )
         )
 
-    # 02-REQ-1.E1: no specs found at all
+    # 02-REQ-1.E1: no spec folders found at all
     if not specs:
-        raise PlanError(f"No specifications found in '{specs_dir}'")
+        if not found_candidates:
+            raise PlanError(f"No specifications found in '{specs_dir}'")
+        return []
 
     # 02-REQ-1.1: sort by numeric prefix
     specs.sort(key=lambda s: s.prefix)
