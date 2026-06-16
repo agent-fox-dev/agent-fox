@@ -116,11 +116,11 @@ class TestSingleAutoPreCompat:
         from agent_fox.core.config import ArchetypesConfig
         from agent_fox.graph.builder import build_graph
 
-        # Create a spec directory with design.md that has only (new) files,
+        # Create a spec directory with architecture.md that has only (new) files,
         # which gates out drift-review, leaving only pre-review as single auto_pre.
         spec_dir = tmp_path / ".specs" / "myspec"
         spec_dir.mkdir(parents=True)
-        (spec_dir / "design.md").write_text("1. **`agent_fox/brand_new.py`** (new) -- New module.\n")
+        (spec_dir / "architecture.md").write_text("1. **`agent_fox/brand_new.py`** (new) -- New module.\n")
         (spec_dir / "tasks.md").write_text("# Tasks\n\n- [ ] 1. Task one\n  - [ ] 1.1 Sub\n")
 
         config = ArchetypesConfig(reviewer=True)
@@ -261,16 +261,16 @@ class TestSpecHasExistingCode:
     """Tests for the drift-review gating helper."""
 
     def test_no_design_md_returns_true(self, tmp_path: Path) -> None:
-        """Missing design.md defaults to True (safe — don't suppress drift-review)."""
+        """Missing architecture.md defaults to True (safe — don't suppress drift-review)."""
         from agent_fox.graph.builder import spec_has_existing_code
 
         assert spec_has_existing_code(tmp_path) is True
 
     def test_no_modified_refs_returns_false(self, tmp_path: Path) -> None:
-        """design.md with only (new) files returns False."""
+        """architecture.md with only (new) files returns False."""
         from agent_fox.graph.builder import spec_has_existing_code
 
-        (tmp_path / "design.md").write_text("1. **`agent_fox/brand_new.py`** (new) -- New module.\n")
+        (tmp_path / "architecture.md").write_text("1. **`agent_fox/brand_new.py`** (new) -- New module.\n")
         assert spec_has_existing_code(tmp_path) is False
 
     def test_modified_ref_exists(self, tmp_path: Path) -> None:
@@ -279,14 +279,14 @@ class TestSpecHasExistingCode:
 
         target = tmp_path / "real_file.py"
         target.write_text("# existing")
-        (tmp_path / "design.md").write_text(f"1. **`{target}`** (modified) -- Change.\n")
+        (tmp_path / "architecture.md").write_text(f"1. **`{target}`** (modified) -- Change.\n")
         assert spec_has_existing_code(tmp_path) is True
 
     def test_modified_ref_missing(self, tmp_path: Path) -> None:
         """Returns False when all (modified) files are absent."""
         from agent_fox.graph.builder import spec_has_existing_code
 
-        (tmp_path / "design.md").write_text("1. **`nonexistent/foo.py`** (modified) -- Change.\n")
+        (tmp_path / "architecture.md").write_text("1. **`nonexistent/foo.py`** (modified) -- Change.\n")
         assert spec_has_existing_code(tmp_path) is False
 
     def test_mixed_new_and_modified(self, tmp_path: Path) -> None:
@@ -295,7 +295,7 @@ class TestSpecHasExistingCode:
 
         target = tmp_path / "exists.py"
         target.write_text("# code")
-        (tmp_path / "design.md").write_text(
+        (tmp_path / "architecture.md").write_text(
             f"1. **`brand_new.py`** (new) -- New.\n2. **`{target}`** (modified) -- Change.\n"
         )
         assert spec_has_existing_code(tmp_path) is True
@@ -310,13 +310,13 @@ class TestDriftReviewGatingBuildGraph:
     """Drift-review is skipped at plan-build time when spec has no existing code."""
 
     def test_drift_review_skipped_no_existing_code(self, tmp_path: Path) -> None:
-        """Drift-review node not injected when design.md has only (new) files."""
+        """Drift-review node not injected when architecture.md has only (new) files."""
         from agent_fox.core.config import ArchetypesConfig
         from agent_fox.graph.builder import build_graph
 
         spec_dir = tmp_path / ".specs" / "myspec"
         spec_dir.mkdir(parents=True)
-        (spec_dir / "design.md").write_text("1. **`agent_fox/new_module.py`** (new) -- Brand new.\n")
+        (spec_dir / "architecture.md").write_text("1. **`agent_fox/new_module.py`** (new) -- Brand new.\n")
         (spec_dir / "tasks.md").write_text("# Tasks\n\n- [ ] 1. Task one\n  - [ ] 1.1 Sub\n")
 
         config = ArchetypesConfig(reviewer=True)
@@ -334,7 +334,7 @@ class TestDriftReviewGatingBuildGraph:
         assert graph.nodes["myspec:0"].mode == "pre-review"
 
     def test_drift_review_injected_existing_code(self, tmp_path: Path) -> None:
-        """Drift-review node IS injected when design.md references existing files."""
+        """Drift-review node IS injected when architecture.md references existing files."""
         from agent_fox.core.config import ArchetypesConfig
         from agent_fox.graph.builder import build_graph
 
@@ -342,7 +342,7 @@ class TestDriftReviewGatingBuildGraph:
         spec_dir.mkdir(parents=True)
         existing = tmp_path / "real.py"
         existing.write_text("# code")
-        (spec_dir / "design.md").write_text(f"1. **`{existing}`** (modified) -- Change.\n")
+        (spec_dir / "architecture.md").write_text(f"1. **`{existing}`** (modified) -- Change.\n")
         (spec_dir / "tasks.md").write_text("# Tasks\n\n- [ ] 1. Task one\n  - [ ] 1.1 Sub\n")
 
         config = ArchetypesConfig(reviewer=True)
@@ -366,14 +366,14 @@ class TestDriftReviewGatingRuntime:
     """Drift-review is skipped at runtime injection when spec has no existing code."""
 
     def test_runtime_drift_review_skipped(self, tmp_path: Path) -> None:
-        """Runtime injection skips drift-review when design.md has only (new) files."""
+        """Runtime injection skips drift-review when architecture.md has only (new) files."""
         from agent_fox.core.config import ArchetypesConfig
         from agent_fox.graph.injection import ensure_graph_archetypes
         from agent_fox.graph.types import Node, TaskGraph
 
         spec_dir = tmp_path / "myspec"
         spec_dir.mkdir()
-        (spec_dir / "design.md").write_text("1. **`agent_fox/new.py`** (new) -- Brand new.\n")
+        (spec_dir / "architecture.md").write_text("1. **`agent_fox/new.py`** (new) -- Brand new.\n")
 
         graph = TaskGraph(
             nodes={
@@ -397,7 +397,7 @@ class TestDriftReviewGatingRuntime:
         assert drift_nodes == []
 
     def test_runtime_drift_review_injected_with_existing_code(self, tmp_path: Path) -> None:
-        """Runtime injection adds drift-review when design.md references existing files."""
+        """Runtime injection adds drift-review when architecture.md references existing files."""
         from agent_fox.core.config import ArchetypesConfig
         from agent_fox.graph.injection import ensure_graph_archetypes
         from agent_fox.graph.types import Node, TaskGraph
@@ -406,7 +406,7 @@ class TestDriftReviewGatingRuntime:
         spec_dir.mkdir()
         existing = tmp_path / "real.py"
         existing.write_text("# code")
-        (spec_dir / "design.md").write_text(f"1. **`{existing}`** (modified) -- Change.\n")
+        (spec_dir / "architecture.md").write_text(f"1. **`{existing}`** (modified) -- Change.\n")
 
         graph = TaskGraph(
             nodes={

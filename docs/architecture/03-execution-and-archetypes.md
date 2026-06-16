@@ -238,12 +238,10 @@ uses an empty profile.
 The task context layer is assembled from the following sources, in order:
 
 1. **Spec documents.** The spec artifacts are read and formatted under markdown
-   section headers. For v1.2 specs, JSON artifacts (`requirements.json`,
-   `test_spec.json`, `tasks.json`) are loaded via `afspec` and rendered to
-   markdown; `architecture.md` is read directly. For v1 specs, the four
-   markdown files (`requirements.md`, `design.md`, `test_spec.md`, `tasks.md`)
-   are read as-is. Missing files are logged as warnings but do not prevent the
-   session from running. See
+   section headers. JSON artifacts (`requirements.json`, `test_spec.json`,
+   `tasks.json`) are loaded via `afspec` and rendered to markdown;
+   `architecture.md` is read directly. Missing files are logged as warnings but
+   do not prevent the session from running. See
    [Part 6: Spec Format v1.2](06-spec-format-v12.md#context-assembly) for
    details on the rendering pipeline.
 
@@ -315,7 +313,7 @@ For the full knowledge system architecture, see
 The task prompt is a short, archetype-specific instruction:
 
 - **Coder sessions** receive explicit instructions: implement task group N
-  from specification X, update checkbox states in `tasks.md`, commit with
+  from specification X, update checkbox states in `tasks.json`, commit with
   conventional messages, and run quality gates before finalizing.
 - **Non-coder sessions** (reviewer, verifier) receive a concise prompt that
   defers to the system prompt profile for detailed instructions.

@@ -142,4 +142,4 @@ snippets or class hierarchies.
 | [Profiles](profiles.md) | Agent profiles, resolution, and customization |
 | [Skills](skills.md) | Claude Code skill reference |
 | [Architecture Guide](architecture/README.md) | Topic-specific architecture deep dives |
-| [Spec Format v1.2](architecture/06-spec-format-v12.md) | JSON-based spec format, format detection, dual-format coexistence |
+| [Spec Format v1.2](architecture/06-spec-format-v12.md) | JSON-based spec format, parsing pipeline, validation, context assembly |

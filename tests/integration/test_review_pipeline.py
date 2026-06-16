@@ -10,6 +10,7 @@ Requirements: 53-REQ-1.2, 53-REQ-2.2, 53-REQ-3.2, 53-REQ-6.1, 53-REQ-6.5
 
 from __future__ import annotations
 
+import json
 import uuid
 from pathlib import Path
 
@@ -175,10 +176,15 @@ class TestReviewOnlyGraphNoCoder:
 
     def test_no_coder_nodes_in_graph(self, tmp_path: Path) -> None:
         """TS-53-10: Review-only graph contains no coder archetype nodes."""
-        # Create spec with source files and requirements.md
+        # Create spec with source files and requirements.json
         spec_dir = tmp_path / ".specs" / "03_api"
         spec_dir.mkdir(parents=True)
-        (spec_dir / "requirements.md").write_text("# Requirements\n")
+        (spec_dir / "requirements.json").write_text(json.dumps({
+            "spec_id": "t", "spec_name": "t", "schema_version": 1,
+            "introduction": "REQ", "glossary": {},
+            "requirements": [], "correctness_properties": [],
+            "execution_paths": [], "error_handling": [],
+        }))
         (spec_dir / "sample.py").write_text("# code\n")
 
         graph = build_review_only_graph(tmp_path / ".specs", archetypes_config=None)
@@ -190,7 +196,12 @@ class TestReviewOnlyGraphNoCoder:
         """TS-53-10: Reviewer and Verifier nodes are present."""
         spec_dir = tmp_path / ".specs" / "03_api"
         spec_dir.mkdir(parents=True)
-        (spec_dir / "requirements.md").write_text("# Requirements\n")
+        (spec_dir / "requirements.json").write_text(json.dumps({
+            "spec_id": "t", "spec_name": "t", "schema_version": 1,
+            "introduction": "REQ", "glossary": {},
+            "requirements": [], "correctness_properties": [],
+            "execution_paths": [], "error_handling": [],
+        }))
         (spec_dir / "sample.py").write_text("# code\n")
 
         graph = build_review_only_graph(tmp_path / ".specs", archetypes_config=None)

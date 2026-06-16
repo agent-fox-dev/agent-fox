@@ -353,21 +353,17 @@ class TestSpecInfoFormatField:
 
 
 class TestDetectFormatJson:
-    """TS-132-5: A folder with requirements.json is classified as V1_2_JSON.
+    """TS-132-5: Only V1_2_JSON format exists after legacy removal (spec 137).
 
     Requirement: 132-REQ-3.1
     """
 
-    def test_requirements_json_detected(self, tmp_path: Path) -> None:
-        """Folder with requirements.json is detected as V1_2_JSON."""
-        from agent_fox.spec.discovery import SpecFormat, _detect_format
+    def test_only_v12_format_exists(self) -> None:
+        """SpecFormat only has V1_2_JSON after legacy format removal."""
+        from agent_fox.spec.discovery import SpecFormat
 
-        spec_dir = tmp_path / "spec"
-        spec_dir.mkdir()
-        (spec_dir / "requirements.json").write_text("{}")
-
-        result = _detect_format(spec_dir)
-        assert result == SpecFormat.V1_2_JSON
+        assert hasattr(SpecFormat, "V1_2_JSON")
+        assert not hasattr(SpecFormat, "V1_MARKDOWN")
 
 
 # ===========================================================================
@@ -520,27 +516,20 @@ class TestFormatDetectionDeterminism:
     @settings(max_examples=20, deadline=None)
     @given(
         has_req_json=st.booleans(),
-        has_req_md=st.booleans(),
     )
-    def test_detection_is_deterministic(
-        self, tmp_path_factory: pytest.TempPathFactory, has_req_json: bool, has_req_md: bool
+    def test_discovery_is_deterministic(
+        self, tmp_path_factory: pytest.TempPathFactory, has_req_json: bool,
     ) -> None:
-        """_detect_format returns identical results on repeated calls."""
-        from agent_fox.spec.discovery import SpecFormat, _detect_format
-
-        spec_dir = tmp_path_factory.mktemp("prop_test")
+        """discover_specs returns identical results on repeated calls."""
+        specs_dir = tmp_path_factory.mktemp("prop_test")
+        spec_dir = specs_dir / "01_test"
+        spec_dir.mkdir()
         if has_req_json:
             (spec_dir / "requirements.json").write_text("{}")
-        if has_req_md:
-            (spec_dir / "requirements.md").write_text("# Requirements\n")
 
-        result1 = _detect_format(spec_dir)
-        result2 = _detect_format(spec_dir)
+        result1 = discover_specs(specs_dir)
+        result2 = discover_specs(specs_dir)
         assert result1 == result2
-
-        # Verify correctness of classification for v1.2
-        if has_req_json:
-            assert result1 == SpecFormat.V1_2_JSON
 
 
 # ===========================================================================

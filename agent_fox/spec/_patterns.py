@@ -7,8 +7,6 @@ Both validator.py and fixer.py import from here.
 from __future__ import annotations
 
 import re
-from pathlib import Path
-
 # Section heading (## level)
 H2_HEADING = re.compile(r"^##\s+(.+)$")
 
@@ -34,23 +32,6 @@ def normalize_heading(text: str) -> str:
     return re.sub(r"[\s_\-]+", " ", text.strip().lower())
 
 
-def extract_test_spec_ids(spec_path: Path) -> set[str]:
-    """Extract all TS-NN-N IDs from test_spec.md headings.
-
-    .. deprecated:: Scheduled for removal when the ``validators/``
-       package is deleted (task group 7). Only used by v1 traceability
-       validators.
-    """
-    ts_path = spec_path / "test_spec.md"
-    if not ts_path.is_file():
-        return set()
-    text = ts_path.read_text(encoding="utf-8")
-    ids: set[str] = set()
-    for line in text.splitlines():
-        m = TS_ENTRY_HEADING.match(line)
-        if m:
-            ids.add(m.group(1))
-    return ids
 
 
 def extract_req_ids_from_text(

@@ -258,63 +258,6 @@ The system uses a modular architecture.
 **`agent_fox/session/context.py`** (modified)
 """
 
-# Legacy v1 content
-REQUIREMENTS_MD_LEGACY = """\
-# Requirements
-
-## Requirement 1
-
-### 134-REQ-1.1
-
-Some legacy requirement text.
-
-### 134-REQ-2.1
-
-Another requirement.
-"""
-
-DESIGN_MD_LEGACY = """\
-# Design
-
-Design content for the v1 spec.
-"""
-
-TEST_SPEC_MD_LEGACY = """\
-# Test Specification
-
-### TS-134-1: First test
-
-Test description 1.
-
-### TS-134-2: Second test
-
-Test description 2.
-
-### TS-134-3: Third test
-
-Test description 3.
-
-### TS-134-4: Fourth test
-
-Test description 4.
-
-### TS-134-5: Fifth test
-
-Test description 5.
-"""
-
-TASKS_MD_LEGACY = """\
-# Implementation Plan
-
-## Tasks
-
-- [ ] 1. First task group
-  - [ ] 1.1 Subtask A
-  - [x] 1.2 Subtask B
-  - [-] 1.3 Subtask C
-"""
-
-
 # ---------------------------------------------------------------------------
 # Fixture helpers
 # ---------------------------------------------------------------------------
@@ -335,15 +278,6 @@ def _write_v12_spec(
         (spec_dir / "tasks.json").write_text(TASKS_JSON_VALID)
     if include_architecture:
         (spec_dir / "architecture.md").write_text(ARCHITECTURE_MD)
-
-
-def _write_v1_spec(spec_dir: Path) -> None:
-    """Populate a directory with legacy v1 spec artifacts."""
-    spec_dir.mkdir(parents=True, exist_ok=True)
-    (spec_dir / "requirements.md").write_text(REQUIREMENTS_MD_LEGACY)
-    (spec_dir / "design.md").write_text(DESIGN_MD_LEGACY)
-    (spec_dir / "test_spec.md").write_text(TEST_SPEC_MD_LEGACY)
-    (spec_dir / "tasks.md").write_text(TASKS_MD_LEGACY)
 
 
 # ---------------------------------------------------------------------------
@@ -380,24 +314,12 @@ def v12_spec_dir_with_arch(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def v1_spec_dir(tmp_path: Path) -> Path:
-    """A v1 spec directory with markdown artifacts."""
-    spec_dir = tmp_path / "specs" / "134_legacy_spec"
-    _write_v1_spec(spec_dir)
-    return spec_dir
-
-
-@pytest.fixture
 def malformed_v12_dir(tmp_path: Path) -> Path:
     """A v1.2 spec directory with malformed JSON that causes LoadError."""
     spec_dir = tmp_path / "specs" / "134_malformed"
     spec_dir.mkdir(parents=True)
     (spec_dir / "prd.md").write_text(PRD_MD_VALID)
     (spec_dir / "requirements.json").write_text("{invalid json content!!!")
-    (spec_dir / "requirements.md").write_text(REQUIREMENTS_MD_LEGACY)
-    (spec_dir / "design.md").write_text(DESIGN_MD_LEGACY)
-    (spec_dir / "test_spec.md").write_text(TEST_SPEC_MD_LEGACY)
-    (spec_dir / "tasks.md").write_text(TASKS_MD_LEGACY)
     return spec_dir
 
 
@@ -471,63 +393,6 @@ class TestV12FormatDetection:
         """Content is rendered from afspec, not raw file reads."""
         context = assemble_context(v12_spec_dir, 1, conn=knowledge_conn)
         assert "134-REQ-1.1" in context
-
-
-# ===========================================================================
-# TS-134-2: v1 format unchanged in assemble_context
-# ===========================================================================
-
-
-class TestV1FormatUnchanged:
-    """TS-134-2: Verify assemble_context uses raw markdown reads for v1 specs.
-
-    Requirement: 134-REQ-1.2
-    """
-
-    def test_v1_context_contains_requirements(
-        self,
-        v1_spec_dir: Path,
-        knowledge_conn: duckdb.DuckDBPyConnection,
-    ) -> None:
-        """v1 context contains ## Requirements header."""
-        context = assemble_context(v1_spec_dir, 1, conn=knowledge_conn)
-        assert "## Requirements" in context
-
-    def test_v1_context_contains_design(
-        self,
-        v1_spec_dir: Path,
-        knowledge_conn: duckdb.DuckDBPyConnection,
-    ) -> None:
-        """v1 context contains ## Design header."""
-        context = assemble_context(v1_spec_dir, 1, conn=knowledge_conn)
-        assert "## Design" in context
-
-    def test_v1_context_contains_test_specification(
-        self,
-        v1_spec_dir: Path,
-        knowledge_conn: duckdb.DuckDBPyConnection,
-    ) -> None:
-        """v1 context contains ## Test Specification header."""
-        context = assemble_context(v1_spec_dir, 1, conn=knowledge_conn)
-        assert "## Test Specification" in context
-
-    def test_v1_context_contains_tasks(
-        self,
-        v1_spec_dir: Path,
-        knowledge_conn: duckdb.DuckDBPyConnection,
-    ) -> None:
-        """v1 context contains ## Tasks header."""
-        context = assemble_context(v1_spec_dir, 1, conn=knowledge_conn)
-        assert "## Tasks" in context
-
-    def test_v1_content_matches_raw_files(
-        self,
-        v1_spec_dir: Path,
-        knowledge_conn: duckdb.DuckDBPyConnection,
-    ) -> None:
-        """v1 context content comes from raw file reads."""
-        context = assemble_context(v1_spec_dir, 1, conn=knowledge_conn)
-        assert "Design content for the v1 spec" in context
 
 
 # ===========================================================================
@@ -611,26 +476,6 @@ class TestCountTsV12:
         """
         count = count_ts_entries(v12_spec_dir)
         assert count == 7
-
-
-# ===========================================================================
-# TS-134-6: count_ts_entries with v1 test_spec.md unchanged
-# ===========================================================================
-
-
-class TestCountTsV1:
-    """TS-134-6: Verify count_ts_entries uses heading counting for v1 specs.
-
-    Requirement: 134-REQ-3.2
-    """
-
-    def test_count_matches_ts_headings(self, v1_spec_dir: Path) -> None:
-        """Returns the count of ### TS- headings in test_spec.md.
-
-        Fixture has 5 ### TS- headings.
-        """
-        count = count_ts_entries(v1_spec_dir)
-        assert count == 5
 
 
 # ===========================================================================
@@ -775,15 +620,6 @@ class TestLoadErrorFallback:
         context = assemble_context(malformed_v12_dir, 1, conn=knowledge_conn)
         assert context is not None
 
-    def test_fallback_reads_md_files(
-        self,
-        malformed_v12_dir: Path,
-        knowledge_conn: duckdb.DuckDBPyConnection,
-    ) -> None:
-        """Fallback reads whatever .md files exist in the folder."""
-        context = assemble_context(malformed_v12_dir, 1, conn=knowledge_conn)
-        assert "## " in context
-
     def test_warning_logged(
         self,
         malformed_v12_dir: Path,
@@ -880,35 +716,6 @@ class TestChecklistLoadFailure:
         with caplog.at_level(logging.WARNING):
             _audit_task_checkboxes(malformed_tasks_dir)
         assert any("task" in r.message.lower() or "fail" in r.message.lower() for r in caplog.records)
-
-
-# ===========================================================================
-# TS-134-P1: v1 path produces identical output
-# ===========================================================================
-
-
-class TestV1PathIdentical:
-    """TS-134-P1: v1 spec folders produce unchanged output.
-
-    Property: Property 2 from design.md
-    Validates: 134-REQ-1.2
-    """
-
-    @pytest.mark.property
-    def test_v1_output_matches_expected(
-        self,
-        v1_spec_dir: Path,
-        knowledge_conn: duckdb.DuckDBPyConnection,
-    ) -> None:
-        """v1 context has the same structure as pre-change behavior."""
-        context = assemble_context(v1_spec_dir, 1, conn=knowledge_conn)
-
-        assert "## Requirements" in context
-        assert "## Design" in context
-        assert "## Test Specification" in context
-        assert "## Tasks" in context
-        assert "Design content for the v1 spec" in context
-        assert "Some legacy requirement text" in context
 
 
 # ===========================================================================

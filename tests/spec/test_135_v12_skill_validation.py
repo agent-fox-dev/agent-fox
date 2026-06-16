@@ -224,18 +224,6 @@ def _write_v1_spec(spec_dir: Path) -> None:
     (spec_dir / "tasks.md").write_text(TASKS_MD_LEGACY)
 
 
-def _make_v1_spec_info(root: Path, name: str, prefix: int) -> SpecInfo:
-    """Create a SpecInfo for a v1 markdown spec."""
-    return SpecInfo(
-        name=name,
-        prefix=prefix,
-        path=root / name,
-        has_tasks=True,
-        has_prd=True,
-        format=SpecFormat.V1_MARKDOWN,
-    )
-
-
 def _make_v12_spec_info(root: Path, name: str, prefix: int) -> SpecInfo:
     """Create a SpecInfo for a v1.2 JSON spec."""
     return SpecInfo(

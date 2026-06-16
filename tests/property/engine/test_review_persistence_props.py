@@ -457,7 +457,7 @@ class TestReviewOnlyGraphCompleteness:
             if cfg["has_source"]:
                 (spec_dir / "main.py").write_text("# code\n")
             if cfg["has_reqs"]:
-                (spec_dir / "requirements.md").write_text("# reqs\n")
+                (spec_dir / "requirements.json").write_text("{}")
 
         graph = build_review_only_graph(specs_dir, archetypes_config=None)
 
@@ -497,7 +497,7 @@ class TestReviewOnlyReadOnlyEnforcement:
         specs_dir = tmp_path / ".specs"
         spec_dir = specs_dir / "03_api"
         spec_dir.mkdir(parents=True)
-        (spec_dir / "requirements.md").write_text("# reqs\n")
+        (spec_dir / "requirements.json").write_text("{}")
         (spec_dir / "main.py").write_text("# code\n")
 
         graph = build_review_only_graph(specs_dir, archetypes_config=None)
