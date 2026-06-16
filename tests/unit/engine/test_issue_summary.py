@@ -201,7 +201,7 @@ class TestBuildSummaryComment:
                          subtasks=(SubtaskDef(id="2.1", title="t2", completed=True),), body="", archetype=None),
         ]
 
-        with patch("agent_fox.spec.parser_v12.parse_tasks_v12", return_value=mock_groups):
+        with patch("agent_fox.spec.parser.parse_tasks", return_value=mock_groups):
             comment = build_summary_comment(spec_name, commit_sha, tasks_path)
 
         assert spec_name in comment, "Comment must contain spec name"

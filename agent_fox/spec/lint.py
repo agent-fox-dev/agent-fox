@@ -74,7 +74,7 @@ def _map_afspec_findings(
     return findings
 
 
-def _validate_v12_spec(spec: SpecInfo) -> list[Finding]:
+def _validate_spec(spec: SpecInfo) -> list[Finding]:
     """Validate a v1.2 spec using afspec.validate().
 
     Loads the spec via ``afspec.load_spec()`` then runs
@@ -190,7 +190,7 @@ def run_lint_specs(
     findings: list[Finding] = []
 
     for spec in discovered:
-        findings.extend(_validate_v12_spec(spec))
+        findings.extend(_validate_spec(spec))
 
     findings = sort_findings(findings)
 

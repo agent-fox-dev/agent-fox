@@ -41,7 +41,7 @@ from agent_fox.session.prompt import (
     build_task_prompt,
 )
 from agent_fox.session.session import run_session
-from agent_fox.spec.parser_v12 import parse_tasks_v12
+from agent_fox.spec.parser import parse_tasks
 from agent_fox.ui.progress import ActivityCallback
 from agent_fox.workspace import (
     WorkspaceInfo,
@@ -66,7 +66,7 @@ _BUDGET_EXHAUST_RATIO: float = 0.9
 def extract_subtask_descriptions(spec_dir: Path, task_group: int) -> list[str]:
     """Extract the first non-metadata detail from each subtask in a task group.
 
-    Parses the v1.2 spec via ``parse_tasks_v12`` and scans the rendered body
+    Parses the v1.2 spec via ``parse_tasks`` and scans the rendered body
     of the target group.  Each subtask line (``- [...] ID Title``) starts a
     new subtask; subsequent indented bullets (``  - text``) are details.  The
     first detail whose text does not start with ``_`` is captured.
@@ -85,7 +85,7 @@ def extract_subtask_descriptions(spec_dir: Path, task_group: int) -> list[str]:
         return []
 
     try:
-        groups = parse_tasks_v12(spec_dir)
+        groups = parse_tasks(spec_dir)
     except Exception:
         logger.debug("extract_subtask_descriptions: failed to parse %s", spec_dir, exc_info=True)
         return []

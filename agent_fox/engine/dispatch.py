@@ -844,13 +844,13 @@ def is_task_group_done_file(
 
     Returns True only when the task group exists and has completed=True.
     """
-    from agent_fox.spec.parser_v12 import parse_tasks_v12
+    from agent_fox.spec.parser import parse_tasks
 
     spec_dir = specs_dir / spec_name
     if not spec_dir.is_dir():
         return False
     try:
-        groups = parse_tasks_v12(spec_dir)
+        groups = parse_tasks(spec_dir)
     except Exception:
         logger.debug(
             "Failed to parse tasks for %s",

@@ -54,14 +54,14 @@ _ARCHETYPE_SPEC_FILES: list[tuple[str, str]] = [
 
 # v1.2 artifact-to-header mapping for JSON-based specs rendered via afspec.
 # Requirements: 134-REQ-1.1, 134-REQ-2.1
-_V12_SECTION_HEADERS: dict[str, str] = {
+_SECTION_HEADERS: dict[str, str] = {
     "requirements": "## Requirements",
     "test_spec": "## Test Specification",
     "tasks": "## Tasks",
 }
 
 
-def _render_v12_sections(spec_dir: Path) -> list[str]:
+def _render_spec_sections(spec_dir: Path) -> list[str]:
     """Load a v1.2 spec and render per-artifact markdown sections.
 
     Returns a list of rendered section strings.  Raises ``afspec.LoadError``
@@ -75,7 +75,7 @@ def _render_v12_sections(spec_dir: Path) -> list[str]:
     rendered = afspec.render_individual(spec)
 
     sections: list[str] = []
-    for key, header in _V12_SECTION_HEADERS.items():
+    for key, header in _SECTION_HEADERS.items():
         content = rendered.get(key, "")
         if content:
             safe = sanitize_prompt_content(content, label="spec")
@@ -371,7 +371,7 @@ def assemble_context(
     file_sections: list[str] = []
 
     try:
-        file_sections = _render_v12_sections(spec_dir)
+        file_sections = _render_spec_sections(spec_dir)
     except Exception:
         logger.warning(
             "Failed to load spec in %s",

@@ -487,7 +487,7 @@ class TestAreAllTasksDone:
                          subtasks=(SubtaskDef(id="2.1", title="s2", completed=True),), body="", archetype=None),
         ]
 
-        with patch("agent_fox.engine.hot_load.parse_tasks_v12", return_value=groups):
+        with patch("agent_fox.engine.hot_load.parse_tasks", return_value=groups):
             assert are_all_tasks_done(spec_path) is True
 
     def test_some_groups_incomplete(self, tmp_path: Path) -> None:
@@ -504,7 +504,7 @@ class TestAreAllTasksDone:
                          subtasks=(SubtaskDef(id="2.1", title="s2", completed=False),), body="", archetype=None),
         ]
 
-        with patch("agent_fox.engine.hot_load.parse_tasks_v12", return_value=groups):
+        with patch("agent_fox.engine.hot_load.parse_tasks", return_value=groups):
             assert are_all_tasks_done(spec_path) is False
 
     def test_no_groups_found(self, tmp_path: Path) -> None:
@@ -512,7 +512,7 @@ class TestAreAllTasksDone:
         spec_path = tmp_path / "42_feature"
         spec_path.mkdir()
 
-        with patch("agent_fox.engine.hot_load.parse_tasks_v12", return_value=[]):
+        with patch("agent_fox.engine.hot_load.parse_tasks", return_value=[]):
             assert are_all_tasks_done(spec_path) is False
 
     def test_spec_dir_missing(self, tmp_path: Path) -> None:
@@ -523,12 +523,12 @@ class TestAreAllTasksDone:
         assert are_all_tasks_done(spec_path) is False
 
     def test_parse_error(self, tmp_path: Path) -> None:
-        """Returns False when parse_tasks_v12 raises an exception."""
+        """Returns False when parse_tasks raises an exception."""
         spec_path = tmp_path / "42_feature"
         spec_path.mkdir()
 
         with patch(
-            "agent_fox.engine.hot_load.parse_tasks_v12",
+            "agent_fox.engine.hot_load.parse_tasks",
             side_effect=RuntimeError("parse error"),
         ):
             assert are_all_tasks_done(spec_path) is False
@@ -552,7 +552,7 @@ class TestAreAllTasksDone:
                          subtasks=(SubtaskDef(id="3.1", title="s3", completed=False),), body="", archetype=None),
         ]
 
-        with patch("agent_fox.engine.hot_load.parse_tasks_v12", return_value=groups):
+        with patch("agent_fox.engine.hot_load.parse_tasks", return_value=groups):
             assert are_all_tasks_done(spec_path) is False
 
 

@@ -947,14 +947,14 @@ def build_summary_comment(
 
     Requirements: 108-REQ-3.1, 108-REQ-3.2, 108-REQ-3.3, 108-REQ-3.4
     """
-    from agent_fox.spec.parser_v12 import parse_tasks_v12  # noqa: PLC0415
+    from agent_fox.spec.parser import parse_tasks  # noqa: PLC0415
 
     # Extract task group titles from spec directory
     group_lines: list[str] = []
     try:
         spec_dir = tasks_path.parent
         if spec_dir.is_dir():
-            groups = parse_tasks_v12(spec_dir)
+            groups = parse_tasks(spec_dir)
             group_lines = [f"- {g.title}" for g in groups]
     except Exception:
         logger.debug("Failed to parse tasks for summary comment", exc_info=True)

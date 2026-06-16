@@ -108,7 +108,7 @@ def _map_dependency(dep: TaskDependency, current_spec: str) -> CrossSpecDep:
 # ---------------------------------------------------------------------------
 
 
-def parse_tasks_v12(spec_dir: Path) -> list[TaskGroupDef]:
+def parse_tasks(spec_dir: Path) -> list[TaskGroupDef]:
     """Load a v1.2 spec and return task groups as TaskGroupDef list.
 
     Calls ``afspec.load_spec()`` to parse the spec directory and maps
@@ -130,7 +130,7 @@ def parse_tasks_v12(spec_dir: Path) -> list[TaskGroupDef]:
     return [_map_task_group(group) for group in spec.tasks.task_groups]
 
 
-def parse_cross_deps_v12(
+def parse_cross_deps(
     spec_dir: Path,
     spec_name: str,
 ) -> list[CrossSpecDep]:

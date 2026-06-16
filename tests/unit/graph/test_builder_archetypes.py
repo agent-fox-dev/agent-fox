@@ -176,10 +176,10 @@ class TestLegacyPlanDefaults:
 
 
 class TestArchetypeTagExtraction:
-    """Verify parse_tasks_v12() returns groups with archetype=None (v1.2)."""
+    """Verify parse_tasks() returns groups with archetype=None (v1.2)."""
 
     @staticmethod
-    def _write_v12_spec(spec_dir: Path, task_groups: list[dict]) -> None:
+    def _write_spec(spec_dir: Path, task_groups: list[dict]) -> None:
         spec_dir.mkdir(parents=True, exist_ok=True)
         (spec_dir / "prd.md").write_text(
             '---\nspec_id: "test"\nspec_name: "test"\ntitle: "Test"\n'
@@ -210,10 +210,10 @@ class TestArchetypeTagExtraction:
         self,
         tmp_path: pytest.TempPathFactory,
     ) -> None:
-        from agent_fox.spec.parser_v12 import parse_tasks_v12
+        from agent_fox.spec.parser import parse_tasks
 
         spec_dir = tmp_path / "03_spec"  # type: ignore[operator]
-        self._write_v12_spec(spec_dir, [{
+        self._write_spec(spec_dir, [{
             "id": 3, "kind": "standard", "title": "Update docs",
             "subtasks": [{"id": "3.1", "title": "Write docs", "state": "pending",
                           "details": [], "test_spec_refs": [], "requirement_refs": [],
@@ -221,7 +221,7 @@ class TestArchetypeTagExtraction:
             "verification": {"id": "", "checks": []},
         }])
 
-        groups = parse_tasks_v12(spec_dir)
+        groups = parse_tasks(spec_dir)
         assert len(groups) == 1
         assert groups[0].archetype is None
         assert "Update docs" in groups[0].title
@@ -230,10 +230,10 @@ class TestArchetypeTagExtraction:
         self,
         tmp_path: pytest.TempPathFactory,
     ) -> None:
-        from agent_fox.spec.parser_v12 import parse_tasks_v12
+        from agent_fox.spec.parser import parse_tasks
 
         spec_dir = tmp_path / "01_spec"  # type: ignore[operator]
-        self._write_v12_spec(spec_dir, [{
+        self._write_spec(spec_dir, [{
             "id": 1, "kind": "standard", "title": "Normal task",
             "subtasks": [{"id": "1.1", "title": "Sub", "state": "pending",
                           "details": [], "test_spec_refs": [], "requirement_refs": [],
@@ -241,7 +241,7 @@ class TestArchetypeTagExtraction:
             "verification": {"id": "", "checks": []},
         }])
 
-        groups = parse_tasks_v12(spec_dir)
+        groups = parse_tasks(spec_dir)
         assert len(groups) == 1
         assert groups[0].archetype is None
 
@@ -498,10 +498,10 @@ class TestUnknownTagDefaultsCoder:
         self,
         tmp_path: pytest.TempPathFactory,
     ) -> None:
-        from agent_fox.spec.parser_v12 import parse_tasks_v12
+        from agent_fox.spec.parser import parse_tasks
 
         spec_dir = tmp_path / "03_spec"  # type: ignore[operator]
-        TestArchetypeTagExtraction._write_v12_spec(spec_dir, [{
+        TestArchetypeTagExtraction._write_spec(spec_dir, [{
             "id": 3, "kind": "standard", "title": "Task",
             "subtasks": [{"id": "3.1", "title": "Sub", "state": "pending",
                           "details": [], "test_spec_refs": [], "requirement_refs": [],
@@ -509,7 +509,7 @@ class TestUnknownTagDefaultsCoder:
             "verification": {"id": "", "checks": []},
         }])
 
-        groups = parse_tasks_v12(spec_dir)
+        groups = parse_tasks(spec_dir)
         assert len(groups) == 1
         assert groups[0].archetype is None
 

@@ -77,7 +77,7 @@ def _make_verdict(
     )
 
 
-def _write_v12_spec(spec_dir: Path) -> None:
+def _write_spec(spec_dir: Path) -> None:
     """Write minimal v1.2 spec fixture files."""
     (spec_dir / "prd.md").write_text(
         '---\nspec_id: "t"\nspec_name: "t"\ntitle: "T"\n'
@@ -217,7 +217,7 @@ class TestDbUnavailableFallback:
 
         spec_dir = tmp_path / "test_spec"
         spec_dir.mkdir()
-        _write_v12_spec(spec_dir)
+        _write_spec(spec_dir)
         (spec_dir / "review.md").write_text("# Skeptic Review\n\n## Critical Findings\n- [severity: major] Test\n")
 
         conn = duckdb.connect(":memory:")
@@ -235,7 +235,7 @@ class TestDbUnavailableFallback:
         """
         spec_dir = tmp_path / "test_spec"
         spec_dir.mkdir()
-        _write_v12_spec(spec_dir)
+        _write_spec(spec_dir)
         (spec_dir / "review.md").write_text("# Skeptic Review\n- [severity: minor] Fallback test\n")
 
         # Use a closed connection to trigger an error
@@ -255,7 +255,7 @@ class TestLegacyFileMigration:
 
         spec_dir = tmp_path / "test_spec"
         spec_dir.mkdir()
-        _write_v12_spec(spec_dir)
+        _write_spec(spec_dir)
         (spec_dir / "review.md").write_text(
             "# Skeptic Review\n\n## Critical Findings\n- [severity: critical] Legacy finding\n"
         )
@@ -275,7 +275,7 @@ class TestLegacyFileMigration:
 
         spec_dir = tmp_path / "test_spec"
         spec_dir.mkdir()
-        _write_v12_spec(spec_dir)
+        _write_spec(spec_dir)
         (spec_dir / "verification.md").write_text(
             "# Verification Report\n\n"
             "| Requirement | Status | Notes |\n"
@@ -297,7 +297,7 @@ class TestLegacyFileMigration:
 
         spec_dir = tmp_path / "test_spec"
         spec_dir.mkdir()
-        _write_v12_spec(spec_dir)
+        _write_spec(spec_dir)
         # Write something that won't match the pattern
         (spec_dir / "review.md").write_text("Random garbage content\n")
 

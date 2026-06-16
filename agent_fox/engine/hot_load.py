@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any
 from agent_fox.core.errors import PlanError
 from agent_fox.graph.types import Edge, Node, NodeStatus, TaskGraph
 from agent_fox.spec.discovery import SpecInfo, discover_specs  # noqa: F401
-from agent_fox.spec.parser_v12 import parse_cross_deps_v12, parse_tasks_v12
+from agent_fox.spec.parser import parse_cross_deps, parse_tasks
 from agent_fox.workspace.git import run_git
 
 if TYPE_CHECKING:
@@ -173,7 +173,7 @@ def are_all_tasks_done(spec_path: Path) -> bool:
     if not spec_path.is_dir():
         return False
     try:
-        groups = parse_tasks_v12(spec_path)
+        groups = parse_tasks(spec_path)
     except Exception:
         return False
     if not groups:
@@ -349,7 +349,7 @@ def _validate_and_parse_specs(
             continue
 
         try:
-            task_groups = parse_tasks_v12(spec_info.path)
+            task_groups = parse_tasks(spec_info.path)
         except Exception:
             logger.warning(
                 "Failed to parse tasks for spec '%s', skipping",
@@ -368,7 +368,7 @@ def _validate_and_parse_specs(
         dep_names = _parse_dep_specs_from_prd(prd_path)
 
         if not dep_names:
-            cross_deps = parse_cross_deps_v12(spec_info.path, spec_name=spec_info.name)
+            cross_deps = parse_cross_deps(spec_info.path, spec_name=spec_info.name)
             dep_names = [d.to_spec for d in cross_deps]
 
         # 06-REQ-7.E1: Validate all dependencies exist

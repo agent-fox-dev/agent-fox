@@ -160,7 +160,7 @@ def _tasks_json_with_groups(
     )
 
 
-def _write_v12_spec(
+def _write_spec(
     spec_dir: Path,
     *,
     task_groups: list[dict] | None = None,
@@ -251,7 +251,7 @@ SAMPLE_DEPENDENCIES = [
 def v12_spec_dir_with_groups(tmp_path: Path) -> Path:
     """A v1.2 spec directory with task groups and subtasks."""
     spec_dir = tmp_path / "01_test_spec"
-    _write_v12_spec(spec_dir, task_groups=SAMPLE_TASK_GROUPS)
+    _write_spec(spec_dir, task_groups=SAMPLE_TASK_GROUPS)
     return spec_dir
 
 
@@ -259,7 +259,7 @@ def v12_spec_dir_with_groups(tmp_path: Path) -> Path:
 def v12_spec_dir_with_deps(tmp_path: Path) -> Path:
     """A v1.2 spec directory with task dependencies."""
     spec_dir = tmp_path / "01_test_spec"
-    _write_v12_spec(
+    _write_spec(
         spec_dir,
         task_groups=SAMPLE_TASK_GROUPS,
         dependencies=SAMPLE_DEPENDENCIES,
@@ -271,7 +271,7 @@ def v12_spec_dir_with_deps(tmp_path: Path) -> Path:
 def v12_spec_dir_no_deps(tmp_path: Path) -> Path:
     """A v1.2 spec directory with no dependencies."""
     spec_dir = tmp_path / "01_test_spec"
-    _write_v12_spec(spec_dir, task_groups=SAMPLE_TASK_GROUPS, dependencies=[])
+    _write_spec(spec_dir, task_groups=SAMPLE_TASK_GROUPS, dependencies=[])
     return spec_dir
 
 
@@ -307,7 +307,7 @@ def v12_spec_dir_all_done(tmp_path: Path) -> Path:
         }
     ]
     spec_dir = tmp_path / "01_test_spec"
-    _write_v12_spec(spec_dir, task_groups=groups)
+    _write_spec(spec_dir, task_groups=groups)
     return spec_dir
 
 
@@ -316,7 +316,7 @@ def v12_specs_root_for_smoke(tmp_path: Path) -> Path:
     """A specs root with one v1.2 spec for smoke testing the full pipeline."""
     root = tmp_path / "specs"
     root.mkdir()
-    _write_v12_spec(
+    _write_spec(
         root / "01_test_spec",
         task_groups=SAMPLE_TASK_GROUPS,
         dependencies=[],
@@ -349,7 +349,7 @@ class TestMapSubtaskCompletedFromState:
 
     def test_done_subtask_completed_true(self) -> None:
         """Subtask with state=DONE maps to SubtaskDef with completed=True."""
-        from agent_fox.spec.parser_v12 import _map_subtask
+        from agent_fox.spec.parser import _map_subtask
 
         subtask = _make_subtask(id="1.1", title="Write tests", state="done")
         result = _map_subtask(subtask)
@@ -361,7 +361,7 @@ class TestMapSubtaskCompletedFromState:
 
     def test_pending_subtask_completed_false(self) -> None:
         """Subtask with state=PENDING maps to SubtaskDef with completed=False."""
-        from agent_fox.spec.parser_v12 import _map_subtask
+        from agent_fox.spec.parser import _map_subtask
 
         subtask = _make_subtask(id="1.2", title="Implement feature", state="pending")
         result = _map_subtask(subtask)
@@ -373,7 +373,7 @@ class TestMapSubtaskCompletedFromState:
 
     def test_in_progress_subtask_completed_false(self) -> None:
         """Subtask with state=IN_PROGRESS maps to completed=False."""
-        from agent_fox.spec.parser_v12 import _map_subtask
+        from agent_fox.spec.parser import _map_subtask
 
         subtask = _make_subtask(id="1.3", title="Working on it", state="in_progress")
         result = _map_subtask(subtask)
@@ -382,7 +382,7 @@ class TestMapSubtaskCompletedFromState:
 
     def test_queued_subtask_completed_false(self) -> None:
         """Subtask with state=QUEUED maps to completed=False."""
-        from agent_fox.spec.parser_v12 import _map_subtask
+        from agent_fox.spec.parser import _map_subtask
 
         subtask = _make_subtask(id="1.4", title="Queued task", state="queued")
         result = _map_subtask(subtask)
@@ -403,7 +403,7 @@ class TestMapTaskGroupFields:
 
     def test_group_number_from_id(self) -> None:
         """TaskGroupDef.number equals TaskGroup.id."""
-        from agent_fox.spec.parser_v12 import _map_task_group
+        from agent_fox.spec.parser import _map_task_group
 
         group = _make_task_group(
             id=2,
@@ -417,7 +417,7 @@ class TestMapTaskGroupFields:
 
     def test_group_title(self) -> None:
         """TaskGroupDef.title equals TaskGroup.title."""
-        from agent_fox.spec.parser_v12 import _map_task_group
+        from agent_fox.spec.parser import _map_task_group
 
         group = _make_task_group(
             id=2,
@@ -430,7 +430,7 @@ class TestMapTaskGroupFields:
 
     def test_group_optional_always_false(self) -> None:
         """TaskGroupDef.optional is always False for v1.2 (no optional groups)."""
-        from agent_fox.spec.parser_v12 import _map_task_group
+        from agent_fox.spec.parser import _map_task_group
 
         group = _make_task_group(
             id=1,
@@ -442,7 +442,7 @@ class TestMapTaskGroupFields:
 
     def test_group_archetype_always_none(self) -> None:
         """TaskGroupDef.archetype is always None for v1.2 (no archetype tags)."""
-        from agent_fox.spec.parser_v12 import _map_task_group
+        from agent_fox.spec.parser import _map_task_group
 
         group = _make_task_group(
             id=1,
@@ -454,7 +454,7 @@ class TestMapTaskGroupFields:
 
     def test_group_completed_false_with_pending_subtask(self) -> None:
         """TaskGroupDef.completed is False when subtask is PENDING."""
-        from agent_fox.spec.parser_v12 import _map_task_group
+        from agent_fox.spec.parser import _map_task_group
 
         group = _make_task_group(
             id=2,
@@ -468,7 +468,7 @@ class TestMapTaskGroupFields:
 
     def test_group_subtasks_mapped(self) -> None:
         """TaskGroupDef.subtasks contains mapped SubtaskDef instances."""
-        from agent_fox.spec.parser_v12 import _map_task_group
+        from agent_fox.spec.parser import _map_task_group
 
         group = _make_task_group(
             id=1,
@@ -494,7 +494,7 @@ class TestGroupCompletedAllDone:
 
     def test_all_done_plus_dropped_is_completed(self) -> None:
         """Group with one DONE and one DROPPED subtask is completed."""
-        from agent_fox.spec.parser_v12 import _map_task_group
+        from agent_fox.spec.parser import _map_task_group
 
         group = _make_task_group(
             id=1,
@@ -509,7 +509,7 @@ class TestGroupCompletedAllDone:
 
     def test_all_done_is_completed(self) -> None:
         """Group with all DONE subtasks is completed."""
-        from agent_fox.spec.parser_v12 import _map_task_group
+        from agent_fox.spec.parser import _map_task_group
 
         group = _make_task_group(
             id=1,
@@ -537,7 +537,7 @@ class TestGroupNotCompleted:
 
     def test_done_and_in_progress_is_not_completed(self) -> None:
         """Group with one DONE and one IN_PROGRESS subtask is not completed."""
-        from agent_fox.spec.parser_v12 import _map_task_group
+        from agent_fox.spec.parser import _map_task_group
 
         group = _make_task_group(
             id=1,
@@ -552,7 +552,7 @@ class TestGroupNotCompleted:
 
     def test_done_and_pending_is_not_completed(self) -> None:
         """Group with one DONE and one PENDING subtask is not completed."""
-        from agent_fox.spec.parser_v12 import _map_task_group
+        from agent_fox.spec.parser import _map_task_group
 
         group = _make_task_group(
             id=1,
@@ -580,7 +580,7 @@ class TestGroupBodyMarkdown:
 
     def test_body_is_nonempty(self) -> None:
         """TaskGroupDef.body is a non-empty string."""
-        from agent_fox.spec.parser_v12 import _map_task_group
+        from agent_fox.spec.parser import _map_task_group
 
         group = _make_task_group(
             id=1,
@@ -594,7 +594,7 @@ class TestGroupBodyMarkdown:
 
     def test_body_contains_subtask_title(self) -> None:
         """TaskGroupDef.body contains subtask titles."""
-        from agent_fox.spec.parser_v12 import _map_task_group
+        from agent_fox.spec.parser import _map_task_group
 
         group = _make_task_group(
             id=1,
@@ -608,7 +608,7 @@ class TestGroupBodyMarkdown:
 
     def test_body_is_string(self) -> None:
         """TaskGroupDef.body is a string."""
-        from agent_fox.spec.parser_v12 import _map_task_group
+        from agent_fox.spec.parser import _map_task_group
 
         group = _make_task_group(
             id=1,
@@ -642,7 +642,7 @@ class TestMapDependency:
 
     def test_from_spec_is_current_spec(self) -> None:
         """CrossSpecDep.from_spec is the current spec (declaring the dep)."""
-        from agent_fox.spec.parser_v12 import _map_dependency
+        from agent_fox.spec.parser import _map_dependency
 
         dep = _make_dependency(
             depends_on_spec="132_afspec_integration",
@@ -655,7 +655,7 @@ class TestMapDependency:
 
     def test_to_spec_is_depends_on_spec(self) -> None:
         """CrossSpecDep.to_spec is the dependency spec."""
-        from agent_fox.spec.parser_v12 import _map_dependency
+        from agent_fox.spec.parser import _map_dependency
 
         dep = _make_dependency(
             depends_on_spec="132_afspec_integration",
@@ -668,7 +668,7 @@ class TestMapDependency:
 
     def test_from_group_is_dep_to_group(self) -> None:
         """CrossSpecDep.from_group equals TaskDependency.to_group."""
-        from agent_fox.spec.parser_v12 import _map_dependency
+        from agent_fox.spec.parser import _map_dependency
 
         dep = _make_dependency(
             depends_on_spec="132_afspec_integration",
@@ -681,7 +681,7 @@ class TestMapDependency:
 
     def test_to_group_is_dep_from_group(self) -> None:
         """CrossSpecDep.to_group equals TaskDependency.from_group."""
-        from agent_fox.spec.parser_v12 import _map_dependency
+        from agent_fox.spec.parser import _map_dependency
 
         dep = _make_dependency(
             depends_on_spec="132_afspec_integration",
@@ -694,7 +694,7 @@ class TestMapDependency:
 
     def test_result_is_cross_spec_dep(self) -> None:
         """_map_dependency returns a CrossSpecDep instance."""
-        from agent_fox.spec.parser_v12 import _map_dependency
+        from agent_fox.spec.parser import _map_dependency
 
         dep = _make_dependency(depends_on_spec="other_spec")
         result = _map_dependency(dep, "current_spec")
@@ -703,84 +703,84 @@ class TestMapDependency:
 
 
 # ===========================================================================
-# TS-133-7: parse_tasks_v12 returns list of TaskGroupDef
+# TS-133-7: parse_tasks returns list of TaskGroupDef
 # ===========================================================================
 
 
 class TestParseTasksV12:
-    """TS-133-7: Verify that parse_tasks_v12 loads a v1.2 spec and returns
+    """TS-133-7: Verify that parse_tasks loads a v1.2 spec and returns
     TaskGroupDef instances.
 
     Requirement: 133-REQ-4.1
     """
 
     def test_returns_nonempty_list(self, v12_spec_dir_with_groups: Path) -> None:
-        """parse_tasks_v12 returns a non-empty list."""
-        from agent_fox.spec.parser_v12 import parse_tasks_v12
+        """parse_tasks returns a non-empty list."""
+        from agent_fox.spec.parser import parse_tasks
 
-        groups = parse_tasks_v12(v12_spec_dir_with_groups)
+        groups = parse_tasks(v12_spec_dir_with_groups)
 
         assert len(groups) > 0
 
     def test_returns_task_group_def_instances(self, v12_spec_dir_with_groups: Path) -> None:
         """All returned elements are TaskGroupDef instances."""
-        from agent_fox.spec.parser_v12 import parse_tasks_v12
+        from agent_fox.spec.parser import parse_tasks
 
-        groups = parse_tasks_v12(v12_spec_dir_with_groups)
+        groups = parse_tasks(v12_spec_dir_with_groups)
 
         assert all(isinstance(g, TaskGroupDef) for g in groups)
 
     def test_group_number_populated(self, v12_spec_dir_with_groups: Path) -> None:
         """Returned groups have non-zero numbers."""
-        from agent_fox.spec.parser_v12 import parse_tasks_v12
+        from agent_fox.spec.parser import parse_tasks
 
-        groups = parse_tasks_v12(v12_spec_dir_with_groups)
+        groups = parse_tasks(v12_spec_dir_with_groups)
 
         assert groups[0].number > 0
 
     def test_group_title_populated(self, v12_spec_dir_with_groups: Path) -> None:
         """Returned groups have non-empty titles."""
-        from agent_fox.spec.parser_v12 import parse_tasks_v12
+        from agent_fox.spec.parser import parse_tasks
 
-        groups = parse_tasks_v12(v12_spec_dir_with_groups)
+        groups = parse_tasks(v12_spec_dir_with_groups)
 
         assert groups[0].title != ""
 
     def test_multiple_groups_parsed(self, v12_spec_dir_with_groups: Path) -> None:
         """Multiple task groups are parsed from the spec."""
-        from agent_fox.spec.parser_v12 import parse_tasks_v12
+        from agent_fox.spec.parser import parse_tasks
 
-        groups = parse_tasks_v12(v12_spec_dir_with_groups)
+        groups = parse_tasks(v12_spec_dir_with_groups)
 
         assert len(groups) == 2
 
 
 # ===========================================================================
-# TS-133-8: parse_cross_deps_v12 returns list of CrossSpecDep
+# TS-133-8: parse_cross_deps returns list of CrossSpecDep
 # ===========================================================================
 
 
 class TestParseCrossDepsV12:
-    """TS-133-8: Verify that parse_cross_deps_v12 loads a v1.2 spec and
+    """TS-133-8: Verify that parse_cross_deps loads a v1.2 spec and
     returns CrossSpecDep instances, or an empty list if no dependencies.
 
     Requirements: 133-REQ-3.1, 133-REQ-3.E1
     """
 
     def test_with_dependencies(self, v12_spec_dir_with_deps: Path) -> None:
-        """parse_cross_deps_v12 returns non-empty list when deps exist."""
-        from agent_fox.spec.parser_v12 import parse_cross_deps_v12
+        """parse_cross_deps returns non-empty list when deps exist."""
+        from agent_fox.spec.parser import parse_cross_deps
 
-        deps = parse_cross_deps_v12(v12_spec_dir_with_deps, "test_spec")
+        deps = parse_cross_deps(v12_spec_dir_with_deps, "test_spec")
 
         assert len(deps) > 0
         assert all(isinstance(d, CrossSpecDep) for d in deps)
 
     def test_without_dependencies(self, v12_spec_dir_no_deps: Path) -> None:
-        """parse_cross_deps_v12 returns empty list when no deps exist."""
-        from agent_fox.spec.parser_v12 import parse_cross_deps_v12
+        """parse_cross_deps returns empty list when no deps exist."""
+        from agent_fox.spec.parser import parse_cross_deps
 
-        deps = parse_cross_deps_v12(v12_spec_dir_no_deps, "test_spec")
+        deps = parse_cross_deps(v12_spec_dir_no_deps, "test_spec")
 
         assert deps == []
 
@@ -799,7 +799,7 @@ class TestDroppedSubtaskCompletion:
 
     def test_all_dropped_vacuously_complete(self) -> None:
         """A group with only DROPPED subtasks is vacuously complete."""
-        from agent_fox.spec.parser_v12 import _map_task_group
+        from agent_fox.spec.parser import _map_task_group
 
         group = _make_task_group(
             id=1,
@@ -814,7 +814,7 @@ class TestDroppedSubtaskCompletion:
 
     def test_dropped_subtask_completed_false(self) -> None:
         """DROPPED subtasks map to SubtaskDef with completed=False."""
-        from agent_fox.spec.parser_v12 import _map_subtask
+        from agent_fox.spec.parser import _map_subtask
 
         subtask = _make_subtask(id="1.1", state="dropped")
         result = _map_subtask(subtask)
@@ -823,7 +823,7 @@ class TestDroppedSubtaskCompletion:
 
     def test_all_dropped_subtasks_not_completed(self) -> None:
         """All SubtaskDefs in an all-dropped group have completed=False."""
-        from agent_fox.spec.parser_v12 import _map_task_group
+        from agent_fox.spec.parser import _map_task_group
 
         group = _make_task_group(
             id=1,
@@ -843,7 +843,7 @@ class TestDroppedSubtaskCompletion:
 
 
 class TestNoDepsEmptyList:
-    """TS-133-E2: parse_cross_deps_v12 returns [] when tasks.json has no
+    """TS-133-E2: parse_cross_deps returns [] when tasks.json has no
     dependency entries.
 
     Requirement: 133-REQ-3.E1
@@ -851,31 +851,31 @@ class TestNoDepsEmptyList:
 
     def test_empty_deps(self, v12_spec_dir_no_deps: Path) -> None:
         """Spec with no dependencies yields an empty list."""
-        from agent_fox.spec.parser_v12 import parse_cross_deps_v12
+        from agent_fox.spec.parser import parse_cross_deps
 
-        deps = parse_cross_deps_v12(v12_spec_dir_no_deps, "test_spec")
+        deps = parse_cross_deps(v12_spec_dir_no_deps, "test_spec")
 
         assert deps == []
 
 
 # ===========================================================================
-# TS-133-E3: afspec.load_spec error propagates from parse_tasks_v12
+# TS-133-E3: afspec.load_spec error propagates from parse_tasks
 # ===========================================================================
 
 
 class TestLoadErrorPropagates:
     """TS-133-E3: When afspec.load_spec raises LoadError, it propagates
-    through parse_tasks_v12 uncaught.
+    through parse_tasks uncaught.
 
     Requirement: 133-REQ-4.E1
     """
 
     def test_malformed_json_raises(self, malformed_spec_dir: Path) -> None:
         """Malformed tasks.json causes a LoadError that propagates uncaught."""
-        from agent_fox.spec.parser_v12 import parse_tasks_v12
+        from agent_fox.spec.parser import parse_tasks
 
         with pytest.raises(LoadError):
-            parse_tasks_v12(malformed_spec_dir)
+            parse_tasks(malformed_spec_dir)
 
 
 # ===========================================================================
@@ -897,7 +897,7 @@ class TestCompletionIsFunctionOfState:
     )
     def test_completed_equals_state_is_done(self, state: SubtaskState) -> None:
         """_map_subtask(s).completed == (s.state == SubtaskState.DONE)."""
-        from agent_fox.spec.parser_v12 import _map_subtask
+        from agent_fox.spec.parser import _map_subtask
 
         subtask = _make_subtask(id="1.1", title="task", state=state.value)
         result = _map_subtask(subtask)
@@ -928,7 +928,7 @@ class TestGroupCompletionConsistent:
     )
     def test_group_completion_invariant(self, states: list[SubtaskState]) -> None:
         """TaskGroupDef.completed matches the expected invariant."""
-        from agent_fox.spec.parser_v12 import _map_task_group
+        from agent_fox.spec.parser import _map_task_group
 
         subtasks = [
             _make_subtask(id=f"1.{j + 1}", title=f"task {j + 1}", state=s.value)
@@ -962,7 +962,7 @@ class TestSmokeFullPipeline:
     or build_graph.
     """
 
-    def test_build_plan_with_v12_spec(self, v12_specs_root_for_smoke: Path) -> None:
+    def test_build_plan_with_spec(self, v12_specs_root_for_smoke: Path) -> None:
         """build_plan produces a TaskGraph from a v1.2 spec directory."""
         from agent_fox.core.config import AgentFoxConfig
         from agent_fox.graph.planner import build_plan

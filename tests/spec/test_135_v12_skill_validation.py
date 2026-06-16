@@ -20,7 +20,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from agent_fox.spec.discovery import SpecFormat, SpecInfo
+from agent_fox.spec.discovery import SpecInfo
 from agent_fox.spec.lint import LintResult, run_lint_specs
 from agent_fox.spec.types import Finding
 
@@ -204,7 +204,7 @@ Test implementation.
 # ---------------------------------------------------------------------------
 
 
-def _write_v12_spec(spec_dir: Path, *, include_tasks: bool = True) -> None:
+def _write_spec(spec_dir: Path, *, include_tasks: bool = True) -> None:
     """Populate a directory with valid v1.2 spec artifacts."""
     spec_dir.mkdir(parents=True, exist_ok=True)
     (spec_dir / "prd.md").write_text(PRD_MD_VALID)
@@ -224,7 +224,7 @@ def _write_v1_spec(spec_dir: Path) -> None:
     (spec_dir / "tasks.md").write_text(TASKS_MD_LEGACY)
 
 
-def _make_v12_spec_info(root: Path, name: str, prefix: int) -> SpecInfo:
+def _make_spec_info(root: Path, name: str, prefix: int) -> SpecInfo:
     """Create a SpecInfo for a v1.2 JSON spec."""
     return SpecInfo(
         name=name,
@@ -232,7 +232,6 @@ def _make_v12_spec_info(root: Path, name: str, prefix: int) -> SpecInfo:
         path=root / name,
         has_tasks=True,
         has_prd=True,
-        format=SpecFormat.V1_2_JSON,
     )
 
 
@@ -246,7 +245,7 @@ def v12_specs_root(tmp_path: Path) -> Path:
     """A specs root with one v1.2 spec folder."""
     root = tmp_path / "specs"
     root.mkdir()
-    _write_v12_spec(root / "02_modern")
+    _write_spec(root / "02_modern")
     return root
 
 
@@ -265,7 +264,7 @@ def mixed_specs_root(tmp_path: Path) -> Path:
     root = tmp_path / "specs"
     root.mkdir()
     _write_v1_spec(root / "01_legacy")
-    _write_v12_spec(root / "02_modern")
+    _write_spec(root / "02_modern")
     return root
 
 
@@ -442,7 +441,7 @@ class TestCliFlagsUnchanged:
             config_dir.mkdir(parents=True, exist_ok=True)
             specs = proj / ".agent-fox" / "specs"
             specs.mkdir()
-            _write_v12_spec(specs / "02_modern")
+            _write_spec(specs / "02_modern")
 
             result = runner.invoke(
                 lint_specs_cmd,
@@ -482,7 +481,7 @@ class TestCliFlagsUnchanged:
             config_dir.mkdir(parents=True, exist_ok=True)
             specs = proj / ".agent-fox" / "specs"
             specs.mkdir()
-            _write_v12_spec(specs / "02_modern")
+            _write_spec(specs / "02_modern")
 
             result = runner.invoke(
                 lint_specs_cmd,
@@ -808,7 +807,7 @@ class TestLintSmoke:
 
     def test_lint_end_to_end(self, v12_specs_root: Path) -> None:
         """Linting v1.2 specs should invoke afspec validation."""
-        v12_spec = _make_v12_spec_info(v12_specs_root, "02_modern", 2)
+        v12_spec = _make_spec_info(v12_specs_root, "02_modern", 2)
 
         with (
             patch(

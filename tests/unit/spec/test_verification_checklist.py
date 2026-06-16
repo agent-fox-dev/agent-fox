@@ -57,7 +57,7 @@ def _make_criterion(criterion_id: str, text: str = "The system SHALL do X.") -> 
     }
 
 
-def _write_v12_spec(
+def _write_spec(
     spec_dir: Path,
     *,
     task_groups: list[dict] | None = None,
@@ -131,7 +131,7 @@ def _write_v12_spec(
 class TestSubtaskAudit:
     def test_all_checked_returns_no_unchecked(self, tmp_path: Path) -> None:
         spec_dir = tmp_path / "10_my_spec"
-        _write_v12_spec(
+        _write_spec(
             spec_dir,
             task_groups=[{
                 "id": 1, "kind": "standard", "title": "Write failing tests",
@@ -153,7 +153,7 @@ class TestSubtaskAudit:
 
     def test_unchecked_subtasks_flagged(self, tmp_path: Path) -> None:
         spec_dir = tmp_path / "10_my_spec"
-        _write_v12_spec(
+        _write_spec(
             spec_dir,
             task_groups=[{
                 "id": 1, "kind": "standard", "title": "Write failing tests",
@@ -178,7 +178,7 @@ class TestSubtaskAudit:
 
     def test_erratum_covers_unchecked_subtask(self, tmp_path: Path) -> None:
         spec_dir = tmp_path / "10_my_spec"
-        _write_v12_spec(
+        _write_spec(
             spec_dir,
             task_groups=[{
                 "id": 1, "kind": "standard", "title": "Write failing tests",
@@ -200,7 +200,7 @@ class TestSubtaskAudit:
 
     def test_multiple_groups_audited(self, tmp_path: Path) -> None:
         spec_dir = tmp_path / "10_my_spec"
-        _write_v12_spec(
+        _write_spec(
             spec_dir,
             task_groups=[
                 {
@@ -232,7 +232,7 @@ class TestSubtaskAudit:
     def test_skipped_subtasks_excluded(self, tmp_path: Path) -> None:
         """Subtasks marked as dropped are intentionally skipped."""
         spec_dir = tmp_path / "10_my_spec"
-        _write_v12_spec(
+        _write_spec(
             spec_dir,
             task_groups=[{
                 "id": 1, "kind": "standard", "title": "Partially done",
@@ -256,7 +256,7 @@ class TestSubtaskAudit:
 class TestRequirementTestCoverage:
     def test_requirement_found_in_test_docstring(self, tmp_path: Path) -> None:
         spec_dir = tmp_path / "10_my_spec"
-        _write_v12_spec(
+        _write_spec(
             spec_dir,
             requirements=[
                 _make_requirement("req-1", criteria=[_make_criterion("10-REQ-1.1")]),
@@ -276,7 +276,7 @@ class TestRequirementTestCoverage:
 
     def test_requirement_found_in_function_name(self, tmp_path: Path) -> None:
         spec_dir = tmp_path / "10_my_spec"
-        _write_v12_spec(
+        _write_spec(
             spec_dir,
             requirements=[
                 _make_requirement("req-1", criteria=[_make_criterion("10-REQ-1.1")]),
@@ -295,7 +295,7 @@ class TestRequirementTestCoverage:
 
     def test_unmapped_requirement_flagged(self, tmp_path: Path) -> None:
         spec_dir = tmp_path / "10_my_spec"
-        _write_v12_spec(
+        _write_spec(
             spec_dir,
             requirements=[
                 _make_requirement(
@@ -328,7 +328,7 @@ class TestRequirementTestCoverage:
 
     def test_no_tests_dir(self, tmp_path: Path) -> None:
         spec_dir = tmp_path / "10_my_spec"
-        _write_v12_spec(
+        _write_spec(
             spec_dir,
             requirements=[
                 _make_requirement("req-1", criteria=[_make_criterion("10-REQ-1.1")]),
@@ -343,7 +343,7 @@ class TestRequirementTestCoverage:
 class TestRenderChecklistMarkdown:
     def test_renders_task_audit_section(self, tmp_path: Path) -> None:
         spec_dir = tmp_path / "10_my_spec"
-        _write_v12_spec(
+        _write_spec(
             spec_dir,
             task_groups=[{
                 "id": 1, "kind": "standard", "title": "Write tests",
@@ -406,7 +406,7 @@ class TestRenderChecklistMarkdown:
 class TestBuildVerificationChecklist:
     def test_full_checklist_integration(self, tmp_path: Path) -> None:
         spec_dir = tmp_path / "10_my_spec"
-        _write_v12_spec(
+        _write_spec(
             spec_dir,
             task_groups=[
                 {
