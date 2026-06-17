@@ -1,0 +1,24 @@
+[project]
+name = "spec"
+version = "0.9.0"
+description = "CLI for AI-powered spec creation"
+requires-python = ">=3.12"
+dependencies = [
+    "agentspec>=0.9.0",
+    "click>=8.1",
+    "rich>=13.0",
+]
+
+[project.scripts]
+spec = "spec.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+agentspec = { workspace = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
