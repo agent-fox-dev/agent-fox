@@ -1079,8 +1079,7 @@ class TestQAExchangeRecording:
 
         with (
             patch("agentspec.session.SpecAgent", return_value=mock_agent),
-            patch("agentspec.session.create_async_anthropic_client", return_value=MagicMock()),
-            patch("agentspec.session.load_config", return_value=MagicMock(model="claude-sonnet-4-6")),
+            patch("agentspec.session._create_agent"),
         ):
             await session.refine({"q1": "answer1", "q2": "answer2"})
 
@@ -1103,8 +1102,7 @@ class TestQAExchangeRecording:
 
         with (
             patch("agentspec.session.SpecAgent", return_value=mock_agent),
-            patch("agentspec.session.create_async_anthropic_client", return_value=MagicMock()),
-            patch("agentspec.session.load_config", return_value=MagicMock(model="claude-sonnet-4-6")),
+            patch("agentspec.session._create_agent"),
         ):
             await session.refine({"q1": "a1"})
 
@@ -1140,8 +1138,7 @@ class TestQAExchangeRecording:
         )
         with (
             patch("agentspec.session.SpecAgent", return_value=mock_agent_1),
-            patch("agentspec.session.create_async_anthropic_client", return_value=MagicMock()),
-            patch("agentspec.session.load_config", return_value=MagicMock(model="claude-sonnet-4-6")),
+            patch("agentspec.session._create_agent"),
         ):
             await session.refine({"q1": "answer1"})
 
@@ -1156,8 +1153,7 @@ class TestQAExchangeRecording:
         )
         with (
             patch("agentspec.session.SpecAgent", return_value=mock_agent_2),
-            patch("agentspec.session.create_async_anthropic_client", return_value=MagicMock()),
-            patch("agentspec.session.load_config", return_value=MagicMock(model="claude-sonnet-4-6")),
+            patch("agentspec.session._create_agent"),
         ):
             await session.refine({"q2": "answer2"})
 
@@ -1177,8 +1173,7 @@ class TestQAExchangeRecording:
 
         with (
             patch("agentspec.session.SpecAgent", return_value=mock_agent),
-            patch("agentspec.session.create_async_anthropic_client", return_value=MagicMock()),
-            patch("agentspec.session.load_config", return_value=MagicMock(model="claude-sonnet-4-6")),
+            patch("agentspec.session._create_agent"),
         ):
             await session.refine({"q1": "a1"})
 
@@ -1202,8 +1197,7 @@ class TestQAExchangeRecording:
 
         with (
             patch("agentspec.session.SpecAgent", return_value=mock_agent),
-            patch("agentspec.session.create_async_anthropic_client", return_value=MagicMock()),
-            patch("agentspec.session.load_config", return_value=MagicMock(model="claude-sonnet-4-6")),
+            patch("agentspec.session._create_agent"),
             patch(
                 "agentspec.session._utcnow",
                 return_value="2026-01-01T00:00:00+00:00",
@@ -1296,8 +1290,7 @@ class TestQAExchangeEdgeCases:
 
         with (
             patch("agentspec.session.SpecAgent", return_value=mock_agent_instance),
-            patch("agentspec.session.create_async_anthropic_client", return_value=MagicMock()),
-            patch("agentspec.session.load_config", return_value=MagicMock(model="claude-sonnet-4-6")),
+            patch("agentspec.session._create_agent"),
         ):
             with pytest.raises(AgentError):
                 await session.refine({"q1": "a1"})
@@ -1356,8 +1349,7 @@ class TestQAExchangeProperties:
             )
             with (
                 patch("agentspec.session.SpecAgent", return_value=mock_agent),
-                patch("agentspec.session.create_async_anthropic_client", return_value=MagicMock()),
-                patch("agentspec.session.load_config", return_value=MagicMock(model="claude-sonnet-4-6")),
+                patch("agentspec.session._create_agent"),
             ):
                 _run_sync(session.refine({f"q{i}": f"answer{i}"}))
 
@@ -1394,8 +1386,7 @@ class TestQAExchangeProperties:
             )
             with (
                 patch("agentspec.session.SpecAgent", return_value=mock_agent),
-                patch("agentspec.session.create_async_anthropic_client", return_value=MagicMock()),
-                patch("agentspec.session.load_config", return_value=MagicMock(model="claude-sonnet-4-6")),
+                patch("agentspec.session._create_agent"),
             ):
                 _run_sync(session.refine({f"q{i}": f"a{i}"}))
 
@@ -1434,8 +1425,7 @@ class TestQAExchangeProperties:
             )
             with (
                 patch("agentspec.session.SpecAgent", return_value=mock_agent),
-                patch("agentspec.session.create_async_anthropic_client", return_value=MagicMock()),
-                patch("agentspec.session.load_config", return_value=MagicMock(model="claude-sonnet-4-6")),
+                patch("agentspec.session._create_agent"),
             ):
                 _run_sync(session.refine({f"q{i}": f"a{i}"}))
 
@@ -1477,8 +1467,7 @@ class TestQAExchangeProperties:
             )
             with (
                 patch("agentspec.session.SpecAgent", return_value=mock_agent),
-                patch("agentspec.session.create_async_anthropic_client", return_value=MagicMock()),
-                patch("agentspec.session.load_config", return_value=MagicMock(model="claude-sonnet-4-6")),
+                patch("agentspec.session._create_agent"),
             ):
                 _run_sync(session.refine({f"q{i}": f"a{i}"}))
 
@@ -1489,8 +1478,7 @@ class TestQAExchangeProperties:
         mock_agent_fail.refine_prd = AsyncMock(side_effect=AgentError("API failed"))
         with (
             patch("agentspec.session.SpecAgent", return_value=mock_agent_fail),
-            patch("agentspec.session.create_async_anthropic_client", return_value=MagicMock()),
-            patch("agentspec.session.load_config", return_value=MagicMock(model="claude-sonnet-4-6")),
+            patch("agentspec.session._create_agent"),
         ):
             with pytest.raises(AgentError):
                 _run_sync(session.refine({f"q{n}": "a"}))
@@ -1566,8 +1554,7 @@ class TestQAExchangeSmoke:
 
         with (
             patch("agentspec.session.SpecAgent", return_value=mock_agent_instance),
-            patch("agentspec.session.create_async_anthropic_client", return_value=MagicMock()),
-            patch("agentspec.session.load_config", return_value=MagicMock(model="claude-sonnet-4-6")),
+            patch("agentspec.session._create_agent"),
             patch(
                 "agentspec.session._utcnow",
                 return_value="2026-06-10T12:00:00+00:00",

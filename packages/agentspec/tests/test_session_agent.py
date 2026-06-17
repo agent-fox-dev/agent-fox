@@ -128,8 +128,7 @@ async def test_session_assess_delegates_to_agent(tmp_path: Path) -> None:
 
     with (
         patch("agentspec.session.SpecAgent", return_value=mock_agent_instance),
-        patch("agentspec.session.create_async_anthropic_client", return_value=MagicMock()),
-        patch("agentspec.session.load_config", return_value=MagicMock(model="claude-sonnet-4-6")),
+        patch("agentspec.session._create_agent"),
     ):
         await session.assess()
 
@@ -169,8 +168,7 @@ async def test_session_refine_delegates_to_agent(tmp_path: Path) -> None:
 
     with (
         patch("agentspec.session.SpecAgent", return_value=mock_agent_instance),
-        patch("agentspec.session.create_async_anthropic_client", return_value=MagicMock()),
-        patch("agentspec.session.load_config", return_value=MagicMock(model="claude-sonnet-4-6")),
+        patch("agentspec.session._create_agent"),
     ):
         await session.refine({"q1": "My answer"})
 
@@ -212,8 +210,7 @@ async def test_session_generate_delegates_and_writes_files(
 
     with (
         patch("agentspec.session.SpecAgent", return_value=mock_agent_instance),
-        patch("agentspec.session.create_async_anthropic_client", return_value=MagicMock()),
-        patch("agentspec.session.load_config", return_value=MagicMock(model="claude-sonnet-4-6")),
+        patch("agentspec.session._create_agent"),
     ):
         await session.generate()
 
@@ -242,8 +239,7 @@ async def test_agent_error_prevents_state_transition(tmp_path: Path) -> None:
 
     with (
         patch("agentspec.session.SpecAgent", return_value=mock_agent_instance),
-        patch("agentspec.session.create_async_anthropic_client", return_value=MagicMock()),
-        patch("agentspec.session.load_config", return_value=MagicMock(model="claude-sonnet-4-6")),
+        patch("agentspec.session._create_agent"),
     ):
         with pytest.raises(AgentError):
             await session.assess()
@@ -294,8 +290,7 @@ async def test_assessment_history_accumulates(tmp_path: Path) -> None:
 
     with (
         patch("agentspec.session.SpecAgent", return_value=mock_agent_instance),
-        patch("agentspec.session.create_async_anthropic_client", return_value=MagicMock()),
-        patch("agentspec.session.load_config", return_value=MagicMock(model="claude-sonnet-4-6")),
+        patch("agentspec.session._create_agent"),
     ):
         # First assessment
         await session.assess()
@@ -328,8 +323,7 @@ async def test_partial_generation_preserves_artifacts(tmp_path: Path) -> None:
     )
 
     with (
-        patch("agentspec.session.create_async_anthropic_client", return_value=mock_client),
-        patch("agentspec.session.load_config", return_value=MagicMock(model="claude-sonnet-4-6")),
+        patch("agentspec.session._create_agent"),
     ):
         with pytest.raises(AgentError):
             await session.generate()
@@ -369,8 +363,7 @@ async def test_resume_after_partial_generation(tmp_path: Path) -> None:
     )
 
     with (
-        patch("agentspec.session.create_async_anthropic_client", return_value=mock_client),
-        patch("agentspec.session.load_config", return_value=MagicMock(model="claude-sonnet-4-6")),
+        patch("agentspec.session._create_agent"),
     ):
         await session.generate()
 
@@ -421,8 +414,7 @@ class TestPropertyPartialArtifacts:
         mock_client.messages.create = AsyncMock(side_effect=side_effects)
 
         with (
-            patch("agentspec.session.create_async_anthropic_client", return_value=mock_client),
-            patch("agentspec.session.load_config", return_value=MagicMock(model="claude-sonnet-4-6")),
+            patch("agentspec.session._create_agent"),
         ):
             with pytest.raises(AgentError):
                 asyncio.run(session.generate())
@@ -465,8 +457,7 @@ async def test_smoke_full_assessment_flow(tmp_path: Path) -> None:
 
     with (
         patch("agentspec.session.SpecAgent", return_value=mock_agent_instance),
-        patch("agentspec.session.create_async_anthropic_client", return_value=MagicMock()),
-        patch("agentspec.session.load_config", return_value=MagicMock(model="claude-sonnet-4-6")),
+        patch("agentspec.session._create_agent"),
     ):
         await session.assess()
 
@@ -510,8 +501,7 @@ async def test_smoke_full_refinement_flow(tmp_path: Path) -> None:
 
     with (
         patch("agentspec.session.SpecAgent", return_value=mock_agent_instance),
-        patch("agentspec.session.create_async_anthropic_client", return_value=MagicMock()),
-        patch("agentspec.session.load_config", return_value=MagicMock(model="claude-sonnet-4-6")),
+        patch("agentspec.session._create_agent"),
     ):
         await session.refine({"q1": "REST API for users"})
 
@@ -548,8 +538,7 @@ async def test_smoke_full_generation_flow(tmp_path: Path) -> None:
 
     with (
         patch("agentspec.session.SpecAgent", return_value=mock_agent_instance),
-        patch("agentspec.session.create_async_anthropic_client", return_value=MagicMock()),
-        patch("agentspec.session.load_config", return_value=MagicMock(model="claude-sonnet-4-6")),
+        patch("agentspec.session._create_agent"),
     ):
         await session.generate()
 
@@ -586,8 +575,7 @@ async def test_smoke_retry_and_recovery(tmp_path: Path) -> None:
     )
 
     with (
-        patch("agentspec.session.create_async_anthropic_client", return_value=mock_client),
-        patch("agentspec.session.load_config", return_value=MagicMock(model="claude-sonnet-4-6")),
+        patch("agentspec.session._create_agent"),
         patch("asyncio.sleep", new_callable=AsyncMock),
     ):
         await session.assess()
