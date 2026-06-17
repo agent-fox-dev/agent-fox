@@ -282,27 +282,20 @@ class TestSessionValidateRender:
         """
         session = _create_session_with_all_artifacts(tmp_path)
 
-        # Mock afspec at the boundary
         mock_spec = MagicMock()
-        mock_validation = ValidationResult(
-            valid=True,
-            schema_errors=[],
-            integrity_errors=[],
-            repair_suggestions=[],
-        )
 
         with (
             patch("agentspec.session.afspec") as mock_afspec,
         ):
             mock_afspec.load_spec.return_value = mock_spec
-            mock_afspec.validate.return_value = mock_validation
+            mock_afspec.validate.return_value = []
 
             result = session.validate()
 
         assert isinstance(result, ValidationResult)
-        assert isinstance(result.valid, bool)
-        assert isinstance(result.schema_errors, list)
-        assert isinstance(result.integrity_errors, list)
+        assert result.valid is True
+        assert result.schema_errors == []
+        assert result.integrity_errors == []
 
     def test_ts02_18_render_combined(self, tmp_path: Path) -> None:
         """TS-02-18: render(combined=True) returns a single markdown string.
@@ -664,18 +657,11 @@ class TestSessionSmokeTests:
         """
         session = _create_session_with_all_artifacts(tmp_path)
 
-        # Mock afspec at the boundary — real session logic, mocked afspec
         mock_spec = MagicMock()
-        mock_validation = ValidationResult(
-            valid=True,
-            schema_errors=[],
-            integrity_errors=[],
-            repair_suggestions=[],
-        )
 
         with patch("agentspec.session.afspec") as mock_afspec:
             mock_afspec.load_spec.return_value = mock_spec
-            mock_afspec.validate.return_value = mock_validation
+            mock_afspec.validate.return_value = []
             mock_afspec.render_combined.return_value = "# Combined Output"
             mock_afspec.render_individual.return_value = {
                 "prd": "# PRD",
