@@ -213,11 +213,23 @@ def generation_user_prompt(
             "and add a glossary entry for each one. This includes API "
             "endpoints (e.g. `POST /events`), HTTP status codes "
             "(e.g. `HTTP 200 OK`), configuration values, file paths, "
-            "and domain terms. Missing glossary entries fail validation.\n"
+            "and domain terms. Missing glossary entries fail validation.\n\n"
+            "Only use backticks around meaningful domain terms that "
+            "warrant a glossary definition. Do NOT backtick-wrap generic "
+            "punctuation, bare symbols like `{}`, or trivial code "
+            "fragments — use plain prose instead.\n"
         )
     elif artifact_name == "test_spec":
         parts.append(
             "## Additional Instructions\n\n"
+            "### Complete coverage\n"
+            "Every acceptance criterion (e.g. REQ-001-AC-01) and every "
+            "edge case (e.g. REQ-001-EC-01) from the requirements artifact "
+            "MUST have at least one corresponding test case whose "
+            "`requirement_id` matches that criterion ID. Missing coverage "
+            "fails validation. Cross-check your test cases against the "
+            "full list of acceptance criteria and edge cases before "
+            "submitting.\n\n"
             "Reference requirement IDs from the previously generated "
             "requirements artifact in your test case entries.\n"
         )
@@ -227,6 +239,13 @@ def generation_user_prompt(
             "### Titles\n"
             "Every task group and subtask MUST have a non-empty `title` — "
             "a short human-readable label. Empty titles fail validation.\n\n"
+            "### Task group ordering\n"
+            'The first task group (id=1) MUST have `kind: "tests"` — it '
+            "sets up the test harness and writes spec tests before any "
+            "implementation begins. The last task group MUST have "
+            '`kind: "wiring_verification"` — it verifies end-to-end '
+            'integration. Groups in between use `kind: "standard"`. '
+            "Violating this ordering fails validation.\n\n"
             "### Dependencies\n"
             "The `dependencies` array describes ordering between task "
             "groups within THIS spec. Set `depends_on_spec` to the "

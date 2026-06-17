@@ -311,11 +311,13 @@ def validate_cross_file(spec: Spec) -> list[ValidationError]:
 
     # Collect all IDs for reference checking
     all_criterion_ids = _collect_all_criterion_ids(spec)
+    all_requirement_ids = _collect_all_requirement_ids(spec)
     all_test_spec_ids = _collect_all_test_spec_ids(spec)
 
     # -----------------------------------------------------------------------
-    # Rule 1: requirement_id references in test cases, traceability, and
-    # error_handling must exist as criterion or edge case IDs
+    # Rule 1: requirement_id references must resolve.
+    # - test_cases and traceability reference criterion/edge-case IDs
+    # - error_handling references requirement-level IDs
     # -----------------------------------------------------------------------
     for tc in spec.test_spec.test_cases:
         if tc.requirement_id not in all_criterion_ids:
@@ -345,8 +347,9 @@ def validate_cross_file(spec: Spec) -> list[ValidationError]:
                 )
             )
 
+    all_req_and_criterion_ids = all_requirement_ids | all_criterion_ids
     for eh in spec.requirements.error_handling:
-        if eh.requirement_id not in all_criterion_ids:
+        if eh.requirement_id not in all_req_and_criterion_ids:
             errors.append(
                 ValidationError(
                     file="requirements.json",
