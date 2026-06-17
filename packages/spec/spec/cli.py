@@ -106,6 +106,12 @@ def _assessment_to_json(assessment: Any) -> dict[str, Any]:
     }
 
 
+def _error_exit(exc: Exception, code: int = 1) -> None:
+    """Print error to stderr and exit."""
+    click.echo(f"Error: {exc}", err=True)
+    sys.exit(code)
+
+
 # ---------------------------------------------------------------------------
 # CLI entry point
 # ---------------------------------------------------------------------------
@@ -184,8 +190,9 @@ def new_cmd(ctx: click.Context, prd_file: str, name: str | None) -> None:
     except click.ClickException:
         raise
     except (AgentSpecError, SessionError) as exc:
-        click.echo(f"Error: {exc}", err=True)
-        sys.exit(1)
+        _error_exit(exc)
+    except Exception as exc:
+        _error_exit(exc, code=2)
 
 
 # ---------------------------------------------------------------------------
@@ -211,8 +218,9 @@ def assess_cmd(ctx: click.Context, spec: str) -> None:
     except click.ClickException:
         raise
     except (AgentSpecError, SessionError) as exc:
-        click.echo(f"Error: {exc}", err=True)
-        sys.exit(1)
+        _error_exit(exc)
+    except Exception as exc:
+        _error_exit(exc, code=2)
 
 
 # ---------------------------------------------------------------------------
@@ -271,8 +279,9 @@ def refine_cmd(ctx: click.Context, spec: str, answers: str | None) -> None:
     except click.ClickException:
         raise
     except (AgentSpecError, SessionError) as exc:
-        click.echo(f"Error: {exc}", err=True)
-        sys.exit(1)
+        _error_exit(exc)
+    except Exception as exc:
+        _error_exit(exc, code=2)
 
 
 # ---------------------------------------------------------------------------
@@ -304,8 +313,9 @@ def generate_cmd(ctx: click.Context, spec: str) -> None:
     except click.ClickException:
         raise
     except (AgentSpecError, SessionError) as exc:
-        click.echo(f"Error: {exc}", err=True)
-        sys.exit(1)
+        _error_exit(exc)
+    except Exception as exc:
+        _error_exit(exc, code=2)
 
 
 # ---------------------------------------------------------------------------
@@ -335,8 +345,9 @@ def render_cmd(ctx: click.Context, spec: str, combined: bool) -> None:
     except click.ClickException:
         raise
     except (AgentSpecError, SessionError) as exc:
-        click.echo(f"Error: {exc}", err=True)
-        sys.exit(1)
+        _error_exit(exc)
+    except Exception as exc:
+        _error_exit(exc, code=2)
 
 
 # ---------------------------------------------------------------------------
@@ -370,8 +381,9 @@ def validate_cmd(ctx: click.Context, spec: str) -> None:
     except click.ClickException:
         raise
     except (AgentSpecError, SessionError) as exc:
-        click.echo(f"Error: {exc}", err=True)
-        sys.exit(1)
+        _error_exit(exc)
+    except Exception as exc:
+        _error_exit(exc, code=2)
 
 
 cli = main

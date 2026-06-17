@@ -23,6 +23,7 @@ from typing import Any
 import afspec  # type: ignore[import-untyped]
 from afspec import (  # type: ignore[import-untyped]
     Requirements,
+    Spec,
     Tasks,
     TestSpec,
     marshal_json,
@@ -390,7 +391,9 @@ class SpecSession:
         """Validate the spec using afspec.
 
         Checks that all four required artifacts exist, then delegates to
-        ``afspec.load_spec()`` and ``afspec.validate()``.
+        ``afspec.load_spec()`` and ``afspec.validate()``.  Falls back to
+        loading each JSON artifact individually when ``load_spec`` fails
+        (e.g. PRD lacks YAML frontmatter).
 
         Returns:
             A ``ValidationResult`` instance.
@@ -400,9 +403,18 @@ class SpecSession:
         """
         self._check_artifacts()
 
-        spec = afspec.load_spec(self._spec_dir)
-        result: ValidationResult = afspec.validate(spec)
-        return result
+        try:
+            spec = afspec.load_spec(self._spec_dir)
+        except Exception:
+            spec = self._load_spec_from_artifacts()
+
+        errors = afspec.validate(spec)
+        if not errors:
+            return ValidationResult(valid=True)
+        return ValidationResult(
+            valid=False,
+            schema_errors=[str(e) for e in errors],
+        )
 
     def render(self, combined: bool = False) -> str | dict[str, str]:
         """Render the spec using afspec.
@@ -476,6 +488,17 @@ class SpecSession:
             "test_spec": ts_md,
             "tasks": tasks_md,
         }
+
+    def _load_spec_from_artifacts(self) -> Spec:
+        """Build a Spec from individual JSON artifacts.
+
+        Used as a fallback when ``load_spec()`` fails (e.g. PRD lacks
+        frontmatter).
+        """
+        req = Requirements.model_validate_json((self._spec_dir / "requirements.json").read_text())
+        ts = TestSpec.model_validate_json((self._spec_dir / "test_spec.json").read_text())
+        t = Tasks.model_validate_json((self._spec_dir / "tasks.json").read_text())
+        return Spec(requirements=req, test_spec=ts, tasks=t)
 
     @property
     def state(self) -> SessionState:
