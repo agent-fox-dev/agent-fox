@@ -259,8 +259,6 @@ When `--json` is active:
 - `agent-fox standup --output PATH` writes the standup report to the specified file.
 - `agent-fox export --memory` writes knowledge facts to stdout (or JSON mode).
 - `agent-fox export --db` writes `.agent-fox/knowledge_dump.md` (or `.agent-fox/knowledge_dump.json`).
-- `/af-spec-audit` produces a compliance audit report at `docs/audits/audit-report-{YYYY-MM-DD}.md`.
-
 ---
 
 ## 8. Error Handling and User Feedback

@@ -90,7 +90,7 @@ Full documentation lives in [`docs/`](docs/README.md):
 - [CLI Reference](docs/cli-reference.md) — all commands, flags, and exit codes
 - [Configuration Reference](docs/config-reference.md) — every `config.toml` option (all sections and fields)
 - [Agent Archetypes](docs/architecture/03-execution-and-archetypes.md#agent-archetypes) — archetype registry, modes, convergence
-- [Skills](docs/skills.md) — bundled Claude Code slash commands (`/af-spec`, `/af-fix`, …)
+- [Skills](docs/skills.md) — bundled Claude Code slash commands (`/af-spec`)
 
 For a deeper understanding of the system's internals — how specs become task
 graphs, how agents are dispatched in parallel, how the knowledge store works,

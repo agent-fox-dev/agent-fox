@@ -106,18 +106,6 @@ class TestProfileClean:
         assert "memory.md" not in content
 
 
-class TestSkillClean:
-    """TS-129-8: Verify af-fix skill has no memory.md references.
-
-    Requirements: 129-REQ-4.1, 129-REQ-4.2
-    """
-
-    def test_skill_template_clean(self) -> None:
-        """af-fix skill template must not reference memory.md."""
-        template = (_PKG_ROOT / "agentfox" / "_templates" / "skills" / "af-fix").read_text()
-        assert "memory.md" not in template
-
-
 class TestInitTestsRemoved:
     """TS-129-9: Verify test_init.py has no memory.md test methods.
 
