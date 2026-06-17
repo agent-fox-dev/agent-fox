@@ -1,0 +1,77 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/requirements.v1.json",
+  "spec_id": "01",
+  "spec_name": "test_feature",
+  "schema_version": 1,
+  "introduction": "The test feature validates the spec library.",
+  "glossary": {
+    "spec": "A four-artifact package representing one feature.",
+    "system": "The afspec library."
+  },
+  "requirements": [
+    {
+      "id": "01-REQ-1",
+      "title": "Data Model",
+      "user_story": {
+        "role": "developer",
+        "goal": "have typed models for spec artifacts",
+        "benefit": "type safety when working with specs"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-1.1",
+          "ears_pattern": "event_driven",
+          "trigger": "a `spec` is loaded from disk",
+          "system": "the `system`",
+          "action": "return a populated Spec instance",
+          "return_contract": "a Spec instance"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "01-REQ-1.E1",
+          "ears_pattern": "unwanted",
+          "error_condition": "the `spec` directory is missing a required file",
+          "system": "the `system`",
+          "action": "raise a LoadError identifying the missing file",
+          "return_contract": null
+        }
+      ]
+    }
+  ],
+  "correctness_properties": [
+    {
+      "id": "01-PROP-1",
+      "title": "Round-trip idempotency",
+      "for_any": "valid Spec value",
+      "invariant": "loading then saving then loading produces identical state",
+      "validates": [
+        "01-REQ-1.1"
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "01-PATH-1",
+      "title": "Load spec from disk",
+      "steps": [
+        {
+          "actor": "consumer",
+          "action": "call load_spec(dir)"
+        },
+        {
+          "actor": "system",
+          "action": "read and parse all four artifact files"
+        }
+      ]
+    }
+  ],
+  "error_handling": [
+    {
+      "id": "01-ERR-1",
+      "condition": "Artifact file missing",
+      "behavior": "Raise LoadError listing missing files",
+      "requirement_id": "01-REQ-1.E1"
+    }
+  ]
+}

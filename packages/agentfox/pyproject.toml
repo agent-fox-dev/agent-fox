@@ -43,7 +43,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.uv.sources]
-afspec = { path = "../../../af-core/packages/afspec" }
+afspec = { workspace = true }
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

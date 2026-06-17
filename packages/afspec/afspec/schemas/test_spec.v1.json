@@ -1,0 +1,152 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-fox.dev/schemas/test_spec.v1.json",
+  "title": "Test Specification",
+  "description": "Schema for test_spec.json spec artifact",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": ["string", "null"]
+    },
+    "spec_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "spec_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "test_cases": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/test_case"
+      }
+    },
+    "property_tests": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/property_test"
+      }
+    },
+    "edge_case_tests": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/edge_case_test"
+      }
+    },
+    "smoke_tests": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/smoke_test"
+      }
+    },
+    "coverage": {
+      "$ref": "#/$defs/coverage"
+    }
+  },
+  "required": ["spec_id", "spec_name", "schema_version"],
+  "additionalProperties": false,
+  "$defs": {
+    "test_case": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "requirement_id": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "preconditions": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "input": {},
+        "expected": {},
+        "assertion_pseudocode": { "type": "string" }
+      },
+      "required": ["id", "requirement_id", "kind", "description"],
+      "additionalProperties": false
+    },
+    "property_test": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "property_id": { "type": "string", "minLength": 1 },
+        "validates": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "description": { "type": "string" },
+        "for_any_strategy": { "type": "string" },
+        "invariant_check": { "type": "string" }
+      },
+      "required": ["id", "property_id", "description"],
+      "additionalProperties": false
+    },
+    "edge_case_test": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "requirement_id": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "preconditions": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "input": {},
+        "expected": {},
+        "assertion_pseudocode": { "type": "string" }
+      },
+      "required": ["id", "requirement_id", "kind", "description"],
+      "additionalProperties": false
+    },
+    "smoke_test": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "execution_path_id": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "trigger": { "type": "string" },
+        "real_components": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "mockable": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "expected_effects": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "required": ["id", "execution_path_id", "description"],
+      "additionalProperties": false
+    },
+    "coverage": {
+      "type": "object",
+      "properties": {
+        "requirements_covered": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "properties_covered": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "paths_covered": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "gaps": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
