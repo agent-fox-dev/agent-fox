@@ -22,6 +22,8 @@ from typing import Any
 
 import afspec  # type: ignore[import-untyped]
 from afspec import (  # type: ignore[import-untyped]
+    PRDDocument,
+    PRDFrontmatter,
     Requirements,
     Spec,
     Tasks,
@@ -493,12 +495,23 @@ class SpecSession:
         """Build a Spec from individual JSON artifacts.
 
         Used as a fallback when ``load_spec()`` fails (e.g. PRD lacks
-        frontmatter).
+        frontmatter).  Infers spec_id/spec_name from the JSON artifacts
+        so cross-file validation doesn't report false mismatches.
         """
         req = Requirements.model_validate_json((self._spec_dir / "requirements.json").read_text())
         ts = TestSpec.model_validate_json((self._spec_dir / "test_spec.json").read_text())
         t = Tasks.model_validate_json((self._spec_dir / "tasks.json").read_text())
-        return Spec(requirements=req, test_spec=ts, tasks=t)
+
+        spec_id = req.spec_id or ts.spec_id or t.spec_id
+        spec_name = req.spec_name or ts.spec_name or t.spec_name
+
+        prd_body = (self._spec_dir / "prd.md").read_text() if (self._spec_dir / "prd.md").exists() else ""
+        prd = PRDDocument(
+            frontmatter=PRDFrontmatter(spec_id=spec_id, spec_name=spec_name),
+            body=prd_body,
+        )
+
+        return Spec(prd=prd, requirements=req, test_spec=ts, tasks=t)
 
     @property
     def state(self) -> SessionState:

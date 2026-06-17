@@ -157,7 +157,12 @@ def generation_system_prompt() -> str:
         "according to that schema.\n\n"
         "Do NOT include spec_id, spec_name, or schema_version in your "
         "output — these are injected automatically.\n\n"
-        "Important guidelines:\n"
+        "## Mandatory field rules\n\n"
+        "Every object that has a `title` field MUST have a non-empty, "
+        "human-readable title — requirements, correctness properties, "
+        "execution paths, task groups, and subtasks all need titles. "
+        "An empty title is a validation error.\n\n"
+        "## Guidelines\n\n"
         "- Follow the tool schema exactly; do not add extra fields.\n"
         "- Ensure all cross-references (requirement IDs, test IDs) are "
         "consistent.\n"
@@ -191,15 +196,24 @@ def generation_user_prompt(
         for name, content in prior_artifacts.items():
             parts.append(f"### {name}\n\n```json\n{json.dumps(content, indent=2)}\n```\n")
 
-    # Artifact-specific instructions
     if artifact_name == "requirements":
         parts.append(
             "## Additional Instructions\n\n"
-            "Populate the `glossary` field with definitions for all "
-            "domain-specific terms used in backtick-delimited references "
-            "within acceptance criteria, edge cases, and correctness "
-            "properties. Every backtick-wrapped term that carries domain "
-            "meaning must have a glossary entry.\n"
+            "### Titles\n"
+            "Every requirement, correctness property, and execution path "
+            "MUST have a non-empty `title` — a short human-readable label "
+            '(e.g. "Event ingestion endpoint", "Bearer token '
+            'authentication"). Empty titles fail validation.\n\n'
+            "### Glossary completeness\n"
+            "The `glossary` field must contain a definition for **every** "
+            "backtick-delimited term used anywhere in acceptance criteria, "
+            "edge cases, and correctness properties. Scan all `action`, "
+            "`trigger`, `condition`, `state`, `error_condition`, "
+            "`for_any`, and `invariant` fields for backtick-wrapped terms "
+            "and add a glossary entry for each one. This includes API "
+            "endpoints (e.g. `POST /events`), HTTP status codes "
+            "(e.g. `HTTP 200 OK`), configuration values, file paths, "
+            "and domain terms. Missing glossary entries fail validation.\n"
         )
     elif artifact_name == "test_spec":
         parts.append(
@@ -210,6 +224,15 @@ def generation_user_prompt(
     elif artifact_name == "tasks":
         parts.append(
             "## Additional Instructions\n\n"
+            "### Titles\n"
+            "Every task group and subtask MUST have a non-empty `title` — "
+            "a short human-readable label. Empty titles fail validation.\n\n"
+            "### Dependencies\n"
+            "The `dependencies` array describes ordering between task "
+            "groups within THIS spec. Set `depends_on_spec` to the "
+            "current spec's name when declaring intra-spec dependencies "
+            "(leave it empty only for cross-spec dependencies, which are "
+            "rare).\n\n"
             "Reference both requirement IDs and test IDs from the "
             "previously generated requirements and test_spec artifacts "
             "in your task entries.\n"

@@ -128,15 +128,20 @@ def _inline_refs(schema: dict[str, Any]) -> dict[str, Any]:
 
 
 def _clean_schema(schema: dict[str, Any]) -> dict[str, Any]:
-    """Remove Pydantic metadata fields that add noise for the LLM."""
+    """Remove Pydantic metadata fields that add noise for the LLM.
+
+    Only strips ``title`` and ``description`` when the value is a string
+    (Pydantic schema labels), not when it's a dict (an actual data
+    property definition).
+    """
     schema = _inline_refs(schema)
 
     def _strip(node: Any) -> Any:
         if isinstance(node, dict):
-            node.pop("title", None)
+            if isinstance(node.get("title"), str) and "type" in node:
+                node.pop("title", None)
             node.pop("description", None)
             node.pop("default", None)
-            # Remove the $schema alias field — optional, not useful for generation
             props = node.get("properties", {})
             props.pop("$schema", None)
             for v in node.values():
