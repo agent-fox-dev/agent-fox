@@ -8,7 +8,7 @@ By session 10 you're exhausted and the agent has forgotten everything from sessi
 
 ## With agent-fox
 
-You write the same spec, run `agent-fox code`, and go do something else.
+You write the same spec, run `af code`, and go do something else.
 
 The fox reads your specs, plans the work, spins up isolated worktrees, runs each
 session with the right context, handles merge conflicts, retries failures,
@@ -21,7 +21,7 @@ You come back to a finished feature branch and a standup report.
 
 ```bash
 # Initialize your project (use --skills to install Claude Code skills)
-agent-fox init --skills
+af init --skills
 ```
 
 Use the `/af-spec` skill in Claude Code to generate a specification
@@ -33,13 +33,13 @@ from a PRD, a GitHub issue or a plain-english description:
 
 ```bash
 # Create the task graph from your specs
-agent-fox plan
+af plan
 
 # Run autonomous coding sessions
-agent-fox code 
+af code 
 
 # Check results
-agent-fox standup
+af standup
 ```
 
 See the [CLI reference](docs/cli-reference.md) for all command options.
@@ -52,22 +52,21 @@ processes them through a three-stage pipeline (triage → coder → reviewer).
 
 ```bash
 # Start the fix daemon (Ctrl-C to stop gracefully)
-agent-fox night-shift
+af night-shift
 ```
 
 ## Installation
 
 ```bash
-uv tool install agent-fox
-```
-
-Or install directly from the repository:
-
-```bash
-uv tool install git+https://github.com/agent-fox-dev/agent-fox.git
+uv tool install af --from git+https://github.com/agent-fox-dev/agent-fox.git#subdirectory=packages/af
 ```
 
 ## Development
+
+The repository is a uv workspace with two packages:
+
+- `packages/af/` — CLI (`af` command)
+- `packages/agentfox/` — core library
 
 ```bash
 uv sync --group dev
@@ -76,12 +75,12 @@ make lint              # check lint + formatting
 make check             # lint + all tests
 ```
 
-`uv sync` installs the project in editable mode, so changes you make to the
-source are immediately reflected when you run `agent-fox`. To run the local
-version explicitly (rather than a globally installed release):
+`uv sync` installs both packages in editable mode, so changes you make to the
+source are immediately reflected when you run `af`. To run the local version
+explicitly (rather than a globally installed release):
 
 ```bash
-uv run agent-fox <command>
+uv run af <command>
 ```
 
 ## Documentation
