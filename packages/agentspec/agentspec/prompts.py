@@ -156,16 +156,32 @@ def generation_system_prompt() -> str:
         "defines the exact structure — fill in the content fields "
         "according to that schema.\n\n"
         "Do NOT include spec_id, spec_name, or schema_version in your "
-        "output — these are injected automatically.\n\n"
+        "output — these are injected automatically. The spec_id will be "
+        "provided as context; use it as the prefix in all IDs.\n\n"
+        "## ID format rules (mandatory)\n\n"
+        "All IDs follow strict formats. Use the spec_id as prefix.\n\n"
+        "| Entity | Format | Example (spec_id=05) |\n"
+        "| Requirement | {spec_id}-REQ-{N} | 05-REQ-3 |\n"
+        "| Acceptance criterion | {spec_id}-REQ-{N}.{C} | 05-REQ-3.2 |\n"
+        "| Edge case | {spec_id}-REQ-{N}.E{C} | 05-REQ-3.E1 |\n"
+        "| Correctness property | {spec_id}-PROP-{N} | 05-PROP-2 |\n"
+        "| Execution path | {spec_id}-PATH-{N} | 05-PATH-1 |\n"
+        "| Error handling entry | {spec_id}-ERR-{N} | 05-ERR-1 |\n"
+        "| Test case | TS-{spec_id}-{N} | TS-05-3 |\n"
+        "| Property test | TS-{spec_id}-P{N} | TS-05-P2 |\n"
+        "| Edge case test | TS-{spec_id}-E{N} | TS-05-E1 |\n"
+        "| Smoke test | TS-{spec_id}-SMOKE-{N} | TS-05-SMOKE-1 |\n"
+        "| Subtask | {group_id}.{N} | 3.2 |\n"
+        "| Verification subtask | {group_id}.V | 3.V |\n\n"
         "## Mandatory field rules\n\n"
-        "Every object that has a `title` field MUST have a non-empty, "
-        "human-readable title — requirements, correctness properties, "
-        "execution paths, task groups, and subtasks all need titles. "
-        "An empty title is a validation error.\n\n"
+        "- Every object with a `title` field MUST have a non-empty, "
+        "human-readable title. Empty titles fail validation.\n"
+        "- Every string field with `minLength: 1` in the schema MUST be "
+        "non-empty.\n\n"
         "## Guidelines\n\n"
         "- Follow the tool schema exactly; do not add extra fields.\n"
         "- Ensure all cross-references (requirement IDs, test IDs) are "
-        "consistent.\n"
+        "consistent across artifacts.\n"
         "- Write clear, specific, and testable requirements.\n"
         "- Each artifact must be self-contained and complete."
     )
@@ -175,11 +191,14 @@ def generation_user_prompt(
     prd_text: str,
     artifact_name: str,
     prior_artifacts: dict[str, Any] | None = None,
+    *,
+    spec_id: str = "",
 ) -> str:
     """Return the user message for generating one artifact.
 
     *prior_artifacts* is a dict of already-generated artifacts
     (e.g., ``{"requirements": {...}}``) to provide as context.
+    *spec_id* is the spec identifier used as prefix in all IDs.
 
     Raises ``ValueError`` if *prd_text* is empty.
     """
@@ -187,8 +206,14 @@ def generation_user_prompt(
 
     parts: list[str] = [
         f"Generate the **{artifact_name}** artifact from the following PRD.\n",
-        f"## PRD\n\n{prd_text}\n",
     ]
+    if spec_id:
+        parts.append(
+            f"The spec_id for this spec is `{spec_id}`. Use it as the "
+            f"prefix in all IDs (e.g. `{spec_id}-REQ-1`, "
+            f"`TS-{spec_id}-1`).\n"
+        )
+    parts.append(f"## PRD\n\n{prd_text}\n")
 
     # Include prior artifacts as context
     if prior_artifacts:
@@ -199,6 +224,9 @@ def generation_user_prompt(
     if artifact_name == "requirements":
         parts.append(
             "## Additional Instructions\n\n"
+            "### Introduction\n"
+            "The `introduction` field is required — write a brief "
+            "(1-2 sentence) description of the system being specified.\n\n"
             "### Titles\n"
             "Every requirement, correctness property, and execution path "
             "MUST have a non-empty `title` — a short human-readable label "
@@ -216,45 +244,85 @@ def generation_user_prompt(
             "and domain terms. Missing glossary entries fail validation.\n\n"
             "Only use backticks around meaningful domain terms that "
             "warrant a glossary definition. Do NOT backtick-wrap generic "
-            "punctuation, bare symbols like `{}`, or trivial code "
-            "fragments — use plain prose instead.\n"
+            "punctuation, bare symbols, or trivial fragments — use plain "
+            "prose instead.\n\n"
+            "### Error handling\n"
+            "The `error_handling` array maps error conditions to system "
+            "behavior. Each entry needs:\n"
+            "- `id`: format `{spec_id}-ERR-{N}`\n"
+            "- `condition`: the error condition\n"
+            "- `behavior`: what the system does in response\n"
+            "- `requirement_id`: the requirement or edge case ID that "
+            "specifies this behavior (e.g. `05-REQ-2.E1`)\n\n"
+            "### Execution paths\n"
+            "Each execution path traces a user-visible feature from entry "
+            "point to observable side effect using logical actors (not "
+            "module names). Every path must start at a user action and "
+            "end at a concrete side effect. Steps need `actor` and "
+            "`action` fields. At least two steps per path.\n\n"
+            "### Correctness properties\n"
+            "Each property's `validates` array must reference acceptance "
+            "criterion IDs that exist in `requirements`.\n"
         )
     elif artifact_name == "test_spec":
         parts.append(
             "## Additional Instructions\n\n"
-            "### Complete coverage\n"
-            "Every acceptance criterion (e.g. REQ-001-AC-01) and every "
-            "edge case (e.g. REQ-001-EC-01) from the requirements artifact "
-            "MUST have at least one corresponding test case whose "
-            "`requirement_id` matches that criterion ID. Missing coverage "
-            "fails validation. Cross-check your test cases against the "
-            "full list of acceptance criteria and edge cases before "
-            "submitting.\n\n"
-            "Reference requirement IDs from the previously generated "
-            "requirements artifact in your test case entries.\n"
+            "### Complete 1:1 coverage (mandatory)\n"
+            "Cross-file validation enforces strict coverage. You MUST "
+            "generate:\n"
+            "- One `test_case` per acceptance criterion (requirement_id "
+            "= the criterion ID, e.g. `05-REQ-1.1`)\n"
+            "- One `edge_case_test` per edge case (requirement_id = the "
+            "edge case ID, e.g. `05-REQ-1.E1`)\n"
+            "- One `property_test` per correctness property (property_id "
+            "= the property ID, e.g. `05-PROP-1`)\n"
+            "- One `smoke_test` per execution path (execution_path_id "
+            "= the path ID, e.g. `05-PATH-1`)\n\n"
+            "Cross-check against the requirements artifact before "
+            "submitting. Any missing coverage fails validation.\n\n"
+            "### Coverage object\n"
+            "The `coverage` object is computed by the validation library. "
+            "Submit it with empty arrays: "
+            '`{"requirements_covered": [], "properties_covered": [], '
+            '"paths_covered": [], "gaps": []}`\n'
         )
     elif artifact_name == "tasks":
         parts.append(
             "## Additional Instructions\n\n"
             "### Titles\n"
-            "Every task group and subtask MUST have a non-empty `title` — "
-            "a short human-readable label. Empty titles fail validation.\n\n"
-            "### Task group ordering\n"
-            'The first task group (id=1) MUST have `kind: "tests"` — it '
-            "sets up the test harness and writes spec tests before any "
-            "implementation begins. The last task group MUST have "
-            '`kind: "wiring_verification"` — it verifies end-to-end '
-            'integration. Groups in between use `kind: "standard"`. '
-            "Violating this ordering fails validation.\n\n"
+            "Every task group and subtask MUST have a non-empty `title`. "
+            "Empty titles fail validation.\n\n"
+            "### Task group structure\n"
+            "- The first task group (id=1) MUST have "
+            '`kind: "tests"` — writes spec tests before implementation.\n'
+            "- The last task group MUST have "
+            '`kind: "wiring_verification"` — verifies end-to-end '
+            "integration.\n"
+            '- Groups in between use `kind: "standard"` or '
+            '`kind: "checkpoint"` (for intermediate verification gates).\n'
+            "- Exactly one wiring_verification group, always last.\n\n"
+            "### Subtask IDs\n"
+            "- Subtask IDs use format `{group_id}.{N}` (e.g. `2.1`, "
+            "`2.2`). Sequential within each group.\n"
+            "- Every group has exactly one verification subtask with ID "
+            "`{group_id}.V` (e.g. `2.V`). The verification subtask has a "
+            "`checks` array listing what to verify (test commands, "
+            "requirement satisfaction, etc.).\n\n"
             "### Dependencies\n"
-            "The `dependencies` array describes ordering between task "
-            "groups within THIS spec. Set `depends_on_spec` to the "
-            "current spec's name when declaring intra-spec dependencies "
-            "(leave it empty only for cross-spec dependencies, which are "
-            "rare).\n\n"
+            "The `dependencies` array declares cross-spec dependencies "
+            "only. Set `depends_on_spec` to the spec_id of the other "
+            "spec. Intra-spec ordering is implicit from task group IDs — "
+            "do not add self-referencing dependencies. Leave "
+            "`dependencies` empty if the spec has no cross-spec "
+            "dependencies.\n\n"
+            "### Traceability\n"
+            "The `traceability` array links requirements to test specs "
+            "and tasks. One entry per (requirement_id, test_spec_id) "
+            "pair. Set `test_path` to null (filled in at implementation "
+            "time).\n\n"
             "Reference both requirement IDs and test IDs from the "
-            "previously generated requirements and test_spec artifacts "
-            "in your task entries.\n"
+            "previously generated artifacts in subtask `requirement_refs` "
+            "and `test_spec_refs` fields.\n"
         )
 
     parts.append(f"Use the submit_{artifact_name} tool to return the generated artifact.")

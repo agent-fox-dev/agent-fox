@@ -128,11 +128,16 @@ def _inline_refs(schema: dict[str, Any]) -> dict[str, Any]:
 
 
 def _clean_schema(schema: dict[str, Any]) -> dict[str, Any]:
-    """Remove Pydantic metadata fields that add noise for the LLM.
+    """Remove Pydantic metadata noise while preserving field docs.
 
-    Only strips ``title`` and ``description`` when the value is a string
-    (Pydantic schema labels), not when it's a dict (an actual data
-    property definition).
+    Strips:
+    - Pydantic-generated ``title`` labels (class names like "Requirement")
+    - ``default`` values (the LLM should fill everything explicitly)
+    - The ``$schema`` alias property
+
+    Preserves:
+    - ``description`` fields (critical for the LLM to understand field purpose)
+    - ``title`` when it's a data property definition (dict value, not string label)
     """
     schema = _inline_refs(schema)
 
@@ -140,7 +145,6 @@ def _clean_schema(schema: dict[str, Any]) -> dict[str, Any]:
         if isinstance(node, dict):
             if isinstance(node.get("title"), str) and "type" in node:
                 node.pop("title", None)
-            node.pop("description", None)
             node.pop("default", None)
             props = node.get("properties", {})
             props.pop("$schema", None)

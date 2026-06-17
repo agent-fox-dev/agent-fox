@@ -217,9 +217,8 @@ class SpecAgent:
             if artifact_name in results:
                 continue
 
-            # Build prompt with prior artifacts as context (03-REQ-3.6, 3.7)
             prior = self._prior_artifacts_context(results) if results else None
-            user_msg = generation_user_prompt(prd_text, artifact_name, prior_artifacts=prior)
+            user_msg = generation_user_prompt(prd_text, artifact_name, prior_artifacts=prior, spec_id=spec_id)
             messages: list[dict[str, str]] = [
                 {"role": "user", "content": user_msg},
             ]
