@@ -46,15 +46,9 @@ def session_record_strategy(draw: st.DrawFn) -> SessionRecord:
             )
         ),
         duration_ms=draw(st.integers(min_value=0, max_value=600_000)),
-        error_message=draw(
-            st.one_of(st.none(), st.text(min_size=1, max_size=50))
-        ),
+        error_message=draw(st.one_of(st.none(), st.text(min_size=1, max_size=50))),
         timestamp="2026-06-03T10:00:00+00:00",
-        model=draw(
-            st.sampled_from(
-                ["claude-sonnet-4-6", "claude-opus-4", "claude-haiku-3.5"]
-            )
-        ),
+        model=draw(st.sampled_from(["claude-sonnet-4-6", "claude-opus-4", "claude-haiku-3.5"])),
         archetype=draw(st.sampled_from(["coder", "skeptic", "verifier"])),
         is_transport_error=draw(st.booleans()),
         is_budget_exhausted=draw(st.booleans()),
@@ -91,20 +85,14 @@ def execution_state_strategy(draw: st.DrawFn) -> ExecutionState:
         if draw(st.booleans()):
             blocked_reasons[nid] = draw(st.text(min_size=1, max_size=50))
 
-    session_history = draw(
-        st.lists(session_record_strategy(), min_size=0, max_size=10)
-    )
+    session_history = draw(st.lists(session_record_strategy(), min_size=0, max_size=10))
 
     return ExecutionState(
         plan_hash=draw(st.text(min_size=1, max_size=10)),
         node_states=node_states,
         session_history=session_history,
-        total_input_tokens=draw(
-            st.integers(min_value=0, max_value=10_000_000)
-        ),
-        total_output_tokens=draw(
-            st.integers(min_value=0, max_value=10_000_000)
-        ),
+        total_input_tokens=draw(st.integers(min_value=0, max_value=10_000_000)),
+        total_output_tokens=draw(st.integers(min_value=0, max_value=10_000_000)),
         total_cost=draw(
             st.floats(
                 min_value=0.0,
@@ -116,11 +104,7 @@ def execution_state_strategy(draw: st.DrawFn) -> ExecutionState:
         total_sessions=draw(st.integers(min_value=0, max_value=100)),
         started_at="2026-06-03T10:00:00+00:00",
         updated_at="2026-06-03T10:15:00+00:00",
-        run_status=draw(
-            st.sampled_from(
-                ["stalled", "block_limit", "cost_limit", "session_limit"]
-            )
-        ),
+        run_status=draw(st.sampled_from(["stalled", "block_limit", "cost_limit", "session_limit"])),
         blocked_reasons=blocked_reasons,
         run_id=draw(
             st.text(
@@ -146,18 +130,14 @@ class TestTriggerCompleteness:
     """
 
     @given(
-        status=st.sampled_from(
-            ["stalled", "block_limit", "cost_limit", "session_limit"]
-        ),
+        status=st.sampled_from(["stalled", "block_limit", "cost_limit", "session_limit"]),
     )
     @settings(max_examples=50)
     def test_trigger_completeness(self, status: str) -> None:
         """should_dump returns True for every trigger status."""
         from agentfox.engine.run import should_dump
 
-        state = ExecutionState(
-            plan_hash="h", node_states={}, run_status=status
-        )
+        state = ExecutionState(plan_hash="h", node_states={}, run_status=status)
         assert should_dump(state) is True
 
 
@@ -179,9 +159,7 @@ class TestNoFalseTriggers:
         """should_dump returns False for every non-trigger status."""
         from agentfox.engine.run import should_dump
 
-        state = ExecutionState(
-            plan_hash="h", node_states={}, run_status=status
-        )
+        state = ExecutionState(plan_hash="h", node_states={}, run_status=status)
         assert should_dump(state) is False
 
 
@@ -234,9 +212,7 @@ class TestBlockedTaskFidelity:
         from agentfox.engine.run import build_postmortem
 
         result = build_postmortem(state)
-        blocked_count = sum(
-            1 for s in state.node_states.values() if s == "blocked"
-        )
+        blocked_count = sum(1 for s in state.node_states.values() if s == "blocked")
         assert len(result["blocked_tasks"]) == blocked_count
         for entry in result["blocked_tasks"]:
             assert len(entry["node_id"]) > 0
@@ -280,20 +256,10 @@ class TestCostSummaryAccuracy:
         from agentfox.engine.run import build_postmortem
 
         result = build_postmortem(state)
-        assert (
-            result["cost_summary"]["total_cost_usd"] == state.total_cost
-        )
-        assert (
-            result["cost_summary"]["total_input_tokens"]
-            == state.total_input_tokens
-        )
-        assert (
-            result["cost_summary"]["total_output_tokens"]
-            == state.total_output_tokens
-        )
-        assert (
-            result["cost_summary"]["total_sessions"] == state.total_sessions
-        )
+        assert result["cost_summary"]["total_cost_usd"] == state.total_cost
+        assert result["cost_summary"]["total_input_tokens"] == state.total_input_tokens
+        assert result["cost_summary"]["total_output_tokens"] == state.total_output_tokens
+        assert result["cost_summary"]["total_sessions"] == state.total_sessions
 
 
 # -- TS-126-P7: File round-trip -----------------------------------------------
@@ -338,13 +304,7 @@ class TestTaskSummaryAccuracy:
         result = build_postmortem(state)
         ts = result["task_summary"]
         assert ts["total"] == len(state.node_states)
-        count_sum = (
-            ts["completed"]
-            + ts["pending"]
-            + ts["blocked"]
-            + ts["failed"]
-            + ts["in_progress"]
-        )
+        count_sum = ts["completed"] + ts["pending"] + ts["blocked"] + ts["failed"] + ts["in_progress"]
         # Note: sum may be <= total if node_states contains statuses outside
         # the five named buckets (e.g. "deferred"). See test_spec.md TS-126-P8.
         assert count_sum <= ts["total"]

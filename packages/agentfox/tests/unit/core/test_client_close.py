@@ -92,5 +92,3 @@ class TestAiCallClosesClient:
                 )
 
         mock_client.close.assert_awaited_once()
-
-

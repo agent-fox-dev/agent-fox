@@ -228,9 +228,7 @@ def test_full_orchestration_cycle(tmp_path: Path) -> None:
     assert session_count == 2, f"Expected 2 session rows, got {session_count}"
 
     # All sessions must have run_id and model populated
-    _row = verify_conn.sql(
-        "SELECT count(*) FROM session_outcomes WHERE run_id IS NULL OR model IS NULL"
-    ).fetchone()
+    _row = verify_conn.sql("SELECT count(*) FROM session_outcomes WHERE run_id IS NULL OR model IS NULL").fetchone()
     assert _row is not None
     incomplete_sessions = _row[0]
     assert incomplete_sessions == 0

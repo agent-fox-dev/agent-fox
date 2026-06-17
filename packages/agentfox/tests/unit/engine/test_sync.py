@@ -380,9 +380,7 @@ class TestPromoteDeferred:
 
         assert len(promoted) == 2
         assert all(sync.node_states[p] == "pending" for p in promoted)
-        deferred_remaining = [
-            nid for nid, s in sync.node_states.items() if s == "deferred"
-        ]
+        deferred_remaining = [nid for nid, s in sync.node_states.items() if s == "deferred"]
         assert len(deferred_remaining) == 1
 
     def test_promote_skips_unmet_deps(self) -> None:
@@ -469,9 +467,7 @@ class TestTransitionValidation:
         assert promoted == ["A"]
         assert sync.node_states["A"] == "pending"
 
-    def test_invalid_transition_completed_to_pending_warns(
-        self, caplog: logging.LogRecordArgs
-    ) -> None:
+    def test_invalid_transition_completed_to_pending_warns(self, caplog: logging.LogRecordArgs) -> None:
         """Completed is terminal — transitioning away logs a warning."""
         node_states = {"A": "completed"}
         sync = GraphSync(node_states, {})
@@ -480,9 +476,7 @@ class TestTransitionValidation:
         assert sync.node_states["A"] == "pending"
         assert any("Invalid state transition" in r.message for r in caplog.records)
 
-    def test_invalid_transition_completed_to_in_progress_warns(
-        self, caplog: logging.LogRecordArgs
-    ) -> None:
+    def test_invalid_transition_completed_to_in_progress_warns(self, caplog: logging.LogRecordArgs) -> None:
         node_states = {"A": "completed"}
         sync = GraphSync(node_states, {})
         with caplog.at_level(logging.WARNING, logger="agentfox.engine.graph_sync"):  # type: ignore[union-attr]
@@ -490,9 +484,7 @@ class TestTransitionValidation:
         assert sync.node_states["A"] == "in_progress"
         assert any("Invalid state transition" in r.message for r in caplog.records)
 
-    def test_invalid_transition_pending_to_completed_warns(
-        self, caplog: logging.LogRecordArgs
-    ) -> None:
+    def test_invalid_transition_pending_to_completed_warns(self, caplog: logging.LogRecordArgs) -> None:
         """pending -> completed is not valid (must go via in_progress)."""
         node_states = {"A": "pending"}
         sync = GraphSync(node_states, {})
@@ -536,9 +528,7 @@ class TestTransitionLogging:
         node_ids = [e["node_id"] for e in sync._transition_log]
         assert node_ids == ["A", "B", "C"]
 
-    def test_structured_log_message_emitted(
-        self, caplog: logging.LogRecordArgs
-    ) -> None:
+    def test_structured_log_message_emitted(self, caplog: logging.LogRecordArgs) -> None:
         node_states = {"X": "pending"}
         sync = GraphSync(node_states, {})
         with caplog.at_level(logging.INFO, logger="agentfox.engine.graph_sync"):  # type: ignore[union-attr]

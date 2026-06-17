@@ -129,9 +129,5 @@ class TestPlanSpecsDirFlag:
         """AC-5: --specs-dir appears in plan --help output."""
         runner = CliRunner()
         result = runner.invoke(plan_cmd, ["--help"])
-        assert "--specs-dir" in result.output, (
-            "--specs-dir option not found in `plan --help` output"
-        )
-        assert "PATH" in result.output, (
-            "PATH type annotation not found in `plan --help` output for --specs-dir"
-        )
+        assert "--specs-dir" in result.output, "--specs-dir option not found in `plan --help` output"
+        assert "PATH" in result.output, "PATH type annotation not found in `plan --help` output for --specs-dir"

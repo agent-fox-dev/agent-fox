@@ -55,10 +55,7 @@ def _create_spec_dir(specs_dir: Path) -> None:
         "| 01-REQ-1.1 | TS-01-1 | unit |\n"
     )
     (spec / "tasks.md").write_text(
-        "# Implementation Plan\n\n## Tasks\n\n"
-        "- [ ] 1. Do something\n"
-        "  - [ ] 1.1 Task\n"
-        "  - [ ] 1.V Verify\n"
+        "# Implementation Plan\n\n## Tasks\n\n- [ ] 1. Do something\n  - [ ] 1.1 Task\n  - [ ] 1.V Verify\n"
     )
 
 
@@ -112,9 +109,7 @@ class TestFixersDeleted:
     def test_fixers_directory_does_not_exist(self) -> None:
         """agentfox/spec/fixers/ directory does not exist."""
         fixers_dir = _REPO_ROOT / "agentfox" / "spec" / "fixers"
-        assert not fixers_dir.exists(), (
-            f"Fixers directory must be deleted: {fixers_dir}"
-        )
+        assert not fixers_dir.exists(), f"Fixers directory must be deleted: {fixers_dir}"
 
 
 # ---------------------------------------------------------------------------
@@ -138,9 +133,7 @@ class TestNoFixDispatch:
             _FIXERS_PKG,
         ]
         for name in forbidden:
-            assert name not in source, (
-                f"Found forbidden name '{name}' in lint.py"
-            )
+            assert name not in source, f"Found forbidden name '{name}' in lint.py"
 
 
 # ---------------------------------------------------------------------------
@@ -228,9 +221,7 @@ class TestNoFixerImportsProperty:
             check=True,
             cwd=_REPO_ROOT,
         )
-        py_files = [
-            f for f in result.stdout.splitlines() if f.endswith(".py")
-        ]
+        py_files = [f for f in result.stdout.splitlines() if f.endswith(".py")]
         violations: list[str] = []
         for rel_path in py_files:
             full_path = _REPO_ROOT / rel_path
@@ -239,9 +230,7 @@ class TestNoFixerImportsProperty:
             content = full_path.read_text()
             if _FIXERS_PKG in content:
                 violations.append(rel_path)
-        assert not violations, (
-            f"Files importing from fixers package: {violations}"
-        )
+        assert not violations, f"Files importing from fixers package: {violations}"
 
 
 # ---------------------------------------------------------------------------
@@ -279,7 +268,5 @@ class TestProgressCallbackOptionalProperty:
         specs_dir = tmp_path / "specs"
         _create_spec_dir(specs_dir)
         result_no_cb = run_lint_specs(specs_dir)
-        result_with_cb = run_lint_specs(
-            specs_dir, progress_callback=lambda s: None
-        )
+        result_with_cb = run_lint_specs(specs_dir, progress_callback=lambda s: None)
         assert type(result_no_cb) is type(result_with_cb)

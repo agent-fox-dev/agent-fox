@@ -86,16 +86,10 @@ def _intra_only_graph() -> TaskGraph:
 def _cross_spec_graph() -> TaskGraph:
     """Graph with both intra-spec and cross-spec edges."""
     nodes = {
-        "01_core:1": _node(
-            "01_core:1", spec_name="01_core", group_number=1, title="Parse specifications"
-        ),
+        "01_core:1": _node("01_core:1", spec_name="01_core", group_number=1, title="Parse specifications"),
         "01_core:2": _node("01_core:2", spec_name="01_core", group_number=2, title="Build graph"),
-        "02_planning:1": _node(
-            "02_planning:1", spec_name="02_planning", group_number=1, title="Set up deps"
-        ),
-        "02_planning:2": _node(
-            "02_planning:2", spec_name="02_planning", group_number=2, title="Resolve ordering"
-        ),
+        "02_planning:1": _node("02_planning:1", spec_name="02_planning", group_number=1, title="Set up deps"),
+        "02_planning:2": _node("02_planning:2", spec_name="02_planning", group_number=2, title="Resolve ordering"),
     }
     edges = [
         Edge(source="01_core:1", target="01_core:2", kind="intra_spec"),
@@ -113,16 +107,12 @@ def _cross_spec_graph() -> TaskGraph:
 def _make_specs(*names: str) -> list[SpecInfo]:
     """Create minimal SpecInfo objects for testing."""
     return [
-        SpecInfo(
-            name=name, prefix=i + 1, path=Path(f".specs/{name}"), has_tasks=True, has_prd=True
-        )
+        SpecInfo(name=name, prefix=i + 1, path=Path(f".specs/{name}"), has_tasks=True, has_prd=True)
         for i, name in enumerate(names)
     ]
 
 
-def _analysis_for_diamond() -> (
-    tuple[TaskGraph, list[Phase], list[str], GroupedEdges, list[SpecInfo]]
-):
+def _analysis_for_diamond() -> tuple[TaskGraph, list[Phase], list[str], GroupedEdges, list[SpecInfo]]:
     """Prepare analysis data from the diamond graph for formatter tests."""
     graph = _diamond_graph()
     phases = compute_phases(graph)
@@ -257,40 +247,89 @@ def _write_spec(spec_dir: Path, *, task_groups: list[dict] | None = None) -> Non
         'updated_at: "2024-01-01T00:00:00Z"\nowner: "test"\n'
         'source: "test"\nschema_version: 1\n---\n# Test\n'
     )
-    (spec_dir / "requirements.json").write_text(json.dumps({
-        "spec_id": "test", "spec_name": "test", "schema_version": 1,
-        "introduction": "", "glossary": {}, "requirements": [],
-        "correctness_properties": [], "execution_paths": [], "error_handling": [],
-    }))
-    (spec_dir / "test_spec.json").write_text(json.dumps({
-        "spec_id": "test", "spec_name": "test", "schema_version": 1,
-        "test_cases": [], "property_tests": [], "edge_case_tests": [],
-        "smoke_tests": [], "coverage": {
-            "requirements_covered": [], "properties_covered": [],
-            "paths_covered": [], "gaps": [],
-        },
-    }))
+    (spec_dir / "requirements.json").write_text(
+        json.dumps(
+            {
+                "spec_id": "test",
+                "spec_name": "test",
+                "schema_version": 1,
+                "introduction": "",
+                "glossary": {},
+                "requirements": [],
+                "correctness_properties": [],
+                "execution_paths": [],
+                "error_handling": [],
+            }
+        )
+    )
+    (spec_dir / "test_spec.json").write_text(
+        json.dumps(
+            {
+                "spec_id": "test",
+                "spec_name": "test",
+                "schema_version": 1,
+                "test_cases": [],
+                "property_tests": [],
+                "edge_case_tests": [],
+                "smoke_tests": [],
+                "coverage": {
+                    "requirements_covered": [],
+                    "properties_covered": [],
+                    "paths_covered": [],
+                    "gaps": [],
+                },
+            }
+        )
+    )
     default_groups = task_groups or [
         {
-            "id": 1, "kind": "standard", "title": "Write tests",
-            "subtasks": [{"id": "1.1", "title": "Unit tests", "state": "pending",
-                          "details": [], "test_spec_refs": [], "requirement_refs": [],
-                          "optional": False}],
+            "id": 1,
+            "kind": "standard",
+            "title": "Write tests",
+            "subtasks": [
+                {
+                    "id": "1.1",
+                    "title": "Unit tests",
+                    "state": "pending",
+                    "details": [],
+                    "test_spec_refs": [],
+                    "requirement_refs": [],
+                    "optional": False,
+                }
+            ],
             "verification": {"id": "", "checks": []},
         },
         {
-            "id": 2, "kind": "standard", "title": "Implement feature",
-            "subtasks": [{"id": "2.1", "title": "Core logic", "state": "pending",
-                          "details": [], "test_spec_refs": [], "requirement_refs": [],
-                          "optional": False}],
+            "id": 2,
+            "kind": "standard",
+            "title": "Implement feature",
+            "subtasks": [
+                {
+                    "id": "2.1",
+                    "title": "Core logic",
+                    "state": "pending",
+                    "details": [],
+                    "test_spec_refs": [],
+                    "requirement_refs": [],
+                    "optional": False,
+                }
+            ],
             "verification": {"id": "", "checks": []},
         },
     ]
-    (spec_dir / "tasks.json").write_text(json.dumps({
-        "spec_id": "test", "spec_name": "test", "schema_version": 1,
-        "test_commands": {"spec_tests": "", "all_tests": "", "linter": ""},
-        "dependencies": [], "task_groups": default_groups, "traceability": [],
-    }))
+    (spec_dir / "tasks.json").write_text(
+        json.dumps(
+            {
+                "spec_id": "test",
+                "spec_name": "test",
+                "schema_version": 1,
+                "test_commands": {"spec_tests": "", "all_tests": "", "linter": ""},
+                "dependencies": [],
+                "task_groups": default_groups,
+                "traceability": [],
+            }
+        )
+    )
 
 
 def _setup_temp_specs(tmp_path: Path) -> Path:

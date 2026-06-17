@@ -439,9 +439,7 @@ class TestPropertyPathLongest:
 
         for src in sources:
             for p in all_paths_from(src, [src]):
-                assert cp_len >= len(p), (
-                    f"Found path {p} (len {len(p)}) longer than critical path {cp} (len {cp_len})"
-                )
+                assert cp_len >= len(p), f"Found path {p} (len {len(p)}) longer than critical path {cp} (len {cp_len})"
 
 
 class TestPropertyEdgeGrouping:

@@ -49,36 +49,75 @@ def _make_spec_dir(tmp: Path) -> Path:
     spec_dir = tmp / "specs" / "prop_test"
     spec_dir.mkdir(parents=True, exist_ok=True)
     import json
+
     (spec_dir / "prd.md").write_text(
         '---\nspec_id: "test"\nspec_name: "test"\ntitle: "Test"\n'
         'status: "draft"\ncreated_at: "2024-01-01T00:00:00Z"\n'
         'updated_at: "2024-01-01T00:00:00Z"\nowner: "test"\n'
         'source: "test"\nschema_version: 1\n---\n# Test\n'
     )
-    (spec_dir / "requirements.json").write_text(json.dumps({
-        "spec_id": "test", "spec_name": "test", "schema_version": 1,
-        "introduction": "Prop REQ", "glossary": {}, "requirements": [],
-        "correctness_properties": [], "execution_paths": [], "error_handling": [],
-    }))
-    (spec_dir / "test_spec.json").write_text(json.dumps({
-        "spec_id": "test", "spec_name": "test", "schema_version": 1,
-        "test_cases": [{"id": "TS-1-1", "title": "Prop test spec",
-                        "requirement_refs": [], "steps": [], "expected": "pass"}],
-        "property_tests": [], "edge_case_tests": [], "smoke_tests": [],
-        "coverage": {"requirements_covered": [], "properties_covered": [],
-                     "paths_covered": [], "gaps": []},
-    }))
-    (spec_dir / "tasks.json").write_text(json.dumps({
-        "spec_id": "test", "spec_name": "test", "schema_version": 1,
-        "test_commands": {"spec_tests": "", "all_tests": "", "linter": ""},
-        "dependencies": [],
-        "task_groups": [{"id": 1, "kind": "standard", "title": "Prop tasks",
-            "subtasks": [{"id": "1.1", "title": "Sub", "state": "pending",
-                          "details": [], "test_spec_refs": [], "requirement_refs": [],
-                          "optional": False}],
-            "verification": {"id": "", "checks": []}}],
-        "traceability": [],
-    }))
+    (spec_dir / "requirements.json").write_text(
+        json.dumps(
+            {
+                "spec_id": "test",
+                "spec_name": "test",
+                "schema_version": 1,
+                "introduction": "Prop REQ",
+                "glossary": {},
+                "requirements": [],
+                "correctness_properties": [],
+                "execution_paths": [],
+                "error_handling": [],
+            }
+        )
+    )
+    (spec_dir / "test_spec.json").write_text(
+        json.dumps(
+            {
+                "spec_id": "test",
+                "spec_name": "test",
+                "schema_version": 1,
+                "test_cases": [
+                    {"id": "TS-1-1", "title": "Prop test spec", "requirement_refs": [], "steps": [], "expected": "pass"}
+                ],
+                "property_tests": [],
+                "edge_case_tests": [],
+                "smoke_tests": [],
+                "coverage": {"requirements_covered": [], "properties_covered": [], "paths_covered": [], "gaps": []},
+            }
+        )
+    )
+    (spec_dir / "tasks.json").write_text(
+        json.dumps(
+            {
+                "spec_id": "test",
+                "spec_name": "test",
+                "schema_version": 1,
+                "test_commands": {"spec_tests": "", "all_tests": "", "linter": ""},
+                "dependencies": [],
+                "task_groups": [
+                    {
+                        "id": 1,
+                        "kind": "standard",
+                        "title": "Prop tasks",
+                        "subtasks": [
+                            {
+                                "id": "1.1",
+                                "title": "Sub",
+                                "state": "pending",
+                                "details": [],
+                                "test_spec_refs": [],
+                                "requirement_refs": [],
+                                "optional": False,
+                            }
+                        ],
+                        "verification": {"id": "", "checks": []},
+                    }
+                ],
+                "traceability": [],
+            }
+        )
+    )
     (spec_dir / "architecture.md").write_text("# Architecture\nProp design\n")
     return spec_dir
 

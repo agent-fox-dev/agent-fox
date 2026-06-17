@@ -202,9 +202,7 @@ class TestOldConfigSilentIgnore:
 
         Requirement: 130-REQ-1.E1
         """
-        raw = tomllib.loads(
-            '[orchestrator]\nquality_gate = "make check"\nquality_gate_timeout = 120'
-        )
+        raw = tomllib.loads('[orchestrator]\nquality_gate = "make check"\nquality_gate_timeout = 120')
         config = AgentFoxConfig.model_validate(raw)
         assert config.orchestrator.parallel == 2
 
@@ -213,9 +211,7 @@ class TestOldConfigSilentIgnore:
 
         Requirement: 130-REQ-2.E1
         """
-        raw = tomllib.loads(
-            '[models]\ncoding = "ADVANCED"\nmemory_extraction = "SIMPLE"'
-        )
+        raw = tomllib.loads('[models]\ncoding = "ADVANCED"\nmemory_extraction = "SIMPLE"')
         config = AgentFoxConfig.model_validate(raw)
         assert not hasattr(config, "models") or "models" not in AgentFoxConfig.model_fields
 
@@ -244,11 +240,7 @@ class TestOldConfigSilentIgnore:
 
         Requirements: 130-REQ-3.2, 130-REQ-3.3
         """
-        raw = tomllib.loads(
-            "[archetypes]\n"
-            "oracle = true\n"
-            "auditor = true\n"
-        )
+        raw = tomllib.loads("[archetypes]\noracle = true\nauditor = true\n")
         config = AgentFoxConfig.model_validate(raw)
         assert config.archetypes.reviewer is True
 
@@ -257,12 +249,7 @@ class TestOldConfigSilentIgnore:
 
         Requirements: 130-REQ-3.2, 130-REQ-3.3
         """
-        raw = tomllib.loads(
-            "[archetypes]\n"
-            'skeptic_settings = "old"\n'
-            'oracle_settings = "old"\n'
-            'auditor_config = "old"\n'
-        )
+        raw = tomllib.loads('[archetypes]\nskeptic_settings = "old"\noracle_settings = "old"\nauditor_config = "old"\n')
         config = AgentFoxConfig.model_validate(raw)
         assert config.archetypes.reviewer is True
 
@@ -271,11 +258,7 @@ class TestOldConfigSilentIgnore:
 
         Requirements: 130-REQ-3.2, 130-REQ-3.3
         """
-        raw = tomllib.loads(
-            "[archetypes]\n"
-            "fix_reviewer = true\n"
-            "fix_coder = true\n"
-        )
+        raw = tomllib.loads("[archetypes]\nfix_reviewer = true\nfix_coder = true\n")
         config = AgentFoxConfig.model_validate(raw)
         assert config.archetypes.reviewer is True
 
@@ -296,16 +279,16 @@ class TestSmoke:
         """
         config_toml = tmp_path / "config.toml"
         config_toml.write_text(
-            '[orchestrator]\n'
+            "[orchestrator]\n"
             'quality_gate = "make check"\n'
-            'quality_gate_timeout = 120\n'
-            '\n'
-            '[models]\n'
+            "quality_gate_timeout = 120\n"
+            "\n"
+            "[models]\n"
             'coding = "ADVANCED"\n'
-            '\n'
-            '[archetypes]\n'
-            'triage = true\n'
-            'skeptic = true\n',
+            "\n"
+            "[archetypes]\n"
+            "triage = true\n"
+            "skeptic = true\n",
             encoding="utf-8",
         )
         config = load_config(config_toml)

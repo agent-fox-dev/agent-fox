@@ -78,9 +78,7 @@ def test_postmortem_generated_on_stalled_run(tmp_path: Path) -> None:
         },
         session_history=[
             _make_session_record(node_id="spec_01_group_1"),
-            _make_session_record(
-                node_id="spec_01_group_2", status="failed", attempt=2
-            ),
+            _make_session_record(node_id="spec_01_group_2", status="failed", attempt=2),
         ],
     )
 

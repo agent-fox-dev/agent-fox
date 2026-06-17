@@ -71,9 +71,13 @@ class TestIsTaskGroupDoneFile:
         spec_dir.mkdir()
         mock_groups = [
             TaskGroupDef(
-                number=1, title="First task", optional=False, completed=True,
+                number=1,
+                title="First task",
+                optional=False,
+                completed=True,
                 subtasks=(SubtaskDef(id="1.1", title="detail", completed=True),),
-                body="", archetype=None,
+                body="",
+                archetype=None,
             ),
         ]
         with patch("agentfox.spec.parser.parse_tasks", return_value=mock_groups):
@@ -86,9 +90,13 @@ class TestIsTaskGroupDoneFile:
         spec_dir.mkdir()
         mock_groups = [
             TaskGroupDef(
-                number=1, title="First task", optional=False, completed=False,
+                number=1,
+                title="First task",
+                optional=False,
+                completed=False,
                 subtasks=(SubtaskDef(id="1.1", title="detail", completed=False),),
-                body="", archetype=None,
+                body="",
+                archetype=None,
             ),
         ]
         with patch("agentfox.spec.parser.parse_tasks", return_value=mock_groups):
@@ -104,9 +112,13 @@ class TestIsTaskGroupDoneFile:
         spec_dir.mkdir()
         mock_groups = [
             TaskGroupDef(
-                number=1, title="First task", optional=False, completed=True,
+                number=1,
+                title="First task",
+                optional=False,
+                completed=True,
                 subtasks=(SubtaskDef(id="1.1", title="detail", completed=True),),
-                body="", archetype=None,
+                body="",
+                archetype=None,
             ),
         ]
         with patch("agentfox.spec.parser.parse_tasks", return_value=mock_groups):
@@ -123,9 +135,13 @@ class TestIsTaskGroupDone:
         spec_dir.mkdir()
         mock_groups = [
             TaskGroupDef(
-                number=1, title="Done task", optional=False, completed=True,
+                number=1,
+                title="Done task",
+                optional=False,
+                completed=True,
                 subtasks=(SubtaskDef(id="1.1", title="t", completed=True),),
-                body="", archetype=None,
+                body="",
+                archetype=None,
             ),
         ]
         with patch("agentfox.spec.parser.parse_tasks", return_value=mock_groups):
@@ -139,9 +155,13 @@ class TestIsTaskGroupDone:
         spec_dir.mkdir()
         mock_groups = [
             TaskGroupDef(
-                number=1, title="Done task", optional=False, completed=True,
+                number=1,
+                title="Done task",
+                optional=False,
+                completed=True,
                 subtasks=(SubtaskDef(id="1.1", title="t", completed=True),),
-                body="", archetype=None,
+                body="",
+                archetype=None,
             ),
         ]
         with patch("agentfox.spec.parser.parse_tasks", return_value=mock_groups):
@@ -154,9 +174,13 @@ class TestIsTaskGroupDone:
         spec_dir.mkdir()
         mock_groups = [
             TaskGroupDef(
-                number=1, title="Done task", optional=False, completed=True,
+                number=1,
+                title="Done task",
+                optional=False,
+                completed=True,
                 subtasks=(SubtaskDef(id="1.1", title="t", completed=True),),
-                body="", archetype=None,
+                body="",
+                archetype=None,
             ),
         ]
         with patch("agentfox.spec.parser.parse_tasks", return_value=mock_groups):
@@ -230,27 +254,21 @@ class TestRunPreflight:
         assert verdict == PreflightVerdict.LAUNCH
 
     @patch("agentfox.engine.dispatch.do_tests_pass", return_value=False)
-    def test_done_no_findings_tests_fail_returns_launch(
-        self, _mock_tests: MagicMock, tmp_path: Path
-    ) -> None:
+    def test_done_no_findings_tests_fail_returns_launch(self, _mock_tests: MagicMock, tmp_path: Path) -> None:
         conn = _make_conn()
         _insert_plan_node(conn, "spec:1", "spec", 1, "completed")
         verdict = run_preflight("spec", 1, conn, tmp_path, tmp_path)
         assert verdict == PreflightVerdict.LAUNCH
 
     @patch("agentfox.engine.dispatch.do_tests_pass", return_value=True)
-    def test_all_gates_pass_returns_skip(
-        self, _mock_tests: MagicMock, tmp_path: Path
-    ) -> None:
+    def test_all_gates_pass_returns_skip(self, _mock_tests: MagicMock, tmp_path: Path) -> None:
         conn = _make_conn()
         _insert_plan_node(conn, "spec:1", "spec", 1, "completed")
         verdict = run_preflight("spec", 1, conn, tmp_path, tmp_path)
         assert verdict == PreflightVerdict.SKIP
 
     @patch("agentfox.engine.dispatch.do_tests_pass", return_value=True)
-    def test_short_circuits_on_first_failure(
-        self, mock_tests: MagicMock, tmp_path: Path
-    ) -> None:
+    def test_short_circuits_on_first_failure(self, mock_tests: MagicMock, tmp_path: Path) -> None:
         """Tests are not run when task group is incomplete."""
         conn = _make_conn()
         _insert_plan_node(conn, "spec:1", "spec", 1, "pending")

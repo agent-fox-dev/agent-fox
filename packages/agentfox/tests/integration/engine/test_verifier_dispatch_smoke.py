@@ -177,9 +177,7 @@ class TestVerifierDispatchNoPhantomGroup:
         task_prompt = captured_prompts.get("task", "")
         assert task_prompt, "Task prompt was not captured — mock_execute_session was not called"
 
-        assert "There is no task group" not in task_prompt, (
-            f"Task prompt contains phantom error text: {task_prompt!r}"
-        )
+        assert "There is no task group" not in task_prompt, f"Task prompt contains phantom error text: {task_prompt!r}"
         assert "task group 7" not in task_prompt.lower(), (
             f"Task prompt references phantom 'task group 7': {task_prompt!r}"
         )
@@ -188,12 +186,8 @@ class TestVerifierDispatchNoPhantomGroup:
         )
 
         # 3. Task prompt must reference the spec and verifier role
-        assert _SPEC_NAME in task_prompt, (
-            f"Task prompt must mention spec name {_SPEC_NAME!r}: {task_prompt!r}"
-        )
-        assert "verifier" in task_prompt.lower(), (
-            f"Task prompt must mention verifier role: {task_prompt!r}"
-        )
+        assert _SPEC_NAME in task_prompt, f"Task prompt must mention spec name {_SPEC_NAME!r}: {task_prompt!r}"
+        assert "verifier" in task_prompt.lower(), f"Task prompt must mention verifier role: {task_prompt!r}"
 
         # 4. Archetype must be verifier
         assert record.archetype == "verifier", (
@@ -201,9 +195,7 @@ class TestVerifierDispatchNoPhantomGroup:
         )
 
         # 5. No error message
-        assert record.error_message is None, (
-            f"Verifier session should have no error, got: {record.error_message!r}"
-        )
+        assert record.error_message is None, f"Verifier session should have no error, got: {record.error_message!r}"
 
     @pytest.mark.asyncio
     async def test_verifier_prompt_omits_group_for_all_group_counts(
@@ -226,12 +218,9 @@ class TestVerifierDispatchNoPhantomGroup:
                 archetype="verifier",
             )
             assert "task group" not in result.lower(), (
-                f"Verifier prompt with task_group={phantom_group} references "
-                f"'task group': {result!r}"
+                f"Verifier prompt with task_group={phantom_group} references 'task group': {result!r}"
             )
-            assert _SPEC_NAME in result, (
-                f"Verifier prompt must mention spec name: {result!r}"
-            )
+            assert _SPEC_NAME in result, f"Verifier prompt must mention spec name: {result!r}"
 
     def test_verifier_node_id_parsed_correctly(self) -> None:
         """3-part verifier node ID parses to group_number=0 with role='verifier'."""
@@ -239,9 +228,5 @@ class TestVerifierDispatchNoPhantomGroup:
 
         parsed = parse_node_id(f"{_SPEC_NAME}:0:verifier")
         assert parsed.spec_name == _SPEC_NAME
-        assert parsed.group_number == 0, (
-            f"Verifier sentinel group_number should be 0, got {parsed.group_number}"
-        )
-        assert parsed.role == "verifier", (
-            f"Parsed role should be 'verifier', got {parsed.role!r}"
-        )
+        assert parsed.group_number == 0, f"Verifier sentinel group_number should be 0, got {parsed.group_number}"
+        assert parsed.role == "verifier", f"Parsed role should be 'verifier', got {parsed.role!r}"

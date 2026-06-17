@@ -155,9 +155,7 @@ class TestPreReviewFindingsTracked:
         provider = _make_provider(provider_db)
         provider.retrieve("test_spec", "test", task_group="1", session_id="sess-1")
 
-        rows = provider_conn.execute(
-            "SELECT * FROM finding_injections WHERE finding_id = ?", [finding_id]
-        ).fetchall()
+        rows = provider_conn.execute("SELECT * FROM finding_injections WHERE finding_id = ?", [finding_id]).fetchall()
         assert len(rows) == 1
 
 

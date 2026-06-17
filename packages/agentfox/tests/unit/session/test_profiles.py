@@ -177,9 +177,7 @@ def test_symlinked_project_profile_is_skipped(tmp_path: Path) -> None:
     assert len(result) > 0
 
 
-def test_symlinked_project_profile_logs_warning(
-    tmp_path: Path, caplog: pytest.LogCaptureFixture
-) -> None:
+def test_symlinked_project_profile_logs_warning(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
     """AC-2: load_profile() emits a WARNING when it skips a symlinked candidate."""
     from agentfox.session.profiles import load_profile
 

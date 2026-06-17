@@ -15,6 +15,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+import pytest
+
 # ---------------------------------------------------------------------------
 # Template helper (mirrors test_reviewer_template.py pattern)
 # ---------------------------------------------------------------------------

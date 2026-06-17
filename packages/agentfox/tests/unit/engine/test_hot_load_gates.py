@@ -262,11 +262,15 @@ class TestLintGateRejectsErrors:
 
     def test_error_finding_fails_gate(self, tmp_path: Path) -> None:
         """Spec with error-severity finding is rejected."""
-        mock_error = type("MockValidationError", (), {
-            "rule": "missing-file",
-            "message": "Expected file 'requirements.json' is missing",
-            "file": "requirements.json",
-        })()
+        mock_error = type(
+            "MockValidationError",
+            (),
+            {
+                "rule": "missing-file",
+                "message": "Expected file 'requirements.json' is missing",
+                "file": "requirements.json",
+            },
+        )()
 
         mock_spec = type("MockSpec", (), {})()
         spec_path = tmp_path / "42_feature"
@@ -466,6 +470,7 @@ class TestSkippedSpecReEvaluation:
 # TS-444-1: are_all_tasks_done
 # ---------------------------------------------------------------------------
 
+
 class TestAreAllTasksDone:
     """TS-444-1: task group checkbox gate for completed specs.
 
@@ -480,10 +485,24 @@ class TestAreAllTasksDone:
         spec_path.mkdir()
 
         groups = [
-            TaskGroupDef(number=1, title="First", optional=False, completed=True,
-                         subtasks=(SubtaskDef(id="1.1", title="s1", completed=True),), body="", archetype=None),
-            TaskGroupDef(number=2, title="Second", optional=False, completed=True,
-                         subtasks=(SubtaskDef(id="2.1", title="s2", completed=True),), body="", archetype=None),
+            TaskGroupDef(
+                number=1,
+                title="First",
+                optional=False,
+                completed=True,
+                subtasks=(SubtaskDef(id="1.1", title="s1", completed=True),),
+                body="",
+                archetype=None,
+            ),
+            TaskGroupDef(
+                number=2,
+                title="Second",
+                optional=False,
+                completed=True,
+                subtasks=(SubtaskDef(id="2.1", title="s2", completed=True),),
+                body="",
+                archetype=None,
+            ),
         ]
 
         with patch("agentfox.engine.hot_load.parse_tasks", return_value=groups):
@@ -497,10 +516,24 @@ class TestAreAllTasksDone:
         spec_path.mkdir()
 
         groups = [
-            TaskGroupDef(number=1, title="First", optional=False, completed=True,
-                         subtasks=(SubtaskDef(id="1.1", title="s1", completed=True),), body="", archetype=None),
-            TaskGroupDef(number=2, title="Second", optional=False, completed=False,
-                         subtasks=(SubtaskDef(id="2.1", title="s2", completed=False),), body="", archetype=None),
+            TaskGroupDef(
+                number=1,
+                title="First",
+                optional=False,
+                completed=True,
+                subtasks=(SubtaskDef(id="1.1", title="s1", completed=True),),
+                body="",
+                archetype=None,
+            ),
+            TaskGroupDef(
+                number=2,
+                title="Second",
+                optional=False,
+                completed=False,
+                subtasks=(SubtaskDef(id="2.1", title="s2", completed=False),),
+                body="",
+                archetype=None,
+            ),
         ]
 
         with patch("agentfox.engine.hot_load.parse_tasks", return_value=groups):
@@ -543,12 +576,33 @@ class TestAreAllTasksDone:
         spec_path.mkdir()
 
         groups = [
-            TaskGroupDef(number=1, title="First", optional=False, completed=True,
-                         subtasks=(SubtaskDef(id="1.1", title="s1", completed=True),), body="", archetype=None),
-            TaskGroupDef(number=2, title="Second", optional=False, completed=True,
-                         subtasks=(SubtaskDef(id="2.1", title="s2", completed=True),), body="", archetype=None),
-            TaskGroupDef(number=3, title="New task", optional=False, completed=False,
-                         subtasks=(SubtaskDef(id="3.1", title="s3", completed=False),), body="", archetype=None),
+            TaskGroupDef(
+                number=1,
+                title="First",
+                optional=False,
+                completed=True,
+                subtasks=(SubtaskDef(id="1.1", title="s1", completed=True),),
+                body="",
+                archetype=None,
+            ),
+            TaskGroupDef(
+                number=2,
+                title="Second",
+                optional=False,
+                completed=True,
+                subtasks=(SubtaskDef(id="2.1", title="s2", completed=True),),
+                body="",
+                archetype=None,
+            ),
+            TaskGroupDef(
+                number=3,
+                title="New task",
+                optional=False,
+                completed=False,
+                subtasks=(SubtaskDef(id="3.1", title="s3", completed=False),),
+                body="",
+                archetype=None,
+            ),
         ]
 
         with patch("agentfox.engine.hot_load.parse_tasks", return_value=groups):
@@ -571,9 +625,7 @@ class TestAreAllPlanNodesDone:
         import duckdb
 
         conn = duckdb.connect(":memory:")
-        conn.execute(
-            "CREATE TABLE plan_nodes (id VARCHAR PRIMARY KEY, spec_name VARCHAR, status VARCHAR)"
-        )
+        conn.execute("CREATE TABLE plan_nodes (id VARCHAR PRIMARY KEY, spec_name VARCHAR, status VARCHAR)")
         conn.execute("INSERT INTO plan_nodes VALUES ('42_feature:0', '42_feature', 'completed')")
         conn.execute("INSERT INTO plan_nodes VALUES ('42_feature:1', '42_feature', 'completed')")
 
@@ -585,9 +637,7 @@ class TestAreAllPlanNodesDone:
         import duckdb
 
         conn = duckdb.connect(":memory:")
-        conn.execute(
-            "CREATE TABLE plan_nodes (id VARCHAR PRIMARY KEY, spec_name VARCHAR, status VARCHAR)"
-        )
+        conn.execute("CREATE TABLE plan_nodes (id VARCHAR PRIMARY KEY, spec_name VARCHAR, status VARCHAR)")
         conn.execute("INSERT INTO plan_nodes VALUES ('42_feature:0', '42_feature', 'completed')")
         conn.execute("INSERT INTO plan_nodes VALUES ('42_feature:1', '42_feature', 'pending')")
 
@@ -599,9 +649,7 @@ class TestAreAllPlanNodesDone:
         import duckdb
 
         conn = duckdb.connect(":memory:")
-        conn.execute(
-            "CREATE TABLE plan_nodes (id VARCHAR PRIMARY KEY, spec_name VARCHAR, status VARCHAR)"
-        )
+        conn.execute("CREATE TABLE plan_nodes (id VARCHAR PRIMARY KEY, spec_name VARCHAR, status VARCHAR)")
         conn.execute("INSERT INTO plan_nodes VALUES ('99_other:0', '99_other', 'completed')")
 
         assert _are_all_plan_nodes_done("42_feature", conn) is False
@@ -643,9 +691,7 @@ class TestTasksCompleteGatePipeline:
 
         # Create in-memory DuckDB with completed plan nodes
         conn = duckdb.connect(":memory:")
-        conn.execute(
-            "CREATE TABLE plan_nodes (id VARCHAR PRIMARY KEY, spec_name VARCHAR, status VARCHAR)"
-        )
+        conn.execute("CREATE TABLE plan_nodes (id VARCHAR PRIMARY KEY, spec_name VARCHAR, status VARCHAR)")
         conn.execute("INSERT INTO plan_nodes VALUES ('42_feature:1', '42_feature', 'completed')")
         conn.execute("INSERT INTO plan_nodes VALUES ('42_feature:2', '42_feature', 'completed')")
 
@@ -671,9 +717,7 @@ class TestTasksCompleteGatePipeline:
             patch("agentfox.engine.hot_load.are_all_tasks_done", return_value=True),
             caplog.at_level(logging.INFO, logger="agentfox.engine.hot_load"),
         ):
-            result = await discover_new_specs_gated(
-                specs_dir, known_specs=set(), repo_root=tmp_path, db_conn=conn
-            )
+            result = await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path, db_conn=conn)
 
         assert result == []
         assert any("fully implemented" in r.message for r in caplog.records)
@@ -690,9 +734,7 @@ class TestTasksCompleteGatePipeline:
         _create_spec_files(spec_path)
 
         conn = duckdb.connect(":memory:")
-        conn.execute(
-            "CREATE TABLE plan_nodes (id VARCHAR PRIMARY KEY, spec_name VARCHAR, status VARCHAR)"
-        )
+        conn.execute("CREATE TABLE plan_nodes (id VARCHAR PRIMARY KEY, spec_name VARCHAR, status VARCHAR)")
         conn.execute("INSERT INTO plan_nodes VALUES ('42_feature:1', '42_feature', 'pending')")
 
         mock_spec = SpecInfo(
@@ -716,9 +758,7 @@ class TestTasksCompleteGatePipeline:
             patch("agentfox.engine.hot_load.lint_spec_gate", side_effect=mock_lint_gate),
             patch("agentfox.engine.hot_load.are_all_tasks_done", return_value=True),
         ):
-            result = await discover_new_specs_gated(
-                specs_dir, known_specs=set(), repo_root=tmp_path, db_conn=conn
-            )
+            result = await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path, db_conn=conn)
 
         assert len(result) == 1
         assert result[0].name == "42_feature"
@@ -735,9 +775,7 @@ class TestTasksCompleteGatePipeline:
         _create_spec_files(spec_path)
 
         conn = duckdb.connect(":memory:")
-        conn.execute(
-            "CREATE TABLE plan_nodes (id VARCHAR PRIMARY KEY, spec_name VARCHAR, status VARCHAR)"
-        )
+        conn.execute("CREATE TABLE plan_nodes (id VARCHAR PRIMARY KEY, spec_name VARCHAR, status VARCHAR)")
         conn.execute("INSERT INTO plan_nodes VALUES ('42_feature:1', '42_feature', 'completed')")
 
         mock_spec = SpecInfo(
@@ -761,9 +799,7 @@ class TestTasksCompleteGatePipeline:
             patch("agentfox.engine.hot_load.lint_spec_gate", side_effect=mock_lint_gate),
             patch("agentfox.engine.hot_load.are_all_tasks_done", return_value=False),
         ):
-            result = await discover_new_specs_gated(
-                specs_dir, known_specs=set(), repo_root=tmp_path, db_conn=conn
-            )
+            result = await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path, db_conn=conn)
 
         assert len(result) == 1
         conn.close()
@@ -799,8 +835,6 @@ class TestTasksCompleteGatePipeline:
             patch("agentfox.engine.hot_load.are_all_tasks_done", return_value=True),
         ):
             # No db_conn argument — backward compatible
-            result = await discover_new_specs_gated(
-                specs_dir, known_specs=set(), repo_root=tmp_path
-            )
+            result = await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path)
 
         assert len(result) == 1

@@ -159,11 +159,7 @@ def invalid_entry_strategy(draw: st.DrawFn) -> ADREntry:
 
     title = "Test ADR" if defect != "empty_title" else ""
     chosen = "Option A" if defect != "empty_chosen" else ""
-    options = (
-        ["Option A", "Option B"]
-        if defect == "few_options"
-        else ["Option A", "Option B", "Option C"]
-    )
+    options = ["Option A", "Option B"] if defect == "few_options" else ["Option A", "Option B", "Option C"]
 
     return ADREntry(
         id=str(uuid.uuid4()),
@@ -265,9 +261,7 @@ class TestParseCompleteness:
 
     @given(data=madr_content_strategy())
     @settings(max_examples=30, deadline=None)
-    def test_parse_completeness(
-        self, data: tuple[str, list[str], str]
-    ) -> None:
+    def test_parse_completeness(self, data: tuple[str, list[str], str]) -> None:
         """Parsed entry has correct title, option count, and chosen option."""
         title, options, content = data
         entry = parse_madr(content)
@@ -319,9 +313,7 @@ class TestSupersessionIdempotency:
 
     @given(pair=same_path_entry_pair())
     @settings(max_examples=20, deadline=None)
-    def test_supersession_idempotency(
-        self, pair: tuple[ADREntry, ADREntry]
-    ) -> None:
+    def test_supersession_idempotency(self, pair: tuple[ADREntry, ADREntry]) -> None:
         """After both stores, exactly one active row exists."""
         entry1, entry2 = pair
         conn = duckdb.connect(":memory:")
@@ -331,8 +323,7 @@ class TestSupersessionIdempotency:
         store_adr(conn, entry2)
 
         active = conn.execute(
-            "SELECT content_hash FROM adr_entries "
-            "WHERE file_path = ? AND superseded_at IS NULL",
+            "SELECT content_hash FROM adr_entries WHERE file_path = ? AND superseded_at IS NULL",
             [entry1.file_path],
         ).fetchall()
         assert len(active) == 1
@@ -360,9 +351,7 @@ class TestRetrievalExcludesSuperseded:
         n_superseded=st.integers(min_value=0, max_value=5),
     )
     @settings(max_examples=20, deadline=None)
-    def test_retrieval_excludes_superseded(
-        self, n_active: int, n_superseded: int
-    ) -> None:
+    def test_retrieval_excludes_superseded(self, n_active: int, n_superseded: int) -> None:
         """Only entries with superseded_at IS NULL are returned."""
         conn = duckdb.connect(":memory:")
         _create_adr_table(conn)

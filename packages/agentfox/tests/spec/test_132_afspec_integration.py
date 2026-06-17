@@ -300,12 +300,6 @@ class TestAfspecLoadSpec:
         assert spec.tasks is not None
 
 
-
-
-
-
-
-
 # ===========================================================================
 # TS-132-7: Discovery excludes v1 markdown specs
 # ===========================================================================
@@ -452,7 +446,9 @@ class TestFormatDetectionDeterminism:
         has_req_json=st.booleans(),
     )
     def test_discovery_is_deterministic(
-        self, tmp_path_factory: pytest.TempPathFactory, has_req_json: bool,
+        self,
+        tmp_path_factory: pytest.TempPathFactory,
+        has_req_json: bool,
     ) -> None:
         """discover_specs returns identical results on repeated calls."""
         specs_dir = tmp_path_factory.mktemp("prop_test")

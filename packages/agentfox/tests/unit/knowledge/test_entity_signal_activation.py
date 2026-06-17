@@ -60,9 +60,7 @@ class TestSessionOutcomesTouchedPaths:
     session_outcomes data layer remains intact and queryable.
     """
 
-    def test_touched_paths_stored_correctly(
-        self, knowledge_conn_with_schema: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_touched_paths_stored_correctly(self, knowledge_conn_with_schema: duckdb.DuckDBPyConnection) -> None:
         """TS-3.1: Session outcomes store and return touched paths."""
 
         conn = knowledge_conn_with_schema
@@ -71,8 +69,7 @@ class TestSessionOutcomesTouchedPaths:
         _insert_session_outcome(conn, spec_name="05_foo", touched_path=None)
 
         rows = conn.execute(
-            "SELECT touched_path FROM session_outcomes "
-            "WHERE spec_name = '05_foo' AND touched_path IS NOT NULL"
+            "SELECT touched_path FROM session_outcomes WHERE spec_name = '05_foo' AND touched_path IS NOT NULL"
         ).fetchall()
 
         all_paths: set[str] = set()
@@ -84,9 +81,7 @@ class TestSessionOutcomesTouchedPaths:
 
         assert all_paths == {"src/a.py", "src/b.py", "src/c.py"}
 
-    def test_null_touched_paths_excluded(
-        self, knowledge_conn_with_schema: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_null_touched_paths_excluded(self, knowledge_conn_with_schema: duckdb.DuckDBPyConnection) -> None:
         """TS-3.1: Sessions with NULL touched_path are excluded from queries."""
 
         conn = knowledge_conn_with_schema
@@ -94,16 +89,13 @@ class TestSessionOutcomesTouchedPaths:
         _insert_session_outcome(conn, spec_name="05_foo", touched_path="src/real.py")
 
         rows = conn.execute(
-            "SELECT touched_path FROM session_outcomes "
-            "WHERE spec_name = '05_foo' AND touched_path IS NOT NULL"
+            "SELECT touched_path FROM session_outcomes WHERE spec_name = '05_foo' AND touched_path IS NOT NULL"
         ).fetchall()
 
         paths = [tp for (tp,) in rows]
         assert "src/real.py" in paths
 
-    def test_session_outcomes_support_many_paths(
-        self, knowledge_conn_with_schema: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_session_outcomes_support_many_paths(self, knowledge_conn_with_schema: duckdb.DuckDBPyConnection) -> None:
         """TS-3.2: Session outcomes table supports storing many touched paths."""
 
         conn = knowledge_conn_with_schema
@@ -126,9 +118,7 @@ class TestSessionOutcomesTouchedPaths:
 
         assert len(rows) == 60
 
-    def test_recent_paths_ordered_by_timestamp(
-        self, knowledge_conn_with_schema: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_recent_paths_ordered_by_timestamp(self, knowledge_conn_with_schema: duckdb.DuckDBPyConnection) -> None:
         """TS-3.2: Paths are ordered by creation time (most recent first)."""
 
         conn = knowledge_conn_with_schema
@@ -153,9 +143,7 @@ class TestSessionOutcomesTouchedPaths:
         assert paths[0] == "src/file_004.py"  # most recent
         assert paths[-1] == "src/file_000.py"  # oldest
 
-    def test_empty_when_no_sessions(
-        self, knowledge_conn_with_schema: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_empty_when_no_sessions(self, knowledge_conn_with_schema: duckdb.DuckDBPyConnection) -> None:
         """TS-3.3: No rows returned when no prior sessions exist.
 
         Requirements: 113-REQ-3.E1
@@ -163,8 +151,7 @@ class TestSessionOutcomesTouchedPaths:
 
         conn = knowledge_conn_with_schema
         rows = conn.execute(
-            "SELECT touched_path FROM session_outcomes "
-            "WHERE spec_name = '05_foo' AND touched_path IS NOT NULL"
+            "SELECT touched_path FROM session_outcomes WHERE spec_name = '05_foo' AND touched_path IS NOT NULL"
         ).fetchall()
 
         assert rows == []

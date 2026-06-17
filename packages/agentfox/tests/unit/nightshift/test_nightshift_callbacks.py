@@ -903,12 +903,10 @@ class TestSpinnerCallbackFixPipelinePhases:
         assert any("triage" in t.lower() or "analyz" in t.lower() for t in spinner_texts), (
             f"Expected triage/analyze phase hint, got: {spinner_texts}"
         )
-        assert any("coder" in t.lower() or "coding" in t.lower() or "running coder" in t.lower() for t in spinner_texts), (
-            f"Expected coder phase hint, got: {spinner_texts}"
-        )
-        assert any("review" in t.lower() for t in spinner_texts), (
-            f"Expected reviewer phase hint, got: {spinner_texts}"
-        )
+        assert any(
+            "coder" in t.lower() or "coding" in t.lower() or "running coder" in t.lower() for t in spinner_texts
+        ), f"Expected coder phase hint, got: {spinner_texts}"
+        assert any("review" in t.lower() for t in spinner_texts), f"Expected reviewer phase hint, got: {spinner_texts}"
         # All phase texts should mention the issue number
         assert "42" in all_text, f"Issue number should appear in spinner texts, got: {spinner_texts}"
 

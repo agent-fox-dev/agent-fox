@@ -333,9 +333,7 @@ class TestTableNameValidation:
 class TestInsertWithSupersessionPerTaskGroup:
     """AC-4: multi-group batch supersedes all matching prior records."""
 
-    def test_cross_group_batch_supersedes_both_task_groups(
-        self, schema_conn: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_cross_group_batch_supersedes_both_task_groups(self, schema_conn: duckdb.DuckDBPyConnection) -> None:
         """A batch spanning task_group='1' and '2' supersedes prior records
         for BOTH groups, not just the first record's group."""
         # Seed: one active finding per group from 'old' session
@@ -382,9 +380,7 @@ class TestInsertWithSupersessionPerTaskGroup:
         old_rows = [r for r in all_rows if r[0].startswith("Old")]
         assert len(old_rows) == 2, "Both old findings should be present"
         for row in old_rows:
-            assert row[1] == "new", (
-                f"Old finding '{row[0]}' should have superseded_by='new', got '{row[1]}'"
-            )
+            assert row[1] == "new", f"Old finding '{row[0]}' should have superseded_by='new', got '{row[1]}'"
 
 
 # ---------------------------------------------------------------------------
@@ -423,9 +419,7 @@ class TestInsertFindingsDropsNonActionable:
         dead_rows = schema_conn.execute(
             "SELECT COUNT(*) FROM review_findings WHERE severity IN ('minor', 'observation')"
         ).fetchone()
-        assert dead_rows[0] == 0, (
-            f"Expected 0 minor/observation rows in DB, found {dead_rows[0]}"
-        )
+        assert dead_rows[0] == 0, f"Expected 0 minor/observation rows in DB, found {dead_rows[0]}"
 
     def test_all_non_actionable_returns_zero(self, schema_conn: duckdb.DuckDBPyConnection) -> None:
         """insert_findings() with only observation/minor findings returns 0."""
@@ -446,9 +440,7 @@ class TestQueryActiveFindingsExcludesNonActionable:
     This holds even when such rows are present in the DB (legacy data).
     """
 
-    def test_legacy_observation_minor_excluded_from_query(
-        self, schema_conn: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_legacy_observation_minor_excluded_from_query(self, schema_conn: duckdb.DuckDBPyConnection) -> None:
         """Legacy observation/minor rows in DB are excluded from query results."""
         # Insert legacy rows directly via SQL (bypassing insert_findings filter)
         for sev in ("observation", "minor"):
@@ -472,13 +464,9 @@ class TestQueryActiveFindingsExcludesNonActionable:
         severities = {f.severity for f in results}
         assert "observation" not in severities, "observation finding leaked into query results"
         assert "minor" not in severities, "minor finding leaked into query results"
-        assert any(f.description == "Real critical finding" for f in results), (
-            "Expected critical finding to be present"
-        )
+        assert any(f.description == "Real critical finding" for f in results), "Expected critical finding to be present"
 
-    def test_only_observation_minor_returns_empty(
-        self, schema_conn: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_only_observation_minor_returns_empty(self, schema_conn: duckdb.DuckDBPyConnection) -> None:
         """When only legacy observation/minor rows exist, query returns empty list."""
         for sev in ("observation", "minor"):
             schema_conn.execute(

@@ -85,8 +85,12 @@ class TestInsertSummaryStoresCorrectRow:
     def test_insert_stores_all_fields(self, summary_conn):
         record = _make_record(
             id="aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-            node_id="spec_a:3", run_id="run-1", spec_name="spec_a",
-            task_group="3", archetype="coder", attempt=1,
+            node_id="spec_a:3",
+            run_id="run-1",
+            spec_name="spec_a",
+            task_group="3",
+            archetype="coder",
+            attempt=1,
             summary="Implemented SQLite store",
             created_at="2026-04-28T18:00:00",
         )
@@ -104,8 +108,7 @@ class TestInsertSummaryStoresCorrectRow:
 class TestTableSchemaMatchesSpec:
     def test_table_has_correct_columns(self, summary_conn):
         cols = summary_conn.execute(
-            "SELECT column_name, data_type FROM information_schema.columns "
-            "WHERE table_name = 'session_summaries'"
+            "SELECT column_name, data_type FROM information_schema.columns WHERE table_name = 'session_summaries'"
         ).fetchall()
         col_map = {c[0]: c[1] for c in cols}
         assert "id" in col_map
@@ -158,9 +161,15 @@ class TestMigrationV24CreatesTable:
 class TestSameSpecReturnsPriorGroupsOnly:
     def test_returns_prior_groups(self, summary_conn):
         for g in [1, 2, 3, 4]:
-            insert_summary(summary_conn, _make_record(
-                id=str(uuid.uuid4()), task_group=str(g), node_id=f"spec_a:{g}", summary=f"Group {g}",
-            ))
+            insert_summary(
+                summary_conn,
+                _make_record(
+                    id=str(uuid.uuid4()),
+                    task_group=str(g),
+                    node_id=f"spec_a:{g}",
+                    summary=f"Group {g}",
+                ),
+            )
         results = query_same_spec_summaries(summary_conn, "spec_a", "3", "run-1")
         groups = [r.task_group for r in results]
         assert groups == ["1", "2"]
@@ -169,12 +178,26 @@ class TestSameSpecReturnsPriorGroupsOnly:
 # TS-119-7: Latest attempt only in retrieval (119-REQ-2.3)
 class TestLatestAttemptOnlyInRetrieval:
     def test_latest_attempt_returned(self, summary_conn):
-        insert_summary(summary_conn, _make_record(
-            id=str(uuid.uuid4()), task_group="2", node_id="spec_a:2", attempt=1, summary="First",
-        ))
-        insert_summary(summary_conn, _make_record(
-            id=str(uuid.uuid4()), task_group="2", node_id="spec_a:2", attempt=2, summary="Fixed",
-        ))
+        insert_summary(
+            summary_conn,
+            _make_record(
+                id=str(uuid.uuid4()),
+                task_group="2",
+                node_id="spec_a:2",
+                attempt=1,
+                summary="First",
+            ),
+        )
+        insert_summary(
+            summary_conn,
+            _make_record(
+                id=str(uuid.uuid4()),
+                task_group="2",
+                node_id="spec_a:2",
+                attempt=2,
+                summary="Fixed",
+            ),
+        )
         results = query_same_spec_summaries(summary_conn, "spec_a", "3", "run-1")
         assert len(results) == 1
         assert results[0].attempt == 2
@@ -185,9 +208,14 @@ class TestLatestAttemptOnlyInRetrieval:
 class TestSortOrderTaskGroupAscending:
     def test_sorted_ascending(self, summary_conn):
         for g in [1, 3, 2]:
-            insert_summary(summary_conn, _make_record(
-                id=str(uuid.uuid4()), task_group=str(g), node_id=f"spec_a:{g}",
-            ))
+            insert_summary(
+                summary_conn,
+                _make_record(
+                    id=str(uuid.uuid4()),
+                    task_group=str(g),
+                    node_id=f"spec_a:{g}",
+                ),
+            )
         results = query_same_spec_summaries(summary_conn, "spec_a", "5", "run-1")
         groups = [r.task_group for r in results]
         assert groups == ["1", "2", "3"]
@@ -197,9 +225,14 @@ class TestSortOrderTaskGroupAscending:
 class TestSameSpecCapApplied:
     def test_cap_at_five(self, summary_conn):
         for g in range(1, 9):
-            insert_summary(summary_conn, _make_record(
-                id=str(uuid.uuid4()), task_group=str(g), node_id=f"spec_a:{g}",
-            ))
+            insert_summary(
+                summary_conn,
+                _make_record(
+                    id=str(uuid.uuid4()),
+                    task_group=str(g),
+                    node_id=f"spec_a:{g}",
+                ),
+            )
         results = query_same_spec_summaries(summary_conn, "spec_a", "9", "run-1", max_items=5)
         assert len(results) == 5
 
@@ -210,9 +243,15 @@ class TestAllArchetypeSummariesRetrieved:
 
     def test_includes_all_archetypes(self, summary_conn):
         for arch in ["coder", "reviewer", "verifier"]:
-            insert_summary(summary_conn, _make_record(
-                id=str(uuid.uuid4()), task_group="2", node_id=f"spec_a:2:{arch}", archetype=arch,
-            ))
+            insert_summary(
+                summary_conn,
+                _make_record(
+                    id=str(uuid.uuid4()),
+                    task_group="2",
+                    node_id=f"spec_a:2:{arch}",
+                    archetype=arch,
+                ),
+            )
         results = query_same_spec_summaries(summary_conn, "spec_a", "3", "run-1")
         assert len(results) == 3
         archetypes = {r.archetype for r in results}
@@ -222,12 +261,24 @@ class TestAllArchetypeSummariesRetrieved:
 # TS-119-11: Cross-spec retrieval excludes current spec (119-REQ-3.1)
 class TestCrossSpecExcludesCurrentSpec:
     def test_excludes_own_spec(self, summary_conn):
-        insert_summary(summary_conn, _make_record(
-            id=str(uuid.uuid4()), spec_name="spec_a", task_group="2", node_id="spec_a:2",
-        ))
-        insert_summary(summary_conn, _make_record(
-            id=str(uuid.uuid4()), spec_name="spec_b", task_group="3", node_id="spec_b:3",
-        ))
+        insert_summary(
+            summary_conn,
+            _make_record(
+                id=str(uuid.uuid4()),
+                spec_name="spec_a",
+                task_group="2",
+                node_id="spec_a:2",
+            ),
+        )
+        insert_summary(
+            summary_conn,
+            _make_record(
+                id=str(uuid.uuid4()),
+                spec_name="spec_b",
+                task_group="3",
+                node_id="spec_b:3",
+            ),
+        )
         results = query_cross_spec_summaries(summary_conn, "spec_a", "run-1")
         assert len(results) == 1
         assert results[0].spec_name == "spec_b"
@@ -237,9 +288,15 @@ class TestCrossSpecExcludesCurrentSpec:
 class TestCrossSpecCapApplied:
     def test_cap_at_three(self, summary_conn):
         for s in ["spec_b", "spec_c", "spec_d", "spec_e", "spec_f"]:
-            insert_summary(summary_conn, _make_record(
-                id=str(uuid.uuid4()), spec_name=s, task_group="1", node_id=f"{s}:1",
-            ))
+            insert_summary(
+                summary_conn,
+                _make_record(
+                    id=str(uuid.uuid4()),
+                    spec_name=s,
+                    task_group="1",
+                    node_id=f"{s}:1",
+                ),
+            )
         results = query_cross_spec_summaries(summary_conn, "spec_a", "run-1", max_items=3)
         assert len(results) == 3
 
@@ -247,14 +304,26 @@ class TestCrossSpecCapApplied:
 # TS-119-14: Cross-spec sorted by created_at descending (119-REQ-3.4)
 class TestCrossSpecSortedCreatedAtDesc:
     def test_most_recent_first(self, summary_conn):
-        insert_summary(summary_conn, _make_record(
-            id=str(uuid.uuid4()), spec_name="spec_b", task_group="1",
-            node_id="spec_b:1", created_at="2026-04-28T10:00:00",
-        ))
-        insert_summary(summary_conn, _make_record(
-            id=str(uuid.uuid4()), spec_name="spec_c", task_group="1",
-            node_id="spec_c:1", created_at="2026-04-28T11:00:00",
-        ))
+        insert_summary(
+            summary_conn,
+            _make_record(
+                id=str(uuid.uuid4()),
+                spec_name="spec_b",
+                task_group="1",
+                node_id="spec_b:1",
+                created_at="2026-04-28T10:00:00",
+            ),
+        )
+        insert_summary(
+            summary_conn,
+            _make_record(
+                id=str(uuid.uuid4()),
+                spec_name="spec_c",
+                task_group="1",
+                node_id="spec_c:1",
+                created_at="2026-04-28T11:00:00",
+            ),
+        )
         results = query_cross_spec_summaries(summary_conn, "spec_a", "run-1")
         assert results[0].spec_name == "spec_c"
         assert results[1].spec_name == "spec_b"
@@ -263,14 +332,30 @@ class TestCrossSpecSortedCreatedAtDesc:
 # TS-119-15: Cross-spec latest attempt only (119-REQ-3.5)
 class TestCrossSpecLatestAttemptOnly:
     def test_latest_attempt_per_spec_group(self, summary_conn):
-        insert_summary(summary_conn, _make_record(
-            id=str(uuid.uuid4()), spec_name="spec_b", task_group="2", node_id="spec_b:2",
-            attempt=1, summary="First attempt", created_at="2026-04-28T10:00:00",
-        ))
-        insert_summary(summary_conn, _make_record(
-            id=str(uuid.uuid4()), spec_name="spec_b", task_group="2", node_id="spec_b:2",
-            attempt=2, summary="Second attempt", created_at="2026-04-28T11:00:00",
-        ))
+        insert_summary(
+            summary_conn,
+            _make_record(
+                id=str(uuid.uuid4()),
+                spec_name="spec_b",
+                task_group="2",
+                node_id="spec_b:2",
+                attempt=1,
+                summary="First attempt",
+                created_at="2026-04-28T10:00:00",
+            ),
+        )
+        insert_summary(
+            summary_conn,
+            _make_record(
+                id=str(uuid.uuid4()),
+                spec_name="spec_b",
+                task_group="2",
+                node_id="spec_b:2",
+                attempt=2,
+                summary="Second attempt",
+                created_at="2026-04-28T11:00:00",
+            ),
+        )
         results = query_cross_spec_summaries(summary_conn, "spec_a", "run-1")
         assert len(results) == 1
         assert results[0].attempt == 2
@@ -280,6 +365,7 @@ class TestCrossSpecLatestAttemptOnly:
 class TestMissingSummaryArtifact:
     def test_read_artifacts_returns_none_for_missing_file(self, tmp_path):
         from agentfox.engine.session_lifecycle import NodeSessionRunner
+
         workspace = MagicMock()
         workspace.path = tmp_path
         result = NodeSessionRunner._read_session_artifacts(workspace)
@@ -300,25 +386,37 @@ class TestFailedSessionSkipsSummary:
         # Precondition: verify that a completed session DOES store a summary.
         # This fails until ingest() handles summaries, preventing the
         # negative test below from passing trivially.
-        provider.ingest("spec_a:2", "spec_a", {
-            "summary": "Completed work", "session_status": "completed",
-            "touched_files": [], "commit_sha": "abc",
-            "archetype": "coder", "task_group": "2", "attempt": 1,
-        })
-        completed_count = summary_conn.execute(
-            "SELECT COUNT(*) FROM session_summaries"
-        ).fetchone()[0]
+        provider.ingest(
+            "spec_a:2",
+            "spec_a",
+            {
+                "summary": "Completed work",
+                "session_status": "completed",
+                "touched_files": [],
+                "commit_sha": "abc",
+                "archetype": "coder",
+                "task_group": "2",
+                "attempt": 1,
+            },
+        )
+        completed_count = summary_conn.execute("SELECT COUNT(*) FROM session_summaries").fetchone()[0]
         assert completed_count == 1  # Fails until implementation exists
 
         # Actual test: a failed session must NOT store a summary row.
-        provider.ingest("spec_a:3", "spec_a", {
-            "summary": "Some text", "session_status": "failed",
-            "touched_files": [], "commit_sha": "",
-            "archetype": "coder", "task_group": "3", "attempt": 1,
-        })
-        total_count = summary_conn.execute(
-            "SELECT COUNT(*) FROM session_summaries"
-        ).fetchone()[0]
+        provider.ingest(
+            "spec_a:3",
+            "spec_a",
+            {
+                "summary": "Some text",
+                "session_status": "failed",
+                "touched_files": [],
+                "commit_sha": "",
+                "archetype": "coder",
+                "task_group": "3",
+                "attempt": 1,
+            },
+        )
+        total_count = summary_conn.execute("SELECT COUNT(*) FROM session_summaries").fetchone()[0]
         assert total_count == 1  # Still 1 — failed session didn't add a row
 
 
@@ -345,9 +443,14 @@ class TestMissingTableHandledGracefully:
 class TestTaskGroup1ReturnsEmpty:
     def test_group_1_empty(self, summary_conn):
         for g in [1, 2, 3]:
-            insert_summary(summary_conn, _make_record(
-                id=str(uuid.uuid4()), task_group=str(g), node_id=f"spec_a:{g}",
-            ))
+            insert_summary(
+                summary_conn,
+                _make_record(
+                    id=str(uuid.uuid4()),
+                    task_group=str(g),
+                    node_id=f"spec_a:{g}",
+                ),
+            )
         results = query_same_spec_summaries(summary_conn, "spec_a", "1", "run-1")
         assert results == []
 
@@ -357,12 +460,24 @@ class TestNonCoderPriorGroupsIncluded:
     """120-REQ-3.3: all archetypes are now returned, not just coder."""
 
     def test_non_coder_prior_groups_returned(self, summary_conn):
-        insert_summary(summary_conn, _make_record(
-            id=str(uuid.uuid4()), task_group="1", node_id="spec_a:1:reviewer", archetype="reviewer",
-        ))
-        insert_summary(summary_conn, _make_record(
-            id=str(uuid.uuid4()), task_group="2", node_id="spec_a:2:verifier", archetype="verifier",
-        ))
+        insert_summary(
+            summary_conn,
+            _make_record(
+                id=str(uuid.uuid4()),
+                task_group="1",
+                node_id="spec_a:1:reviewer",
+                archetype="reviewer",
+            ),
+        )
+        insert_summary(
+            summary_conn,
+            _make_record(
+                id=str(uuid.uuid4()),
+                task_group="2",
+                node_id="spec_a:2:verifier",
+                archetype="verifier",
+            ),
+        )
         results = query_same_spec_summaries(summary_conn, "spec_a", "3", "run-1")
         assert len(results) == 2
         archetypes = {r.archetype for r in results}
@@ -372,9 +487,14 @@ class TestNonCoderPriorGroupsIncluded:
 # TS-119-E6: No cross-spec summaries in run (119-REQ-3.E1)
 class TestNoCrossSpecSummariesInRun:
     def test_only_own_spec(self, summary_conn):
-        insert_summary(summary_conn, _make_record(
-            id=str(uuid.uuid4()), spec_name="spec_a", node_id="spec_a:1",
-        ))
+        insert_summary(
+            summary_conn,
+            _make_record(
+                id=str(uuid.uuid4()),
+                spec_name="spec_a",
+                node_id="spec_a:1",
+            ),
+        )
         results = query_cross_spec_summaries(summary_conn, "spec_a", "run-1")
         assert results == []
 
@@ -385,9 +505,16 @@ class TestNoRunIdSkipsCrossSpec:
         from agentfox.core.config import KnowledgeProviderConfig
         from agentfox.knowledge.db import KnowledgeDB
         from agentfox.knowledge.fox_provider import FoxKnowledgeProvider
-        insert_summary(summary_conn, _make_record(
-            id=str(uuid.uuid4()), spec_name="spec_b", task_group="1", node_id="spec_b:1",
-        ))
+
+        insert_summary(
+            summary_conn,
+            _make_record(
+                id=str(uuid.uuid4()),
+                spec_name="spec_b",
+                task_group="1",
+                node_id="spec_b:1",
+            ),
+        )
         db = KnowledgeDB.__new__(KnowledgeDB)
         db._conn = summary_conn
         provider = FoxKnowledgeProvider(db, KnowledgeProviderConfig())
@@ -430,17 +557,21 @@ class TestDbFailureDoesNotCrash:
 
         # Should not raise
         with caplog.at_level(logging.WARNING):
-            provider_broken.ingest("spec_a:3", "spec_a", {
-                "summary": "text", "session_status": "completed",
-                "touched_files": [], "commit_sha": "",
-                "archetype": "coder", "task_group": "3", "attempt": 1,
-            })
+            provider_broken.ingest(
+                "spec_a:3",
+                "spec_a",
+                {
+                    "summary": "text",
+                    "session_status": "completed",
+                    "touched_files": [],
+                    "commit_sha": "",
+                    "archetype": "coder",
+                    "task_group": "3",
+                    "attempt": 1,
+                },
+            )
 
         # After implementation, a warning about summary insertion failure
         # should be logged. This assertion fails until ingest() handles
         # summaries and logs graceful DB errors.
-        assert any(
-            "summary" in r.message.lower()
-            for r in caplog.records
-            if r.levelno >= logging.WARNING
-        )
+        assert any("summary" in r.message.lower() for r in caplog.records if r.levelno >= logging.WARNING)

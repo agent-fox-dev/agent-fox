@@ -721,9 +721,7 @@ class TestPropertyFailOpen:
 class TestSmokeFullPipelineWithPriorAttempts:
     """End-to-end test that prior attempt context appears in the coder's task prompt."""
 
-    def test_full_pipeline_prior_attempts_in_prompt(
-        self, db_conn: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_full_pipeline_prior_attempts_in_prompt(self, db_conn: duckdb.DuckDBPyConnection) -> None:
         """TS-128-SMOKE-1: real DuckDB + real pipeline code produces enriched prompt."""
         from agentfox.nightshift.fix_pipeline import FixPipeline, TriageResult
         from agentfox.nightshift.spec_builder import InMemorySpec

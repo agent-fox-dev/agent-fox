@@ -204,7 +204,6 @@ class TestLifecycleCompleteness:
                 create=True,
             ) as mock_pd_cls,
         ):
-
             runner.invoke(
                 fix_cmd,
                 [],
@@ -252,7 +251,7 @@ class TestCallbackWiringInvariant:
         mock_fix_spec.cluster_label = "test"
         mock_fix_spec.task_prompt = "fix"
 
-        with patch("af.fix.run_session", new_callable=AsyncMock) as mock_run_session:
+        with patch("agentfox.fix.runner.run_session", new_callable=AsyncMock) as mock_run_session:
             mock_run_session.return_value = mock_outcome
             runner = _build_fix_session_runner(config, tmp_path, activity_callback=callback)
             await runner(mock_fix_spec)

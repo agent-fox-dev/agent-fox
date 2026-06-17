@@ -236,8 +236,7 @@ async def _clean_conflicting_untracked(
             conflicts_dir = repo_root / ".agent-fox" / "conflicts" / branch_slug
             conflicts_dir.mkdir(parents=True, exist_ok=True)
             logger.warning(
-                "Force-clean: backing up %d divergent untracked file(s) to '%s' "
-                "for feature branch '%s': %s",
+                "Force-clean: backing up %d divergent untracked file(s) to '%s' for feature branch '%s': %s",
                 len(divergent),
                 conflicts_dir,
                 feature_branch,

@@ -63,9 +63,7 @@ class TestPidMutualExclusion:
         max_examples=50,
         suppress_health_check=[HealthCheck.function_scoped_fixture],
     )
-    def test_pid_status_matches_process_liveness(
-        self, pid: int, tmp_path: Path
-    ) -> None:
+    def test_pid_status_matches_process_liveness(self, pid: int, tmp_path: Path) -> None:
         """check_pid_file returns ALIVE for alive PIDs, STALE for dead ones."""
         from agentfox.nightshift.pid import PidStatus, check_pid_file
 
@@ -138,9 +136,7 @@ class TestCostMonotonicity:
         ),
     )
     @settings(max_examples=100)
-    def test_cost_monotonicity_and_exceeded(
-        self, costs: list[float], max_cost: float | None
-    ) -> None:
+    def test_cost_monotonicity_and_exceeded(self, costs: list[float], max_cost: float | None) -> None:
         """total_cost equals sum of add_cost calls; exceeded triggers correctly."""
         from agentfox.nightshift.daemon import SharedBudget
 
@@ -174,9 +170,7 @@ class TestStreamIsolation:
         max_examples=20,
         suppress_health_check=[HealthCheck.function_scoped_fixture],
     )
-    def test_failing_stream_does_not_block_others(
-        self, n: int, fail_index: int, tmp_path: Path
-    ) -> None:
+    def test_failing_stream_does_not_block_others(self, n: int, fail_index: int, tmp_path: Path) -> None:
         """Non-failing streams run even when one stream always fails."""
         from agentfox.nightshift.daemon import DaemonRunner, SharedBudget
 
@@ -192,9 +186,7 @@ class TestStreamIsolation:
 
         budget = SharedBudget(max_cost=None)
         config = _make_config()
-        runner = DaemonRunner(
-            config, None, streams, budget, pid_path=tmp_path / "d.pid"
-        )  # type: ignore[arg-type]
+        runner = DaemonRunner(config, None, streams, budget, pid_path=tmp_path / "d.pid")  # type: ignore[arg-type]
 
         async def run_briefly() -> None:
             t = asyncio.create_task(runner.run())
@@ -230,9 +222,7 @@ class TestShutdownCompleteness:
         streams = [_make_mock_stream(name=f"s-{i}") for i in range(n)]
         budget = SharedBudget(max_cost=None)
         config = _make_config()
-        runner = DaemonRunner(
-            config, None, streams, budget, pid_path=tmp_path / "d.pid"
-        )  # type: ignore[arg-type]
+        runner = DaemonRunner(config, None, streams, budget, pid_path=tmp_path / "d.pid")  # type: ignore[arg-type]
         runner.request_shutdown()
 
         async def run_and_check() -> None:
@@ -241,6 +231,4 @@ class TestShutdownCompleteness:
         asyncio.run(run_and_check())
 
         for i, s in enumerate(streams):
-            assert s.shutdown.call_count == 1, (
-                f"stream s-{i} shutdown not called"
-            )
+            assert s.shutdown.call_count == 1, f"stream s-{i} shutdown not called"

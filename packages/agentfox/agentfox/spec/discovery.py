@@ -18,7 +18,6 @@ logger = logging.getLogger(__name__)
 _SPEC_DIR_PATTERN = re.compile(r"^(\d+)_(.+)$")
 
 
-
 @dataclass(frozen=True)
 class SpecInfo:
     """Metadata about a discovered specification folder."""

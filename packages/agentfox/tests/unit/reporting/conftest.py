@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
@@ -134,10 +135,7 @@ def write_plan_to_db(
             instances=props.get("instances", 1),
         )
 
-    edge_objs = [
-        Edge(source=e["source"], target=e["target"], kind=e.get("kind", "dependency"))
-        for e in edges
-    ]
+    edge_objs = [Edge(source=e["source"], target=e["target"], kind=e.get("kind", "dependency")) for e in edges]
     graph = TaskGraph(
         nodes=node_objs,
         edges=edge_objs,

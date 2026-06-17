@@ -195,10 +195,24 @@ class TestBuildSummaryComment:
         tasks_path = spec_dir / "tasks.json"
 
         mock_groups = [
-            TaskGroupDef(number=1, title="Write failing tests", optional=False, completed=True,
-                         subtasks=(SubtaskDef(id="1.1", title="t1", completed=True),), body="", archetype=None),
-            TaskGroupDef(number=2, title="Implement feature", optional=False, completed=True,
-                         subtasks=(SubtaskDef(id="2.1", title="t2", completed=True),), body="", archetype=None),
+            TaskGroupDef(
+                number=1,
+                title="Write failing tests",
+                optional=False,
+                completed=True,
+                subtasks=(SubtaskDef(id="1.1", title="t1", completed=True),),
+                body="",
+                archetype=None,
+            ),
+            TaskGroupDef(
+                number=2,
+                title="Implement feature",
+                optional=False,
+                completed=True,
+                subtasks=(SubtaskDef(id="2.1", title="t2", completed=True),),
+                body="",
+                archetype=None,
+            ),
         ]
 
         with patch("agentfox.spec.parser.parse_tasks", return_value=mock_groups):

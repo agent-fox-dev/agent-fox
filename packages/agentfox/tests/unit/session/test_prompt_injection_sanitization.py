@@ -50,9 +50,7 @@ def _make_conn() -> duckdb.DuckDBPyConnection:
     return conn
 
 
-def _write_spec(
-    spec_dir: Path, *, req_introduction: str = "REQ"
-) -> None:
+def _write_spec(spec_dir: Path, *, req_introduction: str = "REQ") -> None:
     """Write minimal v1.2 spec fixture files."""
     (spec_dir / "prd.md").write_text(
         '---\nspec_id: "t"\nspec_name: "t"\ntitle: "T"\n'
@@ -60,26 +58,53 @@ def _write_spec(
         'updated_at: "2024-01-01T00:00:00Z"\nowner: "t"\n'
         'source: "t"\nschema_version: 1\n---\n# T\n'
     )
-    (spec_dir / "requirements.json").write_text(json.dumps({
-        "spec_id": "t", "spec_name": "t", "schema_version": 1,
-        "introduction": req_introduction, "glossary": {},
-        "requirements": [], "correctness_properties": [],
-        "execution_paths": [], "error_handling": [],
-    }))
-    (spec_dir / "test_spec.json").write_text(json.dumps({
-        "spec_id": "t", "spec_name": "t", "schema_version": 1,
-        "test_cases": [], "property_tests": [],
-        "edge_case_tests": [], "smoke_tests": [],
-        "coverage": {
-            "requirements_covered": [], "properties_covered": [],
-            "paths_covered": [], "gaps": [],
-        },
-    }))
-    (spec_dir / "tasks.json").write_text(json.dumps({
-        "spec_id": "t", "spec_name": "t", "schema_version": 1,
-        "test_commands": {"spec_tests": "", "all_tests": "", "linter": ""},
-        "dependencies": [], "task_groups": [], "traceability": [],
-    }))
+    (spec_dir / "requirements.json").write_text(
+        json.dumps(
+            {
+                "spec_id": "t",
+                "spec_name": "t",
+                "schema_version": 1,
+                "introduction": req_introduction,
+                "glossary": {},
+                "requirements": [],
+                "correctness_properties": [],
+                "execution_paths": [],
+                "error_handling": [],
+            }
+        )
+    )
+    (spec_dir / "test_spec.json").write_text(
+        json.dumps(
+            {
+                "spec_id": "t",
+                "spec_name": "t",
+                "schema_version": 1,
+                "test_cases": [],
+                "property_tests": [],
+                "edge_case_tests": [],
+                "smoke_tests": [],
+                "coverage": {
+                    "requirements_covered": [],
+                    "properties_covered": [],
+                    "paths_covered": [],
+                    "gaps": [],
+                },
+            }
+        )
+    )
+    (spec_dir / "tasks.json").write_text(
+        json.dumps(
+            {
+                "spec_id": "t",
+                "spec_name": "t",
+                "schema_version": 1,
+                "test_commands": {"spec_tests": "", "all_tests": "", "linter": ""},
+                "dependencies": [],
+                "task_groups": [],
+                "traceability": [],
+            }
+        )
+    )
 
 
 def _insert_drift_finding(

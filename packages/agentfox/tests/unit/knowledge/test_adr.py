@@ -216,9 +216,7 @@ def _make_adr_entry(
     if not summary:
         others = [o for o in considered_options if o != chosen_option]
         other_str = ", ".join(f'"{o}"' for o in others)
-        summary = (
-            f'{title}: Chose "{chosen_option}" over {other_str}. {justification}'
-        )
+        summary = f'{title}: Chose "{chosen_option}" over {other_str}. {justification}'
     return ADREntry(
         id=id,
         file_path=file_path,
@@ -617,9 +615,7 @@ class TestContentHash:
         adr_file = adr_dir / "01-test.md"
         adr_file.write_text(VALID_MADR_CONTENT, encoding="utf-8")
 
-        expected_hash = hashlib.sha256(
-            VALID_MADR_CONTENT.encode("utf-8")
-        ).hexdigest()
+        expected_hash = hashlib.sha256(VALID_MADR_CONTENT.encode("utf-8")).hexdigest()
 
         entry = ingest_adr(adr_conn, "docs/adr/01-test.md", tmp_path)
         assert entry is not None
@@ -637,9 +633,7 @@ class TestSupersede:
     Requirements: 117-REQ-5.1, 117-REQ-5.3
     """
 
-    def test_supersede_on_different_hash(
-        self, adr_conn: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_supersede_on_different_hash(self, adr_conn: duckdb.DuckDBPyConnection) -> None:
         entry_v1 = _make_adr_entry(
             id="v1-id",
             file_path="docs/adr/01-test.md",
@@ -655,8 +649,7 @@ class TestSupersede:
         store_adr(adr_conn, entry_v2)
 
         rows = adr_conn.execute(
-            "SELECT superseded_at FROM adr_entries "
-            "WHERE file_path = ? ORDER BY created_at",
+            "SELECT superseded_at FROM adr_entries WHERE file_path = ? ORDER BY created_at",
             ["docs/adr/01-test.md"],
         ).fetchall()
         assert len(rows) == 2
@@ -675,9 +668,7 @@ class TestSkipDuplicate:
     Requirements: 117-REQ-5.2, 117-REQ-4.E2
     """
 
-    def test_duplicate_returns_zero(
-        self, adr_conn: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_duplicate_returns_zero(self, adr_conn: duckdb.DuckDBPyConnection) -> None:
         entry = _make_adr_entry(
             id="dup-id",
             file_path="docs/adr/01-test.md",
@@ -712,9 +703,7 @@ class TestSupersededWithNew:
     Requirement: 117-REQ-5.E1
     """
 
-    def test_new_entry_active_after_all_superseded(
-        self, adr_conn: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_new_entry_active_after_all_superseded(self, adr_conn: duckdb.DuckDBPyConnection) -> None:
         # Manually insert a superseded entry
         adr_conn.execute(
             "INSERT INTO adr_entries "
@@ -739,8 +728,7 @@ class TestSupersededWithNew:
         store_adr(adr_conn, new_entry)
 
         active = adr_conn.execute(
-            "SELECT id FROM adr_entries "
-            "WHERE file_path = ? AND superseded_at IS NULL",
+            "SELECT id FROM adr_entries WHERE file_path = ? AND superseded_at IS NULL",
             ["docs/adr/01-test.md"],
         ).fetchall()
         assert len(active) == 1
@@ -779,9 +767,7 @@ class TestQuerySpecRefs:
     Requirement: 117-REQ-6.1
     """
 
-    def test_query_by_spec_ref(
-        self, adr_conn: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_query_by_spec_ref(self, adr_conn: duckdb.DuckDBPyConnection) -> None:
         entry = _make_adr_entry(
             spec_refs=["42"],
             keywords=["rate", "limiter"],
@@ -822,9 +808,7 @@ class TestQueryNoMatch:
     Requirement: 117-REQ-6.E2
     """
 
-    def test_no_matching_adrs(
-        self, adr_conn: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_no_matching_adrs(self, adr_conn: duckdb.DuckDBPyConnection) -> None:
         entry = _make_adr_entry(
             spec_refs=["10"],
             keywords=["widget"],
@@ -852,10 +836,7 @@ class TestFormatPrompt:
             chosen_option="DuckDB",
             justification="embedded, zero-config",
             considered_options=["DuckDB", "SQLite", "PostgreSQL", "Redis"],
-            summary=(
-                'Use DuckDB: Chose "DuckDB" over "SQLite", "PostgreSQL", "Redis". '
-                "embedded, zero-config"
-            ),
+            summary=('Use DuckDB: Chose "DuckDB" over "SQLite", "PostgreSQL", "Redis". embedded, zero-config'),
         )
         result = format_adrs_for_prompt([entry])
         assert len(result) == 1
@@ -958,10 +939,7 @@ Chosen option: "Only One Option", because there is no choice.
 
         # Should have emitted an audit event (117-REQ-7.2)
         events = sink.captured_events
-        validation_events = [
-            e for e in events
-            if e.event_type.value == "adr.validation_failed"
-        ]
+        validation_events = [e for e in events if e.event_type.value == "adr.validation_failed"]
         assert len(validation_events) >= 1
 
         # Verify severity is WARNING (117-REQ-7.2)
@@ -993,9 +971,7 @@ class TestIngestionAudit:
     ) -> None:
         adr_dir = tmp_path / "docs" / "adr"
         adr_dir.mkdir(parents=True)
-        (adr_dir / "01-good.md").write_text(
-            VALID_MADR_NO_STATUS, encoding="utf-8"
-        )
+        (adr_dir / "01-good.md").write_text(VALID_MADR_NO_STATUS, encoding="utf-8")
 
         sink = MockSinkDispatcher()
         entry = ingest_adr(
@@ -1009,10 +985,7 @@ class TestIngestionAudit:
 
         # Should have emitted an audit event (117-REQ-7.4)
         events = sink.captured_events
-        ingestion_events = [
-            e for e in events
-            if e.event_type.value == "adr.ingested"
-        ]
+        ingestion_events = [e for e in events if e.event_type.value == "adr.ingested"]
         assert len(ingestion_events) >= 1
 
         # Verify severity is INFO (117-REQ-7.4)
@@ -1039,9 +1012,7 @@ class TestProviderRetrieveIncludesADRs:
     Requirement: 117-REQ-6.3
     """
 
-    def test_retrieve_includes_adr_items(
-        self, migrated_conn: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_retrieve_includes_adr_items(self, migrated_conn: duckdb.DuckDBPyConnection) -> None:
         from agentfox.core.config import KnowledgeProviderConfig
         from agentfox.knowledge.db import KnowledgeDB
         from agentfox.knowledge.fox_provider import FoxKnowledgeProvider
@@ -1084,9 +1055,7 @@ class TestSmokeIngestPipeline:
         # Setup: write a valid MADR file
         adr_dir = tmp_path / "docs" / "adr"
         adr_dir.mkdir(parents=True)
-        (adr_dir / "07-test.md").write_text(
-            VALID_MADR_NO_STATUS, encoding="utf-8"
-        )
+        (adr_dir / "07-test.md").write_text(VALID_MADR_NO_STATUS, encoding="utf-8")
 
         # Execute
         entry = ingest_adr(
@@ -1106,9 +1075,7 @@ class TestSmokeIngestPipeline:
 
         # Verify content hash
         file_content = (adr_dir / "07-test.md").read_text(encoding="utf-8")
-        expected_hash = hashlib.sha256(
-            file_content.encode("utf-8")
-        ).hexdigest()
+        expected_hash = hashlib.sha256(file_content.encode("utf-8")).hexdigest()
         assert entry.content_hash == expected_hash
 
 
@@ -1164,9 +1131,7 @@ class TestQueryKeywordOverlap:
     Requirement: 117-REQ-6.1 (keyword matching sub-case)
     """
 
-    def test_keyword_overlap_match(
-        self, adr_conn: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_keyword_overlap_match(self, adr_conn: duckdb.DuckDBPyConnection) -> None:
         entry = _make_adr_entry(
             spec_refs=[],
             keywords=["widget", "framework", "performance"],

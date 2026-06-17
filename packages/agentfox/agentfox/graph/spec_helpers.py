@@ -56,12 +56,7 @@ def count_ts_entries(spec_dir: Path) -> int:
 
             spec = afspec.load_spec(spec_dir)
             ts = spec.test_spec
-            return (
-                len(ts.test_cases)
-                + len(ts.property_tests)
-                + len(ts.edge_case_tests)
-                + len(ts.smoke_tests)
-            )
+            return len(ts.test_cases) + len(ts.property_tests) + len(ts.edge_case_tests) + len(ts.smoke_tests)
         except Exception:
             # 134-REQ-3.E1: return 0 and log warning on load failure
             logger.warning("Failed to load test_spec.json in %s", spec_dir)

@@ -251,8 +251,12 @@ class TestNoConcurrentMergeWhilePushing:
 
         # Verify strict serialization: merge-push_start-push_end-merge-push_start-push_end
         assert call_order == [
-            "merge", "push_start", "push_end",
-            "merge", "push_start", "push_end",
+            "merge",
+            "push_start",
+            "push_end",
+            "merge",
+            "push_start",
+            "push_end",
         ]
 
 
@@ -500,11 +504,9 @@ class TestSuccessfulRetryLogsInfo:
             result = await _push_with_retry(repo_root, "develop")
 
         assert result is True
-        assert any(
-            "attempt 2" in r.message.lower()
-            for r in caplog.records
-            if r.levelname == "INFO"
-        ), f"Expected INFO log with 'attempt 2'; got: {[r.message for r in caplog.records]}"
+        assert any("attempt 2" in r.message.lower() for r in caplog.records if r.levelname == "INFO"), (
+            f"Expected INFO log with 'attempt 2'; got: {[r.message for r in caplog.records]}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -660,10 +662,7 @@ class TestPushFailureEmitsAuditEvent:
                 run_id="test-run",
             )
 
-        failed_events = [
-            e for e in sink.events
-            if e.event_type == AuditEventType.GIT_PUSH_FAILED
-        ]
+        failed_events = [e for e in sink.events if e.event_type == AuditEventType.GIT_PUSH_FAILED]
         assert len(failed_events) >= 1
 
 
@@ -718,10 +717,7 @@ class TestAuditPayloadIncludesRequiredFields:
                 run_id="test-run",
             )
 
-        failed_events = [
-            e for e in sink.events
-            if e.event_type == AuditEventType.GIT_PUSH_FAILED
-        ]
+        failed_events = [e for e in sink.events if e.event_type == AuditEventType.GIT_PUSH_FAILED]
         assert len(failed_events) >= 1
         payload = failed_events[0].payload
         assert "attempt" in payload
@@ -779,10 +775,7 @@ class TestRetriesExhaustedEmitsFinalAudit:
                 run_id="test-run",
             )
 
-        failed_events = [
-            e for e in sink.events
-            if e.event_type == AuditEventType.GIT_PUSH_FAILED
-        ]
+        failed_events = [e for e in sink.events if e.event_type == AuditEventType.GIT_PUSH_FAILED]
         assert len(failed_events) >= 1
         last_event = failed_events[-1]
         assert last_event.payload["retries_exhausted"] is True
@@ -839,10 +832,7 @@ class TestSuccessfulRetryEmitsPushRetrySuccess:
                 run_id="test-run",
             )
 
-        success_events = [
-            e for e in sink.events
-            if e.event_type == AuditEventType.GIT_PUSH_RETRY_SUCCESS
-        ]
+        success_events = [e for e in sink.events if e.event_type == AuditEventType.GIT_PUSH_RETRY_SUCCESS]
         assert len(success_events) == 1
         assert success_events[0].payload["total_attempts"] == 2
 
@@ -1524,14 +1514,8 @@ class TestPropertyAuditEventCompleteness:
 
         asyncio.run(run_test())
 
-        failed_events = [
-            e for e in sink.events
-            if e.event_type == AuditEventType.GIT_PUSH_FAILED
-        ]
-        success_events = [
-            e for e in sink.events
-            if e.event_type == AuditEventType.GIT_PUSH_RETRY_SUCCESS
-        ]
+        failed_events = [e for e in sink.events if e.event_type == AuditEventType.GIT_PUSH_FAILED]
+        success_events = [e for e in sink.events if e.event_type == AuditEventType.GIT_PUSH_RETRY_SUCCESS]
 
         assert len(failed_events) >= 1, "Expected at least one push_failed event"
 
@@ -1684,14 +1668,8 @@ class TestSmokeHarvestPushRetry:
         assert git_calls.count("fetch") == 1
         assert git_calls.count("rebase") == 1
 
-        failed_events = [
-            e for e in sink.events
-            if e.event_type == AuditEventType.GIT_PUSH_FAILED
-        ]
-        success_events = [
-            e for e in sink.events
-            if e.event_type == AuditEventType.GIT_PUSH_RETRY_SUCCESS
-        ]
+        failed_events = [e for e in sink.events if e.event_type == AuditEventType.GIT_PUSH_FAILED]
+        success_events = [e for e in sink.events if e.event_type == AuditEventType.GIT_PUSH_RETRY_SUCCESS]
         assert len(failed_events) == 1
         assert len(success_events) == 1
 
@@ -1747,8 +1725,5 @@ class TestSmokeHarvestPushSuccessFirstTry:
         mock_push.assert_called_once()
         mock_fetch.assert_not_called()
 
-        failed_events = [
-            e for e in sink.events
-            if e.event_type == AuditEventType.GIT_PUSH_FAILED
-        ]
+        failed_events = [e for e in sink.events if e.event_type == AuditEventType.GIT_PUSH_FAILED]
         assert len(failed_events) == 0

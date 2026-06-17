@@ -80,7 +80,8 @@ class TestKnowledgeIngestionAfterSession:
         config = AgentFoxConfig()
         provider = _TrackingProvider()
         runner = NodeSessionRunner(
-            "test_spec:1", config,
+            "test_spec:1",
+            config,
             knowledge_db=_MOCK_KB,
             knowledge_provider=provider,
         )
@@ -124,7 +125,8 @@ class TestKnowledgeIngestionAfterSession:
         config = AgentFoxConfig()
         provider = _TrackingProvider()
         runner = NodeSessionRunner(
-            "test_spec:1", config,
+            "test_spec:1",
+            config,
             knowledge_db=_MOCK_KB,
             knowledge_provider=provider,
         )
@@ -166,7 +168,8 @@ class TestKnowledgeIngestionAfterSession:
         config = AgentFoxConfig()
         provider = _TrackingProvider()
         runner = NodeSessionRunner(
-            "test_spec:1", config,
+            "test_spec:1",
+            config,
             knowledge_db=_MOCK_KB,
             knowledge_provider=provider,
         )
@@ -215,7 +218,8 @@ class TestKnowledgeIngestionAfterSession:
                 return []
 
         runner = NodeSessionRunner(
-            "test_spec:1", config,
+            "test_spec:1",
+            config,
             knowledge_db=_MOCK_KB,
             knowledge_provider=_FailingProvider(),
         )

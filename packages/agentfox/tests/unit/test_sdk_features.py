@@ -260,5 +260,3 @@ class TestThinkingPassthrough:
         if stored_thinking is None:
             stored_thinking = opts.extra_args.get("thinking")
         assert stored_thinking is not None
-
-

@@ -36,9 +36,7 @@ class TestInitDoesNotCreateMemoryMd:
     Requirement: 129-REQ-2.1
     """
 
-    def test_init_no_memory_md(
-        self, cli_runner: CliRunner, tmp_git_repo: Path
-    ) -> None:
+    def test_init_no_memory_md(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
         """agent-fox init must not create docs/memory.md."""
         from af.app import main
 
@@ -68,9 +66,7 @@ class TestTemplateClean:
 
     def test_template_clean(self) -> None:
         """agents_md.md template must not reference memory.md."""
-        content = (
-            _PKG_ROOT / "agentfox" / "_templates" / "agents_md.md"
-        ).read_text()
+        content = (_PKG_ROOT / "agentfox" / "_templates" / "agents_md.md").read_text()
         assert "memory.md" not in content
 
 
@@ -106,9 +102,7 @@ class TestProfileClean:
 
     def test_profile_clean(self) -> None:
         """agent.md profile template must not reference memory.md."""
-        content = (
-            _PKG_ROOT / "agentfox" / "_templates" / "profiles" / "agent.md"
-        ).read_text()
+        content = (_PKG_ROOT / "agentfox" / "_templates" / "profiles" / "agent.md").read_text()
         assert "memory.md" not in content
 
 
@@ -120,10 +114,9 @@ class TestSkillClean:
 
     def test_skill_template_clean(self) -> None:
         """af-fix skill template must not reference memory.md."""
-        template = (
-            _PKG_ROOT / "agentfox" / "_templates" / "skills" / "af-fix"
-        ).read_text()
+        template = (_PKG_ROOT / "agentfox" / "_templates" / "skills" / "af-fix").read_text()
         assert "memory.md" not in template
+
 
 class TestInitTestsRemoved:
     """TS-129-9: Verify test_init.py has no memory.md test methods.
@@ -133,9 +126,7 @@ class TestInitTestsRemoved:
 
     def test_init_tests_removed(self) -> None:
         """test_init.py must not contain memory.md-related test methods."""
-        source = (
-            _PKG_ROOT / "tests" / "integration" / "test_init.py"
-        ).read_text()
+        source = (_PKG_ROOT / "tests" / "integration" / "test_init.py").read_text()
         assert "test_init_creates_docs_memory_md" not in source
         assert "test_reinit_preserves_existing_seed_files" not in source
 
@@ -180,9 +171,7 @@ class TestNoDanglingReferences:
             if "docs/memory.md" in content:
                 violations.append(rel_path)
 
-        assert violations == [], (
-            f"Found docs/memory.md references in: {violations}"
-        )
+        assert violations == [], f"Found docs/memory.md references in: {violations}"
 
 
 class TestInitProjectNoMemoryMd:
@@ -211,9 +200,7 @@ class TestFullInitWithoutMemoryMd:
     Requirement: 129-REQ-2.1
     """
 
-    def test_full_init_smoke(
-        self, cli_runner: CliRunner, tmp_git_repo: Path
-    ) -> None:
+    def test_full_init_smoke(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
         """End-to-end init run must not produce docs/memory.md."""
         from af.app import main
 

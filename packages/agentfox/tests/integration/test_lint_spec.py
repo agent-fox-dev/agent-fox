@@ -175,16 +175,10 @@ def _create_spec_with_tasks(
 
     # v1.2 artifacts
     (spec_dir / "prd.md").write_text(_v12_prd_content(spec_id, name))
-    (spec_dir / "requirements.json").write_text(
-        _v12_requirements_json(spec_id, name)
-    )
-    (spec_dir / "test_spec.json").write_text(
-        _v12_test_spec_json(spec_id, name)
-    )
+    (spec_dir / "requirements.json").write_text(_v12_requirements_json(spec_id, name))
+    (spec_dir / "test_spec.json").write_text(_v12_test_spec_json(spec_id, name))
     (spec_dir / "tasks.json").write_text(
-        _v12_tasks_json(
-            spec_id, name, all_completed=all_completed, produce_finding=True
-        )
+        _v12_tasks_json(spec_id, name, all_completed=all_completed, produce_finding=True)
     )
     return spec_dir
 
@@ -224,19 +218,11 @@ def _setup_project_with_specs(
             # Add valid v1.2 artifacts so discover_specs includes the
             # spec and afspec.load_spec() can parse it.
             if not (dst / "requirements.json").exists():
-                (dst / "requirements.json").write_text(
-                    _v12_requirements_json(spec_id, name)
-                )
+                (dst / "requirements.json").write_text(_v12_requirements_json(spec_id, name))
             if not (dst / "test_spec.json").exists():
-                (dst / "test_spec.json").write_text(
-                    _v12_test_spec_json(spec_id, name)
-                )
+                (dst / "test_spec.json").write_text(_v12_test_spec_json(spec_id, name))
             if not (dst / "tasks.json").exists():
-                (dst / "tasks.json").write_text(
-                    _v12_tasks_json(
-                        spec_id, name, produce_finding=produce_finding
-                    )
-                )
+                (dst / "tasks.json").write_text(_v12_tasks_json(spec_id, name, produce_finding=produce_finding))
             # Ensure prd.md has YAML frontmatter for afspec.load_spec()
             prd_path = dst / "prd.md"
             if prd_path.exists():
@@ -362,9 +348,7 @@ class TestTableOutputSummary:
 
     def test_table_output_contains_error_text(self, cli_runner: CliRunner, tmp_path: Path) -> None:
         """Table output contains 'error' severity text."""
-        _setup_project_with_specs(
-            tmp_path, ["incomplete_spec"], produce_finding=True
-        )
+        _setup_project_with_specs(tmp_path, ["incomplete_spec"], produce_finding=True)
 
         original_dir = os.getcwd()
         os.chdir(tmp_path)
@@ -543,9 +527,7 @@ class TestAllFlagDefaultSkipsImplemented:
         archived.mkdir()
         for f in ["prd.md", "requirements.md", "design.md", "test_spec.md"]:
             (archived / f).write_text(f"# {f}\n")
-        (archived / "tasks.md").write_text(
-            "# Tasks\n\n- [x] 1. Task\n  - [x] 1.1 Sub\n  - [x] 1.V Verify\n"
-        )
+        (archived / "tasks.md").write_text("# Tasks\n\n- [x] 1. Task\n  - [x] 1.1 Sub\n  - [x] 1.V Verify\n")
 
         # Create an active spec that depends on the archived one
         _create_spec_with_tasks(specs_dir, "02_active_spec", all_completed=False)

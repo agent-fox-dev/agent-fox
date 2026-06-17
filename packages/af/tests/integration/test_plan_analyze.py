@@ -81,41 +81,88 @@ def _setup_specs(base: Path, *spec_names: str) -> Path:
             'updated_at: "2024-01-01T00:00:00Z"\nowner: "test"\n'
             'source: "test"\nschema_version: 1\n---\n# Test\n'
         )
-        (spec_dir / "requirements.json").write_text(json.dumps({
-            "spec_id": "test", "spec_name": "test", "schema_version": 1,
-            "introduction": "", "glossary": {}, "requirements": [],
-            "correctness_properties": [], "execution_paths": [], "error_handling": [],
-        }))
-        (spec_dir / "test_spec.json").write_text(json.dumps({
-            "spec_id": "test", "spec_name": "test", "schema_version": 1,
-            "test_cases": [], "property_tests": [], "edge_case_tests": [],
-            "smoke_tests": [], "coverage": {
-                "requirements_covered": [], "properties_covered": [],
-                "paths_covered": [], "gaps": [],
-            },
-        }))
-        (spec_dir / "tasks.json").write_text(json.dumps({
-            "spec_id": "test", "spec_name": "test", "schema_version": 1,
-            "test_commands": {"spec_tests": "", "all_tests": "", "linter": ""},
-            "dependencies": [],
-            "task_groups": [
+        (spec_dir / "requirements.json").write_text(
+            json.dumps(
                 {
-                    "id": 1, "kind": "standard", "title": "Write tests",
-                    "subtasks": [{"id": "1.1", "title": "Unit tests", "state": "pending",
-                                  "details": [], "test_spec_refs": [], "requirement_refs": [],
-                                  "optional": False}],
-                    "verification": {"id": "", "checks": []},
-                },
+                    "spec_id": "test",
+                    "spec_name": "test",
+                    "schema_version": 1,
+                    "introduction": "",
+                    "glossary": {},
+                    "requirements": [],
+                    "correctness_properties": [],
+                    "execution_paths": [],
+                    "error_handling": [],
+                }
+            )
+        )
+        (spec_dir / "test_spec.json").write_text(
+            json.dumps(
                 {
-                    "id": 2, "kind": "standard", "title": "Implement feature",
-                    "subtasks": [{"id": "2.1", "title": "Core logic", "state": "pending",
-                                  "details": [], "test_spec_refs": [], "requirement_refs": [],
-                                  "optional": False}],
-                    "verification": {"id": "", "checks": []},
-                },
-            ],
-            "traceability": [],
-        }))
+                    "spec_id": "test",
+                    "spec_name": "test",
+                    "schema_version": 1,
+                    "test_cases": [],
+                    "property_tests": [],
+                    "edge_case_tests": [],
+                    "smoke_tests": [],
+                    "coverage": {
+                        "requirements_covered": [],
+                        "properties_covered": [],
+                        "paths_covered": [],
+                        "gaps": [],
+                    },
+                }
+            )
+        )
+        (spec_dir / "tasks.json").write_text(
+            json.dumps(
+                {
+                    "spec_id": "test",
+                    "spec_name": "test",
+                    "schema_version": 1,
+                    "test_commands": {"spec_tests": "", "all_tests": "", "linter": ""},
+                    "dependencies": [],
+                    "task_groups": [
+                        {
+                            "id": 1,
+                            "kind": "standard",
+                            "title": "Write tests",
+                            "subtasks": [
+                                {
+                                    "id": "1.1",
+                                    "title": "Unit tests",
+                                    "state": "pending",
+                                    "details": [],
+                                    "test_spec_refs": [],
+                                    "requirement_refs": [],
+                                    "optional": False,
+                                }
+                            ],
+                            "verification": {"id": "", "checks": []},
+                        },
+                        {
+                            "id": 2,
+                            "kind": "standard",
+                            "title": "Implement feature",
+                            "subtasks": [
+                                {
+                                    "id": "2.1",
+                                    "title": "Core logic",
+                                    "state": "pending",
+                                    "details": [],
+                                    "test_spec_refs": [],
+                                    "requirement_refs": [],
+                                    "optional": False,
+                                }
+                            ],
+                            "verification": {"id": "", "checks": []},
+                        },
+                    ],
+                    "traceability": [],
+                }
+            )
+        )
 
     return specs_dir
 
@@ -163,7 +210,7 @@ class TestAnalyzeSkipsPersistence:
         with (
             patch(_P_BUILD, return_value=mock_graph),
             patch(_P_SAVE) as mock_save,
-            patch(_P_OPEN_DB) as mock_db,
+            patch(_P_OPEN_DB),
         ):
             runner = CliRunner()
             result = runner.invoke(
@@ -515,7 +562,7 @@ class TestSmoke1HumanReadable:
 
         with (
             patch(_P_SAVE) as mock_save,
-            patch(_P_OPEN_DB) as mock_db,
+            patch(_P_OPEN_DB),
         ):
             runner = CliRunner()
             result = runner.invoke(
@@ -546,7 +593,7 @@ class TestSmoke2JSON:
 
         with (
             patch(_P_SAVE) as mock_save,
-            patch(_P_OPEN_DB) as mock_db,
+            patch(_P_OPEN_DB),
         ):
             runner = CliRunner()
             result = runner.invoke(

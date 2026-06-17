@@ -24,6 +24,7 @@ import subprocess
 import sys
 from pathlib import Path
 
+import agentfox
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -34,13 +35,14 @@ from hypothesis import strategies as st
 
 # Root of the agent_fox package (resolved relative to this test file).
 _REPO_ROOT = Path(__file__).resolve().parents[4]
-_AGENT_FOX_ROOT = _REPO_ROOT / "agentfox"
-_TESTS_ROOT = _REPO_ROOT / "tests"
+_PKG_ROOT = _REPO_ROOT / "packages" / "agentfox"
+_AGENT_FOX_ROOT = _PKG_ROOT / "agentfox"
+_TESTS_ROOT = _PKG_ROOT / "tests"
 
 
 def _read_source(relative_path: str) -> str:
-    """Read a source file relative to the repo root."""
-    path = _REPO_ROOT / relative_path
+    """Read a source file relative to the package root."""
+    path = _PKG_ROOT / relative_path
     return path.read_text(encoding="utf-8")
 
 
@@ -233,9 +235,7 @@ class TestTypesExportsTaskGroupDef:
     def test_crossspecdep_is_frozen(self) -> None:
         from agentfox.spec.types import CrossSpecDep
 
-        dep = CrossSpecDep(
-            from_spec="a", from_group=1, to_spec="b", to_group=2
-        )
+        dep = CrossSpecDep(from_spec="a", from_group=1, to_spec="b", to_group=2)
         with pytest.raises(AttributeError):
             dep.from_spec = "z"  # type: ignore[misc]
 
@@ -359,8 +359,6 @@ class TestParserV12ImportsFromTypes:
         assert "from agentfox.spec.types import" in content
 
 
-
-
 # ===================================================================
 # TS-137-5: validators/ deleted
 # Requirement: 137-REQ-3.1
@@ -407,7 +405,7 @@ class TestNoValidatorImports:
 
     def test_lint_specs_py_no_validator_imports(self) -> None:
         """137-REQ-3.3: lint_specs.py does not import from validators."""
-        content = _read_source("agentfox/cli/lint_specs.py")
+        content = (_REPO_ROOT / "packages" / "af" / "af" / "lint_specs.py").read_text(encoding="utf-8")
         assert "agentfox.spec.validators" not in content
 
     def test_lint_py_imports_from_types(self) -> None:
@@ -423,7 +421,6 @@ class TestNoValidatorImports:
         """
         content = _read_source("agentfox/engine/hot_load.py")
         assert "agentfox.spec.validators" not in content
-
 
     def test_verification_checklist_no_parser_import(self) -> None:
         """137-REQ-4.3: verification_checklist.py does not import from
@@ -457,9 +454,7 @@ class TestNoV1FilenameStringsInSource:
         """137-REQ-6.4: No requirements.md, design.md, or test_spec.md
         strings in agent_fox/ source (excluding spec_gen.py)."""
         pattern = re.compile(r"requirements\.md|design\.md|test_spec\.md")
-        py_files = _collect_py_files(
-            _AGENT_FOX_ROOT, exclude=("spec_gen",)
-        )
+        py_files = _collect_py_files(_AGENT_FOX_ROOT, exclude=("spec_gen",))
         matches: list[str] = []
         for p in py_files:
             content = p.read_text(encoding="utf-8")
@@ -470,11 +465,7 @@ class TestNoV1FilenameStringsInSource:
                     continue
                 if pattern.search(line):
                     matches.append(f"{p}:{i}: {line.strip()}")
-        assert matches == [], (
-            "v1 filename strings found in source:\n"
-            + "\n".join(matches)
-        )
-
+        assert matches == [], "v1 filename strings found in source:\n" + "\n".join(matches)
 
 
 # ===================================================================
@@ -489,8 +480,6 @@ class TestNoCoreSpecFilesConstant:
     def test_no_core_spec_files_in_context(self) -> None:
         content = _read_source("agentfox/session/context.py")
         assert "_CORE_SPEC_FILES" not in content
-
-
 
 
 # ===================================================================
@@ -513,10 +502,7 @@ class TestDeletedValidatorsImportError:
             text=True,
         )
         assert result.returncode != 0
-        assert (
-            "ImportError" in result.stderr
-            or "ModuleNotFoundError" in result.stderr
-        )
+        assert "ImportError" in result.stderr or "ModuleNotFoundError" in result.stderr
 
 
 # ===================================================================
@@ -542,10 +528,7 @@ class TestNoDeletedModuleImportsInTests:
             for i, line in enumerate(content.splitlines(), start=1):
                 if pattern.search(line):
                     matches.append(f"{p}:{i}: {line.strip()}")
-        assert matches == [], (
-            "Deleted module imports found in tests:\n"
-            + "\n".join(matches)
-        )
+        assert matches == [], "Deleted module imports found in tests:\n" + "\n".join(matches)
 
 
 # ===================================================================
@@ -600,9 +583,7 @@ class TestTypeIdentityPreserved:
         title=st.text(min_size=1, max_size=50),
         completed=st.booleans(),
     )
-    def test_subtaskdef_field_identity(
-        self, id: str, title: str, completed: bool
-    ) -> None:
+    def test_subtaskdef_field_identity(self, id: str, title: str, completed: bool) -> None:
         from agentfox.spec.types import SubtaskDef
 
         sub = SubtaskDef(id=id, title=title, completed=completed)
@@ -654,7 +635,7 @@ class TestFullPackageImportability:
 
         failures: list[str] = []
         for _importer, modname, _ispkg in pkgutil.walk_packages(
-            path=agent_fox.__path__,
+            path=agentfox.__path__,
             prefix="agentfox.",
         ):
             try:
@@ -665,9 +646,7 @@ class TestFullPackageImportability:
                 pass
             except SystemExit:
                 pass
-        assert failures == [], (
-            "ImportError raised for modules:\n" + "\n".join(failures)
-        )
+        assert failures == [], "ImportError raised for modules:\n" + "\n".join(failures)
 
 
 # ===================================================================
@@ -689,17 +668,25 @@ class TestSmokeFullTestSuite:
         verification that the entire suite is green.
         """
         result = subprocess.run(
-            [sys.executable, "-m", "pytest", "-q", "--tb=no", "-n", "auto",
-             "-k", "not test_full_test_suite_passes and not test_lint_specs_works",
-             "--ignore=tests/integration/test_cross_process_lock.py"],
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "-q",
+                "--tb=no",
+                "-n",
+                "auto",
+                "-k",
+                "not test_full_test_suite_passes and not test_lint_specs_works",
+                "--ignore=tests/integration/test_cross_process_lock.py",
+            ],
             capture_output=True,
             text=True,
             cwd=str(_REPO_ROOT),
             timeout=600,
         )
         assert result.returncode == 0, (
-            f"Test suite failed (rc={result.returncode}):\n"
-            f"{result.stdout[-2000:]}\n{result.stderr[-1000:]}"
+            f"Test suite failed (rc={result.returncode}):\n{result.stdout[-2000:]}\n{result.stderr[-1000:]}"
         )
 
 
@@ -758,21 +745,13 @@ class TestVerificationChecklistNoV1Refs:
     def test_no_tasks_md_string(self) -> None:
         content = _read_source("agentfox/spec/verification_checklist.py")
         # Filter out comments
-        lines = [
-            line
-            for line in content.splitlines()
-            if not line.lstrip().startswith("#")
-        ]
+        lines = [line for line in content.splitlines() if not line.lstrip().startswith("#")]
         source = "\n".join(lines)
         assert "tasks.md" not in source
 
     def test_no_requirements_md_string(self) -> None:
         content = _read_source("agentfox/spec/verification_checklist.py")
-        lines = [
-            line
-            for line in content.splitlines()
-            if not line.lstrip().startswith("#")
-        ]
+        lines = [line for line in content.splitlines() if not line.lstrip().startswith("#")]
         source = "\n".join(lines)
         assert "requirements.md" not in source
 

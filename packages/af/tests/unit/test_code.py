@@ -451,17 +451,13 @@ class TestWorkspaceStateRunSummary:
     original error message in the final run summary output.
     """
 
-    def test_stalled_run_shows_workspace_state_errors(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_stalled_run_shows_workspace_state_errors(self, cli_runner: CliRunner) -> None:
         """Stalled run summary includes workspace-state error details."""
         state = _make_execution_state(
             run_status="stalled",
             node_states={"spec_a:1": "blocked", "spec_a:2": "completed"},
         )
-        state.blocked_reasons["spec_a:1"] = (
-            "workspace-state: Divergent untracked files: src/foo.py"
-        )
+        state.blocked_reasons["spec_a:1"] = "workspace-state: Divergent untracked files: src/foo.py"
 
         with (
             patch("af.code.run_code", _mock_run_code(state)),
@@ -473,9 +469,7 @@ class TestWorkspaceStateRunSummary:
         assert "workspace-state" in result.output.lower()
         assert "spec_a:1" in result.output
 
-    def test_completed_run_omits_workspace_state_section(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_completed_run_omits_workspace_state_section(self, cli_runner: CliRunner) -> None:
         """Completed runs do not show workspace-state error section."""
         state = _make_execution_state(run_status="completed")
 
@@ -488,9 +482,7 @@ class TestWorkspaceStateRunSummary:
 
         assert "Workspace-state errors" not in result.output
 
-    def test_stalled_run_without_workspace_errors_omits_section(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_stalled_run_without_workspace_errors_omits_section(self, cli_runner: CliRunner) -> None:
         """Stalled run without workspace-state reasons omits the section."""
         state = _make_execution_state(
             run_status="stalled",

@@ -145,9 +145,7 @@ class TestForceCleanEnablesHarvest:
     """
 
     @pytest.mark.asyncio
-    async def test_force_clean_harvest_removes_divergent_files(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_force_clean_harvest_removes_divergent_files(self, tmp_path: Path) -> None:
         """Harvest with force_clean=True removes divergent untracked files."""
         repo = _make_repo(tmp_path)
 
@@ -209,9 +207,7 @@ class TestNonRetryableErrorSkipsEscalation:
     """
 
     @pytest.mark.asyncio
-    async def test_divergent_files_raise_retryable_error(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_divergent_files_raise_retryable_error(self, tmp_path: Path) -> None:
         """AC-1: _clean_conflicting_untracked raises IntegrationError(retryable=True)
         so the engine can retry the task on the next cycle."""
         repo = _make_repo(tmp_path)
@@ -357,16 +353,12 @@ class TestStaleRunCleanupOnStartup:
         assert count == 1
 
         # Stale run is now 'stalled'
-        row = conn.execute(
-            "SELECT status FROM runs WHERE id = 'stale_run_1'"
-        ).fetchone()
+        row = conn.execute("SELECT status FROM runs WHERE id = 'stale_run_1'").fetchone()
         assert row is not None
         assert row[0] == "stalled"
 
         # Completed run is unchanged
-        row = conn.execute(
-            "SELECT status FROM runs WHERE id = 'completed_run'"
-        ).fetchone()
+        row = conn.execute("SELECT status FROM runs WHERE id = 'completed_run'").fetchone()
         assert row is not None
         assert row[0] == "completed"
 
@@ -391,9 +383,7 @@ class TestStaleRunCleanupOnStartup:
         # Invoke cleanup handler
         run_cleanup_handler("test_run", conn)
 
-        row = conn.execute(
-            "SELECT status FROM runs WHERE id = 'test_run'"
-        ).fetchone()
+        row = conn.execute("SELECT status FROM runs WHERE id = 'test_run'").fetchone()
         assert row is not None
         assert row[0] == "stalled"
 

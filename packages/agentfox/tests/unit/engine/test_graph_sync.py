@@ -43,12 +43,9 @@ class TestIdempotentCascadeBlockingOnBlocked:
         assert node_states["B"] == "blocked"
 
         # No WARNING should have been emitted
-        warning_messages = [
-            r.message for r in caplog.records if r.levelno == logging.WARNING
-        ]
+        warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
         assert not warning_messages, (
-            f"Expected no WARNING logs when re-blocking already-blocked node; "
-            f"got: {warning_messages}"
+            f"Expected no WARNING logs when re-blocking already-blocked node; got: {warning_messages}"
         )
 
 
@@ -100,9 +97,7 @@ class TestCascadeSkipInProgress:
         assert node_states["C"] == "blocked"
 
         # DEBUG log should have been emitted for the skipped in-progress node
-        debug_messages = [
-            r.message for r in caplog.records if r.levelno == logging.DEBUG
-        ]
+        debug_messages = [r.message for r in caplog.records if r.levelno == logging.DEBUG]
         assert any("in-progress" in m and "B" in m for m in debug_messages), (
             f"Expected DEBUG log about skipping in-progress node B; got: {debug_messages}"
         )

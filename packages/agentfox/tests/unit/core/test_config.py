@@ -134,7 +134,7 @@ class TestConfigSymlinkRejection:
     def test_symlink_config_returns_defaults(self, tmp_path: Path) -> None:
         """load_config() returns defaults when config path is a symlink."""
         target = tmp_path / "sensitive.toml"
-        target.write_text('[orchestrator]\nparallel = 99\n')
+        target.write_text("[orchestrator]\nparallel = 99\n")
         symlink = tmp_path / "config.toml"
         symlink.symlink_to(target)
 
@@ -144,9 +144,7 @@ class TestConfigSymlinkRejection:
         assert isinstance(config, AgentFoxConfig)
         assert config.orchestrator.parallel == 2  # default, not 99
 
-    def test_symlink_config_logs_warning(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_symlink_config_logs_warning(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         """load_config() logs a warning when config path is a symlink."""
         import logging
 

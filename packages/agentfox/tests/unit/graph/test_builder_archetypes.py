@@ -186,24 +186,53 @@ class TestArchetypeTagExtraction:
             'updated_at: "2024-01-01T00:00:00Z"\nowner: "test"\n'
             'source: "test"\nschema_version: 1\n---\n# Test\n'
         )
-        (spec_dir / "requirements.json").write_text(json.dumps({
-            "spec_id": "test", "spec_name": "test", "schema_version": 1,
-            "introduction": "", "glossary": {}, "requirements": [],
-            "correctness_properties": [], "execution_paths": [], "error_handling": [],
-        }))
-        (spec_dir / "test_spec.json").write_text(json.dumps({
-            "spec_id": "test", "spec_name": "test", "schema_version": 1,
-            "test_cases": [], "property_tests": [], "edge_case_tests": [],
-            "smoke_tests": [], "coverage": {
-                "requirements_covered": [], "properties_covered": [],
-                "paths_covered": [], "gaps": [],
-            },
-        }))
-        (spec_dir / "tasks.json").write_text(json.dumps({
-            "spec_id": "test", "spec_name": "test", "schema_version": 1,
-            "test_commands": {"spec_tests": "", "all_tests": "", "linter": ""},
-            "dependencies": [], "task_groups": task_groups, "traceability": [],
-        }))
+        (spec_dir / "requirements.json").write_text(
+            json.dumps(
+                {
+                    "spec_id": "test",
+                    "spec_name": "test",
+                    "schema_version": 1,
+                    "introduction": "",
+                    "glossary": {},
+                    "requirements": [],
+                    "correctness_properties": [],
+                    "execution_paths": [],
+                    "error_handling": [],
+                }
+            )
+        )
+        (spec_dir / "test_spec.json").write_text(
+            json.dumps(
+                {
+                    "spec_id": "test",
+                    "spec_name": "test",
+                    "schema_version": 1,
+                    "test_cases": [],
+                    "property_tests": [],
+                    "edge_case_tests": [],
+                    "smoke_tests": [],
+                    "coverage": {
+                        "requirements_covered": [],
+                        "properties_covered": [],
+                        "paths_covered": [],
+                        "gaps": [],
+                    },
+                }
+            )
+        )
+        (spec_dir / "tasks.json").write_text(
+            json.dumps(
+                {
+                    "spec_id": "test",
+                    "spec_name": "test",
+                    "schema_version": 1,
+                    "test_commands": {"spec_tests": "", "all_tests": "", "linter": ""},
+                    "dependencies": [],
+                    "task_groups": task_groups,
+                    "traceability": [],
+                }
+            )
+        )
 
     def test_v12_group_parsed_with_title(
         self,
@@ -212,13 +241,28 @@ class TestArchetypeTagExtraction:
         from agentfox.spec.parser import parse_tasks
 
         spec_dir = tmp_path / "03_spec"  # type: ignore[operator]
-        self._write_spec(spec_dir, [{
-            "id": 3, "kind": "standard", "title": "Update docs",
-            "subtasks": [{"id": "3.1", "title": "Write docs", "state": "pending",
-                          "details": [], "test_spec_refs": [], "requirement_refs": [],
-                          "optional": False}],
-            "verification": {"id": "", "checks": []},
-        }])
+        self._write_spec(
+            spec_dir,
+            [
+                {
+                    "id": 3,
+                    "kind": "standard",
+                    "title": "Update docs",
+                    "subtasks": [
+                        {
+                            "id": "3.1",
+                            "title": "Write docs",
+                            "state": "pending",
+                            "details": [],
+                            "test_spec_refs": [],
+                            "requirement_refs": [],
+                            "optional": False,
+                        }
+                    ],
+                    "verification": {"id": "", "checks": []},
+                }
+            ],
+        )
 
         groups = parse_tasks(spec_dir)
         assert len(groups) == 1
@@ -232,13 +276,28 @@ class TestArchetypeTagExtraction:
         from agentfox.spec.parser import parse_tasks
 
         spec_dir = tmp_path / "01_spec"  # type: ignore[operator]
-        self._write_spec(spec_dir, [{
-            "id": 1, "kind": "standard", "title": "Normal task",
-            "subtasks": [{"id": "1.1", "title": "Sub", "state": "pending",
-                          "details": [], "test_spec_refs": [], "requirement_refs": [],
-                          "optional": False}],
-            "verification": {"id": "", "checks": []},
-        }])
+        self._write_spec(
+            spec_dir,
+            [
+                {
+                    "id": 1,
+                    "kind": "standard",
+                    "title": "Normal task",
+                    "subtasks": [
+                        {
+                            "id": "1.1",
+                            "title": "Sub",
+                            "state": "pending",
+                            "details": [],
+                            "test_spec_refs": [],
+                            "requirement_refs": [],
+                            "optional": False,
+                        }
+                    ],
+                    "verification": {"id": "", "checks": []},
+                }
+            ],
+        )
 
         groups = parse_tasks(spec_dir)
         assert len(groups) == 1
@@ -359,25 +418,20 @@ class TestAutoPostSiblings:
         assert parts[2] == "verifier"
 
         # AC-1: node_id must use sentinel "0", not any real group number
-        assert parts[1] == "0", (
-            f"Verifier node_id must embed sentinel '0', got: {vn.id!r}"
-        )
+        assert parts[1] == "0", f"Verifier node_id must embed sentinel '0', got: {vn.id!r}"
 
         # AC-1 (key assertion): group_number must NOT be in the set of real task groups
         real_group_numbers = {tgd.number for tgd in task_groups["spec"]}
         assert vn.group_number not in real_group_numbers, (
-            f"Verifier group_number={vn.group_number} coincides with real task group; "
-            f"real groups: {real_group_numbers}"
+            f"Verifier group_number={vn.group_number} coincides with real task group; real groups: {real_group_numbers}"
         )
-        assert vn.group_number == 0, (
-            f"Verifier group_number must be sentinel 0, got {vn.group_number}"
-        )
+        assert vn.group_number == 0, f"Verifier group_number must be sentinel 0, got {vn.group_number}"
 
         # AC-4: no coder node with group_number beyond the last real group
         coder_nodes = [n for n in graph.nodes.values() if n.archetype == "coder"]
-        assert all(
-            n.group_number in real_group_numbers for n in coder_nodes
-        ), "Coder node has group_number beyond the real task groups"
+        assert all(n.group_number in real_group_numbers for n in coder_nodes), (
+            "Coder node has group_number beyond the real task groups"
+        )
 
         # AC-4: exactly 6 coder nodes for 6 real groups
         assert len(coder_nodes) == 6
@@ -400,13 +454,8 @@ class TestAutoPostSiblings:
 
         graph = build_graph(specs, task_groups, [], archetypes_config=config)
 
-        coder_nodes = [
-            n for n in graph.nodes.values()
-            if n.spec_name == "spec" and n.archetype == "coder"
-        ]
-        assert len(coder_nodes) == n_real, (
-            f"Expected {n_real} coder nodes, got {len(coder_nodes)}"
-        )
+        coder_nodes = [n for n in graph.nodes.values() if n.spec_name == "spec" and n.archetype == "coder"]
+        assert len(coder_nodes) == n_real, f"Expected {n_real} coder nodes, got {len(coder_nodes)}"
 
 
 # -------------------------------------------------------------------
@@ -500,13 +549,28 @@ class TestUnknownTagDefaultsCoder:
         from agentfox.spec.parser import parse_tasks
 
         spec_dir = tmp_path / "03_spec"  # type: ignore[operator]
-        TestArchetypeTagExtraction._write_spec(spec_dir, [{
-            "id": 3, "kind": "standard", "title": "Task",
-            "subtasks": [{"id": "3.1", "title": "Sub", "state": "pending",
-                          "details": [], "test_spec_refs": [], "requirement_refs": [],
-                          "optional": False}],
-            "verification": {"id": "", "checks": []},
-        }])
+        TestArchetypeTagExtraction._write_spec(
+            spec_dir,
+            [
+                {
+                    "id": 3,
+                    "kind": "standard",
+                    "title": "Task",
+                    "subtasks": [
+                        {
+                            "id": "3.1",
+                            "title": "Sub",
+                            "state": "pending",
+                            "details": [],
+                            "test_spec_refs": [],
+                            "requirement_refs": [],
+                            "optional": False,
+                        }
+                    ],
+                    "verification": {"id": "", "checks": []},
+                }
+            ],
+        )
 
         groups = parse_tasks(spec_dir)
         assert len(groups) == 1

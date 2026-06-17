@@ -127,9 +127,7 @@ class TestEngineNoHuntMethods:
     def test_engine_no_hunt_methods(self) -> None:
         from agentfox.nightshift.engine import NightShiftEngine
 
-        assert not hasattr(NightShiftEngine, "_run_hunt_scan"), (
-            "NightShiftEngine should not have _run_hunt_scan"
-        )
+        assert not hasattr(NightShiftEngine, "_run_hunt_scan"), "NightShiftEngine should not have _run_hunt_scan"
         assert not hasattr(NightShiftEngine, "_run_hunt_scan_inner"), (
             "NightShiftEngine should not have _run_hunt_scan_inner"
         )
@@ -171,15 +169,9 @@ class TestEngineRetainsFixMethods:
     def test_engine_retains_fix_methods(self) -> None:
         from agentfox.nightshift.engine import NightShiftEngine
 
-        assert callable(getattr(NightShiftEngine, "_drain_issues", None)), (
-            "_drain_issues must be a callable"
-        )
-        assert callable(getattr(NightShiftEngine, "_run_issue_check", None)), (
-            "_run_issue_check must be a callable"
-        )
-        assert callable(getattr(NightShiftEngine, "_process_fix", None)), (
-            "_process_fix must be a callable"
-        )
+        assert callable(getattr(NightShiftEngine, "_drain_issues", None)), "_drain_issues must be a callable"
+        assert callable(getattr(NightShiftEngine, "_run_issue_check", None)), "_run_issue_check must be a callable"
+        assert callable(getattr(NightShiftEngine, "_process_fix", None)), "_process_fix must be a callable"
 
 
 # ---------------------------------------------------------------------------
@@ -193,9 +185,7 @@ class TestSpecExecutorStreamDeleted:
     def test_spec_executor_stream_deleted(self) -> None:
         from agentfox.nightshift import streams
 
-        assert not hasattr(streams, "SpecExecutorStream"), (
-            "SpecExecutorStream should be deleted from streams module"
-        )
+        assert not hasattr(streams, "SpecExecutorStream"), "SpecExecutorStream should be deleted from streams module"
 
 
 # ---------------------------------------------------------------------------
@@ -274,9 +264,7 @@ class TestInitNoNightshiftFile:
 
         init_project(tmp_git_repo)
         nightshift_file = tmp_git_repo / ".night-shift"
-        assert not nightshift_file.exists(), (
-            ".night-shift file should not be created by init_project"
-        )
+        assert not nightshift_file.exists(), ".night-shift file should not be created by init_project"
 
 
 # ---------------------------------------------------------------------------
@@ -306,9 +294,7 @@ class TestNoDanglingImportsAnywhere:
             text=True,
             cwd=_REPO_ROOT,
         )
-        tracked_files = [
-            f for f in result.stdout.strip().splitlines() if f.endswith(".py")
-        ]
+        tracked_files = [f for f in result.stdout.strip().splitlines() if f.endswith(".py")]
 
         violations: list[str] = []
         for rel_path in tracked_files:
@@ -322,9 +308,8 @@ class TestNoDanglingImportsAnywhere:
                 if needle_from in content or needle_import in content:
                     violations.append(f"{rel_path}: references {mod}")
 
-        assert not violations, (
-            "Dangling imports of deleted modules found:\n"
-            + "\n".join(f"  - {v}" for v in violations)
+        assert not violations, "Dangling imports of deleted modules found:\n" + "\n".join(
+            f"  - {v}" for v in violations
         )
 
 
@@ -338,9 +323,7 @@ _REMOVED_FIELDS: dict[str, st.SearchStrategy] = {
     "hunt_scan_interval": st.integers(min_value=60, max_value=86400),
     "quality_gate_timeout": st.integers(min_value=60, max_value=3600),
     "spec_interval": st.integers(min_value=10, max_value=3600),
-    "enabled_streams": st.lists(
-        st.sampled_from(["specs", "fixes", "hunts"]), max_size=3
-    ),
+    "enabled_streams": st.lists(st.sampled_from(["specs", "fixes", "hunts"]), max_size=3),
     "similarity_threshold": st.floats(min_value=0.0, max_value=1.0),
     "categories": st.fixed_dictionaries(
         {},
@@ -427,9 +410,7 @@ class TestCliRejectsAuto:
             ["--auto"],
             obj={"config": _make_config(), "quiet": False},
         )
-        assert result.exit_code != 0, (
-            f"--auto should be rejected but got exit_code={result.exit_code}"
-        )
+        assert result.exit_code != 0, f"--auto should be rejected but got exit_code={result.exit_code}"
 
 
 # ---------------------------------------------------------------------------
@@ -449,9 +430,7 @@ class TestCliRejectsNoSpecs:
             ["--no-specs"],
             obj={"config": _make_config(), "quiet": False},
         )
-        assert result.exit_code != 0, (
-            f"--no-specs should be rejected but got exit_code={result.exit_code}"
-        )
+        assert result.exit_code != 0, f"--no-specs should be rejected but got exit_code={result.exit_code}"
 
 
 # ---------------------------------------------------------------------------
@@ -471,9 +450,7 @@ class TestCliRejectsNoHunts:
             ["--no-hunts"],
             obj={"config": _make_config(), "quiet": False},
         )
-        assert result.exit_code != 0, (
-            f"--no-hunts should be rejected but got exit_code={result.exit_code}"
-        )
+        assert result.exit_code != 0, f"--no-hunts should be rejected but got exit_code={result.exit_code}"
 
 
 # ---------------------------------------------------------------------------
@@ -493,6 +470,4 @@ class TestCliRejectsSpecsDir:
             ["--specs-dir", "/tmp"],
             obj={"config": _make_config(), "quiet": False},
         )
-        assert result.exit_code != 0, (
-            f"--specs-dir should be rejected but got exit_code={result.exit_code}"
-        )
+        assert result.exit_code != 0, f"--specs-dir should be rejected but got exit_code={result.exit_code}"

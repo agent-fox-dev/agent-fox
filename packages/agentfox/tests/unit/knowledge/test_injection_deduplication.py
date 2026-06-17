@@ -119,8 +119,7 @@ class TestMigrationV23:
     def test_finding_injections_table_exists(self, conn: duckdb.DuckDBPyConnection) -> None:
         """AC-5: finding_injections table is present after migration."""
         row = conn.execute(
-            "SELECT 1 FROM information_schema.tables "
-            "WHERE table_schema = 'main' AND table_name = 'finding_injections'"
+            "SELECT 1 FROM information_schema.tables WHERE table_schema = 'main' AND table_name = 'finding_injections'"
         ).fetchone()
         assert row is not None, "finding_injections table must exist after v23 migration"
 
@@ -129,8 +128,7 @@ class TestMigrationV23:
         cols = {
             row[0]
             for row in conn.execute(
-                "SELECT column_name FROM information_schema.columns "
-                "WHERE table_name = 'finding_injections'"
+                "SELECT column_name FROM information_schema.columns WHERE table_name = 'finding_injections'"
             ).fetchall()
         }
         assert cols == {"id", "finding_id", "session_id", "injected_at"}, (
@@ -157,9 +155,7 @@ class TestRetrieveRecordsInjections:
     Requirements: 558-AC-1
     """
 
-    def test_ac1_finding_id_appears_in_finding_injections(
-        self, provider_db, conn: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_ac1_finding_id_appears_in_finding_injections(self, provider_db, conn: duckdb.DuckDBPyConnection) -> None:
         """AC-1: After retrieve(session_id=...), the finding ID is in finding_injections."""
         finding = _make_finding("S", task_group="1")
         insert_findings(conn, [finding])
@@ -168,21 +164,13 @@ class TestRetrieveRecordsInjections:
         result = provider.retrieve("S", "", task_group="1", session_id="S:1:coder")
 
         # Finding should have been returned
-        assert any("[REVIEW]" in item for item in result), (
-            f"Expected a [REVIEW] item in result, got: {result}"
-        )
+        assert any("[REVIEW]" in item for item in result), f"Expected a [REVIEW] item in result, got: {result}"
 
         # Finding ID must appear in finding_injections for this session
-        count = conn.execute(
-            "SELECT COUNT(*) FROM finding_injections WHERE session_id = 'S:1:coder'"
-        ).fetchone()[0]
-        assert count == 1, (
-            f"Expected 1 injection record for S:1:coder, got {count}"
-        )
+        count = conn.execute("SELECT COUNT(*) FROM finding_injections WHERE session_id = 'S:1:coder'").fetchone()[0]
+        assert count == 1, f"Expected 1 injection record for S:1:coder, got {count}"
 
-    def test_ac1_verdict_id_appears_in_finding_injections(
-        self, provider_db, conn: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_ac1_verdict_id_appears_in_finding_injections(self, provider_db, conn: duckdb.DuckDBPyConnection) -> None:
         """AC-1: retrieve() also records verdict IDs in finding_injections."""
         verdict = _make_verdict("S", task_group="1")
         insert_verdicts(conn, [verdict])
@@ -190,14 +178,10 @@ class TestRetrieveRecordsInjections:
         provider = _make_provider(provider_db)
         provider.retrieve("S", "", task_group="1", session_id="S:1:coder")
 
-        count = conn.execute(
-            "SELECT COUNT(*) FROM finding_injections WHERE session_id = 'S:1:coder'"
-        ).fetchone()[0]
+        count = conn.execute("SELECT COUNT(*) FROM finding_injections WHERE session_id = 'S:1:coder'").fetchone()[0]
         assert count == 1, f"Expected 1 verdict injection record, got {count}"
 
-    def test_ac1_no_recording_when_session_id_omitted(
-        self, provider_db, conn: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_ac1_no_recording_when_session_id_omitted(self, provider_db, conn: duckdb.DuckDBPyConnection) -> None:
         """AC-1 backward-compat: no injection log written when session_id is None."""
         finding = _make_finding("S", task_group="1")
         insert_findings(conn, [finding])
@@ -208,9 +192,7 @@ class TestRetrieveRecordsInjections:
         count = conn.execute("SELECT COUNT(*) FROM finding_injections").fetchone()[0]
         assert count == 0, "No injection records expected when session_id is omitted"
 
-    def test_ac1_multiple_findings_all_recorded(
-        self, provider_db, conn: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_ac1_multiple_findings_all_recorded(self, provider_db, conn: duckdb.DuckDBPyConnection) -> None:
         """AC-1: Each finding returned by retrieve() has its own injection record."""
         # Two independent findings (unique task_groups to avoid supersession)
         f1 = _make_finding("S", task_group="tg-a", description="first finding")
@@ -221,9 +203,7 @@ class TestRetrieveRecordsInjections:
         provider = _make_provider(provider_db)
         provider.retrieve("S", "", session_id="sess-X")
 
-        count = conn.execute(
-            "SELECT COUNT(*) FROM finding_injections WHERE session_id = 'sess-X'"
-        ).fetchone()[0]
+        count = conn.execute("SELECT COUNT(*) FROM finding_injections WHERE session_id = 'sess-X'").fetchone()[0]
         assert count == 2, f"Expected 2 injection records (one per finding), got {count}"
 
     def test_ac1_duplicate_retrieve_does_not_duplicate_records(
@@ -238,12 +218,8 @@ class TestRetrieveRecordsInjections:
         provider.retrieve("S", "", task_group="1", session_id="sess-dup")
         provider.retrieve("S", "", task_group="1", session_id="sess-dup")
 
-        count = conn.execute(
-            "SELECT COUNT(*) FROM finding_injections WHERE session_id = 'sess-dup'"
-        ).fetchone()[0]
-        assert count == 1, (
-            f"Expected exactly 1 record after duplicate retrieve() calls, got {count}"
-        )
+        count = conn.execute("SELECT COUNT(*) FROM finding_injections WHERE session_id = 'sess-dup'").fetchone()[0]
+        assert count == 1, f"Expected exactly 1 record after duplicate retrieve() calls, got {count}"
 
 
 # ===========================================================================
@@ -257,9 +233,7 @@ class TestIngestSupersedes:
     Requirements: 558-AC-2
     """
 
-    def test_ac2_finding_superseded_after_successful_ingest(
-        self, provider_db, conn: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_ac2_finding_superseded_after_successful_ingest(self, provider_db, conn: duckdb.DuckDBPyConnection) -> None:
         """AC-2: F1 injected into session S1 is superseded after ingest() with
         session_status='completed'.  query_active_findings returns no F1 afterwards.
         """
@@ -287,9 +261,7 @@ class TestIngestSupersedes:
             f"Finding should be superseded after successful ingest(), still active: {active_after}"
         )
 
-    def test_ac2_superseded_by_set_to_session_id(
-        self, provider_db, conn: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_ac2_superseded_by_set_to_session_id(self, provider_db, conn: duckdb.DuckDBPyConnection) -> None:
         """AC-2: The superseded_by column is set to the coder session_id."""
         finding = _make_finding("S", task_group="1")
         insert_findings(conn, [finding])
@@ -307,13 +279,9 @@ class TestIngestSupersedes:
             [finding.id],
         ).fetchone()
         assert row is not None
-        assert row[0] == "S:1:coder", (
-            f"Expected superseded_by='S:1:coder', got {row[0]!r}"
-        )
+        assert row[0] == "S:1:coder", f"Expected superseded_by='S:1:coder', got {row[0]!r}"
 
-    def test_ac2_verdict_superseded_after_successful_ingest(
-        self, provider_db, conn: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_ac2_verdict_superseded_after_successful_ingest(self, provider_db, conn: duckdb.DuckDBPyConnection) -> None:
         """AC-2: FAIL verdict injected into session is superseded on completion."""
         verdict = _make_verdict("S", task_group="1", requirement_id="REQ-AUTH")
         insert_verdicts(conn, [verdict])
@@ -331,13 +299,9 @@ class TestIngestSupersedes:
         )
 
         active_after = query_active_verdicts(conn, "S", task_group="1")
-        assert len(active_after) == 0, (
-            "FAIL verdict should be superseded after successful ingest()"
-        )
+        assert len(active_after) == 0, "FAIL verdict should be superseded after successful ingest()"
 
-    def test_ac2_finding_not_superseded_if_not_injected(
-        self, provider_db, conn: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_ac2_finding_not_superseded_if_not_injected(self, provider_db, conn: duckdb.DuckDBPyConnection) -> None:
         """AC-2: A finding that was NOT injected into a session is not superseded
         when that session's ingest() is called."""
         # Insert finding but do NOT call retrieve() for this session
@@ -354,9 +318,7 @@ class TestIngestSupersedes:
 
         # Finding should still be active — it was never injected into this session
         active = query_active_findings(conn, "S", task_group="1")
-        assert len(active) == 1, (
-            "Finding should remain active if it was not injected into the completed session"
-        )
+        assert len(active) == 1, "Finding should remain active if it was not injected into the completed session"
 
 
 # ===========================================================================
@@ -370,9 +332,7 @@ class TestFailedSessionDoesNotSupersede:
     Requirements: 558-AC-3
     """
 
-    def test_ac3_finding_still_active_after_failed_session(
-        self, provider_db, conn: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_ac3_finding_still_active_after_failed_session(self, provider_db, conn: duckdb.DuckDBPyConnection) -> None:
         """AC-3: F1 injected into S1 (attempt 1, which failed) is still
         returned by query_active_findings after the failed attempt — because
         ingest() is never called for failed sessions.
@@ -395,13 +355,9 @@ class TestFailedSessionDoesNotSupersede:
 
         # F1 must still be active for the retry session
         active = query_active_findings(conn, "S", task_group="1")
-        assert len(active) == 1, (
-            f"Finding must remain active after failed session, got: {active}"
-        )
+        assert len(active) == 1, f"Finding must remain active after failed session, got: {active}"
 
-    def test_ac3_retry_session_sees_finding(
-        self, provider_db, conn: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_ac3_retry_session_sees_finding(self, provider_db, conn: duckdb.DuckDBPyConnection) -> None:
         """AC-3: The retry session's retrieve() still returns F1 because it was
         never superseded (the prior session failed)."""
         finding = _make_finding("S", task_group="1", description="unresolved bug")
@@ -435,9 +391,7 @@ class TestSessionLifecyclePassesSessionId:
         passes session_id=self._node_id."""
         from pathlib import Path
 
-        lifecycle_path = (
-            Path(__file__).parents[3] / "agentfox" / "engine" / "session_lifecycle.py"
-        )
+        lifecycle_path = Path(__file__).parents[3] / "agentfox" / "engine" / "session_lifecycle.py"
         source = lifecycle_path.read_text()
 
         # Find the retrieve() call and confirm session_id kwarg is present
@@ -453,13 +407,9 @@ class TestSessionLifecyclePassesSessionId:
         from agentfox.knowledge.fox_provider import KnowledgeProvider
 
         sig = inspect.signature(KnowledgeProvider.retrieve)
-        assert "session_id" in sig.parameters, (
-            "KnowledgeProvider.retrieve() must have a session_id parameter"
-        )
+        assert "session_id" in sig.parameters, "KnowledgeProvider.retrieve() must have a session_id parameter"
         param = sig.parameters["session_id"]
-        assert param.default is None, (
-            "session_id parameter must default to None for backward compatibility"
-        )
+        assert param.default is None, "session_id parameter must default to None for backward compatibility"
 
 
 # ===========================================================================
@@ -473,9 +423,7 @@ class TestEndToEndDeduplication:
     Requirements: 558-AC-1, 558-AC-2
     """
 
-    def test_s2_does_not_see_finding_addressed_by_s1(
-        self, provider_db, conn: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_s2_does_not_see_finding_addressed_by_s1(self, provider_db, conn: duckdb.DuckDBPyConnection) -> None:
         """After S1 completes successfully and supersedes F1, S2's retrieve()
         does not return any [REVIEW] items for that finding."""
         finding = _make_finding("myspec", task_group="1", description="critical-auth-flaw")
@@ -485,9 +433,7 @@ class TestEndToEndDeduplication:
 
         # S1 retrieves and is injected with F1
         s1_result = provider.retrieve("myspec", "", task_group="1", session_id="myspec:1:coder")
-        assert any("critical-auth-flaw" in item for item in s1_result), (
-            "S1 must receive F1"
-        )
+        assert any("critical-auth-flaw" in item for item in s1_result), "S1 must receive F1"
 
         # S1 completes successfully
         provider.ingest(
@@ -502,9 +448,7 @@ class TestEndToEndDeduplication:
             f"S2 must not see a finding that S1 already addressed, but got: {s2_result}"
         )
 
-    def test_only_injected_findings_are_superseded(
-        self, provider_db, conn: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_only_injected_findings_are_superseded(self, provider_db, conn: duckdb.DuckDBPyConnection) -> None:
         """Findings injected into S1 are superseded; findings that arrived later
         (after S1's retrieve()) are still active for S2."""
         # F1 exists before S1's retrieve
@@ -529,12 +473,8 @@ class TestEndToEndDeduplication:
 
         s2_result = provider.retrieve("spec", "", session_id="spec:2:coder")
         # F1 should be gone, F2 should be present
-        assert not any("older-finding" in item for item in s2_result), (
-            "F1 addressed by S1 must not appear in S2"
-        )
-        assert any("newer-finding" in item for item in s2_result), (
-            "F2 (not injected into S1) must appear in S2"
-        )
+        assert not any("older-finding" in item for item in s2_result), "F1 addressed by S1 must not appear in S2"
+        assert any("newer-finding" in item for item in s2_result), "F2 (not injected into S1) must appear in S2"
 
 
 # ===========================================================================
@@ -549,9 +489,7 @@ class TestRecordFindingInjections:
         finding_ids = [str(uuid.uuid4()), str(uuid.uuid4())]
         record_finding_injections(conn, finding_ids, "sess-1")
 
-        rows = conn.execute(
-            "SELECT finding_id FROM finding_injections WHERE session_id = 'sess-1'"
-        ).fetchall()
+        rows = conn.execute("SELECT finding_id FROM finding_injections WHERE session_id = 'sess-1'").fetchall()
         stored = {row[0] for row in rows}
         assert stored == set(finding_ids)
 
@@ -564,9 +502,7 @@ class TestRecordFindingInjections:
         finding_id = str(uuid.uuid4())
         record_finding_injections(conn, [finding_id], "sess-1")
         record_finding_injections(conn, [finding_id], "sess-1")  # second call
-        count = conn.execute(
-            "SELECT COUNT(*) FROM finding_injections WHERE session_id = 'sess-1'"
-        ).fetchone()[0]
+        count = conn.execute("SELECT COUNT(*) FROM finding_injections WHERE session_id = 'sess-1'").fetchone()[0]
         assert count == 1, "Duplicate insert must be silently ignored"
 
 
@@ -607,9 +543,7 @@ class TestSupersededInjectedFindings:
         active = query_active_findings(conn, "S")
         assert len(active) == 1, "Finding should remain active if not injected"
 
-    def test_does_not_supersede_already_superseded(
-        self, conn: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_does_not_supersede_already_superseded(self, conn: duckdb.DuckDBPyConnection) -> None:
         """Already-superseded findings are not touched again."""
         finding = _make_finding("S", task_group="1")
         insert_findings(conn, [finding])
@@ -627,6 +561,4 @@ class TestSupersededInjectedFindings:
             [finding.id],
         ).fetchone()
         # Should still be the original superseder, not overwritten
-        assert row[0] == "old-session", (
-            "Already-superseded finding must not be re-superseded"
-        )
+        assert row[0] == "old-session", "Already-superseded finding must not be re-superseded"

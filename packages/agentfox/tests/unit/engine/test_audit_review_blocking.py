@@ -905,9 +905,7 @@ class TestNonDeferredFindingsStillBlock:
 
         assert decision.should_block is True
 
-    def test_deferred_and_non_deferred_together_still_blocks(
-        self, audit_conn: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_deferred_and_non_deferred_together_still_blocks(self, audit_conn: duckdb.DuckDBPyConnection) -> None:
         """When a real gap exists alongside a deferred finding, should_block=True."""
         audit_conn.execute(
             """
@@ -937,9 +935,7 @@ class TestDeferralPatternMatching:
             "Integration smoke test. Deferred to task group 4.",
         ],
     )
-    def test_all_observed_phrasings_filtered(
-        self, audit_conn: duckdb.DuckDBPyConnection, description: str
-    ) -> None:
+    def test_all_observed_phrasings_filtered(self, audit_conn: duckdb.DuckDBPyConnection, description: str) -> None:
         """All phrasings observed in the real run log are identified as deferred."""
         audit_conn.execute(
             """

@@ -196,9 +196,7 @@ class TestRunLifecycleCompleteness:
         cleanup_stale_runs(conn, "current_run")
 
         for rid in run_ids:
-            row = conn.execute(
-                "SELECT status FROM runs WHERE id = ?", [rid]
-            ).fetchone()
+            row = conn.execute("SELECT status FROM runs WHERE id = ?", [rid]).fetchone()
             assert row is not None
             # Spec requires status='stalled' for cleanup
             assert row[0] == "stalled"

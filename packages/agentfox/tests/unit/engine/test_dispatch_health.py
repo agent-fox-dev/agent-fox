@@ -194,10 +194,13 @@ class TestWorkspaceStateNoPermBlock:
         assert graph_sync.node_states.get("spec:1") != "blocked"
 
         # Second call: clean — should proceed and return a launch tuple
-        with patch(
-            "agentfox.workspace.health.check_workspace_health",
-            new=AsyncMock(return_value=clean_report),
-        ), patch.object(mgr, "_run_preflight", return_value=False):
+        with (
+            patch(
+                "agentfox.workspace.health.check_workspace_health",
+                new=AsyncMock(return_value=clean_report),
+            ),
+            patch.object(mgr, "_run_preflight", return_value=False),
+        ):
             second_result = await mgr.prepare_launch("spec:1", state, {}, {})
 
         # (b) Second call returns non-None, allowing the task to launch

@@ -131,10 +131,7 @@ class TestMetadataKeysMatchFields:
         """Every (model_name, field_name) in _BOUNDS_MAP_OVERRIDES has a real field."""
         for model_name, field_name in _BOUNDS_MAP_OVERRIDES:
             model_cls = _get_config_model_by_name(model_name)
-            assert model_cls is not None, (
-                f"_BOUNDS_MAP_OVERRIDES references non-existent model '{model_name}'"
-            )
+            assert model_cls is not None, f"_BOUNDS_MAP_OVERRIDES references non-existent model '{model_name}'"
             assert field_name in model_cls.model_fields, (
-                f"_BOUNDS_MAP_OVERRIDES references non-existent field "
-                f"'{model_name}.{field_name}'"
+                f"_BOUNDS_MAP_OVERRIDES references non-existent field '{model_name}.{field_name}'"
             )

@@ -323,9 +323,7 @@ class TestDefaultStaletimeoutLargeEnough:
         agent_fox_dir = lock_repo / ".agent-fox"
         agent_fox_dir.mkdir(parents=True, exist_ok=True)
         lock_file = agent_fox_dir / "merge.lock"
-        lock_file.write_text(
-            json.dumps({"pid": 999999, "hostname": "other", "acquired_at": "2026-01-01T00:00:00Z"})
-        )
+        lock_file.write_text(json.dumps({"pid": 999999, "hostname": "other", "acquired_at": "2026-01-01T00:00:00Z"}))
         # Set mtime to 300 s ago — should NOT be considered stale with 3600 s default
         mtime_300s_ago = time.time() - 300
         os.utime(lock_file, (mtime_300s_ago, mtime_300s_ago))
@@ -373,8 +371,7 @@ class TestHeartbeat:
         # Mtime should now be >= acquire_time (heartbeat refreshed it)
         new_mtime = lock_file.stat().st_mtime
         assert new_mtime >= acquire_time - 0.05, (
-            f"Heartbeat did not refresh mtime: mtime={new_mtime:.3f}, "
-            f"acquire_time={acquire_time:.3f}"
+            f"Heartbeat did not refresh mtime: mtime={new_mtime:.3f}, acquire_time={acquire_time:.3f}"
         )
 
         await lock.release()
@@ -452,12 +449,9 @@ class TestNormalReleaseNoWarning:
             await lock.release()
 
         already_removed_warnings = [
-            r for r in caplog.records
-            if r.levelno >= logging.WARNING and "already removed" in r.message.lower()
+            r for r in caplog.records if r.levelno >= logging.WARNING and "already removed" in r.message.lower()
         ]
-        assert not already_removed_warnings, (
-            f"Unexpected 'already removed' warning: {already_removed_warnings}"
-        )
+        assert not already_removed_warnings, f"Unexpected 'already removed' warning: {already_removed_warnings}"
 
 
 # ---------------------------------------------------------------------------

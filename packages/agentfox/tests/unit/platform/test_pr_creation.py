@@ -134,5 +134,3 @@ class TestGitHubPlatformCreatePR:
         assert "/repos/owner/repo/pulls" in requests_made[0]["url"]
         assert requests_made[0]["json"]["head"] == "fix/42"
         assert requests_made[0]["json"]["draft"] is True
-
-

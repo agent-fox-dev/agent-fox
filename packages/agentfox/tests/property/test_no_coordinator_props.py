@@ -61,6 +61,4 @@ class TestConfigToleranceExtraModelFields:
         assert config is not None
 
         # The models field no longer exists on AgentFoxConfig
-        assert "models" not in AgentFoxConfig.model_fields, (
-            "AgentFoxConfig should not have a 'models' field"
-        )
+        assert "models" not in AgentFoxConfig.model_fields, "AgentFoxConfig should not have a 'models' field"

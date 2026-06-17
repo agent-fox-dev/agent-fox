@@ -346,9 +346,7 @@ class TestParseReviewFindingsExplicitTaskGroup:
         ]
         result = parse_review_findings(json_objects, spec_name="s", task_group="2", session_id="sess")
         assert len(result) == 1
-        assert result[0].task_group == "2", (
-            "When task_group is absent in JSON, the caller-supplied value must be used"
-        )
+        assert result[0].task_group == "2", "When task_group is absent in JSON, the caller-supplied value must be used"
 
     def test_mixed_batch_respects_per_item_task_group(self) -> None:
         """Items with and without explicit task_group are handled independently."""

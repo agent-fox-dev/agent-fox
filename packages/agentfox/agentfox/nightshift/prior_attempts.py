@@ -127,9 +127,7 @@ def format_prior_attempts(attempts: list[PriorAttempt]) -> str:
                 msg = msg[:_MAX_ERROR_LENGTH] + "..."
             error_part = f": {msg}"
 
-        lines.append(
-            f"{idx}. **{date_str}** ({attempt.status}{model_part}){error_part}"
-        )
+        lines.append(f"{idx}. **{date_str}** ({attempt.status}{model_part}){error_part}")
 
     # Trailing newline for clean markdown
     lines.append("")

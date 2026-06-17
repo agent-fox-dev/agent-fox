@@ -73,40 +73,89 @@ def _write_spec(spec_dir: Path, *, task_groups: list[dict] | None = None) -> Non
         'updated_at: "2024-01-01T00:00:00Z"\nowner: "test"\n'
         'source: "test"\nschema_version: 1\n---\n# Test\n'
     )
-    (spec_dir / "requirements.json").write_text(json.dumps({
-        "spec_id": "test", "spec_name": "test", "schema_version": 1,
-        "introduction": "", "glossary": {}, "requirements": [],
-        "correctness_properties": [], "execution_paths": [], "error_handling": [],
-    }))
-    (spec_dir / "test_spec.json").write_text(json.dumps({
-        "spec_id": "test", "spec_name": "test", "schema_version": 1,
-        "test_cases": [], "property_tests": [], "edge_case_tests": [],
-        "smoke_tests": [], "coverage": {
-            "requirements_covered": [], "properties_covered": [],
-            "paths_covered": [], "gaps": [],
-        },
-    }))
+    (spec_dir / "requirements.json").write_text(
+        json.dumps(
+            {
+                "spec_id": "test",
+                "spec_name": "test",
+                "schema_version": 1,
+                "introduction": "",
+                "glossary": {},
+                "requirements": [],
+                "correctness_properties": [],
+                "execution_paths": [],
+                "error_handling": [],
+            }
+        )
+    )
+    (spec_dir / "test_spec.json").write_text(
+        json.dumps(
+            {
+                "spec_id": "test",
+                "spec_name": "test",
+                "schema_version": 1,
+                "test_cases": [],
+                "property_tests": [],
+                "edge_case_tests": [],
+                "smoke_tests": [],
+                "coverage": {
+                    "requirements_covered": [],
+                    "properties_covered": [],
+                    "paths_covered": [],
+                    "gaps": [],
+                },
+            }
+        )
+    )
     default_groups = task_groups or [
         {
-            "id": 1, "kind": "standard", "title": "Write tests",
-            "subtasks": [{"id": "1.1", "title": "Unit tests", "state": "pending",
-                          "details": [], "test_spec_refs": [], "requirement_refs": [],
-                          "optional": False}],
+            "id": 1,
+            "kind": "standard",
+            "title": "Write tests",
+            "subtasks": [
+                {
+                    "id": "1.1",
+                    "title": "Unit tests",
+                    "state": "pending",
+                    "details": [],
+                    "test_spec_refs": [],
+                    "requirement_refs": [],
+                    "optional": False,
+                }
+            ],
             "verification": {"id": "", "checks": []},
         },
         {
-            "id": 2, "kind": "standard", "title": "Implement feature",
-            "subtasks": [{"id": "2.1", "title": "Core logic", "state": "pending",
-                          "details": [], "test_spec_refs": [], "requirement_refs": [],
-                          "optional": False}],
+            "id": 2,
+            "kind": "standard",
+            "title": "Implement feature",
+            "subtasks": [
+                {
+                    "id": "2.1",
+                    "title": "Core logic",
+                    "state": "pending",
+                    "details": [],
+                    "test_spec_refs": [],
+                    "requirement_refs": [],
+                    "optional": False,
+                }
+            ],
             "verification": {"id": "", "checks": []},
         },
     ]
-    (spec_dir / "tasks.json").write_text(json.dumps({
-        "spec_id": "test", "spec_name": "test", "schema_version": 1,
-        "test_commands": {"spec_tests": "", "all_tests": "", "linter": ""},
-        "dependencies": [], "task_groups": default_groups, "traceability": [],
-    }))
+    (spec_dir / "tasks.json").write_text(
+        json.dumps(
+            {
+                "spec_id": "test",
+                "spec_name": "test",
+                "schema_version": 1,
+                "test_commands": {"spec_tests": "", "all_tests": "", "linter": ""},
+                "dependencies": [],
+                "task_groups": default_groups,
+                "traceability": [],
+            }
+        )
+    )
 
 
 def _setup_project(project_dir: Path) -> None:
@@ -283,13 +332,25 @@ class TestPlanCLIEndToEnd:
 
         _write_spec(
             tmp_git_repo / ".specs" / "02_other",
-            task_groups=[{
-                "id": 1, "kind": "standard", "title": "Add second feature",
-                "subtasks": [{"id": "1.1", "title": "Implement", "state": "pending",
-                              "details": [], "test_spec_refs": [], "requirement_refs": [],
-                              "optional": False}],
-                "verification": {"id": "", "checks": []},
-            }],
+            task_groups=[
+                {
+                    "id": 1,
+                    "kind": "standard",
+                    "title": "Add second feature",
+                    "subtasks": [
+                        {
+                            "id": "1.1",
+                            "title": "Implement",
+                            "state": "pending",
+                            "details": [],
+                            "test_spec_refs": [],
+                            "requirement_refs": [],
+                            "optional": False,
+                        }
+                    ],
+                    "verification": {"id": "", "checks": []},
+                }
+            ],
         )
 
         first = cli_runner.invoke(main, ["plan"])
@@ -338,13 +399,25 @@ class TestPlanCLIEndToEnd:
 
         tasks_path = tmp_git_repo / ".specs" / "01_test" / "tasks.json"
         tasks_data = json.loads(tasks_path.read_text())
-        tasks_data["task_groups"].append({
-            "id": 3, "kind": "standard", "title": "new_group: Deploy changes",
-            "subtasks": [{"id": "3.1", "title": "Deploy to staging", "state": "pending",
-                          "details": [], "test_spec_refs": [], "requirement_refs": [],
-                          "optional": False}],
-            "verification": {"id": "", "checks": []},
-        })
+        tasks_data["task_groups"].append(
+            {
+                "id": 3,
+                "kind": "standard",
+                "title": "new_group: Deploy changes",
+                "subtasks": [
+                    {
+                        "id": "3.1",
+                        "title": "Deploy to staging",
+                        "state": "pending",
+                        "details": [],
+                        "test_spec_refs": [],
+                        "requirement_refs": [],
+                        "optional": False,
+                    }
+                ],
+                "verification": {"id": "", "checks": []},
+            }
+        )
         tasks_path.write_text(json.dumps(tasks_data))
 
         # Second run — must reflect the new task group

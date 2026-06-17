@@ -15,6 +15,7 @@ from agentfox.engine.result_handler import (
     CoverageResult,
     CoverageTool,
     FileCoverage,
+    SessionResultHandler,
     detect_coverage_tool,
     find_regressions,
     measure_coverage,
@@ -23,16 +24,14 @@ from agentfox.engine.result_handler import (
 
 class TestDetectCoverageTool:
     def test_detects_pytest_cov(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").write_text(
-            '[tool.pytest.ini_options]\ntestpaths = ["tests"]\n'
-        )
+        (tmp_path / "pyproject.toml").write_text('[tool.pytest.ini_options]\ntestpaths = ["tests"]\n')
         tool = detect_coverage_tool(tmp_path)
         assert tool is not None
         assert tool.name == "pytest-cov"
         assert "--cov" in tool.command
 
     def test_detects_cargo_tarpaulin(self, tmp_path: Path) -> None:
-        (tmp_path / "Cargo.toml").write_text("[package]\nname = \"foo\"\n")
+        (tmp_path / "Cargo.toml").write_text('[package]\nname = "foo"\n')
         tool = detect_coverage_tool(tmp_path)
         assert tool is not None
         assert tool.name == "cargo-tarpaulin"
@@ -89,30 +88,18 @@ class TestCoverageResult:
 
 class TestFindRegressions:
     def test_no_regression_when_coverage_increases(self) -> None:
-        baseline = CoverageResult(
-            files={"a.py": FileCoverage("a.py", 50, 100)}
-        )
-        current = CoverageResult(
-            files={"a.py": FileCoverage("a.py", 60, 100)}
-        )
+        baseline = CoverageResult(files={"a.py": FileCoverage("a.py", 50, 100)})
+        current = CoverageResult(files={"a.py": FileCoverage("a.py", 60, 100)})
         assert find_regressions(baseline, current, ["a.py"]) == []
 
     def test_no_regression_when_coverage_unchanged(self) -> None:
-        baseline = CoverageResult(
-            files={"a.py": FileCoverage("a.py", 50, 100)}
-        )
-        current = CoverageResult(
-            files={"a.py": FileCoverage("a.py", 50, 100)}
-        )
+        baseline = CoverageResult(files={"a.py": FileCoverage("a.py", 50, 100)})
+        current = CoverageResult(files={"a.py": FileCoverage("a.py", 50, 100)})
         assert find_regressions(baseline, current, ["a.py"]) == []
 
     def test_detects_regression(self) -> None:
-        baseline = CoverageResult(
-            files={"a.py": FileCoverage("a.py", 80, 100)}
-        )
-        current = CoverageResult(
-            files={"a.py": FileCoverage("a.py", 60, 100)}
-        )
+        baseline = CoverageResult(files={"a.py": FileCoverage("a.py", 80, 100)})
+        current = CoverageResult(files={"a.py": FileCoverage("a.py", 60, 100)})
         regressions = find_regressions(baseline, current, ["a.py"])
         assert len(regressions) == 1
         assert regressions[0].file_path == "a.py"
@@ -138,25 +125,17 @@ class TestFindRegressions:
 
     def test_skips_files_missing_from_baseline(self) -> None:
         baseline = CoverageResult(files={})
-        current = CoverageResult(
-            files={"new.py": FileCoverage("new.py", 50, 100)}
-        )
+        current = CoverageResult(files={"new.py": FileCoverage("new.py", 50, 100)})
         assert find_regressions(baseline, current, ["new.py"]) == []
 
     def test_skips_files_missing_from_current(self) -> None:
-        baseline = CoverageResult(
-            files={"deleted.py": FileCoverage("deleted.py", 80, 100)}
-        )
+        baseline = CoverageResult(files={"deleted.py": FileCoverage("deleted.py", 80, 100)})
         current = CoverageResult(files={})
         assert find_regressions(baseline, current, ["deleted.py"]) == []
 
     def test_skips_files_with_zero_baseline_lines(self) -> None:
-        baseline = CoverageResult(
-            files={"empty.py": FileCoverage("empty.py", 0, 0)}
-        )
-        current = CoverageResult(
-            files={"empty.py": FileCoverage("empty.py", 0, 0)}
-        )
+        baseline = CoverageResult(files={"empty.py": FileCoverage("empty.py", 0, 0)})
+        current = CoverageResult(files={"empty.py": FileCoverage("empty.py", 0, 0)})
         assert find_regressions(baseline, current, ["empty.py"]) == []
 
     def test_multiple_regressions(self) -> None:
@@ -365,15 +344,16 @@ class TestResultHandlerCoverageIntegration:
 
     def test_capture_baseline_stores_result(self, tmp_path: Path) -> None:
         handler = self._make_handler()
-        baseline = CoverageResult(
-            files={"a.py": FileCoverage("a.py", 80, 100)}
-        )
-        with patch(
-            "agentfox.engine.result_handler.detect_coverage_tool",
-            return_value=CoverageTool("pytest-cov", ["echo"], "coverage.json"),
-        ), patch(
-            "agentfox.engine.result_handler.measure_coverage",
-            return_value=baseline,
+        baseline = CoverageResult(files={"a.py": FileCoverage("a.py", 80, 100)})
+        with (
+            patch(
+                "agentfox.engine.result_handler.detect_coverage_tool",
+                return_value=CoverageTool("pytest-cov", ["echo"], "coverage.json"),
+            ),
+            patch(
+                "agentfox.engine.result_handler.measure_coverage",
+                return_value=baseline,
+            ),
         ):
             handler.capture_coverage_baseline("spec:1", tmp_path)
 
@@ -389,21 +369,15 @@ class TestResultHandlerCoverageIntegration:
             handler.capture_coverage_baseline("spec:1", tmp_path)
         assert handler._get_node_state("spec:1").coverage_baseline is None
 
-    def test_check_regression_returns_json_on_no_regression(
-        self, tmp_path: Path
-    ) -> None:
+    def test_check_regression_returns_json_on_no_regression(self, tmp_path: Path) -> None:
         from agentfox.engine.state import SessionRecord
 
         handler = self._make_handler()
-        baseline = CoverageResult(
-            files={"a.py": FileCoverage("a.py", 80, 100)}
-        )
+        baseline = CoverageResult(files={"a.py": FileCoverage("a.py", 80, 100)})
         handler._get_node_state("spec:1").coverage_baseline = baseline
         handler._coverage_tool = CoverageTool("pytest-cov", ["echo"], "coverage.json")
 
-        current = CoverageResult(
-            files={"a.py": FileCoverage("a.py", 90, 100)}
-        )
+        current = CoverageResult(files={"a.py": FileCoverage("a.py", 90, 100)})
         record = SessionRecord(
             node_id="spec:1",
             attempt=1,
@@ -431,15 +405,11 @@ class TestResultHandlerCoverageIntegration:
         from agentfox.engine.state import SessionRecord
 
         handler = self._make_handler()
-        baseline = CoverageResult(
-            files={"a.py": FileCoverage("a.py", 80, 100)}
-        )
+        baseline = CoverageResult(files={"a.py": FileCoverage("a.py", 80, 100)})
         handler._get_node_state("spec:1").coverage_baseline = baseline
         handler._coverage_tool = CoverageTool("pytest-cov", ["echo"], "coverage.json")
 
-        current = CoverageResult(
-            files={"a.py": FileCoverage("a.py", 60, 100)}
-        )
+        current = CoverageResult(files={"a.py": FileCoverage("a.py", 60, 100)})
         record = SessionRecord(
             node_id="spec:1",
             attempt=1,
@@ -465,9 +435,7 @@ class TestResultHandlerCoverageIntegration:
         assert "spec:1" == call_args[0][0]
         assert "Coverage regression" in call_args[0][2]
 
-    def test_check_regression_returns_none_without_baseline(
-        self, tmp_path: Path
-    ) -> None:
+    def test_check_regression_returns_none_without_baseline(self, tmp_path: Path) -> None:
         from agentfox.engine.state import SessionRecord
 
         handler = self._make_handler()
@@ -498,8 +466,7 @@ class TestMigrationV21:
         cols = {
             r[0]
             for r in conn.execute(
-                "SELECT column_name FROM information_schema.columns "
-                "WHERE table_name = 'session_outcomes'"
+                "SELECT column_name FROM information_schema.columns WHERE table_name = 'session_outcomes'"
             ).fetchall()
         }
         assert "retrieval_summary" not in cols

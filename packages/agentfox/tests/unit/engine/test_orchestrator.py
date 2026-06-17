@@ -30,8 +30,6 @@ from .conftest import (
 # -- Helpers ------------------------------------------------------------------
 
 
-
-
 def _linear_chain_db():
     """Create a 3-task linear chain plan in DB: A -> B -> C."""
     return write_plan_to_db(
@@ -225,9 +223,7 @@ class TestBlockedAfterRetries:
         # escalate (STANDARD → ADVANCED) before exhausting.
         from agentfox.core.config import PerArchetypeConfig
 
-        full_config = AgentFoxConfig(
-            archetypes={"overrides": {"coder": PerArchetypeConfig(model_tier="STANDARD")}}
-        )
+        full_config = AgentFoxConfig(archetypes={"overrides": {"coder": PerArchetypeConfig(model_tier="STANDARD")}})
         orchestrator = Orchestrator(
             config=config,
             session_runner_factory=lambda nid, **kw: mock,
@@ -465,9 +461,7 @@ class TestResumeAfterStatusSync:
         plan_hash = compute_plan_hash(graph)
 
         # Mutate status in DB (simulates shutdown sync)
-        db_conn.execute(
-            "UPDATE plan_nodes SET status = 'completed' WHERE id = 'spec:1'"
-        )
+        db_conn.execute("UPDATE plan_nodes SET status = 'completed' WHERE id = 'spec:1'")
 
         # Hash should still match despite status change (hash ignores status)
         graph2 = load_plan(db_conn)
@@ -1247,9 +1241,7 @@ class TestStaleRunCleanup:
 
         # Both stale rows must be stalled (118-REQ-6.1)
         for stale_id in ("stale_run_1", "stale_run_2"):
-            row = db_conn.execute(
-                "SELECT status, completed_at FROM runs WHERE id = ?", [stale_id]
-            ).fetchone()
+            row = db_conn.execute("SELECT status, completed_at FROM runs WHERE id = ?", [stale_id]).fetchone()
             assert row is not None, f"Row for {stale_id} not found"
             assert row[0] == "stalled", f"{stale_id}: expected stalled, got {row[0]}"
             assert row[1] is not None, f"{stale_id}: completed_at should be non-null"

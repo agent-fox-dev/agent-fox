@@ -430,9 +430,9 @@ class TestSuccessfulFixHarvestsAndCloses:
 
         # AC-2: A comment mentioning no changes must be posted
         comments = [str(call) for call in mock_platform.add_issue_comment.call_args_list]
-        assert any(
-            re.search(r"no changes|no commits|no new commits", c, re.IGNORECASE) for c in comments
-        ), f"Expected 'no changes'/'no commits' comment, got: {comments}"
+        assert any(re.search(r"no changes|no commits|no new commits", c, re.IGNORECASE) for c in comments), (
+            f"Expected 'no changes'/'no commits' comment, got: {comments}"
+        )
 
         # AC-3: af:no-change label must be assigned
         assert LABEL_NO_CHANGE in assigned_labels, (
@@ -508,9 +508,7 @@ class TestEmptyIssueBody:
             f"Expected run_id {run_id!r} in empty-body comment, got: {comments}"
         )
         # AC-5: run_id format must match YYYYMMDD_HHMMSS_<6hex>
-        assert re.fullmatch(r"\d{8}_\d{6}_[0-9a-f]{6}", run_id), (
-            f"run_id {run_id!r} does not match expected format"
-        )
+        assert re.fullmatch(r"\d{8}_\d{6}_[0-9a-f]{6}", run_id), f"run_id {run_id!r} does not match expected format"
 
 
 # ---------------------------------------------------------------------------
@@ -671,9 +669,7 @@ class TestReviewerRetryOnParseFailure:
 
         call_count = 0
 
-        async def mock_run_session(
-            archetype: str, workspace: object = None, **kwargs: object
-        ) -> MagicMock:
+        async def mock_run_session(archetype: str, workspace: object = None, **kwargs: object) -> MagicMock:
             nonlocal call_count
             outcome = MagicMock(
                 input_tokens=10,
@@ -739,9 +735,7 @@ class TestReviewerRetryOnParseFailure:
             }
         )
 
-        async def mock_run_session(
-            archetype: str, workspace: object = None, **kwargs: object
-        ) -> MagicMock:
+        async def mock_run_session(archetype: str, workspace: object = None, **kwargs: object) -> MagicMock:
             outcome = MagicMock(
                 input_tokens=10,
                 output_tokens=5,
@@ -823,9 +817,7 @@ class TestFixPipelineDbTelemetry:
             }
         )
 
-        async def mock_run_session(
-            archetype: str, workspace: object = None, **kwargs: object
-        ) -> MagicMock:
+        async def mock_run_session(archetype: str, workspace: object = None, **kwargs: object) -> MagicMock:
             outcome = MagicMock()
             outcome.status = "completed"
             outcome.input_tokens = 10
@@ -867,8 +859,7 @@ class TestFixPipelineDbTelemetry:
 
         # record_session called for triage (maintainer), coder, reviewer
         assert mock_record_session.call_count >= 3, (
-            f"Expected at least 3 record_session calls (triage+coder+reviewer), "
-            f"got {mock_record_session.call_count}"
+            f"Expected at least 3 record_session calls (triage+coder+reviewer), got {mock_record_session.call_count}"
         )
 
         # update_run_totals called after each session
@@ -945,9 +936,7 @@ class TestFixPipelineDbTelemetry:
             }
         )
 
-        async def mock_run_session(
-            archetype: str, workspace: object = None, **kwargs: object
-        ) -> MagicMock:
+        async def mock_run_session(archetype: str, workspace: object = None, **kwargs: object) -> MagicMock:
             outcome = MagicMock()
             outcome.status = "completed"
             outcome.input_tokens = 10
@@ -975,9 +964,7 @@ class TestFixPipelineDbTelemetry:
 
         recorded: list[SessionOutcomeRecord] = []
 
-        def capture_record_session(
-            conn: object, record: SessionOutcomeRecord
-        ) -> None:
+        def capture_record_session(conn: object, record: SessionOutcomeRecord) -> None:
             recorded.append(record)
 
         with (
@@ -988,30 +975,20 @@ class TestFixPipelineDbTelemetry:
             patch("agentfox.engine.state.update_run_totals"),
             patch("agentfox.engine.state.create_run"),
             patch("agentfox.engine.state.complete_run"),
-            patch.object(
-                pipeline, "_harvest_and_push", AsyncMock(return_value="merged")
-            ),
+            patch.object(pipeline, "_harvest_and_push", AsyncMock(return_value="merged")),
         ):
             await pipeline.process_issue(issue, issue_body="Telemetry is broken.")
 
         # All records must have the same run_id as the pipeline
         expected_run_id = pipeline._run_id
         for rec in recorded:
-            assert rec.run_id == expected_run_id, (
-                f"Record run_id mismatch: {rec.run_id!r} != {expected_run_id!r}"
-            )
+            assert rec.run_id == expected_run_id, f"Record run_id mismatch: {rec.run_id!r} != {expected_run_id!r}"
 
         # Archetypes must include maintainer (triage), coder, reviewer
         archetypes_recorded = {rec.archetype for rec in recorded}
-        assert "maintainer" in archetypes_recorded, (
-            f"triage (maintainer) not in {archetypes_recorded}"
-        )
-        assert "coder" in archetypes_recorded, (
-            f"coder not in {archetypes_recorded}"
-        )
-        assert "reviewer" in archetypes_recorded, (
-            f"reviewer not in {archetypes_recorded}"
-        )
+        assert "maintainer" in archetypes_recorded, f"triage (maintainer) not in {archetypes_recorded}"
+        assert "coder" in archetypes_recorded, f"coder not in {archetypes_recorded}"
+        assert "reviewer" in archetypes_recorded, f"reviewer not in {archetypes_recorded}"
 
     @pytest.mark.asyncio
     async def test_no_db_writes_when_conn_is_none(self) -> None:
@@ -1061,9 +1038,7 @@ class TestFixPipelineDbTelemetry:
             }
         )
 
-        async def mock_run_session(
-            archetype: str, workspace: object = None, **kwargs: object
-        ) -> MagicMock:
+        async def mock_run_session(archetype: str, workspace: object = None, **kwargs: object) -> MagicMock:
             outcome = MagicMock()
             outcome.status = "completed"
             outcome.input_tokens = 10
@@ -1090,18 +1065,12 @@ class TestFixPipelineDbTelemetry:
         )
 
         with (
-            patch(
-                "agentfox.engine.state.record_session"
-            ) as mock_record_session,
+            patch("agentfox.engine.state.record_session") as mock_record_session,
             patch("agentfox.engine.state.create_run") as mock_create_run,
             patch("agentfox.engine.state.complete_run") as mock_complete_run,
-            patch.object(
-                pipeline, "_harvest_and_push", AsyncMock(return_value="merged")
-            ),
+            patch.object(pipeline, "_harvest_and_push", AsyncMock(return_value="merged")),
         ):
-            await pipeline.process_issue(
-                issue, issue_body="Telemetry is broken."
-            )
+            await pipeline.process_issue(issue, issue_body="Telemetry is broken.")
 
         # None of the DB functions should have been called
         mock_record_session.assert_not_called()
@@ -1124,9 +1093,7 @@ class TestFixPipelineDbTelemetry:
         mock_platform = AsyncMock()
         mock_conn = MagicMock()
 
-        engine = NightShiftEngine(
-            config=config, platform=mock_platform, conn=mock_conn
-        )
+        engine = NightShiftEngine(config=config, platform=mock_platform, conn=mock_conn)
 
         issue = IssueResult(
             number=467,
@@ -1137,9 +1104,7 @@ class TestFixPipelineDbTelemetry:
 
         captured_pipelines: list[object] = []
 
-        original_fix_pipeline = __import__(
-            "agentfox.nightshift.fix_pipeline", fromlist=["FixPipeline"]
-        ).FixPipeline
+        original_fix_pipeline = __import__("agentfox.nightshift.fix_pipeline", fromlist=["FixPipeline"]).FixPipeline
 
         class CapturingFixPipeline(original_fix_pipeline):  # type: ignore[misc]
             def __init__(self, *args: object, **kwargs: object) -> None:
@@ -1159,8 +1124,7 @@ class TestFixPipelineDbTelemetry:
 
         assert len(captured_pipelines) == 1
         assert captured_pipelines[0] is mock_conn, (
-            f"Expected conn={mock_conn!r} to be passed, "
-            f"got {captured_pipelines[0]!r}"
+            f"Expected conn={mock_conn!r} to be passed, got {captured_pipelines[0]!r}"
         )
 
 
@@ -1214,9 +1178,7 @@ class TestScanCounterIncrement:
         mock_platform = AsyncMock()
         mock_platform.list_issues_by_label = AsyncMock(
             return_value=[
-                IssueResult(
-                    number=1, title="Issue 1", html_url="", body="body"
-                ),
+                IssueResult(number=1, title="Issue 1", html_url="", body="body"),
             ]
         )
 
@@ -1244,9 +1206,7 @@ class TestScanCounterIncrement:
         config.orchestrator.max_sessions = None
 
         mock_platform = AsyncMock()
-        mock_platform.list_issues_by_label = AsyncMock(
-            side_effect=RuntimeError("API down")
-        )
+        mock_platform.list_issues_by_label = AsyncMock(side_effect=RuntimeError("API down"))
 
         engine = NightShiftEngine(config=config, platform=mock_platform)
         assert engine.state.hunt_scans_completed == 0
@@ -1288,9 +1248,7 @@ class TestExceptionSanitizationInFailureComment:
     """Verify that fix session failure comments only expose the class name."""
 
     @pytest.mark.asyncio
-    async def test_failure_comment_omits_exception_message(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    async def test_failure_comment_omits_exception_message(self, caplog: pytest.LogCaptureFixture) -> None:
         """AC-1/AC-2: Comment has class name only; full message in log."""
         import logging
         from unittest.mock import AsyncMock, MagicMock
@@ -1305,9 +1263,7 @@ class TestExceptionSanitizationInFailureComment:
         pipeline._setup_workspace = AsyncMock(return_value=_mock_workspace())  # type: ignore[method-assign]
         pipeline._cleanup_workspace = AsyncMock()  # type: ignore[method-assign]
 
-        sensitive_path = (
-            "/home/runner/.agent-fox/db/runs.duckdb is locked"
-        )
+        sensitive_path = "/home/runner/.agent-fox/db/runs.duckdb is locked"
         pipeline._run_session = AsyncMock(  # type: ignore[method-assign]
             side_effect=RuntimeError(sensitive_path)
         )
@@ -1322,21 +1278,14 @@ class TestExceptionSanitizationInFailureComment:
             logging.WARNING,
             logger="agentfox.nightshift.fix_pipeline",
         ):
-            await pipeline.process_issue(
-                issue, issue_body="Something is broken."
-            )
+            await pipeline.process_issue(issue, issue_body="Something is broken.")
 
         # Collect all text posted via add_issue_comment
-        posted_comments = [
-            str(call)
-            for call in mock_platform.add_issue_comment.call_args_list
-        ]
+        posted_comments = [str(call) for call in mock_platform.add_issue_comment.call_args_list]
 
         # AC-1: No raw exception message in any posted comment
         for comment in posted_comments:
-            assert sensitive_path not in comment, (
-                f"Sensitive path leaked into comment: {comment!r}"
-            )
+            assert sensitive_path not in comment, f"Sensitive path leaked into comment: {comment!r}"
 
         # AC-1: The class name IS present in the failure comment
         assert any("RuntimeError" in c for c in posted_comments), (
@@ -1375,32 +1324,19 @@ class TestExceptionSanitizationInFailureComment:
             html_url="https://github.com/test/repo/issues/43",
         )
 
-        await pipeline.process_issue(
-            issue, issue_body="Another problem."
-        )
+        await pipeline.process_issue(issue, issue_body="Another problem.")
 
-        posted_comments = [
-            str(call)
-            for call in mock_platform.add_issue_comment.call_args_list
-        ]
+        posted_comments = [str(call) for call in mock_platform.add_issue_comment.call_args_list]
 
         # Locate the failure comment (contains "Fix session failed")
-        failure_comments = [
-            c for c in posted_comments if "Fix session failed" in c
-        ]
-        assert failure_comments, (
-            f"No failure comment found; all comments: {posted_comments}"
-        )
+        failure_comments = [c for c in posted_comments if "Fix session failed" in c]
+        assert failure_comments, f"No failure comment found; all comments: {posted_comments}"
 
         run_id = pipeline._run_id
         for fc in failure_comments:
-            assert run_id in fc, (
-                f"run_id {run_id!r} missing from failure comment: {fc!r}"
-            )
+            assert run_id in fc, f"run_id {run_id!r} missing from failure comment: {fc!r}"
             # Branch: label must be present
-            assert "Branch:" in fc, (
-                f"'Branch:' label missing from failure comment: {fc!r}"
-            )
+            assert "Branch:" in fc, f"'Branch:' label missing from failure comment: {fc!r}"
 
     @pytest.mark.asyncio
     async def test_failure_comment_bare_exception_no_message(
@@ -1428,24 +1364,13 @@ class TestExceptionSanitizationInFailureComment:
             html_url="https://github.com/test/repo/issues/44",
         )
 
-        await pipeline.process_issue(
-            issue, issue_body="Yet another problem."
-        )
+        await pipeline.process_issue(issue, issue_body="Yet another problem.")
 
-        posted_comments = [
-            str(call)
-            for call in mock_platform.add_issue_comment.call_args_list
-        ]
-        failure_comments = [
-            c for c in posted_comments if "Fix session failed" in c
-        ]
-        assert failure_comments, (
-            f"No failure comment posted; all comments: {posted_comments}"
-        )
+        posted_comments = [str(call) for call in mock_platform.add_issue_comment.call_args_list]
+        failure_comments = [c for c in posted_comments if "Fix session failed" in c]
+        assert failure_comments, f"No failure comment posted; all comments: {posted_comments}"
 
         for fc in failure_comments:
-            assert "Exception" in fc, (
-                f"Exception class name missing from: {fc!r}"
-            )
+            assert "Exception" in fc, f"Exception class name missing from: {fc!r}"
             # Ensure the comment is well-formed
             assert "Fix session failed: Exception" in fc

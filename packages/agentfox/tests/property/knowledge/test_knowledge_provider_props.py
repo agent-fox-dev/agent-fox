@@ -93,9 +93,7 @@ class TestNoOpIngestSafe:
         ),
     )
     @settings(max_examples=50)
-    def test_noop_ingest_never_raises(
-        self, session_id: str, spec_name: str, context: dict[str, str]
-    ) -> None:
+    def test_noop_ingest_never_raises(self, session_id: str, spec_name: str, context: dict[str, str]) -> None:
         noop = NoOpKnowledgeProvider()
         result = noop.ingest(session_id, spec_name, context)
         assert result is None
@@ -121,13 +119,9 @@ class TestConfigBackwardCompat:
             optional={
                 "embedding_model": st.text(max_size=30),
                 "embedding_dimensions": st.integers(min_value=1, max_value=2048),
-                "dedup_similarity_threshold": st.floats(
-                    min_value=0.0, max_value=1.0, allow_nan=False
-                ),
+                "dedup_similarity_threshold": st.floats(min_value=0.0, max_value=1.0, allow_nan=False),
                 "contradiction_model": st.text(max_size=30),
-                "decay_half_life_days": st.floats(
-                    min_value=0.0, max_value=365.0, allow_nan=False
-                ),
+                "decay_half_life_days": st.floats(min_value=0.0, max_value=365.0, allow_nan=False),
                 "cleanup_enabled": st.booleans(),
             },
         ),

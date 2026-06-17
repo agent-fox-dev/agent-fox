@@ -550,16 +550,12 @@ def test_cleanup_stale_runs_marks_stale_as_interrupted(
     cleanup_stale_runs(db_conn, "current")
 
     for stale_id in ("stale_1", "stale_2"):
-        row = db_conn.execute(
-            "SELECT status, completed_at FROM runs WHERE id = ?", [stale_id]
-        ).fetchone()
+        row = db_conn.execute("SELECT status, completed_at FROM runs WHERE id = ?", [stale_id]).fetchone()
         assert row is not None, f"Row for {stale_id} not found"
         assert row[0] == "stalled", f"{stale_id}: expected stalled, got {row[0]}"
         assert row[1] is not None, f"{stale_id}: completed_at should be non-null"
 
-    cur_row = db_conn.execute(
-        "SELECT status, completed_at FROM runs WHERE id = 'current'"
-    ).fetchone()
+    cur_row = db_conn.execute("SELECT status, completed_at FROM runs WHERE id = 'current'").fetchone()
     assert cur_row is not None
     assert cur_row[0] == "running", "Current run must remain 'running'"
     assert cur_row[1] is None, "Current run completed_at must remain NULL"
@@ -618,9 +614,7 @@ def test_cleanup_stale_runs_ignores_terminal_statuses(
     # Verify all terminal rows are unchanged
     for status in terminal_statuses:
         run_id = f"run_{status}"
-        row = db_conn.execute(
-            "SELECT status FROM runs WHERE id = ?", [run_id]
-        ).fetchone()
+        row = db_conn.execute("SELECT status FROM runs WHERE id = ?", [run_id]).fetchone()
         assert row is not None
         assert row[0] == status, f"{run_id}: expected {status}, got {row[0]}"
 
@@ -675,9 +669,7 @@ def test_complete_run_stores_utc_completed_at(db_conn: duckdb.DuckDBPyConnection
         mock_dt.now.return_value = fixed_utc
         complete_run(db_conn, "run_utc_complete_480", "completed")
 
-    row = db_conn.sql(
-        "SELECT completed_at FROM runs WHERE id = 'run_utc_complete_480'"
-    ).fetchone()
+    row = db_conn.sql("SELECT completed_at FROM runs WHERE id = 'run_utc_complete_480'").fetchone()
     assert row is not None
     stored = row[0]
     if hasattr(stored, "tzinfo") and stored.tzinfo is not None:
@@ -705,9 +697,7 @@ def test_cleanup_stale_runs_stores_utc_completed_at(
 
     assert count == 1
 
-    row = db_conn.sql(
-        "SELECT completed_at FROM runs WHERE id = 'stale_utc_480'"
-    ).fetchone()
+    row = db_conn.sql("SELECT completed_at FROM runs WHERE id = 'stale_utc_480'").fetchone()
     assert row is not None
     stored = row[0]
     if hasattr(stored, "tzinfo") and stored.tzinfo is not None:

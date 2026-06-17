@@ -929,10 +929,7 @@ class TestGroupCompletionConsistent:
         """TaskGroupDef.completed matches the expected invariant."""
         from agentfox.spec.parser import _map_task_group
 
-        subtasks = [
-            _make_subtask(id=f"1.{j + 1}", title=f"task {j + 1}", state=s.value)
-            for j, s in enumerate(states)
-        ]
+        subtasks = [_make_subtask(id=f"1.{j + 1}", title=f"task {j + 1}", state=s.value) for j, s in enumerate(states)]
 
         group = _make_task_group(id=1, subtasks=subtasks)
         result = _map_task_group(group)

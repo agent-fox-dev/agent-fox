@@ -39,9 +39,7 @@ class TestModelConfigRemoved:
         """ModelConfig class must not exist in config module."""
         import agentfox.core.config as config_mod
 
-        assert not hasattr(config_mod, "ModelConfig"), (
-            "ModelConfig should have been removed entirely"
-        )
+        assert not hasattr(config_mod, "ModelConfig"), "ModelConfig should have been removed entirely"
 
 
 # -------------------------------------------------------------------

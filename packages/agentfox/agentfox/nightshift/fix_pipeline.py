@@ -749,7 +749,11 @@ class FixPipeline:
         from agentfox.nightshift.coder_reviewer import CoderReviewerLoop
 
         return await CoderReviewerLoop(self).run(
-            spec, triage, metrics, workspace, prior_context=prior_context,
+            spec,
+            triage,
+            metrics,
+            workspace,
+            prior_context=prior_context,
         )
 
     # ------------------------------------------------------------------
@@ -861,7 +865,11 @@ class FixPipeline:
 
             # 82-REQ-7.1: coder-reviewer loop with retry/escalation
             success = await self._coder_review_loop(
-                spec, triage, metrics, workspace, prior_context=prior_context,
+                spec,
+                triage,
+                metrics,
+                workspace,
+                prior_context=prior_context,
             )
 
             if not success:

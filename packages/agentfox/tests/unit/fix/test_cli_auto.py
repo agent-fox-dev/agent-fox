@@ -85,10 +85,12 @@ class TestAutoFlag:
             ),
             patch(
                 "af.fix.asyncio.run",
-                side_effect=_fake_asyncio_run(side_effect=[
-                    _make_fix_result(TerminationReason.ALL_FIXED),
-                    improve_result,
-                ]),
+                side_effect=_fake_asyncio_run(
+                    side_effect=[
+                        _make_fix_result(TerminationReason.ALL_FIXED),
+                        improve_result,
+                    ]
+                ),
             ),
             patch(
                 "af.fix.run_improve_loop",
@@ -170,10 +172,12 @@ class TestImprovePassesValidation:
             ),
             patch(
                 "af.fix.asyncio.run",
-                side_effect=_fake_asyncio_run(side_effect=[
-                    _make_fix_result(TerminationReason.ALL_FIXED),
-                    improve_result,
-                ]),
+                side_effect=_fake_asyncio_run(
+                    side_effect=[
+                        _make_fix_result(TerminationReason.ALL_FIXED),
+                        improve_result,
+                    ]
+                ),
             ),
             patch(
                 "af.fix.run_improve_loop",

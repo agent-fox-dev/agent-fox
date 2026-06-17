@@ -374,20 +374,14 @@ class TestPreserveBranchOnHarvestFailure:
         branches = list_branches(tmp_worktree_repo)
 
         # (b) Original branch name no longer exists
-        assert ws.branch not in branches, (
-            f"Original branch '{ws.branch}' should not exist after preserve"
-        )
+        assert ws.branch not in branches, f"Original branch '{ws.branch}' should not exist after preserve"
 
         # (c) stalled/<original-branch-name> branch exists with same commits
         stalled_branch = f"stalled/{ws.branch}"
-        assert stalled_branch in branches, (
-            f"Stalled branch '{stalled_branch}' should exist"
-        )
+        assert stalled_branch in branches, f"Stalled branch '{stalled_branch}' should exist"
 
         stalled_tip = get_branch_tip(tmp_worktree_repo, stalled_branch)
-        assert stalled_tip == original_tip, (
-            "Stalled branch should point to the same commit as the original branch"
-        )
+        assert stalled_tip == original_tip, "Stalled branch should point to the same commit as the original branch"
 
     @pytest.mark.asyncio
     async def test_preserve_branch_false_still_deletes(

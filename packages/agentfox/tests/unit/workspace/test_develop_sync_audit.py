@@ -69,12 +69,8 @@ class TestDevelopSyncAuditOnSuccess:
         )
 
         # Spec (118-REQ-5.1): function SHALL return the sync method
-        assert result is not None, (
-            "_sync_develop_under_lock must return the sync method string"
-        )
-        assert result == "fast-forward", (
-            "Expected sync method 'fast-forward' for local-behind-only case"
-        )
+        assert result is not None, "_sync_develop_under_lock must return the sync method string"
+        assert result == "fast-forward", "Expected sync method 'fast-forward' for local-behind-only case"
 
 
 class TestDevelopSyncAuditOnFailure:
@@ -95,18 +91,22 @@ class TestDevelopSyncAuditOnFailure:
         agent_fox.engine.audit_helpers. This test patches it at the module
         level and asserts it was called with the expected event type."""
         # Mock run_git to simulate rebase failure + merge failure + agent failure
-        with patch(
-            "agentfox.workspace.develop.run_git",
-            new_callable=AsyncMock,
-            return_value=(1, "", "merge conflict"),
-        ), patch(
-            "agentfox.workspace.develop.run_merge_agent",
-            new_callable=AsyncMock,
-            return_value=False,
-        ), patch(
-            "agentfox.workspace.develop.emit_audit_event",
-            create=True,
-        ) as mock_emit:
+        with (
+            patch(
+                "agentfox.workspace.develop.run_git",
+                new_callable=AsyncMock,
+                return_value=(1, "", "merge conflict"),
+            ),
+            patch(
+                "agentfox.workspace.develop.run_merge_agent",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch(
+                "agentfox.workspace.develop.emit_audit_event",
+                create=True,
+            ) as mock_emit,
+        ):
             await _sync_develop_under_lock(
                 tmp_worktree_repo,
                 remote_ahead=2,
@@ -117,9 +117,7 @@ class TestDevelopSyncAuditOnFailure:
             mock_emit.assert_called()
             # Verify the event type is develop.sync_failed
             call_args = mock_emit.call_args
-            assert call_args is not None, (
-                "emit_audit_event must be called on sync failure"
-            )
+            assert call_args is not None, "emit_audit_event must be called on sync failure"
 
 
 class TestDevelopFetchFailedAudit:
@@ -138,6 +136,7 @@ class TestDevelopFetchFailedAudit:
 
         The implementation must import and call emit_audit_event. This test
         patches it and asserts it was called with the fetch_failed event."""
+
         # Mock dependencies to simulate fetch failure
         async def failing_fetch(args, **kwargs):
             from agentfox.core.errors import WorkspaceError
@@ -149,26 +148,29 @@ class TestDevelopFetchFailedAudit:
                 return (0, "abc123", "")
             return (0, "", "")
 
-        with patch(
-            "agentfox.workspace.develop.run_git",
-            side_effect=failing_fetch,
-        ), patch(
-            "agentfox.workspace.develop.local_branch_exists",
-            new_callable=AsyncMock,
-            return_value=True,
-        ), patch(
-            "agentfox.workspace.develop.remote_branch_exists",
-            new_callable=AsyncMock,
-            return_value=False,
-        ), patch(
-            "agentfox.workspace.develop.emit_audit_event",
-            create=True,
-        ) as mock_emit:
+        with (
+            patch(
+                "agentfox.workspace.develop.run_git",
+                side_effect=failing_fetch,
+            ),
+            patch(
+                "agentfox.workspace.develop.local_branch_exists",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "agentfox.workspace.develop.remote_branch_exists",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch(
+                "agentfox.workspace.develop.emit_audit_event",
+                create=True,
+            ) as mock_emit,
+        ):
             await ensure_develop(tmp_worktree_repo)
 
             # 118-REQ-5.E1: SHALL emit develop.fetch_failed audit event
             mock_emit.assert_called()
             call_args = mock_emit.call_args
-            assert call_args is not None, (
-                "emit_audit_event must be called when fetch fails"
-            )
+            assert call_args is not None, "emit_audit_event must be called when fetch fails"

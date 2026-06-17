@@ -158,9 +158,11 @@ class TestAC1AutoCleanKnownArtifacts:
         mgr = _make_dispatch_manager(force_clean=False)
         state = _make_state()
 
-        with patch(_HEALTH_CHECK, new=AsyncMock(return_value=dirty_report)), patch(
-            _FORCE_CLEAN, new=AsyncMock(return_value=clean_report)
-        ) as mock_clean, patch.object(mgr, "_run_preflight", return_value=False):
+        with (
+            patch(_HEALTH_CHECK, new=AsyncMock(return_value=dirty_report)),
+            patch(_FORCE_CLEAN, new=AsyncMock(return_value=clean_report)) as mock_clean,
+            patch.object(mgr, "_run_preflight", return_value=False),
+        ):
             result = await mgr.prepare_launch("spec:1", state, {}, {})
 
         mock_clean.assert_awaited_once()
@@ -179,9 +181,11 @@ class TestAC1AutoCleanKnownArtifacts:
         mgr = _make_dispatch_manager(force_clean=False)
         state = _make_state()
 
-        with patch(_HEALTH_CHECK, new=AsyncMock(return_value=dirty_report)), patch(
-            _FORCE_CLEAN, new=AsyncMock(return_value=clean_report)
-        ) as mock_clean, patch.object(mgr, "_run_preflight", return_value=False):
+        with (
+            patch(_HEALTH_CHECK, new=AsyncMock(return_value=dirty_report)),
+            patch(_FORCE_CLEAN, new=AsyncMock(return_value=clean_report)) as mock_clean,
+            patch.object(mgr, "_run_preflight", return_value=False),
+        ):
             result = await mgr.prepare_launch("spec:1", state, {}, {})
 
         mock_clean.assert_awaited_once()
@@ -201,9 +205,7 @@ class TestAC1AutoCleanKnownArtifacts:
         mgr = _make_dispatch_manager(force_clean=False)
         state = _make_state()
 
-        with patch(_HEALTH_CHECK, new=AsyncMock(return_value=dirty_report)), patch(
-            _FORCE_CLEAN
-        ) as mock_clean:
+        with patch(_HEALTH_CHECK, new=AsyncMock(return_value=dirty_report)), patch(_FORCE_CLEAN) as mock_clean:
             result = await mgr.prepare_launch("spec:1", state, {}, {})
 
         mock_clean.assert_not_called()
@@ -232,9 +234,11 @@ class TestAC2ForceCleanConfig:
         mgr = _make_dispatch_manager(force_clean=True)
         state = _make_state()
 
-        with patch(_HEALTH_CHECK, new=AsyncMock(return_value=dirty_report)), patch(
-            _FORCE_CLEAN, new=AsyncMock(return_value=clean_report)
-        ) as mock_clean, patch.object(mgr, "_run_preflight", return_value=False):
+        with (
+            patch(_HEALTH_CHECK, new=AsyncMock(return_value=dirty_report)),
+            patch(_FORCE_CLEAN, new=AsyncMock(return_value=clean_report)) as mock_clean,
+            patch.object(mgr, "_run_preflight", return_value=False),
+        ):
             result = await mgr.prepare_launch("spec:1", state, {}, {})
 
         mock_clean.assert_awaited_once()
@@ -254,9 +258,7 @@ class TestAC2ForceCleanConfig:
         mgr = _make_dispatch_manager(force_clean=False)
         state = _make_state()
 
-        with patch(_HEALTH_CHECK, new=AsyncMock(return_value=dirty_report)), patch(
-            _FORCE_CLEAN
-        ) as mock_clean:
+        with patch(_HEALTH_CHECK, new=AsyncMock(return_value=dirty_report)), patch(_FORCE_CLEAN) as mock_clean:
             result = await mgr.prepare_launch("spec:1", state, {}, {})
 
         mock_clean.assert_not_called()
@@ -337,8 +339,9 @@ class TestBlockOnlyWhenRemediationFails:
         mgr = _make_dispatch_manager(force_clean=False)
         state = _make_state()
 
-        with patch(_HEALTH_CHECK, new=AsyncMock(return_value=dirty_report)), patch(
-            _FORCE_CLEAN, new=AsyncMock(return_value=still_dirty_report)
+        with (
+            patch(_HEALTH_CHECK, new=AsyncMock(return_value=dirty_report)),
+            patch(_FORCE_CLEAN, new=AsyncMock(return_value=still_dirty_report)),
         ):
             result = await mgr.prepare_launch("spec:1", state, {}, {})
 
@@ -356,9 +359,7 @@ class TestAC5FailOpenOnException:
     """571-AC-5: If force_clean_workspace() raises, log WARNING and proceed."""
 
     @pytest.mark.asyncio
-    async def test_force_clean_oserror_does_not_block(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    async def test_force_clean_oserror_does_not_block(self, caplog: pytest.LogCaptureFixture) -> None:
         """OSError from force_clean_workspace causes fail-open (no blocking)."""
         import logging
 
@@ -370,10 +371,11 @@ class TestAC5FailOpenOnException:
         mgr = _make_dispatch_manager(force_clean=False)
         state = _make_state()
 
-        with caplog.at_level(logging.WARNING, logger="agentfox.engine.dispatch"), patch(
-            _HEALTH_CHECK, new=AsyncMock(return_value=dirty_report)
-        ), patch(_FORCE_CLEAN, side_effect=OSError("permission denied")), patch.object(
-            mgr, "_run_preflight", return_value=False
+        with (
+            caplog.at_level(logging.WARNING, logger="agentfox.engine.dispatch"),
+            patch(_HEALTH_CHECK, new=AsyncMock(return_value=dirty_report)),
+            patch(_FORCE_CLEAN, side_effect=OSError("permission denied")),
+            patch.object(mgr, "_run_preflight", return_value=False),
         ):
             result = await mgr.prepare_launch("spec:1", state, {}, {})
 
@@ -393,9 +395,11 @@ class TestAC5FailOpenOnException:
         mgr = _make_dispatch_manager(force_clean=True)
         state = _make_state()
 
-        with patch(_HEALTH_CHECK, new=AsyncMock(return_value=dirty_report)), patch(
-            _FORCE_CLEAN, side_effect=RuntimeError("unexpected")
-        ), patch.object(mgr, "_run_preflight", return_value=False):
+        with (
+            patch(_HEALTH_CHECK, new=AsyncMock(return_value=dirty_report)),
+            patch(_FORCE_CLEAN, side_effect=RuntimeError("unexpected")),
+            patch.object(mgr, "_run_preflight", return_value=False),
+        ):
             result = await mgr.prepare_launch("spec:1", state, {}, {})
 
         mgr._block_task_fn.assert_not_called()
@@ -417,9 +421,11 @@ class TestCleanWorkspaceUnaffected:
         mgr = _make_dispatch_manager(force_clean=False)
         state = _make_state()
 
-        with patch(_HEALTH_CHECK, new=AsyncMock(return_value=clean_report)), patch(
-            _FORCE_CLEAN
-        ) as mock_clean, patch.object(mgr, "_run_preflight", return_value=False):
+        with (
+            patch(_HEALTH_CHECK, new=AsyncMock(return_value=clean_report)),
+            patch(_FORCE_CLEAN) as mock_clean,
+            patch.object(mgr, "_run_preflight", return_value=False),
+        ):
             result = await mgr.prepare_launch("spec:1", state, {}, {})
 
         mock_clean.assert_not_called()

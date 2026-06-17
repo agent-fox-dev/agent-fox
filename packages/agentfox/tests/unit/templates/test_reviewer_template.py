@@ -103,9 +103,7 @@ class TestAuditReviewProfile:
         """Audit-review profile instructs grading design quality, not pass/fail status."""
         template = _template_path("reviewer_audit-review.md")
         content = template.read_text(encoding="utf-8")
-        assert "design quality" in content.lower(), (
-            "Audit-review profile should instruct grading 'design quality'"
-        )
+        assert "design quality" in content.lower(), "Audit-review profile should instruct grading 'design quality'"
         assert "not execution results" in content.lower() or "not pass/fail status" in content.lower(), (
             "Audit-review profile should explicitly state not to grade execution results"
         )
@@ -114,15 +112,9 @@ class TestAuditReviewProfile:
         """Audit-review profile contains anti-pattern guidance against penalising failures."""
         template = _template_path("reviewer_audit-review.md")
         content = template.read_text(encoding="utf-8")
-        assert "anti-pattern" in content.lower(), (
-            "Audit-review profile should contain anti-pattern guidance"
-        )
-        assert "INCORRECT" in content, (
-            "Audit-review profile should show INCORRECT example of the anti-pattern"
-        )
-        assert "CORRECT" in content, (
-            "Audit-review profile should show CORRECT example"
-        )
+        assert "anti-pattern" in content.lower(), "Audit-review profile should contain anti-pattern guidance"
+        assert "INCORRECT" in content, "Audit-review profile should show INCORRECT example of the anti-pattern"
+        assert "CORRECT" in content, "Audit-review profile should show CORRECT example"
 
     def test_audit_review_pass_verdict_ignores_execution_status(self) -> None:
         """PASS verdict definition mentions 'regardless of pass/fail status'."""
@@ -136,9 +128,7 @@ class TestAuditReviewProfile:
         """WEAK verdict definition focuses on actual design flaws, not execution failures."""
         template = _template_path("reviewer_audit-review.md")
         content = template.read_text(encoding="utf-8")
-        assert "design flaws" in content.lower(), (
-            "WEAK verdict should be defined as actual design flaws"
-        )
+        assert "design flaws" in content.lower(), "WEAK verdict should be defined as actual design flaws"
 
     def test_audit_review_has_upstream_dependency_guidance(self) -> None:
         """Audit-review profile addresses multi-spec upstream dependency scenario."""

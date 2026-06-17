@@ -114,13 +114,7 @@ def _is_spec_implemented(spec: SpecInfo) -> bool:
         loaded = afspec.load_spec(spec.path)
         if not loaded.tasks or not loaded.tasks.task_groups:
             return False
-        return all(
-            all(
-                st.state == afspec.SubtaskState.DONE
-                for st in g.subtasks
-            )
-            for g in loaded.tasks.task_groups
-        )
+        return all(all(st.state == afspec.SubtaskState.DONE for st in g.subtasks) for g in loaded.tasks.task_groups)
     except Exception:
         return False
 

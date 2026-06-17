@@ -172,12 +172,8 @@ class TestNonCoderTaskPromptOmitsGroupNumber:
         assert "08_parking_operator_adaptor" in result, "Spec name must appear in prompt"
         assert "verifier" in result.lower(), "Archetype role must appear in prompt"
         # Must not instruct the agent to implement task group 7 (or any group)
-        assert "task group" not in result.lower(), (
-            f"Non-coder prompt must not reference 'task group': {result!r}"
-        )
-        assert "7" not in result, (
-            f"Non-coder prompt must not embed phantom group number 7: {result!r}"
-        )
+        assert "task group" not in result.lower(), f"Non-coder prompt must not reference 'task group': {result!r}"
+        assert "7" not in result, f"Non-coder prompt must not embed phantom group number 7: {result!r}"
 
     def test_reviewer_prompt_omits_group_number(self) -> None:
         """Non-coder prompt does not include the task group integer."""
@@ -187,9 +183,7 @@ class TestNonCoderTaskPromptOmitsGroupNumber:
             archetype="reviewer",
         )
         assert "my_spec" in result
-        assert "99" not in result, (
-            f"Non-coder prompt must not embed group number: {result!r}"
-        )
+        assert "99" not in result, f"Non-coder prompt must not embed group number: {result!r}"
 
 
 # ---------------------------------------------------------------------------

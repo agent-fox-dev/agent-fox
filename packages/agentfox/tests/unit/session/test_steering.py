@@ -220,9 +220,7 @@ class TestLoadSteeringRejectsSymlink:
         result = load_steering(tmp_path)
         assert result is None
 
-    def test_logs_warning_for_symlink(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_logs_warning_for_symlink(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         """load_steering() logs a warning when steering.md is a symlink."""
         from agentfox.session.prompt import load_steering
 

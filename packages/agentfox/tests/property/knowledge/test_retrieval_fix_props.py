@@ -34,6 +34,7 @@ def _generate_archetype_summary(*args, **kwargs):
 
     return generate_archetype_summary(*args, **kwargs)
 
+
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
@@ -147,9 +148,7 @@ class TestNoDuplicationReviewCrossGroup:
         ),
     )
     @settings(max_examples=20)
-    def test_disjoint_review_and_cross_group(
-        self, target_group: str, finding_groups: list[str]
-    ) -> None:
+    def test_disjoint_review_and_cross_group(self, target_group: str, finding_groups: list[str]) -> None:
         conn, db = _fresh_db()
         try:
             provider = FoxKnowledgeProvider(db, KnowledgeProviderConfig())
@@ -233,9 +232,7 @@ class TestPriorRunFindingsNeverTracked:
             provider.set_run_id("current_run")
             provider.retrieve("test_spec", "test", task_group="1", session_id="sess-1")
 
-            injected = conn.execute(
-                "SELECT finding_id FROM finding_injections"
-            ).fetchall()
+            injected = conn.execute("SELECT finding_id FROM finding_injections").fetchall()
             injected_ids = {row[0] for row in injected}
 
             assert prior_ids.isdisjoint(injected_ids), (

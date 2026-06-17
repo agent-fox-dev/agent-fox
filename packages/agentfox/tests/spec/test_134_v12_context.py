@@ -254,7 +254,7 @@ The system uses a modular architecture.
 
 ## File References
 
-**`agent_fox/session/context.py`** (modified)
+**`packages/agentfox/agentfox/session/context.py`** (modified)
 """
 
 # ---------------------------------------------------------------------------
@@ -499,7 +499,7 @@ class TestExistingCodeV12:
         spec_dir = tmp_path / "specs" / "134_v12_design_test"
         spec_dir.mkdir(parents=True)
         (spec_dir / "requirements.json").write_text(REQUIREMENTS_JSON_VALID)
-        (spec_dir / "design.md").write_text("**`agent_fox/session/context.py`** (modified)\n")
+        (spec_dir / "design.md").write_text("**`packages/agentfox/agentfox/session/context.py`** (modified)\n")
         (spec_dir / "architecture.md").write_text("**`nonexistent/file.py`** (modified)\n")
         result = spec_has_existing_code(spec_dir)
         assert result is False

@@ -69,16 +69,12 @@ class TestStaleRunDetection:
         assert stale_count == 1
 
         # The stale run should now be 'stalled'
-        row = runs_db.execute(
-            "SELECT status FROM runs WHERE id = ?", ["stale_run"]
-        ).fetchone()
+        row = runs_db.execute("SELECT status FROM runs WHERE id = ?", ["stale_run"]).fetchone()
         assert row is not None
         assert row[0] == "stalled"
 
         # The completed run should be unchanged
-        row2 = runs_db.execute(
-            "SELECT status FROM runs WHERE id = ?", ["completed_run"]
-        ).fetchone()
+        row2 = runs_db.execute("SELECT status FROM runs WHERE id = ?", ["completed_run"]).fetchone()
         assert row2 is not None
         assert row2[0] == "completed"
 
@@ -132,9 +128,7 @@ class TestCleanupHandler:
 
         run_cleanup_handler("test_run", runs_db)
 
-        row = runs_db.execute(
-            "SELECT status FROM runs WHERE id = ?", ["test_run"]
-        ).fetchone()
+        row = runs_db.execute("SELECT status FROM runs WHERE id = ?", ["test_run"]).fetchone()
         assert row is not None
         assert row[0] == "stalled"
 
@@ -165,12 +159,8 @@ class TestCleanupHandlerDBFailure:
             run_cleanup_handler("test_run", broken_conn)
 
         # WARNING should have been logged
-        warning_messages = [
-            r.message for r in caplog.records if r.levelno == logging.WARNING
-        ]
-        assert len(warning_messages) > 0, (
-            "run_cleanup_handler must log a WARNING when DB write fails"
-        )
+        warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warning_messages) > 0, "run_cleanup_handler must log a WARNING when DB write fails"
 
 
 class TestMultipleStaleRunsCleaned:
@@ -207,9 +197,7 @@ class TestMultipleStaleRunsCleaned:
         assert count == 3
 
         for rid in ["r1", "r2", "r3"]:
-            row = conn.execute(
-                "SELECT status FROM runs WHERE id = ?", [rid]
-            ).fetchone()
+            row = conn.execute("SELECT status FROM runs WHERE id = ?", [rid]).fetchone()
             assert row is not None
             assert row[0] == "stalled"
 

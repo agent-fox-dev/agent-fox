@@ -178,9 +178,7 @@ class TestCliSpinnerCallbackWiring:
 
             # Verify NightShiftEngine was created with spinner_callback set
             call_kwargs = mock_engine_cls.call_args.kwargs
-            assert "spinner_callback" in call_kwargs, (
-                "NightShiftEngine should be constructed with spinner_callback"
-            )
+            assert "spinner_callback" in call_kwargs, "NightShiftEngine should be constructed with spinner_callback"
             assert call_kwargs["spinner_callback"] is mock_progress.update_spinner_text
 
 
@@ -195,9 +193,7 @@ class TestCredentialPreflightCheck:
         from agentfox.core.errors import IntegrationError
 
         mock_platform = MagicMock()
-        mock_platform.check_credentials = AsyncMock(
-            side_effect=IntegrationError("GitHub issue list failed (401)")
-        )
+        mock_platform.check_credentials = AsyncMock(side_effect=IntegrationError("GitHub issue list failed (401)"))
 
         with (
             patch(_PATCHES["validate"]),
@@ -215,9 +211,7 @@ class TestCredentialPreflightCheck:
             )
 
         assert result.exit_code == 1
-        assert "authentication" in (
-            result.output + (result.stderr if result.stderr else "")
-        ).lower()
+        assert "authentication" in (result.output + (result.stderr if result.stderr else "")).lower()
 
     def test_proceeds_when_credentials_valid(self) -> None:
         """AC-3: CLI does not exit when check_credentials() returns normally."""

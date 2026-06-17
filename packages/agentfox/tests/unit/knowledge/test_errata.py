@@ -148,8 +148,7 @@ class TestQueryErrata:
     def test_respects_limit(self, errata_conn: duckdb.DuckDBPyConnection) -> None:
         for i in range(5):
             errata_conn.execute(
-                "INSERT INTO errata (id, spec_name, task_group, finding_summary) "
-                "VALUES (?, 'spec_X', '1', ?)",
+                "INSERT INTO errata (id, spec_name, task_group, finding_summary) VALUES (?, 'spec_X', '1', ?)",
                 [f"e{i}", f"Finding {i}"],
             )
         results = query_errata(errata_conn, "spec_X", limit=3)
@@ -274,8 +273,13 @@ class TestMigrationV19:
             ).fetchall()
         }
         expected_cols = {
-            "id", "spec_name", "task_group", "finding_summary",
-            "requirement_ref", "fix_summary", "created_at",
+            "id",
+            "spec_name",
+            "task_group",
+            "finding_summary",
+            "requirement_ref",
+            "fix_summary",
+            "created_at",
         }
         assert expected_cols == cols
 
@@ -338,8 +342,7 @@ class TestIndexErrataFromMarkdown:
 
         errata_dir = self._make_errata_dir(tmp_path)
         (errata_dir / "42_my_spec.md").write_text(
-            "# Errata: 42_my_spec — DuckDB FK Bug\n\n"
-            "Some narrative about the divergence.\n",
+            "# Errata: 42_my_spec — DuckDB FK Bug\n\nSome narrative about the divergence.\n",
             encoding="utf-8",
         )
 
@@ -391,9 +394,7 @@ class TestIndexErrataFromMarkdown:
         index_errata_from_markdown(conn, tmp_path)
         index_errata_from_markdown(conn, tmp_path)
 
-        count = conn.execute(
-            "SELECT COUNT(*) FROM errata WHERE spec_name = 'my_spec'"
-        ).fetchone()[0]
+        count = conn.execute("SELECT COUNT(*) FROM errata WHERE spec_name = 'my_spec'").fetchone()[0]
         assert count == 1  # exactly one row, not duplicated
         conn.close()
 
@@ -425,9 +426,7 @@ class TestIndexErrataFromMarkdown:
         conn = duckdb.connect(":memory:")  # no migrations, no errata table
 
         errata_dir = self._make_errata_dir(tmp_path)
-        (errata_dir / "my_spec.md").write_text(
-            "# Errata: my_spec — Something\n", encoding="utf-8"
-        )
+        (errata_dir / "my_spec.md").write_text("# Errata: my_spec — Something\n", encoding="utf-8")
 
         count = index_errata_from_markdown(conn, tmp_path)
 

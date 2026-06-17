@@ -33,8 +33,7 @@ def _make_audit_result(verdict: str = "FAIL", num_entries: int = 3):
     from agentfox.session.convergence import AuditEntry, AuditResult
 
     entries = [
-        AuditEntry(severity="critical", description=f"Critical finding number {i + 1}")
-        for i in range(num_entries)
+        AuditEntry(severity="critical", description=f"Critical finding number {i + 1}") for i in range(num_entries)
     ]
     return AuditResult(entries=entries, overall_verdict=verdict, summary="Audit summary")
 
@@ -71,9 +70,7 @@ class TestAuditFindingsPersistedToDatabase:
         rows = knowledge_conn_with_schema.execute(
             "SELECT COUNT(*) FROM review_findings WHERE category = 'audit'"
         ).fetchone()
-        assert rows[0] == 3, (
-            f"Expected 3 review_findings rows with category='audit', got {rows[0]}"
-        )
+        assert rows[0] == 3, f"Expected 3 review_findings rows with category='audit', got {rows[0]}"
 
     def test_review_findings_have_correct_fields(
         self,
@@ -150,12 +147,8 @@ class TestAuditFindingsInjectedIntoCoder:
         task_prompt = _build_coder_prompt(knowledge_conn_with_schema, tmp_path, "05_foo", attempt=1)
 
         # Audit finding descriptions should appear in the prompt
-        assert "missing null check" in task_prompt, (
-            "Audit finding 1 description missing from coder prompt"
-        )
-        assert "unhandled exception" in task_prompt, (
-            "Audit finding 2 description missing from coder prompt"
-        )
+        assert "missing null check" in task_prompt, "Audit finding 1 description missing from coder prompt"
+        assert "unhandled exception" in task_prompt, "Audit finding 2 description missing from coder prompt"
 
     def test_audit_findings_formatted_like_review_findings(
         self,
@@ -187,9 +180,7 @@ class TestAuditFindingsInjectedIntoCoder:
 class TestAuditReportsRetainedUntilEndOfRun:
     """TS-4.3: Audit report files are retained during the run."""
 
-    def test_audit_report_file_exists_after_persistence(
-        self, tmp_path: Path
-    ) -> None:
+    def test_audit_report_file_exists_after_persistence(self, tmp_path: Path) -> None:
         """TS-4.3: persist_auditor_results does not delete the audit report file."""
         from agentfox.session.auditor_output import persist_auditor_results
 
@@ -293,23 +284,17 @@ class TestPassAuditEntriesNotPersisted:
         obs_rows = knowledge_conn_with_schema.execute(
             "SELECT COUNT(*) FROM review_findings WHERE severity = 'observation'"
         ).fetchone()
-        assert obs_rows[0] == 0, (
-            f"Expected 0 observation rows, got {obs_rows[0]}"
-        )
+        assert obs_rows[0] == 0, f"Expected 0 observation rows, got {obs_rows[0]}"
 
         # Critical (MISSING) and major (WEAK) rows must be present
         critical_rows = knowledge_conn_with_schema.execute(
             "SELECT COUNT(*) FROM review_findings WHERE severity = 'critical'"
         ).fetchone()
-        assert critical_rows[0] == 1, (
-            f"Expected 1 critical row (MISSING), got {critical_rows[0]}"
-        )
+        assert critical_rows[0] == 1, f"Expected 1 critical row (MISSING), got {critical_rows[0]}"
         major_rows = knowledge_conn_with_schema.execute(
             "SELECT COUNT(*) FROM review_findings WHERE severity = 'major'"
         ).fetchone()
-        assert major_rows[0] == 1, (
-            f"Expected 1 major row (WEAK), got {major_rows[0]}"
-        )
+        assert major_rows[0] == 1, f"Expected 1 major row (WEAK), got {major_rows[0]}"
 
     def test_all_pass_produces_no_db_rows(
         self,
@@ -340,12 +325,8 @@ class TestPassAuditEntriesNotPersisted:
             conn=knowledge_conn_with_schema,
         )
 
-        total = knowledge_conn_with_schema.execute(
-            "SELECT COUNT(*) FROM review_findings"
-        ).fetchone()
-        assert total[0] == 0, (
-            f"Expected 0 rows in review_findings, got {total[0]}"
-        )
+        total = knowledge_conn_with_schema.execute("SELECT COUNT(*) FROM review_findings").fetchone()
+        assert total[0] == 0, f"Expected 0 rows in review_findings, got {total[0]}"
 
 
 # ---------------------------------------------------------------------------

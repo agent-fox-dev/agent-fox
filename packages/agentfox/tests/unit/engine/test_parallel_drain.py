@@ -339,16 +339,28 @@ class TestReviewConcurrencyCapPool:
 
         nodes = {
             "spec_a:1": Node(
-                id="spec_a:1", spec_name="spec_a", group_number=1,
-                title="review A", optional=False, archetype="reviewer",
+                id="spec_a:1",
+                spec_name="spec_a",
+                group_number=1,
+                title="review A",
+                optional=False,
+                archetype="reviewer",
             ),
             "spec_b:1": Node(
-                id="spec_b:1", spec_name="spec_b", group_number=1,
-                title="review B", optional=False, archetype="skeptic",
+                id="spec_b:1",
+                spec_name="spec_b",
+                group_number=1,
+                title="review B",
+                optional=False,
+                archetype="skeptic",
             ),
             "spec_c:1": Node(
-                id="spec_c:1", spec_name="spec_c", group_number=1,
-                title="code C", optional=False, archetype="coder",
+                id="spec_c:1",
+                spec_name="spec_c",
+                group_number=1,
+                title="code C",
+                optional=False,
+                archetype="coder",
             ),
         }
 
@@ -414,16 +426,28 @@ class TestReviewConcurrencyCapPool:
 
         nodes = {
             "spec_a:0": Node(
-                id="spec_a:0", spec_name="spec_a", group_number=0,
-                title="pre-review A", optional=False, archetype="reviewer",
+                id="spec_a:0",
+                spec_name="spec_a",
+                group_number=0,
+                title="pre-review A",
+                optional=False,
+                archetype="reviewer",
             ),
             "spec_b:0": Node(
-                id="spec_b:0", spec_name="spec_b", group_number=0,
-                title="pre-review B", optional=False, archetype="skeptic",
+                id="spec_b:0",
+                spec_name="spec_b",
+                group_number=0,
+                title="pre-review B",
+                optional=False,
+                archetype="skeptic",
             ),
             "spec_c:1": Node(
-                id="spec_c:1", spec_name="spec_c", group_number=1,
-                title="code C", optional=False, archetype="coder",
+                id="spec_c:1",
+                spec_name="spec_c",
+                group_number=1,
+                title="code C",
+                optional=False,
+                archetype="coder",
             ),
         }
 
@@ -488,24 +512,44 @@ class TestReviewConcurrencyCapPool:
 
         nodes = {
             "spec_a:2": Node(
-                id="spec_a:2", spec_name="spec_a", group_number=2,
-                title="review", optional=False, archetype="reviewer",
+                id="spec_a:2",
+                spec_name="spec_a",
+                group_number=2,
+                title="review",
+                optional=False,
+                archetype="reviewer",
             ),
             "spec_b:2": Node(
-                id="spec_b:2", spec_name="spec_b", group_number=2,
-                title="review", optional=False, archetype="verifier",
+                id="spec_b:2",
+                spec_name="spec_b",
+                group_number=2,
+                title="review",
+                optional=False,
+                archetype="verifier",
             ),
             "spec_c:2": Node(
-                id="spec_c:2", spec_name="spec_c", group_number=2,
-                title="review", optional=False, archetype="oracle",
+                id="spec_c:2",
+                spec_name="spec_c",
+                group_number=2,
+                title="review",
+                optional=False,
+                archetype="oracle",
             ),
             "spec_d:1": Node(
-                id="spec_d:1", spec_name="spec_d", group_number=1,
-                title="coder", optional=False, archetype="coder",
+                id="spec_d:1",
+                spec_name="spec_d",
+                group_number=1,
+                title="coder",
+                optional=False,
+                archetype="coder",
             ),
             "spec_e:1": Node(
-                id="spec_e:1", spec_name="spec_e", group_number=1,
-                title="coder", optional=False, archetype="coder",
+                id="spec_e:1",
+                spec_name="spec_e",
+                group_number=1,
+                title="coder",
+                optional=False,
+                archetype="coder",
             ),
         }
 
@@ -588,12 +632,20 @@ class TestReviewCapDoesNotConsumeRetries:
 
         nodes = {
             "spec_a:1": Node(
-                id="spec_a:1", spec_name="spec_a", group_number=1,
-                title="audit review A", optional=False, archetype="reviewer",
+                id="spec_a:1",
+                spec_name="spec_a",
+                group_number=1,
+                title="audit review A",
+                optional=False,
+                archetype="reviewer",
             ),
             "spec_b:1": Node(
-                id="spec_b:1", spec_name="spec_b", group_number=1,
-                title="audit review B", optional=False, archetype="reviewer",
+                id="spec_b:1",
+                spec_name="spec_b",
+                group_number=1,
+                title="audit review B",
+                optional=False,
+                archetype="reviewer",
             ),
         }
 
@@ -637,13 +689,16 @@ class TestReviewCapDoesNotConsumeRetries:
         # spec_a:1 should launch (first review slot), spec_b:1 should be
         # skipped by the cap BEFORE _prepare_launch is called.
         await dispatcher.fill_pool(
-            pool, ["spec_a:1", "spec_b:1"], MagicMock(), attempt_tracker, {},
+            pool,
+            ["spec_a:1", "spec_b:1"],
+            MagicMock(),
+            attempt_tracker,
+            {},
         )
 
         assert "spec_a:1" in prepare_calls
         assert "spec_b:1" not in prepare_calls, (
-            "_prepare_launch must not be called for review candidates "
-            "skipped by the concurrency cap"
+            "_prepare_launch must not be called for review candidates skipped by the concurrency cap"
         )
         assert attempt_tracker.get("spec_b:1", 0) == 0
 
@@ -667,8 +722,11 @@ class TestReviewCapDoesNotConsumeRetries:
         nodes = {
             "spec_x:1:reviewer:audit-review": Node(
                 id="spec_x:1:reviewer:audit-review",
-                spec_name="spec_x", group_number=1,
-                title="audit", optional=False, archetype="reviewer",
+                spec_name="spec_x",
+                group_number=1,
+                title="audit",
+                optional=False,
+                archetype="reviewer",
             ),
         }
 
@@ -691,7 +749,9 @@ class TestReviewCapDoesNotConsumeRetries:
 
         dispatch_mgr = MagicMock()
         dispatch_mgr.parallel_runner = runner
-        dispatch_mgr.get_node_archetype = lambda nid: nodes.get(nid, nodes.get(nid, MagicMock(archetype="reviewer"))).archetype
+        dispatch_mgr.get_node_archetype = lambda nid: (
+            nodes.get(nid, nodes.get(nid, MagicMock(archetype="reviewer"))).archetype
+        )
 
         async def mock_prepare_launch(node_id, state, at, et):
             arch = nodes[node_id].archetype
@@ -717,12 +777,20 @@ class TestReviewCapDoesNotConsumeRetries:
             fake_review_task.get_name.return_value = "parallel-other_review:1"
             pool.add(fake_review_task)
             orch._graph.nodes["other_review:1"] = Node(
-                id="other_review:1", spec_name="other", group_number=1,
-                title="r", optional=False, archetype="reviewer",
+                id="other_review:1",
+                spec_name="other",
+                group_number=1,
+                title="r",
+                optional=False,
+                archetype="reviewer",
             )
 
             await dispatcher.fill_pool(
-                pool, [node_id], MagicMock(), attempt_tracker, {},
+                pool,
+                [node_id],
+                MagicMock(),
+                attempt_tracker,
+                {},
             )
 
         assert attempt_tracker.get(node_id, 0) == 0, (

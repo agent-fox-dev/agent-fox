@@ -92,9 +92,7 @@ def _write_spec(
         "execution_paths": [],
         "error_handling": [],
     }
-    (spec_dir / "requirements.json").write_text(
-        json.dumps(req_data, indent=2), encoding="utf-8"
-    )
+    (spec_dir / "requirements.json").write_text(json.dumps(req_data, indent=2), encoding="utf-8")
     tasks_data = {
         "spec_id": "test",
         "spec_name": "test",
@@ -104,9 +102,7 @@ def _write_spec(
         "task_groups": task_groups or [],
         "traceability": [],
     }
-    (spec_dir / "tasks.json").write_text(
-        json.dumps(tasks_data, indent=2), encoding="utf-8"
-    )
+    (spec_dir / "tasks.json").write_text(json.dumps(tasks_data, indent=2), encoding="utf-8")
     test_spec_data = {
         "spec_id": "test",
         "spec_name": "test",
@@ -122,9 +118,7 @@ def _write_spec(
             "gaps": [],
         },
     }
-    (spec_dir / "test_spec.json").write_text(
-        json.dumps(test_spec_data, indent=2), encoding="utf-8"
-    )
+    (spec_dir / "test_spec.json").write_text(json.dumps(test_spec_data, indent=2), encoding="utf-8")
 
 
 class TestSubtaskAudit:
@@ -132,18 +126,43 @@ class TestSubtaskAudit:
         spec_dir = tmp_path / "10_my_spec"
         _write_spec(
             spec_dir,
-            task_groups=[{
-                "id": 1, "kind": "standard", "title": "Write failing tests",
-                "subtasks": [
-                    {"id": "1.1", "title": "Write unit tests", "state": "done",
-                     "details": [], "test_spec_refs": [], "requirement_refs": [], "optional": False},
-                    {"id": "1.2", "title": "Write integration tests", "state": "done",
-                     "details": [], "test_spec_refs": [], "requirement_refs": [], "optional": False},
-                    {"id": "1.V", "title": "Verify task group 1", "state": "done",
-                     "details": [], "test_spec_refs": [], "requirement_refs": [], "optional": False},
-                ],
-                "verification": {"id": "", "checks": []},
-            }],
+            task_groups=[
+                {
+                    "id": 1,
+                    "kind": "standard",
+                    "title": "Write failing tests",
+                    "subtasks": [
+                        {
+                            "id": "1.1",
+                            "title": "Write unit tests",
+                            "state": "done",
+                            "details": [],
+                            "test_spec_refs": [],
+                            "requirement_refs": [],
+                            "optional": False,
+                        },
+                        {
+                            "id": "1.2",
+                            "title": "Write integration tests",
+                            "state": "done",
+                            "details": [],
+                            "test_spec_refs": [],
+                            "requirement_refs": [],
+                            "optional": False,
+                        },
+                        {
+                            "id": "1.V",
+                            "title": "Verify task group 1",
+                            "state": "done",
+                            "details": [],
+                            "test_spec_refs": [],
+                            "requirement_refs": [],
+                            "optional": False,
+                        },
+                    ],
+                    "verification": {"id": "", "checks": []},
+                }
+            ],
         )
         conn = _make_conn()
         checklist = build_verification_checklist(spec_dir, conn)
@@ -154,18 +173,43 @@ class TestSubtaskAudit:
         spec_dir = tmp_path / "10_my_spec"
         _write_spec(
             spec_dir,
-            task_groups=[{
-                "id": 1, "kind": "standard", "title": "Write failing tests",
-                "subtasks": [
-                    {"id": "1.1", "title": "Write unit tests", "state": "done",
-                     "details": [], "test_spec_refs": [], "requirement_refs": [], "optional": False},
-                    {"id": "1.2", "title": "Write integration tests", "state": "pending",
-                     "details": [], "test_spec_refs": [], "requirement_refs": [], "optional": False},
-                    {"id": "1.V", "title": "Verify task group 1", "state": "pending",
-                     "details": [], "test_spec_refs": [], "requirement_refs": [], "optional": False},
-                ],
-                "verification": {"id": "", "checks": []},
-            }],
+            task_groups=[
+                {
+                    "id": 1,
+                    "kind": "standard",
+                    "title": "Write failing tests",
+                    "subtasks": [
+                        {
+                            "id": "1.1",
+                            "title": "Write unit tests",
+                            "state": "done",
+                            "details": [],
+                            "test_spec_refs": [],
+                            "requirement_refs": [],
+                            "optional": False,
+                        },
+                        {
+                            "id": "1.2",
+                            "title": "Write integration tests",
+                            "state": "pending",
+                            "details": [],
+                            "test_spec_refs": [],
+                            "requirement_refs": [],
+                            "optional": False,
+                        },
+                        {
+                            "id": "1.V",
+                            "title": "Verify task group 1",
+                            "state": "pending",
+                            "details": [],
+                            "test_spec_refs": [],
+                            "requirement_refs": [],
+                            "optional": False,
+                        },
+                    ],
+                    "verification": {"id": "", "checks": []},
+                }
+            ],
         )
         conn = _make_conn()
         checklist = build_verification_checklist(spec_dir, conn)
@@ -179,14 +223,25 @@ class TestSubtaskAudit:
         spec_dir = tmp_path / "10_my_spec"
         _write_spec(
             spec_dir,
-            task_groups=[{
-                "id": 1, "kind": "standard", "title": "Write failing tests",
-                "subtasks": [
-                    {"id": "1.1", "title": "Skipped subtask", "state": "pending",
-                     "details": [], "test_spec_refs": [], "requirement_refs": [], "optional": False},
-                ],
-                "verification": {"id": "", "checks": []},
-            }],
+            task_groups=[
+                {
+                    "id": 1,
+                    "kind": "standard",
+                    "title": "Write failing tests",
+                    "subtasks": [
+                        {
+                            "id": "1.1",
+                            "title": "Skipped subtask",
+                            "state": "pending",
+                            "details": [],
+                            "test_spec_refs": [],
+                            "requirement_refs": [],
+                            "optional": False,
+                        },
+                    ],
+                    "verification": {"id": "", "checks": []},
+                }
+            ],
         )
         conn = _make_conn()
         conn.execute(
@@ -203,20 +258,45 @@ class TestSubtaskAudit:
             spec_dir,
             task_groups=[
                 {
-                    "id": 1, "kind": "standard", "title": "Write failing tests",
+                    "id": 1,
+                    "kind": "standard",
+                    "title": "Write failing tests",
                     "subtasks": [
-                        {"id": "1.1", "title": "Unit tests", "state": "done",
-                         "details": [], "test_spec_refs": [], "requirement_refs": [], "optional": False},
+                        {
+                            "id": "1.1",
+                            "title": "Unit tests",
+                            "state": "done",
+                            "details": [],
+                            "test_spec_refs": [],
+                            "requirement_refs": [],
+                            "optional": False,
+                        },
                     ],
                     "verification": {"id": "", "checks": []},
                 },
                 {
-                    "id": 2, "kind": "standard", "title": "Implement",
+                    "id": 2,
+                    "kind": "standard",
+                    "title": "Implement",
                     "subtasks": [
-                        {"id": "2.1", "title": "Core logic", "state": "done",
-                         "details": [], "test_spec_refs": [], "requirement_refs": [], "optional": False},
-                        {"id": "2.2", "title": "Edge cases", "state": "pending",
-                         "details": [], "test_spec_refs": [], "requirement_refs": [], "optional": False},
+                        {
+                            "id": "2.1",
+                            "title": "Core logic",
+                            "state": "done",
+                            "details": [],
+                            "test_spec_refs": [],
+                            "requirement_refs": [],
+                            "optional": False,
+                        },
+                        {
+                            "id": "2.2",
+                            "title": "Edge cases",
+                            "state": "pending",
+                            "details": [],
+                            "test_spec_refs": [],
+                            "requirement_refs": [],
+                            "optional": False,
+                        },
                     ],
                     "verification": {"id": "", "checks": []},
                 },
@@ -233,18 +313,43 @@ class TestSubtaskAudit:
         spec_dir = tmp_path / "10_my_spec"
         _write_spec(
             spec_dir,
-            task_groups=[{
-                "id": 1, "kind": "standard", "title": "Partially done",
-                "subtasks": [
-                    {"id": "1.1", "title": "Done", "state": "done",
-                     "details": [], "test_spec_refs": [], "requirement_refs": [], "optional": False},
-                    {"id": "1.2", "title": "Skipped intentionally", "state": "dropped",
-                     "details": [], "test_spec_refs": [], "requirement_refs": [], "optional": False},
-                    {"id": "1.3", "title": "Not applicable", "state": "dropped",
-                     "details": [], "test_spec_refs": [], "requirement_refs": [], "optional": False},
-                ],
-                "verification": {"id": "", "checks": []},
-            }],
+            task_groups=[
+                {
+                    "id": 1,
+                    "kind": "standard",
+                    "title": "Partially done",
+                    "subtasks": [
+                        {
+                            "id": "1.1",
+                            "title": "Done",
+                            "state": "done",
+                            "details": [],
+                            "test_spec_refs": [],
+                            "requirement_refs": [],
+                            "optional": False,
+                        },
+                        {
+                            "id": "1.2",
+                            "title": "Skipped intentionally",
+                            "state": "dropped",
+                            "details": [],
+                            "test_spec_refs": [],
+                            "requirement_refs": [],
+                            "optional": False,
+                        },
+                        {
+                            "id": "1.3",
+                            "title": "Not applicable",
+                            "state": "dropped",
+                            "details": [],
+                            "test_spec_refs": [],
+                            "requirement_refs": [],
+                            "optional": False,
+                        },
+                    ],
+                    "verification": {"id": "", "checks": []},
+                }
+            ],
         )
         conn = _make_conn()
         checklist = build_verification_checklist(spec_dir, conn)
@@ -264,8 +369,7 @@ class TestRequirementTestCoverage:
         tests_dir = tmp_path / "tests"
         tests_dir.mkdir()
         (tests_dir / "test_core.py").write_text(
-            '"""Tests for core feature.\n\nRequirements: 10-REQ-1.1\n"""\n\n'
-            "def test_core_does_x():\n    pass\n",
+            '"""Tests for core feature.\n\nRequirements: 10-REQ-1.1\n"""\n\ndef test_core_does_x():\n    pass\n',
             encoding="utf-8",
         )
         mappings = scan_requirement_test_coverage(spec_dir, tests_dir)
@@ -344,16 +448,34 @@ class TestRenderChecklistMarkdown:
         spec_dir = tmp_path / "10_my_spec"
         _write_spec(
             spec_dir,
-            task_groups=[{
-                "id": 1, "kind": "standard", "title": "Write tests",
-                "subtasks": [
-                    {"id": "1.1", "title": "Unit tests", "state": "done",
-                     "details": [], "test_spec_refs": [], "requirement_refs": [], "optional": False},
-                    {"id": "1.2", "title": "Integration tests", "state": "pending",
-                     "details": [], "test_spec_refs": [], "requirement_refs": [], "optional": False},
-                ],
-                "verification": {"id": "", "checks": []},
-            }],
+            task_groups=[
+                {
+                    "id": 1,
+                    "kind": "standard",
+                    "title": "Write tests",
+                    "subtasks": [
+                        {
+                            "id": "1.1",
+                            "title": "Unit tests",
+                            "state": "done",
+                            "details": [],
+                            "test_spec_refs": [],
+                            "requirement_refs": [],
+                            "optional": False,
+                        },
+                        {
+                            "id": "1.2",
+                            "title": "Integration tests",
+                            "state": "pending",
+                            "details": [],
+                            "test_spec_refs": [],
+                            "requirement_refs": [],
+                            "optional": False,
+                        },
+                    ],
+                    "verification": {"id": "", "checks": []},
+                }
+            ],
         )
         conn = _make_conn()
         checklist = build_verification_checklist(spec_dir, conn)
@@ -409,22 +531,54 @@ class TestBuildVerificationChecklist:
             spec_dir,
             task_groups=[
                 {
-                    "id": 1, "kind": "standard", "title": "Write failing tests",
+                    "id": 1,
+                    "kind": "standard",
+                    "title": "Write failing tests",
                     "subtasks": [
-                        {"id": "1.1", "title": "Unit tests", "state": "done",
-                         "details": [], "test_spec_refs": [], "requirement_refs": [], "optional": False},
-                        {"id": "1.V", "title": "Verify", "state": "done",
-                         "details": [], "test_spec_refs": [], "requirement_refs": [], "optional": False},
+                        {
+                            "id": "1.1",
+                            "title": "Unit tests",
+                            "state": "done",
+                            "details": [],
+                            "test_spec_refs": [],
+                            "requirement_refs": [],
+                            "optional": False,
+                        },
+                        {
+                            "id": "1.V",
+                            "title": "Verify",
+                            "state": "done",
+                            "details": [],
+                            "test_spec_refs": [],
+                            "requirement_refs": [],
+                            "optional": False,
+                        },
                     ],
                     "verification": {"id": "", "checks": []},
                 },
                 {
-                    "id": 2, "kind": "standard", "title": "Implement",
+                    "id": 2,
+                    "kind": "standard",
+                    "title": "Implement",
                     "subtasks": [
-                        {"id": "2.1", "title": "Core", "state": "done",
-                         "details": [], "test_spec_refs": [], "requirement_refs": [], "optional": False},
-                        {"id": "2.V", "title": "Verify", "state": "done",
-                         "details": [], "test_spec_refs": [], "requirement_refs": [], "optional": False},
+                        {
+                            "id": "2.1",
+                            "title": "Core",
+                            "state": "done",
+                            "details": [],
+                            "test_spec_refs": [],
+                            "requirement_refs": [],
+                            "optional": False,
+                        },
+                        {
+                            "id": "2.V",
+                            "title": "Verify",
+                            "state": "done",
+                            "details": [],
+                            "test_spec_refs": [],
+                            "requirement_refs": [],
+                            "optional": False,
+                        },
                     ],
                     "verification": {"id": "", "checks": []},
                 },
@@ -440,9 +594,7 @@ class TestBuildVerificationChecklist:
             encoding="utf-8",
         )
         conn = _make_conn()
-        checklist = build_verification_checklist(
-            spec_dir, conn, tests_dir=tests_dir
-        )
+        checklist = build_verification_checklist(spec_dir, conn, tests_dir=tests_dir)
         assert checklist.spec_name == "10_my_spec"
         assert len(checklist.task_audit) > 0
         assert len(checklist.requirement_coverage) == 1

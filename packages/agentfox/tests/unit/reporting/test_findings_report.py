@@ -285,9 +285,7 @@ def _insert_drift_finding(
 class TestArchetypeLabelsCurrentNames:
     """591-AC-1 / 591-AC-2: Verify current archetype labels on FindingRow objects."""
 
-    def test_review_findings_labelled_reviewer_pre_review(
-        self, knowledge_conn: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_review_findings_labelled_reviewer_pre_review(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
         """AC-1: review_findings rows have archetype='reviewer/pre-review'."""
         _insert_test_findings(knowledge_conn, severities=["critical"])
 
@@ -296,9 +294,7 @@ class TestArchetypeLabelsCurrentNames:
         assert len(review_rows) > 0
         assert all(r.archetype == "reviewer/pre-review" for r in review_rows)
 
-    def test_drift_findings_labelled_reviewer_drift_review(
-        self, knowledge_conn: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_drift_findings_labelled_reviewer_drift_review(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
         """AC-2: drift_findings rows have archetype='reviewer/drift-review'."""
         _insert_drift_finding(knowledge_conn)
 
@@ -333,13 +329,9 @@ class TestArchetypeLabelsCurrentNames:
 class TestArchetypeFilterCurrentNames:
     """591-AC-3: Archetype filter accepts reviewer, reviewer/pre-review, reviewer/drift-review."""
 
-    def test_reviewer_filter_returns_both_review_and_drift(
-        self, knowledge_conn: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_reviewer_filter_returns_both_review_and_drift(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
         """AC-3: archetype='reviewer' returns rows from both review_findings and drift_findings."""
-        _insert_test_findings(
-            knowledge_conn, severities=["critical"], session_id="my_spec:1:review"
-        )
+        _insert_test_findings(knowledge_conn, severities=["critical"], session_id="my_spec:1:review")
         _insert_drift_finding(knowledge_conn, session_id="my_spec:1:drift")
 
         rows = query_findings(knowledge_conn, archetype="reviewer")
@@ -353,9 +345,7 @@ class TestArchetypeFilterCurrentNames:
         self, knowledge_conn: duckdb.DuckDBPyConnection
     ) -> None:
         """AC-3: archetype='reviewer/pre-review' returns only review_findings rows."""
-        _insert_test_findings(
-            knowledge_conn, severities=["critical"], session_id="my_spec:1:review"
-        )
+        _insert_test_findings(knowledge_conn, severities=["critical"], session_id="my_spec:1:review")
         _insert_drift_finding(knowledge_conn, session_id="my_spec:1:drift")
 
         rows = query_findings(knowledge_conn, archetype="reviewer/pre-review")
@@ -367,9 +357,7 @@ class TestArchetypeFilterCurrentNames:
         self, knowledge_conn: duckdb.DuckDBPyConnection
     ) -> None:
         """AC-3: archetype='reviewer/drift-review' returns only drift_findings rows."""
-        _insert_test_findings(
-            knowledge_conn, severities=["critical"], session_id="my_spec:1:review"
-        )
+        _insert_test_findings(knowledge_conn, severities=["critical"], session_id="my_spec:1:review")
         _insert_drift_finding(knowledge_conn, session_id="my_spec:1:drift")
 
         rows = query_findings(knowledge_conn, archetype="reviewer/drift-review")

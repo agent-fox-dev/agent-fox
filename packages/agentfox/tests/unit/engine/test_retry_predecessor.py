@@ -447,13 +447,10 @@ class TestTryRetryPredecessorTaskGroupFilter:
             timestamp="2026-01-01T00:00:00",
         )
 
-        result = handler._try_retry_predecessor(
-            "spec:2:verifier", record, 1, state, {}
-        )
+        result = handler._try_retry_predecessor("spec:2:verifier", record, 1, state, {})
 
         assert result is False, (
-            "_try_retry_predecessor must return False when no FAIL verdicts "
-            "are scoped to the predecessor's task_group"
+            "_try_retry_predecessor must return False when no FAIL verdicts are scoped to the predecessor's task_group"
         )
         # Predecessor coder (spec:2, task_group='2') must NOT be reset to pending
         graph_sync._transition.assert_not_called()
@@ -489,15 +486,10 @@ class TestTryRetryPredecessorTaskGroupFilter:
             timestamp="2026-01-01T00:00:00",
         )
 
-        result = handler._try_retry_predecessor(
-            "spec:2:verifier", record, 1, state, {}
-        )
+        result = handler._try_retry_predecessor("spec:2:verifier", record, 1, state, {})
 
         assert result is True, (
-            "_try_retry_predecessor must return True when FAIL verdicts "
-            "are scoped to the predecessor's task_group"
+            "_try_retry_predecessor must return True when FAIL verdicts are scoped to the predecessor's task_group"
         )
         # Predecessor coder (spec:2) must have been reset to pending
-        graph_sync._transition.assert_called_once_with(
-            "spec:2", "pending", reason="retry predecessor"
-        )
+        graph_sync._transition.assert_called_once_with("spec:2", "pending", reason="retry predecessor")

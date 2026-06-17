@@ -122,16 +122,21 @@ class TestAuditEventIncludesSummary:
         conn = _make_conn()
         try:
             provider = _make_provider(conn, run_id="run-1")
-            provider.ingest("spec_a:2", "spec_a", {
-                "summary": summary_text,
-                "session_status": "completed",
-                "touched_files": [], "commit_sha": "abc123",
-                "archetype": "coder", "task_group": "2", "attempt": 1,
-            })
+            provider.ingest(
+                "spec_a:2",
+                "spec_a",
+                {
+                    "summary": summary_text,
+                    "session_status": "completed",
+                    "touched_files": [],
+                    "commit_sha": "abc123",
+                    "archetype": "coder",
+                    "task_group": "2",
+                    "attempt": 1,
+                },
+            )
 
-            rows = conn.execute(
-                "SELECT summary FROM session_summaries"
-            ).fetchall()
+            rows = conn.execute("SELECT summary FROM session_summaries").fetchall()
             assert len(rows) == 1
             assert rows[0][0] == "Built the store"
         finally:
@@ -154,21 +159,25 @@ class TestAuditEventIncludesSummary:
         audit_calls = []
 
         def capture_emit(sink_arg, run_id, event_type, **kwargs):
-            audit_calls.append({
-                "event_type": event_type,
-                "payload": kwargs.get("payload", {}),
-            })
+            audit_calls.append(
+                {
+                    "event_type": event_type,
+                    "payload": kwargs.get("payload", {}),
+                }
+            )
 
         runner = _make_runner(sink=MagicMock())
 
         with (
             patch.object(
-                runner, "_execute_session",
+                runner,
+                "_execute_session",
                 new_callable=AsyncMock,
                 return_value=_fake_outcome(),
             ),
             patch.object(
-                runner, "_harvest_and_integrate",
+                runner,
+                "_harvest_and_integrate",
                 new_callable=AsyncMock,
                 return_value=("completed", None, ["store.py"], False),
             ),
@@ -182,23 +191,27 @@ class TestAuditEventIncludesSummary:
                 side_effect=capture_emit,
             ),
             patch.object(
-                runner, "_extract_knowledge_and_findings",
+                runner,
+                "_extract_knowledge_and_findings",
                 new_callable=AsyncMock,
             ),
             patch.object(
-                runner, "_read_session_artifacts",
+                runner,
+                "_read_session_artifacts",
                 return_value={"summary": "Built the store"},
             ),
         ):
             record = await runner._run_and_harvest(
-                "spec_a:2", 1, workspace, "sys", "task", Path("/tmp"),
+                "spec_a:2",
+                1,
+                workspace,
+                "sys",
+                "task",
+                Path("/tmp"),
             )
 
         assert record.status == "completed"
-        complete_events = [
-            c for c in audit_calls
-            if c["event_type"] == AuditEventType.SESSION_COMPLETE
-        ]
+        complete_events = [c for c in audit_calls if c["event_type"] == AuditEventType.SESSION_COMPLETE]
         assert len(complete_events) == 1
         payload = complete_events[0]["payload"]
         assert "summary" in payload
@@ -221,26 +234,36 @@ class TestAuditEventOmitsSummaryWhenMissing:
             provider = _make_provider(conn, run_id="run-1")
 
             # Precondition: a completed session WITH a summary stores a row.
-            provider.ingest("spec_a:1", "spec_a", {
-                "summary": "Precondition text",
-                "session_status": "completed",
-                "touched_files": [], "commit_sha": "abc",
-                "archetype": "coder", "task_group": "1", "attempt": 1,
-            })
-            precondition = conn.execute(
-                "SELECT COUNT(*) FROM session_summaries"
-            ).fetchone()
+            provider.ingest(
+                "spec_a:1",
+                "spec_a",
+                {
+                    "summary": "Precondition text",
+                    "session_status": "completed",
+                    "touched_files": [],
+                    "commit_sha": "abc",
+                    "archetype": "coder",
+                    "task_group": "1",
+                    "attempt": 1,
+                },
+            )
+            precondition = conn.execute("SELECT COUNT(*) FROM session_summaries").fetchone()
             assert precondition[0] == 1
 
             # When no summary is present, no row is added
-            provider.ingest("spec_a:2", "spec_a", {
-                "session_status": "completed",
-                "touched_files": [], "commit_sha": "abc",
-                "archetype": "coder", "task_group": "2", "attempt": 1,
-            })
-            total = conn.execute(
-                "SELECT COUNT(*) FROM session_summaries"
-            ).fetchone()
+            provider.ingest(
+                "spec_a:2",
+                "spec_a",
+                {
+                    "session_status": "completed",
+                    "touched_files": [],
+                    "commit_sha": "abc",
+                    "archetype": "coder",
+                    "task_group": "2",
+                    "attempt": 1,
+                },
+            )
+            total = conn.execute("SELECT COUNT(*) FROM session_summaries").fetchone()
             assert total[0] == 1  # Still 1
         finally:
             conn.close()
@@ -260,21 +283,25 @@ class TestAuditEventOmitsSummaryWhenMissing:
         audit_calls = []
 
         def capture_emit(sink_arg, run_id, event_type, **kwargs):
-            audit_calls.append({
-                "event_type": event_type,
-                "payload": kwargs.get("payload", {}),
-            })
+            audit_calls.append(
+                {
+                    "event_type": event_type,
+                    "payload": kwargs.get("payload", {}),
+                }
+            )
 
         runner = _make_runner(sink=MagicMock())
 
         with (
             patch.object(
-                runner, "_execute_session",
+                runner,
+                "_execute_session",
                 new_callable=AsyncMock,
                 return_value=_fake_outcome(),
             ),
             patch.object(
-                runner, "_harvest_and_integrate",
+                runner,
+                "_harvest_and_integrate",
                 new_callable=AsyncMock,
                 return_value=("completed", None, [], False),
             ),
@@ -288,23 +315,27 @@ class TestAuditEventOmitsSummaryWhenMissing:
                 side_effect=capture_emit,
             ),
             patch.object(
-                runner, "_extract_knowledge_and_findings",
+                runner,
+                "_extract_knowledge_and_findings",
                 new_callable=AsyncMock,
             ),
             patch.object(
-                runner, "_read_session_artifacts",
+                runner,
+                "_read_session_artifacts",
                 return_value=None,
             ),
         ):
             record = await runner._run_and_harvest(
-                "spec_a:2", 1, workspace, "sys", "task", Path("/tmp"),
+                "spec_a:2",
+                1,
+                workspace,
+                "sys",
+                "task",
+                Path("/tmp"),
             )
 
         assert record.status == "completed"
-        complete_events = [
-            c for c in audit_calls
-            if c["event_type"] == AuditEventType.SESSION_COMPLETE
-        ]
+        complete_events = [c for c in audit_calls if c["event_type"] == AuditEventType.SESSION_COMPLETE]
         assert len(complete_events) == 1
         payload = complete_events[0]["payload"]
         assert "summary" not in payload
@@ -317,15 +348,20 @@ class TestSummaryPassedToIngestContext:
         conn = _make_conn()
         try:
             provider = _make_provider(conn, run_id="run-1")
-            provider.ingest("spec_a:2", "spec_a", {
-                "summary": "Built the store",
-                "session_status": "completed",
-                "touched_files": ["store.py"], "commit_sha": "abc123",
-                "archetype": "coder", "task_group": "2", "attempt": 1,
-            })
-            rows = conn.execute(
-                "SELECT summary FROM session_summaries"
-            ).fetchall()
+            provider.ingest(
+                "spec_a:2",
+                "spec_a",
+                {
+                    "summary": "Built the store",
+                    "session_status": "completed",
+                    "touched_files": ["store.py"],
+                    "commit_sha": "abc123",
+                    "archetype": "coder",
+                    "task_group": "2",
+                    "attempt": 1,
+                },
+            )
+            rows = conn.execute("SELECT summary FROM session_summaries").fetchall()
             assert len(rows) == 1
             assert rows[0][0] == "Built the store"
         finally:
@@ -369,14 +405,21 @@ class TestIngestStoresSummary:
         conn = _make_conn()
         try:
             provider = _make_provider(conn, run_id="run-1")
-            provider.ingest("spec_a:3", "spec_a", {
-                "summary": "Built store", "session_status": "completed",
-                "touched_files": [], "commit_sha": "abc123",
-                "archetype": "coder", "task_group": "3", "attempt": 1,
-            })
+            provider.ingest(
+                "spec_a:3",
+                "spec_a",
+                {
+                    "summary": "Built store",
+                    "session_status": "completed",
+                    "touched_files": [],
+                    "commit_sha": "abc123",
+                    "archetype": "coder",
+                    "task_group": "3",
+                    "attempt": 1,
+                },
+            )
             rows = conn.execute(
-                "SELECT summary, spec_name, task_group, archetype, attempt "
-                "FROM session_summaries"
+                "SELECT summary, spec_name, task_group, archetype, attempt FROM session_summaries"
             ).fetchall()
             assert len(rows) == 1
             assert rows[0][0] == "Built store"
@@ -398,10 +441,12 @@ class TestSummaryAvailableToBothPaths:
         agent_fox_dir = tmp_path / ".agent-fox"
         agent_fox_dir.mkdir()
         (agent_fox_dir / "session-summary.json").write_text(
-            json.dumps({
-                "summary": "Implemented handlers",
-                "tests_added_or_modified": [],
-            }),
+            json.dumps(
+                {
+                    "summary": "Implemented handlers",
+                    "tests_added_or_modified": [],
+                }
+            ),
             encoding="utf-8",
         )
         workspace = MagicMock()
@@ -414,22 +459,29 @@ class TestSummaryAvailableToBothPaths:
         conn = _make_conn()
         try:
             provider = _make_provider(conn, run_id="run-1")
-            provider.ingest("spec_a:2", "spec_a", {
-                "summary": summary_text,
-                "session_status": "completed",
-                "touched_files": [], "commit_sha": "abc",
-                "archetype": "coder", "task_group": "2", "attempt": 1,
-            })
+            provider.ingest(
+                "spec_a:2",
+                "spec_a",
+                {
+                    "summary": summary_text,
+                    "session_status": "completed",
+                    "touched_files": [],
+                    "commit_sha": "abc",
+                    "archetype": "coder",
+                    "task_group": "2",
+                    "attempt": 1,
+                },
+            )
 
-            rows = conn.execute(
-                "SELECT summary FROM session_summaries"
-            ).fetchall()
+            rows = conn.execute("SELECT summary FROM session_summaries").fetchall()
             assert len(rows) == 1
             assert rows[0][0] == summary_text
             assert rows[0][0] == "Implemented handlers"
 
             items = provider.retrieve(
-                "spec_a", "implement auth", task_group="3",
+                "spec_a",
+                "implement auth",
+                task_group="3",
             )
             context_items = [i for i in items if i.startswith("[CONTEXT]")]
             assert len(context_items) == 1
@@ -453,10 +505,12 @@ class TestSummaryAvailableToBothPaths:
         ingest_contexts = []
 
         def capture_emit(sink_arg, run_id, event_type, **kwargs):
-            audit_calls.append({
-                "event_type": event_type,
-                "payload": kwargs.get("payload", {}),
-            })
+            audit_calls.append(
+                {
+                    "event_type": event_type,
+                    "payload": kwargs.get("payload", {}),
+                }
+            )
 
         mock_provider = MagicMock()
 
@@ -466,17 +520,20 @@ class TestSummaryAvailableToBothPaths:
         mock_provider.ingest.side_effect = capture_ingest
 
         runner = _make_runner(
-            sink=MagicMock(), knowledge_provider=mock_provider,
+            sink=MagicMock(),
+            knowledge_provider=mock_provider,
         )
 
         with (
             patch.object(
-                runner, "_execute_session",
+                runner,
+                "_execute_session",
                 new_callable=AsyncMock,
                 return_value=_fake_outcome(),
             ),
             patch.object(
-                runner, "_harvest_and_integrate",
+                runner,
+                "_harvest_and_integrate",
                 new_callable=AsyncMock,
                 return_value=("completed", None, ["handler.py"], False),
             ),
@@ -490,25 +547,29 @@ class TestSummaryAvailableToBothPaths:
                 side_effect=capture_emit,
             ),
             patch.object(
-                runner, "_extract_knowledge_and_findings",
+                runner,
+                "_extract_knowledge_and_findings",
                 new_callable=AsyncMock,
             ),
             patch.object(
-                runner, "_read_session_artifacts",
+                runner,
+                "_read_session_artifacts",
                 return_value={"summary": "Implemented handlers"},
             ),
         ):
             record = await runner._run_and_harvest(
-                "spec_a:2", 1, workspace, "sys", "task", Path("/tmp"),
+                "spec_a:2",
+                1,
+                workspace,
+                "sys",
+                "task",
+                Path("/tmp"),
             )
 
         assert record.status == "completed"
 
         # Audit event path
-        complete_events = [
-            c for c in audit_calls
-            if c["event_type"] == AuditEventType.SESSION_COMPLETE
-        ]
+        complete_events = [c for c in audit_calls if c["event_type"] == AuditEventType.SESSION_COMPLETE]
         assert len(complete_events) == 1
         audit_summary = complete_events[0]["payload"].get("summary")
 
@@ -530,14 +591,23 @@ class TestSmokeSummaryStorageAndRetrieval:
         conn = _make_conn()
         try:
             provider = _make_provider(conn, run_id="run-1")
-            provider.ingest("spec_a:2", "spec_a", {
-                "summary": "Built the SQLite store with WAL mode",
-                "session_status": "completed",
-                "touched_files": ["store.py"], "commit_sha": "abc123",
-                "archetype": "coder", "task_group": "2", "attempt": 1,
-            })
+            provider.ingest(
+                "spec_a:2",
+                "spec_a",
+                {
+                    "summary": "Built the SQLite store with WAL mode",
+                    "session_status": "completed",
+                    "touched_files": ["store.py"],
+                    "commit_sha": "abc123",
+                    "archetype": "coder",
+                    "task_group": "2",
+                    "attempt": 1,
+                },
+            )
             items = provider.retrieve(
-                "spec_a", "implement handlers", task_group="3",
+                "spec_a",
+                "implement handlers",
+                task_group="3",
             )
             context_items = [i for i in items if i.startswith("[CONTEXT]")]
             assert len(context_items) == 1
@@ -553,14 +623,23 @@ class TestSmokeCrossSpecInjection:
         conn = _make_conn()
         try:
             provider = _make_provider(conn, run_id="run-1")
-            provider.ingest("spec_b:2", "spec_b", {
-                "summary": "Changed AuthConfig to remove BearerToken",
-                "session_status": "completed",
-                "touched_files": [], "commit_sha": "def456",
-                "archetype": "coder", "task_group": "2", "attempt": 1,
-            })
+            provider.ingest(
+                "spec_b:2",
+                "spec_b",
+                {
+                    "summary": "Changed AuthConfig to remove BearerToken",
+                    "session_status": "completed",
+                    "touched_files": [],
+                    "commit_sha": "def456",
+                    "archetype": "coder",
+                    "task_group": "2",
+                    "attempt": 1,
+                },
+            )
             items = provider.retrieve(
-                "spec_a", "implement auth", task_group="3",
+                "spec_a",
+                "implement auth",
+                task_group="3",
             )
             cross_items = [i for i in items if i.startswith("[CROSS-SPEC]")]
             assert len(cross_items) == 1
@@ -578,10 +657,12 @@ class TestSmokeAuditEventIncludesSummary:
         agent_fox_dir = tmp_path / ".agent-fox"
         agent_fox_dir.mkdir()
         (agent_fox_dir / "session-summary.json").write_text(
-            json.dumps({
-                "summary": "Implemented handlers",
-                "tests_added_or_modified": [],
-            }),
+            json.dumps(
+                {
+                    "summary": "Implemented handlers",
+                    "tests_added_or_modified": [],
+                }
+            ),
             encoding="utf-8",
         )
         workspace = MagicMock()
@@ -594,16 +675,21 @@ class TestSmokeAuditEventIncludesSummary:
         conn = _make_conn()
         try:
             provider = _make_provider(conn, run_id="run-1")
-            provider.ingest("spec_a:3", "spec_a", {
-                "summary": summary_text,
-                "session_status": "completed",
-                "touched_files": [], "commit_sha": "abc",
-                "archetype": "coder", "task_group": "3", "attempt": 1,
-            })
+            provider.ingest(
+                "spec_a:3",
+                "spec_a",
+                {
+                    "summary": summary_text,
+                    "session_status": "completed",
+                    "touched_files": [],
+                    "commit_sha": "abc",
+                    "archetype": "coder",
+                    "task_group": "3",
+                    "attempt": 1,
+                },
+            )
 
-            rows = conn.execute(
-                "SELECT summary FROM session_summaries"
-            ).fetchall()
+            rows = conn.execute("SELECT summary FROM session_summaries").fetchall()
             assert len(rows) == 1
             assert rows[0][0] == "Implemented handlers"
         finally:
@@ -624,10 +710,12 @@ class TestSmokeAuditEventIncludesSummary:
         agent_fox_dir = tmp_path / ".agent-fox"
         agent_fox_dir.mkdir()
         (agent_fox_dir / "session-summary.json").write_text(
-            json.dumps({
-                "summary": "Implemented handlers",
-                "tests_added_or_modified": [],
-            }),
+            json.dumps(
+                {
+                    "summary": "Implemented handlers",
+                    "tests_added_or_modified": [],
+                }
+            ),
             encoding="utf-8",
         )
         workspace = MagicMock()
@@ -636,21 +724,25 @@ class TestSmokeAuditEventIncludesSummary:
         audit_calls = []
 
         def capture_emit(sink_arg, run_id, event_type, **kwargs):
-            audit_calls.append({
-                "event_type": event_type,
-                "payload": kwargs.get("payload", {}),
-            })
+            audit_calls.append(
+                {
+                    "event_type": event_type,
+                    "payload": kwargs.get("payload", {}),
+                }
+            )
 
         runner = _make_runner(sink=MagicMock())
 
         with (
             patch.object(
-                runner, "_execute_session",
+                runner,
+                "_execute_session",
                 new_callable=AsyncMock,
                 return_value=_fake_outcome(),
             ),
             patch.object(
-                runner, "_harvest_and_integrate",
+                runner,
+                "_harvest_and_integrate",
                 new_callable=AsyncMock,
                 return_value=("completed", None, ["handler.py"], False),
             ),
@@ -664,20 +756,23 @@ class TestSmokeAuditEventIncludesSummary:
                 side_effect=capture_emit,
             ),
             patch.object(
-                runner, "_extract_knowledge_and_findings",
+                runner,
+                "_extract_knowledge_and_findings",
                 new_callable=AsyncMock,
             ),
             # NOT mocking _read_session_artifacts to verify full path.
         ):
             record = await runner._run_and_harvest(
-                "spec_a:2", 1, workspace, "sys", "task", Path("/tmp"),
+                "spec_a:2",
+                1,
+                workspace,
+                "sys",
+                "task",
+                Path("/tmp"),
             )
 
         assert record.status == "completed"
-        complete_events = [
-            c for c in audit_calls
-            if c["event_type"] == AuditEventType.SESSION_COMPLETE
-        ]
+        complete_events = [c for c in audit_calls if c["event_type"] == AuditEventType.SESSION_COMPLETE]
         assert len(complete_events) == 1
         payload = complete_events[0]["payload"]
         assert payload["summary"] == "Implemented handlers"

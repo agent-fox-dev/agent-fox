@@ -51,10 +51,7 @@ def _make_audit_result(
     """Create a minimal AuditResult for testing."""
     from agentfox.session.convergence import AuditEntry, AuditResult
 
-    entries = [
-        AuditEntry(severity="critical", description=f"{description_prefix} {i + 1}")
-        for i in range(num_entries)
-    ]
+    entries = [AuditEntry(severity="critical", description=f"{description_prefix} {i + 1}") for i in range(num_entries)]
     return AuditResult(entries=entries, overall_verdict=verdict, summary="Test summary")
 
 
@@ -88,17 +85,12 @@ class TestAuditFindingsUseRealTaskGroup:
         )
 
         rows = schema_conn.execute(
-            "SELECT DISTINCT task_group FROM review_findings "
-            "WHERE spec_name = 'foo' AND category = 'audit'"
+            "SELECT DISTINCT task_group FROM review_findings WHERE spec_name = 'foo' AND category = 'audit'"
         ).fetchall()
         task_groups = {r[0] for r in rows}
 
-        assert "3" in task_groups, (
-            f"Expected task_group='3' in stored audit findings, got: {task_groups}"
-        )
-        assert "" not in task_groups, (
-            "task_group='' (empty string) must not appear — it is the legacy hardcoded bug"
-        )
+        assert "3" in task_groups, f"Expected task_group='3' in stored audit findings, got: {task_groups}"
+        assert "" not in task_groups, "task_group='' (empty string) must not appear — it is the legacy hardcoded bug"
 
     def test_default_task_group_zero_backward_compat(
         self,
@@ -122,14 +114,11 @@ class TestAuditFindingsUseRealTaskGroup:
         )
 
         rows = schema_conn.execute(
-            "SELECT DISTINCT task_group FROM review_findings "
-            "WHERE spec_name = 'compat_spec' AND category = 'audit'"
+            "SELECT DISTINCT task_group FROM review_findings WHERE spec_name = 'compat_spec' AND category = 'audit'"
         ).fetchall()
         task_groups = {r[0] for r in rows}
 
-        assert task_groups == {"0"}, (
-            f"Expected default task_group='0', got: {task_groups}"
-        )
+        assert task_groups == {"0"}, f"Expected default task_group='0', got: {task_groups}"
 
 
 # ---------------------------------------------------------------------------
@@ -164,8 +153,7 @@ class TestAuditReviewSupersession:
 
         # Verify initial state
         active_before = schema_conn.execute(
-            "SELECT COUNT(*) FROM review_findings "
-            "WHERE spec_name='foo' AND task_group='3' AND superseded_by IS NULL"
+            "SELECT COUNT(*) FROM review_findings WHERE spec_name='foo' AND task_group='3' AND superseded_by IS NULL"
         ).fetchone()[0]
         assert active_before == 2, f"Expected 2 active before second batch, got {active_before}"
 
@@ -182,21 +170,16 @@ class TestAuditReviewSupersession:
 
         # After 2nd batch: only the 2nd batch's findings are active
         active_after = schema_conn.execute(
-            "SELECT COUNT(*) FROM review_findings "
-            "WHERE spec_name='foo' AND task_group='3' AND superseded_by IS NULL"
+            "SELECT COUNT(*) FROM review_findings WHERE spec_name='foo' AND task_group='3' AND superseded_by IS NULL"
         ).fetchone()[0]
-        assert active_after == 1, (
-            f"Expected 1 active finding after 2nd batch (only the new one), got {active_after}"
-        )
+        assert active_after == 1, f"Expected 1 active finding after 2nd batch (only the new one), got {active_after}"
 
         # First batch must now be superseded
         superseded_count = schema_conn.execute(
             "SELECT COUNT(*) FROM review_findings "
             "WHERE spec_name='foo' AND task_group='3' AND superseded_by IS NOT NULL"
         ).fetchone()[0]
-        assert superseded_count == 2, (
-            f"Expected 2 superseded findings from first batch, got {superseded_count}"
-        )
+        assert superseded_count == 2, f"Expected 2 superseded findings from first batch, got {superseded_count}"
 
     def test_different_task_groups_do_not_cross_supersede(
         self,
@@ -233,8 +216,7 @@ class TestAuditReviewSupersession:
 
         # Both should still be active (no cross-supersession)
         active_g2 = schema_conn.execute(
-            "SELECT COUNT(*) FROM review_findings "
-            "WHERE spec_name='foo' AND task_group='2' AND superseded_by IS NULL"
+            "SELECT COUNT(*) FROM review_findings WHERE spec_name='foo' AND task_group='2' AND superseded_by IS NULL"
         ).fetchone()[0]
         assert active_g2 == 1, f"Group 2 finding should still be active; got {active_g2}"
 
@@ -298,16 +280,10 @@ class TestQueryReviewsReturnsOnlyActive:
         result, _ids = provider._query_reviews(schema_conn, "bar")
 
         # Only the 1 active major finding should be returned
-        assert len(result) == 1, (
-            f"Expected 1 active finding, got {len(result)}: {result}"
-        )
-        assert "[major]" in result[0], (
-            f"Expected '[major]' in result, got: {result[0]}"
-        )
+        assert len(result) == 1, f"Expected 1 active finding, got {len(result)}: {result}"
+        assert "[major]" in result[0], f"Expected '[major]' in result, got: {result[0]}"
         for line in result:
-            assert "Old critical finding" not in line, (
-                f"Superseded finding must not appear in result: {line}"
-            )
+            assert "Old critical finding" not in line, f"Superseded finding must not appear in result: {line}"
 
 
 # ---------------------------------------------------------------------------
@@ -352,8 +328,7 @@ class TestPreReviewSupersessionWithZeroFindings:
         insert_findings(schema_conn, first_pass_findings)
 
         active_before = schema_conn.execute(
-            "SELECT COUNT(*) FROM review_findings "
-            "WHERE spec_name='baz' AND task_group='0' AND superseded_by IS NULL"
+            "SELECT COUNT(*) FROM review_findings WHERE spec_name='baz' AND task_group='0' AND superseded_by IS NULL"
         ).fetchone()[0]
         assert active_before == 2, f"Expected 2 active before 2nd pass, got {active_before}"
 
@@ -378,9 +353,7 @@ class TestPreReviewSupersessionWithZeroFindings:
             "SELECT COUNT(*) FROM review_findings "
             "WHERE spec_name='baz' AND task_group='0' AND superseded_by IS NOT NULL"
         ).fetchone()[0]
-        assert superseded == 2, (
-            f"Expected 2 superseded findings from first pass, got {superseded}"
-        )
+        assert superseded == 2, f"Expected 2 superseded findings from first pass, got {superseded}"
 
 
 # ---------------------------------------------------------------------------
@@ -398,14 +371,10 @@ class TestAuditFindingsFunctionSignature:
         from agentfox.session.auditor_output import _persist_audit_findings_to_db
 
         sig = inspect.signature(_persist_audit_findings_to_db)
-        assert "task_group" in sig.parameters, (
-            "_persist_audit_findings_to_db must have a 'task_group' parameter"
-        )
+        assert "task_group" in sig.parameters, "_persist_audit_findings_to_db must have a 'task_group' parameter"
         param = sig.parameters["task_group"]
         # Must be keyword-only (after *)
-        assert param.kind == inspect.Parameter.KEYWORD_ONLY, (
-            "'task_group' must be a keyword-only parameter"
-        )
+        assert param.kind == inspect.Parameter.KEYWORD_ONLY, "'task_group' must be a keyword-only parameter"
 
     def test_no_hardcoded_empty_task_group_in_source(self) -> None:
         """AC-5: The literal task_group='' must not appear in the function body."""
@@ -418,8 +387,7 @@ class TestAuditFindingsFunctionSignature:
         # We check the raw string as a simpler heuristic
         # The critical pattern is: task_group="" as a keyword in ReviewFinding(...)
         assert 'task_group=""' not in source, (
-            "Found hardcoded task_group=\"\" in _persist_audit_findings_to_db — "
-            "must use the task_group parameter instead"
+            'Found hardcoded task_group="" in _persist_audit_findings_to_db — must use the task_group parameter instead'
         )
 
     def test_persist_auditor_results_accepts_task_group(self) -> None:
@@ -429,13 +397,7 @@ class TestAuditFindingsFunctionSignature:
         from agentfox.session.auditor_output import persist_auditor_results
 
         sig = inspect.signature(persist_auditor_results)
-        assert "task_group" in sig.parameters, (
-            "persist_auditor_results must have a 'task_group' parameter"
-        )
+        assert "task_group" in sig.parameters, "persist_auditor_results must have a 'task_group' parameter"
         param = sig.parameters["task_group"]
-        assert param.kind == inspect.Parameter.KEYWORD_ONLY, (
-            "'task_group' must be a keyword-only parameter"
-        )
-        assert param.default == "0", (
-            "Default task_group should be '0' for backward compatibility"
-        )
+        assert param.kind == inspect.Parameter.KEYWORD_ONLY, "'task_group' must be a keyword-only parameter"
+        assert param.default == "0", "Default task_group should be '0' for backward compatibility"

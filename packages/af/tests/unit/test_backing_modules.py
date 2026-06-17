@@ -289,6 +289,4 @@ class TestCliHandlersPassOptions:
         source = inspect.getsource(lint_mod)
         assert "run_lint_specs(" in source
         # Check that at least some keyword args are passed
-        assert "ai=" in source or "lint_all=" in source, (
-            "lint-specs handler must pass options as keyword arguments"
-        )
+        assert "ai=" in source or "lint_all=" in source, "lint-specs handler must pass options as keyword arguments"

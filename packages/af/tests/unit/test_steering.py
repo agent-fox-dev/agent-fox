@@ -178,14 +178,18 @@ class TestAgentsMdTemplateReferencesSteeringMd:
 
     def test_agents_md_template_references_steering(self) -> None:
         """AGENTS.md template contains a reference to .specs/steering.md."""
-        agents_md_path = Path(__file__).parents[4] / "packages" / "agentfox" / "agentfox" / "_templates" / "agents_md.md"
+        agents_md_path = (
+            Path(__file__).parents[4] / "packages" / "agentfox" / "agentfox" / "_templates" / "agents_md.md"
+        )
         assert agents_md_path.exists(), f"agents_md.md not found at {agents_md_path}"
         content = agents_md_path.read_text(encoding="utf-8")
         assert "steering.md" in content
 
     def test_steering_reference_position_in_agents_md(self) -> None:
         """steering.md reference after README.md and before 'Explore the codebase'."""
-        agents_md_path = Path(__file__).parents[4] / "packages" / "agentfox" / "agentfox" / "_templates" / "agents_md.md"
+        agents_md_path = (
+            Path(__file__).parents[4] / "packages" / "agentfox" / "agentfox" / "_templates" / "agents_md.md"
+        )
         content = agents_md_path.read_text(encoding="utf-8")
         assert "steering.md" in content, "steering.md not referenced in agents_md.md"
         assert "README.md" in content, "README.md not in agents_md.md"

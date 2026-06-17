@@ -143,15 +143,15 @@ class TestLifecycleUsesReconstructedTranscript:
 
         captured_review_text: list[str] = []
 
-        original_persist = MagicMock()
-
         def fake_persist(review_text: str, *args, **kwargs) -> None:
             captured_review_text.append(review_text)
 
         runner = _make_minimal_runner(tmp_path, "05_foo:1")
 
         with patch.object(
-            runner, "_persist_review_findings", side_effect=fake_persist,
+            runner,
+            "_persist_review_findings",
+            side_effect=fake_persist,
         ):
             await runner._extract_knowledge_and_findings(
                 node_id="05_foo:1",
@@ -187,7 +187,9 @@ class TestLifecycleUsesReconstructedTranscript:
         ):
             runner = _make_minimal_runner(tmp_path, "05_foo:1")
             with patch.object(
-                runner, "_persist_review_findings", side_effect=fake_persist,
+                runner,
+                "_persist_review_findings",
+                side_effect=fake_persist,
             ):
                 await runner._extract_knowledge_and_findings(
                     node_id="05_foo:1",

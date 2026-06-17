@@ -38,12 +38,14 @@ task_groups = st.integers(min_value=1, max_value=15)
 archetypes = st.sampled_from(["coder", "reviewer", "verifier"])
 attempts = st.integers(min_value=1, max_value=3)
 
-summary_record_st = st.fixed_dictionaries({
-    "spec_name": spec_names,
-    "task_group": task_groups,
-    "archetype": archetypes,
-    "attempt": attempts,
-})
+summary_record_st = st.fixed_dictionaries(
+    {
+        "spec_name": spec_names,
+        "task_group": task_groups,
+        "archetype": archetypes,
+        "attempt": attempts,
+    }
+)
 
 
 def _make_conn_with_table():
@@ -53,13 +55,16 @@ def _make_conn_with_table():
     return conn
 
 
-def _make_record(spec_name, task_group, archetype, attempt,
-                 run_id="run-1", created_at=None):
+def _make_record(spec_name, task_group, archetype, attempt, run_id="run-1", created_at=None):
     tg = str(task_group)
     return SummaryRecord(
-        id=str(uuid.uuid4()), node_id=f"{spec_name}:{tg}",
-        run_id=run_id, spec_name=spec_name, task_group=tg,
-        archetype=archetype, attempt=attempt,
+        id=str(uuid.uuid4()),
+        node_id=f"{spec_name}:{tg}",
+        run_id=run_id,
+        spec_name=spec_name,
+        task_group=tg,
+        archetype=archetype,
+        attempt=attempt,
         summary=f"Summary for {spec_name} group {tg} attempt {attempt}",
         created_at=created_at or f"2026-04-28T{10 + (task_group % 14):02d}:{task_group % 60:02d}:00",
     )
@@ -77,10 +82,15 @@ class TestPriorGroupFilteringProperty:
         conn = _make_conn_with_table()
         try:
             for rec in records:
-                insert_summary(conn, _make_record(
-                    rec["spec_name"], rec["task_group"],
-                    rec["archetype"], rec["attempt"],
-                ))
+                insert_summary(
+                    conn,
+                    _make_record(
+                        rec["spec_name"],
+                        rec["task_group"],
+                        rec["archetype"],
+                        rec["attempt"],
+                    ),
+                )
             results = query_same_spec_summaries(conn, current_spec, str(current_group), "run-1")
             for r in results:
                 assert r.spec_name == current_spec
@@ -90,7 +100,8 @@ class TestPriorGroupFilteringProperty:
             assert len(pairs) == len(set(pairs))
             for r in results:
                 max_attempt = max(
-                    rec["attempt"] for rec in records
+                    rec["attempt"]
+                    for rec in records
                     if rec["spec_name"] == current_spec
                     and rec["task_group"] == int(r.task_group)
                     and rec["archetype"] == r.archetype
@@ -111,10 +122,15 @@ class TestCrossSpecExclusionProperty:
         conn = _make_conn_with_table()
         try:
             for rec in records:
-                insert_summary(conn, _make_record(
-                    rec["spec_name"], rec["task_group"],
-                    rec["archetype"], rec["attempt"],
-                ))
+                insert_summary(
+                    conn,
+                    _make_record(
+                        rec["spec_name"],
+                        rec["task_group"],
+                        rec["archetype"],
+                        rec["attempt"],
+                    ),
+                )
             results = query_cross_spec_summaries(conn, current_spec, "run-1")
             for r in results:
                 assert r.spec_name != current_spec
@@ -140,9 +156,7 @@ class TestAppendOnlyProperty:
             count = conn.execute("SELECT COUNT(*) FROM session_summaries").fetchone()[0]
             assert count == num_inserts
             for rec in records:
-                row = conn.execute(
-                    "SELECT summary FROM session_summaries WHERE id = ?::UUID", [rec.id]
-                ).fetchone()
+                row = conn.execute("SELECT summary FROM session_summaries WHERE id = ?::UUID", [rec.id]).fetchone()
                 assert row is not None
                 assert row[0] == rec.summary
         finally:
@@ -157,11 +171,16 @@ class TestSortOrderProperty:
         conn = _make_conn_with_table()
         try:
             for i, rec in enumerate(records):
-                insert_summary(conn, _make_record(
-                    rec["spec_name"], rec["task_group"],
-                    rec["archetype"], rec["attempt"],
-                    created_at=f"2026-04-28T{10 + (i % 14):02d}:{i % 60:02d}:00",
-                ))
+                insert_summary(
+                    conn,
+                    _make_record(
+                        rec["spec_name"],
+                        rec["task_group"],
+                        rec["archetype"],
+                        rec["attempt"],
+                        created_at=f"2026-04-28T{10 + (i % 14):02d}:{i % 60:02d}:00",
+                    ),
+                )
             same = query_same_spec_summaries(conn, "spec_a", "16", "run-1")
             # 120-REQ-3.3: multiple archetypes per group, so >= not >
             for i in range(1, len(same)):

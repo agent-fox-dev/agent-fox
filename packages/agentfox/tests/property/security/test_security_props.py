@@ -114,9 +114,7 @@ class TestShellVariableExpansionBlockedProperty:
     # Variable names must start with an ASCII letter or underscore (POSIX).
     # The fix covers $[a-zA-Z_{] — numeric positional params ($0, $1) and
     # non-ASCII letters are intentionally out of scope.
-    _var_first_char = st.sampled_from(
-        list("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_")
-    )
+    _var_first_char = st.sampled_from(list("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_"))
     _var_rest = st.text(
         alphabet="abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_",
         min_size=0,
@@ -134,9 +132,7 @@ class TestShellVariableExpansionBlockedProperty:
         var = first + rest
         command = f"{cmd} ${var}"
         result = check_shell_operators(command)
-        assert result is not None, (
-            f"Expected check_shell_operators to reject '{command}' containing variable expansion"
-        )
+        assert result is not None, f"Expected check_shell_operators to reject '{command}' containing variable expansion"
 
     @given(
         cmd=st.sampled_from(sorted(DEFAULT_ALLOWLIST)),

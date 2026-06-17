@@ -312,7 +312,12 @@ class TestNoDuplicateSessionOutcomeWrite:
             ),
         ):
             record = await runner._run_and_harvest(
-                "spec:1", 1, workspace, "sys", "task", Path("/tmp"),
+                "spec:1",
+                1,
+                workspace,
+                "sys",
+                "task",
+                Path("/tmp"),
             )
 
         assert record.status == "completed"
@@ -399,15 +404,19 @@ class TestNoDuplicateHarvestCompleteEvent:
             ),
         ):
             record = await runner._run_and_harvest(
-                "spec:1", 1, workspace, "sys", "task", Path("/tmp"),
+                "spec:1",
+                1,
+                workspace,
+                "sys",
+                "task",
+                Path("/tmp"),
             )
 
         assert record.status == "completed"
         # harvest.complete must NOT be emitted directly by _run_and_harvest;
         # it is emitted exclusively by extract_and_store_knowledge.
         assert AuditEventType.HARVEST_COMPLETE not in audit_calls, (
-            "harvest.complete was emitted directly by _run_and_harvest — "
-            "this causes duplicate events (issue #482)"
+            "harvest.complete was emitted directly by _run_and_harvest — this causes duplicate events (issue #482)"
         )
 
 
@@ -457,9 +466,7 @@ class TestBuildPromptsPassesTaskGroup:
         mock_provider.retrieve.assert_called_once()
         call_kwargs = mock_provider.retrieve.call_args
         # task_group should be passed as keyword argument '2'
-        assert call_kwargs.kwargs.get("task_group") == "2", (
-            f"Expected task_group='2', got: {call_kwargs}"
-        )
+        assert call_kwargs.kwargs.get("task_group") == "2", f"Expected task_group='2', got: {call_kwargs}"
 
 
 # ---------------------------------------------------------------------------
@@ -547,7 +554,12 @@ class TestBudgetExhaustionDetection:
             ),
         ):
             record = await runner._run_and_harvest(
-                "spec:1", 1, workspace, "sys", "task", Path("/tmp"),
+                "spec:1",
+                1,
+                workspace,
+                "sys",
+                "task",
+                Path("/tmp"),
             )
 
         # Budget-exhausted sessions get a "Budget exhausted" error_message
@@ -625,7 +637,12 @@ class TestBudgetExhaustionDetection:
             ),
         ):
             record = await runner._run_and_harvest(
-                "spec:1", 1, workspace, "sys", "task", Path("/tmp"),
+                "spec:1",
+                1,
+                workspace,
+                "sys",
+                "task",
+                Path("/tmp"),
             )
 
         # Cost below threshold: should not be budget-exhausted

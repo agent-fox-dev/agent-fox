@@ -111,5 +111,3 @@ class TestNightshiftTriageViaMaintainer:
             f"Tier passed to nightshift_ai_call must be STANDARD (from maintainer:hunt), "
             f"got {captured_tier[0]!r} (100-REQ-5.1)"
         )
-
-

@@ -695,9 +695,7 @@ class TestCancelledErrorNotRetried:
                     pass
 
         # Must not have slept — no retry attempts should have occurred
-        assert mock_sleep.call_count == 0, (
-            "asyncio.sleep was called, meaning CancelledError triggered a retry"
-        )
+        assert mock_sleep.call_count == 0, "asyncio.sleep was called, meaning CancelledError triggered a retry"
 
 
 # ---------------------------------------------------------------------------

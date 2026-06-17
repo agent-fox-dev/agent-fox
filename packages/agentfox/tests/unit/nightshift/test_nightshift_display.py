@@ -87,8 +87,6 @@ class TestPhaseLineIssueCheck:
         )
 
 
-
-
 # ---------------------------------------------------------------------------
 # TS-81-13: Phase line on successful fix
 # Requirement: 81-REQ-3.4
@@ -389,7 +387,6 @@ class TestPropPhaseLineEmission:
         # Exactly one phase line for issue check entry
         issue_lines = [(t, s) for t, s in lines if "af:fix" in t or "issue" in t.lower()]
         assert len(issue_lines) == 1
-
 
     @pytest.mark.asyncio
     async def test_81_prop_fix_emits_start_and_result(self) -> None:

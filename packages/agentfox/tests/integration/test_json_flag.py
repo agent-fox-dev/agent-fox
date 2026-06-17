@@ -458,7 +458,6 @@ class TestStreamingInterrupted:
                 side_effect=_fake_asyncio_run(side_effect=KeyboardInterrupt()),
             ),
         ):
-
             # DB file is required for plan existence check
             db_path = tmp_project / ".agent-fox" / "knowledge.duckdb"
             db_path.write_text("")
@@ -467,7 +466,6 @@ class TestStreamingInterrupted:
             last_line = result.output.strip().splitlines()[-1]
             data = json.loads(last_line)
             assert data["status"] == "interrupted"
-
 
 
 # ---------------------------------------------------------------------------

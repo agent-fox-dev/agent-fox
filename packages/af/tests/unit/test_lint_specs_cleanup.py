@@ -63,10 +63,7 @@ def _setup_minimal_project(project_dir: Path) -> Path:
         "| 01-REQ-1.1 | TS-01-1 | unit |\n"
     )
     (spec / "tasks.md").write_text(
-        "# Implementation Plan\n\n## Tasks\n\n"
-        "- [ ] 1. Do something\n"
-        "  - [ ] 1.1 Task\n"
-        "  - [ ] 1.V Verify\n"
+        "# Implementation Plan\n\n## Tasks\n\n- [ ] 1. Do something\n  - [ ] 1.1 Task\n  - [ ] 1.V Verify\n"
     )
     return specs_dir
 
@@ -132,9 +129,7 @@ class TestNoGitOperations:
             "run_git_sync",
         ]
         for name in forbidden:
-            assert name not in source, (
-                f"Found forbidden name '{name}' in lint_specs.py"
-            )
+            assert name not in source, f"Found forbidden name '{name}' in lint_specs.py"
 
 
 # ---------------------------------------------------------------------------
@@ -196,9 +191,7 @@ class TestAfSpecSkillTemplate:
         """
         template_path = _REPO_ROOT / "packages" / "agentfox" / "agentfox" / "_templates" / "skills" / "af-spec"
         content = template_path.read_text()
-        assert "lint-specs" in content, (
-            "af-spec template must include a lint-specs validation step"
-        )
+        assert "lint-specs" in content, "af-spec template must include a lint-specs validation step"
 
     def test_af_spec_template_instructs_fix_lint_errors(self) -> None:
         """af-spec skill template instructs agent to fix lint errors.
@@ -208,9 +201,7 @@ class TestAfSpecSkillTemplate:
         template_path = _REPO_ROOT / "packages" / "agentfox" / "agentfox" / "_templates" / "skills" / "af-spec"
         content = template_path.read_text()
         # Template must instruct running agent-fox lint-specs and fixing errors
-        assert "agent-fox lint-specs" in content, (
-            "af-spec template must instruct running agent-fox lint-specs"
-        )
+        assert "agent-fox lint-specs" in content, "af-spec template must instruct running agent-fox lint-specs"
 
     def test_af_spec_template_has_manual_check_markers(self) -> None:
         """af-spec skill template marks non-lint items as (manual check).
@@ -219,9 +210,8 @@ class TestAfSpecSkillTemplate:
         """
         template_path = _REPO_ROOT / "packages" / "agentfox" / "agentfox" / "_templates" / "skills" / "af-spec"
         content = template_path.read_text().lower()
-        assert "(manual check)" in content, (
-            "af-spec template must mark manual-only checklist items"
-        )
+        assert "(manual check)" in content, "af-spec template must mark manual-only checklist items"
+
 
 # ---------------------------------------------------------------------------
 # TS-127-P2: CLI always rejects --fix (property)
@@ -287,9 +277,7 @@ class TestSmokeProgressDisplay:
         from af import lint_specs as lint_mod
 
         source = inspect.getsource(lint_mod)
-        assert "ProgressDisplay" in source, (
-            "lint_specs module must import and use ProgressDisplay"
-        )
+        assert "ProgressDisplay" in source, "lint_specs module must import and use ProgressDisplay"
 
     def test_progress_display_lifecycle(self, tmp_path: Path) -> None:
         """ProgressDisplay.start() and stop() called during lint-specs."""
@@ -297,9 +285,7 @@ class TestSmokeProgressDisplay:
         from af import lint_specs as lint_mod
 
         source = inspect.getsource(lint_mod)
-        assert "ProgressDisplay" in source, (
-            "lint_specs module must import ProgressDisplay"
-        )
+        assert "ProgressDisplay" in source, "lint_specs module must import ProgressDisplay"
 
         _setup_minimal_project(tmp_path)
         runner = CliRunner()
@@ -310,11 +296,7 @@ class TestSmokeProgressDisplay:
                 mock_progress = MagicMock()
                 mock_cls.return_value = mock_progress
                 runner.invoke(main, ["lint-specs"])
-            assert mock_progress.start.called, (
-                "ProgressDisplay.start() must be called"
-            )
-            assert mock_progress.stop.called, (
-                "ProgressDisplay.stop() must be called"
-            )
+            assert mock_progress.start.called, "ProgressDisplay.start() must be called"
+            assert mock_progress.stop.called, "ProgressDisplay.stop() must be called"
         finally:
             os.chdir(original_dir)

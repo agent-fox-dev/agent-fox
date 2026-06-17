@@ -14,7 +14,7 @@ from __future__ import annotations
 import pytest
 
 try:
-    from hypothesis import given, settings
+    from hypothesis import given
     from hypothesis import strategies as st
 
     HAS_HYPOTHESIS = True

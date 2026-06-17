@@ -136,9 +136,9 @@ class TestFullPipelineHappyPath:
 
         # AC-1: Starting comment includes run_id in prescribed format
         run_id_pattern = re.compile(r"\d{8}_\d{6}_[0-9a-f]{6}")
-        assert any(
-            "Starting fix session" in c and run_id_pattern.search(c) for c in comments
-        ), "Starting comment must contain branch name and run_id"
+        assert any("Starting fix session" in c and run_id_pattern.search(c) for c in comments), (
+            "Starting comment must contain branch name and run_id"
+        )
 
         # Issue is closed
         mock_platform.close_issue.assert_awaited_once()
@@ -318,9 +318,9 @@ class TestRunIdInExhaustionComment:
         comments = [str(call) for call in mock_platform.add_issue_comment.call_args_list]
 
         # AC-2: exhaustion comment must contain run_id
-        assert any(
-            "exhausted" in c and run_id_pattern.search(c) for c in comments
-        ), "Exhaustion comment must contain run_id"
+        assert any("exhausted" in c and run_id_pattern.search(c) for c in comments), (
+            "Exhaustion comment must contain run_id"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -360,9 +360,9 @@ class TestRunIdInFailureComment:
         comments = [str(call) for call in mock_platform.add_issue_comment.call_args_list]
 
         # AC-3: failure comment must contain Branch and run_id
-        assert any(
-            "Branch:" in c and run_id_pattern.search(c) for c in comments
-        ), "Failure comment must contain Branch and run_id"
+        assert any("Branch:" in c and run_id_pattern.search(c) for c in comments), (
+            "Failure comment must contain Branch and run_id"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -405,9 +405,9 @@ class TestRunIdInTriageComment:
         comments = [str(call) for call in mock_platform.add_issue_comment.call_args_list]
 
         # AC-1 (triage): triage comment must contain run_id
-        assert any(
-            "Triage Report" in c and run_id_pattern.search(c) for c in comments
-        ), "Triage report comment must contain run_id"
+        assert any("Triage Report" in c and run_id_pattern.search(c) for c in comments), (
+            "Triage report comment must contain run_id"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -450,9 +450,9 @@ class TestRunIdInReviewComment:
         comments = [str(call) for call in mock_platform.add_issue_comment.call_args_list]
 
         # AC-2 (triage): review comment must contain run_id
-        assert any(
-            "Fix Review Report" in c and run_id_pattern.search(c) for c in comments
-        ), "Fix review report comment must contain run_id"
+        assert any("Fix Review Report" in c and run_id_pattern.search(c) for c in comments), (
+            "Fix review report comment must contain run_id"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -495,6 +495,6 @@ class TestRunIdInMergeFailureComment:
         comments = [str(call) for call in mock_platform.add_issue_comment.call_args_list]
 
         # AC-3 (triage): merge-failure comment must contain run_id
-        assert any(
-            "could not be merged" in c and run_id_pattern.search(c) for c in comments
-        ), "Merge-failure comment must contain run_id"
+        assert any("could not be merged" in c and run_id_pattern.search(c) for c in comments), (
+            "Merge-failure comment must contain run_id"
+        )

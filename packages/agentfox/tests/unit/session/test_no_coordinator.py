@@ -54,5 +54,3 @@ class TestGetArchetypeCoordinatorFallback:
         assert any("coordinator" in record.message for record in caplog.records), (
             "Expected a warning log containing 'coordinator'"
         )
-
-

@@ -604,6 +604,5 @@ class TestCoderReviewerLoopReadsRoutingConfig:
         assert result is True, "Expected PASS on first attempt"
         assert "retries_before_escalation" in captured, "EscalationLadder.__init__ was not called"
         assert captured["retries_before_escalation"] == 2, (
-            f"Expected retries_before_escalation=2 (from routing config), "
-            f"got {captured['retries_before_escalation']}"
+            f"Expected retries_before_escalation=2 (from routing config), got {captured['retries_before_escalation']}"
         )

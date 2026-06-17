@@ -131,9 +131,7 @@ class TestSessionDbWriteFailureLogsWarning:
                     {},
                 )
 
-        matching = [
-            r for r in caplog.records if "Failed to record session to DB" in r.message
-        ]
+        matching = [r for r in caplog.records if "Failed to record session to DB" in r.message]
         assert matching, "Expected log entry for 'Failed to record session to DB'"
         assert all(r.levelno >= logging.WARNING for r in matching), (
             "All 'Failed to record session to DB' entries must be at WARNING or above"
@@ -201,9 +199,7 @@ class TestStartupWarningWhenNoKnowledgeDbConn:
             f"Expected WARNING mentioning 'knowledge_db_conn'; got: {warning_msgs}"
         )
 
-    def test_init_with_valid_conn_does_not_emit_none_warning(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_init_with_valid_conn_does_not_emit_none_warning(self, caplog: pytest.LogCaptureFixture) -> None:
         """No 'knowledge_db_conn is None' warning when conn is provided."""
         mock_conn = MagicMock()
         with caplog.at_level(logging.WARNING, logger="agentfox.engine.result_handler"):
@@ -211,10 +207,6 @@ class TestStartupWarningWhenNoKnowledgeDbConn:
 
         # Must not have the "will not be recorded" startup warning
         startup_warnings = [
-            r
-            for r in caplog.records
-            if r.levelno == logging.WARNING and "will not be recorded" in r.message
+            r for r in caplog.records if r.levelno == logging.WARNING and "will not be recorded" in r.message
         ]
-        assert not startup_warnings, (
-            f"Unexpected startup warning when conn is provided: {startup_warnings}"
-        )
+        assert not startup_warnings, f"Unexpected startup warning when conn is provided: {startup_warnings}"

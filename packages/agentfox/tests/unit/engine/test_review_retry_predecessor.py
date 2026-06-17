@@ -69,9 +69,7 @@ def _make_archetypes_config(block_threshold: int = 1):
 class TestThresholdGteComparison:
     """Threshold comparison uses >= so threshold=1 blocks on 1 critical."""
 
-    def test_single_critical_blocks_at_threshold_1(
-        self, knowledge_conn: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_single_critical_blocks_at_threshold_1(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
         finding = _make_finding(
             severity="critical",
             description="Missing error handling",
@@ -86,9 +84,7 @@ class TestThresholdGteComparison:
 
         assert decision.should_block is True
 
-    def test_single_critical_does_not_block_at_threshold_2(
-        self, knowledge_conn: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_single_critical_does_not_block_at_threshold_2(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
         finding = _make_finding(
             severity="critical",
             description="Missing error handling",
@@ -103,13 +99,8 @@ class TestThresholdGteComparison:
 
         assert decision.should_block is False
 
-    def test_two_criticals_block_at_threshold_2(
-        self, knowledge_conn: duckdb.DuckDBPyConnection
-    ) -> None:
-        findings = [
-            _make_finding(description=f"Critical issue {i}", session_id="test_spec:1:1")
-            for i in range(2)
-        ]
+    def test_two_criticals_block_at_threshold_2(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
+        findings = [_make_finding(description=f"Critical issue {i}", session_id="test_spec:1:1") for i in range(2)]
         insert_findings(knowledge_conn, findings)
 
         record = _make_session_record()
@@ -123,9 +114,7 @@ class TestThresholdGteComparison:
 class TestGroup0CoderNodeId:
     """Group-0 reviewers target coder group 1, not group 0."""
 
-    def test_group_0_reviewer_targets_group_1(
-        self, knowledge_conn: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_group_0_reviewer_targets_group_1(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
         finding = _make_finding(
             severity="critical",
             description="Command injection",
@@ -142,16 +131,12 @@ class TestGroup0CoderNodeId:
         )
         config = _make_archetypes_config(block_threshold=1)
 
-        decision = evaluate_review_blocking(
-            record, config, knowledge_conn, mode="pre-review"
-        )
+        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-review")
 
         assert decision.should_block is True
         assert decision.coder_node_id == "spec_07:1"
 
-    def test_non_group_0_reviewer_keeps_own_group(
-        self, knowledge_conn: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_non_group_0_reviewer_keeps_own_group(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
         finding = _make_finding(
             severity="critical",
             description="Missing validation",
@@ -276,9 +261,7 @@ class TestRetryOnReviewBlock:
 
         return handler, state, block_task_fn
 
-    def test_pre_review_block_converts_to_retry(
-        self, knowledge_conn: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_pre_review_block_converts_to_retry(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
         """Pre-review blocking with retry_predecessor does NOT permanently block."""
         finding = _make_finding(
             severity="critical",
@@ -300,9 +283,7 @@ class TestRetryOnReviewBlock:
         assert blocked is False
         block_task_fn.assert_not_called()
 
-    def test_drift_review_block_is_permanent(
-        self, knowledge_conn: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_drift_review_block_is_permanent(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
         """Drift-review blocking without retry_predecessor permanently blocks."""
         finding = _make_finding(
             severity="critical",
@@ -388,9 +369,7 @@ class TestDefaultThreshold:
 class TestEvaluateReviewBlockingTaskGroupFilter:
     """AC-1: only findings matching the coder's task_group count toward blocking."""
 
-    def test_cross_group_finding_excluded_from_critical_count(
-        self, knowledge_conn: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_cross_group_finding_excluded_from_critical_count(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
         """A finding tagged task_group='1' does NOT block a coder for group 2."""
         # Reviewer runs for group 2; its session has one finding for group 1 (cross-group)
         session_id = "test_spec:2:reviewer:pre-review:1"
@@ -410,17 +389,11 @@ class TestEvaluateReviewBlockingTaskGroupFilter:
         )
         config = _make_archetypes_config(block_threshold=1)
 
-        decision = evaluate_review_blocking(
-            record, config, knowledge_conn, mode="pre-review"
-        )
+        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-review")
 
-        assert decision.should_block is False, (
-            "Cross-group finding (task_group='1') must not block coder for group 2"
-        )
+        assert decision.should_block is False, "Cross-group finding (task_group='1') must not block coder for group 2"
 
-    def test_same_group_finding_counts_toward_block(
-        self, knowledge_conn: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_same_group_finding_counts_toward_block(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
         """A finding tagged task_group='2' DOES block a coder for group 2."""
         session_id = "test_spec:2:reviewer:pre-review:1"
         own_finding = _make_finding(
@@ -439,15 +412,11 @@ class TestEvaluateReviewBlockingTaskGroupFilter:
         )
         config = _make_archetypes_config(block_threshold=1)
 
-        decision = evaluate_review_blocking(
-            record, config, knowledge_conn, mode="pre-review"
-        )
+        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-review")
 
         assert decision.should_block is True
 
-    def test_mixed_groups_only_own_group_counts(
-        self, knowledge_conn: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_mixed_groups_only_own_group_counts(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
         """When session has findings for groups 1 and 2, only group-2 counts for group-2 coder."""
         session_id = "test_spec:2:reviewer:pre-review:1"
         findings = [
@@ -485,9 +454,7 @@ class TestEvaluateReviewBlockingTaskGroupFilter:
         config = _make_archetypes_config(block_threshold=2)
 
         # threshold=2, but only 1 finding for group 2 → should NOT block
-        decision = evaluate_review_blocking(
-            record, config, knowledge_conn, mode="pre-review"
-        )
+        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-review")
 
         assert decision.should_block is False, (
             "Only the group-2 finding should count; cross-group finding should be excluded"
@@ -503,9 +470,7 @@ class TestEvaluateReviewBlockingTaskGroupFilter:
 class TestRetryOnReviewBlockTaskGroupFilter:
     """AC-2: review block with only cross-group findings does not reset the coder."""
 
-    def test_cross_group_only_findings_do_not_trigger_retry(
-        self, knowledge_conn: duckdb.DuckDBPyConnection
-    ) -> None:
+    def test_cross_group_only_findings_do_not_trigger_retry(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
         """All session findings for group 0 → block decision is False → coder not reset."""
         session_id = "test_spec:0:reviewer:pre-review:1"
         # Only task_group='0' findings exist
@@ -527,9 +492,7 @@ class TestRetryOnReviewBlockTaskGroupFilter:
 
         graph = MagicMock()
         graph.nodes = {
-            "test_spec:0:reviewer:pre-review": MagicMock(
-                archetype="reviewer", mode="pre-review"
-            ),
+            "test_spec:0:reviewer:pre-review": MagicMock(archetype="reviewer", mode="pre-review"),
             "test_spec:1": MagicMock(archetype="coder", mode=None),
         }
 

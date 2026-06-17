@@ -63,17 +63,35 @@ def _write_test_spec_json(spec_dir: Path, prefix: str, n: int) -> None:
             'source: "t"\nschema_version: 1\n---\n# T\n'
         )
     if not (spec_dir / "requirements.json").exists():
-        (spec_dir / "requirements.json").write_text(json.dumps({
-            "spec_id": "test", "spec_name": "test", "schema_version": 1,
-            "introduction": "", "glossary": {}, "requirements": [],
-            "correctness_properties": [], "execution_paths": [], "error_handling": [],
-        }))
+        (spec_dir / "requirements.json").write_text(
+            json.dumps(
+                {
+                    "spec_id": "test",
+                    "spec_name": "test",
+                    "schema_version": 1,
+                    "introduction": "",
+                    "glossary": {},
+                    "requirements": [],
+                    "correctness_properties": [],
+                    "execution_paths": [],
+                    "error_handling": [],
+                }
+            )
+        )
     if not (spec_dir / "tasks.json").exists():
-        (spec_dir / "tasks.json").write_text(json.dumps({
-            "spec_id": "test", "spec_name": "test", "schema_version": 1,
-            "test_commands": {"spec_tests": "", "all_tests": "", "linter": ""},
-            "dependencies": [], "task_groups": [], "traceability": [],
-        }))
+        (spec_dir / "tasks.json").write_text(
+            json.dumps(
+                {
+                    "spec_id": "test",
+                    "spec_name": "test",
+                    "schema_version": 1,
+                    "test_commands": {"spec_tests": "", "all_tests": "", "linter": ""},
+                    "dependencies": [],
+                    "task_groups": [],
+                    "traceability": [],
+                }
+            )
+        )
 
 
 def _tgd(number: int, title: str = "T", **kw: Any) -> TaskGroupDef:
@@ -620,12 +638,18 @@ class TestAutoMidUsesSpecsDir:
         # Build a graph with two coder groups, one test-writing
         nodes = {
             "myspec:1": Node(
-                id="myspec:1", spec_name="myspec", group_number=1,
-                title="Write failing spec tests", optional=False,
+                id="myspec:1",
+                spec_name="myspec",
+                group_number=1,
+                title="Write failing spec tests",
+                optional=False,
             ),
             "myspec:2": Node(
-                id="myspec:2", spec_name="myspec", group_number=2,
-                title="Implement core", optional=False,
+                id="myspec:2",
+                spec_name="myspec",
+                group_number=2,
+                title="Implement core",
+                optional=False,
             ),
         }
         edges = [Edge(source="myspec:1", target="myspec:2", kind="intra_spec")]
@@ -650,12 +674,18 @@ class TestAutoMidUsesSpecsDir:
 
         nodes = {
             "myspec:1": Node(
-                id="myspec:1", spec_name="myspec", group_number=1,
-                title="Write failing spec tests", optional=False,
+                id="myspec:1",
+                spec_name="myspec",
+                group_number=1,
+                title="Write failing spec tests",
+                optional=False,
             ),
             "myspec:2": Node(
-                id="myspec:2", spec_name="myspec", group_number=2,
-                title="Implement core", optional=False,
+                id="myspec:2",
+                spec_name="myspec",
+                group_number=2,
+                title="Implement core",
+                optional=False,
             ),
         }
         edges = [Edge(source="myspec:1", target="myspec:2", kind="intra_spec")]

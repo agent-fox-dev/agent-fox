@@ -158,10 +158,7 @@ async def test_smoke_fix_session_costs_in_audit_events() -> None:
     archetypes = {p.get("archetype") for p in payloads}
     night_shift_archetypes = {"maintainer", "fix_coder", "fix_reviewer"}
     matched = night_shift_archetypes & archetypes
-    assert matched, (
-        f"audit events must include at least one of {night_shift_archetypes}, "
-        f"got: {archetypes}"
-    )
+    assert matched, f"audit events must include at least one of {night_shift_archetypes}, got: {archetypes}"
 
 
 # ---------------------------------------------------------------------------
@@ -206,9 +203,7 @@ def test_smoke_auxiliary_costs_in_audit_events() -> None:
     assert payload.get("archetype") == "hunt_critic", (
         f"Expected archetype='hunt_critic' in payload, got: {payload.get('archetype')}"
     )
-    assert payload.get("cost", 0) > 0, (
-        f"cost must be > 0 after auxiliary cost emission, got {payload.get('cost')}"
-    )
+    assert payload.get("cost", 0) > 0, f"cost must be > 0 after auxiliary cost emission, got {payload.get('cost')}"
 
 
 # ---------------------------------------------------------------------------

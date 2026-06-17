@@ -139,9 +139,7 @@ class TestTraceFlagWiring:
 
         mock_setup.assert_called_once()
         call_kwargs = mock_setup.call_args.kwargs
-        assert call_kwargs.get("trace") is True, (
-            f"Expected trace=True in setup_logging call, got: {call_kwargs}"
-        )
+        assert call_kwargs.get("trace") is True, f"Expected trace=True in setup_logging call, got: {call_kwargs}"
 
     def test_no_trace_calls_setup_logging_with_trace_false(self, cli_runner: CliRunner) -> None:
         """Without --trace, setup_logging() receives trace=False."""
@@ -150,9 +148,7 @@ class TestTraceFlagWiring:
 
         mock_setup.assert_called_once()
         call_kwargs = mock_setup.call_args.kwargs
-        assert call_kwargs.get("trace") is False, (
-            f"Expected trace=False in setup_logging call, got: {call_kwargs}"
-        )
+        assert call_kwargs.get("trace") is False, f"Expected trace=False in setup_logging call, got: {call_kwargs}"
 
     def test_trace_stored_in_ctx_obj(self, cli_runner: CliRunner) -> None:
         """--trace is stored as ctx.obj['trace'] = True for subcommands."""
@@ -171,9 +167,7 @@ class TestTraceFlagWiring:
         finally:
             main.commands.pop("probe", None)
 
-        assert captured.get("trace") is True, (
-            f"Expected ctx.obj['trace']=True, got: {captured}"
-        )
+        assert captured.get("trace") is True, f"Expected ctx.obj['trace']=True, got: {captured}"
 
     def test_trace_sets_log_level_to_trace(self, cli_runner: CliRunner) -> None:
         """--trace sets the agent_fox logger to TRACE level."""

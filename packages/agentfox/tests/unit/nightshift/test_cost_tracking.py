@@ -317,9 +317,7 @@ class TestProcessIssueGeneratesRunId:
         assert pipeline._run_id == caller_run_id, (  # type: ignore[attr-defined]
             "process_issue must use the provided run_id, not generate a new one"
         )
-        assert len(generate_called) == 0, (
-            "generate_run_id must NOT be called when a run_id is already provided"
-        )
+        assert len(generate_called) == 0, "generate_run_id must NOT be called when a run_id is already provided"
 
 
 # ---------------------------------------------------------------------------

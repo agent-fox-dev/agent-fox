@@ -233,8 +233,6 @@ class TestSmokeDaemonFullLifecycle:
         assert stream.shutdown.call_count == 1
 
 
-
-
 # ---------------------------------------------------------------------------
 # TS-85-SMOKE-3: Fix pipeline stream end-to-end
 # Path 3
@@ -268,8 +266,6 @@ class TestSmokeFixPipeline:
         await fix_stream.run_once()
         assert engine._drain_issues.call_count == 1
         assert budget.total_cost == 3.0
-
-
 
 
 # ---------------------------------------------------------------------------

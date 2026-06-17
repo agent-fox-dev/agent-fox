@@ -80,7 +80,9 @@ class TestSquashCommitMessage:
         not 'Squashed commit of the following:'."""
         ws = await create_worktree(tmp_worktree_repo, "test_spec", 1)
         add_commit_to_branch(
-            ws.path, "new_file.py", "print('hello')\n",
+            ws.path,
+            "new_file.py",
+            "print('hello')\n",
             message="feat: add greeting module",
         )
 
@@ -106,11 +108,15 @@ class TestSquashCommitMessage:
         and includes earlier commit subjects in the body."""
         ws = await create_worktree(tmp_worktree_repo, "test_spec", 1)
         add_commit_to_branch(
-            ws.path, "file_a.py", "a\n",
+            ws.path,
+            "file_a.py",
+            "a\n",
             message="feat: add module A",
         )
         add_commit_to_branch(
-            ws.path, "file_b.py", "b\n",
+            ws.path,
+            "file_b.py",
+            "b\n",
             message="feat: add module B",
         )
 
@@ -145,7 +151,9 @@ class TestSquashCommitMessage:
         """Squash commit message must not contain Author: or Date: metadata."""
         ws = await create_worktree(tmp_worktree_repo, "test_spec", 1)
         add_commit_to_branch(
-            ws.path, "new_file.py", "content\n",
+            ws.path,
+            "new_file.py",
+            "content\n",
             message="fix: resolve edge case",
         )
 
@@ -427,12 +435,10 @@ class TestCleanConflictingUntracked:
         assert (tmp_worktree_repo / "new_file.py").exists()
 
         # A WARNING-level log entry must mention both "Removing" and the path.
-        warning_messages = [
-            r.message for r in caplog.records if r.levelno == logging.WARNING
-        ]
-        assert any(
-            "Removing" in msg and "new_file.py" in msg for msg in warning_messages
-        ), f"Expected WARNING about 'Removing new_file.py'; got: {warning_messages}"
+        warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("Removing" in msg and "new_file.py" in msg for msg in warning_messages), (
+            f"Expected WARNING about 'Removing new_file.py'; got: {warning_messages}"
+        )
 
     @pytest.mark.asyncio
     async def test_divergent_content_raises_integration_error(
@@ -489,12 +495,10 @@ class TestCleanConflictingUntracked:
         assert untracked.read_text() == "local content\n"
 
         # A WARNING-level log entry must mention the inability to verify.
-        warning_messages = [
-            r.message for r in caplog.records if r.levelno == logging.WARNING
-        ]
-        assert any(
-            "Cannot verify" in msg and "new_file.py" in msg for msg in warning_messages
-        ), f"Expected WARNING about 'Cannot verify new_file.py'; got: {warning_messages}"
+        warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("Cannot verify" in msg and "new_file.py" in msg for msg in warning_messages), (
+            f"Expected WARNING about 'Cannot verify new_file.py'; got: {warning_messages}"
+        )
 
     @pytest.mark.asyncio
     async def test_warning_lists_all_files_without_truncation(
@@ -514,9 +518,7 @@ class TestCleanConflictingUntracked:
         with caplog.at_level(logging.WARNING, logger="agentfox.workspace.harvest"):
             await harvest(tmp_worktree_repo, ws)
 
-        warning_messages = [
-            r.message for r in caplog.records if r.levelno == logging.WARNING
-        ]
+        warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
         # Every filename must appear in at least one WARNING message.
         for name in filenames:
             assert any(name in msg for msg in warning_messages), (
@@ -588,14 +590,10 @@ class TestForceCleanDuringHarvest:
         backup_files = list(conflicts_root.rglob("new_file.py"))
         assert backup_files, "Backup of new_file.py should exist under .agent-fox/conflicts/"
         # The backup preserves the divergent content (not the branch content)
-        assert backup_files[0].read_text() == divergent_content, (
-            "Backup should contain the original divergent content"
-        )
+        assert backup_files[0].read_text() == divergent_content, "Backup should contain the original divergent content"
 
         # (b) A WARNING log references the backup path
-        warning_messages = [
-            r.message for r in caplog.records if r.levelno == logging.WARNING
-        ]
+        warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
         assert any("conflicts" in msg for msg in warning_messages), (
             f"Expected WARNING mentioning backup location; got: {warning_messages}"
         )
@@ -603,9 +601,7 @@ class TestForceCleanDuringHarvest:
         # Merge should have proceeded — branch content should be in working tree
         assert len(files) > 0
         # After merge, the file contains the branch content (not the divergent content)
-        assert untracked.read_text() == "branch content\n", (
-            "After merge, file should contain branch content"
-        )
+        assert untracked.read_text() == "branch content\n", "After merge, file should contain branch content"
 
 
 class TestNonRetryableErrorOnDivergent:
@@ -869,6 +865,4 @@ class TestSharedDirectoryCampaign:
         with pytest.raises(IntegrationError) as exc_info:
             await harvest(tmp_worktree_repo, ws)
 
-        assert exc_info.value.retryable is True, (
-            "Divergent untracked file error must be retryable=True (AC-1/AC-5)"
-        )
+        assert exc_info.value.retryable is True, "Divergent untracked file error must be retryable=True (AC-1/AC-5)"

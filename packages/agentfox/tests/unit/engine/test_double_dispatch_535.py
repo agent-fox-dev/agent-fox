@@ -96,9 +96,7 @@ class TestValidTransitionsIncludesPending:
     def test_pending_in_in_progress_valid_targets(self) -> None:
         assert "pending" in GraphSync.VALID_TRANSITIONS["in_progress"]
 
-    def test_in_progress_to_pending_does_not_warn(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_in_progress_to_pending_does_not_warn(self, caplog: pytest.LogCaptureFixture) -> None:
         """Transitioning in_progress→pending must not emit an Invalid transition warning."""
         import logging
 
@@ -196,16 +194,22 @@ class TestSingleTimeoutTwoDispatches:
         log = sync._transition_log
         assert len(log) == 3, f"Expected 3 transitions, got {len(log)}: {log}"
         assert log[0] == {
-            "node_id": node_id, "from_status": "pending",
-            "to_status": "in_progress", "reason": "dispatched",
+            "node_id": node_id,
+            "from_status": "pending",
+            "to_status": "in_progress",
+            "reason": "dispatched",
         }
         assert log[1] == {
-            "node_id": node_id, "from_status": "in_progress",
-            "to_status": "pending", "reason": "timeout retry",
+            "node_id": node_id,
+            "from_status": "in_progress",
+            "to_status": "pending",
+            "reason": "timeout retry",
         }
         assert log[2] == {
-            "node_id": node_id, "from_status": "pending",
-            "to_status": "in_progress", "reason": "dispatched",
+            "node_id": node_id,
+            "from_status": "pending",
+            "to_status": "in_progress",
+            "reason": "dispatched",
         }
 
     def test_timeout_handler_resets_via_mark_pending(self) -> None:
@@ -217,17 +221,15 @@ class TestSingleTimeoutTwoDispatches:
         assert handler._graph_sync.node_states[node_id] == "in_progress"
 
         record = _make_record("timeout", node_id=node_id)
-        handler.process(record, attempt=1, state=state,
-                        attempt_tracker=attempt_tracker, error_tracker=error_tracker)
+        handler.process(record, attempt=1, state=state, attempt_tracker=attempt_tracker, error_tracker=error_tracker)
 
         # Node should now be pending (ready for second dispatch)
         assert handler._graph_sync.node_states[node_id] == "pending"
         # Transition log should have captured in_progress → pending
         log = handler._graph_sync._transition_log
-        assert any(
-            e["from_status"] == "in_progress" and e["to_status"] == "pending"
-            for e in log
-        ), f"No in_progress→pending transition found: {log}"
+        assert any(e["from_status"] == "in_progress" and e["to_status"] == "pending" for e in log), (
+            f"No in_progress→pending transition found: {log}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -248,27 +250,22 @@ class TestExhaustedTimeoutRetries:
         handler._get_node_state(node_id).timeout_retries = 1  # already at max
 
         record = _make_record("timeout", node_id=node_id, attempt=2)
-        handler.process(record, attempt=2, state=state,
-                        attempt_tracker=attempt_tracker, error_tracker=error_tracker)
+        handler.process(record, attempt=2, state=state, attempt_tracker=attempt_tracker, error_tracker=error_tracker)
 
         # With exhausted retries and exhausted ladder, node is blocked (not pending)
         final_state = handler._graph_sync.node_states[node_id]
         assert final_state != "pending", (
-            f"Node should not be reset to pending when timeout retries exhausted, "
-            f"got {final_state!r}"
+            f"Node should not be reset to pending when timeout retries exhausted, got {final_state!r}"
         )
 
     def test_two_timeouts_max_one_retry_final_state_not_pending(self) -> None:
         """AC-5: max_timeout_retries=1, two timeouts → escalation ladder, not re-queued."""
         node_id = "01_project_setup:2"
-        handler, mock_ladder, state, attempt_tracker, error_tracker = _make_handler(
-            node_id, max_timeout_retries=1
-        )
+        handler, mock_ladder, state, attempt_tracker, error_tracker = _make_handler(node_id, max_timeout_retries=1)
 
         # First timeout: within retry budget, reset to pending
         record1 = _make_record("timeout", node_id=node_id, attempt=1)
-        handler.process(record1, attempt=1, state=state,
-                        attempt_tracker=attempt_tracker, error_tracker=error_tracker)
+        handler.process(record1, attempt=1, state=state, attempt_tracker=attempt_tracker, error_tracker=error_tracker)
         assert handler._graph_sync.node_states[node_id] == "pending"
         assert handler._get_node_state(node_id).timeout_retries == 1
 
@@ -278,8 +275,7 @@ class TestExhaustedTimeoutRetries:
         # Second timeout: retries exhausted, falls through to escalation ladder
         # With mock_ladder.is_exhausted=False (from _make_handler), it retries via ladder
         record2 = _make_record("timeout", node_id=node_id, attempt=2)
-        handler.process(record2, attempt=2, state=state,
-                        attempt_tracker=attempt_tracker, error_tracker=error_tracker)
+        handler.process(record2, attempt=2, state=state, attempt_tracker=attempt_tracker, error_tracker=error_tracker)
 
         # Timeout retry count is 1 (not incremented beyond max)
         assert handler._get_node_state(node_id).timeout_retries == 1

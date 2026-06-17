@@ -122,7 +122,10 @@ class CoderReviewerLoop:
         p = self._pipeline
 
         system_prompt, task_prompt = p._build_coder_prompt(
-            spec, triage, review_feedback=review_feedback, prior_context=prior_context,
+            spec,
+            triage,
+            review_feedback=review_feedback,
+            prior_context=prior_context,
         )
         node_id = f"fix-issue-{spec.issue_number}:0:coder"
         attempt_suffix = f" (attempt {attempt + 1})" if attempt > 0 else ""

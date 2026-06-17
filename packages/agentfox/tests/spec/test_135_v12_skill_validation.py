@@ -282,9 +282,7 @@ class TestV12RoutedToAfspec:
         """A V1_2_JSON spec should be validated via afspec.validate()."""
         with patch("afspec.validate", return_value=[]) as mock_validate:
             result = run_lint_specs(v12_specs_root)
-            assert mock_validate.called, (
-                "afspec.validate() should be called for v1.2 specs"
-            )
+            assert mock_validate.called, "afspec.validate() should be called for v1.2 specs"
             assert isinstance(result, LintResult)
 
     def test_v12_returns_finding_instances(self, v12_specs_root: Path) -> None:
@@ -299,9 +297,7 @@ class TestV12RoutedToAfspec:
         with patch("afspec.validate", return_value=[mock_error]):
             # The implementation must map ValidationError to Finding
             result = run_lint_specs(v12_specs_root)
-            v12_findings = [
-                f for f in result.findings if f.spec_name == "02_modern"
-            ]
+            v12_findings = [f for f in result.findings if f.spec_name == "02_modern"]
             assert all(isinstance(f, Finding) for f in v12_findings)
 
 
@@ -484,10 +480,7 @@ class TestCliFlagsUnchanged:
                 catch_exceptions=False,
             )
             # Table output contains "findings" or "No findings"
-            assert (
-                "findings" in result.output.lower()
-                or "no findings" in result.output.lower()
-            )
+            assert "findings" in result.output.lower() or "no findings" in result.output.lower()
 
 
 # ===========================================================================
@@ -638,29 +631,19 @@ class TestAfspecValidateException:
     Requirement: 135-REQ-1.E1
     """
 
-    def test_exception_produces_error_finding(
-        self, v12_specs_root: Path
-    ) -> None:
+    def test_exception_produces_error_finding(self, v12_specs_root: Path) -> None:
         """An exception from afspec.validate() should produce error Finding."""
-        with patch(
-            "afspec.validate", side_effect=RuntimeError("schema broken")
-        ):
+        with patch("afspec.validate", side_effect=RuntimeError("schema broken")):
             result = run_lint_specs(v12_specs_root)
-            afspec_error_findings = [
-                f for f in result.findings if f.rule == "afspec-error"
-            ]
-            assert len(afspec_error_findings) >= 1, (
-                "Should have at least one afspec-error finding"
-            )
+            afspec_error_findings = [f for f in result.findings if f.rule == "afspec-error"]
+            assert len(afspec_error_findings) >= 1, "Should have at least one afspec-error finding"
             error_finding = afspec_error_findings[0]
             assert error_finding.severity == "error"
             assert "schema broken" in error_finding.message
 
     def test_exception_does_not_crash(self, v12_specs_root: Path) -> None:
         """An exception should not crash the linter."""
-        with patch(
-            "afspec.validate", side_effect=RuntimeError("schema broken")
-        ):
+        with patch("afspec.validate", side_effect=RuntimeError("schema broken")):
             # Should not raise -- should return a result with error findings
             result = run_lint_specs(v12_specs_root)
             assert isinstance(result, LintResult)
@@ -677,15 +660,11 @@ class TestEmptyValidationResult:
     Requirement: 135-REQ-2.E1
     """
 
-    def test_empty_result_produces_zero_findings(
-        self, v12_specs_root: Path
-    ) -> None:
+    def test_empty_result_produces_zero_findings(self, v12_specs_root: Path) -> None:
         """Empty ValidationError list should produce zero findings."""
         with patch("afspec.validate", return_value=[]):
             result = run_lint_specs(v12_specs_root)
-            v12_findings = [
-                f for f in result.findings if f.spec_name == "02_modern"
-            ]
+            v12_findings = [f for f in result.findings if f.spec_name == "02_modern"]
             assert len(v12_findings) == 0
 
 
@@ -740,9 +719,7 @@ class TestFindingMappingPreservesFields:
         rule=st.text(min_size=1, max_size=50).filter(lambda s: s.strip()),
         message=st.text(min_size=1, max_size=100).filter(lambda s: s.strip()),
         path=st.text(min_size=0, max_size=50),
-        spec_name=st.text(
-            min_size=1, max_size=30
-        ).filter(lambda s: s.strip()),
+        spec_name=st.text(min_size=1, max_size=30).filter(lambda s: s.strip()),
     )
     def test_mapping_preserves_fields(
         self,
@@ -806,16 +783,12 @@ class TestLintSmoke:
                 "agentfox.spec.lint.discover_specs",
                 return_value=[v12_spec],
             ),
-            patch(
-                "afspec.validate", return_value=[]
-            ) as mock_v12,
+            patch("afspec.validate", return_value=[]) as mock_v12,
             patch("afspec.load_spec"),
         ):
             result = run_lint_specs(v12_specs_root, lint_all=True)
             assert isinstance(result, LintResult)
-            assert mock_v12.called, (
-                "afspec.validate() should be called for v1.2 specs"
-            )
+            assert mock_v12.called, "afspec.validate() should be called for v1.2 specs"
 
 
 # ===========================================================================
@@ -834,44 +807,27 @@ class TestSkillTemplateContentSmoke:
         content = _SKILL_TEMPLATE_PATH.read_text()
 
         # v1.2 artifact names
-        assert "requirements.json" in content, (
-            "Template should reference requirements.json"
-        )
-        assert "test_spec.json" in content, (
-            "Template should reference test_spec.json"
-        )
-        assert "tasks.json" in content, (
-            "Template should reference tasks.json"
-        )
+        assert "requirements.json" in content, "Template should reference requirements.json"
+        assert "test_spec.json" in content, "Template should reference test_spec.json"
+        assert "tasks.json" in content, "Template should reference tasks.json"
 
         # ID formats
-        assert "spec_id" in content, (
-            "Template should reference spec_id for ID generation"
-        )
+        assert "spec_id" in content, "Template should reference spec_id for ID generation"
 
         # EARS JSON structure
-        assert "ears_pattern" in content, (
-            "Template should describe ears_pattern field"
-        )
+        assert "ears_pattern" in content, "Template should describe ears_pattern field"
 
         # Tasks JSON structure
-        assert "not_started" in content, (
-            "Template should describe not_started task state"
-        )
+        assert "not_started" in content, "Template should describe not_started task state"
 
         # Validation step
-        assert "lint-specs" in content, (
-            "Template should reference lint-specs validation"
-        )
+        assert "lint-specs" in content, "Template should reference lint-specs validation"
 
     def test_skill_template_validation_step(self) -> None:
         """Skill template should include a validation step."""
         content = _SKILL_TEMPLATE_PATH.read_text()
         assert "lint-specs" in content
-        assert (
-            "agent-fox" in content.lower()
-            or "agent_fox" in content.lower()
-        )
+        assert "agent-fox" in content.lower() or "agent_fox" in content.lower()
 
     def test_skill_template_afspec_reference(self) -> None:
         """Skill template should reference afspec."""

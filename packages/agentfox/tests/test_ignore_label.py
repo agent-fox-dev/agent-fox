@@ -59,5 +59,3 @@ class TestLabelInRequiredLabels:
         specs = [s for s in REQUIRED_LABELS if s.name == "af:ignore"]
         assert len(specs) == 1
         assert len(specs[0].color) == 6
-
-

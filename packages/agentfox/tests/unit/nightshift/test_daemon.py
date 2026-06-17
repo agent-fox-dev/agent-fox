@@ -589,9 +589,7 @@ class TestActiveStreamDisplay:
         stream.run_once = AsyncMock(side_effect=recording_run)
         budget = SharedBudget(max_cost=None)
         config = _make_config()
-        runner = DaemonRunner(
-            config, None, [stream], budget, pid_path=tmp_path / "d.pid"
-        )
+        runner = DaemonRunner(config, None, [stream], budget, pid_path=tmp_path / "d.pid")
 
         async def shutdown_after() -> None:
             await _asyncio.sleep(0.15)
@@ -611,25 +609,23 @@ class TestActiveStreamDisplay:
         stream = _make_mock_stream(name="spec-executor", interval=999, enabled=True)
         budget = SharedBudget(max_cost=None)
         config = _make_config()
-        runner = DaemonRunner(
-            config, None, [stream], budget, pid_path=tmp_path / "d.pid"
-        )
+        runner = DaemonRunner(config, None, [stream], budget, pid_path=tmp_path / "d.pid")
 
         async def shutdown_after() -> None:
             import asyncio as _asyncio
+
             await _asyncio.sleep(0.15)
             runner.request_shutdown()
 
         import asyncio as _asyncio
+
         task = _asyncio.create_task(shutdown_after())
         await runner.run()
         await task
 
         assert "spec-executor" not in runner._active_streams
 
-    async def test_idle_callback_shows_idle_after_spec_run_completes(
-        self, tmp_path: Path
-    ) -> None:
+    async def test_idle_callback_shows_idle_after_spec_run_completes(self, tmp_path: Path) -> None:
         """After spec-executor run_once() completes, idle_callback shows Idle text."""
         from agentfox.nightshift.daemon import DaemonRunner, SharedBudget
 
@@ -648,10 +644,12 @@ class TestActiveStreamDisplay:
 
         async def shutdown_after() -> None:
             import asyncio as _asyncio
+
             await _asyncio.sleep(0.15)
             runner.request_shutdown()
 
         import asyncio as _asyncio
+
         task = _asyncio.create_task(shutdown_after())
         await runner.run()
         await task

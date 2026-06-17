@@ -182,4 +182,3 @@ class TestLabelConstants:
         names = {spec.name for spec in REQUIRED_LABELS}
         assert LABEL_FIX in names
         assert LABEL_HUNT in names
-

@@ -589,9 +589,7 @@ class TestBuildRetryContextTaskGroupFilter:
         context = build_retry_context(knowledge_db, "spec_01", task_group="tg1")
 
         assert "tg1-specific-issue" in context
-        assert "tg2-specific-issue" not in context, (
-            "tg2 finding should not appear in retry context for tg1 session"
-        )
+        assert "tg2-specific-issue" not in context, "tg2 finding should not appear in retry context for tg1 session"
 
     def test_runner_build_retry_context_passes_task_group(self, knowledge_db: KnowledgeDB) -> None:
         """NodeSessionRunner._build_retry_context passes own task_group."""
@@ -629,9 +627,7 @@ class TestBuildRetryContextTaskGroupFilter:
         context = runner._build_retry_context("03_api")
 
         assert "runner-tg2-issue" in context
-        assert "runner-tg3-issue" not in context, (
-            "tg3 finding should not appear in retry context for tg2 runner"
-        )
+        assert "runner-tg3-issue" not in context, "tg3 finding should not appear in retry context for tg2 runner"
 
 
 # ---------------------------------------------------------------------------

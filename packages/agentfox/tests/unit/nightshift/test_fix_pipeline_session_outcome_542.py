@@ -43,9 +43,7 @@ def _make_fix_pipeline() -> object:
 class TestTryCompleteRunLogsWarning:
     """AC-4: _try_complete_run logs at WARNING when complete_run raises."""
 
-    def test_complete_run_failure_logs_warning(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_complete_run_failure_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
         """When complete_run raises, a WARNING is emitted (not DEBUG)."""
         pipeline = _make_fix_pipeline()
 
@@ -61,9 +59,7 @@ class TestTryCompleteRunLogsWarning:
             f"Expected WARNING 'Failed to complete run record'; got: {warning_msgs}"
         )
 
-    def test_complete_run_failure_not_only_debug(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_complete_run_failure_not_only_debug(self, caplog: pytest.LogCaptureFixture) -> None:
         """AC-4: The failure message must appear at WARNING or above, never only at DEBUG."""
         pipeline = _make_fix_pipeline()
 
@@ -74,17 +70,13 @@ class TestTryCompleteRunLogsWarning:
             ):
                 pipeline._try_complete_run("interrupted")  # type: ignore[attr-defined]
 
-        matching = [
-            r for r in caplog.records if "Failed to complete run record" in r.message
-        ]
+        matching = [r for r in caplog.records if "Failed to complete run record" in r.message]
         assert matching, "Expected log entry for 'Failed to complete run record'"
         assert all(r.levelno >= logging.WARNING for r in matching), (
             "All 'Failed to complete run record' entries must be at WARNING or above"
         )
 
-    def test_complete_run_noop_when_conn_is_none(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_complete_run_noop_when_conn_is_none(self, caplog: pytest.LogCaptureFixture) -> None:
         """No warning emitted when _conn is None (pipeline skips gracefully)."""
         from agentfox.nightshift.fix_pipeline import FixPipeline
 
@@ -98,6 +90,4 @@ class TestTryCompleteRunLogsWarning:
         with caplog.at_level(logging.WARNING, logger="agentfox.nightshift.fix_pipeline"):
             pipeline._try_complete_run("completed")
 
-        assert not caplog.records, (
-            f"Expected no log output when conn is None; got: {caplog.records}"
-        )
+        assert not caplog.records, f"Expected no log output when conn is None; got: {caplog.records}"

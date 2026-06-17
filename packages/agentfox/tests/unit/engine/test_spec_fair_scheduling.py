@@ -568,9 +568,7 @@ class TestThreeTierPriority:
             "01_a:3:reviewer:audit-review": 800,
             "01_a:4:reviewer:audit-review": 200,
         }
-        result = _interleave_by_spec(
-            ready, duration_hints=hints, node_archetypes=archetypes
-        )
+        result = _interleave_by_spec(ready, duration_hints=hints, node_archetypes=archetypes)
         # Tier 2 (coders): 01_a:2 (500) before 01_a:1 (100) — duration desc
         assert result[0] == "01_a:2"
         assert result[1] == "01_a:1"

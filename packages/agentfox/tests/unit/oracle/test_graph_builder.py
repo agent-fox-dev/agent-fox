@@ -139,8 +139,7 @@ class TestSingleAutoPreCompat:
         # the auto_pre reviewer nodes for backward-compat format compliance.
         reviewer_nids = [n.id for n in graph.nodes.values() if n.archetype == "reviewer"]
         assert not any(":0:" in nid for nid in reviewer_nids), (
-            f"Single auto_pre reviewer nodes must not use suffixed ':0:' format; "
-            f"reviewer node ids: {reviewer_nids}"
+            f"Single auto_pre reviewer nodes must not use suffixed ':0:' format; reviewer node ids: {reviewer_nids}"
         )
 
 

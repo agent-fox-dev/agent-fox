@@ -63,8 +63,7 @@ def _insert_finding_direct(
         "(id, severity, description, requirement_ref, spec_name, task_group, "
         "session_id, category, created_at, superseded_by) "
         "VALUES (?, ?, ?, NULL, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)",
-        [fid, severity, description, spec_name, task_group, session_id,
-         category, superseded_by],
+        [fid, severity, description, spec_name, task_group, session_id, category, superseded_by],
     )
     return fid
 
@@ -111,26 +110,28 @@ class TestSmokeSummaryFlow:
             provider = _make_provider(conn, run_id="test_run")
 
             # Simulate session completion
-            provider.ingest("spec:1", "test_spec", {
-                "session_status": "completed",
-                "summary": "Built the auth module",
-                "archetype": "coder",
-                "task_group": "1",
-                "attempt": 1,
-                "run_id": "test_run",
-                "touched_files": [],
-                "commit_sha": "abc123",
-            })
+            provider.ingest(
+                "spec:1",
+                "test_spec",
+                {
+                    "session_status": "completed",
+                    "summary": "Built the auth module",
+                    "archetype": "coder",
+                    "task_group": "1",
+                    "attempt": 1,
+                    "run_id": "test_run",
+                    "touched_files": [],
+                    "commit_sha": "abc123",
+                },
+            )
 
             # Retrieve for next group
             result = provider.retrieve("test_spec", "test", task_group="2")
-            context_items = [
-                item for item in result if "[CONTEXT]" in item
-            ]
+            context_items = [item for item in result if "[CONTEXT]" in item]
             assert len(context_items) >= 1
-            assert any(
-                "Built the auth module" in item for item in context_items
-            ), f"Expected summary text in context items: {context_items}"
+            assert any("Built the auth module" in item for item in context_items), (
+                f"Expected summary text in context items: {context_items}"
+            )
         finally:
             conn.close()
 
@@ -140,25 +141,24 @@ class TestSmokeSummaryFlow:
         try:
             provider = _make_provider(conn, run_id="test_run")
 
-            provider.ingest("spec:1", "test_spec", {
-                "session_status": "completed",
-                "summary": "Reviewer found 2 critical issues",
-                "archetype": "reviewer",
-                "task_group": "1",
-                "attempt": 1,
-                "run_id": "test_run",
-                "touched_files": [],
-                "commit_sha": "abc123",
-            })
+            provider.ingest(
+                "spec:1",
+                "test_spec",
+                {
+                    "session_status": "completed",
+                    "summary": "Reviewer found 2 critical issues",
+                    "archetype": "reviewer",
+                    "task_group": "1",
+                    "attempt": 1,
+                    "run_id": "test_run",
+                    "touched_files": [],
+                    "commit_sha": "abc123",
+                },
+            )
 
             result = provider.retrieve("test_spec", "test", task_group="2")
-            context_items = [
-                item for item in result if "[CONTEXT]" in item
-            ]
-            assert any(
-                "Reviewer found 2 critical issues" in item
-                for item in context_items
-            )
+            context_items = [item for item in result if "[CONTEXT]" in item]
+            assert any("Reviewer found 2 critical issues" in item for item in context_items)
             # Verify archetype is included in the prefix (120-REQ-3.4)
             assert any("reviewer" in item for item in context_items)
         finally:
@@ -170,24 +170,26 @@ class TestSmokeSummaryFlow:
         try:
             provider = _make_provider(conn, run_id="test_run")
 
-            provider.ingest("spec_b:2", "spec_b", {
-                "session_status": "completed",
-                "summary": "Changed auth config",
-                "archetype": "coder",
-                "task_group": "2",
-                "attempt": 1,
-                "run_id": "test_run",
-                "touched_files": [],
-                "commit_sha": "def456",
-            })
+            provider.ingest(
+                "spec_b:2",
+                "spec_b",
+                {
+                    "session_status": "completed",
+                    "summary": "Changed auth config",
+                    "archetype": "coder",
+                    "task_group": "2",
+                    "attempt": 1,
+                    "run_id": "test_run",
+                    "touched_files": [],
+                    "commit_sha": "def456",
+                },
+            )
 
             result = provider.retrieve("spec_a", "test", task_group="1")
-            cross_items = [
-                item for item in result if "[CROSS-SPEC]" in item
-            ]
-            assert any(
-                "Changed auth config" in item for item in cross_items
-            ), f"Expected cross-spec summary: {cross_items}"
+            cross_items = [item for item in result if "[CROSS-SPEC]" in item]
+            assert any("Changed auth config" in item for item in cross_items), (
+                f"Expected cross-spec summary: {cross_items}"
+            )
         finally:
             conn.close()
 
@@ -227,29 +229,28 @@ class TestSmokePreReviewToCoderFlow:
             )
 
             result = provider.retrieve(
-                "s", "test", task_group="1", session_id="sess-1",
+                "s",
+                "test",
+                task_group="1",
+                session_id="sess-1",
             )
 
             # Group 0 finding should be in [REVIEW] results
             review_items = [i for i in result if "[REVIEW]" in i]
-            assert any(
-                "Bad design" in i for i in review_items
-            ), f"Group 0 finding not in review items: {review_items}"
+            assert any("Bad design" in i for i in review_items), f"Group 0 finding not in review items: {review_items}"
 
             # Group 0 finding should NOT be in [CROSS-GROUP] results
             cross_group_items = [i for i in result if "[CROSS-GROUP]" in i]
-            assert not any(
-                "Bad design" in i for i in cross_group_items
-            ), f"Group 0 finding leaked into cross-group: {cross_group_items}"
+            assert not any("Bad design" in i for i in cross_group_items), (
+                f"Group 0 finding leaked into cross-group: {cross_group_items}"
+            )
 
             # Finding ID should be recorded in finding_injections
             injections = conn.execute(
                 "SELECT * FROM finding_injections WHERE finding_id = ?",
                 [finding_id],
             ).fetchall()
-            assert len(injections) == 1, (
-                f"Expected 1 injection record, got {len(injections)}"
-            )
+            assert len(injections) == 1, f"Expected 1 injection record, got {len(injections)}"
         finally:
             conn.close()
 
@@ -277,12 +278,8 @@ class TestSmokePreReviewToCoderFlow:
             result = provider.retrieve("s", "test", task_group="1")
             review_items = [i for i in result if "[REVIEW]" in i]
 
-            assert any(
-                "Design flaw from pre-review" in i for i in review_items
-            )
-            assert any(
-                "Implementation bug" in i for i in review_items
-            )
+            assert any("Design flaw from pre-review" in i for i in review_items)
+            assert any("Implementation bug" in i for i in review_items)
         finally:
             conn.close()
 
@@ -328,23 +325,22 @@ class TestSmokeCrossRunCarryForward:
 
             provider = _make_provider(conn, run_id="new_run")
             result = provider.retrieve(
-                "s", "test", task_group="1", session_id="new_sess",
+                "s",
+                "test",
+                task_group="1",
+                session_id="new_sess",
             )
 
             # [PRIOR-RUN] item should be present
             prior_items = [i for i in result if "[PRIOR-RUN]" in i]
-            assert any(
-                "Old issue" in i for i in prior_items
-            ), f"Prior-run finding not found: {prior_items}"
+            assert any("Old issue" in i for i in prior_items), f"Prior-run finding not found: {prior_items}"
 
             # Finding ID should NOT be in finding_injections
             injections = conn.execute(
                 "SELECT * FROM finding_injections WHERE finding_id = ?",
                 [finding_id],
             ).fetchall()
-            assert len(injections) == 0, (
-                f"Prior-run finding should not be tracked: {injections}"
-            )
+            assert len(injections) == 0, f"Prior-run finding should not be tracked: {injections}"
         finally:
             conn.close()
 
@@ -371,9 +367,9 @@ class TestSmokeCrossRunCarryForward:
             result = provider.retrieve("s", "test", task_group="1")
 
             prior_items = [i for i in result if "[PRIOR-RUN]" in i]
-            assert not any(
-                "Resolved issue" in i for i in prior_items
-            ), "Superseded finding should not appear in prior-run items"
+            assert not any("Resolved issue" in i for i in prior_items), (
+                "Superseded finding should not appear in prior-run items"
+            )
         finally:
             conn.close()
 
@@ -392,21 +388,21 @@ class TestSmokeCrossRunCarryForward:
                 "(id, requirement_id, verdict, evidence, spec_name, task_group, "
                 "session_id, created_at) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
-                [verdict_id, "REQ-5.E3", "FAIL", "Assertion failed",
-                 "s", "1", "old_sess"],
+                [verdict_id, "REQ-5.E3", "FAIL", "Assertion failed", "s", "1", "old_sess"],
             )
 
             _create_run(conn, "new_run", "hash2")
 
             provider = _make_provider(conn, run_id="new_run")
             result = provider.retrieve(
-                "s", "test", task_group="1", session_id="new_sess",
+                "s",
+                "test",
+                task_group="1",
+                session_id="new_sess",
             )
 
             prior_items = [i for i in result if "[PRIOR-RUN]" in i]
-            assert any(
-                "REQ-5.E3" in i for i in prior_items
-            ), f"Prior-run FAIL verdict not found: {prior_items}"
+            assert any("REQ-5.E3" in i for i in prior_items), f"Prior-run FAIL verdict not found: {prior_items}"
 
             # Verdict should NOT be tracked in finding_injections
             injections = conn.execute(

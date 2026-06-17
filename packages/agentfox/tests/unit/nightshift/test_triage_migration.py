@@ -155,5 +155,3 @@ class TestNightshiftModelTierResolution:
         config = AgentFoxConfig()
         tier = resolve_model_tier(config, "maintainer", mode="extraction")
         assert tier == "STANDARD", f"Expected STANDARD tier for maintainer:extraction, got {tier!r}"
-
-

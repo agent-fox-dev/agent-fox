@@ -150,8 +150,7 @@ def _apply_migrations_up_to(conn: duckdb.DuckDBPyConnection, max_version: int) -
 def _table_exists(conn: duckdb.DuckDBPyConnection, table_name: str) -> bool:
     """Check whether a table exists in the database."""
     result = conn.execute(
-        "SELECT COUNT(*) FROM information_schema.tables "
-        "WHERE table_schema = 'main' AND table_name = ?",
+        "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'main' AND table_name = ?",
         [table_name],
     ).fetchone()
     return result is not None and result[0] > 0
@@ -209,9 +208,7 @@ def _fresh_conn_with_migrations() -> duckdb.DuckDBPyConnection:
 
 def _snapshot_table_counts(conn: duckdb.DuckDBPyConnection) -> dict[str, int]:
     """Snapshot row counts for all tables in the database."""
-    tables = conn.execute(
-        "SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'"
-    ).fetchall()
+    tables = conn.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'").fetchall()
     counts = {}
     for (table_name,) in tables:
         try:
@@ -440,8 +437,7 @@ class TestMigrationV18PreservesRetained:
         insert_findings(conn, [finding])
 
         conn.execute(
-            "INSERT INTO session_outcomes (id, spec_name, status) "
-            "VALUES (gen_random_uuid(), 'test_spec', 'completed')"
+            "INSERT INTO session_outcomes (id, spec_name, status) VALUES (gen_random_uuid(), 'test_spec', 'completed')"
         )
 
         # Apply v18
@@ -714,9 +710,7 @@ class TestResetTableList:
             "fact_causes",
         ]
         for table in dropped_tables:
-            assert f'"{table}"' not in source, (
-                f'reset.py should not reference "{table}"'
-            )
+            assert f'"{table}"' not in source, f'reset.py should not reference "{table}"'
 
 
 # ============================================================================
@@ -812,9 +806,15 @@ def review_finding_strategy(
     return ReviewFinding(
         id=str(uuid.uuid4()),
         severity=draw(st.sampled_from(["critical", "major", "minor", "observation"])),
-        description=draw(st.text(min_size=1, max_size=80, alphabet=st.characters(
-            whitelist_categories=("L", "N", "P", "Z"),
-        ))),
+        description=draw(
+            st.text(
+                min_size=1,
+                max_size=80,
+                alphabet=st.characters(
+                    whitelist_categories=("L", "N", "P", "Z"),
+                ),
+            )
+        ),
         requirement_ref=None,
         spec_name=spec_name,
         task_group=task_group,
@@ -868,9 +868,7 @@ class TestPropertyReviewCarryforward:
         provider = _make_provider(db, max_items=len(normalized))
         result = provider.retrieve("prop_spec", "task")
 
-        expected_count = sum(
-            1 for f in normalized if f.severity in ("critical", "major")
-        )
+        expected_count = sum(1 for f in normalized if f.severity in ("critical", "major"))
         assert len(result) == expected_count
         assert all(item.startswith("[REVIEW]") for item in result)
 
@@ -884,12 +882,20 @@ class TestPropertyNoGotchaErrataLeak:
     """
 
     @given(
-        spec_name=st.text(min_size=1, max_size=30, alphabet=st.characters(
-            whitelist_categories=("L", "N"),
-        )),
-        task_desc=st.text(min_size=1, max_size=50, alphabet=st.characters(
-            whitelist_categories=("L", "N", "P", "Z"),
-        )),
+        spec_name=st.text(
+            min_size=1,
+            max_size=30,
+            alphabet=st.characters(
+                whitelist_categories=("L", "N"),
+            ),
+        ),
+        task_desc=st.text(
+            min_size=1,
+            max_size=50,
+            alphabet=st.characters(
+                whitelist_categories=("L", "N", "P", "Z"),
+            ),
+        ),
     )
     @settings(max_examples=30)
     def test_property_no_gotcha_errata_leak(
@@ -1068,9 +1074,7 @@ class TestSmokeMigrationWithData:
         assert _count_rows(conn, "review_findings") == 1
 
         # Schema version should be exactly 18
-        version = conn.execute(
-            "SELECT MAX(version) FROM schema_version"
-        ).fetchone()[0]
+        version = conn.execute("SELECT MAX(version) FROM schema_version").fetchone()[0]
         assert version == 18
 
         conn.close()

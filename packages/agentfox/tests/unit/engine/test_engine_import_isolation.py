@@ -25,6 +25,8 @@ from pathlib import Path
 
 # Repository root for file existence checks
 _REPO_ROOT = Path(__file__).resolve().parents[3]
+_ACTUAL_REPO_ROOT = _REPO_ROOT.parent.parent
+_AF_ROOT = _ACTUAL_REPO_ROOT / "packages" / "af"
 
 
 # ---------------------------------------------------------------------------
@@ -46,9 +48,7 @@ class TestNoRetrievalImports:
         for py_file in sorted(engine_dir.glob("*.py")):
             source = py_file.read_text(encoding="utf-8")
             for name in self.BANNED:
-                assert name not in source, (
-                    f"Banned name {name!r} found in {py_file.name}"
-                )
+                assert name not in source, f"Banned name {name!r} found in {py_file.name}"
 
 
 # ---------------------------------------------------------------------------
@@ -84,9 +84,7 @@ class TestNoExtractionImports:
         for py_file in sorted(engine_dir.glob("*.py")):
             source = py_file.read_text(encoding="utf-8")
             for name in self.BANNED:
-                assert name not in source, (
-                    f"Banned name {name!r} found in {py_file.name}"
-                )
+                assert name not in source, f"Banned name {name!r} found in {py_file.name}"
 
 
 # ---------------------------------------------------------------------------
@@ -131,9 +129,7 @@ class TestBarrierNoRemovedImports:
         barrier_path = _REPO_ROOT / "agentfox" / "engine" / "barrier.py"
         source = barrier_path.read_text(encoding="utf-8")
         for name in self.BANNED:
-            assert name not in source, (
-                f"Banned name {name!r} found in barrier.py"
-            )
+            assert name not in source, f"Banned name {name!r} found in barrier.py"
 
 
 # ---------------------------------------------------------------------------
@@ -163,9 +159,7 @@ class TestNightshiftNoEmbeddings:
                     in_type_checking = False
                 if in_type_checking:
                     continue
-                assert "EmbeddingGenerator" not in line, (
-                    f"Runtime EmbeddingGenerator reference in {py_file.name}"
-                )
+                assert "EmbeddingGenerator" not in line, f"Runtime EmbeddingGenerator reference in {py_file.name}"
 
 
 # ---------------------------------------------------------------------------
@@ -186,9 +180,7 @@ class TestNightshiftNoSleepImports:
         for py_file in sorted(nightshift_dir.glob("*.py")):
             source = py_file.read_text(encoding="utf-8")
             for name in self.BANNED:
-                assert name not in source, (
-                    f"Banned name {name!r} found in nightshift/{py_file.name}"
-                )
+                assert name not in source, f"Banned name {name!r} found in nightshift/{py_file.name}"
 
 
 # ---------------------------------------------------------------------------
@@ -222,8 +214,13 @@ class TestNightshiftDedupFilter:
     Requirements: 114-REQ-6.4
     """
 
-    BANNED_MODULES = {"knowledge.facts", "knowledge.store", "knowledge.extraction",
-                      "knowledge.embeddings", "knowledge.git_mining"}
+    BANNED_MODULES = {
+        "knowledge.facts",
+        "knowledge.store",
+        "knowledge.extraction",
+        "knowledge.embeddings",
+        "knowledge.git_mining",
+    }
 
     def test_no_removed_imports(self) -> None:
         nightshift_dir = _REPO_ROOT / "agentfox" / "nightshift"
@@ -244,9 +241,7 @@ class TestNightshiftDedupFilter:
                 if in_type_checking:
                     continue
                 for mod in self.BANNED_MODULES:
-                    assert mod not in line, (
-                        f"Banned module {mod!r} found in {filename}: {line.strip()}"
-                    )
+                    assert mod not in line, f"Banned module {mod!r} found in {filename}: {line.strip()}"
 
 
 # ---------------------------------------------------------------------------
@@ -261,21 +256,39 @@ class TestKnowledgeFilesDeleted:
     """
 
     DELETED = [
-        "extraction.py", "embeddings.py", "search.py", "retrieval.py",
-        "causal.py", "lifecycle.py", "contradiction.py", "consolidation.py",
-        "compaction.py", "entity_linker.py", "entity_query.py", "entity_store.py",
-        "entities.py", "static_analysis.py", "git_mining.py", "doc_mining.py",
-        "sleep_compute.py", "code_analysis.py", "onboard.py", "project_model.py",
-        "query_oracle.py", "query_patterns.py", "query_temporal.py",
-        "rendering.py", "store.py", "ingest.py", "facts.py",
+        "extraction.py",
+        "embeddings.py",
+        "search.py",
+        "retrieval.py",
+        "causal.py",
+        "lifecycle.py",
+        "contradiction.py",
+        "consolidation.py",
+        "compaction.py",
+        "entity_linker.py",
+        "entity_query.py",
+        "entity_store.py",
+        "entities.py",
+        "static_analysis.py",
+        "git_mining.py",
+        "doc_mining.py",
+        "sleep_compute.py",
+        "code_analysis.py",
+        "onboard.py",
+        "project_model.py",
+        "query_oracle.py",
+        "query_patterns.py",
+        "query_temporal.py",
+        "rendering.py",
+        "store.py",
+        "ingest.py",
+        "facts.py",
     ]
 
     def test_files_do_not_exist(self) -> None:
         knowledge_dir = _REPO_ROOT / "agentfox" / "knowledge"
         for name in self.DELETED:
-            assert not (knowledge_dir / name).exists(), (
-                f"Expected {name} to be deleted from agent_fox/knowledge/"
-            )
+            assert not (knowledge_dir / name).exists(), f"Expected {name} to be deleted from agent_fox/knowledge/"
 
 
 # ---------------------------------------------------------------------------
@@ -326,9 +339,7 @@ class TestImportHealth:
             text=True,
             timeout=30,
         )
-        assert result.returncode == 0, (
-            f"import agentfox failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
-        )
+        assert result.returncode == 0, f"import agentfox failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
 
 
 # ---------------------------------------------------------------------------
@@ -343,11 +354,19 @@ class TestConfigFieldsRemoved:
     """
 
     REMOVED = {
-        "embedding_model", "embedding_dimensions", "ask_top_k",
-        "ask_synthesis_model", "dedup_similarity_threshold",
-        "contradiction_similarity_threshold", "contradiction_model",
-        "decay_half_life_days", "decay_floor", "cleanup_fact_threshold",
-        "cleanup_enabled", "confidence_threshold", "fact_cache_enabled",
+        "embedding_model",
+        "embedding_dimensions",
+        "ask_top_k",
+        "ask_synthesis_model",
+        "dedup_similarity_threshold",
+        "contradiction_similarity_threshold",
+        "contradiction_model",
+        "decay_half_life_days",
+        "decay_floor",
+        "cleanup_fact_threshold",
+        "cleanup_enabled",
+        "confidence_threshold",
+        "fact_cache_enabled",
     }
 
     def test_fields_not_present(self) -> None:
@@ -446,10 +465,10 @@ class TestOnboardRemoved:
     """
 
     def test_onboard_file_deleted(self) -> None:
-        assert not (_REPO_ROOT / "agentfox" / "cli" / "onboard.py").exists()
+        assert not (_AF_ROOT / "af" / "onboard.py").exists()
 
     def test_onboard_not_in_app(self) -> None:
-        app_path = _REPO_ROOT / "agentfox" / "cli" / "app.py"
+        app_path = _AF_ROOT / "af" / "app.py"
         source = app_path.read_text(encoding="utf-8")
         assert "onboard_cmd" not in source
 
@@ -466,7 +485,7 @@ class TestCliNightshiftNoEmbeddings:
     """
 
     def test_no_embedding_generator(self) -> None:
-        path = _REPO_ROOT / "agentfox" / "cli" / "nightshift.py"
+        path = _AF_ROOT / "af" / "nightshift.py"
         source = path.read_text(encoding="utf-8")
         assert "EmbeddingGenerator" not in source
 
@@ -487,21 +506,24 @@ class TestCliPlanFunctional:
     Requirements: 114-REQ-9.4
     """
 
-    BANNED = {"knowledge.retrieval", "knowledge.extraction", "knowledge.embeddings",
-              "knowledge.store", "knowledge.facts"}
+    BANNED = {
+        "knowledge.retrieval",
+        "knowledge.extraction",
+        "knowledge.embeddings",
+        "knowledge.store",
+        "knowledge.facts",
+    }
 
     def test_has_open_knowledge_store(self) -> None:
-        path = _REPO_ROOT / "agentfox" / "cli" / "plan.py"
+        path = _AF_ROOT / "af" / "plan.py"
         source = path.read_text(encoding="utf-8")
         assert "open_knowledge_store" in source
 
     def test_no_banned_imports(self) -> None:
-        path = _REPO_ROOT / "agentfox" / "cli" / "plan.py"
+        path = _AF_ROOT / "af" / "plan.py"
         source = path.read_text(encoding="utf-8")
         for mod in self.BANNED:
-            assert mod not in source, (
-                f"Banned module {mod!r} found in cli/plan.py"
-            )
+            assert mod not in source, f"Banned module {mod!r} found in cli/plan.py"
 
 
 # ---------------------------------------------------------------------------
@@ -533,9 +555,7 @@ class TestDeadTestsDeleted:
     def test_dead_tests_removed(self) -> None:
         for path_str in self.DELETED_TESTS:
             full_path = _REPO_ROOT / path_str
-            assert not full_path.exists(), (
-                f"Dead test file {path_str} should be deleted"
-            )
+            assert not full_path.exists(), f"Dead test file {path_str} should be deleted"
 
 
 # ---------------------------------------------------------------------------
@@ -555,9 +575,7 @@ class TestBarrierOldTables:
         source = barrier_path.read_text(encoding="utf-8")
         old_tables = ["memory_facts", "entity_graph", "sleep_artifacts"]
         for table in old_tables:
-            assert table not in source, (
-                f"Old table {table!r} referenced in barrier.py"
-            )
+            assert table not in source, f"Old table {table!r} referenced in barrier.py"
 
 
 # ---------------------------------------------------------------------------
@@ -624,9 +642,7 @@ class TestNoTestImportsDeleted:
             source = py_file.read_text(encoding="utf-8")
             rel = py_file.relative_to(_REPO_ROOT)
             for mod in self.DELETED_MODULES:
-                assert mod not in source, (
-                    f"Deleted module {mod!r} imported in {rel}"
-                )
+                assert mod not in source, f"Deleted module {mod!r} imported in {rel}"
 
 
 # ---------------------------------------------------------------------------

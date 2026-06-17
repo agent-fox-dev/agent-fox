@@ -207,12 +207,20 @@ class TestDeferredPromotionIntegration:
         from agentfox.graph.types import Edge, Node, PlanMetadata, TaskGraph
 
         coder = Node(
-            id="s:1", spec_name="s", group_number=1,
-            title="Coder", optional=False, archetype="coder",
+            id="s:1",
+            spec_name="s",
+            group_number=1,
+            title="Coder",
+            optional=False,
+            archetype="coder",
         )
         review = Node(
-            id="s:2", spec_name="s", group_number=2,
-            title="Verifier", optional=False, archetype="verifier",
+            id="s:2",
+            spec_name="s",
+            group_number=2,
+            title="Verifier",
+            optional=False,
+            archetype="verifier",
         )
         graph = TaskGraph(
             nodes={coder.id: coder, review.id: review},
@@ -243,12 +251,20 @@ class TestDeferredPromotionIntegration:
         for i in range(1, 4):
             spec = f"spec{i:02d}"
             coder = Node(
-                id=f"{spec}:1", spec_name=spec, group_number=1,
-                title="Coder", optional=False, archetype="coder",
+                id=f"{spec}:1",
+                spec_name=spec,
+                group_number=1,
+                title="Coder",
+                optional=False,
+                archetype="coder",
             )
             verifier = Node(
-                id=f"{spec}:2", spec_name=spec, group_number=2,
-                title="Verifier", optional=False, archetype="verifier",
+                id=f"{spec}:2",
+                spec_name=spec,
+                group_number=2,
+                title="Verifier",
+                optional=False,
+                archetype="verifier",
             )
             nodes_dict[coder.id] = coder
             nodes_dict[verifier.id] = verifier

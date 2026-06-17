@@ -127,14 +127,10 @@ class TestTemplateGeneration:
 
         # Sections with promoted fields have active (uncommented) headers
         for section in ["orchestrator", "archetypes", "platform"]:
-            assert any(ln.strip() == f"[{section}]" for ln in lines), (
-                f"Missing active section header for [{section}]"
-            )
+            assert any(ln.strip() == f"[{section}]" for ln in lines), f"Missing active section header for [{section}]"
 
         # [models] was removed — must not appear at all
-        assert not any(ln.strip() == "[models]" for ln in lines), (
-            "[models] must not appear as an active section header"
-        )
+        assert not any(ln.strip() == "[models]" for ln in lines), "[models] must not appear as an active section header"
         assert not any(ln.strip() == "# [models]" for ln in lines), (
             "[models] must not appear as a commented section header"
         )
@@ -527,13 +523,11 @@ class TestCodingDeprecation:
                 continue
             # Within [models], reject any uncommented coding = line
             if in_models and not stripped.startswith("#") and re.match(r"^coding\s*=", stripped):
-                raise AssertionError(
-                    f"Project config has active 'coding =' under [models]: {line!r}"
-                )
+                raise AssertionError(f"Project config has active 'coding =' under [models]: {line!r}")
 
     def test_ac5_merge_marks_existing_coding_as_deprecated(self) -> None:
         """AC-5: merge_existing_config comments out active [models] coding entries."""
-        old_content = "[models]\ncoding = \"ADVANCED\"\n"
+        old_content = '[models]\ncoding = "ADVANCED"\n'
         merged = merge_existing_config(old_content)
 
         # The active 'coding = "ADVANCED"' line must no longer be active
@@ -546,7 +540,7 @@ class TestCodingDeprecation:
 
     def test_ac5_merge_marks_nondefault_coding_as_deprecated(self) -> None:
         """AC-5: merge_existing_config also handles non-default coding values."""
-        old_content = "[models]\ncoding = \"STANDARD\"\n"
+        old_content = '[models]\ncoding = "STANDARD"\n'
         merged = merge_existing_config(old_content)
 
         non_comment_lines = [ln for ln in merged.splitlines() if not ln.lstrip().startswith("#")]

@@ -240,8 +240,7 @@ class TestCoderFixModeSessionSetup:
 
         # Coder registry default is ADVANCED → claude-opus-4-6
         assert runner._resolved_model_id == "claude-opus-4-6", (
-            f"coder:fix mode should resolve to ADVANCED (Opus) via registry default, "
-            f"got {runner._resolved_model_id!r}"
+            f"coder:fix mode should resolve to ADVANCED (Opus) via registry default, got {runner._resolved_model_id!r}"
         )
 
     def test_coder_fix_mode_uses_fix_profile(self) -> None:

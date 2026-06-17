@@ -258,6 +258,7 @@ def db_conn_with_schema() -> duckdb.DuckDBPyConnection:
     yield conn
     conn.close()
 
+
 @pytest.fixture
 def tmp_worktree_repo(tmp_path: Path) -> Path:
     """Create a temporary git repo with a develop branch and initial commit.
@@ -288,4 +289,3 @@ def tmp_worktree_repo(tmp_path: Path) -> Path:
         capture_output=True,
     )
     return repo
-

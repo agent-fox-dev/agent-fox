@@ -211,6 +211,7 @@ class TestGitErrorFailOpen:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """When run_git fails, health check returns empty report (fail-open)."""
+
         # Patch run_git to fail for ls-files
         async def failing_run_git(args, **kwargs):
             if args and args[0] == "ls-files":
@@ -230,9 +231,7 @@ class TestGitErrorFailOpen:
         assert report.has_issues is False
 
         # WARNING should have been logged
-        warning_messages = [
-            r.message for r in caplog.records if r.levelno == logging.WARNING
-        ]
+        warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
         assert len(warning_messages) > 0
 
 

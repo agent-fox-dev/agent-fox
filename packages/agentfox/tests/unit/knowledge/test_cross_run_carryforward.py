@@ -28,6 +28,7 @@ def _query_prior_run_findings(*args, **kwargs):
 
     return query_prior_run_findings(*args, **kwargs)
 
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -162,10 +163,7 @@ class TestPriorRunFindingsSurfaced:
 
         provider = _make_provider(provider_db, run_id="current_run_id")
         result = provider.retrieve("test_spec", "test", task_group="1")
-        assert any(
-            "[PRIOR-RUN]" in item and "Unresolved from prior run" in item
-            for item in result
-        )
+        assert any("[PRIOR-RUN]" in item and "Unresolved from prior run" in item for item in result)
 
     def test_prior_run_fail_verdicts_appear(
         self,
@@ -192,10 +190,7 @@ class TestPriorRunFindingsSurfaced:
 
         provider = _make_provider(provider_db, run_id="current_run_id")
         result = provider.retrieve("test_spec", "test", task_group="1")
-        assert any(
-            "[PRIOR-RUN]" in item and "REQ-5.E3" in item
-            for item in result
-        )
+        assert any("[PRIOR-RUN]" in item and "REQ-5.E3" in item for item in result)
 
 
 # ---------------------------------------------------------------------------
@@ -228,9 +223,7 @@ class TestPriorRunFindingsCapped:
         # Create current run
         _create_run(provider_conn, "current_run_id")
 
-        results = _query_prior_run_findings(
-            provider_conn, "test_spec", "current_run_id", max_items=5
-        )
+        results = _query_prior_run_findings(provider_conn, "test_spec", "current_run_id", max_items=5)
         assert len(results) == 5
         # All critical findings should come first
         assert all(r.severity == "critical" for r in results[:3])
@@ -288,9 +281,7 @@ class TestNoPriorRuns:
         # Only current run exists
         _create_run(provider_conn, "current_run")
 
-        result = _query_prior_run_findings(
-            provider_conn, "test_spec", "current_run", max_items=5
-        )
+        result = _query_prior_run_findings(provider_conn, "test_spec", "current_run", max_items=5)
         assert result == []
 
 
@@ -323,9 +314,7 @@ class TestAllPriorSuperseded:
         # Create current run
         _create_run(provider_conn, "current_run_id")
 
-        result = _query_prior_run_findings(
-            provider_conn, "test_spec", "current_run_id", max_items=5
-        )
+        result = _query_prior_run_findings(provider_conn, "test_spec", "current_run_id", max_items=5)
         assert result == []
 
 

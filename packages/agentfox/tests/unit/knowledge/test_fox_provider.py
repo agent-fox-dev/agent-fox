@@ -493,9 +493,7 @@ class TestReviewCarryForwardExcludesObservation:
         provider = _make_provider(provider_db)
         result = provider.retrieve("spec_01", "task")
         reviews = [r for r in result if r.startswith("[REVIEW]")]
-        assert reviews == [], (
-            f"Expected no [REVIEW] items for observation-only spec, got: {reviews}"
-        )
+        assert reviews == [], f"Expected no [REVIEW] items for observation-only spec, got: {reviews}"
 
     def test_minor_finding_excluded(self, provider_db, provider_conn) -> None:
         """retrieve() returns no [REVIEW] items for a spec with only minor findings."""
@@ -509,9 +507,7 @@ class TestReviewCarryForwardExcludesObservation:
         provider = _make_provider(provider_db)
         result = provider.retrieve("spec_02", "task")
         reviews = [r for r in result if r.startswith("[REVIEW]")]
-        assert reviews == [], (
-            f"Expected no [REVIEW] items for minor-only spec, got: {reviews}"
-        )
+        assert reviews == [], f"Expected no [REVIEW] items for minor-only spec, got: {reviews}"
 
 
 # ===========================================================================
@@ -547,9 +543,7 @@ class TestTaskGroupFiltering:
         )
         insert_findings(conn, [finding])
 
-    def test_ac1_filter_by_task_group_excludes_other_groups(
-        self, provider_db, provider_conn
-    ) -> None:
+    def test_ac1_filter_by_task_group_excludes_other_groups(self, provider_db, provider_conn) -> None:
         """AC-1: retrieve(task_group='tg1') returns only tg1 findings.
 
         tg2 finding must be absent from the result.
@@ -562,14 +556,10 @@ class TestTaskGroupFiltering:
         reviews = [r for r in result if r.startswith("[REVIEW]")]
 
         assert len(reviews) == 1, f"Expected 1 review, got {len(reviews)}: {reviews}"
-        assert "tg2-description" not in "\n".join(reviews), (
-            "tg2 finding should not appear when task_group='tg1'"
-        )
+        assert "tg2-description" not in "\n".join(reviews), "tg2 finding should not appear when task_group='tg1'"
         assert "tg1-description" in reviews[0]
 
-    def test_ac5_no_task_group_returns_all_groups(
-        self, provider_db, provider_conn
-    ) -> None:
+    def test_ac5_no_task_group_returns_all_groups(self, provider_db, provider_conn) -> None:
         """AC-5: retrieve() without task_group returns findings from all groups.
 
         Backward-compatible: omitting task_group means no filtering.
@@ -628,9 +618,7 @@ class TestVerifyFeedback:
     # AC-1: FAIL verdict appears with [VERIFY] prefix containing req_id
     # ------------------------------------------------------------------
 
-    def test_ac1_fail_verdict_appears_with_verify_prefix(
-        self, provider_db, provider_conn
-    ) -> None:
+    def test_ac1_fail_verdict_appears_with_verify_prefix(self, provider_db, provider_conn) -> None:
         """AC-1: retrieve() includes a [VERIFY] entry for an active FAIL verdict."""
         _insert_verdict(provider_conn, "foo", "01-REQ-8.E1", "FAIL", evidence="Not implemented")
 
@@ -647,9 +635,7 @@ class TestVerifyFeedback:
     # AC-2: PASS verdicts are excluded; only FAIL are injected
     # ------------------------------------------------------------------
 
-    def test_ac2_pass_excluded_fail_included(
-        self, provider_db, provider_conn
-    ) -> None:
+    def test_ac2_pass_excluded_fail_included(self, provider_db, provider_conn) -> None:
         """AC-2: retrieve() contains [VERIFY] only for FAIL, not PASS."""
         _insert_verdict(provider_conn, "bar", "bar-REQ-1", "PASS", task_group="tg-pass")
         _insert_verdict(provider_conn, "bar", "bar-REQ-2", "FAIL", task_group="tg-fail")
@@ -658,15 +644,9 @@ class TestVerifyFeedback:
         result = provider.retrieve("bar", "task")
         verify_items = [r for r in result if r.startswith("[VERIFY]")]
 
-        assert len(verify_items) == 1, (
-            f"Expected exactly 1 [VERIFY] item (FAIL only), got: {verify_items}"
-        )
-        assert "bar-REQ-2" in verify_items[0], (
-            f"Expected FAIL requirement_id in [VERIFY] item: {verify_items[0]}"
-        )
-        assert "bar-REQ-1" not in "\n".join(verify_items), (
-            "PASS requirement_id must not appear in [VERIFY] items"
-        )
+        assert len(verify_items) == 1, f"Expected exactly 1 [VERIFY] item (FAIL only), got: {verify_items}"
+        assert "bar-REQ-2" in verify_items[0], f"Expected FAIL requirement_id in [VERIFY] item: {verify_items[0]}"
+        assert "bar-REQ-1" not in "\n".join(verify_items), "PASS requirement_id must not appear in [VERIFY] items"
 
     # ------------------------------------------------------------------
     # AC-3: Missing verification_results table does not raise
@@ -700,9 +680,7 @@ class TestVerifyFeedback:
     # AC-4: task_group filter restricts FAIL verdicts
     # ------------------------------------------------------------------
 
-    def test_ac4_task_group_filter_restricts_verdicts(
-        self, provider_db, provider_conn
-    ) -> None:
+    def test_ac4_task_group_filter_restricts_verdicts(self, provider_db, provider_conn) -> None:
         """AC-4: retrieve(task_group='g1') excludes verdicts for 'g2'."""
         _insert_verdict(provider_conn, "spec_tg", "spec_tg-REQ-1", "FAIL", task_group="g1")
         _insert_verdict(provider_conn, "spec_tg", "spec_tg-REQ-2", "FAIL", task_group="g2")
@@ -714,17 +692,13 @@ class TestVerifyFeedback:
         assert all("spec_tg-REQ-2" not in item for item in verify_items), (
             "g2 verdict must not appear when task_group='g1'"
         )
-        assert any("spec_tg-REQ-1" in item for item in verify_items), (
-            "g1 verdict must appear when task_group='g1'"
-        )
+        assert any("spec_tg-REQ-1" in item for item in verify_items), "g1 verdict must appear when task_group='g1'"
 
     # ------------------------------------------------------------------
     # AC-5: FAIL verdicts count toward max_items cap
     # ------------------------------------------------------------------
 
-    def test_ac5_fail_verdicts_count_toward_max_items(
-        self, provider_db, provider_conn
-    ) -> None:
+    def test_ac5_fail_verdicts_count_toward_max_items(self, provider_db, provider_conn) -> None:
         """AC-5: retrieve() with max_items=2 returns ≤2 items combining reviews and verdicts."""
         from agentfox.core.config import KnowledgeProviderConfig
 
@@ -770,9 +744,7 @@ class TestRelevanceScoringReviews:
     # AC-1: higher keyword overlap ranks first within same severity tier
     # ------------------------------------------------------------------
 
-    def test_ac1_relevant_finding_ranks_before_irrelevant(
-        self, provider_db, provider_conn
-    ) -> None:
+    def test_ac1_relevant_finding_ranks_before_irrelevant(self, provider_db, provider_conn) -> None:
         """AC-1: the finding that shares keywords with task_description appears first."""
         self._insert_major(provider_conn, "s1", "fix typo in docstring")
         self._insert_major(provider_conn, "s1", "implement caching layer")
@@ -783,20 +755,14 @@ class TestRelevanceScoringReviews:
 
         assert len(reviews) == 2
         first, second = reviews[0], reviews[1]
-        assert "implement caching layer" in first, (
-            f"Expected caching finding first, got: {first!r}"
-        )
-        assert "fix typo in docstring" in second, (
-            f"Expected docstring finding second, got: {second!r}"
-        )
+        assert "implement caching layer" in first, f"Expected caching finding first, got: {first!r}"
+        assert "fix typo in docstring" in second, f"Expected docstring finding second, got: {second!r}"
 
     # ------------------------------------------------------------------
     # AC-2: severity is the primary sort key; relevance is secondary
     # ------------------------------------------------------------------
 
-    def test_ac2_critical_before_major_regardless_of_relevance(
-        self, provider_db, provider_conn
-    ) -> None:
+    def test_ac2_critical_before_major_regardless_of_relevance(self, provider_db, provider_conn) -> None:
         """AC-2: a critical finding with zero keyword overlap still leads a major
         finding with high keyword overlap."""
         _insert_review_finding(provider_conn, "s2", "critical", "unrelated issue")
@@ -807,20 +773,14 @@ class TestRelevanceScoringReviews:
         reviews = [r for r in result if r.startswith("[REVIEW]")]
 
         assert len(reviews) == 2
-        assert "[critical]" in reviews[0].lower(), (
-            f"Expected critical finding first, got: {reviews[0]!r}"
-        )
-        assert "[major]" in reviews[1].lower(), (
-            f"Expected major finding second, got: {reviews[1]!r}"
-        )
+        assert "[critical]" in reviews[0].lower(), f"Expected critical finding first, got: {reviews[0]!r}"
+        assert "[major]" in reviews[1].lower(), f"Expected major finding second, got: {reviews[1]!r}"
 
     # ------------------------------------------------------------------
     # AC-3: empty task_description preserves severity/description order
     # ------------------------------------------------------------------
 
-    def test_ac3_empty_task_description_preserves_existing_order(
-        self, provider_db, provider_conn
-    ) -> None:
+    def test_ac3_empty_task_description_preserves_existing_order(self, provider_db, provider_conn) -> None:
         """AC-3: blank task_description keeps the severity-then-alphabetical order."""
         _insert_review_finding(provider_conn, "s3", "critical", "z-last alpha")
         _insert_review_finding(provider_conn, "s3", "critical", "a-first alpha")
@@ -838,9 +798,7 @@ class TestRelevanceScoringReviews:
                 severities.append("critical")
             elif "[major]" in r.lower():
                 severities.append("major")
-        assert severities == ["critical", "critical", "major"], (
-            f"Unexpected severity order: {severities}"
-        )
+        assert severities == ["critical", "critical", "major"], f"Unexpected severity order: {severities}"
         # Within critical tier: alphabetical by description
         critical_reviews = [r for r in reviews if "[critical]" in r.lower()]
         assert "a-first alpha" in critical_reviews[0], (
@@ -854,9 +812,7 @@ class TestRelevanceScoringReviews:
     # AC-5: high-relevance finding survives when max_items is small
     # ------------------------------------------------------------------
 
-    def test_ac5_relevant_finding_survives_max_items_cap(
-        self, provider_db, provider_conn
-    ) -> None:
+    def test_ac5_relevant_finding_survives_max_items_cap(self, provider_db, provider_conn) -> None:
         """AC-5: the matching finding is included when max_items=2 and 3 major
         findings exist (2 non-matching, 1 matching)."""
         from agentfox.core.config import KnowledgeProviderConfig
@@ -872,17 +828,12 @@ class TestRelevanceScoringReviews:
 
         assert len(reviews) == 2, f"Expected exactly 2 items (cap), got: {reviews}"
         descriptions = "\n".join(reviews)
-        assert "implement caching layer" in descriptions, (
-            "High-relevance finding must be present within the cap"
-        )
+        assert "implement caching layer" in descriptions, "High-relevance finding must be present within the cap"
         # At least one non-matching finding is absent
         non_matching_present = sum(
-            1 for phrase in ("alpha unrelated work", "beta unrelated work")
-            if phrase in descriptions
+            1 for phrase in ("alpha unrelated work", "beta unrelated work") if phrase in descriptions
         )
-        assert non_matching_present < 2, (
-            "At least one non-matching finding must be excluded by the cap"
-        )
+        assert non_matching_present < 2, "At least one non-matching finding must be excluded by the cap"
 
 
 class TestRelevanceScoringVerdicts:
@@ -902,28 +853,18 @@ class TestRelevanceScoringVerdicts:
         """Insert an independent FAIL verdict (unique task_group avoids supersession)."""
         _insert_verdict(conn, spec, requirement_id, "FAIL", task_group=str(uuid.uuid4()), evidence=evidence)
 
-    def test_ac4_relevant_verdict_ranks_before_irrelevant(
-        self, provider_db, provider_conn
-    ) -> None:
+    def test_ac4_relevant_verdict_ranks_before_irrelevant(self, provider_db, provider_conn) -> None:
         """AC-4: verdict with keyword-matching evidence appears before one without."""
-        self._insert_fail_verdict(
-            provider_conn, "v1", "v1-REQ-LOG", "logging format is wrong"
-        )
-        self._insert_fail_verdict(
-            provider_conn, "v1", "v1-REQ-CACHE", "caching layer not implemented"
-        )
+        self._insert_fail_verdict(provider_conn, "v1", "v1-REQ-LOG", "logging format is wrong")
+        self._insert_fail_verdict(provider_conn, "v1", "v1-REQ-CACHE", "caching layer not implemented")
 
         provider = _make_provider(provider_db)
         result = provider.retrieve("v1", "implement caching layer")
         verify_items = [r for r in result if r.startswith("[VERIFY]")]
 
         assert len(verify_items) == 2
-        assert "v1-REQ-CACHE" in verify_items[0], (
-            f"Expected caching verdict first, got: {verify_items[0]!r}"
-        )
-        assert "v1-REQ-LOG" in verify_items[1], (
-            f"Expected logging verdict second, got: {verify_items[1]!r}"
-        )
+        assert "v1-REQ-CACHE" in verify_items[0], f"Expected caching verdict first, got: {verify_items[0]!r}"
+        assert "v1-REQ-LOG" in verify_items[1], f"Expected logging verdict second, got: {verify_items[1]!r}"
 
 
 # ===========================================================================
@@ -964,9 +905,7 @@ class TestCrossGroupReviewRetrieval:
     directives.
     """
 
-    def test_cross_group_findings_appear_with_prefix(
-        self, provider_db, provider_conn
-    ) -> None:
+    def test_cross_group_findings_appear_with_prefix(self, provider_db, provider_conn) -> None:
         """Findings from other groups appear with [CROSS-GROUP] prefix."""
         _insert_finding_for_group(provider_conn, "spec_cg", "1", "tests use non-existent IDs")
         _insert_finding_for_group(provider_conn, "spec_cg", "2", "same-group finding")
@@ -982,9 +921,7 @@ class TestCrossGroupReviewRetrieval:
         assert len(cross_group) == 1, f"Expected 1 cross-group item, got: {cross_group}"
         assert "tests use non-existent IDs" in cross_group[0]
 
-    def test_cross_group_excludes_same_group(
-        self, provider_db, provider_conn
-    ) -> None:
+    def test_cross_group_excludes_same_group(self, provider_db, provider_conn) -> None:
         """Cross-group items must not include findings from the requested group."""
         _insert_finding_for_group(provider_conn, "spec_excl", "1", "group-1-finding")
         _insert_finding_for_group(provider_conn, "spec_excl", "2", "group-2-finding")
@@ -1000,44 +937,30 @@ class TestCrossGroupReviewRetrieval:
         assert "group-3-finding" in cross_text
         assert "group-2-finding" not in cross_text
 
-    def test_cross_group_respects_max_cross_group_items(
-        self, provider_db, provider_conn
-    ) -> None:
+    def test_cross_group_respects_max_cross_group_items(self, provider_db, provider_conn) -> None:
         """Cross-group items are capped at max_cross_group_items."""
         from agentfox.core.config import KnowledgeProviderConfig
 
         for i in range(10):
-            _insert_finding_for_group(
-                provider_conn, "spec_cap", f"other-{i}", f"finding-{i}"
-            )
+            _insert_finding_for_group(provider_conn, "spec_cap", f"other-{i}", f"finding-{i}")
 
         config = KnowledgeProviderConfig(max_cross_group_items=3)
         provider = _make_provider(provider_db, config=config)
         result = provider.retrieve("spec_cap", "desc", task_group="5")
 
         cross_group = [r for r in result if r.startswith("[CROSS-GROUP]")]
-        assert len(cross_group) == 3, (
-            f"Expected 3 cross-group items (cap), got {len(cross_group)}"
-        )
+        assert len(cross_group) == 3, f"Expected 3 cross-group items (cap), got {len(cross_group)}"
 
-    def test_cross_group_uses_relevance_scoring(
-        self, provider_db, provider_conn
-    ) -> None:
+    def test_cross_group_uses_relevance_scoring(self, provider_db, provider_conn) -> None:
         """Cross-group items are ranked by keyword overlap with task_description."""
         from agentfox.core.config import KnowledgeProviderConfig
 
-        _insert_finding_for_group(
-            provider_conn, "spec_rel", "1", "fix typo in docstring", severity="major"
-        )
-        _insert_finding_for_group(
-            provider_conn, "spec_rel", "1", "implement caching layer", severity="major"
-        )
+        _insert_finding_for_group(provider_conn, "spec_rel", "1", "fix typo in docstring", severity="major")
+        _insert_finding_for_group(provider_conn, "spec_rel", "1", "implement caching layer", severity="major")
 
         config = KnowledgeProviderConfig(max_cross_group_items=1)
         provider = _make_provider(provider_db, config=config)
-        result = provider.retrieve(
-            "spec_rel", "implement caching layer", task_group="2"
-        )
+        result = provider.retrieve("spec_rel", "implement caching layer", task_group="2")
 
         cross_group = [r for r in result if r.startswith("[CROSS-GROUP]")]
         assert len(cross_group) == 1
@@ -1045,27 +968,19 @@ class TestCrossGroupReviewRetrieval:
             f"Expected most relevant cross-group finding, got: {cross_group[0]!r}"
         )
 
-    def test_cross_group_not_tracked_in_injections(
-        self, provider_db, provider_conn
-    ) -> None:
+    def test_cross_group_not_tracked_in_injections(self, provider_db, provider_conn) -> None:
         """Cross-group items must NOT be recorded in finding_injections."""
         _insert_finding_for_group(provider_conn, "spec_inj", "1", "cross-group finding")
 
         provider = _make_provider(provider_db)
-        provider.retrieve(
-            "spec_inj", "desc", task_group="2", session_id="test-session"
-        )
+        provider.retrieve("spec_inj", "desc", task_group="2", session_id="test-session")
 
         injections = provider_conn.execute(
             "SELECT finding_id FROM finding_injections WHERE session_id = 'test-session'"
         ).fetchall()
-        assert len(injections) == 0, (
-            f"Cross-group items should not be tracked in injections, found: {injections}"
-        )
+        assert len(injections) == 0, f"Cross-group items should not be tracked in injections, found: {injections}"
 
-    def test_same_group_behavior_unchanged(
-        self, provider_db, provider_conn
-    ) -> None:
+    def test_same_group_behavior_unchanged(self, provider_db, provider_conn) -> None:
         """Same-group retrieval is unchanged — [REVIEW] items still work as before."""
         _insert_finding_for_group(provider_conn, "spec_same", "2", "same-group item")
 
@@ -1079,9 +994,7 @@ class TestCrossGroupReviewRetrieval:
         assert "same-group item" in reviews[0]
         assert len(cross) == 0
 
-    def test_no_cross_group_when_task_group_none(
-        self, provider_db, provider_conn
-    ) -> None:
+    def test_no_cross_group_when_task_group_none(self, provider_db, provider_conn) -> None:
         """When task_group is None, all findings appear as [REVIEW] — no cross-group split."""
         _insert_finding_for_group(provider_conn, "spec_none", "1", "group-1")
         _insert_finding_for_group(provider_conn, "spec_none", "2", "group-2")
@@ -1095,9 +1008,7 @@ class TestCrossGroupReviewRetrieval:
         assert len(reviews) == 2
         assert len(cross) == 0
 
-    def test_cross_group_includes_source_group(
-        self, provider_db, provider_conn
-    ) -> None:
+    def test_cross_group_includes_source_group(self, provider_db, provider_conn) -> None:
         """Cross-group items include the source task_group for context."""
         _insert_finding_for_group(provider_conn, "spec_src", "1", "from-group-1")
 
@@ -1106,17 +1017,13 @@ class TestCrossGroupReviewRetrieval:
 
         cross_group = [r for r in result if r.startswith("[CROSS-GROUP]")]
         assert len(cross_group) == 1
-        assert "group 1" in cross_group[0], (
-            f"Expected source group reference, got: {cross_group[0]!r}"
-        )
+        assert "group 1" in cross_group[0], f"Expected source group reference, got: {cross_group[0]!r}"
 
 
 class TestCrossGroupVerdictRetrieval:
     """Issue #559: cross-group FAIL verdicts are surfaced alongside cross-group findings."""
 
-    def test_cross_group_fail_verdict_appears(
-        self, provider_db, provider_conn
-    ) -> None:
+    def test_cross_group_fail_verdict_appears(self, provider_db, provider_conn) -> None:
         """FAIL verdicts from other groups appear with [CROSS-GROUP] prefix."""
         _insert_verdict(provider_conn, "spec_xv", "REQ-1", "FAIL", task_group="0", evidence="Not tested")
         _insert_verdict(provider_conn, "spec_xv", "REQ-2", "PASS", task_group="0-pass")
@@ -1129,19 +1036,12 @@ class TestCrossGroupVerdictRetrieval:
         assert "REQ-1" in cross_group[0]
         assert "REQ-2" not in "\n".join(cross_group)
 
-    def test_cross_group_verdicts_excluded_from_injections(
-        self, provider_db, provider_conn
-    ) -> None:
+    def test_cross_group_verdicts_excluded_from_injections(self, provider_db, provider_conn) -> None:
         """Cross-group verdicts must NOT be tracked in finding_injections."""
-        _insert_verdict(
-            provider_conn, "spec_xvi", "REQ-X", "FAIL",
-            task_group="0", evidence="Missing"
-        )
+        _insert_verdict(provider_conn, "spec_xvi", "REQ-X", "FAIL", task_group="0", evidence="Missing")
 
         provider = _make_provider(provider_db)
-        provider.retrieve(
-            "spec_xvi", "desc", task_group="2", session_id="test-session-v"
-        )
+        provider.retrieve("spec_xvi", "desc", task_group="2", session_id="test-session-v")
 
         injections = provider_conn.execute(
             "SELECT finding_id FROM finding_injections WHERE session_id = 'test-session-v'"

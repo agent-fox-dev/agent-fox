@@ -59,11 +59,15 @@ def _setup_clean_repo(tmp_dir: Path, committed_files: list[str]) -> Path:
     subprocess.run(["git", "init"], cwd=repo, check=True, capture_output=True)
     subprocess.run(
         ["git", "config", "user.email", "test@test.com"],
-        cwd=repo, check=True, capture_output=True,
+        cwd=repo,
+        check=True,
+        capture_output=True,
     )
     subprocess.run(
         ["git", "config", "user.name", "Test"],
-        cwd=repo, check=True, capture_output=True,
+        cwd=repo,
+        check=True,
+        capture_output=True,
     )
 
     # Create initial commit
@@ -72,7 +76,9 @@ def _setup_clean_repo(tmp_dir: Path, committed_files: list[str]) -> Path:
     subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
     subprocess.run(
         ["git", "commit", "-m", "initial"],
-        cwd=repo, check=True, capture_output=True,
+        cwd=repo,
+        check=True,
+        capture_output=True,
     )
 
     # Add committed files
@@ -84,7 +90,9 @@ def _setup_clean_repo(tmp_dir: Path, committed_files: list[str]) -> Path:
         subprocess.run(["git", "add", "."], cwd=repo, check=True, capture_output=True)
         subprocess.run(
             ["git", "commit", "-m", "add files"],
-            cwd=repo, check=True, capture_output=True,
+            cwd=repo,
+            check=True,
+            capture_output=True,
         )
 
     return repo

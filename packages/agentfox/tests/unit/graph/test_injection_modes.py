@@ -241,7 +241,7 @@ def _make_multigroup_coder_graph(spec_name: str = "myspec", n_groups: int = 6):
             archetype="coder",
         )
         if g > 1:
-            edges.append(Edge(source=f"{spec_name}:{g-1}", target=nid, kind="intra_spec"))
+            edges.append(Edge(source=f"{spec_name}:{g - 1}", target=nid, kind="intra_spec"))
         order.append(nid)
 
     return TaskGraph(
@@ -282,9 +282,7 @@ class TestEnsureGraphArchetypesAutoPostFix:
         assert parts[2] == "verifier"
 
         # Must use sentinel "0" in node_id, not any real group number
-        assert parts[1] == "0", (
-            f"Runtime-injected verifier node_id must embed sentinel '0', got: {vn.id!r}"
-        )
+        assert parts[1] == "0", f"Runtime-injected verifier node_id must embed sentinel '0', got: {vn.id!r}"
 
         # AC-1 (key assertion): group_number must NOT be in the set of real task groups
         real_group_numbers = set(range(1, n_groups + 1))
@@ -292,9 +290,7 @@ class TestEnsureGraphArchetypesAutoPostFix:
             f"Runtime verifier group_number={vn.group_number} coincides with a real "
             f"task group; real groups: {real_group_numbers}"
         )
-        assert vn.group_number == 0, (
-            f"Runtime verifier group_number must be sentinel 0, got {vn.group_number}"
-        )
+        assert vn.group_number == 0, f"Runtime verifier group_number must be sentinel 0, got {vn.group_number}"
 
     def test_runtime_verifier_idempotent(self) -> None:
         """Calling ensure_graph_archetypes twice must not inject duplicate verifiers."""

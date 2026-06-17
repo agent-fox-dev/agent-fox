@@ -33,6 +33,7 @@ def _generate_archetype_summary(*args, **kwargs):
 
     return generate_archetype_summary(*args, **kwargs)
 
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -141,10 +142,7 @@ class TestVerifierSummaryGenerated:
     """Verify verifier sessions produce a summary with pass/fail counts."""
 
     def test_verifier_summary_contains_counts(self) -> None:
-        verdicts = [
-            _make_verdict(requirement_id=f"REQ-{i}.1", verdict="PASS")
-            for i in range(1, 11)
-        ] + [
+        verdicts = [_make_verdict(requirement_id=f"REQ-{i}.1", verdict="PASS") for i in range(1, 11)] + [
             _make_verdict(requirement_id="REQ-5.E3", verdict="FAIL"),
             _make_verdict(requirement_id="REQ-8.E1", verdict="FAIL"),
         ]
