@@ -196,34 +196,6 @@ def new_cmd(ctx: click.Context, prd_file: str, name: str | None) -> None:
 
 
 # ---------------------------------------------------------------------------
-# assess
-# ---------------------------------------------------------------------------
-
-
-@main.command("assess")
-@click.argument("spec")
-@click.pass_context
-def assess_cmd(ctx: click.Context, spec: str) -> None:
-    """Run or re-run PRD assessment."""
-    try:
-        spec_dir: Path = ctx.obj["spec_dir"]
-        quiet: bool = ctx.obj["quiet"]
-        target = _resolve_spec(spec_dir, spec)
-        session = SpecSession.resume(target)
-
-        with StatusSpinner("Assessing PRD...", quiet=quiet):
-            assessment = asyncio.run(session.assess())
-
-        click.echo(json.dumps(_assessment_to_json(assessment), indent=2))
-    except click.ClickException:
-        raise
-    except (AgentSpecError, SessionError) as exc:
-        _error_exit(exc)
-    except Exception as exc:
-        _error_exit(exc, code=2)
-
-
-# ---------------------------------------------------------------------------
 # refine
 # ---------------------------------------------------------------------------
 
@@ -235,11 +207,20 @@ def assess_cmd(ctx: click.Context, spec: str) -> None:
     required=False,
     default=None,
     type=click.Path(exists=True),
-    help="JSON file with answers. Omit to output pending questions.",
+    help="JSON file with answers. Omit to assess/output pending questions.",
 )
 @click.pass_context
 def refine_cmd(ctx: click.Context, spec: str, answers: str | None) -> None:
-    """Submit answers and update PRD."""
+    """Assess PRD, submit answers, and refine.
+
+    Without --answers: runs the initial assessment (if needed) and
+    outputs the pending questions as JSON.
+
+    With --answers: submits answers, updates the PRD, and outputs
+    the new assessment as JSON.
+
+    Loop until quality is "ready", then run generate.
+    """
     try:
         spec_dir: Path = ctx.obj["spec_dir"]
         quiet: bool = ctx.obj["quiet"]
@@ -248,8 +229,11 @@ def refine_cmd(ctx: click.Context, spec: str, answers: str | None) -> None:
 
         if answers is None:
             if not session._assessment_history:
-                click.echo("Error: No assessment exists. Run 'assess' first.", err=True)
-                sys.exit(1)
+                with StatusSpinner("Assessing PRD...", quiet=quiet):
+                    assessment = asyncio.run(session.assess())
+                click.echo(json.dumps(_assessment_to_json(assessment), indent=2))
+                return
+
             questions = session.pending_questions()
             output = {
                 "questions": questions,
@@ -257,6 +241,10 @@ def refine_cmd(ctx: click.Context, spec: str, answers: str | None) -> None:
             }
             click.echo(json.dumps(output, indent=2))
             return
+
+        if not session._assessment_history:
+            with StatusSpinner("Assessing PRD...", quiet=quiet):
+                asyncio.run(session.assess())
 
         answers_path = Path(answers)
         try:
