@@ -259,6 +259,13 @@ class SpecSession:
         if previous_assessment is None:
             raise AgentError("Cannot refine without a previous assessment")
 
+        # Preserve YAML frontmatter so it survives the body-only update
+        frontmatter_block = ""
+        if prd_text.startswith("---"):
+            end = prd_text.find("\n---", 3)
+            if end != -1:
+                frontmatter_block = prd_text[: end + 4] + "\n"
+
         assessment_index = len(self._assessment_history) - 1
         timestamp = _utcnow()
 
@@ -271,8 +278,7 @@ class SpecSession:
             self._persist()
             raise
 
-        # Update PRD file with the revised text
-        (self._spec_dir / self._prd_path).write_text(updated_prd)
+        (self._spec_dir / self._prd_path).write_text(frontmatter_block + updated_prd)
 
         # Record the QA exchange (07-REQ-1.1)
         self._qa_exchanges.append(
