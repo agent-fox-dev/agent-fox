@@ -1078,8 +1078,7 @@ class TestQAExchangeRecording:
         mock_agent = _mock_agent_for_refine()
 
         with (
-            patch("agentspec.session.SpecAgent", return_value=mock_agent),
-            patch("agentspec.session._create_agent"),
+            patch("agentspec.session._create_agent", return_value=mock_agent),
         ):
             await session.refine({"q1": "answer1", "q2": "answer2"})
 
@@ -1101,8 +1100,7 @@ class TestQAExchangeRecording:
         mock_agent = _mock_agent_for_refine()
 
         with (
-            patch("agentspec.session.SpecAgent", return_value=mock_agent),
-            patch("agentspec.session._create_agent"),
+            patch("agentspec.session._create_agent", return_value=mock_agent),
         ):
             await session.refine({"q1": "a1"})
 
@@ -1137,8 +1135,7 @@ class TestQAExchangeRecording:
             ],
         )
         with (
-            patch("agentspec.session.SpecAgent", return_value=mock_agent_1),
-            patch("agentspec.session._create_agent"),
+            patch("agentspec.session._create_agent", return_value=mock_agent_1),
         ):
             await session.refine({"q1": "answer1"})
 
@@ -1152,8 +1149,7 @@ class TestQAExchangeRecording:
             questions=[],
         )
         with (
-            patch("agentspec.session.SpecAgent", return_value=mock_agent_2),
-            patch("agentspec.session._create_agent"),
+            patch("agentspec.session._create_agent", return_value=mock_agent_2),
         ):
             await session.refine({"q2": "answer2"})
 
@@ -1172,8 +1168,7 @@ class TestQAExchangeRecording:
         mock_agent = _mock_agent_for_refine()
 
         with (
-            patch("agentspec.session.SpecAgent", return_value=mock_agent),
-            patch("agentspec.session._create_agent"),
+            patch("agentspec.session._create_agent", return_value=mock_agent),
         ):
             await session.refine({"q1": "a1"})
 
@@ -1196,8 +1191,7 @@ class TestQAExchangeRecording:
         mock_agent = _mock_agent_for_refine()
 
         with (
-            patch("agentspec.session.SpecAgent", return_value=mock_agent),
-            patch("agentspec.session._create_agent"),
+            patch("agentspec.session._create_agent", return_value=mock_agent),
             patch(
                 "agentspec.session._utcnow",
                 return_value="2026-01-01T00:00:00+00:00",
@@ -1289,8 +1283,7 @@ class TestQAExchangeEdgeCases:
         mock_agent_instance.refine_prd = AsyncMock(side_effect=AgentError("API failed"))
 
         with (
-            patch("agentspec.session.SpecAgent", return_value=mock_agent_instance),
-            patch("agentspec.session._create_agent"),
+            patch("agentspec.session._create_agent", return_value=mock_agent_instance),
         ):
             with pytest.raises(AgentError):
                 await session.refine({"q1": "a1"})
@@ -1348,8 +1341,7 @@ class TestQAExchangeProperties:
                 ],
             )
             with (
-                patch("agentspec.session.SpecAgent", return_value=mock_agent),
-                patch("agentspec.session._create_agent"),
+                patch("agentspec.session._create_agent", return_value=mock_agent),
             ):
                 _run_sync(session.refine({f"q{i}": f"answer{i}"}))
 
@@ -1385,8 +1377,7 @@ class TestQAExchangeProperties:
                 ],
             )
             with (
-                patch("agentspec.session.SpecAgent", return_value=mock_agent),
-                patch("agentspec.session._create_agent"),
+                patch("agentspec.session._create_agent", return_value=mock_agent),
             ):
                 _run_sync(session.refine({f"q{i}": f"a{i}"}))
 
@@ -1424,8 +1415,7 @@ class TestQAExchangeProperties:
                 ],
             )
             with (
-                patch("agentspec.session.SpecAgent", return_value=mock_agent),
-                patch("agentspec.session._create_agent"),
+                patch("agentspec.session._create_agent", return_value=mock_agent),
             ):
                 _run_sync(session.refine({f"q{i}": f"a{i}"}))
 
@@ -1466,8 +1456,7 @@ class TestQAExchangeProperties:
                 ],
             )
             with (
-                patch("agentspec.session.SpecAgent", return_value=mock_agent),
-                patch("agentspec.session._create_agent"),
+                patch("agentspec.session._create_agent", return_value=mock_agent),
             ):
                 _run_sync(session.refine({f"q{i}": f"a{i}"}))
 
@@ -1477,8 +1466,7 @@ class TestQAExchangeProperties:
         mock_agent_fail = MagicMock()
         mock_agent_fail.refine_prd = AsyncMock(side_effect=AgentError("API failed"))
         with (
-            patch("agentspec.session.SpecAgent", return_value=mock_agent_fail),
-            patch("agentspec.session._create_agent"),
+            patch("agentspec.session._create_agent", return_value=mock_agent_fail),
         ):
             with pytest.raises(AgentError):
                 _run_sync(session.refine({f"q{n}": "a"}))
@@ -1553,8 +1541,7 @@ class TestQAExchangeSmoke:
         )
 
         with (
-            patch("agentspec.session.SpecAgent", return_value=mock_agent_instance),
-            patch("agentspec.session._create_agent"),
+            patch("agentspec.session._create_agent", return_value=mock_agent_instance),
             patch(
                 "agentspec.session._utcnow",
                 return_value="2026-06-10T12:00:00+00:00",

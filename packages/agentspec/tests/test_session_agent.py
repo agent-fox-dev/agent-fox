@@ -127,8 +127,7 @@ async def test_session_assess_delegates_to_agent(tmp_path: Path) -> None:
     mock_agent_instance.assess_prd = AsyncMock(return_value=assessment)
 
     with (
-        patch("agentspec.session.SpecAgent", return_value=mock_agent_instance),
-        patch("agentspec.session._create_agent"),
+        patch("agentspec.session._create_agent", return_value=mock_agent_instance),
     ):
         await session.assess()
 
@@ -167,8 +166,7 @@ async def test_session_refine_delegates_to_agent(tmp_path: Path) -> None:
     mock_agent_instance.refine_prd = AsyncMock(return_value=("# Updated PRD\n## Goals\n1. REST API", new_assessment))
 
     with (
-        patch("agentspec.session.SpecAgent", return_value=mock_agent_instance),
-        patch("agentspec.session._create_agent"),
+        patch("agentspec.session._create_agent", return_value=mock_agent_instance),
     ):
         await session.refine({"q1": "My answer"})
 
@@ -209,8 +207,7 @@ async def test_session_generate_delegates_and_writes_files(
     mock_agent_instance.generate_artifacts = AsyncMock(return_value=artifacts)
 
     with (
-        patch("agentspec.session.SpecAgent", return_value=mock_agent_instance),
-        patch("agentspec.session._create_agent"),
+        patch("agentspec.session._create_agent", return_value=mock_agent_instance),
     ):
         await session.generate()
 
@@ -238,8 +235,7 @@ async def test_agent_error_prevents_state_transition(tmp_path: Path) -> None:
     mock_agent_instance.assess_prd = AsyncMock(side_effect=AgentError("API failed"))
 
     with (
-        patch("agentspec.session.SpecAgent", return_value=mock_agent_instance),
-        patch("agentspec.session._create_agent"),
+        patch("agentspec.session._create_agent", return_value=mock_agent_instance),
     ):
         with pytest.raises(AgentError):
             await session.assess()
@@ -289,8 +285,7 @@ async def test_assessment_history_accumulates(tmp_path: Path) -> None:
     mock_agent_instance.refine_prd = AsyncMock(return_value=("# Updated PRD", assessment_2))
 
     with (
-        patch("agentspec.session.SpecAgent", return_value=mock_agent_instance),
-        patch("agentspec.session._create_agent"),
+        patch("agentspec.session._create_agent", return_value=mock_agent_instance),
     ):
         # First assessment
         await session.assess()
@@ -322,9 +317,9 @@ async def test_partial_generation_preserves_artifacts(tmp_path: Path) -> None:
         ]
     )
 
-    with (
-        patch("agentspec.session._create_agent"),
-    ):
+    from agentspec.agent import SpecAgent as _SA
+
+    with patch("agentspec.session._create_agent", return_value=_SA(mock_client, "claude-sonnet-4-6")):
         with pytest.raises(AgentError):
             await session.generate()
 
@@ -362,9 +357,9 @@ async def test_resume_after_partial_generation(tmp_path: Path) -> None:
         ]
     )
 
-    with (
-        patch("agentspec.session._create_agent"),
-    ):
+    from agentspec.agent import SpecAgent as _SA
+
+    with patch("agentspec.session._create_agent", return_value=_SA(mock_client, "claude-sonnet-4-6")):
         await session.generate()
 
     # All three artifacts should now exist
@@ -413,9 +408,9 @@ class TestPropertyPartialArtifacts:
         mock_client = MagicMock()
         mock_client.messages.create = AsyncMock(side_effect=side_effects)
 
-        with (
-            patch("agentspec.session._create_agent"),
-        ):
+        from agentspec.agent import SpecAgent as _SA
+
+        with patch("agentspec.session._create_agent", return_value=_SA(mock_client, "claude-sonnet-4-6")):
             with pytest.raises(AgentError):
                 asyncio.run(session.generate())
 
@@ -456,8 +451,7 @@ async def test_smoke_full_assessment_flow(tmp_path: Path) -> None:
     mock_agent_instance.assess_prd = AsyncMock(return_value=assessment)
 
     with (
-        patch("agentspec.session.SpecAgent", return_value=mock_agent_instance),
-        patch("agentspec.session._create_agent"),
+        patch("agentspec.session._create_agent", return_value=mock_agent_instance),
     ):
         await session.assess()
 
@@ -500,8 +494,7 @@ async def test_smoke_full_refinement_flow(tmp_path: Path) -> None:
     )
 
     with (
-        patch("agentspec.session.SpecAgent", return_value=mock_agent_instance),
-        patch("agentspec.session._create_agent"),
+        patch("agentspec.session._create_agent", return_value=mock_agent_instance),
     ):
         await session.refine({"q1": "REST API for users"})
 
@@ -537,8 +530,7 @@ async def test_smoke_full_generation_flow(tmp_path: Path) -> None:
     mock_agent_instance.generate_artifacts = AsyncMock(return_value=artifacts)
 
     with (
-        patch("agentspec.session.SpecAgent", return_value=mock_agent_instance),
-        patch("agentspec.session._create_agent"),
+        patch("agentspec.session._create_agent", return_value=mock_agent_instance),
     ):
         await session.generate()
 
@@ -574,8 +566,10 @@ async def test_smoke_retry_and_recovery(tmp_path: Path) -> None:
         ]
     )
 
+    from agentspec.agent import SpecAgent as _SA
+
     with (
-        patch("agentspec.session._create_agent"),
+        patch("agentspec.session._create_agent", return_value=_SA(mock_client, "claude-sonnet-4-6")),
         patch("asyncio.sleep", new_callable=AsyncMock),
     ):
         await session.assess()
