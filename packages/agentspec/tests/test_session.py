@@ -133,62 +133,68 @@ class TestStateTransitions:
         passes (no SessionError).  Full agent behaviour is exercised in
         test_session_agent.py.
         """
-        # Legal: init -> assessing via assess()
-        # assess() is async; verify no SessionError (state check passes)
-        session = _create_session(tmp_path, SessionState.INIT)
-        try:
-            _run_sync(session.assess())
-        except SessionError:
-            pytest.fail("Legal transition init->assess raised SessionError")
-        except Exception:
-            pass  # Implementation error (no client) is fine
+        # Mock _create_agent to raise a non-SessionError so we can verify
+        # the state check passes without hitting the network.
+        agent_error = RuntimeError("no real agent")
 
-        # Illegal: init -> refining via refine()
-        session = _create_session(tmp_path, SessionState.INIT)
-        with pytest.raises(SessionError):
-            _run_sync(session.refine({}))
+        with patch("agentspec.session._create_agent", side_effect=agent_error):
+            # Legal: init -> assessing via assess()
+            session = _create_session(tmp_path, SessionState.INIT)
+            try:
+                _run_sync(session.assess())
+            except SessionError:
+                pytest.fail("Legal transition init->assess raised SessionError")
+            except Exception:
+                pass
 
-        # Illegal: init -> generating via generate()
-        session = _create_session(tmp_path, SessionState.INIT)
-        with pytest.raises(SessionError):
-            _run_sync(session.generate())
+            # Illegal: init -> refining via refine()
+            session = _create_session(tmp_path, SessionState.INIT)
+            with pytest.raises(SessionError):
+                _run_sync(session.refine({}))
 
-        # Legal: assessing -> refining via refine()
-        session = _create_session(tmp_path, SessionState.ASSESSING)
-        try:
-            _run_sync(session.refine({}))
-        except SessionError:
-            pytest.fail("Legal transition assessing->refine raised SessionError")
-        except Exception:
-            pass
+            # Illegal: init -> generating via generate()
+            session = _create_session(tmp_path, SessionState.INIT)
+            with pytest.raises(SessionError):
+                _run_sync(session.generate())
+
+            # Legal: assessing -> refining via refine()
+            session = _create_session(tmp_path, SessionState.ASSESSING)
+            try:
+                _run_sync(session.refine({}))
+            except SessionError:
+                pytest.fail("Legal transition assessing->refine raised SessionError")
+            except Exception:
+                pass
 
         # Legal: assessing -> prd_accepted via accept_prd()
         session = _create_session(tmp_path, SessionState.ASSESSING)
         session.accept_prd()
         assert session.state == SessionState.PRD_ACCEPTED
 
-        # Legal: refining -> assessing via assess()
-        session = _create_session(tmp_path, SessionState.REFINING)
-        try:
-            _run_sync(session.assess())
-        except SessionError:
-            pytest.fail("Legal transition refining->assess raised SessionError")
-        except Exception:
-            pass
+        with patch("agentspec.session._create_agent", side_effect=agent_error):
+            # Legal: refining -> assessing via assess()
+            session = _create_session(tmp_path, SessionState.REFINING)
+            try:
+                _run_sync(session.assess())
+            except SessionError:
+                pytest.fail("Legal transition refining->assess raised SessionError")
+            except Exception:
+                pass
 
         # Legal: refining -> prd_accepted via accept_prd()
         session = _create_session(tmp_path, SessionState.REFINING)
         session.accept_prd()
         assert session.state == SessionState.PRD_ACCEPTED
 
-        # Legal: prd_accepted -> generating via generate()
-        session = _create_session(tmp_path, SessionState.PRD_ACCEPTED)
-        try:
-            _run_sync(session.generate())
-        except SessionError:
-            pytest.fail("Legal transition prd_accepted->generate raised SessionError")
-        except Exception:
-            pass
+        with patch("agentspec.session._create_agent", side_effect=agent_error):
+            # Legal: prd_accepted -> generating via generate()
+            session = _create_session(tmp_path, SessionState.PRD_ACCEPTED)
+            try:
+                _run_sync(session.generate())
+            except SessionError:
+                pytest.fail("Legal transition prd_accepted->generate raised SessionError")
+            except Exception:
+                pass
 
         # Illegal: prd_accepted -> assess()
         session = _create_session(tmp_path, SessionState.PRD_ACCEPTED)
@@ -453,50 +459,47 @@ class TestSessionProperties:
         and verify SessionError.
         """
         methods = ["assess", "refine", "accept_prd", "generate"]
+        agent_error = RuntimeError("no real agent")
 
-        for state in SessionState:
-            for method_name in methods:
-                session = _create_session(tmp_path, state)
-                key = (state.value, method_name)
-                is_async = method_name in _ASYNC_METHODS
+        with patch("agentspec.session._create_agent", side_effect=agent_error):
+            for state in SessionState:
+                for method_name in methods:
+                    session = _create_session(tmp_path, state)
+                    key = (state.value, method_name)
+                    is_async = method_name in _ASYNC_METHODS
 
-                if key in _LEGAL_TRANSITIONS:
-                    if is_async:
-                        # Async methods: verify state check passes
-                        # (no SessionError).  Full behavior tested
-                        # in spec 03 tests.
-                        try:
-                            if method_name == "refine":
-                                _run_sync(getattr(session, method_name)({}))
-                            else:
-                                _run_sync(getattr(session, method_name)())
-                        except SessionError:
-                            pytest.fail(f"Legal transition {key} raised SessionError")
-                        except Exception:
-                            pass  # Agent/config error is fine
+                    if key in _LEGAL_TRANSITIONS:
+                        if is_async:
+                            try:
+                                if method_name == "refine":
+                                    _run_sync(getattr(session, method_name)({}))
+                                else:
+                                    _run_sync(getattr(session, method_name)())
+                            except SessionError:
+                                pytest.fail(f"Legal transition {key} raised SessionError")
+                            except Exception:
+                                pass
+                        else:
+                            getattr(session, method_name)()
+                            expected = _LEGAL_TRANSITIONS[key]
+                            assert session.state == SessionState(expected), (
+                                f"Expected state {expected} after "
+                                f"{method_name}() from {state.value}, "
+                                f"got {session.state.value}"
+                            )
                     else:
-                        # Sync method (accept_prd)
-                        getattr(session, method_name)()
-                        expected = _LEGAL_TRANSITIONS[key]
-                        assert session.state == SessionState(expected), (
-                            f"Expected state {expected} after "
-                            f"{method_name}() from {state.value}, "
-                            f"got {session.state.value}"
-                        )
-                else:
-                    # Illegal transition — must raise SessionError
-                    if is_async:
-                        with pytest.raises(SessionError):
-                            if method_name == "refine":
-                                _run_sync(getattr(session, method_name)({}))
-                            else:
-                                _run_sync(getattr(session, method_name)())
-                    else:
-                        with pytest.raises(SessionError):
-                            if method_name == "refine":
-                                getattr(session, method_name)({})
-                            else:
-                                getattr(session, method_name)()
+                        if is_async:
+                            with pytest.raises(SessionError):
+                                if method_name == "refine":
+                                    _run_sync(getattr(session, method_name)({}))
+                                else:
+                                    _run_sync(getattr(session, method_name)())
+                        else:
+                            with pytest.raises(SessionError):
+                                if method_name == "refine":
+                                    getattr(session, method_name)({})
+                                else:
+                                    getattr(session, method_name)()
 
     def test_ts02_p2_property_persistence_idempotent(self, tmp_path: Path) -> None:
         """TS-02-P2: Session persistence is idempotent on resume.

@@ -64,7 +64,7 @@ def test_ts10_p4_module_placement_uniqueness() -> None:
     packages_dir = REPO_ROOT / "packages"
 
     # All three packages must exist under packages/
-    expected_packages = ["afspec", "agentspec", "spec-cli"]
+    expected_packages = ["af", "afspec", "agentfox", "agentspec"]
     for pkg in expected_packages:
         assert (packages_dir / pkg).is_dir(), f"Package directory missing: packages/{pkg}"
 
