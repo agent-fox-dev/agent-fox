@@ -291,14 +291,24 @@ def refine_cmd(ctx: click.Context, spec: str, answers: str | None) -> None:
 
 @main.command("generate")
 @click.argument("spec")
+@click.option("--force", is_flag=True, help="Delete existing artifacts and regenerate from scratch")
 @click.pass_context
-def generate_cmd(ctx: click.Context, spec: str) -> None:
+def generate_cmd(ctx: click.Context, spec: str, force: bool) -> None:
     """Generate JSON artifacts from accepted PRD."""
     try:
         spec_dir: Path = ctx.obj["spec_dir"]
         quiet: bool = ctx.obj["quiet"]
         target = _resolve_spec(spec_dir, spec)
         session = SpecSession.resume(target)
+
+        if force and session.state in (SessionState.GENERATED, SessionState.GENERATING):
+            for name in ("requirements.json", "test_spec.json", "tasks.json"):
+                artifact_path = target / name
+                if artifact_path.exists():
+                    artifact_path.unlink()
+            session._state = SessionState.PRD_ACCEPTED
+            session._generated_artifacts = []
+            session._persist()
 
         if session.state in (SessionState.ASSESSING, SessionState.REFINING):
             session.accept_prd()
