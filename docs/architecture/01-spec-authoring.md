@@ -41,10 +41,11 @@ file:
 | `architecture.md` | Optional free-form architecture documentation. Absorbs the role of the former `design.md`. |
 
 The v1.2 format moves structured data into schema-validated JSON while keeping
-narrative content in markdown. The `afspec` library (from af-core) provides the
-data models, validation, and rendering. See
-[Part 6](06-spec-format-v12.md) for details on format detection, parsing,
-and validation.
+narrative content in markdown. The `afspec` library provides the data models,
+validation, and rendering. The `agentspec` library drives AI-powered generation
+of the JSON artifacts from a PRD, and the `spec` CLI provides the command-line
+interface. See [Part 6](06-spec-format-v12.md) for details on format detection,
+parsing, and validation.
 
 ### Traceability
 
@@ -244,12 +245,15 @@ has since evolved. The `--all` flag overrides this for auditing purposes.
 
 The typical authoring workflow is:
 
-1. Create a numbered directory under `.agent-fox/specs/` with the spec artifact
-   files. The `/af-spec` skill generates the full v1.2 package (PRD + three
-   JSON files) from a PRD, a GitHub issue URL, or a plain-English description.
-2. Run `agent-fox lint-specs` to validate. This runs `afspec` schema and
-   integrity checks. Fix errors manually or with `--fix`. Address warnings as
-   appropriate.
+1. Create a spec from a PRD using the `spec` CLI:
+   ```bash
+   spec new prd.md --name my_feature     # create spec directory with PRD
+   spec refine my_feature                # assess PRD, get questions
+   spec refine my_feature --answers a.json  # refine until quality is "ready"
+   spec generate my_feature              # generate JSON artifacts
+   ```
+2. Run `spec validate my_feature` and `agent-fox lint-specs` to validate.
+   Fix errors and address warnings as appropriate.
 3. Run `agent-fox plan` to build the task graph (see
    [Part 2: Planning](02-planning.md)).
 

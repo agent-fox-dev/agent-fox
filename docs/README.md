@@ -16,10 +16,17 @@ The typical workflow has four stages:
    package under `.agent-fox/specs/`. New specs use the v1.2 JSON format: a PRD
    (`prd.md`), requirements (`requirements.json`), test spec (`test_spec.json`),
    and tasks (`tasks.json`), plus an optional `architecture.md`. Each spec maps
-   to one coherent feature or change. Use the `/af-spec` skill in Claude Code to
-   generate the full spec package from a PRD, a GitHub issue URL, or a
-   plain-English description. Run `agent-fox lint-specs` to validate specs
-   before planning; use `--fix` to auto-repair common issues.
+   to one coherent feature or change. Use the `spec` CLI to create and refine
+   specs from a PRD:
+   ```bash
+   spec new prd.md --name my_feature     # create spec from PRD
+   spec refine my_feature                # assess and get questions
+   spec refine my_feature --answers a.json  # refine until ready
+   spec generate my_feature              # generate JSON artifacts
+   spec validate my_feature              # check validity
+   ```
+   Run `agent-fox lint-specs` for additional structural validation before
+   planning.
 
 2. **Plan.** Run `agent-fox plan` to compile your specs into a dependency
    graph of tasks. The planner is deterministic — same specs, same graph,

@@ -24,9 +24,10 @@ by construction.
 
 The v1.2 format addresses this by moving structured data into JSON files
 validated against schemas, while keeping human-authored narrative content in
-markdown. The `afspec` library (from af-core) provides the Pydantic data
-models, schema validation, and rendering functions that agent-fox consumes
-through a thin adapter layer.
+markdown. The `afspec` library provides the Pydantic data models, schema
+validation, and rendering functions. The `agentspec` library drives AI-powered
+artifact generation from a PRD, and the `spec` CLI provides the user-facing
+command-line workflow.
 
 ---
 
@@ -65,9 +66,10 @@ all unchanged.
 
 ## The `afspec` Library
 
-`afspec` is a library from af-core that provides the canonical data models and
-operations for the v1.2 format. Agent-fox depends on it as a runtime
-dependency and uses three entry points:
+`afspec` is the library that provides the canonical data models and
+operations for the v1.2 format. It lives in `packages/afspec/` within
+the monorepo. Agent-fox depends on it as a runtime dependency and uses
+three entry points:
 
 - **`afspec.load_spec(spec_dir)`** — Parses all JSON artifacts in a spec
   directory and returns a unified `Spec` object containing Pydantic models for
