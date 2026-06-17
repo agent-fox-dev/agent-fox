@@ -176,8 +176,12 @@ def generation_system_prompt() -> str:
         "## Mandatory field rules\n\n"
         "- Every object with a `title` field MUST have a non-empty, "
         "human-readable title. Empty titles fail validation.\n"
+        "- Every `description` field MUST be a non-empty, substantive "
+        "sentence — not just the title restated.\n"
         "- Every string field with `minLength: 1` in the schema MUST be "
-        "non-empty.\n\n"
+        "non-empty.\n"
+        "- Every verification subtask MUST have a non-empty `checks` "
+        "array with concrete, actionable verification criteria.\n\n"
         "## Guidelines\n\n"
         "- Follow the tool schema exactly; do not add extra fields.\n"
         "- Ensure all cross-references (requirement IDs, test IDs) are "
@@ -260,6 +264,13 @@ def generation_user_prompt(
             "module names). Every path must start at a user action and "
             "end at a concrete side effect. Steps need `actor` and "
             "`action` fields. At least two steps per path.\n\n"
+            "### Return contracts\n"
+            "Set `return_contract` to a non-null string on every criterion "
+            "whose action produces an observable response — HTTP status "
+            "codes, return values, response bodies, error messages. "
+            "Only use null when the action has no caller-visible output "
+            "(e.g. a background side effect). Concrete return contracts "
+            "make implementation and testing significantly easier.\n\n"
             "### Correctness properties\n"
             "Each property's `validates` array must reference acceptance "
             "criterion IDs that exist in `requirements`.\n"
@@ -280,6 +291,18 @@ def generation_user_prompt(
             "= the path ID, e.g. `05-PATH-1`)\n\n"
             "Cross-check against the requirements artifact before "
             "submitting. Any missing coverage fails validation.\n\n"
+            "### Test quality\n"
+            "- Every test entry MUST have a non-empty `description` — "
+            "a one-sentence explanation of what is being verified.\n"
+            "- `assertion_pseudocode` must be concrete enough that a "
+            "developer can translate it directly to test code. Include "
+            "specific function calls, expected values, and assertions. "
+            "Use language-agnostic pseudocode, not language-specific "
+            "syntax.\n"
+            "- `preconditions` must list all system state required before "
+            "the test runs (database state, config, running services).\n"
+            "- `expected` must describe concrete observable outcomes, not "
+            "vague statements.\n\n"
             "### Coverage object\n"
             "The `coverage` object is computed by the validation library. "
             "Submit it with empty arrays: "
@@ -301,13 +324,19 @@ def generation_user_prompt(
             '- Groups in between use `kind: "standard"` or '
             '`kind: "checkpoint"` (for intermediate verification gates).\n'
             "- Exactly one wiring_verification group, always last.\n\n"
-            "### Subtask IDs\n"
+            "### Subtask IDs and verification\n"
             "- Subtask IDs use format `{group_id}.{N}` (e.g. `2.1`, "
-            "`2.2`). Sequential within each group.\n"
-            "- Every group has exactly one verification subtask with ID "
-            "`{group_id}.V` (e.g. `2.V`). The verification subtask has a "
-            "`checks` array listing what to verify (test commands, "
-            "requirement satisfaction, etc.).\n\n"
+            "`2.2`). Sequential within each group. Target 3-6 subtasks "
+            "per group.\n"
+            "- Every group MUST have exactly one verification subtask "
+            "with ID `{group_id}.V` (e.g. `2.V`). The verification "
+            "subtask MUST have a non-empty `checks` array with concrete "
+            "criteria, for example:\n"
+            '  - "Spec tests for this group pass: pytest -q tests/..."\n'
+            '  - "All existing tests still pass: pytest -q"\n'
+            '  - "No linter warnings introduced: ruff check"\n'
+            '  - "Requirements 05-REQ-1.1, 05-REQ-1.2 acceptance '
+            'criteria met"\n\n'
             "### Dependencies\n"
             "The `dependencies` array declares cross-spec dependencies "
             "only. Set `depends_on_spec` to the spec_id of the other "
@@ -322,9 +351,47 @@ def generation_user_prompt(
             "time).\n\n"
             "Reference both requirement IDs and test IDs from the "
             "previously generated artifacts in subtask `requirement_refs` "
-            "and `test_spec_refs` fields.\n"
+            "and `test_spec_refs` fields.\n\n"
+            "### Wiring verification (last group)\n"
+            "The final wiring_verification group must include subtasks "
+            "that cover:\n"
+            "1. Trace execution paths — verify each path's entry point "
+            "calls the next function in the chain, no stubs remain.\n"
+            "2. Verify return value propagation — confirm callers receive "
+            "and use return values.\n"
+            "3. Run smoke tests — all SMOKE tests pass with real "
+            "components.\n"
+            "4. Stub/dead-code audit — search for return None, pass in "
+            "non-abstract methods, TODO, NotImplementedError.\n"
+            "5. Cross-spec entry point verification — if paths start in "
+            "another spec, confirm they are called from production code.\n"
         )
 
     parts.append(f"Use the submit_{artifact_name} tool to return the generated artifact.")
 
     return "\n".join(parts)
+
+
+# ── repair ──────────────────────────────────────────────────────────
+
+
+def repair_user_prompt(
+    artifact_name: str,
+    original_content: dict[str, Any],
+    errors: list[str],
+) -> str:
+    """Return a user message asking the LLM to fix validation errors.
+
+    Sends the original artifact content and a list of errors, asking
+    the model to resubmit with corrections.
+    """
+    error_list = "\n".join(f"- {e}" for e in errors)
+    return (
+        f"The **{artifact_name}** artifact you generated has validation "
+        f"errors. Fix them and resubmit using the same tool.\n\n"
+        f"## Validation errors\n\n{error_list}\n\n"
+        f"## Original artifact\n\n"
+        f"```json\n{json.dumps(original_content, indent=2)}\n```\n\n"
+        f"Fix all listed errors and resubmit using the "
+        f"submit_{artifact_name} tool."
+    )

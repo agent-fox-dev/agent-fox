@@ -13,7 +13,8 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
-from afspec import Requirements, Tasks, TestSpec  # type: ignore[import-untyped]
+from afspec import Requirements, Spec, Tasks, TestSpec  # type: ignore[import-untyped]
+from afspec import validate_schema as afspec_validate_schema  # type: ignore[import-untyped]
 from anthropic import (
     APIConnectionError,
     APIStatusError,
@@ -30,6 +31,7 @@ from agentspec.prompts import (
     generation_user_prompt,
     refinement_system_prompt,
     refinement_user_prompt,
+    repair_user_prompt,
 )
 from agentspec.tools import artifact_tool, assessment_tools, refinement_tools
 
@@ -45,6 +47,7 @@ _MAX_RETRIES = 3
 _BASE_DELAY = 1.0  # seconds
 _MAX_CUMULATIVE_WAIT = 30.0  # seconds
 _DEFAULT_MAX_TOKENS = 16384
+_MAX_REPAIR_ATTEMPTS = 2
 
 _ARTIFACT_MODELS: dict[str, type[BaseModel]] = {
     "requirements": Requirements,
@@ -213,7 +216,6 @@ class SpecAgent:
         system = generation_system_prompt()
 
         for artifact_name in artifact_names:
-            # Skip already-generated artifacts (03-REQ-6.E2 resume)
             if artifact_name in results:
                 continue
 
@@ -226,22 +228,23 @@ class SpecAgent:
 
             response = await self._call_api(messages, tools, system=system)
 
-            # Extract artifact content (03-REQ-3.E2)
             tool_name = f"submit_{artifact_name}"
             tool_input = self._extract_tool_call(response, tool_name)
             content: dict[str, Any] = tool_input["content"]
 
-            # Inject known metadata fields
             content["spec_id"] = spec_id
             content["spec_name"] = spec_name
             content["schema_version"] = 1
 
-            # Construct afspec model — this validates structure
             model_cls = _ARTIFACT_MODELS[artifact_name]
             try:
                 artifact_model = model_cls.model_validate(content)
             except PydanticValidationError as exc:
                 raise AgentError(f"Artifact '{artifact_name}' failed validation: {exc}") from exc
+
+            artifact_model = await self._repair_if_needed(
+                artifact_name, artifact_model, results, system, tools, tool_name, model_cls, spec_id, spec_name
+            )
 
             results[artifact_name] = artifact_model
 
@@ -251,6 +254,66 @@ class SpecAgent:
         return results
 
     # -- internal methods -------------------------------------------------
+
+    async def _repair_if_needed(
+        self,
+        artifact_name: str,
+        artifact_model: Any,
+        prior_results: dict[str, Any],
+        system: str,
+        tools: list[dict[str, Any]],
+        tool_name: str,
+        model_cls: type,
+        spec_id: str,
+        spec_name: str,
+    ) -> Any:
+        """Run schema validation on a generated artifact and ask the LLM to fix errors.
+
+        Constructs a minimal Spec from the artifact and any prior results,
+        runs afspec schema validation, and if errors are found, sends them
+        back to the LLM for repair. Retries up to _MAX_REPAIR_ATTEMPTS times.
+        """
+        for attempt in range(_MAX_REPAIR_ATTEMPTS):
+            spec_kwargs: dict[str, Any] = {artifact_name: artifact_model}
+            for name, model in prior_results.items():
+                spec_kwargs[name] = model
+            mini_spec = Spec(**spec_kwargs)
+
+            schema_errors = afspec_validate_schema(mini_spec)
+            relevant = [e for e in schema_errors if artifact_name in e.file or artifact_name.replace("_", "") in e.file]
+            if not relevant:
+                return artifact_model
+
+            error_strs = [e.message for e in relevant]
+            logger.warning(
+                "Artifact '%s' has %d schema errors (repair attempt %d/%d)",
+                artifact_name,
+                len(relevant),
+                attempt + 1,
+                _MAX_REPAIR_ATTEMPTS,
+            )
+
+            content_dict = artifact_model.model_dump(by_alias=True, exclude_none=True)
+            user_msg = repair_user_prompt(artifact_name, content_dict, error_strs)
+            messages: list[dict[str, str]] = [
+                {"role": "user", "content": user_msg},
+            ]
+
+            response = await self._call_api(messages, tools, system=system)
+            tool_input = self._extract_tool_call(response, tool_name)
+            content: dict[str, Any] = tool_input["content"]
+
+            content["spec_id"] = spec_id
+            content["spec_name"] = spec_name
+            content["schema_version"] = 1
+
+            try:
+                artifact_model = model_cls.model_validate(content)
+            except PydanticValidationError:
+                logger.warning("Repair attempt %d for '%s' failed Pydantic validation", attempt + 1, artifact_name)
+                break
+
+        return artifact_model
 
     @staticmethod
     def _prior_artifacts_context(
