@@ -43,7 +43,30 @@ line-length = 120
 exclude = [".claude/worktrees"]
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "UP"]
+select = ["E", "F", "W", "I", "UP", "TID251"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"agentfox.knowledge.extraction".msg = "Removed in spec 114"
+"agentfox.knowledge.embeddings".msg = "Removed in spec 114"
+"agentfox.knowledge.search".msg = "Removed in spec 114"
+"agentfox.knowledge.retrieval".msg = "Removed in spec 114"
+"agentfox.knowledge.causal".msg = "Removed in spec 114"
+"agentfox.knowledge.lifecycle".msg = "Removed in spec 114"
+"agentfox.knowledge.contradiction".msg = "Removed in spec 114"
+"agentfox.knowledge.consolidation".msg = "Removed in spec 114"
+"agentfox.knowledge.compaction".msg = "Removed in spec 114"
+"agentfox.knowledge.entity_linker".msg = "Removed in spec 114"
+"agentfox.knowledge.entity_query".msg = "Removed in spec 114"
+"agentfox.knowledge.entity_store".msg = "Removed in spec 114"
+"agentfox.knowledge.entities".msg = "Removed in spec 114"
+"agentfox.knowledge.static_analysis".msg = "Removed in spec 114"
+"agentfox.knowledge.sleep_compute".msg = "Removed in spec 114"
+"agentfox.knowledge.rendering".msg = "Removed in spec 114"
+"agentfox.knowledge.store".msg = "Removed in spec 114"
+"agentfox.knowledge.facts".msg = "Removed in spec 114"
+"agentfox.knowledge.ingest".msg = "Removed in spec 114"
+"agentfox.knowledge.onboard".msg = "Removed in spec 114"
+"agentfox.engine.knowledge_harvest".msg = "Removed in spec 114"
 
 [tool.mypy]
 python_version = "3.12"
