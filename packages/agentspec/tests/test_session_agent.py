@@ -18,10 +18,7 @@ import pytest
 from agentspec.campaign import Campaign
 from agentspec.errors import AgentError
 from agentspec.session import Assessment, Question, SessionState, SpecSession
-from hypothesis import HealthCheck, given, settings
-from hypothesis import strategies as st
-
-from .conftest_agent import (
+from conftest_agent import (
     SAMPLE_REQUIREMENTS_JSON,
     SAMPLE_TASKS_JSON,
     SAMPLE_TEST_SPEC_JSON,
@@ -30,6 +27,8 @@ from .conftest_agent import (
     make_bad_request_error,
     make_rate_limit_error,
 )
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
 
 # ---------------------------------------------------------------------------
 # Helpers: create sessions in specific states with mocked agent

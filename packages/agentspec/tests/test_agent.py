@@ -16,10 +16,7 @@ import pytest
 from agentspec.agent import SpecAgent
 from agentspec.errors import AgentError, AgentSpecError
 from agentspec.session import Assessment
-from hypothesis import given, settings
-from hypothesis import strategies as st
-
-from .conftest_agent import (
+from conftest_agent import (
     SAMPLE_REQUIREMENTS_JSON,
     SAMPLE_TASKS_JSON,
     SAMPLE_TEST_SPEC_JSON,
@@ -32,6 +29,8 @@ from .conftest_agent import (
     make_refinement_response,
     make_text_only_response,
 )
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 # ===================================================================
 # TS-03-1: assess_prd returns Assessment with valid quality
@@ -544,7 +543,7 @@ async def test_empty_prd_raises_agent_error(mock_client):
 @pytest.mark.asyncio
 async def test_malformed_assessment_tool_response(mock_client):
     """TS-03-E2: AgentError when tool response is missing required fields."""
-    from .conftest_agent import FakeMessage, FakeToolUseBlock
+    from conftest_agent import FakeMessage, FakeToolUseBlock
 
     # Return tool_use with missing summary, gaps, questions
     mock_client.messages.create.return_value = FakeMessage(
@@ -614,7 +613,7 @@ async def test_unrecognized_question_ids_raises_agent_error(mock_client, sample_
 @pytest.mark.asyncio
 async def test_missing_assessment_in_refinement_response(mock_client, sample_assessment):
     """TS-03-E6: AgentError when agent returns PRD update but no assessment."""
-    from .conftest_agent import FakeMessage, FakeToolUseBlock
+    from conftest_agent import FakeMessage, FakeToolUseBlock
 
     # Return submit_prd_update but NOT submit_assessment
     mock_client.messages.create.return_value = FakeMessage(
