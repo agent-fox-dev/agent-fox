@@ -23,9 +23,10 @@ dev = [
 testpaths = ["packages/agentfox/tests", "packages/af/tests"]
 pythonpath = ["packages/agentfox"]
 asyncio_mode = "auto"
-addopts = "-n auto"
+addopts = "-n auto --timeout=10 -m 'not smoke'"
 markers = [
     "property: Hypothesis property-based test",
+    "smoke: End-to-end smoke test (slow, runs full suite as subprocess)",
 ]
 
 [tool.uv.workspace]

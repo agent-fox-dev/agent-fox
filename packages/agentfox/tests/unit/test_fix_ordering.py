@@ -52,7 +52,16 @@ class TestBaseOrdering:
         engine = NightShiftEngine(config=config, platform=mock_platform)
         engine._process_fix = AsyncMock()  # type: ignore[assignment]
 
-        await engine._run_issue_check()
+        with (
+            patch("agentfox.nightshift.engine.run_batch_triage", new_callable=AsyncMock) as mock_triage,
+            patch("agentfox.nightshift.engine.check_staleness", new_callable=AsyncMock) as mock_staleness,
+        ):
+            from agentfox.nightshift.staleness import StalenessResult
+            from agentfox.nightshift.triage import TriageResult
+
+            mock_triage.return_value = TriageResult(processing_order=[10, 20, 30], edges=[], supersession_pairs=[])
+            mock_staleness.return_value = StalenessResult(obsolete_issues=[], rationale={})
+            await engine._run_issue_check()
 
         mock_platform.list_issues_by_label.assert_called()
         # Check the FIRST call (the initial issue fetch) for ascending sort
@@ -86,7 +95,14 @@ class TestBaseOrdering:
 
         engine._process_fix = track_fix  # type: ignore[assignment]
 
-        await engine._run_issue_check()
+        with patch(
+            "agentfox.nightshift.engine.check_staleness",
+            new_callable=AsyncMock,
+        ) as mock_staleness:
+            from agentfox.nightshift.staleness import StalenessResult
+
+            mock_staleness.return_value = StalenessResult(obsolete_issues=[], rationale={})
+            await engine._run_issue_check()
 
         assert processed == [10, 30]
 
@@ -198,10 +214,17 @@ class TestAITriage:
         engine = NightShiftEngine(config=config, platform=mock_platform)
         engine._process_fix = AsyncMock()  # type: ignore[assignment]
 
-        with patch(
-            "agentfox.nightshift.engine.run_batch_triage",
-            new_callable=AsyncMock,
-        ) as mock_triage:
+        with (
+            patch(
+                "agentfox.nightshift.engine.run_batch_triage",
+                new_callable=AsyncMock,
+            ) as mock_triage,
+            patch(
+                "agentfox.nightshift.engine.check_staleness",
+                new_callable=AsyncMock,
+            ) as mock_staleness,
+        ):
+            from agentfox.nightshift.staleness import StalenessResult
             from agentfox.nightshift.triage import TriageResult
 
             mock_triage.return_value = TriageResult(
@@ -209,6 +232,7 @@ class TestAITriage:
                 edges=[],
                 supersession_pairs=[],
             )
+            mock_staleness.return_value = StalenessResult(obsolete_issues=[], rationale={})
             await engine._run_issue_check()
 
             assert mock_triage.call_count == 1
@@ -291,10 +315,19 @@ class TestAITriage:
         engine = NightShiftEngine(config=config, platform=mock_platform)
         engine._process_fix = AsyncMock()  # type: ignore[assignment]
 
-        with patch(
-            "agentfox.nightshift.engine.run_batch_triage",
-            new_callable=AsyncMock,
-        ) as mock_triage:
+        with (
+            patch(
+                "agentfox.nightshift.engine.run_batch_triage",
+                new_callable=AsyncMock,
+            ) as mock_triage,
+            patch(
+                "agentfox.nightshift.engine.check_staleness",
+                new_callable=AsyncMock,
+            ) as mock_staleness,
+        ):
+            from agentfox.nightshift.staleness import StalenessResult
+
+            mock_staleness.return_value = StalenessResult(obsolete_issues=[], rationale={})
             await engine._run_issue_check()
 
             assert mock_triage.call_count == 0
@@ -943,7 +976,16 @@ class TestEdgeCases:
 
         engine._process_fix = track_fix  # type: ignore[assignment]
 
-        await engine._run_issue_check()
+        with (
+            patch("agentfox.nightshift.engine.run_batch_triage", new_callable=AsyncMock) as mock_triage,
+            patch("agentfox.nightshift.engine.check_staleness", new_callable=AsyncMock) as mock_staleness,
+        ):
+            from agentfox.nightshift.staleness import StalenessResult
+            from agentfox.nightshift.triage import TriageResult
+
+            mock_triage.return_value = TriageResult(processing_order=[10, 20, 30], edges=[], supersession_pairs=[])
+            mock_staleness.return_value = StalenessResult(obsolete_issues=[], rationale={})
+            await engine._run_issue_check()
 
         assert processed == [10, 20, 30]
 

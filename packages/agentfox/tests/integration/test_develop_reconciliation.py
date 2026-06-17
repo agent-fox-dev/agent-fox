@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import subprocess
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from agentfox.workspace import _sync_develop_with_remote
@@ -178,17 +179,18 @@ class TestMergeFailOursSucceed:
     """
 
     @pytest.mark.asyncio
-    async def test_conflicting_divergence_preserves_local(self, tmp_path: Path) -> None:
-        """Conflicting divergence -> -X ours preserves local content."""
+    @patch("agentfox.workspace.develop.run_merge_agent", new_callable=AsyncMock, return_value=False)
+    async def test_conflicting_divergence_preserves_local(self, _mock_agent: AsyncMock, tmp_path: Path) -> None:
+        """Conflicting divergence -> merge agent fails, local content preserved."""
         working, _origin = _create_diverged_repo(tmp_path, conflicting=True)
 
         _run(["checkout", "develop"], cwd=working)
 
         await _sync_develop_with_remote(working)
 
-        # Local content should be preserved (ours strategy)
+        # Local content should be preserved (agent failed, develop left as-is)
         content = (working / "shared.txt").read_text()
-        assert "local content" in content, f"Expected local content preserved by -X ours, got: {content}"
+        assert "local content" in content, f"Expected local content preserved, got: {content}"
 
 
 # ---------------------------------------------------------------------------
