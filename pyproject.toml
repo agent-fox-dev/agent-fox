@@ -20,7 +20,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["packages/agentfox/tests", "packages/af/tests"]
+testpaths = ["packages/agentfox/tests", "packages/af/tests", "packages/afspec/tests"]
 pythonpath = ["packages/agentfox"]
 asyncio_mode = "auto"
 addopts = "-n auto --timeout=10 -m 'not smoke'"
@@ -35,7 +35,7 @@ members = ["packages/*"]
 [tool.uv.sources]
 af = { workspace = true }
 agentfox = { workspace = true }
-afspec = { path = "../af-core/packages/afspec" }
+afspec = { workspace = true }
 
 [tool.ruff]
 target-version = "py312"

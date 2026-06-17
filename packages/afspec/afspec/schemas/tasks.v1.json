@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-fox.dev/schemas/tasks.v1.json",
+  "title": "Tasks",
+  "description": "Schema for tasks.json spec artifact",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": ["string", "null"]
+    },
+    "spec_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "spec_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "test_commands": {
+      "$ref": "#/$defs/test_commands"
+    },
+    "dependencies": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/task_dependency"
+      }
+    },
+    "task_groups": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/task_group"
+      }
+    },
+    "traceability": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/traceability_entry"
+      }
+    }
+  },
+  "required": ["spec_id", "spec_name", "schema_version"],
+  "additionalProperties": false,
+  "$defs": {
+    "test_commands": {
+      "type": "object",
+      "properties": {
+        "spec_tests": { "type": "string" },
+        "all_tests": { "type": "string" },
+        "linter": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "task_dependency": {
+      "type": "object",
+      "properties": {
+        "depends_on_spec": { "type": "string", "minLength": 1 },
+        "from_group": { "type": "integer" },
+        "to_group": { "type": "integer" },
+        "relationship": { "type": "string" },
+        "sentinel": { "type": "boolean" }
+      },
+      "required": ["depends_on_spec", "from_group", "to_group", "relationship"],
+      "additionalProperties": false
+    },
+    "subtask": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "details": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "test_spec_refs": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "requirement_refs": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "state": {
+          "type": "string",
+          "enum": ["pending", "queued", "in_progress", "done", "pending_reevaluation", "dropped"]
+        },
+        "optional": { "type": "boolean" }
+      },
+      "required": ["id", "title"],
+      "additionalProperties": false
+    },
+    "verification_subtask": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "checks": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "task_group": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "integer" },
+        "kind": {
+          "type": "string",
+          "enum": ["tests", "standard", "checkpoint", "wiring_verification"]
+        },
+        "title": { "type": "string", "minLength": 1 },
+        "subtasks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/subtask" }
+        },
+        "verification": { "$ref": "#/$defs/verification_subtask" }
+      },
+      "required": ["id", "kind", "title"],
+      "additionalProperties": false
+    },
+    "traceability_entry": {
+      "type": "object",
+      "properties": {
+        "requirement_id": { "type": "string", "minLength": 1 },
+        "test_spec_id": { "type": "string", "minLength": 1 },
+        "task_id": { "type": "string", "minLength": 1 },
+        "test_path": { "type": ["string", "null"] }
+      },
+      "required": ["requirement_id", "test_spec_id", "task_id"],
+      "additionalProperties": false
+    }
+  }
+}

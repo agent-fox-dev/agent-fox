@@ -1,0 +1,62 @@
+{
+  "$schema": "https://agent-fox.dev/schemas/test_spec.v1.json",
+  "spec_id": "02",
+  "spec_name": "draft_feature",
+  "schema_version": 1,
+  "test_cases": [
+    {
+      "id": "TS-02-1",
+      "requirement_id": "02-REQ-1.1",
+      "kind": "unit",
+      "description": "Lifecycle transitions work correctly",
+      "preconditions": [],
+      "input": {},
+      "expected": {
+        "transitions_succeed": true
+      },
+      "assertion_pseudocode": "transition(spec, active, dir); assert spec.status == active"
+    }
+  ],
+  "property_tests": [
+    {
+      "id": "TS-02-P1",
+      "property_id": "02-PROP-1",
+      "validates": [
+        "02-REQ-1.1"
+      ],
+      "description": "Lifecycle transition legality",
+      "for_any_strategy": "pair of Status values",
+      "invariant_check": "transition succeeds iff pair is in legal set"
+    }
+  ],
+  "edge_case_tests": [],
+  "smoke_tests": [
+    {
+      "id": "TS-02-SMOKE-1",
+      "execution_path_id": "02-PATH-1",
+      "description": "Draft to active transition end-to-end",
+      "trigger": "transition(spec, active, dir)",
+      "real_components": [
+        "lifecycle",
+        "io"
+      ],
+      "mockable": [],
+      "expected_effects": [
+        "Status changes to active",
+        "Intent hash is computed"
+      ]
+    }
+  ],
+  "coverage": {
+    "requirements_covered": [
+      "02-REQ-1.1"
+    ],
+    "properties_covered": [
+      "02-PROP-1"
+    ],
+    "paths_covered": [
+      "02-PATH-1"
+    ],
+    "gaps": []
+  }
+}

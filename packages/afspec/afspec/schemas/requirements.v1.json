@@ -1,0 +1,267 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agent-fox.dev/schemas/requirements.v1.json",
+  "title": "Requirements",
+  "description": "Schema for requirements.json spec artifact",
+  "type": "object",
+  "properties": {
+    "$schema": {
+      "type": ["string", "null"]
+    },
+    "spec_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "spec_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "introduction": {
+      "type": "string"
+    },
+    "glossary": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "requirements": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/requirement"
+      }
+    },
+    "correctness_properties": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/correctness_property"
+      }
+    },
+    "execution_paths": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/execution_path"
+      }
+    },
+    "error_handling": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/error_handling_entry"
+      }
+    }
+  },
+  "required": ["spec_id", "spec_name", "schema_version", "introduction"],
+  "additionalProperties": false,
+  "$defs": {
+    "user_story": {
+      "type": "object",
+      "properties": {
+        "role": { "type": "string" },
+        "goal": { "type": "string" },
+        "benefit": { "type": "string" }
+      },
+      "required": ["role", "goal", "benefit"],
+      "additionalProperties": false
+    },
+    "criterion": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "ears_pattern": {
+          "type": "string",
+          "enum": ["ubiquitous", "event_driven", "complex_event", "state_driven", "unwanted", "optional"]
+        },
+        "system": { "type": "string", "minLength": 1 },
+        "action": { "type": "string", "minLength": 1 },
+        "return_contract": { "type": ["string", "null"] },
+        "trigger": { "type": "string" },
+        "condition": { "type": "string" },
+        "error_condition": { "type": "string" },
+        "state": { "type": "string" },
+        "feature": { "type": "string" }
+      },
+      "required": ["id", "ears_pattern", "system", "action"],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": { "ears_pattern": { "const": "ubiquitous" } },
+            "required": ["ears_pattern"]
+          },
+          "then": {
+            "properties": {
+              "id": true,
+              "ears_pattern": true,
+              "system": true,
+              "action": true,
+              "return_contract": true
+            },
+            "not": {
+              "anyOf": [
+                { "required": ["trigger"] },
+                { "required": ["condition"] },
+                { "required": ["error_condition"] },
+                { "required": ["state"] },
+                { "required": ["feature"] }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "ears_pattern": { "const": "event_driven" } },
+            "required": ["ears_pattern"]
+          },
+          "then": {
+            "required": ["trigger"],
+            "not": {
+              "anyOf": [
+                { "required": ["condition"] },
+                { "required": ["error_condition"] },
+                { "required": ["state"] },
+                { "required": ["feature"] }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "ears_pattern": { "const": "complex_event" } },
+            "required": ["ears_pattern"]
+          },
+          "then": {
+            "required": ["trigger", "condition"],
+            "not": {
+              "anyOf": [
+                { "required": ["error_condition"] },
+                { "required": ["state"] },
+                { "required": ["feature"] }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "ears_pattern": { "const": "state_driven" } },
+            "required": ["ears_pattern"]
+          },
+          "then": {
+            "required": ["state"],
+            "not": {
+              "anyOf": [
+                { "required": ["trigger"] },
+                { "required": ["condition"] },
+                { "required": ["error_condition"] },
+                { "required": ["feature"] }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "ears_pattern": { "const": "unwanted" } },
+            "required": ["ears_pattern"]
+          },
+          "then": {
+            "required": ["error_condition"],
+            "not": {
+              "anyOf": [
+                { "required": ["trigger"] },
+                { "required": ["condition"] },
+                { "required": ["state"] },
+                { "required": ["feature"] }
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "ears_pattern": { "const": "optional" } },
+            "required": ["ears_pattern"]
+          },
+          "then": {
+            "required": ["feature"],
+            "not": {
+              "anyOf": [
+                { "required": ["trigger"] },
+                { "required": ["condition"] },
+                { "required": ["error_condition"] },
+                { "required": ["state"] }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "requirement": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "user_story": { "$ref": "#/$defs/user_story" },
+        "acceptance_criteria": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/criterion" }
+        },
+        "edge_cases": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/criterion" }
+        }
+      },
+      "required": ["id", "title", "user_story"],
+      "additionalProperties": false
+    },
+    "correctness_property": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "for_any": { "type": "string" },
+        "invariant": { "type": "string" },
+        "validates": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "required": ["id", "title", "for_any", "invariant"],
+      "additionalProperties": false
+    },
+    "path_step": {
+      "type": "object",
+      "properties": {
+        "actor": { "type": "string" },
+        "action": { "type": "string" }
+      },
+      "required": ["actor", "action"],
+      "additionalProperties": false
+    },
+    "execution_path": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "steps": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/path_step" }
+        }
+      },
+      "required": ["id", "title"],
+      "additionalProperties": false
+    },
+    "error_handling_entry": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "condition": { "type": "string" },
+        "behavior": { "type": "string" },
+        "requirement_id": { "type": "string" }
+      },
+      "required": ["id", "condition", "behavior", "requirement_id"],
+      "additionalProperties": false
+    }
+  }
+}
