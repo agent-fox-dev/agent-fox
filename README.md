@@ -63,21 +63,39 @@ uv tool install af --from git+https://github.com/agent-fox-dev/agent-fox.git#sub
 
 ## Development
 
-The repository is a uv workspace with two packages:
+The repository is a [uv workspace](https://docs.astral.sh/uv/concepts/workspaces/)
+with five packages:
 
-- `packages/af/` — CLI (`af` command)
-- `packages/agentfox/` — core library
+| Package | Description |
+|---------|-------------|
+| `packages/af/` | CLI for the agent-fox orchestrator (`af` command) |
+| `packages/agentfox/` | Core library — spec engine, graph planner, session runtime, workspace tools |
+| `packages/afspec/` | Standalone library for the agent-fox specification format (v1.2) |
+| `packages/agentspec/` | AI-powered spec creation library |
+| `packages/spec/` | CLI for AI-powered spec creation (`spec` command) |
 
-```bash
-uv sync --group dev
-make test              # all tests
-make lint              # check lint + formatting
-make check             # lint + all tests
+```
+af  ──▶  agentfox  ──▶  afspec
+              ▲
+spec ──▶ agentspec ──┘──▶  afspec
 ```
 
-`uv sync` installs both packages in editable mode, so changes you make to the
-source are immediately reflected when you run `af`. To run the local version
-explicitly (rather than a globally installed release):
+```bash
+uv sync                      # install all packages in editable mode
+```
+
+| Command | What it does |
+|---------|-------------|
+| `make check` | Lint + all tests (use before committing) |
+| `make test` | All tests |
+| `make test-unit` | Unit tests only |
+| `make test-property` | Property-based tests only |
+| `make test-integration` | Integration tests only |
+| `make lint` | Check lint + formatting |
+| `make format` | Auto-format code |
+
+Changes are immediately reflected via editable install. To run the local
+version explicitly (rather than a globally installed release):
 
 ```bash
 uv run af <command>

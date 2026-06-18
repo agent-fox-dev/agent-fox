@@ -23,19 +23,19 @@ skills to the latest bundled versions.
 
 **Spec-driven development: from idea to implementation-ready spec package.**
 
-Transforms a PRD, product idea, or GitHub issue into five specification
-artifacts with full traceability from requirements through design, tests, and
-tasks.
+Transforms a PRD, product idea, or GitHub issue into a complete specification
+package in the v1.2 JSON format with full traceability from requirements
+through tests and tasks.
 
 ### What it produces
 
 | File | Content |
 |------|---------|
-| `prd.md` | Finalized product requirements document |
-| `requirements.md` | EARS-patterned acceptance criteria and edge cases |
-| `design.md` | Interfaces, data models, correctness properties, error handling |
-| `test_spec.md` | Language-agnostic test contracts with full requirement coverage |
-| `tasks.md` | Implementation checklist (test-first: group 1 is always "write failing tests") |
+| `prd.md` | Finalized PRD with YAML frontmatter |
+| `requirements.json` | EARS-patterned acceptance criteria, correctness properties, execution paths |
+| `test_spec.json` | Language-agnostic test contracts with full requirement coverage |
+| `tasks.json` | Implementation task groups with state machine |
+| `architecture.md` | Architecture overview with interfaces and diagrams (optional) |
 
 All files are saved to `.agent-fox/specs/NN_specification_name/`.
 
@@ -45,17 +45,17 @@ All files are saved to `.agent-fox/specs/NN_specification_name/`.
    description. Identifies ambiguities and asks for clarification.
 2. **Learn the context** -- analyzes the existing codebase, finds the next spec
    number, identifies cross-spec dependencies.
-3. **Write requirements** -- EARS syntax (WHEN/SHALL/IF/THEN), max 10
-   requirements per spec, automated verification only.
-4. **Write design** -- architecture overview with Mermaid diagrams, typed
-   interfaces, correctness properties (formal invariants testable via
-   property-based tests), error handling table.
-5. **Write test spec** -- translates every acceptance criterion and correctness
-   property into test contracts with preconditions, inputs, expected outputs,
-   and assertion pseudocode. 100% coverage matrix.
-6. **Write tasks** -- group 1 is always "write failing spec tests." Subsequent
-   groups implement code. Each group has a verification subtask with specific
-   test commands.
+3. **Create requirements** -- `requirements.json` with EARS-patterned criteria,
+   correctness properties, and execution paths encoded as JSON.
+4. **Create architecture** (optional) -- `architecture.md` with high-level
+   design, module responsibilities, and Mermaid diagrams. Skipped for simple
+   specs.
+5. **Create test spec** -- `test_spec.json` translating every acceptance
+   criterion and correctness property into concrete test contracts.
+6. **Create tasks** -- `tasks.json` with ordered task groups using a JSON state
+   machine. Group 1 is always "write failing spec tests."
+7. **Validate** -- runs `spec validate` to check JSON schema conformance and
+   cross-file integrity via the `afspec` library.
 
 ### When to use
 
