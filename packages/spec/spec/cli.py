@@ -229,9 +229,14 @@ def refine_cmd(ctx: click.Context, spec: str, answers: str | None, force: bool) 
         session = SpecSession.resume(target)
 
         if force:
+            for name in ("requirements.json", "test_spec.json", "tasks.json"):
+                artifact_path = target / name
+                if artifact_path.exists():
+                    artifact_path.unlink()
             session._state = SessionState.INIT
             session._assessment_history = []
             session._qa_exchanges = []
+            session._generated_artifacts = []
             session._persist()
 
         if answers is None:
