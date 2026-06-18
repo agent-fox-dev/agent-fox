@@ -209,8 +209,9 @@ def new_cmd(ctx: click.Context, prd_file: str, name: str | None) -> None:
     type=click.Path(exists=True),
     help="JSON file with answers. Omit to assess/output pending questions.",
 )
+@click.option("--force", is_flag=True, help="Discard previous assessments and start a fresh refine cycle")
 @click.pass_context
-def refine_cmd(ctx: click.Context, spec: str, answers: str | None) -> None:
+def refine_cmd(ctx: click.Context, spec: str, answers: str | None, force: bool) -> None:
     """Assess PRD, submit answers, and refine.
 
     Without --answers: runs the initial assessment (if needed) and
@@ -226,6 +227,12 @@ def refine_cmd(ctx: click.Context, spec: str, answers: str | None) -> None:
         quiet: bool = ctx.obj["quiet"]
         target = _resolve_spec(spec_dir, spec)
         session = SpecSession.resume(target)
+
+        if force:
+            session._state = SessionState.INIT
+            session._assessment_history = []
+            session._qa_exchanges = []
+            session._persist()
 
         if answers is None:
             if not session._assessment_history:
