@@ -14,6 +14,7 @@ import enum
 import json
 import logging
 import os
+import re
 import tempfile
 from dataclasses import dataclass, field
 from datetime import UTC
@@ -36,6 +37,21 @@ from agentspec.config import load_config
 from agentspec.errors import AgentError, SessionError
 
 logger = logging.getLogger(__name__)
+
+_SPEC_DIR_RE = re.compile(r"^(\d{2})_([a-z][a-z0-9_]*)$")
+
+
+def _parse_spec_dir_name(name: str) -> tuple[str, str]:
+    """Split a spec directory name into (spec_id, spec_name).
+
+    >>> _parse_spec_dir_name("01_basic_svc")
+    ('01', 'basic_svc')
+    """
+    match = _SPEC_DIR_RE.match(name)
+    if not match:
+        raise SessionError(f"Invalid spec directory name '{name}' — expected format NN_snake_case (e.g. 01_basic_svc)")
+    return match.group(1), match.group(2)
+
 
 _SESSION_FILE = "_session.json"
 
@@ -213,7 +229,7 @@ class SpecSession:
         self._check_transition("assess", required_states=("init", "refining"))
 
         prd_text = (self._spec_dir / self._prd_path).read_text()
-        spec_name = self._spec_dir.name
+        _, spec_name = _parse_spec_dir_name(self._spec_dir.name)
 
         agent = _create_agent()
 
@@ -343,7 +359,7 @@ class SpecSession:
             self._persist()
 
         prd_text = (self._spec_dir / self._prd_path).read_text()
-        spec_name = self._spec_dir.name
+        spec_id, spec_name = _parse_spec_dir_name(self._spec_dir.name)
 
         agent = _create_agent()
 
@@ -367,7 +383,7 @@ class SpecSession:
         try:
             artifacts = await agent.generate_artifacts(
                 prd_text,
-                spec_name,
+                spec_id,
                 spec_name,
                 existing_artifacts=existing if existing else None,
                 on_artifact=_write_artifact,
