@@ -392,20 +392,11 @@ class TestAiValidationDeleted:
 
 
 class TestNoValidatorImports:
-    """TS-137-7: lint.py and lint_specs.py do not import from
-    agent_fox.spec.validators.
-
-    Extended to cover lint_specs.py per skeptic finding on REQ-3.3.
-    """
+    """TS-137-7: lint.py does not import from agent_fox.spec.validators."""
 
     def test_lint_py_no_validator_imports(self) -> None:
         """137-REQ-3.2: lint.py does not import from validators."""
         content = _read_source("agentfox/spec/lint.py")
-        assert "agentfox.spec.validators" not in content
-
-    def test_lint_specs_py_no_validator_imports(self) -> None:
-        """137-REQ-3.3: lint_specs.py does not import from validators."""
-        content = (_REPO_ROOT / "packages" / "af" / "af" / "lint_specs.py").read_text(encoding="utf-8")
         assert "agentfox.spec.validators" not in content
 
     def test_lint_py_imports_from_types(self) -> None:

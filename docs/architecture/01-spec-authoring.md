@@ -224,23 +224,6 @@ state across invocations.
 
 ---
 
-## The Lint Command
-
-The `agent-fox lint-specs` command ties discovery, validation, and fixing into
-a single workflow. It discovers specs, filters out fully-implemented ones
-(all task groups marked complete) unless `--all` is specified, runs validation,
-and optionally applies fixes with `--fix`.
-
-The exit code reflects the worst finding: zero if no errors, non-zero if any
-error-severity finding remains after fixing. This makes the lint command usable
-as a CI gate — a spec with structural problems blocks the pipeline.
-
-Fully-implemented specs are excluded from linting by default because their
-specs have served their purpose and may contain stale references to code that
-has since evolved. The `--all` flag overrides this for auditing purposes.
-
----
-
 ## Authoring Workflow
 
 The typical authoring workflow is:
@@ -252,7 +235,7 @@ The typical authoring workflow is:
    spec refine my_feature --answers a.json  # refine until quality is "ready"
    spec generate my_feature              # generate JSON artifacts
    ```
-2. Run `spec validate my_feature` and `agent-fox lint-specs` to validate.
+2. Run `spec validate my_feature` to validate.
    Fix errors and address warnings as appropriate.
 3. Run `agent-fox plan` to build the task graph (see
    [Part 2: Planning](02-planning.md)).

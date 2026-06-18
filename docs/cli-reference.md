@@ -12,7 +12,6 @@ Complete reference for all `agent-fox` commands, options, and configuration.
 | `agent-fox standup` | Generate daily activity report |
 | `agent-fox night-shift` | Run autonomous fix-only maintenance daemon |
 | `agent-fox reset` | Reset failed/blocked tasks for retry |
-| `agent-fox lint-specs` | Validate specification files |
 | `agent-fox insights` | Query review findings from the knowledge database |
 
 ## Global Options
@@ -451,36 +450,6 @@ second signal to abort immediately; exit code is 130.
 | `130` | Immediate abort (second interrupt signal) |
 
 **Configuration:** See `[night_shift]` in [config-reference.md](config-reference.md).
-
----
-
-### lint-specs
-
-Validate specification files.
-
-```
-agent-fox lint-specs [OPTIONS]
-```
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| `--ai` | flag | off | Enable AI-powered semantic analysis |
-| `--all` | flag | off | Lint all specs, including fully-implemented ones |
-
-Use `agent-fox --json lint-specs` for structured JSON output.
-
-Runs structural validation rules against specs in `.agent-fox/specs/`: missing files,
-oversized task groups, missing verification subtasks, missing acceptance
-criteria, broken cross-spec dependencies, and untraced requirements.
-
-With `--ai`, additionally checks for vague or implementation-leaking acceptance
-criteria.
-
-A progress spinner with phase-level status messages is displayed during
-execution to provide feedback on long-running operations. The progress display
-is automatically suppressed in `--json` or `--quiet` mode.
-
-**Exit codes:** `0` no errors (warnings OK), `1` error-severity findings.
 
 ---
 

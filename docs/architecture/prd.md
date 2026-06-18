@@ -162,15 +162,7 @@ A pipeline or automation script that drives agent-fox in `--json` mode, consumin
 - WHEN a user runs `agent-fox export --db`, the system SHALL write a full knowledge store dump to `.agent-fox/knowledge_dump.md` (or `.agent-fox/knowledge_dump.json` in JSON mode).
 - WHEN both or neither flag is provided, the system SHALL exit with an error.
 
-### 5.9 Spec Validation
-
-- WHEN a user runs `agent-fox lint-specs`, the system SHALL validate all non-fully-implemented specifications for: missing files, oversized task groups, missing verification subtasks, missing acceptance criteria, broken cross-spec dependencies, and untraced requirements.
-- WHEN `--ai` is provided, the system SHALL additionally check for vague or implementation-leaking acceptance criteria.
-- WHEN `--fix` is provided, the system SHALL automatically repair supported issues (missing verification subtasks, missing acceptance criteria).
-- WHEN `--ai --fix` is provided, the system SHALL additionally rewrite vague or implementation-leaking criteria using AI-generated EARS-formatted replacements.
-- WHEN `--all` is provided, the system SHALL lint fully-implemented specifications as well as in-progress ones.
-
-### 5.10 Night Shift Daemon
+### 5.9 Night Shift Daemon
 
 - WHEN a user runs `agent-fox night-shift`, the system SHALL immediately begin polling for `af:fix`-labelled GitHub issues, repeating on the configured interval.
 - WHEN an `af:fix`-labelled issue is detected, the system SHALL route it through a three-stage pipeline (triage → coder → reviewer in fix-review mode).
@@ -235,7 +227,6 @@ All commands accept `--verbose` for debug logging and `--quiet` to suppress info
 - **`agent-fox fix`:** Per-iteration pass/fail results and a final summary.
 - **`agent-fox reset`:** Confirmation of which tasks were reset and which working directories were cleaned up.
 - **`agent-fox export`:** The destination path of the written file.
-- **`agent-fox lint-specs`:** Per-spec finding list with severity, rule, and location; count of auto-fixes applied when `--fix` is used.
 - **`agent-fox night-shift`:** Live log of fix session activity.
 
 ### 7.2 JSON Mode Output
@@ -277,7 +268,6 @@ When `--json` is active:
 | Invalid JSON piped to `--json` mode | Error envelope `{"error": "..."}` on stdout; exits with code 1 |
 | Configuration file contains invalid TOML | Warning logged; file left untouched; user must fix manually |
 | `export` called without `--memory` or `--db` | Error message explaining mutual exclusivity; exits with code 1 |
-| `lint-specs` finds error-severity issues | Non-zero exit code (1); findings listed with severity and location |
 | SIGINT during `code` or `night-shift` | Graceful shutdown after current operation; clean exit (code 0 or 130 on second SIGINT) |
 
 ---
@@ -303,5 +293,5 @@ When `--json` is active:
 2. **Other issue trackers:** Is there user demand for Night Shift to support issue trackers other than GitHub (GitLab, Linear, Jira)?
 3. **Human-in-the-loop gates:** Should there be a configurable pause point where the system waits for human approval before proceeding past a review stage (e.g., "pause after Skeptic findings for human review")?
 4. **Distributed execution:** Is there interest in running coding sessions on remote machines or containers rather than local worktrees, enabling larger parallelism and better isolation?
-5. **Spec generation quality:** How should the product handle specs that are syntactically valid but semantically poor (vague requirements, missing edge cases)? The current `lint-specs --ai` flag partially addresses this — should it be on by default?
+5. **Spec generation quality:** How should the product handle specs that are syntactically valid but semantically poor (vague requirements, missing edge cases)? The `spec validate` command addresses structural issues — should semantic checks be added?
 6. **Cost attribution:** Should cost reporting distinguish between API spend on reviewer archetypes vs. coding archetypes more prominently to help users optimize their configuration?

@@ -25,8 +25,7 @@ The typical workflow has four stages:
    spec generate my_feature              # generate JSON artifacts
    spec validate my_feature              # check validity
    ```
-   Run `agent-fox lint-specs` for additional structural validation before
-   planning.
+   Use `spec validate` to check validity before planning.
 
 2. **Plan.** Run `agent-fox plan` to compile your specs into a dependency
    graph of tasks. The planner is deterministic — same specs, same graph,

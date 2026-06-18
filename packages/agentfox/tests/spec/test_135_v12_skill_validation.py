@@ -414,75 +414,6 @@ class TestUnknownSeverityDefault:
 # ===========================================================================
 
 
-class TestCliFlagsUnchanged:
-    """TS-135-6: Verify lint-specs CLI still accepts --ai and --all flags.
-
-    Requirement: 135-REQ-3.1
-    """
-
-    def test_cli_accepts_all_flag(self, v12_specs_root: Path) -> None:
-        """The --all flag should be accepted without error."""
-        from af.lint_specs import lint_specs_cmd
-        from click.testing import CliRunner
-
-        runner = CliRunner()
-        with runner.isolated_filesystem(temp_dir=v12_specs_root.parent):
-            # Set up minimal project structure for the CLI
-            proj = Path.cwd()
-            config_dir = proj / ".agent-fox"
-            config_dir.mkdir(parents=True, exist_ok=True)
-            specs = proj / ".agent-fox" / "specs"
-            specs.mkdir()
-            _write_spec(specs / "02_modern")
-
-            result = runner.invoke(
-                lint_specs_cmd,
-                ["--all"],
-                obj={"json": False},
-                catch_exceptions=False,
-            )
-            # Should exit with 0 (clean) or 1 (findings), not 2 (usage error)
-            assert result.exit_code in {0, 1}
-
-    def test_cli_accepts_ai_flag(self) -> None:
-        """The --ai flag should be accepted by the CLI command."""
-        from af.lint_specs import lint_specs_cmd
-        from click.testing import CliRunner
-
-        runner = CliRunner()
-        # Just verify the flag is recognized -- don't need full execution
-        result = runner.invoke(
-            lint_specs_cmd,
-            ["--ai", "--help"],
-            obj={"json": False},
-        )
-        # --help should exit cleanly even with --ai
-        assert result.exit_code == 0
-
-    def test_cli_produces_table_output(self, v12_specs_root: Path) -> None:
-        """Default output format should be table."""
-        from af.lint_specs import lint_specs_cmd
-        from click.testing import CliRunner
-
-        runner = CliRunner()
-        with runner.isolated_filesystem(temp_dir=v12_specs_root.parent):
-            proj = Path.cwd()
-            config_dir = proj / ".agent-fox"
-            config_dir.mkdir(parents=True, exist_ok=True)
-            specs = proj / ".agent-fox" / "specs"
-            specs.mkdir()
-            _write_spec(specs / "02_modern")
-
-            result = runner.invoke(
-                lint_specs_cmd,
-                ["--all"],
-                obj={"json": False},
-                catch_exceptions=False,
-            )
-            # Table output contains "findings" or "No findings"
-            assert "findings" in result.output.lower() or "no findings" in result.output.lower()
-
-
 # ===========================================================================
 # TS-135-7: Skill template references v1.2 artifacts
 # ===========================================================================
@@ -821,13 +752,12 @@ class TestSkillTemplateContentSmoke:
         assert "not_started" in content, "Template should describe not_started task state"
 
         # Validation step
-        assert "lint-specs" in content, "Template should reference lint-specs validation"
+        assert "spec validate" in content, "Template should reference spec validate"
 
     def test_skill_template_validation_step(self) -> None:
         """Skill template should include a validation step."""
         content = _SKILL_TEMPLATE_PATH.read_text()
-        assert "lint-specs" in content
-        assert "agent-fox" in content.lower() or "agent_fox" in content.lower()
+        assert "spec validate" in content
 
     def test_skill_template_afspec_reference(self) -> None:
         """Skill template should reference afspec."""

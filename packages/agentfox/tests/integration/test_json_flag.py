@@ -216,25 +216,6 @@ class TestStandupJson:
 # ---------------------------------------------------------------------------
 
 
-class TestLintSpecJson:
-    """TS-23-7: lint-specs --json emits findings as JSON."""
-
-    def test_lint_spec_json_output(self, cli_runner: CliRunner, tmp_project: Path) -> None:
-        """lint-specs with --json produces JSON with findings and summary."""
-        # Create a minimal spec so lint-specs has something to process
-        specs_dir = tmp_project / ".agent-fox" / "specs" / "01_test"
-        specs_dir.mkdir(parents=True)
-        (specs_dir / "prd.md").write_text("# PRD\n\nA test PRD.\n")
-        (specs_dir / "requirements.md").write_text("# Requirements\n\n- 01-REQ-1: Test\n")
-        (specs_dir / "design.md").write_text("# Design\n")
-        (specs_dir / "test_spec.md").write_text("# Test Spec\n")
-        (specs_dir / "tasks.md").write_text("# Tasks\n\n- [ ] 1.1 Do thing\n")
-
-        result = cli_runner.invoke(main, ["--json", "lint-specs"])
-        data = json.loads(result.output)
-        assert isinstance(data, dict)
-
-
 # ---------------------------------------------------------------------------
 # TS-23-9: Plan command JSON output
 # ---------------------------------------------------------------------------
@@ -366,20 +347,6 @@ class TestFormatRemovedStandup:
     def test_format_removed_standup(self, cli_runner: CliRunner) -> None:
         """standup --format json exits with code 2."""
         result = cli_runner.invoke(main, ["standup", "--format", "json"])
-        assert result.exit_code == 2
-
-
-# ---------------------------------------------------------------------------
-# TS-23-23: --format removed from lint-spec
-# ---------------------------------------------------------------------------
-
-
-class TestFormatRemovedLintSpec:
-    """TS-23-23: lint-specs --format json produces Click usage error."""
-
-    def test_format_removed_lint_spec(self, cli_runner: CliRunner) -> None:
-        """lint-specs --format json exits with code 2."""
-        result = cli_runner.invoke(main, ["lint-specs", "--format", "json"])
         assert result.exit_code == 2
 
 

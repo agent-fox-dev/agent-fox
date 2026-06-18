@@ -1032,21 +1032,21 @@ If the PRD was provided as a GitHub issue, save the finalized PRD as `{{SPEC_ROO
 
 ---
 
-## Step 7: Validate with lint-specs
+## Step 7: Validate with spec validate
 
-After generating all spec artifacts, run the linter to validate the v1.2 JSON
+After generating all spec artifacts, run validation to check the v1.2 JSON
 files against the `afspec` format specification:
 
-1. Run `agent-fox lint-specs` on the generated spec folder.
-2. Review any errors or warnings in the output. For v1.2 specs, the linter
-   uses `afspec.validate()` which checks JSON schema conformance and
+1. Run `spec validate <spec_name>` on the generated spec folder.
+2. Review any errors or warnings in the output. The validator uses
+   `afspec.validate()` which checks JSON schema conformance and
    cross-file integrity (e.g., requirement IDs referenced in test_spec.json
    must exist in requirements.json).
-3. Fix all lint errors and warnings before presenting the spec to the user.
-4. Re-run `agent-fox lint-specs` to confirm all issues are resolved.
+3. Fix all errors and warnings before presenting the spec to the user.
+4. Re-run `spec validate <spec_name>` to confirm all issues are resolved.
 
 The `afspec` library is the authoritative source for the v1.2 artifact
-schemas. If the linter reports schema errors, consult the afspec documentation
+schemas. If validation reports schema errors, consult the afspec documentation
 or source to understand the expected JSON structure.
 
 This automated validation catches malformed JSON, missing required fields,
@@ -1058,7 +1058,7 @@ for those.
 
 ## Completeness Checklist
 
-After generating all spec artifacts and running `agent-fox lint-specs`, verify
+After generating all spec artifacts and running `spec validate`, verify
 the following before presenting to the user:
 
 ### PRD (prd.md)

@@ -1,83 +1,15 @@
-"""Tests for backing module separation: lint-specs, code, and remaining.
+"""Tests for backing module separation: code and remaining.
 
-Test Spec: TS-59-10 through TS-59-19, TS-59-29, TS-59-30
-Requirements: 59-REQ-3.1 through 59-REQ-3.E1,
-              59-REQ-4.1 through 59-REQ-4.E1, 59-REQ-5.1 through 59-REQ-5.3,
-              59-REQ-9.1, 59-REQ-9.2
+Test Spec: TS-59-14 through TS-59-19
+Requirements: 59-REQ-4.1 through 59-REQ-4.E1, 59-REQ-5.1 through 59-REQ-5.3
 """
 
 from __future__ import annotations
 
 import inspect
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
-# ---------------------------------------------------------------------------
-# TS-59-10 through TS-59-13: Lint-specs backing module
-# ---------------------------------------------------------------------------
-
-
-class TestRunLintSpecsCallable:
-    """TS-59-10: run_lint_specs() can be imported and called directly.
-
-    Requirement: 59-REQ-3.1
-    """
-
-    def test_run_lint_specs_returns_lint_result(self, tmp_path: Path) -> None:
-        """run_lint_specs returns LintResult with findings and exit code."""
-        from agentfox.spec.lint import LintResult, run_lint_specs
-
-        # Create a minimal specs directory
-        specs_dir = tmp_path / ".specs"
-        specs_dir.mkdir()
-
-        result = run_lint_specs(specs_dir)
-
-        assert isinstance(result, LintResult)
-        assert isinstance(result.findings, list)
-        assert result.exit_code in (0, 1)
-
-
-class TestRunLintSpecsStructuredResult:
-    """TS-59-11: run_lint_specs() returns findings and exit code.
-
-    Requirement: 59-REQ-3.2
-    """
-
-    def test_lint_result_has_findings_and_exit_code(self, tmp_path: Path) -> None:
-        """LintResult contains findings list and exit_code."""
-        from agentfox.spec.lint import LintResult, run_lint_specs
-
-        specs_dir = tmp_path / ".specs"
-        specs_dir.mkdir()
-        # Create a minimal spec dir missing required files to trigger findings
-        bad_spec = specs_dir / "01_bad_spec"
-        bad_spec.mkdir()
-        (bad_spec / "requirements.md").write_text("# incomplete")
-
-        result = run_lint_specs(specs_dir)
-
-        assert isinstance(result, LintResult)
-        assert hasattr(result, "findings")
-        assert hasattr(result, "exit_code")
-
-
-class TestRunLintSpecsMissingDir:
-    """TS-59-13: run_lint_specs() raises PlanError on missing dir.
-
-    Requirement: 59-REQ-3.E1
-    """
-
-    def test_raises_plan_error_on_missing_dir(self) -> None:
-        """run_lint_specs raises PlanError when specs_dir doesn't exist."""
-        from agentfox.core.errors import PlanError
-        from agentfox.spec.lint import run_lint_specs
-
-        with pytest.raises(PlanError):
-            run_lint_specs(Path("/nonexistent/specs/dir"))
-
 
 # ---------------------------------------------------------------------------
 # TS-59-14 through TS-59-16: Code backing module
@@ -255,38 +187,3 @@ class TestBackingFunctionsReturnResults:
         config = MagicMock()
         result = generate_standup(config)
         assert result is not None
-
-
-# ---------------------------------------------------------------------------
-# TS-59-29, TS-59-30: CLI handler thinness
-# ---------------------------------------------------------------------------
-
-
-class TestCliHandlersDelegateToBacking:
-    """TS-59-29: CLI handlers contain no business logic.
-
-    Requirement: 59-REQ-9.1
-    """
-
-    def test_lint_specs_handler_delegates(self) -> None:
-        """lint-specs CLI handler calls run_lint_specs."""
-        from af import lint_specs as lint_mod
-
-        source = inspect.getsource(lint_mod)
-        assert "run_lint_specs(" in source, "lint-specs handler must delegate to run_lint_specs"
-
-
-class TestCliHandlersPassOptions:
-    """TS-59-30: CLI handlers pass options as explicit parameters.
-
-    Requirement: 59-REQ-9.2
-    """
-
-    def test_lint_specs_passes_named_args(self) -> None:
-        """lint-specs handler passes ai/lint_all as named params."""
-        from af import lint_specs as lint_mod
-
-        source = inspect.getsource(lint_mod)
-        assert "run_lint_specs(" in source
-        # Check that at least some keyword args are passed
-        assert "ai=" in source or "lint_all=" in source, "lint-specs handler must pass options as keyword arguments"
