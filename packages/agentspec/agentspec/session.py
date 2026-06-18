@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any
 
 import afspec  # type: ignore[import-untyped]
+import yaml
 from afspec import (  # type: ignore[import-untyped]
     PRDDocument,
     PRDFrontmatter,
@@ -51,6 +52,33 @@ def _parse_spec_dir_name(name: str) -> tuple[str, str]:
     if not match:
         raise SessionError(f"Invalid spec directory name '{name}' — expected format NN_snake_case (e.g. 01_basic_svc)")
     return match.group(1), match.group(2)
+
+
+_FRONTMATTER_RE = re.compile(r"\A---\r?\n(.*?)^---\r?\n", re.DOTALL | re.MULTILINE)
+
+
+def _update_frontmatter(prd_text: str, spec_dir_name: str) -> str:
+    """Parse PRD frontmatter, update spec_id/spec_name/updated_at, and re-serialize.
+
+    Returns the updated frontmatter block (including delimiters and trailing
+    newline) ready to be prepended to the body.  Returns an empty string if
+    the PRD has no frontmatter.
+    """
+    m = _FRONTMATTER_RE.match(prd_text)
+    if m is None:
+        return ""
+
+    data = yaml.safe_load(m.group(1))
+    if not isinstance(data, dict):
+        return ""
+
+    spec_id, spec_name = _parse_spec_dir_name(spec_dir_name)
+    data["spec_id"] = spec_id
+    data["spec_name"] = spec_name
+    data["updated_at"] = _utcnow()
+
+    frontmatter_yaml = yaml.dump(data, default_flow_style=False, sort_keys=False)
+    return f"---\n{frontmatter_yaml}---\n"
 
 
 _SESSION_FILE = "_session.json"
@@ -275,12 +303,7 @@ class SpecSession:
         if previous_assessment is None:
             raise AgentError("Cannot refine without a previous assessment")
 
-        # Preserve YAML frontmatter so it survives the body-only update
-        frontmatter_block = ""
-        if prd_text.startswith("---"):
-            end = prd_text.find("\n---", 3)
-            if end != -1:
-                frontmatter_block = prd_text[: end + 4] + "\n"
+        frontmatter_block = _update_frontmatter(prd_text, self._spec_dir.name)
 
         assessment_index = len(self._assessment_history) - 1
         timestamp = _utcnow()
