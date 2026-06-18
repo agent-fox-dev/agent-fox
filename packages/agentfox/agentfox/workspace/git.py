@@ -170,12 +170,28 @@ async def create_branch(
 ) -> None:
     """Create a new git branch at the given start point.
 
+    Idempotent: if the branch already exists the call is a no-op.
+
     Raises:
-        WorkspaceError: If branch creation fails or ref names are invalid.
+        WorkspaceError: If branch creation fails for a reason other
+            than the branch already existing, or ref names are invalid.
     """
     validate_ref_name(branch_name)
     validate_ref_name(start_point)
-    await run_git(["branch", "--", branch_name, start_point], cwd=repo_path)
+    returncode, _stdout, stderr = await run_git(
+        ["branch", "--", branch_name, start_point],
+        cwd=repo_path,
+        check=False,
+    )
+    if returncode != 0:
+        if "already exists" in stderr:
+            logger.debug("Branch '%s' already exists, skipping creation", branch_name)
+            return
+        raise WorkspaceError(
+            f"git branch failed (exit code {returncode})",
+            details=stderr,
+            returncode=returncode,
+        )
 
 
 async def branch_used_by_worktree(
