@@ -566,7 +566,7 @@ class TestTriageCommentFormat:
                 wraps=FixPipeline._render_criteria_section,
             ) as mock_render_section,
             patch(
-                "agentfox.nightshift.spec_builder.render_inmemory_spec_sections",
+                "agentfox.nightshift.fix_pipeline.render_inmemory_spec_sections",
                 create=True,
             ) as mock_afspec_render,
         ):
@@ -688,20 +688,28 @@ class TestPropertyAfspec:
     # -----------------------------------------------------------------------
 
     @pytest.mark.parametrize(
-        "body",
+        ("body", "use_fallback"),
         [
-            "Simple issue body",
-            "A more detailed body with\nmultiple lines\n"
-            "and ## markdown headers",
-            "Body with special chars: <>&\"'",
+            ("Simple issue body", False),
+            (
+                "A more detailed body with\nmultiple lines\n"
+                "and ## markdown headers",
+                False,
+            ),
+            ("Body with special chars: <>&\"'", False),
+            ("Fallback path issue body", True),
         ],
     )
     def test_ts_02_p2_issue_body_precedes_sections(
         self,
         pipeline: FixPipeline,
         body: str,
+        use_fallback: bool,
     ) -> None:
         """Issue body always appears before the first ## section in context.
+
+        Also includes cases where build_afspec_from_triage raises (fallback
+        path) to verify the invariant holds regardless of which path is taken.
 
         Property: 02-PROP-2
         Validates: 02-REQ-1.1, 02-REQ-2.1
@@ -715,11 +723,17 @@ class TestPropertyAfspec:
         )
         triage = TriageResult(summary="Analysis", criteria=_make_criteria(2))
 
+        afspec_kwargs: dict = (
+            {"side_effect": ValueError("malformed triage")}
+            if use_fallback
+            else {"return_value": MagicMock()}
+        )
+
         with (
             patch(
                 "agentfox.nightshift.fix_pipeline.build_afspec_from_triage",
-                return_value=MagicMock(),
                 create=True,
+                **afspec_kwargs,
             ),
             patch(
                 "agentfox.nightshift.fix_pipeline.render_inmemory_spec_sections",
@@ -752,11 +766,12 @@ class TestPropertyAfspec:
     # -----------------------------------------------------------------------
 
     @pytest.mark.parametrize(
-        ("prior", "feedback"),
+        ("prior", "feedback", "use_fallback"),
         [
-            ("Prior attempt 1", "Feedback: fix the NPE"),
-            ("Context from commit abc", "Review: coverage insufficient"),
-            ("Long prior " * 20, "Short feedback"),
+            ("Prior attempt 1", "Feedback: fix the NPE", False),
+            ("Context from commit abc", "Review: coverage insufficient", False),
+            ("Long prior " * 20, "Short feedback", False),
+            ("Fallback prior context", "Fallback feedback text", True),
         ],
     )
     @pytest.mark.xfail(
@@ -769,14 +784,38 @@ class TestPropertyAfspec:
         valid_triage: TriageResult,
         prior: str,
         feedback: str,
+        use_fallback: bool,
     ) -> None:
         """prior_context always precedes review_feedback in task prompt.
+
+        Includes both afspec-happy and fallback paths (malformed triage) to
+        verify the ordering invariant holds regardless of context-rendering
+        path.
 
         Property: 02-PROP-3
         Validates: 02-REQ-1.3, 02-REQ-1.4
         """
-        with patch(
-            "agentfox.session.prompt.build_system_prompt", return_value="mock"
+        afspec_kwargs: dict = (
+            {"side_effect": ValueError("malformed triage")}
+            if use_fallback
+            else {"return_value": MagicMock()}
+        )
+
+        with (
+            patch(
+                "agentfox.nightshift.fix_pipeline.build_afspec_from_triage",
+                create=True,
+                **afspec_kwargs,
+            ),
+            patch(
+                "agentfox.nightshift.fix_pipeline.render_inmemory_spec_sections",
+                return_value=RENDERED_SECTIONS,
+                create=True,
+            ),
+            patch(
+                "agentfox.session.prompt.build_system_prompt",
+                return_value="mock",
+            ),
         ):
             _, task_prompt = pipeline._build_coder_prompt(
                 fake_spec,
@@ -822,7 +861,7 @@ class TestPropertyTriageComment:
                 wraps=FixPipeline._render_criteria_section,
             ) as mock_section,
             patch(
-                "agentfox.nightshift.spec_builder.render_inmemory_spec_sections",
+                "agentfox.nightshift.fix_pipeline.render_inmemory_spec_sections",
                 create=True,
             ) as mock_afspec,
         ):
@@ -1036,7 +1075,7 @@ class TestSmokeTests:
         Execution Path: 02-PATH-5
         """
         with patch(
-            "agentfox.nightshift.spec_builder.render_inmemory_spec_sections",
+            "agentfox.nightshift.fix_pipeline.render_inmemory_spec_sections",
             create=True,
         ) as mock_afspec:
             comment = pipeline._format_triage_comment(valid_triage)
