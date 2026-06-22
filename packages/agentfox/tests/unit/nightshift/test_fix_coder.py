@@ -125,7 +125,12 @@ class TestBuildCoderPromptNoCommitFormat:
     """Verify the task prompt is not modified with hardcoded commit format."""
 
     def test_task_prompt_unchanged_without_review_feedback(self) -> None:
-        """Returned task prompt equals spec.task_prompt when review_feedback is None."""
+        """Task prompt starts with spec.task_prompt (plus subtask phrase) when review_feedback is None.
+
+        After spec 02 prompt alignment, _build_coder_prompt appends the
+        subtask reference phrase (02-REQ-1.2). This test verifies only that
+        no unrelated content (like a hardcoded commit format) is injected.
+        """
         from agentfox.nightshift.fix_pipeline import FixPipeline
 
         config = _make_config()
@@ -142,9 +147,10 @@ class TestBuildCoderPromptNoCommitFormat:
         ):
             _, task_prompt = pipeline._build_coder_prompt(spec, triage, review_feedback=None)
 
-        assert task_prompt == original_task, (
-            f"task_prompt was modified; expected {original_task!r}, got {task_prompt!r}"
+        assert task_prompt.startswith(original_task), (
+            f"task_prompt does not start with original; got {task_prompt!r}"
         )
+        assert "Refer to the tasks subtask list in the context above" in task_prompt
 
     def test_task_prompt_has_no_hardcoded_nightshift_suffix(self) -> None:
         """task_prompt does not contain hardcoded commit format appended by the method."""

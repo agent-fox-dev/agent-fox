@@ -24,7 +24,12 @@ from agentfox.core.config import AgentFoxConfig
 from agentfox.engine.audit_helpers import emit_audit_event
 from agentfox.knowledge.audit import AuditEventType, generate_run_id
 from agentfox.nightshift.prior_attempts import format_prior_attempts, query_prior_attempts
-from agentfox.nightshift.spec_builder import InMemorySpec, build_in_memory_spec
+from agentfox.nightshift.spec_builder import (
+    InMemorySpec,
+    build_afspec_from_triage,
+    build_in_memory_spec,
+    render_inmemory_spec_sections,
+)
 from agentfox.platform.labels import LABEL_FIXED, LABEL_NO_CHANGE
 from agentfox.platform.protocol import IssueResult
 from agentfox.ui.progress import ActivityCallback, SpinnerCallback, TaskCallback, TaskEvent
@@ -537,23 +542,42 @@ class FixPipeline:
         self,
         spec: InMemorySpec,
         triage: TriageResult,
-        review_feedback: FixReviewResult | None = None,
+        review_feedback: str | None = None,
         prior_context: str = "",
     ) -> tuple[str, str]:
-        """Build system/task prompts with triage criteria and optional feedback.
+        """Build system/task prompts with afspec-rendered context.
+
+        Uses ``build_afspec_from_triage`` + ``render_inmemory_spec_sections``
+        to produce structured context. Falls back to ad-hoc criteria rendering
+        via ``_render_criteria_context`` when afspec construction fails.
 
         When *prior_context* is non-empty it is prepended to the task prompt
-        before the issue description so the coder knows what was tried before.
+        before the base instructions so the coder knows what was tried before.
+        When *review_feedback* is non-empty it is appended after the base
+        instructions.
 
-        Requirements: 82-REQ-7.2, 82-REQ-8.1, 128-REQ-3.1, 128-REQ-3.2
+        Requirements: 82-REQ-7.2, 82-REQ-8.1, 02-REQ-1.1, 02-REQ-1.2,
+                      02-REQ-1.3, 02-REQ-1.4, 02-REQ-1.E1,
+                      128-REQ-3.1, 128-REQ-3.2
         """
         from agentfox.session.prompt import build_system_prompt
 
-        # Assemble criteria context for the system prompt
-        criteria_context = self._render_criteria_context(triage)
-        context = spec.system_context
-        if criteria_context:
-            context = f"{context}\n\n{criteria_context}"
+        # Assemble criteria context via afspec rendering (happy path)
+        try:
+            afspec = build_afspec_from_triage(spec, triage)
+            rendered = render_inmemory_spec_sections(afspec)
+            context = f"{spec.system_context}\n\n{rendered}"
+        except Exception:
+            logger.warning(
+                "Failed to build afspec from triage for issue #%d, "
+                "falling back to ad-hoc criteria rendering",
+                spec.issue_number,
+                exc_info=True,
+            )
+            criteria_context = self._render_criteria_context(triage)
+            context = spec.system_context
+            if criteria_context:
+                context = f"{context}\n\n{criteria_context}"
 
         system_prompt = build_system_prompt(
             context=context,
@@ -562,13 +586,17 @@ class FixPipeline:
             project_dir=Path.cwd(),
         )
 
-        # Build task prompt, injecting prior attempt context and reviewer feedback
-        task_prompt = spec.task_prompt
+        # Build task prompt with subtask list reference
+        task_prompt = (
+            f"{spec.task_prompt}\n\n"
+            "Refer to the tasks subtask list in the context above"
+        )
+
+        # Inject prior attempt context (prepended) and review feedback (appended)
         if prior_context:
             task_prompt = f"{prior_context}\n\n{task_prompt}"
         if review_feedback is not None:
-            feedback_section = self._render_review_feedback(review_feedback)
-            task_prompt = f"{task_prompt}\n\n{feedback_section}"
+            task_prompt = f"{task_prompt}\n\n{review_feedback}"
 
         return system_prompt, task_prompt
 

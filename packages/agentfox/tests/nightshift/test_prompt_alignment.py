@@ -107,7 +107,6 @@ def pipeline() -> FixPipeline:
 class TestBuildCoderPromptAfspec:
     """Unit tests for _build_coder_prompt() afspec integration."""
 
-    @pytest.mark.xfail(reason="Pending spec 02: afspec rendering not yet integrated")
     def test_ts_02_1_coder_uses_afspec_rendered_context(
         self,
         pipeline: FixPipeline,
@@ -158,7 +157,6 @@ class TestBuildCoderPromptAfspec:
     # Requirement: 02-REQ-1.2
     # -----------------------------------------------------------------------
 
-    @pytest.mark.xfail(reason="Pending spec 02: subtask phrase not yet added")
     def test_ts_02_2_coder_task_prompt_contains_subtask_reference(
         self,
         pipeline: FixPipeline,
@@ -194,7 +192,6 @@ class TestBuildCoderPromptAfspec:
     # Requirement: 02-REQ-1.3
     # -----------------------------------------------------------------------
 
-    @pytest.mark.xfail(reason="Pending spec 02: review_feedback type/position change")
     def test_ts_02_3_review_feedback_appended_to_task_prompt(
         self,
         pipeline: FixPipeline,
@@ -239,7 +236,6 @@ class TestBuildCoderPromptAfspec:
     # Requirement: 02-REQ-1.4
     # -----------------------------------------------------------------------
 
-    @pytest.mark.xfail(reason="Pending spec 02: subtask phrase not yet added for position check")
     def test_ts_02_4_prior_context_prepended_to_task_prompt(
         self,
         pipeline: FixPipeline,
@@ -372,7 +368,6 @@ class TestBuildReviewerPromptAfspec:
 class TestFallbackOnAfspecFailure:
     """Edge case tests for afspec construction failure fallback."""
 
-    @pytest.mark.xfail(reason="Pending spec 02: no afspec call or try/except in coder prompt")
     def test_ts_02_e1_coder_fallback_on_afspec_failure(
         self,
         pipeline: FixPipeline,
@@ -764,7 +759,6 @@ class TestPropertyAfspec:
             ("Fallback prior context", "Fallback feedback text", True),
         ],
     )
-    @pytest.mark.xfail(reason="Pending spec 02: subtask phrase and review_feedback type")
     def test_ts_02_p3_prior_context_before_review_feedback(
         self,
         pipeline: FixPipeline,
@@ -920,7 +914,6 @@ class TestSmokeTests:
     """End-to-end smoke tests for prompt alignment."""
 
     @pytest.mark.smoke
-    @pytest.mark.xfail(reason="Spec 01 functions not available: build_afspec_from_triage")
     def test_ts_02_smoke_1_coder_prompt_with_real_afspec(
         self,
         pipeline: FixPipeline,
@@ -952,7 +945,6 @@ class TestSmokeTests:
         assert SUBTASK_PHRASE in task_prompt
 
     @pytest.mark.smoke
-    @pytest.mark.xfail(reason="Pending spec 02: no afspec call or fallback path in coder")
     def test_ts_02_smoke_2_coder_fallback_path(
         self,
         pipeline: FixPipeline,
