@@ -90,7 +90,7 @@ class BannerGroup(click.Group):
 )
 @click.pass_context
 def main(ctx: click.Context, verbose: bool, quiet: bool, trace: bool, json_mode: bool) -> None:
-    """agent-fox: autonomous coding-agent orchestrator."""
+    """af: autonomous coding-agent orchestrator."""
     ctx.ensure_object(dict)
 
     # 23-REQ-1.2: store JSON flag so every subcommand can access it
