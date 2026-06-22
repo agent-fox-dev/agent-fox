@@ -605,23 +605,52 @@ class FixPipeline:
         spec: InMemorySpec,
         triage: TriageResult,
     ) -> tuple[str, str]:
-        """Build system/task prompts with triage criteria for verification.
+        """Build system/task prompts with afspec-rendered context for verification.
 
-        Requirements: 82-REQ-7.3, 82-REQ-5.3, 82-REQ-5.E1
+        Uses ``build_afspec_from_triage`` + ``render_inmemory_spec_sections``
+        to produce structured context.  Falls back to ad-hoc criteria rendering
+        via ``_render_criteria_context`` when afspec construction fails.
+
+        When triage contains no acceptance criteria, the task prompt includes
+        a fallback message instructing the reviewer to verify from the issue
+        description.
+
+        Requirements: 82-REQ-7.3, 82-REQ-5.3, 82-REQ-5.E1, 02-REQ-2.1,
+                      02-REQ-2.2, 02-REQ-2.3, 02-REQ-2.E1
         """
         from agentfox.session.prompt import build_system_prompt
 
-        # Include criteria in context, or fall back to issue description
-        criteria_context = self._render_criteria_context(triage)
-        if criteria_context:
-            context = f"{spec.system_context}\n\n{criteria_context}"
-        else:
-            # No triage criteria: reviewer verifies from issue description
-            context = (
-                f"{spec.system_context}\n\n"
+        # Empty triage: skip afspec rendering and use fallback message
+        if not triage.criteria:
+            system_prompt = build_system_prompt(
+                context=spec.system_context,
+                archetype="reviewer",
+                mode="fix-review",
+                project_dir=Path.cwd(),
+            )
+            task_prompt = (
+                f"Review the fix for issue #{spec.issue_number}: {spec.title}\n\n"
                 "No acceptance criteria were produced by triage. "
                 "Verify the fix based on the issue description above."
             )
+            return system_prompt, task_prompt
+
+        # Assemble criteria context via afspec rendering (happy path)
+        try:
+            afspec = build_afspec_from_triage(spec, triage)
+            rendered = render_inmemory_spec_sections(afspec)
+            context = f"{spec.system_context}\n\n{rendered}"
+        except Exception:
+            logger.warning(
+                "Failed to build afspec from triage for issue #%d, "
+                "falling back to ad-hoc criteria rendering",
+                spec.issue_number,
+                exc_info=True,
+            )
+            criteria_context = self._render_criteria_context(triage)
+            context = spec.system_context
+            if criteria_context:
+                context = f"{context}\n\n{criteria_context}"
 
         system_prompt = build_system_prompt(
             context=context,

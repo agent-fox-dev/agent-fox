@@ -285,7 +285,6 @@ class TestBuildCoderPromptAfspec:
 class TestBuildReviewerPromptAfspec:
     """Unit tests for _build_reviewer_prompt() afspec integration."""
 
-    @pytest.mark.xfail(reason="Pending spec 02: afspec rendering not yet integrated")
     def test_ts_02_5_reviewer_uses_afspec_rendered_context(
         self,
         pipeline: FixPipeline,
@@ -342,7 +341,6 @@ class TestBuildReviewerPromptAfspec:
 
         assert "verify" in task_prompt.lower()
 
-    @pytest.mark.xfail(reason="Pending spec 02: fallback message in context, not task_prompt")
     def test_ts_02_7_empty_triage_fallback_in_task_prompt(
         self,
         pipeline: FixPipeline,
@@ -406,7 +404,6 @@ class TestFallbackOnAfspecFailure:
         captured_context = mock_bsp.call_args.kwargs["context"]
         assert "## Acceptance Criteria from Triage" in captured_context
 
-    @pytest.mark.xfail(reason="Pending spec 02: no afspec call or try/except in reviewer")
     def test_ts_02_e2_reviewer_fallback_on_afspec_failure(
         self,
         pipeline: FixPipeline,
@@ -614,7 +611,6 @@ class TestPropertyAfspec:
     """Property tests for afspec rendering integration."""
 
     @pytest.mark.parametrize("criteria_count", [1, 3, 5, 10, 20])
-    @pytest.mark.xfail(reason="Pending spec 02: afspec rendering not yet integrated")
     def test_ts_02_p1_render_criteria_context_not_called_on_happy_path(
         self,
         pipeline: FixPipeline,
@@ -976,7 +972,6 @@ class TestSmokeTests:
         assert isinstance(system_prompt, str) and len(system_prompt) > 0
 
     @pytest.mark.smoke
-    @pytest.mark.xfail(reason="Spec 01 functions not available: build_afspec_from_triage")
     def test_ts_02_smoke_3_reviewer_prompt_with_real_afspec(
         self,
         pipeline: FixPipeline,
@@ -988,11 +983,6 @@ class TestSmokeTests:
 
         Execution Path: 02-PATH-3
         """
-        from agentfox.nightshift.spec_builder import (  # noqa: F401
-            build_afspec_from_triage,  # type: ignore[attr-defined]
-            render_inmemory_spec_sections,  # type: ignore[attr-defined]
-        )
-
         with patch(
             "agentfox.session.prompt.build_system_prompt",
             return_value="mock",
@@ -1006,7 +996,6 @@ class TestSmokeTests:
         assert "## Tasks" in captured_context
 
     @pytest.mark.smoke
-    @pytest.mark.xfail(reason="Pending spec 02: fallback in context, not task_prompt")
     def test_ts_02_smoke_4_reviewer_empty_triage_fallback(
         self,
         pipeline: FixPipeline,
