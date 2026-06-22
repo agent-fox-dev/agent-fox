@@ -61,25 +61,46 @@ _SECTION_HEADERS: dict[str, str] = {
 }
 
 
-def _render_spec_sections(spec_dir: Path) -> list[str]:
-    """Load a v1.2 spec and render per-artifact markdown sections.
+def render_inmemory_spec_sections(spec: Any) -> list[str]:
+    """Render an in-memory afspec Spec to per-artifact markdown sections.
 
-    Returns a list of rendered section strings.  Raises ``afspec.LoadError``
-    on malformed specs (caller handles fallback).
+    Accepts a single ``Spec`` argument and returns a list of markdown
+    section strings by delegating to ``afspec.render_individual(spec)``.
 
-    Requirements: 134-REQ-2.1, 134-REQ-2.2, 134-REQ-2.3, 134-REQ-2.E1
+    Performs no file system reads or writes.  Exceptions from
+    ``render_individual`` propagate to the caller as-is.
+
+    Requirements: 01-REQ-6.1, 01-REQ-6.2, 01-REQ-6.E1
     """
     import afspec
 
-    spec = afspec.load_spec(spec_dir)
     rendered = afspec.render_individual(spec)
 
     sections: list[str] = []
     for key, header in _SECTION_HEADERS.items():
         content = rendered.get(key, "")
         if content:
-            safe = sanitize_prompt_content(content, label="spec")
-            sections.append(f"{header}\n\n{safe}")
+            sections.append(f"{header}\n\n{content}")
+
+    return sections
+
+
+def _render_spec_sections(spec_dir: Path) -> list[str]:
+    """Load a v1.2 spec and render per-artifact markdown sections.
+
+    Returns a list of rendered section strings.  Raises ``afspec.LoadError``
+    on malformed specs (caller handles fallback).
+
+    Delegates rendering to ``render_inmemory_spec_sections`` after loading
+    the Spec from disk, eliminating duplicated rendering logic.
+
+    Requirements: 134-REQ-2.1, 134-REQ-2.2, 134-REQ-2.3, 134-REQ-2.E1,
+                  01-REQ-6.3
+    """
+    import afspec
+
+    spec = afspec.load_spec(spec_dir)
+    sections = render_inmemory_spec_sections(spec)
 
     # architecture.md is a plain markdown file in v1.2
     arch_path = spec_dir / "architecture.md"
@@ -371,7 +392,11 @@ def assemble_context(
     file_sections: list[str] = []
 
     try:
-        file_sections = _render_spec_sections(spec_dir)
+        raw_sections = _render_spec_sections(spec_dir)
+        # Sanitize rendered spec sections for safe prompt inclusion
+        file_sections = [
+            sanitize_prompt_content(s, label="spec") for s in raw_sections
+        ]
     except Exception:
         logger.warning(
             "Failed to load spec in %s",

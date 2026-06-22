@@ -379,9 +379,17 @@ class TestRenderInmemorySpecSections:
             render_inmemory_spec_sections,
         )
 
+        # Track the actual return value since wraps doesn't set return_value
+        captured = {}
+
+        def tracking_wrapper(spec):
+            result = render_inmemory_spec_sections(spec)
+            captured["result"] = result
+            return result
+
         with patch(
             "agentfox.session.context.render_inmemory_spec_sections",
-            wraps=render_inmemory_spec_sections,
+            side_effect=tracking_wrapper,
         ) as mock_render:
             # Use any spec dir that exists; will fail if fixture is missing
             spec_path = Path(__file__).parent / "fixtures" / "specs" / "01_test"
@@ -389,7 +397,7 @@ class TestRenderInmemorySpecSections:
             assert mock_render.call_count == 1
             called_spec = mock_render.call_args[0][0]
             assert isinstance(called_spec, Spec)
-            assert result == mock_render.return_value
+            assert result == captured["result"]
 
 
 # ---------------------------------------------------------------------------
