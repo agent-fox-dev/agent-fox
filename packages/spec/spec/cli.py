@@ -19,7 +19,7 @@ import click
 import yaml
 from agentfox.core.config import ThemeConfig, load_config
 from agentfox.ui.display import create_theme, render_banner
-from agentspec.errors import AgentSpecError, SessionError
+from agentspec.errors import AgentError, AgentSpecError, SessionError
 from agentspec.session import SessionState, SpecSession
 
 from spec.ui import StatusSpinner
@@ -108,9 +108,39 @@ def _assessment_to_json(assessment: Any) -> dict[str, Any]:
     }
 
 
-def _error_exit(exc: Exception, code: int = 1) -> None:
-    """Print error to stderr and exit."""
-    click.echo(f"Error: {exc}", err=True)
+def _error_type(exc: Exception) -> str:
+    """Map exception to a short error type string."""
+    if hasattr(exc, "category"):
+        return f"{exc.category}_error"
+    return "internal_error"
+
+
+def _json_error_exit(
+    exc: Exception,
+    *,
+    code: int = 1,
+    state: str | None = None,
+) -> None:
+    """Emit structured JSON error to stdout and exit."""
+    error_body: dict[str, Any] = {
+        "type": _error_type(exc),
+        "message": str(exc),
+    }
+
+    if isinstance(exc, AgentError):
+        error_body["retryable"] = exc.retryable
+        if exc.http_status is not None:
+            error_body["http_status"] = exc.http_status
+    else:
+        error_body["retryable"] = False
+
+    if state is not None:
+        error_body["state"] = state
+
+    if exc.__cause__ is not None:
+        error_body["cause"] = str(exc.__cause__)
+
+    click.echo(json.dumps({"ok": False, "error": error_body}))
     sys.exit(code)
 
 
@@ -200,9 +230,9 @@ def new_cmd(ctx: click.Context, prd_file: str, name: str | None) -> None:
     except click.ClickException:
         raise
     except (AgentSpecError, SessionError) as exc:
-        _error_exit(exc)
+        _json_error_exit(exc)
     except Exception as exc:
-        _error_exit(exc, code=2)
+        _json_error_exit(exc, code=2)
 
 
 # ---------------------------------------------------------------------------
@@ -216,8 +246,7 @@ def new_cmd(ctx: click.Context, prd_file: str, name: str | None) -> None:
     "--answers",
     required=False,
     default=None,
-    type=click.Path(exists=True),
-    help="JSON file with answers. Omit to assess/output pending questions.",
+    help="JSON file with answers, or '-' to read from stdin.",
 )
 @click.option("--force", is_flag=True, help="Discard previous assessments and start a fresh refine cycle")
 @click.pass_context
@@ -232,6 +261,7 @@ def refine_cmd(ctx: click.Context, spec: str, answers: str | None, force: bool) 
 
     Loop until quality is "ready", then run generate.
     """
+    session: SpecSession | None = None
     try:
         spec_dir: Path = ctx.obj["spec_dir"]
         quiet: bool = ctx.obj["quiet"]
@@ -253,11 +283,14 @@ def refine_cmd(ctx: click.Context, spec: str, answers: str | None, force: bool) 
             if not session._assessment_history:
                 with StatusSpinner("Assessing PRD...", quiet=quiet):
                     assessment = asyncio.run(session.assess())
-                click.echo(json.dumps(_assessment_to_json(assessment), indent=2))
+                result = _assessment_to_json(assessment)
+                result["type"] = "assessment"
+                click.echo(json.dumps(result, indent=2))
                 return
 
             questions = session.pending_questions()
-            output = {
+            output: dict[str, Any] = {
+                "type": "questions",
                 "questions": questions,
                 "answers": {q["id"]: "" for q in questions},
             }
@@ -268,16 +301,33 @@ def refine_cmd(ctx: click.Context, spec: str, answers: str | None, force: bool) 
             with StatusSpinner("Assessing PRD...", quiet=quiet):
                 asyncio.run(session.assess())
 
-        answers_path = Path(answers)
+        if answers == "-":
+            answers_text = sys.stdin.read()
+        else:
+            answers_path = Path(answers)
+            if not answers_path.exists():
+                _json_error_exit(
+                    AgentError(f"Answers file not found: {answers}", category="input"),
+                    state=session.state.value,
+                )
+            answers_text = answers_path.read_text()
+
         try:
-            answers_data = json.loads(answers_path.read_text())
+            answers_data = json.loads(answers_text)
         except json.JSONDecodeError as exc:
-            click.echo(f"Error: Invalid JSON in answers file: {exc}", err=True)
-            sys.exit(1)
+            _json_error_exit(
+                AgentError(f"Invalid JSON in answers: {exc}", category="input"),
+                state=session.state.value,
+            )
 
         if not isinstance(answers_data, dict):
-            click.echo("Error: Answers file must be a JSON object mapping question IDs to answers.", err=True)
-            sys.exit(1)
+            _json_error_exit(
+                AgentError(
+                    "Answers file must be a JSON object mapping question IDs to answers.",
+                    category="input",
+                ),
+                state=session.state.value,
+            )
 
         if "answers" in answers_data and isinstance(answers_data["answers"], dict):
             answers_data = answers_data["answers"]
@@ -285,13 +335,15 @@ def refine_cmd(ctx: click.Context, spec: str, answers: str | None, force: bool) 
         with StatusSpinner("Refining PRD...", quiet=quiet):
             assessment = asyncio.run(session.refine(answers_data))
 
-        click.echo(json.dumps(_assessment_to_json(assessment), indent=2))
+        result = _assessment_to_json(assessment)
+        result["type"] = "assessment"
+        click.echo(json.dumps(result, indent=2))
     except click.ClickException:
         raise
     except (AgentSpecError, SessionError) as exc:
-        _error_exit(exc)
+        _json_error_exit(exc, state=session.state.value if session else None)
     except Exception as exc:
-        _error_exit(exc, code=2)
+        _json_error_exit(exc, code=2, state=session.state.value if session else None)
 
 
 # ---------------------------------------------------------------------------
@@ -305,6 +357,7 @@ def refine_cmd(ctx: click.Context, spec: str, answers: str | None, force: bool) 
 @click.pass_context
 def generate_cmd(ctx: click.Context, spec: str, force: bool) -> None:
     """Generate JSON artifacts from accepted PRD."""
+    session: SpecSession | None = None
     try:
         spec_dir: Path = ctx.obj["spec_dir"]
         quiet: bool = ctx.obj["quiet"]
@@ -333,9 +386,9 @@ def generate_cmd(ctx: click.Context, spec: str, force: bool) -> None:
     except click.ClickException:
         raise
     except (AgentSpecError, SessionError) as exc:
-        _error_exit(exc)
+        _json_error_exit(exc, state=session.state.value if session else None)
     except Exception as exc:
-        _error_exit(exc, code=2)
+        _json_error_exit(exc, code=2, state=session.state.value if session else None)
 
 
 # ---------------------------------------------------------------------------
@@ -365,9 +418,9 @@ def render_cmd(ctx: click.Context, spec: str, combined: bool) -> None:
     except click.ClickException:
         raise
     except (AgentSpecError, SessionError) as exc:
-        _error_exit(exc)
+        _json_error_exit(exc)
     except Exception as exc:
-        _error_exit(exc, code=2)
+        _json_error_exit(exc, code=2)
 
 
 # ---------------------------------------------------------------------------
@@ -401,9 +454,49 @@ def validate_cmd(ctx: click.Context, spec: str) -> None:
     except click.ClickException:
         raise
     except (AgentSpecError, SessionError) as exc:
-        _error_exit(exc)
+        _json_error_exit(exc)
     except Exception as exc:
-        _error_exit(exc, code=2)
+        _json_error_exit(exc, code=2)
+
+
+# ---------------------------------------------------------------------------
+# status
+# ---------------------------------------------------------------------------
+
+
+@main.command("status")
+@click.argument("spec")
+@click.pass_context
+def status_cmd(ctx: click.Context, spec: str) -> None:
+    """Query session state (read-only)."""
+    try:
+        spec_dir: Path = ctx.obj["spec_dir"]
+        target = _resolve_spec(spec_dir, spec)
+        session = SpecSession.resume(target)
+
+        session_data = json.loads((target / "_session.json").read_text())
+
+        output: dict[str, Any] = {
+            "state": session.state.value,
+            "has_assessment": bool(session._assessment_history),
+            "generated_artifacts": list(session._generated_artifacts),
+        }
+
+        last_error = session_data.get("last_error")
+        if last_error is not None:
+            output["last_error"] = last_error
+
+        assessment = session.assessment
+        if assessment is not None:
+            output["quality"] = assessment.quality
+
+        click.echo(json.dumps(output))
+    except click.ClickException:
+        raise
+    except (AgentSpecError, SessionError) as exc:
+        _json_error_exit(exc)
+    except Exception as exc:
+        _json_error_exit(exc, code=2)
 
 
 cli = main

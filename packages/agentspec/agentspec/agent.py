@@ -18,7 +18,9 @@ from afspec import validate_schema as afspec_validate_schema  # type: ignore[imp
 from anthropic import (
     APIConnectionError,
     APIStatusError,
+    AuthenticationError,
     InternalServerError,
+    PermissionDeniedError,
     RateLimitError,
 )
 from pydantic import ValidationError as PydanticValidationError
@@ -56,6 +58,28 @@ _ARTIFACT_MODELS: dict[str, type[BaseModel]] = {
 }
 
 
+def _classify_sdk_error(exc: Exception) -> tuple[str, int | None]:
+    """Return (category, http_status) for an Anthropic SDK exception."""
+    if isinstance(exc, RateLimitError):
+        return "rate_limit", 429
+    if isinstance(exc, AuthenticationError):
+        return "auth", 401
+    if isinstance(exc, PermissionDeniedError):
+        return "permission", 403
+    if isinstance(exc, InternalServerError):
+        return "transient", getattr(exc, "status_code", 500)
+    if isinstance(exc, APIConnectionError):
+        return "transient", None
+    if isinstance(exc, APIStatusError):
+        code = exc.status_code
+        if code == 529:
+            return "overloaded", 529
+        if code in (400, 413):
+            return "input", code
+        return "internal", code
+    return "internal", None
+
+
 class SpecAgent:
     """Core agent wrapping the Anthropic client for spec operations."""
 
@@ -91,7 +115,7 @@ class SpecAgent:
                 permanently, or the response cannot be parsed.
         """
         if not prd_text or not prd_text.strip():
-            raise AgentError("PRD text must not be empty")
+            raise AgentError("PRD text must not be empty", category="validation")
 
         system = assessment_system_prompt()
         user_msg = assessment_user_prompt(prd_text, spec_name)
@@ -135,13 +159,16 @@ class SpecAgent:
         """
         # Validate answers not empty (03-REQ-2.E1)
         if not answers:
-            raise AgentError("Refinement requires answers; no answers provided")
+            raise AgentError("Refinement requires answers; no answers provided", category="validation")
 
         # Validate answer IDs match assessment questions (03-REQ-2.E2)
         valid_ids = {q.id for q in previous_assessment.questions}
         unrecognized = set(answers.keys()) - valid_ids
         if unrecognized:
-            raise AgentError(f"Unrecognized question IDs in answers: {', '.join(sorted(unrecognized))}")
+            raise AgentError(
+                f"Unrecognized question IDs in answers: {', '.join(sorted(unrecognized))}",
+                category="validation",
+            )
 
         system = refinement_system_prompt()
         user_msg = refinement_user_prompt(prd_text, answers, previous_assessment)
@@ -208,7 +235,7 @@ class SpecAgent:
         """
         # Validate PRD not empty (03-REQ-3.E1)
         if not prd_text or not prd_text.strip():
-            raise AgentError("PRD text must not be empty")
+            raise AgentError("PRD text must not be empty", category="validation")
 
         artifact_names = ["requirements", "test_spec", "tasks"]
         results: dict[str, Any] = dict(existing_artifacts) if existing_artifacts else {}
@@ -240,7 +267,10 @@ class SpecAgent:
             try:
                 artifact_model = model_cls.model_validate(content)
             except PydanticValidationError as exc:
-                raise AgentError(f"Artifact '{artifact_name}' failed validation: {exc}") from exc
+                raise AgentError(
+                    f"Artifact '{artifact_name}' failed validation: {exc}",
+                    category="validation",
+                ) from exc
 
             artifact_model = await self._repair_if_needed(
                 artifact_name, artifact_model, results, system, tools, tool_name, model_cls, spec_id, spec_name
@@ -382,6 +412,8 @@ class SpecAgent:
         """
         cumulative_wait = 0.0
         last_error: Exception | None = None
+        last_category: str = "transient"
+        last_http_status: int | None = None
 
         for attempt in range(_MAX_RETRIES + 1):
             try:
@@ -406,6 +438,7 @@ class SpecAgent:
                 APIConnectionError,
             ) as exc:
                 last_error = exc
+                last_category, last_http_status = _classify_sdk_error(exc)
                 logger.debug(
                     "Transient API error on attempt %d: %s",
                     attempt + 1,
@@ -425,15 +458,42 @@ class SpecAgent:
                     await asyncio.sleep(delay)
 
             except APIStatusError as exc:
-                # Non-retryable HTTP error (4xx other than 429)
+                if exc.status_code == 529:
+                    last_error = exc
+                    last_category = "overloaded"
+                    last_http_status = 529
+                    logger.debug(
+                        "Overloaded (529) on attempt %d: %s",
+                        attempt + 1,
+                        exc,
+                    )
+                    if attempt < _MAX_RETRIES:
+                        delay = _BASE_DELAY * (2**attempt)
+                        if cumulative_wait + delay > _MAX_CUMULATIVE_WAIT:
+                            break
+                        cumulative_wait += delay
+                        await asyncio.sleep(delay)
+                    continue
+
+                category, http_status = _classify_sdk_error(exc)
                 logger.debug(
                     "Non-retryable API error (HTTP %d): %s",
                     exc.status_code,
                     exc,
                 )
-                raise AgentError(f"API error (HTTP {exc.status_code}): {exc}") from exc
+                raise AgentError(
+                    f"API error (HTTP {exc.status_code}): {exc}",
+                    category=category,
+                    retryable=False,
+                    http_status=http_status,
+                ) from exc
 
-        raise AgentError(f"API call failed after {_MAX_RETRIES + 1} attempts") from last_error
+        raise AgentError(
+            f"API call failed after {_MAX_RETRIES + 1} attempts",
+            category=last_category,
+            retryable=True,
+            http_status=last_http_status,
+        ) from last_error
 
     def _extract_tool_call(
         self,
@@ -460,7 +520,10 @@ class SpecAgent:
             if getattr(block, "type", None) == "tool_use" and getattr(block, "name", None) == tool_name:
                 return block.input  # type: ignore[no-any-return]
 
-        raise AgentError(f"Model did not produce structured output: tool '{tool_name}' was not called")
+        raise AgentError(
+            f"Model did not produce structured output: tool '{tool_name}' was not called",
+            category="validation",
+        )
 
     def _parse_assessment(self, tool_input: dict[str, Any]) -> Assessment:
         """Validate and construct an Assessment from tool input.
@@ -484,12 +547,18 @@ class SpecAgent:
         valid_qualities = {"ready", "needs_refinement", "incomplete"}
         quality = tool_input.get("quality")
         if quality not in valid_qualities:
-            raise AgentError(f"Invalid quality value: {quality!r}; expected one of {sorted(valid_qualities)}")
+            raise AgentError(
+                f"Invalid quality value: {quality!r}; expected one of {sorted(valid_qualities)}",
+                category="validation",
+            )
 
         # Validate required fields (03-REQ-1.E2)
         missing = [f for f in ("summary", "gaps", "questions") if f not in tool_input]
         if missing:
-            raise AgentError(f"Assessment is missing required fields: {', '.join(missing)}")
+            raise AgentError(
+                f"Assessment is missing required fields: {', '.join(missing)}",
+                category="validation",
+            )
 
         summary: str = tool_input["summary"]
         gaps: list[str] = tool_input["gaps"]
@@ -497,7 +566,10 @@ class SpecAgent:
 
         # Non-ready assessments must have questions (03-REQ-1.5)
         if quality != "ready" and not questions_data:
-            raise AgentError(f"Assessment with quality {quality!r} must include at least one question")
+            raise AgentError(
+                f"Assessment with quality {quality!r} must include at least one question",
+                category="validation",
+            )
 
         # Build Question objects
         questions = [
