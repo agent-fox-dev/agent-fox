@@ -17,6 +17,8 @@ from typing import Any
 
 import click
 import yaml
+from agentfox.core.config import ThemeConfig, load_config
+from agentfox.ui.display import create_theme, render_banner
 from agentspec.errors import AgentSpecError, SessionError
 from agentspec.session import SessionState, SpecSession
 
@@ -117,7 +119,7 @@ def _error_exit(exc: Exception, code: int = 1) -> None:
 # ---------------------------------------------------------------------------
 
 
-@click.group()
+@click.group(invoke_without_command=True)
 @click.option(
     "--spec-dir",
     "-d",
@@ -134,6 +136,14 @@ def main(ctx: click.Context, spec_dir: str, quiet: bool) -> None:
     ctx.ensure_object(dict)
     ctx.obj["spec_dir"] = Path(spec_dir)
     ctx.obj["quiet"] = quiet
+
+    config = load_config(Path(".agent-fox/config.toml"))
+    theme_config = config.theme if config else ThemeConfig()
+    theme = create_theme(theme_config)
+    render_banner(theme, quiet=quiet)
+
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
 
 
 # ---------------------------------------------------------------------------
