@@ -66,6 +66,7 @@ class TriageResult:
     summary: str = ""
     affected_files: list[str] = field(default_factory=list)
     criteria: list[AcceptanceCriterion] = field(default_factory=list)
+    issue_body: str = ""
 
 
 @dataclass(frozen=True)
@@ -564,8 +565,10 @@ class FixPipeline:
 
         # Assemble criteria context via afspec rendering (happy path)
         try:
-            afspec = build_afspec_from_triage(spec, triage)
-            rendered = render_inmemory_spec_sections(afspec)
+            afspec_spec = build_afspec_from_triage(triage, spec.issue_number)
+            rendered = render_inmemory_spec_sections(afspec_spec)
+            if isinstance(rendered, list):
+                rendered = "\n\n".join(rendered)
             context = f"{spec.system_context}\n\n{rendered}"
         except Exception:
             logger.warning(
@@ -637,8 +640,10 @@ class FixPipeline:
 
         # Assemble criteria context via afspec rendering (happy path)
         try:
-            afspec = build_afspec_from_triage(spec, triage)
-            rendered = render_inmemory_spec_sections(afspec)
+            afspec_spec = build_afspec_from_triage(triage, spec.issue_number)
+            rendered = render_inmemory_spec_sections(afspec_spec)
+            if isinstance(rendered, list):
+                rendered = "\n\n".join(rendered)
             context = f"{spec.system_context}\n\n{rendered}"
         except Exception:
             logger.warning(

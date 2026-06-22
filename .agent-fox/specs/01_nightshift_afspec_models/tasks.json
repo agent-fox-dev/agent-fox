@@ -184,12 +184,12 @@
           "requirement_refs": [
             "01-REQ-1.3"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
           "id": "2.2",
-          "title": "Implement Requirement mapping loop (AcceptanceCriterion → Requirement)",
+          "title": "Implement Requirement mapping loop (AcceptanceCriterion \u2192 Requirement)",
           "details": [
             "Iterate over triage_result.criteria with enumerate(start=1); guard each field access with `field or ''` to satisfy 01-REQ-1.E2.",
             "Set Requirement.id = f'NS-REQ-{n}', Requirement.title = criterion.description or '', Requirement.user_story = criterion.description or '' (verbatim, no template).",
@@ -213,12 +213,12 @@
             "01-REQ-2.5",
             "01-REQ-1.E2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
           "id": "2.3",
-          "title": "Implement TestCase derivation loop (AcceptanceCriterion → TestCase)",
+          "title": "Implement TestCase derivation loop (AcceptanceCriterion \u2192 TestCase)",
           "details": [
             "Iterate over triage_result.criteria with enumerate(start=1); guard each field with `field or ''`.",
             "Set TestCase.id = f'TS-NS-{n}', TestCase.requirement_id = f'NS-REQ-{n}'.",
@@ -242,7 +242,7 @@
             "01-REQ-3.5",
             "01-REQ-1.E2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -267,7 +267,7 @@
             "01-REQ-1.E1",
             "01-REQ-4.E1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -291,7 +291,7 @@
             "01-REQ-1.1",
             "01-REQ-1.2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],
@@ -301,7 +301,7 @@
           "All spec tests for REQ-1 through REQ-5 and REQ-7 pass: `pytest -q tests/test_nightshift_afspec_models.py -k 'not render_inmemory'`",
           "No linter warnings in spec_builder.py: `ruff check agentfox/nightshift/spec_builder.py`",
           "All existing tests still pass: `pytest -q`",
-          "Requirements 01-REQ-1.1, 01-REQ-1.2, 01-REQ-1.3, 01-REQ-2.1–2.5, 01-REQ-3.1–3.5, 01-REQ-4.1, 01-REQ-4.2, 01-REQ-5.1, 01-REQ-5.2, 01-REQ-7.1, 01-REQ-7.2 acceptance criteria met",
+          "Requirements 01-REQ-1.1, 01-REQ-1.2, 01-REQ-1.3, 01-REQ-2.1\u20132.5, 01-REQ-3.1\u20133.5, 01-REQ-4.1, 01-REQ-4.2, 01-REQ-5.1, 01-REQ-5.2, 01-REQ-7.1, 01-REQ-7.2 acceptance criteria met",
           "Edge case tests TS-01-E1, TS-01-E2, TS-01-E3 pass",
           "Property tests TS-01-P1, TS-01-P2, TS-01-P3 (build side) pass"
         ]
@@ -318,7 +318,7 @@
           "details": [
             "In agentfox/session/context.py, add the new function: `def render_inmemory_spec_sections(spec: afspec.Spec) -> list[str]:` with no file I/O.",
             "Implement by delegating directly to `afspec.render_individual(spec)` and returning the result.",
-            "Do not catch exceptions from render_individual — let them propagate as-is (01-REQ-6.E1).",
+            "Do not catch exceptions from render_individual \u2014 let them propagate as-is (01-REQ-6.E1).",
             "The function must have no calls to open(), os.path, afspec.load_spec(), or any file system access."
           ],
           "test_spec_refs": [
@@ -496,9 +496,9 @@
           "id": "5.1",
           "title": "Trace execution paths end-to-end and verify no stubs remain",
           "details": [
-            "Trace 01-PATH-1: confirm that build_afspec_from_triage → (Requirements, TestSpec, Tasks, PRDDocument) → Spec is fully implemented with no `raise NotImplementedError`, `pass`, or `return None` stubs in non-trivial branches.",
+            "Trace 01-PATH-1: confirm that build_afspec_from_triage \u2192 (Requirements, TestSpec, Tasks, PRDDocument) \u2192 Spec is fully implemented with no `raise NotImplementedError`, `pass`, or `return None` stubs in non-trivial branches.",
             "Trace 01-PATH-2: confirm the empty-criteria branch in build_afspec_from_triage reaches the fallback Subtask construction without any stub.",
-            "Trace 01-PATH-3: confirm _render_spec_sections calls render_inmemory_spec_sections which calls render_individual — no intermediate stubs.",
+            "Trace 01-PATH-3: confirm _render_spec_sections calls render_inmemory_spec_sections which calls render_individual \u2014 no intermediate stubs.",
             "Search for stub markers: `grep -rn 'raise NotImplementedError\\|# TODO\\|pass$' agentfox/nightshift/spec_builder.py agentfox/session/context.py` should return 0 matches in non-abstract methods."
           ],
           "test_spec_refs": [
@@ -521,7 +521,7 @@
             "Confirm build_afspec_from_triage returns a Spec (not None) in both the normal and empty-criteria paths.",
             "Confirm render_inmemory_spec_sections returns the list[str] from render_individual without modification.",
             "Confirm _render_spec_sections returns the list[str] from render_inmemory_spec_sections without modification.",
-            "Confirm assemble_context (caller of _render_spec_sections) receives and uses the returned sections — check production code path, not just tests."
+            "Confirm assemble_context (caller of _render_spec_sections) receives and uses the returned sections \u2014 check production code path, not just tests."
           ],
           "test_spec_refs": [
             "TS-01-1",
@@ -540,7 +540,7 @@
           "id": "5.3",
           "title": "Run all smoke tests with real components (no mocks on core functions)",
           "details": [
-            "Execute TS-01-SMOKE-1 with real build_afspec_from_triage, render_inmemory_spec_sections, and afspec.render_individual — no mocks on these three.",
+            "Execute TS-01-SMOKE-1 with real build_afspec_from_triage, render_inmemory_spec_sections, and afspec.render_individual \u2014 no mocks on these three.",
             "Execute TS-01-SMOKE-2 with empty criteria TriageResult through the full chain.",
             "Execute TS-01-SMOKE-3 with a real on-disk spec fixture to confirm _render_spec_sections delegation is live.",
             "Confirm all smoke tests report pass: `pytest -q tests/test_nightshift_afspec_models.py -k 'SMOKE'`"
@@ -602,9 +602,9 @@
       "verification": {
         "id": "5.V",
         "checks": [
-          "All spec tests pass: `pytest -q tests/test_nightshift_afspec_models.py` — 0 failures, 0 errors",
+          "All spec tests pass: `pytest -q tests/test_nightshift_afspec_models.py` \u2014 0 failures, 0 errors",
           "All smoke tests pass: `pytest -q tests/test_nightshift_afspec_models.py -k 'SMOKE'`",
-          "Full project test suite passes: `pytest -q` — 0 regressions",
+          "Full project test suite passes: `pytest -q` \u2014 0 regressions",
           "No linter warnings: `ruff check agentfox/nightshift/spec_builder.py agentfox/session/context.py`",
           "No stub markers in implemented files: `grep -rn 'raise NotImplementedError' agentfox/nightshift/spec_builder.py agentfox/session/context.py` returns 0 hits",
           "No file I/O in new functions confirmed by grep and TS-01-P3 passing",

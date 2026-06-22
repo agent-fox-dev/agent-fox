@@ -135,7 +135,12 @@ class TestRequirementMapping:
         )
 
     def test_ts_01_6_requirement_user_story_verbatim(self):
-        """TS-01-6: Requirement.user_story is criterion description verbatim."""
+        """TS-01-6: Requirement.user_story is criterion description verbatim.
+
+        Note: afspec Requirement.user_story is a UserStory model, not a plain
+        string.  The description is stored verbatim in user_story.goal.
+        See docs/errata/01_user_story_model_type.md for details.
+        """
         triage = _make_triage(
             [
                 _make_criterion(
@@ -147,7 +152,7 @@ class TestRequirementMapping:
         )
         spec = build_afspec_from_triage(triage, 10)
         assert (
-            spec.requirements.requirements[0].user_story
+            spec.requirements.requirements[0].user_story.goal
             == "User can log in with valid credentials"
         )
 
