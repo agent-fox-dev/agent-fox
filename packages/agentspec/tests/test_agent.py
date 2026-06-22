@@ -22,9 +22,11 @@ from conftest_agent import (
     SAMPLE_TEST_SPEC_JSON,
     make_artifact_response,
     make_assessment_response,
+    make_auth_error,
     make_bad_request_error,
     make_connection_error,
     make_internal_server_error,
+    make_overloaded_error,
     make_rate_limit_error,
     make_refinement_response,
     make_text_only_response,
@@ -914,3 +916,119 @@ class TestPropertyRetryBound:
                         )
                     )
                 assert mock_client.messages.create.call_count == 4
+
+
+# ===================================================================
+# TS-03-27: Retry on 529 OverloadedError
+# ===================================================================
+
+
+@pytest.mark.asyncio
+async def test_retry_on_529_overloaded(mock_client):
+    """TS-03-27: 529 OverloadedError is retried like 429."""
+    mock_client.messages.create = AsyncMock(
+        side_effect=[
+            make_overloaded_error(),
+            make_assessment_response(),
+        ]
+    )
+    agent = SpecAgent(mock_client, "claude-sonnet-4-6")
+
+    with patch("asyncio.sleep", new_callable=AsyncMock):
+        await agent._call_api(
+            messages=[{"role": "user", "content": "test"}],
+            tools=[],
+        )
+
+    assert mock_client.messages.create.call_count == 2
+
+
+# ===================================================================
+# TS-03-28: 529 exhaustion raises with correct category
+# ===================================================================
+
+
+@pytest.mark.asyncio
+async def test_529_exhaustion_raises_with_category(mock_client):
+    """TS-03-28: AgentError after 529 retry exhaustion has category='overloaded'."""
+    mock_client.messages.create = AsyncMock(side_effect=[make_overloaded_error()] * 4)
+    agent = SpecAgent(mock_client, "claude-sonnet-4-6")
+
+    with patch("asyncio.sleep", new_callable=AsyncMock):
+        with pytest.raises(AgentError) as exc_info:
+            await agent._call_api(
+                messages=[{"role": "user", "content": "test"}],
+                tools=[],
+            )
+
+    assert exc_info.value.category == "overloaded"
+    assert exc_info.value.retryable is True
+    assert exc_info.value.http_status == 529
+
+
+# ===================================================================
+# TS-03-29: Auth error has correct category
+# ===================================================================
+
+
+@pytest.mark.asyncio
+async def test_auth_error_has_category(mock_client):
+    """TS-03-29: AgentError from 401 has category='auth' and is not retryable."""
+    mock_client.messages.create = AsyncMock(side_effect=make_auth_error())
+    agent = SpecAgent(mock_client, "claude-sonnet-4-6")
+
+    with pytest.raises(AgentError) as exc_info:
+        await agent._call_api(
+            messages=[{"role": "user", "content": "test"}],
+            tools=[],
+        )
+
+    assert exc_info.value.category == "auth"
+    assert exc_info.value.http_status == 401
+    assert exc_info.value.retryable is False
+    assert mock_client.messages.create.call_count == 1
+
+
+# ===================================================================
+# TS-03-30: Rate limit exhaustion preserves category
+# ===================================================================
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_exhaustion_preserves_category(mock_client):
+    """TS-03-30: AgentError after 429 retry exhaustion has category='rate_limit'."""
+    mock_client.messages.create = AsyncMock(side_effect=[make_rate_limit_error()] * 4)
+    agent = SpecAgent(mock_client, "claude-sonnet-4-6")
+
+    with patch("asyncio.sleep", new_callable=AsyncMock):
+        with pytest.raises(AgentError) as exc_info:
+            await agent._call_api(
+                messages=[{"role": "user", "content": "test"}],
+                tools=[],
+            )
+
+    assert exc_info.value.category == "rate_limit"
+    assert exc_info.value.retryable is True
+    assert exc_info.value.http_status == 429
+
+
+# ===================================================================
+# TS-03-31: AgentError structured fields defaults
+# ===================================================================
+
+
+def test_agent_error_structured_fields():
+    """TS-03-31: AgentError carries structured metadata fields."""
+    err = AgentError("test", category="auth", retryable=False, http_status=401)
+    assert err.detail == "test"
+    assert err.category == "auth"
+    assert err.retryable is False
+    assert err.http_status == 401
+
+
+def test_agent_error_defaults():
+    """AgentError defaults to internal/non-retryable when no kwargs given."""
+    err = AgentError("test")
+    assert err.category == "internal"
+    assert err.retryable is False
+    assert err.http_status is None
