@@ -474,17 +474,14 @@ def status_cmd(ctx: click.Context, spec: str) -> None:
         target = _resolve_spec(spec_dir, spec)
         session = SpecSession.resume(target)
 
-        session_data = json.loads((target / "_session.json").read_text())
-
         output: dict[str, Any] = {
             "state": session.state.value,
             "has_assessment": bool(session._assessment_history),
             "generated_artifacts": list(session._generated_artifacts),
         }
 
-        last_error = session_data.get("last_error")
-        if last_error is not None:
-            output["last_error"] = last_error
+        if session._last_error is not None:
+            output["last_error"] = session._last_error
 
         assessment = session.assessment
         if assessment is not None:

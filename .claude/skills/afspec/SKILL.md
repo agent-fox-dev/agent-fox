@@ -223,25 +223,27 @@ step catches gaps that may have been missed during the manual review in Step 1.
    spec refine <spec_dir_name>
    ```
 
-2. Review the JSON output. If `quality` is `"ready"`, proceed to Step 5.
+2. The JSON output includes a `"type"` field:
+   - `"type": "assessment"` — contains `quality`, `summary`, `gaps`, `questions`
+   - `"type": "questions"` — contains pending `questions` and answer scaffold
 
-3. If `quality` is `"needs_refinement"` or `"incomplete"`, the output contains
+3. If `quality` is `"ready"`, proceed to Step 5.
+
+4. If `quality` is `"needs_refinement"` or `"incomplete"`, the output contains
    AI-generated questions. Present these to the user for answers.
 
-4. Save answers as a JSON file and submit:
+5. Submit answers. You can pipe JSON directly from stdin:
    ```bash
-   cat > /tmp/answers_<spec_name>.json << 'EOF'
-   {
-     "Q1": "answer to question 1",
-     "Q2": "answer to question 2"
-   }
-   EOF
+   echo '{"Q1": "answer to question 1", "Q2": "answer to question 2"}' | spec refine <spec_dir_name> --answers -
+   ```
+   Or use a file:
+   ```bash
    spec refine <spec_dir_name> --answers /tmp/answers_<spec_name>.json
    ```
 
-5. Repeat until the assessment returns `quality: "ready"`.
+6. Repeat until the assessment returns `quality: "ready"`.
 
-6. **Verify incorporation.** After refinement with answers, re-read the
+7. **Verify incorporation.** After refinement with answers, re-read the
    generated `prd.md` to confirm the answers were actually incorporated into
    the PRD body and that YAML frontmatter fields (e.g. `owner`) were updated
    if applicable.
@@ -377,6 +379,68 @@ To preview the spec as readable markdown:
 ```bash
 spec render <spec_dir_name> --combined
 ```
+
+---
+
+## Error Handling
+
+The `spec` CLI emits structured JSON errors to stdout on failure (exit
+code ≠ 0). The error envelope has this shape:
+
+```json
+{
+  "ok": false,
+  "error": {
+    "type": "auth_error",
+    "message": "API error (HTTP 401): invalid api key",
+    "retryable": false,
+    "http_status": 401,
+    "state": "assessing",
+    "cause": "invalid api key"
+  }
+}
+```
+
+### Error types and recovery actions
+
+| Type | Retryable | Action |
+|------|-----------|--------|
+| `auth_error` | No | Ask the user to set `ANTHROPIC_API_KEY` |
+| `permission_error` | No | Ask the user to check API key permissions |
+| `rate_limit_error` | Yes | Wait and retry the same command |
+| `overloaded_error` | Yes | Wait and retry the same command |
+| `transient_error` | Yes | Retry the same command |
+| `input_error` | No | Fix the input (e.g. invalid JSON in answers) |
+| `validation_error` | No | Check the PRD or use `--force` to restart |
+| `state_error` | No | Use `spec status` to check state, then run the correct command |
+| `config_error` | No | Fix `~/.af/settings.yaml` |
+| `internal_error` | No | Report the error to the user |
+
+### Checking session state after errors
+
+Use `spec status` to inspect the session without side effects:
+
+```bash
+spec status <spec_dir_name>
+```
+
+Returns:
+```json
+{
+  "state": "assessing",
+  "has_assessment": true,
+  "quality": "needs_refinement",
+  "generated_artifacts": [],
+  "last_error": {
+    "message": "API call failed after 4 attempts",
+    "category": "rate_limit",
+    "retryable": true,
+    "http_status": 429
+  }
+}
+```
+
+Use this to decide whether to retry, use `--force`, or ask the user for help.
 
 ---
 

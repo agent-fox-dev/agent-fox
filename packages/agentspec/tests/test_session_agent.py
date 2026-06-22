@@ -245,7 +245,9 @@ async def test_agent_error_prevents_state_transition(tmp_path: Path) -> None:
     # Error should be persisted in _session.json (03-REQ-6.4)
     data = json.loads((session.spec_dir / "_session.json").read_text())
     assert "last_error" in data, "Error must be persisted in _session.json"
-    assert "API failed" in data["last_error"]
+    assert data["last_error"]["message"] == "API failed"
+    assert "category" in data["last_error"]
+    assert "retryable" in data["last_error"]
 
 
 # ===================================================================
