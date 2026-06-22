@@ -15,6 +15,7 @@ from __future__ import annotations
 import ast
 import json
 import logging
+import re
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -32,16 +33,13 @@ from agentfox.nightshift.spec_builder import InMemorySpec
 # ---------------------------------------------------------------------------
 
 RENDERED_SECTIONS = (
-    "## Requirements\nRequirement content\n\n"
-    "## Test Specification\nTest spec content\n\n"
-    "## Tasks\n- [ ] Task 1\n"
+    "## Requirements\nRequirement content\n\n## Test Specification\nTest spec content\n\n## Tasks\n- [ ] Task 1\n"
 )
 
 SUBTASK_PHRASE = "Refer to the tasks subtask list in the context above"
 
 EMPTY_TRIAGE_FALLBACK = (
-    "No acceptance criteria were produced by triage. "
-    "Verify the fix based on the issue description above."
+    "No acceptance criteria were produced by triage. Verify the fix based on the issue description above."
 )
 
 
@@ -139,9 +137,7 @@ class TestBuildCoderPromptAfspec:
                 return_value="mocked-system-prompt",
             ) as mock_bsp,
         ):
-            system_prompt, _task_prompt = pipeline._build_coder_prompt(
-                fake_spec, valid_triage
-            )
+            system_prompt, _task_prompt = pipeline._build_coder_prompt(fake_spec, valid_triage)
 
         # Assert afspec pipeline was invoked
         mock_build.assert_called_once()
@@ -153,9 +149,7 @@ class TestBuildCoderPromptAfspec:
         assert "## Requirements" in captured_context
         assert "## Test Specification" in captured_context
         assert "## Tasks" in captured_context
-        assert captured_context.index(issue_body) < captured_context.index(
-            "## Requirements"
-        )
+        assert captured_context.index(issue_body) < captured_context.index("## Requirements")
 
         assert isinstance(system_prompt, str) and len(system_prompt) > 0
 
@@ -175,8 +169,21 @@ class TestBuildCoderPromptAfspec:
 
         Requirement: 02-REQ-1.2
         """
-        with patch(
-            "agentfox.session.prompt.build_system_prompt", return_value="mock"
+        with (
+            patch(
+                "agentfox.nightshift.fix_pipeline.build_afspec_from_triage",
+                return_value=MagicMock(),
+                create=True,
+            ),
+            patch(
+                "agentfox.nightshift.fix_pipeline.render_inmemory_spec_sections",
+                return_value=RENDERED_SECTIONS,
+                create=True,
+            ),
+            patch(
+                "agentfox.session.prompt.build_system_prompt",
+                return_value="mock",
+            ),
         ):
             _, task_prompt = pipeline._build_coder_prompt(fake_spec, valid_triage)
 
@@ -187,9 +194,7 @@ class TestBuildCoderPromptAfspec:
     # Requirement: 02-REQ-1.3
     # -----------------------------------------------------------------------
 
-    @pytest.mark.xfail(
-        reason="Pending spec 02: review_feedback type/position change"
-    )
+    @pytest.mark.xfail(reason="Pending spec 02: review_feedback type/position change")
     def test_ts_02_3_review_feedback_appended_to_task_prompt(
         self,
         pipeline: FixPipeline,
@@ -202,8 +207,21 @@ class TestBuildCoderPromptAfspec:
         """
         review_feedback = "Please fix the null pointer issue in line 42"
 
-        with patch(
-            "agentfox.session.prompt.build_system_prompt", return_value="mock"
+        with (
+            patch(
+                "agentfox.nightshift.fix_pipeline.build_afspec_from_triage",
+                return_value=MagicMock(),
+                create=True,
+            ),
+            patch(
+                "agentfox.nightshift.fix_pipeline.render_inmemory_spec_sections",
+                return_value=RENDERED_SECTIONS,
+                create=True,
+            ),
+            patch(
+                "agentfox.session.prompt.build_system_prompt",
+                return_value="mock",
+            ),
         ):
             _, task_prompt = pipeline._build_coder_prompt(
                 fake_spec,
@@ -221,9 +239,7 @@ class TestBuildCoderPromptAfspec:
     # Requirement: 02-REQ-1.4
     # -----------------------------------------------------------------------
 
-    @pytest.mark.xfail(
-        reason="Pending spec 02: subtask phrase not yet added for position check"
-    )
+    @pytest.mark.xfail(reason="Pending spec 02: subtask phrase not yet added for position check")
     def test_ts_02_4_prior_context_prepended_to_task_prompt(
         self,
         pipeline: FixPipeline,
@@ -236,8 +252,21 @@ class TestBuildCoderPromptAfspec:
         """
         prior_context = "Previous attempt context: attempted fix in commit abc123"
 
-        with patch(
-            "agentfox.session.prompt.build_system_prompt", return_value="mock"
+        with (
+            patch(
+                "agentfox.nightshift.fix_pipeline.build_afspec_from_triage",
+                return_value=MagicMock(),
+                create=True,
+            ),
+            patch(
+                "agentfox.nightshift.fix_pipeline.render_inmemory_spec_sections",
+                return_value=RENDERED_SECTIONS,
+                create=True,
+            ),
+            patch(
+                "agentfox.session.prompt.build_system_prompt",
+                return_value="mock",
+            ),
         ):
             _, task_prompt = pipeline._build_coder_prompt(
                 fake_spec,
@@ -260,9 +289,7 @@ class TestBuildCoderPromptAfspec:
 class TestBuildReviewerPromptAfspec:
     """Unit tests for _build_reviewer_prompt() afspec integration."""
 
-    @pytest.mark.xfail(
-        reason="Pending spec 02: afspec rendering not yet integrated"
-    )
+    @pytest.mark.xfail(reason="Pending spec 02: afspec rendering not yet integrated")
     def test_ts_02_5_reviewer_uses_afspec_rendered_context(
         self,
         pipeline: FixPipeline,
@@ -292,9 +319,7 @@ class TestBuildReviewerPromptAfspec:
                 return_value="mocked-system-prompt",
             ) as mock_bsp,
         ):
-            system_prompt, _task_prompt = pipeline._build_reviewer_prompt(
-                fake_spec, valid_triage
-            )
+            system_prompt, _task_prompt = pipeline._build_reviewer_prompt(fake_spec, valid_triage)
 
         mock_build.assert_called_once()
         mock_render.assert_called_once_with(fake_afspec)
@@ -302,9 +327,7 @@ class TestBuildReviewerPromptAfspec:
         captured_context = mock_bsp.call_args.kwargs["context"]
         assert captured_context.startswith(issue_body)
         assert "## Requirements" in captured_context
-        assert captured_context.index(issue_body) < captured_context.index(
-            "## Requirements"
-        )
+        assert captured_context.index(issue_body) < captured_context.index("## Requirements")
 
         assert isinstance(system_prompt, str) and len(system_prompt) > 0
 
@@ -318,18 +341,12 @@ class TestBuildReviewerPromptAfspec:
 
         Requirement: 02-REQ-2.2
         """
-        with patch(
-            "agentfox.session.prompt.build_system_prompt", return_value="mock"
-        ):
-            _, task_prompt = pipeline._build_reviewer_prompt(
-                fake_spec, valid_triage
-            )
+        with patch("agentfox.session.prompt.build_system_prompt", return_value="mock"):
+            _, task_prompt = pipeline._build_reviewer_prompt(fake_spec, valid_triage)
 
         assert "verify" in task_prompt.lower()
 
-    @pytest.mark.xfail(
-        reason="Pending spec 02: fallback message in context, not task_prompt"
-    )
+    @pytest.mark.xfail(reason="Pending spec 02: fallback message in context, not task_prompt")
     def test_ts_02_7_empty_triage_fallback_in_task_prompt(
         self,
         pipeline: FixPipeline,
@@ -340,12 +357,8 @@ class TestBuildReviewerPromptAfspec:
 
         Requirement: 02-REQ-2.3
         """
-        with patch(
-            "agentfox.session.prompt.build_system_prompt", return_value="mock"
-        ):
-            _, task_prompt = pipeline._build_reviewer_prompt(
-                fake_spec, empty_triage
-            )
+        with patch("agentfox.session.prompt.build_system_prompt", return_value="mock"):
+            _, task_prompt = pipeline._build_reviewer_prompt(fake_spec, empty_triage)
 
         assert EMPTY_TRIAGE_FALLBACK in task_prompt
 
@@ -359,9 +372,7 @@ class TestBuildReviewerPromptAfspec:
 class TestFallbackOnAfspecFailure:
     """Edge case tests for afspec construction failure fallback."""
 
-    @pytest.mark.xfail(
-        reason="Pending spec 02: no afspec call or try/except in coder prompt"
-    )
+    @pytest.mark.xfail(reason="Pending spec 02: no afspec call or try/except in coder prompt")
     def test_ts_02_e1_coder_fallback_on_afspec_failure(
         self,
         pipeline: FixPipeline,
@@ -391,9 +402,7 @@ class TestFallbackOnAfspecFailure:
             caplog.at_level(logging.WARNING),
         ):
             # Should NOT raise
-            system_prompt, task_prompt = pipeline._build_coder_prompt(
-                fake_spec, valid_triage
-            )
+            system_prompt, task_prompt = pipeline._build_coder_prompt(fake_spec, valid_triage)
 
         mock_fallback.assert_called_once()
         assert any(logging.WARNING == r.levelno for r in caplog.records)
@@ -402,9 +411,7 @@ class TestFallbackOnAfspecFailure:
         captured_context = mock_bsp.call_args.kwargs["context"]
         assert "## Acceptance Criteria from Triage" in captured_context
 
-    @pytest.mark.xfail(
-        reason="Pending spec 02: no afspec call or try/except in reviewer"
-    )
+    @pytest.mark.xfail(reason="Pending spec 02: no afspec call or try/except in reviewer")
     def test_ts_02_e2_reviewer_fallback_on_afspec_failure(
         self,
         pipeline: FixPipeline,
@@ -433,9 +440,7 @@ class TestFallbackOnAfspecFailure:
             ),
             caplog.at_level(logging.WARNING),
         ):
-            system_prompt, task_prompt = pipeline._build_reviewer_prompt(
-                fake_spec, valid_triage
-            )
+            system_prompt, task_prompt = pipeline._build_reviewer_prompt(fake_spec, valid_triage)
 
         mock_fallback.assert_called_once()
         assert any(logging.WARNING == r.levelno for r in caplog.records)
@@ -451,9 +456,7 @@ class TestFallbackOnAfspecFailure:
 class TestStaticAnalysis:
     """Static inspection of fix_pipeline.py source code."""
 
-    @pytest.mark.xfail(
-        reason="Pending spec 02: no fallback comment, called on happy path"
-    )
+    @pytest.mark.xfail(reason="Pending spec 02: no fallback comment, called on happy path")
     def test_ts_02_8_render_criteria_context_is_fallback_only(self) -> None:
         """_render_criteria_context has fallback comment, only in except blocks.
 
@@ -474,9 +477,7 @@ class TestStaticAnalysis:
                 nearby = "\n".join(lines[max(0, i - 5) : i + 10])
                 if "fallback" in nearby.lower():
                     found_fallback_comment = True
-        assert found_fallback_comment, (
-            "_render_criteria_context should have a 'fallback' comment"
-        )
+        assert found_fallback_comment, "_render_criteria_context should have a 'fallback' comment"
 
         # 3. All call sites are inside except blocks
         tree = ast.parse(source)
@@ -486,9 +487,7 @@ class TestStaticAnalysis:
                 self.in_except = False
                 self.violations: list[int] = []
 
-            def visit_ExceptHandler(
-                self, node: ast.ExceptHandler
-            ) -> None:
+            def visit_ExceptHandler(self, node: ast.ExceptHandler) -> None:
                 old = self.in_except
                 self.in_except = True
                 self.generic_visit(node)
@@ -496,10 +495,7 @@ class TestStaticAnalysis:
 
             def visit_Call(self, node: ast.Call) -> None:
                 func = node.func
-                if (
-                    isinstance(func, ast.Attribute)
-                    and func.attr == "_render_criteria_context"
-                ):
+                if isinstance(func, ast.Attribute) and func.attr == "_render_criteria_context":
                     if not self.in_except:
                         self.violations.append(node.lineno)
                 self.generic_visit(node)
@@ -507,8 +503,7 @@ class TestStaticAnalysis:
         checker = _ExceptCallChecker()
         checker.visit(tree)
         assert not checker.violations, (
-            f"_render_criteria_context called outside except blocks "
-            f"at lines: {checker.violations}"
+            f"_render_criteria_context called outside except blocks at lines: {checker.violations}"
         )
 
     def test_ts_02_9_render_criteria_section_retained_for_triage_comment(
@@ -529,16 +524,11 @@ class TestStaticAnalysis:
         tree = ast.parse(source)
         found = False
         for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.FunctionDef)
-                and node.name == "_format_triage_comment"
-            ):
+            if isinstance(node, ast.FunctionDef) and node.name == "_format_triage_comment":
                 body_source = ast.get_source_segment(source, node)
                 if body_source and "_render_criteria_section" in body_source:
                     found = True
-        assert found, (
-            "_format_triage_comment should call _render_criteria_section"
-        )
+        assert found, "_format_triage_comment should call _render_criteria_section"
 
 
 # ---------------------------------------------------------------------------
@@ -596,29 +586,27 @@ class TestVerdictParsing:
         """
         from agentfox.session.review_parser import parse_fix_review_output
 
-        verdict_json = json.dumps({
-            "verdicts": [
-                {
-                    "criterion_id": "NS-REQ-1",
-                    "verdict": "PASS",
-                    "evidence": "The fix correctly handles the null case.",
-                }
-            ],
-            "overall_verdict": "PASS",
-            "summary": "All good",
-        })
-
-        result = parse_fix_review_output(
-            verdict_json, "fix-issue-42", "fix-issue-42:0:reviewer"
+        verdict_json = json.dumps(
+            {
+                "verdicts": [
+                    {
+                        "criterion_id": "NS-REQ-1",
+                        "verdict": "PASS",
+                        "evidence": "The fix correctly handles the null case.",
+                    }
+                ],
+                "overall_verdict": "PASS",
+                "summary": "All good",
+            }
         )
+
+        result = parse_fix_review_output(verdict_json, "fix-issue-42", "fix-issue-42:0:reviewer")
 
         assert isinstance(result, FixReviewResult)
         assert len(result.verdicts) == 1
         assert result.verdicts[0].criterion_id == "NS-REQ-1"
         assert result.verdicts[0].verdict == "PASS"
-        assert result.verdicts[0].evidence == (
-            "The fix correctly handles the null case."
-        )
+        assert result.verdicts[0].evidence == ("The fix correctly handles the null case.")
 
 
 # ---------------------------------------------------------------------------
@@ -631,9 +619,7 @@ class TestPropertyAfspec:
     """Property tests for afspec rendering integration."""
 
     @pytest.mark.parametrize("criteria_count", [1, 3, 5, 10, 20])
-    @pytest.mark.xfail(
-        reason="Pending spec 02: afspec rendering not yet integrated"
-    )
+    @pytest.mark.xfail(reason="Pending spec 02: afspec rendering not yet integrated")
     def test_ts_02_p1_render_criteria_context_not_called_on_happy_path(
         self,
         pipeline: FixPipeline,
@@ -672,15 +658,11 @@ class TestPropertyAfspec:
             ) as mock_fallback,
         ):
             pipeline._build_coder_prompt(fake_spec, triage)
-            assert mock_fallback.call_count == 0, (
-                "_render_criteria_context should not be called (coder)"
-            )
+            assert mock_fallback.call_count == 0, "_render_criteria_context should not be called (coder)"
 
             mock_fallback.reset_mock()
             pipeline._build_reviewer_prompt(fake_spec, triage)
-            assert mock_fallback.call_count == 0, (
-                "_render_criteria_context should not be called (reviewer)"
-            )
+            assert mock_fallback.call_count == 0, "_render_criteria_context should not be called (reviewer)"
 
     # -----------------------------------------------------------------------
     # TS-02-P2: Issue body precedes sections in context
@@ -692,8 +674,7 @@ class TestPropertyAfspec:
         [
             ("Simple issue body", False),
             (
-                "A more detailed body with\nmultiple lines\n"
-                "and ## markdown headers",
+                "A more detailed body with\nmultiple lines\nand ## markdown headers",
                 False,
             ),
             ("Body with special chars: <>&\"'", False),
@@ -706,7 +687,11 @@ class TestPropertyAfspec:
         body: str,
         use_fallback: bool,
     ) -> None:
-        """Issue body always appears before the first ## section in context.
+        """Issue body always appears before the first spec section header.
+
+        Uses a regex to find known spec section headers (## Requirements,
+        ## Test Specification, ## Tasks, ## Acceptance Criteria) so that
+        bodies containing generic '##' markdown don't produce false positives.
 
         Also includes cases where build_afspec_from_triage raises (fallback
         path) to verify the invariant holds regardless of which path is taken.
@@ -714,6 +699,13 @@ class TestPropertyAfspec:
         Property: 02-PROP-2
         Validates: 02-REQ-1.1, 02-REQ-2.1
         """
+        # Regex matching known spec section headers produced by afspec rendering
+        # or the _render_criteria_context fallback.
+        _SECTION_RE = re.compile(
+            r"^## (?:Requirements|Test Specification|Tasks|Acceptance Criteria)",
+            re.MULTILINE,
+        )
+
         spec = InMemorySpec(
             issue_number=42,
             title="Test",
@@ -724,9 +716,7 @@ class TestPropertyAfspec:
         triage = TriageResult(summary="Analysis", criteria=_make_criteria(2))
 
         afspec_kwargs: dict = (
-            {"side_effect": ValueError("malformed triage")}
-            if use_fallback
-            else {"return_value": MagicMock()}
+            {"side_effect": ValueError("malformed triage")} if use_fallback else {"return_value": MagicMock()}
         )
 
         with (
@@ -747,17 +737,17 @@ class TestPropertyAfspec:
         ):
             pipeline._build_coder_prompt(spec, triage)
             ctx = mock_bsp.call_args.kwargs["context"]
-            first_section = ctx.index("##")
-            assert ctx.index(body) < first_section, (
-                "Issue body must precede first ## section (coder)"
-            )
+            section_match = _SECTION_RE.search(ctx)
+            assert section_match is not None, "Expected a spec section header in context"
+            assert ctx.index(body) < section_match.start(), "Issue body must precede first spec section header (coder)"
 
             mock_bsp.reset_mock()
             pipeline._build_reviewer_prompt(spec, triage)
             ctx = mock_bsp.call_args.kwargs["context"]
-            first_section = ctx.index("##")
-            assert ctx.index(body) < first_section, (
-                "Issue body must precede first ## section (reviewer)"
+            section_match = _SECTION_RE.search(ctx)
+            assert section_match is not None, "Expected a spec section header in context"
+            assert ctx.index(body) < section_match.start(), (
+                "Issue body must precede first spec section header (reviewer)"
             )
 
     # -----------------------------------------------------------------------
@@ -774,9 +764,7 @@ class TestPropertyAfspec:
             ("Fallback prior context", "Fallback feedback text", True),
         ],
     )
-    @pytest.mark.xfail(
-        reason="Pending spec 02: subtask phrase and review_feedback type"
-    )
+    @pytest.mark.xfail(reason="Pending spec 02: subtask phrase and review_feedback type")
     def test_ts_02_p3_prior_context_before_review_feedback(
         self,
         pipeline: FixPipeline,
@@ -796,9 +784,7 @@ class TestPropertyAfspec:
         Validates: 02-REQ-1.3, 02-REQ-1.4
         """
         afspec_kwargs: dict = (
-            {"side_effect": ValueError("malformed triage")}
-            if use_fallback
-            else {"return_value": MagicMock()}
+            {"side_effect": ValueError("malformed triage")} if use_fallback else {"return_value": MagicMock()}
         )
 
         with (
@@ -903,21 +889,21 @@ class TestPropertyVerdictParsing:
         """
         from agentfox.session.review_parser import parse_fix_review_output
 
-        verdict_json = json.dumps({
-            "verdicts": [
-                {
-                    "criterion_id": criterion_id,
-                    "verdict": verdict,
-                    "evidence": evidence,
-                }
-            ],
-            "overall_verdict": verdict,
-            "summary": "Test",
-        })
-
-        result = parse_fix_review_output(
-            verdict_json, "test-spec", "test-session"
+        verdict_json = json.dumps(
+            {
+                "verdicts": [
+                    {
+                        "criterion_id": criterion_id,
+                        "verdict": verdict,
+                        "evidence": evidence,
+                    }
+                ],
+                "overall_verdict": verdict,
+                "summary": "Test",
+            }
         )
+
+        result = parse_fix_review_output(verdict_json, "test-spec", "test-session")
 
         assert isinstance(result, FixReviewResult)
         assert result.verdicts[0].criterion_id == criterion_id
@@ -934,9 +920,7 @@ class TestSmokeTests:
     """End-to-end smoke tests for prompt alignment."""
 
     @pytest.mark.smoke
-    @pytest.mark.xfail(
-        reason="Spec 01 functions not available: build_afspec_from_triage"
-    )
+    @pytest.mark.xfail(reason="Spec 01 functions not available: build_afspec_from_triage")
     def test_ts_02_smoke_1_coder_prompt_with_real_afspec(
         self,
         pipeline: FixPipeline,
@@ -958,9 +942,7 @@ class TestSmokeTests:
             "agentfox.session.prompt.build_system_prompt",
             return_value="mock",
         ) as mock_bsp:
-            system_prompt, task_prompt = pipeline._build_coder_prompt(
-                fake_spec, valid_triage
-            )
+            system_prompt, task_prompt = pipeline._build_coder_prompt(fake_spec, valid_triage)
 
         captured_context = mock_bsp.call_args.kwargs["context"]
         assert captured_context.startswith(issue_body)
@@ -970,9 +952,7 @@ class TestSmokeTests:
         assert SUBTASK_PHRASE in task_prompt
 
     @pytest.mark.smoke
-    @pytest.mark.xfail(
-        reason="Pending spec 02: no afspec call or fallback path in coder"
-    )
+    @pytest.mark.xfail(reason="Pending spec 02: no afspec call or fallback path in coder")
     def test_ts_02_smoke_2_coder_fallback_path(
         self,
         pipeline: FixPipeline,
@@ -996,9 +976,7 @@ class TestSmokeTests:
             ) as mock_bsp,
             caplog.at_level(logging.WARNING),
         ):
-            system_prompt, task_prompt = pipeline._build_coder_prompt(
-                fake_spec, valid_triage
-            )
+            system_prompt, task_prompt = pipeline._build_coder_prompt(fake_spec, valid_triage)
 
         assert any(logging.WARNING == r.levelno for r in caplog.records)
         captured_context = mock_bsp.call_args.kwargs["context"]
@@ -1006,9 +984,7 @@ class TestSmokeTests:
         assert isinstance(system_prompt, str) and len(system_prompt) > 0
 
     @pytest.mark.smoke
-    @pytest.mark.xfail(
-        reason="Spec 01 functions not available: build_afspec_from_triage"
-    )
+    @pytest.mark.xfail(reason="Spec 01 functions not available: build_afspec_from_triage")
     def test_ts_02_smoke_3_reviewer_prompt_with_real_afspec(
         self,
         pipeline: FixPipeline,
@@ -1029,9 +1005,7 @@ class TestSmokeTests:
             "agentfox.session.prompt.build_system_prompt",
             return_value="mock",
         ) as mock_bsp:
-            system_prompt, task_prompt = pipeline._build_reviewer_prompt(
-                fake_spec, valid_triage
-            )
+            system_prompt, task_prompt = pipeline._build_reviewer_prompt(fake_spec, valid_triage)
 
         captured_context = mock_bsp.call_args.kwargs["context"]
         assert captured_context.startswith(issue_body)
@@ -1040,9 +1014,7 @@ class TestSmokeTests:
         assert "## Tasks" in captured_context
 
     @pytest.mark.smoke
-    @pytest.mark.xfail(
-        reason="Pending spec 02: fallback in context, not task_prompt"
-    )
+    @pytest.mark.xfail(reason="Pending spec 02: fallback in context, not task_prompt")
     def test_ts_02_smoke_4_reviewer_empty_triage_fallback(
         self,
         pipeline: FixPipeline,
@@ -1057,9 +1029,7 @@ class TestSmokeTests:
             "agentfox.session.prompt.build_system_prompt",
             return_value="mock",
         ):
-            system_prompt, task_prompt = pipeline._build_reviewer_prompt(
-                fake_spec, empty_triage
-            )
+            system_prompt, task_prompt = pipeline._build_reviewer_prompt(fake_spec, empty_triage)
 
         assert EMPTY_TRIAGE_FALLBACK in task_prompt
         assert isinstance(system_prompt, str) and len(system_prompt) > 0
