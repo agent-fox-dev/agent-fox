@@ -19,13 +19,13 @@ skills to the latest bundled versions.
 
 ---
 
-## af-spec
+## afspec
 
 **Spec-driven development: from idea to implementation-ready spec package.**
 
 Transforms a PRD, product idea, or GitHub issue into a complete specification
-package in the v1.2 JSON format with full traceability from requirements
-through tests and tasks.
+package in the v1.2 JSON format using the `spec` CLI. Full traceability from
+requirements through tests and tasks.
 
 ### What it produces
 
@@ -45,15 +45,15 @@ All files are saved to `.agent-fox/specs/NN_specification_name/`.
    description. Identifies ambiguities and asks for clarification.
 2. **Learn the context** -- analyzes the existing codebase, finds the next spec
    number, identifies cross-spec dependencies.
-3. **Create requirements** -- `requirements.json` with EARS-patterned criteria,
-   correctness properties, and execution paths encoded as JSON.
-4. **Create architecture** (optional) -- `architecture.md` with high-level
+3. **Create spec** -- runs `spec new` to create the spec directory and PRD with
+   YAML frontmatter.
+4. **Refine** -- runs `spec refine` for AI-powered PRD quality assessment.
+   Loops with user answers until the PRD is accepted.
+5. **Generate artifacts** -- runs `spec generate` to create `requirements.json`,
+   `test_spec.json`, and `tasks.json`.
+6. **Create architecture** (optional) -- `architecture.md` with high-level
    design, module responsibilities, and Mermaid diagrams. Skipped for simple
    specs.
-5. **Create test spec** -- `test_spec.json` translating every acceptance
-   criterion and correctness property into concrete test contracts.
-6. **Create tasks** -- `tasks.json` with ordered task groups using a JSON state
-   machine. Group 1 is always "write failing spec tests."
 7. **Validate** -- runs `spec validate` to check JSON schema conformance and
    cross-file integrity via the `afspec` library.
 

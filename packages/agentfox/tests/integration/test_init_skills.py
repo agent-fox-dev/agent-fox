@@ -180,5 +180,5 @@ class TestSkillsWorkOnReinit:
         result = cli_runner.invoke(main, ["init", "--skills"])
 
         assert result.exit_code == 0
-        assert (tmp_git_repo / ".claude" / "skills" / "af-spec" / "SKILL.md").exists()
+        assert (tmp_git_repo / ".claude" / "skills" / "afspec" / "SKILL.md").exists()
         assert "already initialized" in result.output.lower()

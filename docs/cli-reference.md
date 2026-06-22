@@ -128,7 +128,7 @@ customization of agent behavior. See [Profiles](profiles.md) for details.
 **Skills installation (`--skills`):** When `--skills` is provided, copies
 bundled skill templates from the agent-fox package into
 `.claude/skills/{name}/SKILL.md`. Each skill becomes available as a slash
-command in Claude Code (e.g., `/af-spec`). Existing skill files are
+command in Claude Code (e.g., `/afspec`). Existing skill files are
 overwritten with the latest bundled versions. Works on both fresh init and
 re-init. The output reports the number of skills installed. In JSON mode, the
 output includes a `skills_installed` integer field.

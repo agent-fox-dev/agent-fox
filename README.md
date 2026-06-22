@@ -24,11 +24,11 @@ You come back to a finished feature branch and a standup report.
 af init --skills
 ```
 
-Use the `/af-spec` skill in Claude Code to generate a specification
+Use the `/afspec` skill in Claude Code to generate a specification
 from a PRD, a GitHub issue or a plain-english description:
 
 ```
-/af-spec [path-to-prd-or-prompt-or-github-issue-url]
+/afspec [path-to-prd-or-prompt-or-github-issue-url]
 ```
 
 ```bash
@@ -108,7 +108,7 @@ Full documentation lives in [`docs/`](docs/README.md):
 - [CLI Reference](docs/cli-reference.md) — all commands, flags, and exit codes
 - [Configuration Reference](docs/config-reference.md) — every `config.toml` option (all sections and fields)
 - [Agent Archetypes](docs/architecture/03-execution-and-archetypes.md#agent-archetypes) — archetype registry, modes, convergence
-- [Skills](docs/skills.md) — bundled Claude Code slash commands (`/af-spec`)
+- [Skills](docs/skills.md) — bundled Claude Code slash commands (`/afspec`)
 
 For a deeper understanding of the system's internals — how specs become task
 graphs, how agents are dispatched in parallel, how the knowledge store works,

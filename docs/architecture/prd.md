@@ -203,7 +203,7 @@ When the user re-runs `agent-fox init` after a tool upgrade, new configuration o
 
 Specifications live under `.specs/NN_name/` (numbered by creation order) and contain five files: a PRD, acceptance criteria, design, test contracts, and a task list. The `agent-fox plan` command reads these files to build the execution graph.
 
-The `/af-spec` skill in Claude Code generates the full five-file package from a PRD, plain description, or GitHub issue URL.
+The `/afspec` skill in Claude Code generates the full five-file package from a PRD, plain description, or GitHub issue URL.
 
 ### 6.3 Steering Document
 

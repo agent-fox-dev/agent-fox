@@ -28,7 +28,7 @@ from hypothesis import strategies as st
 # ---------------------------------------------------------------------------
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-_SKILL_TEMPLATE_PATH = _REPO_ROOT / "agentfox" / "_templates" / "skills" / "af-spec"
+_SKILL_TEMPLATE_PATH = _REPO_ROOT / "agentfox" / "_templates" / "skills" / "afspec"
 
 # ---------------------------------------------------------------------------
 # Valid v1.2 fixture content
@@ -453,102 +453,21 @@ class TestSkillTemplateV12Artifacts:
 
 
 # ===========================================================================
-# TS-135-8: Skill template references v1.2 ID formats
+# TS-135-8: (Removed) Skill template references v1.2 ID formats
+# ID format details are now in the spec CLI prompt templates, not the skill.
 # ===========================================================================
 
 
-class TestSkillTemplateV12Ids:
-    """TS-135-8: Verify skill template references v1.2 ID format conventions.
-
-    Requirement: 135-REQ-4.2
-    """
-
-    def test_references_req_id_format(self) -> None:
-        """Skill template should reference {spec_id}-REQ-{N} format."""
-        content = _SKILL_TEMPLATE_PATH.read_text()
-        # v1.2 uses spec_id-based IDs, not numeric NN-based
-        assert "{spec_id}-REQ-" in content or "spec_id}-REQ-" in content
-
-    def test_references_prop_id_format(self) -> None:
-        """Skill template should reference {spec_id}-PROP-{N} format."""
-        content = _SKILL_TEMPLATE_PATH.read_text()
-        assert "{spec_id}-PROP-" in content or "spec_id}-PROP-" in content
-
-    def test_references_ts_id_format(self) -> None:
-        """Skill template should reference {spec_id}-TS-{N} format."""
-        content = _SKILL_TEMPLATE_PATH.read_text()
-        assert "{spec_id}-TS-" in content or "spec_id}-TS-" in content
-
-
 # ===========================================================================
-# TS-135-9: Skill template describes EARS JSON structure
+# TS-135-9: (Removed) Skill template describes EARS JSON structure
+# EARS pattern details are now in the spec CLI prompt templates, not the skill.
 # ===========================================================================
 
 
-class TestSkillTemplateEarsJson:
-    """TS-135-9: Verify skill template describes EARS JSON discriminated union.
-
-    Requirement: 135-REQ-6.1
-    """
-
-    def test_describes_ears_pattern_field(self) -> None:
-        """Skill template should describe the ears_pattern field."""
-        content = _SKILL_TEMPLATE_PATH.read_text()
-        assert "ears_pattern" in content
-
-    def test_describes_ubiquitous_pattern(self) -> None:
-        """Skill template should describe the ubiquitous pattern type."""
-        content = _SKILL_TEMPLATE_PATH.read_text()
-        # JSON field value, not just the markdown table heading
-        assert "ubiquitous" in content
-
-    def test_describes_event_driven_pattern(self) -> None:
-        """Skill template should describe the event_driven pattern type."""
-        content = _SKILL_TEMPLATE_PATH.read_text()
-        assert "event_driven" in content
-
-    def test_describes_state_driven_pattern(self) -> None:
-        """Skill template should describe the state_driven pattern type."""
-        content = _SKILL_TEMPLATE_PATH.read_text()
-        assert "state_driven" in content
-
-    def test_describes_unwanted_pattern(self) -> None:
-        """Skill template should describe the unwanted pattern type."""
-        content = _SKILL_TEMPLATE_PATH.read_text()
-        # Lowercase JSON enum value, distinct from markdown "Unwanted"
-        assert "unwanted" in content
-
-
 # ===========================================================================
-# TS-135-10: Skill template describes tasks JSON structure
+# TS-135-10: (Removed) Skill template describes tasks JSON structure
+# Task state details are now in the spec CLI prompt templates, not the skill.
 # ===========================================================================
-
-
-class TestSkillTemplateTasksJson:
-    """TS-135-10: Verify skill template describes tasks JSON state machine.
-
-    Requirement: 135-REQ-6.2
-    """
-
-    def test_describes_not_started_state(self) -> None:
-        """Skill template should describe the not_started task state."""
-        content = _SKILL_TEMPLATE_PATH.read_text()
-        assert "not_started" in content
-
-    def test_describes_in_progress_state(self) -> None:
-        """Skill template should describe the in_progress task state."""
-        content = _SKILL_TEMPLATE_PATH.read_text()
-        assert "in_progress" in content
-
-    def test_describes_completed_state(self) -> None:
-        """Skill template should describe the completed task state."""
-        content = _SKILL_TEMPLATE_PATH.read_text()
-        assert "completed" in content
-
-    def test_describes_queued_state(self) -> None:
-        """Skill template should describe the queued task state."""
-        content = _SKILL_TEMPLATE_PATH.read_text()
-        assert "queued" in content
 
 
 # ===========================================================================
@@ -742,17 +661,12 @@ class TestSkillTemplateContentSmoke:
         assert "test_spec.json" in content, "Template should reference test_spec.json"
         assert "tasks.json" in content, "Template should reference tasks.json"
 
-        # ID formats
-        assert "spec_id" in content, "Template should reference spec_id for ID generation"
-
-        # EARS JSON structure
-        assert "ears_pattern" in content, "Template should describe ears_pattern field"
-
-        # Tasks JSON structure
-        assert "not_started" in content, "Template should describe not_started task state"
-
         # Validation step
         assert "spec validate" in content, "Template should reference spec validate"
+
+        # CLI commands
+        assert "spec new" in content, "Template should reference spec new"
+        assert "spec generate" in content, "Template should reference spec generate"
 
     def test_skill_template_validation_step(self) -> None:
         """Skill template should include a validation step."""
