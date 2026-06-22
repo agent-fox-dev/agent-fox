@@ -13,6 +13,11 @@ The `glossary` defines project-specific terms that a developer unfamiliar with t
 
 **Exclude** (use plain prose, no backticks): standard HTTP status codes (200, 404, 500), well-known protocols and formats (JSON, HTTP, UUID), standard ports, generic error response shapes, language keywords, file path conventions, log levels, and any term a working developer would already know. Write these in plain text without backticks.
 
+**Pre-submission check**: Before submitting, scan every `action`, `trigger`,
+`error_condition`, `state`, `for_any`, and `invariant` field for backtick-delimited
+terms. Verify each one has a glossary entry. This is the #1 cause of validation
+failures — catch it before submission rather than requiring a repair cycle.
+
 ### Error handling
 The `error_handling` array maps error conditions to system behavior. Each entry needs:
 - `id`: format `{spec_id}-ERR-{N}`

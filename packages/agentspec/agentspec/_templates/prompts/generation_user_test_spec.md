@@ -15,5 +15,12 @@ Cross-check against the requirements artifact before submitting. Any missing cov
 - `preconditions` must list all system state required before the test runs (database state, config, running services).
 - `expected` must describe concrete observable outcomes, not vague statements.
 
+### Language consistency
+The `assertion_pseudocode` must use language-agnostic pseudocode as stated above.
+However, test `preconditions` and `expected` descriptions should reference the
+project's actual components, tooling, and file paths (e.g. "SQLite database is
+initialised with the events table" not "database fixture is set up") to be
+useful to implementers working in the project's language.
+
 ### Coverage object
 The `coverage` object is computed by the validation library. Submit it with empty arrays: `{"requirements_covered": [], "properties_covered": [], "paths_covered": [], "gaps": []}`

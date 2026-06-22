@@ -63,6 +63,47 @@ def _format_prior_artifacts(prior_artifacts: dict[str, Any] | None) -> str:
     return "\n".join(parts)
 
 
+_LANGUAGE_MARKERS: list[tuple[str, str, str]] = [
+    ("go.mod", "Go", "go test ./... -count=1, go vet ./..."),
+    ("Cargo.toml", "Rust", "cargo test, cargo clippy"),
+    ("package.json", "TypeScript/JavaScript", "npm test, eslint ."),
+    ("pyproject.toml", "Python", "pytest, ruff check"),
+    ("setup.py", "Python", "pytest, ruff check"),
+    ("build.gradle", "Java/Kotlin", "gradle test, gradle check"),
+    ("pom.xml", "Java", "mvn test, mvn checkstyle:check"),
+    ("mix.exs", "Elixir", "mix test, mix credo"),
+    ("Gemfile", "Ruby", "bundle exec rspec, rubocop"),
+]
+
+
+def _detect_project_language(project_dir: Path | None) -> tuple[str, str] | None:
+    """Detect the project's primary language from manifest files.
+
+    Returns a ``(language, tooling_hint)`` tuple, or ``None`` if no
+    marker file is found.
+    """
+    if not project_dir:
+        return None
+    for filename, language, tooling in _LANGUAGE_MARKERS:
+        if (project_dir / filename).exists():
+            return language, tooling
+    return None
+
+
+def _format_project_context(project_dir: Path | None) -> str:
+    """Build a ``## Project Context`` block from detected language."""
+    detected = _detect_project_language(project_dir)
+    if not detected:
+        return ""
+    language, tooling = detected
+    return (
+        f"## Project Context\n\n"
+        f"This is a **{language}** project. All test commands, verification "
+        f"checks, file paths, code patterns, and stub/dead-code markers MUST "
+        f"use {language} conventions (e.g. {tooling}).\n"
+    )
+
+
 # ── assessment ───────────────────────────────────────────────────────
 
 
@@ -171,6 +212,7 @@ def generation_user_prompt(
         )
 
     prior_artifacts_block = _format_prior_artifacts(prior_artifacts)
+    project_context_block = _format_project_context(project_dir)
 
     additional_instructions = ""
     try:
@@ -186,6 +228,7 @@ def generation_user_prompt(
         project_dir=project_dir,
         artifact_name=artifact_name,
         spec_id_block=spec_id_block,
+        project_context_block=project_context_block,
         prd_text=prd_text,
         prior_artifacts_block=prior_artifacts_block,
         additional_instructions=additional_instructions,

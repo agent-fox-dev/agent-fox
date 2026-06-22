@@ -29,6 +29,28 @@ All IDs follow strict formats. Use the spec_id as prefix.
 - Every string field with `minLength: 1` in the schema MUST be non-empty.
 - Every verification subtask MUST have a non-empty `checks` array with concrete, actionable verification criteria.
 
+## Language and tooling consistency (mandatory)
+
+Infer the project's primary language and framework from the PRD (look for
+mentions in Tech Stack, Technical Specification, or code examples). If a
+`## Project Context` section is provided, it takes precedence. All generated
+artifacts MUST use that language's idioms, tooling, and conventions:
+
+- **Test commands**: Use the project's test runner (e.g. `go test ./...` for Go,
+  `pytest` for Python, `jest` for TypeScript). Never default to Python tooling.
+- **Verification checks**: Reference the project's linter (e.g. `go vet` for Go,
+  `ruff check` for Python, `eslint` for TypeScript).
+- **Code patterns in tasks**: Use language-appropriate constructs — e.g. `(*Type, error)`
+  return tuples for Go, `Optional[Type]` for Python, `Result<T, E>` for Rust.
+- **File paths**: Use the project's conventions (e.g. `internal/` for Go,
+  `src/` for many others, `tests/` for Python).
+- **Stub/dead-code patterns**: Use language-appropriate markers — e.g. `panic("not implemented")`
+  for Go, `raise NotImplementedError` for Python, `todo!()` for Rust.
+
+If the PRD does not specify a language, examine any prior artifacts or
+cross-spec dependencies for language signals. If still ambiguous, use
+language-agnostic pseudocode and flag the ambiguity in a task group note.
+
 ## Guidelines
 
 - Follow the tool schema exactly; do not add extra fields.

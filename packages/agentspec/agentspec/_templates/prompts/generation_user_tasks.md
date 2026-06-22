@@ -11,11 +11,21 @@ Every task group and subtask MUST have a non-empty `title`. Empty titles fail va
 
 ### Subtask IDs and verification
 - Subtask IDs use format `{group_id}.{N}` (e.g. `2.1`, `2.2`). Sequential within each group. Target 3-6 subtasks per group.
-- Every group MUST have exactly one verification subtask with ID `{group_id}.V` (e.g. `2.V`). The verification subtask MUST have a non-empty `checks` array with concrete criteria, for example:
-  - "Spec tests for this group pass: pytest -q tests/..."
-  - "All existing tests still pass: pytest -q"
-  - "No linter warnings introduced: ruff check"
+- Every group MUST have exactly one verification subtask with ID `{group_id}.V` (e.g. `2.V`). The verification subtask MUST have a non-empty `checks` array with concrete criteria. Use the project's actual test runner and linter — for example:
+  - "Spec tests for this group pass: <project test command matching the language>"
+  - "All existing tests still pass: <project test-all command>"
+  - "No linter warnings introduced: <project lint command>"
   - "Requirements 05-REQ-1.1, 05-REQ-1.2 acceptance criteria met"
+
+  Examples by language: Go → `go test ./... -count=1`, `go vet ./...`; Python → `pytest -q`, `ruff check`; TypeScript → `npm test`, `eslint .`. Derive the correct commands from the PRD's tech stack — do NOT default to Python.
+
+### Test commands
+The `test_commands` object must use the project's actual tooling as specified in
+the PRD's Tech Stack section. For cross-spec dependencies, match the conventions
+of the upstream spec's `test_commands` if available in prior artifacts.
+
+Do NOT use default Python commands (`pytest`, `ruff`) unless the project is
+actually a Python project. Examples: Go → `"spec_tests": "go test ./internal/integration/... -count=1 -v"`, `"linter": "go vet ./..."`; TypeScript → `"spec_tests": "npm test"`, `"linter": "eslint ."`.
 
 ### Dependencies
 The `dependencies` array declares cross-spec dependencies only. Set `depends_on_spec` to the spec_id of the other spec. Intra-spec ordering is implicit from task group IDs — do not add self-referencing dependencies. Leave `dependencies` empty if the spec has no cross-spec dependencies.
@@ -30,5 +40,5 @@ The final wiring_verification group must include subtasks that cover:
 1. Trace execution paths — verify each path's entry point calls the next function in the chain, no stubs remain.
 2. Verify return value propagation — confirm callers receive and use return values.
 3. Run smoke tests — all SMOKE tests pass with real components.
-4. Stub/dead-code audit — search for return None, pass in non-abstract methods, TODO, NotImplementedError.
+4. Stub/dead-code audit — search for language-appropriate stub markers. Examples: Go → `panic("not implemented")`, bare `return nil` in non-trivial paths, `// TODO`; Python → `return None`, `pass` in non-abstract methods, `raise NotImplementedError`; TypeScript → `throw new Error("not implemented")`. Use the markers appropriate to the PRD's language.
 5. Cross-spec entry point verification — if paths start in another spec, confirm they are called from production code.

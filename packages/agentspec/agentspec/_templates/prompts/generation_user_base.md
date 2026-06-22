@@ -1,6 +1,7 @@
 Generate the **$artifact_name** artifact from the following PRD.
 
 $spec_id_block
+$project_context_block
 ## PRD
 
 $prd_text
