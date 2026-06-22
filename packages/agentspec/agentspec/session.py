@@ -180,7 +180,7 @@ class SpecSession:
         self._assessment_history = assessment_history
         self._qa_exchanges = qa_exchanges
         self._generated_artifacts = generated_artifacts
-        self._last_error: str | None = None
+        self._last_error: dict[str, Any] | None = None
 
     @staticmethod
     def _create(spec_dir: Path, mode: str = "interactive") -> SpecSession:
@@ -227,7 +227,7 @@ class SpecSession:
             msg = f"Invalid JSON in {session_file}: {exc}"
             raise SessionError(msg) from exc
 
-        return SpecSession(
+        session = SpecSession(
             spec_dir=spec_dir,
             state=SessionState(data["state"]),
             mode=data.get("mode", "interactive"),
@@ -236,6 +236,12 @@ class SpecSession:
             qa_exchanges=data.get("qa_exchanges", []),
             generated_artifacts=data.get("generated_artifacts", []),
         )
+        last_error = data.get("last_error")
+        if isinstance(last_error, dict):
+            session._last_error = last_error
+        elif isinstance(last_error, str):
+            session._last_error = {"message": last_error, "category": "internal", "retryable": False}
+        return session
 
     async def assess(self) -> Assessment:
         """Begin or continue PRD assessment.
@@ -264,7 +270,7 @@ class SpecSession:
         try:
             assessment = await agent.assess_prd(prd_text, spec_name)
         except AgentError as exc:
-            self._last_error = exc.detail
+            self._last_error = _error_to_dict(exc)
             self._persist()
             raise
 
@@ -313,7 +319,7 @@ class SpecSession:
         try:
             updated_prd, new_assessment = await agent.refine_prd(prd_text, answers, previous_assessment)
         except AgentError as exc:
-            self._last_error = exc.detail
+            self._last_error = _error_to_dict(exc)
             self._persist()
             raise
 
@@ -412,7 +418,7 @@ class SpecSession:
                 on_artifact=_write_artifact,
             )
         except AgentError as exc:
-            self._last_error = exc.detail
+            self._last_error = _error_to_dict(exc)
             self._persist()
             raise
 
@@ -691,6 +697,20 @@ def _create_agent() -> SpecAgent:
     config = load_config()
     client = create_async_anthropic_client()
     return SpecAgent(client, config.model)
+
+
+def _error_to_dict(exc: AgentError) -> dict[str, Any]:
+    """Convert an AgentError to a dict for JSON persistence."""
+    d: dict[str, Any] = {
+        "message": exc.detail,
+        "category": exc.category,
+        "retryable": exc.retryable,
+    }
+    if exc.http_status is not None:
+        d["http_status"] = exc.http_status
+    if exc.__cause__ is not None:
+        d["cause"] = str(exc.__cause__)
+    return d
 
 
 def _assessment_to_dict(assessment: Assessment) -> dict[str, Any]:

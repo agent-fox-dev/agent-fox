@@ -318,3 +318,25 @@ def make_connection_error() -> Exception:
         message="Connection timed out",
         request=request,
     )
+
+
+def make_overloaded_error() -> Exception:
+    """Create an APIStatusError for 529 Overloaded."""
+    from anthropic import APIStatusError
+
+    return APIStatusError(
+        message="overloaded",
+        response=_make_httpx_response(529),
+        body=None,
+    )
+
+
+def make_auth_error() -> Exception:
+    """Create an anthropic.AuthenticationError (401)."""
+    from anthropic import AuthenticationError
+
+    return AuthenticationError(
+        message="invalid api key",
+        response=_make_httpx_response(401),
+        body=None,
+    )
