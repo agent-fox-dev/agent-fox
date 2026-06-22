@@ -1,0 +1,384 @@
+{
+  "$schema": null,
+  "spec_id": "02",
+  "spec_name": "nightshift_prompt_alignment",
+  "schema_version": 1,
+  "introduction": "This spec updates the night-shift fix pipeline's prompt-building functions to use afspec-rendered context (structured requirements, test specifications, and tasks sections) instead of ad-hoc flat markdown criteria, aligning the coder and reviewer prompts with the structured format used by the `code` command path.",
+  "glossary": {
+    "AcceptanceCriterion": "Dataclass representing a single acceptance criterion produced by the triage agent.",
+    "FixReviewResult": "Dataclass representing the structured output of the reviewer agent, containing per-criterion verdicts.",
+    "InMemorySpec": "Dataclass in `agentfox.nightshift.spec_builder` representing a fully constructed in-memory afspec specification.",
+    "TriageResult": "Dataclass produced by the triage agent representing the structured output of issue triage, including acceptance criteria.",
+    "_build_coder_prompt()": "Function in `fix_pipeline.py` that constructs the system and task prompts sent to the night-shift coder agent.",
+    "_build_reviewer_prompt()": "Function in `fix_pipeline.py` that constructs the system and task prompts sent to the night-shift reviewer agent.",
+    "_format_triage_comment()": "Function in `fix_pipeline.py` that posts a human-readable triage report as a GitHub issue comment.",
+    "_render_criteria_context()": "Legacy function in `fix_pipeline.py` that produced a flat `## Acceptance Criteria from Triage` markdown block; retained as a fallback after this change.",
+    "_render_criteria_section()": "Helper in `fix_pipeline.py` that renders acceptance criteria with optional bold formatting; retained for use by `_format_triage_comment()`.",
+    "afspec": "The structured specification format and associated library used by agentfox to represent requirements, test specifications, and tasks in a machine-readable form.",
+    "afspec Spec": "The top-level object returned by `build_afspec_from_triage()`, representing the full in-memory specification.",
+    "build_afspec_from_triage()": "Function from spec 01 (`agentfox.nightshift.spec_builder`) that constructs an in-memory afspec `Spec` from a `TriageResult`.",
+    "build_system_prompt()": "Existing utility that builds the final system prompt string given a `context` keyword argument.",
+    "build_task_prompt()": "Existing utility used by the code-path coder to build the task prompt, referencing the subtask list in context.",
+    "criterion_id": "Field in the reviewer's verdict report identifying which acceptance criterion a verdict applies to.",
+    "fix_pipeline.py": "Source file in `agentfox.nightshift` containing the night-shift fix pipeline orchestration logic.",
+    "issue body context": "Markdown text extracted from the GitHub issue body, prepended to the spec sections in the combined context.",
+    "parse_fix_review_output": "Function that parses the reviewer's JSON verdict report into a `FixReviewResult`.",
+    "prior_context": "Prior attempt context prepended to the coder's task prompt on retry attempts.",
+    "render_inmemory_spec_sections()": "Function from spec 01 that renders an in-memory afspec `Spec` into markdown sections (`## Requirements`, `## Test Specification`, `## Tasks`).",
+    "review_feedback": "Reviewer feedback text injected into the coder's task prompt on retry attempts.",
+    "context": "The assembled string of spec sections and memory facts passed to build_system_prompt().",
+    "bold=True": "The keyword argument to _render_criteria_section() that enables bold formatting for GitHub comments.",
+    "evidence": "The evidence field in a FixReviewVerdict describing what the reviewer observed.",
+    "verdict": "The verdict field in a FixReviewVerdict (PASS or FAIL)."
+  },
+  "requirements": [
+    {
+      "id": "02-REQ-1",
+      "title": "Coder prompt uses afspec-rendered context",
+      "user_story": {
+        "role": "night-shift fix pipeline",
+        "goal": "build the coder's system prompt from afspec-rendered sections rather than ad-hoc criteria text",
+        "benefit": "the coder agent receives the same structured prompt format as the code-command coder, improving consistency and reliability"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "02-REQ-1.1",
+          "ears_pattern": "event_driven",
+          "system": "`_build_coder_prompt()`",
+          "action": "calls `build_afspec_from_triage()` to obtain an `afspec Spec`, then calls `render_inmemory_spec_sections()` to produce markdown sections, joins the `issue body context` with the rendered sections (issue body first), and passes the combined string to `build_system_prompt()` as the `context` argument",
+          "return_contract": "a system prompt string containing the issue body followed by `## Requirements`, `## Test Specification`, and `## Tasks` sections",
+          "trigger": "called with a valid `TriageResult`"
+        },
+        {
+          "id": "02-REQ-1.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`_build_coder_prompt()`",
+          "action": "includes a task prompt that contains the phrase \"Refer to the tasks subtask list in the context above\" to align with the `build_task_prompt()` phrasing used by the code path",
+          "return_contract": "a task prompt string containing the required subtask list reference phrase"
+        },
+        {
+          "id": "02-REQ-1.3",
+          "ears_pattern": "state_driven",
+          "system": "`_build_coder_prompt()`",
+          "action": "appends the `review_feedback` text to the task prompt, preserving existing retry injection behavior",
+          "return_contract": "a task prompt string with `review_feedback` appended after the base task instructions",
+          "state": "a `review_feedback` value is provided (retry attempt)"
+        },
+        {
+          "id": "02-REQ-1.4",
+          "ears_pattern": "state_driven",
+          "system": "`_build_coder_prompt()`",
+          "action": "prepends the `prior_context` text to the task prompt, preserving existing prior-attempt context injection behavior",
+          "return_contract": "a task prompt string with `prior_context` prepended before the base task instructions",
+          "state": "a `prior_context` value is provided (retry attempt)"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "02-REQ-1.E1",
+          "ears_pattern": "unwanted",
+          "system": "`_build_coder_prompt()`",
+          "action": "logs a warning and falls back to `_render_criteria_context()` to produce the criteria context, then proceeds normally with prompt construction",
+          "return_contract": "a system prompt string built from the ad-hoc criteria context (fallback behavior); no exception propagated to the caller",
+          "error_condition": "`build_afspec_from_triage()` raises an exception due to malformed triage data"
+        }
+      ]
+    },
+    {
+      "id": "02-REQ-2",
+      "title": "Reviewer prompt uses afspec-rendered context",
+      "user_story": {
+        "role": "night-shift fix pipeline",
+        "goal": "build the reviewer's system prompt from the same afspec-rendered sections as the coder",
+        "benefit": "the reviewer verifies the fix against the same structured requirements the coder used, ensuring consistent evaluation"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "02-REQ-2.1",
+          "ears_pattern": "event_driven",
+          "system": "`_build_reviewer_prompt()`",
+          "action": "uses the same `build_afspec_from_triage()` and `render_inmemory_spec_sections()` pipeline to produce the context, and passes the combined `issue body context` plus rendered sections to `build_system_prompt()`",
+          "return_contract": "a system prompt string containing the issue body followed by the afspec-rendered `## Requirements`, `## Test Specification`, and `## Tasks` sections",
+          "trigger": "called with a valid `TriageResult`"
+        },
+        {
+          "id": "02-REQ-2.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`_build_reviewer_prompt()`",
+          "action": "includes a task prompt that instructs the reviewer to verify each acceptance criterion against the structured requirements rendered in the context",
+          "return_contract": "a task prompt string containing instructions to verify each acceptance criterion"
+        },
+        {
+          "id": "02-REQ-2.3",
+          "ears_pattern": "state_driven",
+          "system": "`_build_reviewer_prompt()`",
+          "action": "produces a task prompt containing the fallback message: \"No acceptance criteria were produced by triage. Verify the fix based on the issue description above.\"",
+          "return_contract": "a task prompt string with the exact fallback message for empty triage",
+          "state": "the `TriageResult` contains no acceptance criteria (empty triage)"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "02-REQ-2.E1",
+          "ears_pattern": "unwanted",
+          "system": "`_build_reviewer_prompt()`",
+          "action": "logs a warning and falls back to `_render_criteria_context()` for context construction, then proceeds normally with reviewer prompt construction",
+          "return_contract": "a system prompt string built from the ad-hoc criteria context (fallback behavior); no exception propagated to the caller",
+          "error_condition": "`build_afspec_from_triage()` raises an exception due to malformed triage data"
+        }
+      ]
+    },
+    {
+      "id": "02-REQ-3",
+      "title": "Dead code removal: _render_criteria_context() retained as fallback only",
+      "user_story": {
+        "role": "developer maintaining fix_pipeline.py",
+        "goal": "have `_render_criteria_context()` clearly marked as a fallback rather than a primary code path",
+        "benefit": "the codebase communicates intent clearly, making it obvious the ad-hoc renderer is only for resilience and not the happy path"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "02-REQ-3.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`fix_pipeline.py`",
+          "action": "retains `_render_criteria_context()` as a private function marked with a code comment indicating it is a fallback only, and does not call it on the happy path",
+          "return_contract": null
+        },
+        {
+          "id": "02-REQ-3.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`fix_pipeline.py`",
+          "action": "retains `_render_criteria_section()` because `_format_triage_comment()` still requires it for bold-formatted GitHub triage comments",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "02-REQ-4",
+      "title": "Triage comment format unchanged",
+      "user_story": {
+        "role": "GitHub issue participant",
+        "goal": "continue to receive a human-readable triage report as a GitHub issue comment in the existing bold-formatted layout",
+        "benefit": "the triage comment remains easy to read without being converted to machine-oriented afspec markdown"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "02-REQ-4.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`_format_triage_comment()`",
+          "action": "continues to call `_render_criteria_section()` with `bold=True` and produces the same human-readable GitHub comment format as before this change; afspec rendering is not applied",
+          "return_contract": "a GitHub comment string formatted with bold criteria headings, identical in structure to the pre-change output"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "02-REQ-5",
+      "title": "Reviewer verdict format unchanged",
+      "user_story": {
+        "role": "fix pipeline orchestrator",
+        "goal": "parse the reviewer's JSON verdict report using `parse_fix_review_output` without any changes to the verdict schema",
+        "benefit": "downstream verdict parsing and handling logic requires no modification after the prompt alignment change"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "02-REQ-5.1",
+          "ears_pattern": "ubiquitous",
+          "system": "reviewer agent and `parse_fix_review_output`",
+          "action": "produces and parses a JSON verdict report with the existing `criterion_id`, `verdict`, and `evidence` fields; the `FixReviewResult` dataclass and `parse_fix_review_output` function are not modified",
+          "return_contract": "a `FixReviewResult` with per-criterion verdicts using whatever `criterion_id` values appear in the afspec-rendered context"
+        }
+      ],
+      "edge_cases": []
+    }
+  ],
+  "correctness_properties": [
+    {
+      "id": "02-PROP-1",
+      "title": "Afspec context precedes ad-hoc context on the happy path",
+      "for_any": "invocation of `_build_coder_prompt()` or `_build_reviewer_prompt()` where `build_afspec_from_triage()` succeeds",
+      "invariant": "`_render_criteria_context()` is NOT called; the context passed to `build_system_prompt()` is derived solely from `render_inmemory_spec_sections()`",
+      "validates": [
+        "02-REQ-1.1",
+        "02-REQ-2.1"
+      ]
+    },
+    {
+      "id": "02-PROP-2",
+      "title": "Issue body always precedes spec sections in combined context",
+      "for_any": "invocation of `_build_coder_prompt()` or `_build_reviewer_prompt()` that produces a combined context string",
+      "invariant": "the `issue body context` appears before the afspec-rendered (or fallback) sections in the string passed to `build_system_prompt()`",
+      "validates": [
+        "02-REQ-1.1",
+        "02-REQ-2.1"
+      ]
+    },
+    {
+      "id": "02-PROP-3",
+      "title": "Retry injections always preserved",
+      "for_any": "invocation of `_build_coder_prompt()` with non-empty `review_feedback` or `prior_context`",
+      "invariant": "`review_feedback` appears appended to the task prompt and `prior_context` appears prepended to the task prompt, regardless of whether the afspec or fallback path was taken",
+      "validates": [
+        "02-REQ-1.3",
+        "02-REQ-1.4"
+      ]
+    },
+    {
+      "id": "02-PROP-4",
+      "title": "Triage comment rendering is independent of prompt rendering",
+      "for_any": "any execution of the fix pipeline",
+      "invariant": "`_format_triage_comment()` always calls `_render_criteria_section()` with `bold=True` and never calls `render_inmemory_spec_sections()`",
+      "validates": [
+        "02-REQ-4.1"
+      ]
+    },
+    {
+      "id": "02-PROP-5",
+      "title": "Reviewer verdict schema never changes",
+      "for_any": "any execution of `parse_fix_review_output` after this change",
+      "invariant": "`FixReviewResult` fields (`criterion_id`, `verdict`, `evidence`) are unchanged; `parse_fix_review_output` accepts the reviewer's output without schema validation of `criterion_id` values",
+      "validates": [
+        "02-REQ-5.1"
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "02-PATH-1",
+      "title": "Happy path: coder prompt built with afspec context",
+      "steps": [
+        {
+          "actor": "fix pipeline orchestrator",
+          "action": "invokes `_build_coder_prompt()` with a `TriageResult` containing acceptance criteria"
+        },
+        {
+          "actor": "`_build_coder_prompt()`",
+          "action": "calls `build_afspec_from_triage()` with the spec and triage data, receiving an `afspec Spec`"
+        },
+        {
+          "actor": "`_build_coder_prompt()`",
+          "action": "calls `render_inmemory_spec_sections()` on the `afspec Spec`, receiving a markdown string with `## Requirements`, `## Test Specification`, and `## Tasks` sections"
+        },
+        {
+          "actor": "`_build_coder_prompt()`",
+          "action": "joins the `issue body context` (first) with the rendered sections and passes the combined string to `build_system_prompt(context=...)`"
+        },
+        {
+          "actor": "`_build_coder_prompt()`",
+          "action": "constructs a task prompt containing \"Refer to the tasks subtask list in the context above\" and returns both system and task prompt strings to the orchestrator"
+        },
+        {
+          "actor": "fix pipeline orchestrator",
+          "action": "receives the structured coder prompts and dispatches the coder agent"
+        }
+      ]
+    },
+    {
+      "id": "02-PATH-2",
+      "title": "Fallback path: afspec construction fails, coder uses ad-hoc criteria",
+      "steps": [
+        {
+          "actor": "fix pipeline orchestrator",
+          "action": "invokes `_build_coder_prompt()` with a `TriageResult` whose data is malformed"
+        },
+        {
+          "actor": "`_build_coder_prompt()`",
+          "action": "calls `build_afspec_from_triage()`, which raises an exception"
+        },
+        {
+          "actor": "`_build_coder_prompt()`",
+          "action": "catches the exception, logs a warning, and calls `_render_criteria_context()` to produce the fallback ad-hoc criteria markdown"
+        },
+        {
+          "actor": "`_build_coder_prompt()`",
+          "action": "passes the fallback criteria context to `build_system_prompt()` and returns the prompts to the orchestrator without raising"
+        },
+        {
+          "actor": "fix pipeline orchestrator",
+          "action": "receives the fallback coder prompts and dispatches the coder agent as normal"
+        }
+      ]
+    },
+    {
+      "id": "02-PATH-3",
+      "title": "Happy path: reviewer prompt built with afspec context",
+      "steps": [
+        {
+          "actor": "fix pipeline orchestrator",
+          "action": "invokes `_build_reviewer_prompt()` with a `TriageResult` containing acceptance criteria"
+        },
+        {
+          "actor": "`_build_reviewer_prompt()`",
+          "action": "calls `build_afspec_from_triage()` and `render_inmemory_spec_sections()` using the same pipeline as the coder prompt"
+        },
+        {
+          "actor": "`_build_reviewer_prompt()`",
+          "action": "joins the `issue body context` with the rendered sections and passes the combined context to `build_system_prompt()`"
+        },
+        {
+          "actor": "`_build_reviewer_prompt()`",
+          "action": "constructs a task prompt instructing the reviewer to verify each acceptance criterion and returns both prompts"
+        },
+        {
+          "actor": "fix pipeline orchestrator",
+          "action": "dispatches the reviewer agent with the structured prompts; reviewer returns a JSON verdict report parsed by `parse_fix_review_output`"
+        }
+      ]
+    },
+    {
+      "id": "02-PATH-4",
+      "title": "Empty triage: reviewer receives fallback message",
+      "steps": [
+        {
+          "actor": "fix pipeline orchestrator",
+          "action": "invokes `_build_reviewer_prompt()` with a `TriageResult` that has no acceptance criteria"
+        },
+        {
+          "actor": "`_build_reviewer_prompt()`",
+          "action": "detects that the `TriageResult` contains no acceptance criteria"
+        },
+        {
+          "actor": "`_build_reviewer_prompt()`",
+          "action": "constructs a task prompt containing the fallback message: \"No acceptance criteria were produced by triage. Verify the fix based on the issue description above.\""
+        },
+        {
+          "actor": "fix pipeline orchestrator",
+          "action": "receives the reviewer prompts with the fallback task message and dispatches the reviewer agent"
+        }
+      ]
+    },
+    {
+      "id": "02-PATH-5",
+      "title": "Triage comment posted to GitHub with unchanged format",
+      "steps": [
+        {
+          "actor": "fix pipeline orchestrator",
+          "action": "invokes `_format_triage_comment()` with a `TriageResult` to generate a GitHub comment"
+        },
+        {
+          "actor": "`_format_triage_comment()`",
+          "action": "calls `_render_criteria_section()` with `bold=True` to produce bold-formatted acceptance criteria text"
+        },
+        {
+          "actor": "`_format_triage_comment()`",
+          "action": "returns the human-readable comment string, which the orchestrator posts to the GitHub issue"
+        }
+      ]
+    }
+  ],
+  "error_handling": [
+    {
+      "id": "02-ERR-1",
+      "condition": "`build_afspec_from_triage()` raises an exception (e.g. due to malformed or missing fields in `TriageResult`) when called from `_build_coder_prompt()`",
+      "behavior": "catch the exception, emit a warning-level log entry describing the failure, call `_render_criteria_context()` to generate the fallback ad-hoc criteria context, and continue prompt construction without propagating the exception",
+      "requirement_id": "02-REQ-1.E1"
+    },
+    {
+      "id": "02-ERR-2",
+      "condition": "`build_afspec_from_triage()` raises an exception when called from `_build_reviewer_prompt()`",
+      "behavior": "catch the exception, emit a warning-level log entry, call `_render_criteria_context()` to generate the fallback ad-hoc criteria context, and continue reviewer prompt construction without propagating the exception",
+      "requirement_id": "02-REQ-2.E1"
+    }
+  ]
+}
