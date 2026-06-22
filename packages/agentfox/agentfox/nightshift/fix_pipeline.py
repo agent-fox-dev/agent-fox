@@ -668,7 +668,13 @@ class FixPipeline:
         return system_prompt, task_prompt
 
     def _render_criteria_context(self, triage: TriageResult) -> str:
-        """Render triage criteria as structured context text."""
+        """Render triage criteria as structured context text.
+
+        .. note:: Fallback only — this function is retained for resilience
+           when ``build_afspec_from_triage`` raises.  It must NOT be called
+           on the happy path; all happy-path context rendering goes through
+           ``build_afspec_from_triage`` + ``render_inmemory_spec_sections``.
+        """
         if not triage.criteria:
             return ""
 

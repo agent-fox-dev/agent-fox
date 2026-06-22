@@ -448,7 +448,6 @@ class TestFallbackOnAfspecFailure:
 class TestStaticAnalysis:
     """Static inspection of fix_pipeline.py source code."""
 
-    @pytest.mark.xfail(reason="Pending spec 02: no fallback comment, called on happy path")
     def test_ts_02_8_render_criteria_context_is_fallback_only(self) -> None:
         """_render_criteria_context has fallback comment, only in except blocks.
 
