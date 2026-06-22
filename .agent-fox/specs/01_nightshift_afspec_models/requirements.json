@@ -1,0 +1,480 @@
+{
+  "$schema": null,
+  "spec_id": "01",
+  "spec_name": "nightshift_afspec_models",
+  "schema_version": 1,
+  "introduction": "This spec defines the data-model construction and rendering logic that enables the night-shift fix pipeline to build afspec `Spec` objects in memory from `TriageResult` output, giving night-shift coders the same structured context format (EARS requirements, test contracts, task groups) produced by the `code` command.",
+  "glossary": {
+    "AcceptanceCriterion": "A single criterion inside a TriageResult, with fields: id, description, preconditions, expected, and assertion.",
+    "InMemorySpec": "A wrapper type in agentfox.nightshift.spec_builder that holds a fully constructed afspec Spec object without any on-disk representation.",
+    "NS-REQ": "The requirement ID prefix used for night-shift in-memory requirements (e.g. NS-REQ-1).",
+    "PRDDocument": "The afspec Pydantic model representing the product requirements document metadata and body attached to a Spec.",
+    "PRDFrontmatter": "The metadata section of a PRDDocument, containing spec_id and spec_name fields.",
+    "Requirement": "A single afspec requirement entry with id, title, user_story, acceptance_criteria, and edge_cases fields.",
+    "Requirements": "The afspec Pydantic model that holds a list of Requirement objects.",
+    "Spec": "The top-level afspec Pydantic model that aggregates Requirements, TestSpec, Tasks, and a PRDDocument into a single structured object.",
+    "Subtask": "An individual work item within a TaskGroup, with id, title, details, state, test_spec_refs, and requirement_refs fields.",
+    "SubtaskState": "An enum used to track the current state of a Subtask (e.g. PENDING, DONE).",
+    "TS-NS": "The test case ID prefix used for night-shift in-memory test cases (e.g. TS-NS-1).",
+    "TaskGroup": "A group of Subtask objects under a shared kind and title within the afspec Tasks model.",
+    "Tasks": "The afspec Pydantic model that holds a list of TaskGroup objects.",
+    "TestCase": "A single afspec test case with id, requirement_id, description, preconditions, expected, assertion_pseudocode, input, and kind fields.",
+    "TestSpec": "The afspec Pydantic model that holds a list of TestCase objects.",
+    "TriageResult": "The output object produced by the night-shift triage agent, containing a list of AcceptanceCriterion objects derived from a GitHub issue.",
+    "_render_spec_sections": "The existing disk-based rendering function in session/context.py that loads a Spec from disk and produces markdown sections.",
+    "afspec": "The internal Python library providing Pydantic models (Spec, Requirements, TestSpec, Tasks, etc.) and rendering utilities for structured specifications.",
+    "assemble_context": "The function in session/context.py that aggregates rendered spec sections and other context for the coder's system prompt.",
+    "build_afspec_from_triage": "The adapter function defined in nightshift/spec_builder.py that converts a TriageResult into an in-memory afspec Spec.",
+    "build_system_prompt": "The function that takes assembled context and constructs the final system prompt string injected into the coder agent.",
+    "fix-{issue_number}": "The spec_id pattern used for ephemeral night-shift specs (e.g. fix-42).",
+    "issue_number": "The numeric identifier of the GitHub issue being fixed in a night-shift session.",
+    "render_individual": "The afspec library function that accepts an in-memory Spec object and returns rendered markdown sections.",
+    "render_inmemory_spec_sections": "The extracted rendering function in session/context.py that converts an in-memory Spec to markdown section strings.",
+    "requirements": "The afspec JSON artifact containing EARS-patterned requirements.",
+    "prd": "Product requirements document (prd.md with YAML frontmatter).",
+    "tasks": "The afspec JSON artifact containing task groups and subtasks.",
+    "test_spec": "The afspec JSON artifact containing test contracts.",
+    "Requirement.id": "The unique identifier field of an afspec Requirement (e.g. NS-REQ-1).",
+    "AcceptanceCriterion.id": "The unique identifier field of a triage AcceptanceCriterion (e.g. AC-1).",
+    "AcceptanceCriterion.description": "The description field of a triage AcceptanceCriterion.",
+    "Requirement.title": "The title field of an afspec Requirement.",
+    "Requirement.user_story": "The user_story field of an afspec Requirement.",
+    "AcceptanceCriterion.preconditions": "The preconditions field of a triage AcceptanceCriterion.",
+    "AcceptanceCriterion.expected": "The expected outcome field of a triage AcceptanceCriterion.",
+    "Requirement.acceptance_criteria": "The acceptance_criteria list field of an afspec Requirement.",
+    "Requirement.edge_cases": "The edge_cases list field of an afspec Requirement.",
+    "TestCase.id": "The unique identifier field of an afspec TestCase (e.g. TS-NS-1).",
+    "TestCase.requirement_id": "The requirement_id field linking an afspec TestCase to its Requirement.",
+    "NS-REQ-{N}": "The ID pattern for night-shift requirements where N is a sequential number.",
+    "AcceptanceCriterion.assertion": "The assertion field of a triage AcceptanceCriterion.",
+    "TestCase.description": "The description field of an afspec TestCase.",
+    "TestCase.preconditions": "The preconditions field of an afspec TestCase.",
+    "TestCase.expected": "The expected outcome field of an afspec TestCase.",
+    "TestCase.assertion_pseudocode": "The assertion_pseudocode field of an afspec TestCase.",
+    "TestCase.input": "The input field of an afspec TestCase (empty string when not applicable).",
+    "TestCase.kind": "The kind field of an afspec TestCase (e.g. acceptance).",
+    "SubtaskState.PENDING": "The PENDING variant of the SubtaskState enum, indicating a subtask has not started.",
+    "TS-NS-{N}": "The ID pattern for night-shift test cases where N is a sequential number.",
+    "render_individual(spec)": "The afspec function that renders a Spec into per-artifact markdown strings.",
+    "afspec.save()": "The afspec function that persists a Spec to disk (not used in this spec).",
+    "afspec.load_spec()": "The afspec function that loads a Spec from a disk directory (not used in this spec).",
+    "render_inmemory_spec_sections(spec)": "The new public function that renders an in-memory Spec to markdown sections."
+  },
+  "requirements": [
+    {
+      "id": "01-REQ-1",
+      "title": "build_afspec_from_triage adapter function",
+      "user_story": {
+        "role": "night-shift fix pipeline",
+        "goal": "call build_afspec_from_triage(triage_result, issue_number) and receive a fully populated in-memory afspec Spec",
+        "benefit": "the coder agent receives the same structured EARS requirements, test contracts, and task groups that the code command produces from on-disk specs"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-1.1",
+          "ears_pattern": "ubiquitous",
+          "system": "build_afspec_from_triage",
+          "action": "return an afspec `Spec` object whose `requirements`, `test_spec`, `tasks`, and `prd` fields are all populated from the provided `TriageResult` and `issue_number`",
+          "return_contract": "afspec Spec instance (in-memory, no file I/O performed)"
+        },
+        {
+          "id": "01-REQ-1.2",
+          "ears_pattern": "ubiquitous",
+          "system": "build_afspec_from_triage",
+          "action": "perform no file system reads or writes, no calls to afspec.load_spec() or afspec.save(), and no disk I/O of any kind",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-1.3",
+          "ears_pattern": "ubiquitous",
+          "system": "build_afspec_from_triage",
+          "action": "be importable from agentfox.nightshift.spec_builder and have the signature build_afspec_from_triage(triage_result: TriageResult, issue_number: int) -> Spec",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "01-REQ-1.E1",
+          "ears_pattern": "unwanted",
+          "system": "build_afspec_from_triage",
+          "action": "return a `Spec` with empty `Requirements` and `TestSpec` collections and a single `TaskGroup` containing one `Subtask` titled \"Fix the issue\"",
+          "return_contract": "Spec instance with empty requirements and test_spec; tasks contains exactly one TaskGroup with one Subtask",
+          "error_condition": "`TriageResult` contains an empty criteria list"
+        },
+        {
+          "id": "01-REQ-1.E2",
+          "ears_pattern": "unwanted",
+          "system": "build_afspec_from_triage",
+          "action": "substitute an empty string for that field rather than raising an exception",
+          "return_contract": "Spec instance constructed successfully with empty-string defaults for missing fields",
+          "error_condition": "any field of an `AcceptanceCriterion` (description, preconditions, expected, assertion) is None or empty string"
+        }
+      ]
+    },
+    {
+      "id": "01-REQ-2",
+      "title": "Requirement mapping from AcceptanceCriterion",
+      "user_story": {
+        "role": "night-shift fix pipeline",
+        "goal": "have each AcceptanceCriterion translated into a correctly mapped afspec Requirement",
+        "benefit": "the coder sees EARS-structured requirements that mirror exactly the triage findings"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-2.1",
+          "ears_pattern": "ubiquitous",
+          "system": "build_afspec_from_triage",
+          "action": "map each `AcceptanceCriterion.id` (e.g. \"AC-1\") to a `Requirement.id` using the pattern \"NS-REQ-{N}\" where N is the 1-based index of the criterion",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-2.2",
+          "ears_pattern": "ubiquitous",
+          "system": "build_afspec_from_triage",
+          "action": "set `Requirement.title` to `AcceptanceCriterion.description`",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-2.3",
+          "ears_pattern": "ubiquitous",
+          "system": "build_afspec_from_triage",
+          "action": "set `Requirement.user_story` to the criterion description verbatim, without any template or LLM call",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-2.4",
+          "ears_pattern": "ubiquitous",
+          "system": "build_afspec_from_triage",
+          "action": "set `Requirement.acceptance_criteria` to a list containing exactly one entry derived from `AcceptanceCriterion.preconditions` and `AcceptanceCriterion.expected`",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-2.5",
+          "ears_pattern": "ubiquitous",
+          "system": "build_afspec_from_triage",
+          "action": "set `Requirement.edge_cases` to an empty list for every mapped criterion",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "01-REQ-3",
+      "title": "TestCase derivation from AcceptanceCriterion",
+      "user_story": {
+        "role": "night-shift fix pipeline",
+        "goal": "have each AcceptanceCriterion produce a corresponding TestCase in the afspec TestSpec",
+        "benefit": "the coder receives actionable test contracts without a separate test-generation step"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-3.1",
+          "ears_pattern": "ubiquitous",
+          "system": "build_afspec_from_triage",
+          "action": "map each `AcceptanceCriterion` to exactly one `TestCase` in `TestSpec`",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-3.2",
+          "ears_pattern": "ubiquitous",
+          "system": "build_afspec_from_triage",
+          "action": "set `TestCase.id` using the pattern \"TS-NS-{N}\" where N matches the 1-based criterion index",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-3.3",
+          "ears_pattern": "ubiquitous",
+          "system": "build_afspec_from_triage",
+          "action": "set `TestCase.requirement_id` to the corresponding `NS-REQ-{N}` identifier for the same criterion",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-3.4",
+          "ears_pattern": "ubiquitous",
+          "system": "build_afspec_from_triage",
+          "action": "set `TestCase.description` to `AcceptanceCriterion.description`, `TestCase.preconditions` to `AcceptanceCriterion.preconditions`, `TestCase.expected` to `AcceptanceCriterion.expected`, and `TestCase.assertion_pseudocode` to `AcceptanceCriterion.assertion`",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-3.5",
+          "ears_pattern": "ubiquitous",
+          "system": "build_afspec_from_triage",
+          "action": "set `TestCase.input` to empty string and `TestCase.kind` to the string \"acceptance\" for every derived test case",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "01-REQ-4",
+      "title": "TaskGroup and Subtask construction",
+      "user_story": {
+        "role": "night-shift fix pipeline",
+        "goal": "have build_afspec_from_triage produce a single TaskGroup with one Subtask per criterion",
+        "benefit": "the coder sees a flat, actionable task list aligned with the issue being fixed"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-4.1",
+          "ears_pattern": "ubiquitous",
+          "system": "build_afspec_from_triage",
+          "action": "create exactly one `TaskGroup` with id=1, kind=\"tests\", and title=\"Fix issue #{issue_number}\"",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-4.2",
+          "ears_pattern": "ubiquitous",
+          "system": "build_afspec_from_triage",
+          "action": "create one `Subtask` per `AcceptanceCriterion` with id \"1.N\" (1-based sequential), title equal to the criterion description, details list containing preconditions, expected, and assertion, state set to `SubtaskState.PENDING`, test_spec_refs referencing the corresponding `TS-NS-{N}` id, and requirement_refs referencing the corresponding `NS-REQ-{N}` id",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "01-REQ-4.E1",
+          "ears_pattern": "unwanted",
+          "system": "build_afspec_from_triage",
+          "action": "create a single `TaskGroup` containing one `Subtask` with title \"Fix the issue\", empty details, state `SubtaskState.PENDING`, and no test_spec_refs or requirement_refs",
+          "return_contract": null,
+          "error_condition": "`TriageResult` has no criteria"
+        }
+      ]
+    },
+    {
+      "id": "01-REQ-5",
+      "title": "PRDDocument construction from issue metadata",
+      "user_story": {
+        "role": "night-shift fix pipeline",
+        "goal": "have a minimal PRDDocument attached to the in-memory Spec",
+        "benefit": "rendering functions that expect a complete Spec structure receive valid metadata without requiring persisted spec files"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-5.1",
+          "ears_pattern": "ubiquitous",
+          "system": "build_afspec_from_triage",
+          "action": "construct a `PRDDocument` with `PRDFrontmatter` where spec_id=\"fix-{issue_number}\" and spec_name=\"fix_issue_{issue_number}\", and body equal to the sanitized issue body text from the `TriageResult`",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-5.2",
+          "ears_pattern": "ubiquitous",
+          "system": "build_afspec_from_triage",
+          "action": "leave optional PRDDocument fields (status, created_at, owner, etc.) at their Pydantic defaults \u2014 do not populate them",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "01-REQ-6",
+      "title": "render_inmemory_spec_sections function",
+      "user_story": {
+        "role": "session context assembler",
+        "goal": "call render_inmemory_spec_sections(spec) and receive the same markdown section list that _render_spec_sections() produces for on-disk specs",
+        "benefit": "night-shift coders receive identically formatted structured context without code duplication between the disk-based and in-memory paths"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-6.1",
+          "ears_pattern": "ubiquitous",
+          "system": "render_inmemory_spec_sections",
+          "action": "accept a single `Spec` argument and return a list of markdown section strings by delegating to `render_individual(spec)`",
+          "return_contract": "list[str] \u2014 one string per rendered markdown section (## Requirements, ## Test Specification, ## Tasks)"
+        },
+        {
+          "id": "01-REQ-6.2",
+          "ears_pattern": "ubiquitous",
+          "system": "render_inmemory_spec_sections",
+          "action": "perform no file system reads or writes during rendering",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-6.3",
+          "ears_pattern": "ubiquitous",
+          "system": "_render_spec_sections",
+          "action": "be refactored to call `render_inmemory_spec_sections` internally after loading the `Spec` from disk, eliminating duplicated rendering logic",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "01-REQ-6.E1",
+          "ears_pattern": "unwanted",
+          "system": "render_inmemory_spec_sections",
+          "action": "propagate the exception to the caller without swallowing or wrapping it",
+          "return_contract": "exception propagated as-is",
+          "error_condition": "`render_individual` raises an exception for any reason"
+        }
+      ]
+    },
+    {
+      "id": "01-REQ-7",
+      "title": "ID consistency between Requirements, TestSpec, and Tasks",
+      "user_story": {
+        "role": "night-shift fix pipeline",
+        "goal": "have all cross-references between Requirement ids, TestCase ids, and Subtask refs use consistent NS-REQ-{N} and TS-NS-{N} patterns",
+        "benefit": "rendering and downstream tooling can reliably cross-reference requirements, tests, and tasks"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-7.1",
+          "ears_pattern": "ubiquitous",
+          "system": "build_afspec_from_triage",
+          "action": "ensure that for every criterion at index N, the Requirement id \"NS-REQ-{N}\", the TestCase id \"TS-NS-{N}\", and the Subtask id \"1.N\" all refer to the same source AcceptanceCriterion",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-7.2",
+          "ears_pattern": "ubiquitous",
+          "system": "build_afspec_from_triage",
+          "action": "set each Subtask's test_spec_refs to [\"TS-NS-{N}\"] and requirement_refs to [\"NS-REQ-{N}\"] for its corresponding criterion index N",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    }
+  ],
+  "correctness_properties": [
+    {
+      "id": "01-PROP-1",
+      "title": "Criterion count equals Requirement count equals TestCase count",
+      "for_any": "TriageResult with N criteria (N >= 1)",
+      "invariant": "the returned `Spec` has exactly N `Requirement` objects in `Requirements`, exactly N `TestCase` objects in `TestSpec`, and exactly N `Subtask` objects in the single `TaskGroup`",
+      "validates": [
+        "01-REQ-2.1",
+        "01-REQ-3.1",
+        "01-REQ-4.2"
+      ]
+    },
+    {
+      "id": "01-PROP-2",
+      "title": "Cross-reference consistency across all IDs",
+      "for_any": "criterion at 1-based index N in a TriageResult",
+      "invariant": "Requirement.id == \"NS-REQ-{N}\", TestCase.id == \"TS-NS-{N}\", TestCase.requirement_id == \"NS-REQ-{N}\", Subtask.id == \"1.N\", Subtask.test_spec_refs == [\"TS-NS-{N}\"], and Subtask.requirement_refs == [\"NS-REQ-{N}\"]",
+      "validates": [
+        "01-REQ-2.1",
+        "01-REQ-3.2",
+        "01-REQ-3.3",
+        "01-REQ-7.1",
+        "01-REQ-7.2"
+      ]
+    },
+    {
+      "id": "01-PROP-3",
+      "title": "No file I/O performed during Spec construction or rendering",
+      "for_any": "any call to `build_afspec_from_triage` or `render_inmemory_spec_sections`",
+      "invariant": "no file system reads or writes occur; no calls to `afspec.load_spec()` or `afspec.save()` are made",
+      "validates": [
+        "01-REQ-1.2",
+        "01-REQ-6.2"
+      ]
+    },
+    {
+      "id": "01-PROP-4",
+      "title": "render_inmemory_spec_sections output is identical to _render_spec_sections for the same Spec",
+      "for_any": "any `Spec` object loaded from disk by `_render_spec_sections`",
+      "invariant": "the markdown section list returned by `render_inmemory_spec_sections(spec)` is equal to the list that `_render_spec_sections` returned for that same spec before refactoring",
+      "validates": [
+        "01-REQ-6.1",
+        "01-REQ-6.3"
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "01-PATH-1",
+      "title": "Happy-path triage-to-spec conversion and rendering",
+      "steps": [
+        {
+          "actor": "Night-shift fix pipeline",
+          "action": "calls build_afspec_from_triage(triage_result, issue_number) with a TriageResult containing one or more AcceptanceCriterion objects"
+        },
+        {
+          "actor": "build_afspec_from_triage",
+          "action": "iterates over criteria, constructing NS-REQ-{N} Requirement objects, TS-NS-{N} TestCase objects, and 1.N Subtask objects, then assembles a Spec with PRDDocument"
+        },
+        {
+          "actor": "build_afspec_from_triage",
+          "action": "returns the fully populated in-memory Spec to the caller without touching the file system"
+        },
+        {
+          "actor": "Night-shift fix pipeline",
+          "action": "passes the Spec to render_inmemory_spec_sections(spec)"
+        },
+        {
+          "actor": "render_inmemory_spec_sections",
+          "action": "calls render_individual(spec) and returns a list of markdown section strings (## Requirements, ## Test Specification, ## Tasks)"
+        },
+        {
+          "actor": "assemble_context",
+          "action": "injects the returned markdown sections into the coder's system prompt via build_system_prompt"
+        }
+      ]
+    },
+    {
+      "id": "01-PATH-2",
+      "title": "Empty criteria fallback path",
+      "steps": [
+        {
+          "actor": "Night-shift fix pipeline",
+          "action": "calls build_afspec_from_triage(triage_result, issue_number) where triage_result has an empty criteria list"
+        },
+        {
+          "actor": "build_afspec_from_triage",
+          "action": "detects empty criteria list and constructs a Spec with empty Requirements and TestSpec, and a single TaskGroup with one Subtask titled \"Fix the issue\""
+        },
+        {
+          "actor": "build_afspec_from_triage",
+          "action": "returns the fallback Spec to the caller"
+        },
+        {
+          "actor": "Night-shift fix pipeline",
+          "action": "passes the fallback Spec to render_inmemory_spec_sections(spec), which returns minimal markdown sections for the coder prompt"
+        }
+      ]
+    },
+    {
+      "id": "01-PATH-3",
+      "title": "Disk-based rendering refactored to reuse render_inmemory_spec_sections",
+      "steps": [
+        {
+          "actor": "code command",
+          "action": "triggers _render_spec_sections() to render a spec loaded from disk"
+        },
+        {
+          "actor": "_render_spec_sections",
+          "action": "loads the Spec from disk via afspec.load_spec() and then delegates rendering to render_inmemory_spec_sections(spec)"
+        },
+        {
+          "actor": "render_inmemory_spec_sections",
+          "action": "calls render_individual(spec) and returns the markdown section list"
+        },
+        {
+          "actor": "_render_spec_sections",
+          "action": "returns the markdown sections to assemble_context, producing identical output to the pre-refactor behavior"
+        }
+      ]
+    }
+  ],
+  "error_handling": [
+    {
+      "id": "01-ERR-1",
+      "condition": "TriageResult.criteria is empty",
+      "behavior": "Return a Spec with empty Requirements and TestSpec and a single TaskGroup containing one Subtask titled \"Fix the issue\" with SubtaskState.PENDING",
+      "requirement_id": "01-REQ-1.E1"
+    },
+    {
+      "id": "01-ERR-2",
+      "condition": "Any AcceptanceCriterion field (description, preconditions, expected, assertion) is None or empty string",
+      "behavior": "Substitute an empty string for the missing field value and continue constructing the Spec without raising an exception",
+      "requirement_id": "01-REQ-1.E2"
+    },
+    {
+      "id": "01-ERR-3",
+      "condition": "render_individual raises an exception during render_inmemory_spec_sections",
+      "behavior": "Propagate the exception to the caller as-is without swallowing or wrapping it",
+      "requirement_id": "01-REQ-6.E1"
+    }
+  ]
+}

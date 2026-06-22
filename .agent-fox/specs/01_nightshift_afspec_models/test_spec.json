@@ -1,0 +1,841 @@
+{
+  "$schema": null,
+  "spec_id": "01",
+  "spec_name": "nightshift_afspec_models",
+  "schema_version": 1,
+  "test_cases": [
+    {
+      "id": "TS-01-1",
+      "requirement_id": "01-REQ-1.1",
+      "kind": "acceptance",
+      "description": "Verify that build_afspec_from_triage returns a fully populated Spec with all four top-level fields set when given a valid TriageResult.",
+      "preconditions": [
+        "agentfox.nightshift.spec_builder is importable",
+        "A TriageResult with at least one AcceptanceCriterion is constructed in memory"
+      ],
+      "input": {
+        "issue_number": 42,
+        "triage_result": {
+          "criteria": [
+            {
+              "assertion": "assert response.status_code == 200",
+              "description": "System returns 200 on valid input",
+              "expected": "HTTP 200 response",
+              "id": "AC-1",
+              "preconditions": [
+                "Service is running"
+              ]
+            }
+          ],
+          "issue_body": "Fix the endpoint"
+        }
+      },
+      "expected": "Returned object is an afspec Spec instance; spec.requirements is a Requirements object with one Requirement; spec.test_spec is a TestSpec object with one TestCase; spec.tasks is a Tasks object with one TaskGroup; spec.prd is a PRDDocument instance — all fields populated, no exceptions raised.",
+      "assertion_pseudocode": "spec = build_afspec_from_triage(triage_result, 42)\nassert isinstance(spec, Spec)\nassert spec.requirements is not None\nassert spec.test_spec is not None\nassert spec.tasks is not None\nassert spec.prd is not None\nassert len(spec.requirements.items) == 1\nassert len(spec.test_spec.items) == 1\nassert len(spec.tasks.groups) == 1"
+    },
+    {
+      "id": "TS-01-2",
+      "requirement_id": "01-REQ-1.2",
+      "kind": "acceptance",
+      "description": "Verify that build_afspec_from_triage performs no file system access, no afspec.load_spec() calls, and no afspec.save() calls.",
+      "preconditions": [
+        "agentfox.nightshift.spec_builder is importable",
+        "File system monitoring or mock patching is available (e.g. unittest.mock.patch on builtins.open, afspec.load_spec, afspec.save)"
+      ],
+      "input": {
+        "issue_number": 1,
+        "triage_result": {
+          "criteria": [
+            {
+              "assertion": "assert True",
+              "description": "Test criterion",
+              "expected": "pass",
+              "id": "AC-1",
+              "preconditions": []
+            }
+          ],
+          "issue_body": "body"
+        }
+      },
+      "expected": "No calls to builtins.open, afspec.load_spec, or afspec.save occur during the call; the function returns successfully.",
+      "assertion_pseudocode": "with patch('builtins.open') as mock_open, patch('afspec.load_spec') as mock_load, patch('afspec.save') as mock_save:\n    spec = build_afspec_from_triage(triage_result, 1)\n    assert mock_open.call_count == 0\n    assert mock_load.call_count == 0\n    assert mock_save.call_count == 0\n    assert spec is not None"
+    },
+    {
+      "id": "TS-01-3",
+      "requirement_id": "01-REQ-1.3",
+      "kind": "acceptance",
+      "description": "Verify that build_afspec_from_triage is importable from agentfox.nightshift.spec_builder and has the correct signature.",
+      "preconditions": [
+        "agentfox.nightshift.spec_builder module exists on the Python path"
+      ],
+      "input": {},
+      "expected": "Import succeeds; inspect.signature reveals parameters (triage_result: TriageResult, issue_number: int) and return annotation Spec.",
+      "assertion_pseudocode": "from agentfox.nightshift.spec_builder import build_afspec_from_triage\nimport inspect\nsig = inspect.signature(build_afspec_from_triage)\nparams = list(sig.parameters.keys())\nassert 'triage_result' in params\nassert 'issue_number' in params\nassert sig.parameters['issue_number'].annotation == int\nassert sig.return_annotation == Spec"
+    },
+    {
+      "id": "TS-01-4",
+      "requirement_id": "01-REQ-2.1",
+      "kind": "acceptance",
+      "description": "Verify that each AcceptanceCriterion.id is mapped to a Requirement.id using the pattern NS-REQ-{N} with 1-based indexing.",
+      "preconditions": [
+        "agentfox.nightshift.spec_builder is importable",
+        "TriageResult with three AcceptanceCriterion objects is constructed in memory"
+      ],
+      "input": {
+        "issue_number": 7,
+        "triage_result": {
+          "criteria": [
+            {
+              "assertion": "a1",
+              "description": "Criterion one",
+              "expected": "e1",
+              "id": "AC-1",
+              "preconditions": []
+            },
+            {
+              "assertion": "a2",
+              "description": "Criterion two",
+              "expected": "e2",
+              "id": "AC-2",
+              "preconditions": []
+            },
+            {
+              "assertion": "a3",
+              "description": "Criterion three",
+              "expected": "e3",
+              "id": "AC-3",
+              "preconditions": []
+            }
+          ],
+          "issue_body": "body"
+        }
+      },
+      "expected": "spec.requirements.items[0].id == 'NS-REQ-1', spec.requirements.items[1].id == 'NS-REQ-2', spec.requirements.items[2].id == 'NS-REQ-3'.",
+      "assertion_pseudocode": "spec = build_afspec_from_triage(triage_result, 7)\nreqs = spec.requirements.items\nassert reqs[0].id == 'NS-REQ-1'\nassert reqs[1].id == 'NS-REQ-2'\nassert reqs[2].id == 'NS-REQ-3'"
+    },
+    {
+      "id": "TS-01-5",
+      "requirement_id": "01-REQ-2.2",
+      "kind": "acceptance",
+      "description": "Verify that Requirement.title is set to the AcceptanceCriterion.description.",
+      "preconditions": [
+        "agentfox.nightshift.spec_builder is importable",
+        "TriageResult with one AcceptanceCriterion is constructed in memory"
+      ],
+      "input": {
+        "issue_number": 5,
+        "triage_result": {
+          "criteria": [
+            {
+              "assertion": "assert no error",
+              "description": "System handles large payloads gracefully",
+              "expected": "no error",
+              "id": "AC-1",
+              "preconditions": []
+            }
+          ],
+          "issue_body": "body"
+        }
+      },
+      "expected": "spec.requirements.items[0].title == 'System handles large payloads gracefully'.",
+      "assertion_pseudocode": "spec = build_afspec_from_triage(triage_result, 5)\nassert spec.requirements.items[0].title == 'System handles large payloads gracefully'"
+    },
+    {
+      "id": "TS-01-6",
+      "requirement_id": "01-REQ-2.3",
+      "kind": "acceptance",
+      "description": "Verify that Requirement.user_story is set verbatim to the criterion description with no templating or LLM call.",
+      "preconditions": [
+        "agentfox.nightshift.spec_builder is importable",
+        "TriageResult with one AcceptanceCriterion is constructed in memory"
+      ],
+      "input": {
+        "issue_number": 10,
+        "triage_result": {
+          "criteria": [
+            {
+              "assertion": "assert page == dashboard",
+              "description": "User can log in with valid credentials",
+              "expected": "dashboard shown",
+              "id": "AC-1",
+              "preconditions": []
+            }
+          ],
+          "issue_body": "body"
+        }
+      },
+      "expected": "spec.requirements.items[0].user_story == 'User can log in with valid credentials' (exact string match, no wrapping or transformation).",
+      "assertion_pseudocode": "spec = build_afspec_from_triage(triage_result, 10)\nassert spec.requirements.items[0].user_story == 'User can log in with valid credentials'"
+    },
+    {
+      "id": "TS-01-7",
+      "requirement_id": "01-REQ-2.4",
+      "kind": "acceptance",
+      "description": "Verify that Requirement.acceptance_criteria is a list with exactly one entry combining preconditions and expected from the AcceptanceCriterion.",
+      "preconditions": [
+        "agentfox.nightshift.spec_builder is importable",
+        "TriageResult with one AcceptanceCriterion having non-empty preconditions and expected is constructed in memory"
+      ],
+      "input": {
+        "issue_number": 3,
+        "triage_result": {
+          "criteria": [
+            {
+              "assertion": "assert status == 200",
+              "description": "desc",
+              "expected": "200 OK",
+              "id": "AC-1",
+              "preconditions": [
+                "Server running",
+                "DB seeded"
+              ]
+            }
+          ],
+          "issue_body": "body"
+        }
+      },
+      "expected": "len(spec.requirements.items[0].acceptance_criteria) == 1; the entry contains data derived from preconditions ['Server running', 'DB seeded'] and expected '200 OK'.",
+      "assertion_pseudocode": "spec = build_afspec_from_triage(triage_result, 3)\nac_list = spec.requirements.items[0].acceptance_criteria\nassert len(ac_list) == 1\nac_entry = ac_list[0]\n# entry must incorporate precondition and expected content\nassert 'Server running' in str(ac_entry) or ac_entry.preconditions == ['Server running', 'DB seeded']\nassert '200 OK' in str(ac_entry) or ac_entry.expected == '200 OK'"
+    },
+    {
+      "id": "TS-01-8",
+      "requirement_id": "01-REQ-2.5",
+      "kind": "acceptance",
+      "description": "Verify that Requirement.edge_cases is an empty list for every mapped criterion.",
+      "preconditions": [
+        "agentfox.nightshift.spec_builder is importable",
+        "TriageResult with two AcceptanceCriterion objects is constructed in memory"
+      ],
+      "input": {
+        "issue_number": 9,
+        "triage_result": {
+          "criteria": [
+            {
+              "assertion": "a1",
+              "description": "d1",
+              "expected": "e1",
+              "id": "AC-1",
+              "preconditions": []
+            },
+            {
+              "assertion": "a2",
+              "description": "d2",
+              "expected": "e2",
+              "id": "AC-2",
+              "preconditions": []
+            }
+          ],
+          "issue_body": "body"
+        }
+      },
+      "expected": "spec.requirements.items[0].edge_cases == [] and spec.requirements.items[1].edge_cases == [].",
+      "assertion_pseudocode": "spec = build_afspec_from_triage(triage_result, 9)\nfor req in spec.requirements.items:\n    assert req.edge_cases == []"
+    },
+    {
+      "id": "TS-01-9",
+      "requirement_id": "01-REQ-3.1",
+      "kind": "acceptance",
+      "description": "Verify that each AcceptanceCriterion produces exactly one TestCase in the TestSpec.",
+      "preconditions": [
+        "agentfox.nightshift.spec_builder is importable",
+        "TriageResult with three AcceptanceCriterion objects is constructed in memory"
+      ],
+      "input": {
+        "issue_number": 11,
+        "triage_result": {
+          "criteria": [
+            {
+              "assertion": "a1",
+              "description": "d1",
+              "expected": "e1",
+              "id": "AC-1",
+              "preconditions": []
+            },
+            {
+              "assertion": "a2",
+              "description": "d2",
+              "expected": "e2",
+              "id": "AC-2",
+              "preconditions": []
+            },
+            {
+              "assertion": "a3",
+              "description": "d3",
+              "expected": "e3",
+              "id": "AC-3",
+              "preconditions": []
+            }
+          ],
+          "issue_body": "body"
+        }
+      },
+      "expected": "len(spec.test_spec.items) == 3.",
+      "assertion_pseudocode": "spec = build_afspec_from_triage(triage_result, 11)\nassert len(spec.test_spec.items) == 3"
+    },
+    {
+      "id": "TS-01-10",
+      "requirement_id": "01-REQ-3.2",
+      "kind": "acceptance",
+      "description": "Verify that TestCase.id follows the pattern TS-NS-{N} with N matching the 1-based criterion index.",
+      "preconditions": [
+        "agentfox.nightshift.spec_builder is importable",
+        "TriageResult with two AcceptanceCriterion objects is constructed in memory"
+      ],
+      "input": {
+        "issue_number": 20,
+        "triage_result": {
+          "criteria": [
+            {
+              "assertion": "a1",
+              "description": "d1",
+              "expected": "e1",
+              "id": "AC-1",
+              "preconditions": []
+            },
+            {
+              "assertion": "a2",
+              "description": "d2",
+              "expected": "e2",
+              "id": "AC-2",
+              "preconditions": []
+            }
+          ],
+          "issue_body": "body"
+        }
+      },
+      "expected": "spec.test_spec.items[0].id == 'TS-NS-1' and spec.test_spec.items[1].id == 'TS-NS-2'.",
+      "assertion_pseudocode": "spec = build_afspec_from_triage(triage_result, 20)\nassert spec.test_spec.items[0].id == 'TS-NS-1'\nassert spec.test_spec.items[1].id == 'TS-NS-2'"
+    },
+    {
+      "id": "TS-01-11",
+      "requirement_id": "01-REQ-3.3",
+      "kind": "acceptance",
+      "description": "Verify that TestCase.requirement_id is set to the NS-REQ-{N} identifier for the same criterion index.",
+      "preconditions": [
+        "agentfox.nightshift.spec_builder is importable",
+        "TriageResult with two AcceptanceCriterion objects is constructed in memory"
+      ],
+      "input": {
+        "issue_number": 21,
+        "triage_result": {
+          "criteria": [
+            {
+              "assertion": "a1",
+              "description": "d1",
+              "expected": "e1",
+              "id": "AC-1",
+              "preconditions": []
+            },
+            {
+              "assertion": "a2",
+              "description": "d2",
+              "expected": "e2",
+              "id": "AC-2",
+              "preconditions": []
+            }
+          ],
+          "issue_body": "body"
+        }
+      },
+      "expected": "spec.test_spec.items[0].requirement_id == 'NS-REQ-1' and spec.test_spec.items[1].requirement_id == 'NS-REQ-2'.",
+      "assertion_pseudocode": "spec = build_afspec_from_triage(triage_result, 21)\nassert spec.test_spec.items[0].requirement_id == 'NS-REQ-1'\nassert spec.test_spec.items[1].requirement_id == 'NS-REQ-2'"
+    },
+    {
+      "id": "TS-01-12",
+      "requirement_id": "01-REQ-3.4",
+      "kind": "acceptance",
+      "description": "Verify that TestCase fields description, preconditions, expected, and assertion_pseudocode are mapped from the corresponding AcceptanceCriterion fields.",
+      "preconditions": [
+        "agentfox.nightshift.spec_builder is importable",
+        "TriageResult with one AcceptanceCriterion with all fields populated is constructed in memory"
+      ],
+      "input": {
+        "issue_number": 33,
+        "triage_result": {
+          "criteria": [
+            {
+              "assertion": "assert token is not None",
+              "description": "Login succeeds for valid user",
+              "expected": "Session token returned",
+              "id": "AC-1",
+              "preconditions": [
+                "User exists in DB",
+                "Service is up"
+              ]
+            }
+          ],
+          "issue_body": "body"
+        }
+      },
+      "expected": "spec.test_spec.items[0].description == 'Login succeeds for valid user'; preconditions == ['User exists in DB', 'Service is up']; expected == 'Session token returned'; assertion_pseudocode == 'assert token is not None'.",
+      "assertion_pseudocode": "spec = build_afspec_from_triage(triage_result, 33)\ntc = spec.test_spec.items[0]\nassert tc.description == 'Login succeeds for valid user'\nassert tc.preconditions == ['User exists in DB', 'Service is up']\nassert tc.expected == 'Session token returned'\nassert tc.assertion_pseudocode == 'assert token is not None'"
+    },
+    {
+      "id": "TS-01-13",
+      "requirement_id": "01-REQ-3.5",
+      "kind": "acceptance",
+      "description": "Verify that TestCase.input is empty string and TestCase.kind is 'acceptance' for every derived test case.",
+      "preconditions": [
+        "agentfox.nightshift.spec_builder is importable",
+        "TriageResult with two AcceptanceCriterion objects is constructed in memory"
+      ],
+      "input": {
+        "issue_number": 15,
+        "triage_result": {
+          "criteria": [
+            {
+              "assertion": "a1",
+              "description": "d1",
+              "expected": "e1",
+              "id": "AC-1",
+              "preconditions": []
+            },
+            {
+              "assertion": "a2",
+              "description": "d2",
+              "expected": "e2",
+              "id": "AC-2",
+              "preconditions": []
+            }
+          ],
+          "issue_body": "body"
+        }
+      },
+      "expected": "For each TestCase: tc.input == '' and tc.kind == 'acceptance'.",
+      "assertion_pseudocode": "spec = build_afspec_from_triage(triage_result, 15)\nfor tc in spec.test_spec.items:\n    assert tc.input == ''\n    assert tc.kind == 'acceptance'"
+    },
+    {
+      "id": "TS-01-14",
+      "requirement_id": "01-REQ-4.1",
+      "kind": "acceptance",
+      "description": "Verify that build_afspec_from_triage creates exactly one TaskGroup with id=1, kind='tests', and title='Fix issue #{issue_number}'.",
+      "preconditions": [
+        "agentfox.nightshift.spec_builder is importable",
+        "TriageResult with one AcceptanceCriterion is constructed in memory"
+      ],
+      "input": {
+        "issue_number": 99,
+        "triage_result": {
+          "criteria": [
+            {
+              "assertion": "a1",
+              "description": "d1",
+              "expected": "e1",
+              "id": "AC-1",
+              "preconditions": []
+            }
+          ],
+          "issue_body": "body"
+        }
+      },
+      "expected": "len(spec.tasks.groups) == 1; group.id == 1; group.kind == 'tests'; group.title == 'Fix issue #99'.",
+      "assertion_pseudocode": "spec = build_afspec_from_triage(triage_result, 99)\ngroups = spec.tasks.groups\nassert len(groups) == 1\ng = groups[0]\nassert g.id == 1\nassert g.kind == 'tests'\nassert g.title == 'Fix issue #99'"
+    },
+    {
+      "id": "TS-01-15",
+      "requirement_id": "01-REQ-4.2",
+      "kind": "acceptance",
+      "description": "Verify that each AcceptanceCriterion produces a correctly mapped Subtask with id, title, details, state, test_spec_refs, and requirement_refs.",
+      "preconditions": [
+        "agentfox.nightshift.spec_builder is importable",
+        "TriageResult with two AcceptanceCriterion objects with populated fields is constructed in memory"
+      ],
+      "input": {
+        "issue_number": 50,
+        "triage_result": {
+          "criteria": [
+            {
+              "assertion": "assert exp1",
+              "description": "First fix",
+              "expected": "exp1",
+              "id": "AC-1",
+              "preconditions": [
+                "pre1"
+              ]
+            },
+            {
+              "assertion": "assert exp2",
+              "description": "Second fix",
+              "expected": "exp2",
+              "id": "AC-2",
+              "preconditions": [
+                "pre2"
+              ]
+            }
+          ],
+          "issue_body": "body"
+        }
+      },
+      "expected": "subtasks[0]: id='1.1', title='First fix', details contains preconditions/expected/assertion, state=SubtaskState.PENDING, test_spec_refs=['TS-NS-1'], requirement_refs=['NS-REQ-1']. subtasks[1]: id='1.2', title='Second fix', test_spec_refs=['TS-NS-2'], requirement_refs=['NS-REQ-2'].",
+      "assertion_pseudocode": "spec = build_afspec_from_triage(triage_result, 50)\nsubtasks = spec.tasks.groups[0].subtasks\nassert subtasks[0].id == '1.1'\nassert subtasks[0].title == 'First fix'\nassert 'pre1' in str(subtasks[0].details) or 'pre1' in subtasks[0].details\nassert subtasks[0].state == SubtaskState.PENDING\nassert subtasks[0].test_spec_refs == ['TS-NS-1']\nassert subtasks[0].requirement_refs == ['NS-REQ-1']\nassert subtasks[1].id == '1.2'\nassert subtasks[1].test_spec_refs == ['TS-NS-2']\nassert subtasks[1].requirement_refs == ['NS-REQ-2']"
+    },
+    {
+      "id": "TS-01-16",
+      "requirement_id": "01-REQ-5.1",
+      "kind": "acceptance",
+      "description": "Verify that the PRDDocument is constructed with the correct PRDFrontmatter spec_id and spec_name patterns and the issue body as the body field.",
+      "preconditions": [
+        "agentfox.nightshift.spec_builder is importable",
+        "TriageResult with a non-empty issue_body is constructed in memory"
+      ],
+      "input": {
+        "issue_number": 42,
+        "triage_result": {
+          "criteria": [],
+          "issue_body": "The endpoint crashes on empty payload."
+        }
+      },
+      "expected": "spec.prd.frontmatter.spec_id == 'fix-42'; spec.prd.frontmatter.spec_name == 'fix_issue_42'; spec.prd.body == 'The endpoint crashes on empty payload.'.",
+      "assertion_pseudocode": "spec = build_afspec_from_triage(triage_result, 42)\nassert spec.prd.frontmatter.spec_id == 'fix-42'\nassert spec.prd.frontmatter.spec_name == 'fix_issue_42'\nassert spec.prd.body == 'The endpoint crashes on empty payload.'"
+    },
+    {
+      "id": "TS-01-17",
+      "requirement_id": "01-REQ-5.2",
+      "kind": "acceptance",
+      "description": "Verify that optional PRDDocument fields (status, created_at, owner) are left at Pydantic defaults and not explicitly set.",
+      "preconditions": [
+        "agentfox.nightshift.spec_builder is importable",
+        "TriageResult is constructed in memory"
+      ],
+      "input": {
+        "issue_number": 7,
+        "triage_result": {
+          "criteria": [],
+          "issue_body": "body"
+        }
+      },
+      "expected": "spec.prd fields such as status, created_at, and owner are equal to whatever the Pydantic PRDFrontmatter/PRDDocument model defines as defaults (None or omitted), not overridden with non-default values.",
+      "assertion_pseudocode": "spec = build_afspec_from_triage(triage_result, 7)\n# Retrieve defaults from a freshly constructed PRDFrontmatter with only mandatory fields\ndefault_fm = PRDFrontmatter(spec_id='fix-7', spec_name='fix_issue_7')\nassert spec.prd.frontmatter.status == default_fm.status\nassert spec.prd.frontmatter.created_at == default_fm.created_at"
+    },
+    {
+      "id": "TS-01-18",
+      "requirement_id": "01-REQ-6.1",
+      "kind": "acceptance",
+      "description": "Verify that render_inmemory_spec_sections accepts a Spec and returns a list of markdown section strings by delegating to render_individual.",
+      "preconditions": [
+        "agentfox.session.context is importable",
+        "A valid in-memory Spec object is constructed via build_afspec_from_triage",
+        "afspec.render_individual is functional"
+      ],
+      "input": {
+        "spec": "A Spec built from a TriageResult with one AcceptanceCriterion"
+      },
+      "expected": "Return value is a list of non-empty strings, each representing a markdown section (e.g. starting with '## Requirements', '## Test Specification', '## Tasks').",
+      "assertion_pseudocode": "from agentfox.session.context import render_inmemory_spec_sections\nresult = render_inmemory_spec_sections(spec)\nassert isinstance(result, list)\nassert len(result) > 0\nfor section in result:\n    assert isinstance(section, str)\n    assert len(section) > 0"
+    },
+    {
+      "id": "TS-01-19",
+      "requirement_id": "01-REQ-6.2",
+      "kind": "acceptance",
+      "description": "Verify that render_inmemory_spec_sections performs no file system reads or writes during rendering.",
+      "preconditions": [
+        "agentfox.session.context is importable",
+        "A valid in-memory Spec is available",
+        "builtins.open and os.path functions can be patched"
+      ],
+      "input": {
+        "spec": "A Spec built from a TriageResult with one AcceptanceCriterion"
+      },
+      "expected": "No calls to builtins.open, os.open, or any file I/O function occur during render_inmemory_spec_sections execution.",
+      "assertion_pseudocode": "with patch('builtins.open') as mock_open:\n    result = render_inmemory_spec_sections(spec)\n    assert mock_open.call_count == 0\nassert isinstance(result, list)"
+    },
+    {
+      "id": "TS-01-20",
+      "requirement_id": "01-REQ-6.3",
+      "kind": "acceptance",
+      "description": "Verify that _render_spec_sections is refactored to internally call render_inmemory_spec_sections after loading the Spec from disk.",
+      "preconditions": [
+        "agentfox.session.context is importable",
+        "render_inmemory_spec_sections is importable from agentfox.session.context",
+        "A valid on-disk spec directory exists for testing (e.g. .agent-fox/specs/01_test/)"
+      ],
+      "input": {
+        "spec_path": "path to a valid on-disk spec directory"
+      },
+      "expected": "_render_spec_sections calls render_inmemory_spec_sections exactly once with the loaded Spec object; the returned sections are identical to direct render_individual output for the same Spec.",
+      "assertion_pseudocode": "with patch('agentfox.session.context.render_inmemory_spec_sections', wraps=render_inmemory_spec_sections) as mock_render:\n    result = _render_spec_sections(spec_path)\n    assert mock_render.call_count == 1\n    called_spec = mock_render.call_args[0][0]\n    assert isinstance(called_spec, Spec)\n    assert result == mock_render.return_value"
+    },
+    {
+      "id": "TS-01-21",
+      "requirement_id": "01-REQ-7.1",
+      "kind": "acceptance",
+      "description": "Verify that for every criterion at index N, the Requirement id NS-REQ-{N}, TestCase id TS-NS-{N}, and Subtask id 1.N all refer to the same source AcceptanceCriterion.",
+      "preconditions": [
+        "agentfox.nightshift.spec_builder is importable",
+        "TriageResult with three AcceptanceCriterion objects is constructed in memory"
+      ],
+      "input": {
+        "issue_number": 5,
+        "triage_result": {
+          "criteria": [
+            {
+              "assertion": "a1",
+              "description": "d1",
+              "expected": "e1",
+              "id": "AC-1",
+              "preconditions": []
+            },
+            {
+              "assertion": "a2",
+              "description": "d2",
+              "expected": "e2",
+              "id": "AC-2",
+              "preconditions": []
+            },
+            {
+              "assertion": "a3",
+              "description": "d3",
+              "expected": "e3",
+              "id": "AC-3",
+              "preconditions": []
+            }
+          ],
+          "issue_body": "body"
+        }
+      },
+      "expected": "For N=1,2,3: requirements.items[N-1].id == 'NS-REQ-N', test_spec.items[N-1].id == 'TS-NS-N', tasks.groups[0].subtasks[N-1].id == '1.N', and all three share the same description as the N-th criterion.",
+      "assertion_pseudocode": "spec = build_afspec_from_triage(triage_result, 5)\nfor n, criterion in enumerate(triage_result.criteria, start=1):\n    req = spec.requirements.items[n-1]\n    tc = spec.test_spec.items[n-1]\n    sub = spec.tasks.groups[0].subtasks[n-1]\n    assert req.id == f'NS-REQ-{n}'\n    assert tc.id == f'TS-NS-{n}'\n    assert sub.id == f'1.{n}'\n    assert req.title == criterion.description\n    assert tc.description == criterion.description\n    assert sub.title == criterion.description"
+    },
+    {
+      "id": "TS-01-22",
+      "requirement_id": "01-REQ-7.2",
+      "kind": "acceptance",
+      "description": "Verify that each Subtask's test_spec_refs is ['TS-NS-{N}'] and requirement_refs is ['NS-REQ-{N}'] for its criterion index N.",
+      "preconditions": [
+        "agentfox.nightshift.spec_builder is importable",
+        "TriageResult with three AcceptanceCriterion objects is constructed in memory"
+      ],
+      "input": {
+        "issue_number": 6,
+        "triage_result": {
+          "criteria": [
+            {
+              "assertion": "a1",
+              "description": "d1",
+              "expected": "e1",
+              "id": "AC-1",
+              "preconditions": []
+            },
+            {
+              "assertion": "a2",
+              "description": "d2",
+              "expected": "e2",
+              "id": "AC-2",
+              "preconditions": []
+            },
+            {
+              "assertion": "a3",
+              "description": "d3",
+              "expected": "e3",
+              "id": "AC-3",
+              "preconditions": []
+            }
+          ],
+          "issue_body": "body"
+        }
+      },
+      "expected": "subtasks[0].test_spec_refs == ['TS-NS-1'], subtasks[0].requirement_refs == ['NS-REQ-1']; same pattern for indices 1 and 2.",
+      "assertion_pseudocode": "spec = build_afspec_from_triage(triage_result, 6)\nsubtasks = spec.tasks.groups[0].subtasks\nfor n, sub in enumerate(subtasks, start=1):\n    assert sub.test_spec_refs == [f'TS-NS-{n}']\n    assert sub.requirement_refs == [f'NS-REQ-{n}']"
+    }
+  ],
+  "property_tests": [
+    {
+      "id": "TS-01-P1",
+      "property_id": "01-PROP-1",
+      "validates": [
+        "01-REQ-2.1",
+        "01-REQ-3.1",
+        "01-REQ-4.2"
+      ],
+      "description": "For any TriageResult with N >= 1 criteria, the returned Spec has exactly N Requirements, N TestCases, and N Subtasks in the single TaskGroup.",
+      "for_any_strategy": "Generate TriageResult with N AcceptanceCriterion objects where N is drawn from integers in range [1, 50]; each criterion has random non-empty id, description, preconditions list (0–5 strings), expected string, and assertion string.",
+      "invariant_check": "spec = build_afspec_from_triage(triage_result, issue_number=1)\nassert len(spec.requirements.items) == N\nassert len(spec.test_spec.items) == N\nassert len(spec.tasks.groups[0].subtasks) == N"
+    },
+    {
+      "id": "TS-01-P2",
+      "property_id": "01-PROP-2",
+      "validates": [
+        "01-REQ-2.1",
+        "01-REQ-3.2",
+        "01-REQ-3.3",
+        "01-REQ-7.1",
+        "01-REQ-7.2"
+      ],
+      "description": "For any criterion at 1-based index N in any TriageResult, all cross-reference IDs (Requirement.id, TestCase.id, TestCase.requirement_id, Subtask.id, Subtask.test_spec_refs, Subtask.requirement_refs) are mutually consistent.",
+      "for_any_strategy": "Generate TriageResult with N AcceptanceCriterion objects (N from [1, 30]) with random valid field values; enumerate each criterion with its 1-based index.",
+      "invariant_check": "spec = build_afspec_from_triage(triage_result, issue_number=1)\nfor n in range(1, N+1):\n    assert spec.requirements.items[n-1].id == f'NS-REQ-{n}'\n    assert spec.test_spec.items[n-1].id == f'TS-NS-{n}'\n    assert spec.test_spec.items[n-1].requirement_id == f'NS-REQ-{n}'\n    assert spec.tasks.groups[0].subtasks[n-1].id == f'1.{n}'\n    assert spec.tasks.groups[0].subtasks[n-1].test_spec_refs == [f'TS-NS-{n}']\n    assert spec.tasks.groups[0].subtasks[n-1].requirement_refs == [f'NS-REQ-{n}']"
+    },
+    {
+      "id": "TS-01-P3",
+      "property_id": "01-PROP-3",
+      "validates": [
+        "01-REQ-1.2",
+        "01-REQ-6.2"
+      ],
+      "description": "For any call to build_afspec_from_triage or render_inmemory_spec_sections, no file system reads or writes occur.",
+      "for_any_strategy": "Generate TriageResult with N AcceptanceCriterion objects (N from [0, 20]); patch builtins.open and track call counts; call both build_afspec_from_triage and render_inmemory_spec_sections.",
+      "invariant_check": "with patch('builtins.open') as mock_open, patch('afspec.load_spec') as mock_load, patch('afspec.save') as mock_save:\n    spec = build_afspec_from_triage(triage_result, 1)\n    _ = render_inmemory_spec_sections(spec)\n    assert mock_open.call_count == 0\n    assert mock_load.call_count == 0\n    assert mock_save.call_count == 0"
+    },
+    {
+      "id": "TS-01-P4",
+      "property_id": "01-PROP-4",
+      "validates": [
+        "01-REQ-6.1",
+        "01-REQ-6.3"
+      ],
+      "description": "For any Spec object, render_inmemory_spec_sections returns output identical to what _render_spec_sections produced before refactoring (i.e. the refactored _render_spec_sections delegates to render_inmemory_spec_sections and produces the same result).",
+      "for_any_strategy": "Load any available on-disk spec via afspec.load_spec() to obtain a Spec; call both render_inmemory_spec_sections(spec) directly and the refactored _render_spec_sections(path).",
+      "invariant_check": "direct_output = render_inmemory_spec_sections(spec)\ndisk_output = _render_spec_sections(spec_path)  # refactored version\nassert direct_output == disk_output"
+    }
+  ],
+  "edge_case_tests": [
+    {
+      "id": "TS-01-E1",
+      "requirement_id": "01-REQ-1.E1",
+      "kind": "edge_case",
+      "description": "Verify that when TriageResult has an empty criteria list, build_afspec_from_triage returns a Spec with empty Requirements, empty TestSpec, and a single TaskGroup with one Subtask titled 'Fix the issue'.",
+      "preconditions": [
+        "agentfox.nightshift.spec_builder is importable",
+        "TriageResult is constructed in memory with an empty criteria list"
+      ],
+      "input": {
+        "issue_number": 88,
+        "triage_result": {
+          "criteria": [],
+          "issue_body": "This issue has no structured criteria."
+        }
+      },
+      "expected": "spec.requirements.items == []; spec.test_spec.items == []; len(spec.tasks.groups) == 1; spec.tasks.groups[0].subtasks has exactly one Subtask with title 'Fix the issue'.",
+      "assertion_pseudocode": "spec = build_afspec_from_triage(triage_result, 88)\nassert spec.requirements.items == []\nassert spec.test_spec.items == []\ngroups = spec.tasks.groups\nassert len(groups) == 1\nsubtasks = groups[0].subtasks\nassert len(subtasks) == 1\nassert subtasks[0].title == 'Fix the issue'\nassert subtasks[0].state == SubtaskState.PENDING"
+    },
+    {
+      "id": "TS-01-E2",
+      "requirement_id": "01-REQ-1.E2",
+      "kind": "edge_case",
+      "description": "Verify that when AcceptanceCriterion fields are None or empty string, build_afspec_from_triage substitutes empty strings and does not raise an exception.",
+      "preconditions": [
+        "agentfox.nightshift.spec_builder is importable",
+        "TriageResult with one AcceptanceCriterion where description=None, preconditions=None, expected='', assertion=None is constructed in memory"
+      ],
+      "input": {
+        "issue_number": 13,
+        "triage_result": {
+          "criteria": [
+            {
+              "assertion": null,
+              "description": null,
+              "expected": "",
+              "id": "AC-1",
+              "preconditions": null
+            }
+          ],
+          "issue_body": "body"
+        }
+      },
+      "expected": "No exception is raised; spec is a valid Spec instance; Requirement.title == ''; TestCase.description == ''; TestCase.assertion_pseudocode == ''; TestCase.expected == ''.",
+      "assertion_pseudocode": "# Must not raise\nspec = build_afspec_from_triage(triage_result, 13)\nassert isinstance(spec, Spec)\nreq = spec.requirements.items[0]\nassert req.title == ''\ntc = spec.test_spec.items[0]\nassert tc.description == ''\nassert tc.assertion_pseudocode == ''\nassert tc.expected == ''"
+    },
+    {
+      "id": "TS-01-E3",
+      "requirement_id": "01-REQ-4.E1",
+      "kind": "edge_case",
+      "description": "Verify that when TriageResult has no criteria, the single fallback Subtask has empty details, SubtaskState.PENDING, and no test_spec_refs or requirement_refs.",
+      "preconditions": [
+        "agentfox.nightshift.spec_builder is importable",
+        "TriageResult with an empty criteria list is constructed in memory"
+      ],
+      "input": {
+        "issue_number": 77,
+        "triage_result": {
+          "criteria": [],
+          "issue_body": "body"
+        }
+      },
+      "expected": "subtasks[0].title == 'Fix the issue'; subtasks[0].details is empty ([] or empty equivalent); subtasks[0].state == SubtaskState.PENDING; subtasks[0].test_spec_refs is empty; subtasks[0].requirement_refs is empty.",
+      "assertion_pseudocode": "spec = build_afspec_from_triage(triage_result, 77)\nsub = spec.tasks.groups[0].subtasks[0]\nassert sub.title == 'Fix the issue'\nassert not sub.details  # empty list or falsy\nassert sub.state == SubtaskState.PENDING\nassert not sub.test_spec_refs  # empty list or falsy\nassert not sub.requirement_refs  # empty list or falsy"
+    },
+    {
+      "id": "TS-01-E4",
+      "requirement_id": "01-REQ-6.E1",
+      "kind": "edge_case",
+      "description": "Verify that render_inmemory_spec_sections propagates exceptions raised by render_individual without swallowing or wrapping them.",
+      "preconditions": [
+        "agentfox.session.context is importable",
+        "afspec.render_individual can be patched to raise a RuntimeError"
+      ],
+      "input": {
+        "spec": "A valid in-memory Spec object"
+      },
+      "expected": "The same RuntimeError raised by render_individual propagates out of render_inmemory_spec_sections unmodified (same type and message).",
+      "assertion_pseudocode": "with patch('afspec.render_individual', side_effect=RuntimeError('render failed')):\n    try:\n        render_inmemory_spec_sections(spec)\n        assert False, 'Expected RuntimeError to be raised'\n    except RuntimeError as e:\n        assert str(e) == 'render failed'\n    except Exception:\n        assert False, 'Exception was wrapped in a different type'"
+    }
+  ],
+  "smoke_tests": [
+    {
+      "id": "TS-01-SMOKE-1",
+      "execution_path_id": "01-PATH-1",
+      "description": "End-to-end happy path: a TriageResult with criteria is converted to an in-memory Spec and rendered to markdown sections suitable for injection into the coder prompt.",
+      "trigger": "Call build_afspec_from_triage(triage_result, issue_number=42) followed by render_inmemory_spec_sections(spec) using a real TriageResult with two AcceptanceCriterion objects.",
+      "real_components": [
+        "agentfox.nightshift.spec_builder.build_afspec_from_triage",
+        "agentfox.session.context.render_inmemory_spec_sections",
+        "afspec.render_individual"
+      ],
+      "mockable": [
+        "agentfox.session.context.assemble_context (not invoked directly in this path)",
+        "agentfox.session.context.build_system_prompt (not invoked directly in this path)"
+      ],
+      "expected_effects": [
+        "build_afspec_from_triage returns a Spec with 2 Requirements, 2 TestCases, and 2 Subtasks",
+        "render_inmemory_spec_sections returns a non-empty list of strings containing markdown sections",
+        "Returned sections include content derived from the AcceptanceCriterion descriptions",
+        "No file system access occurs at any point"
+      ]
+    },
+    {
+      "id": "TS-01-SMOKE-2",
+      "execution_path_id": "01-PATH-2",
+      "description": "Empty criteria fallback path: a TriageResult with no criteria produces a minimal fallback Spec that renders successfully.",
+      "trigger": "Call build_afspec_from_triage(triage_result, issue_number=88) with a TriageResult whose criteria list is empty, then pass the result to render_inmemory_spec_sections.",
+      "real_components": [
+        "agentfox.nightshift.spec_builder.build_afspec_from_triage",
+        "agentfox.session.context.render_inmemory_spec_sections",
+        "afspec.render_individual"
+      ],
+      "mockable": [],
+      "expected_effects": [
+        "build_afspec_from_triage returns a Spec with empty Requirements and TestSpec",
+        "The single TaskGroup contains exactly one Subtask titled 'Fix the issue' with SubtaskState.PENDING",
+        "render_inmemory_spec_sections successfully renders the fallback Spec and returns a list of strings",
+        "No exception is raised"
+      ]
+    },
+    {
+      "id": "TS-01-SMOKE-3",
+      "execution_path_id": "01-PATH-3",
+      "description": "Disk-based rendering refactoring path: _render_spec_sections loads a Spec from disk and delegates to render_inmemory_spec_sections, producing identical output to the pre-refactor behavior.",
+      "trigger": "Call _render_spec_sections with a valid on-disk spec path (e.g. .agent-fox/specs/01_test/); verify it internally calls render_inmemory_spec_sections and returns the same sections.",
+      "real_components": [
+        "agentfox.session.context._render_spec_sections",
+        "agentfox.session.context.render_inmemory_spec_sections",
+        "afspec.load_spec",
+        "afspec.render_individual"
+      ],
+      "mockable": [
+        "File system (a test fixture spec directory under .agent-fox/specs/ is needed)"
+      ],
+      "expected_effects": [
+        "_render_spec_sections loads the Spec from disk via afspec.load_spec()",
+        "_render_spec_sections delegates rendering to render_inmemory_spec_sections with the loaded Spec",
+        "render_inmemory_spec_sections calls render_individual once",
+        "Returned markdown sections are identical to what afspec.render_individual returns directly for the same Spec"
+      ]
+    }
+  ],
+  "coverage": {
+    "requirements_covered": [],
+    "properties_covered": [],
+    "paths_covered": [],
+    "gaps": []
+  }
+}

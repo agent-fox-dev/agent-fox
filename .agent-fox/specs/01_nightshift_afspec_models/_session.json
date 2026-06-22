@@ -1,0 +1,56 @@
+{
+  "state": "generated",
+  "prd_path": "prd.md",
+  "assessment_history": [
+    {
+      "quality": "ready",
+      "summary": "The PRD for \"nightshift_afspec_models\" is thorough, well-structured, and covers all required spec sections with high quality. The Intent is precise and actionable, Goals are concrete and implementation-specific, Non-Goals clearly bound the scope, and Background provides strong motivational and architectural context. The document goes beyond the four core sections with detailed field-mapping tables, error handling rules, design rationale, and a rendering contract \u2014 all of which significantly reduce ambiguity for artifact generation. No critical gaps were identified; the PRD is ready to proceed.",
+      "gaps": [
+        "The 'owner' field in the frontmatter is empty \u2014 minor metadata gap, but not a blocker for artifact generation.",
+        "The derivation rule for `Requirement.user_story` is described as 'derived from description' without specifying the exact derivation format or template (e.g., 'As a night-shift coder, I want <description>'). This leaves a small ambiguity for the implementer.",
+        "The `render_inmemory_spec_sections()` contract states it uses `afspec.render_individual()`, but it is not clarified whether `render_individual()` accepts an in-memory `Spec` directly or requires a file path \u2014 if the latter, the 'no file I/O' constraint may need an additional implementation note.",
+        "No explicit acceptance criteria or success metrics are defined for validating that the rendered in-memory sections are functionally equivalent to the on-disk rendering path (e.g., a test fixture or diff-based check)."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What is the exact format or template for the derived `Requirement.user_story` field? For example, should it follow a standard EARS or 'As a / I want / So that' pattern derived from the criterion description?",
+          "context": "The mapping table states user_story is 'derived from description' but does not specify the derivation rule. This will directly affect what the implementer generates and what the coder prompt renders.",
+          "options": [
+            "Use a fixed template: 'As a night-shift coder, I want to satisfy <description>.'",
+            "Use the criterion description verbatim as the user_story.",
+            "Leave user_story as an empty string (treat it as optional for night-shift specs).",
+            "Derive it using a lightweight LLM call or string transformation \u2014 specify the rule."
+          ],
+          "required": false
+        },
+        {
+          "id": "q2",
+          "text": "Does `afspec.render_individual()` support being called with an in-memory `Spec` object directly (without a file path), or does it require a disk-based spec path? If the latter, what is the intended approach to satisfy the no-file-I/O constraint?",
+          "context": "`render_inmemory_spec_sections()` is specified to use `afspec.render_individual()` \u2014 the same rendering as the disk-based path. If the function signature requires a path, the no-disk-I/O goal and the rendering reuse goal may be in tension, requiring either a refactor of `render_individual()` or a different rendering strategy.",
+          "options": [
+            "`render_individual()` already accepts a `Spec` object \u2014 no changes needed.",
+            "`render_individual()` needs to be overloaded or refactored to accept an in-memory `Spec`.",
+            "A new lower-level rendering function should be extracted from `render_individual()` and called by both paths.",
+            "Temporarily write to a temp file and clean up \u2014 acceptable trade-off (revise the no-I/O non-goal)."
+          ],
+          "required": false
+        },
+        {
+          "id": "q3",
+          "text": "Who is the owner of this spec, and who is responsible for reviewing and approving the implementation?",
+          "context": "The 'owner' field in the spec frontmatter is blank. For traceability and review routing, it is useful to know the responsible engineer or team.",
+          "options": [],
+          "required": false
+        }
+      ]
+    }
+  ],
+  "qa_exchanges": [],
+  "generated_artifacts": [
+    "requirements",
+    "test_spec",
+    "tasks"
+  ],
+  "mode": "interactive"
+}
