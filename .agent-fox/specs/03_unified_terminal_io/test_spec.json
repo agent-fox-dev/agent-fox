@@ -90,7 +90,7 @@
       ],
       "input": "Invoke AgentFoxGroup where parent has pre-set ctx.obj to a non-dict value",
       "expected": "CLI does not crash; a debug-level warning is logged; OutputManager is constructed with defaults honoring AF_AGENT",
-      "assertion_pseudocode": "import logging\nfrom click.testing import CliRunner\nfrom agentfox.io import AgentFoxGroup\nimport click\n\n@click.group(cls=AgentFoxGroup)\n@click.pass_context\ndef cli(ctx):\n    ctx.obj = \"not_a_dict\"  # simulate pre-set non-dict\n\n@cli.command()\ndef sub(): pass\n\nwith capture_logs(level=logging.DEBUG) as logs:\n    runner = CliRunner()\n    result = runner.invoke(cli, [\"sub\"])\nassert result.exit_code == 0 or result.exit_code == 1  # no crash\nassert any(\"debug\" in log.lower() or \"warning\" in log.lower() for log in logs)"
+      "assertion_pseudocode": "import logging\nfrom click.testing import CliRunner\nfrom agentfox.io import AgentFoxGroup\nimport click\n\n@click.group(cls=AgentFoxGroup)\n@click.pass_context\ndef cli(ctx):\n    ctx.obj = \"not_a_dict\"  # simulate pre-set non-dict\n\n@cli.command()\ndef sub(): pass\n\n# Use pytest caplog fixture at DEBUG level to capture log records\nwith caplog.at_level(logging.DEBUG):\n    runner = CliRunner()\n    result = runner.invoke(cli, [\"sub\"])\n\n# 1. Must not crash\nassert result.exit_code in (0, 1)\n\n# 2. MUST verify a debug-level warning was logged about the non-dict ctx.obj\nassert len(caplog.records) > 0, \"expected at least one log record\"\ndebug_records = [r for r in caplog.records if r.levelno == logging.DEBUG]\nassert any(\"non-dict\" in r.message.lower() or \"ctx.obj\" in r.message.lower() or \"dict\" in r.message.lower() for r in debug_records), \"expected debug log mentioning non-dict ctx.obj\""
     },
     {
       "id": "TS-03-8",
@@ -171,7 +171,7 @@
       ],
       "input": "Invoke CLI with explicit --json and then with explicit --quiet flags; observe ctx.obj sentinel keys",
       "expected": "_json_explicit=True when --json or --no-json passed; _quiet_explicit=True when --quiet or --verbose passed; sentinels absent when flags omitted",
-      "assertion_pseudocode": "# Test with --json\nctx_capture = []\nrunner = CliRunner()\nresult = runner.invoke(cli, [\"--json\", \"sub\"])\nassert ctx_capture[0].get(\"_json_explicit\") == True\n\n# Test without --json\nresult = runner.invoke(cli, [\"sub\"])\nassert ctx_capture[-1].get(\"_json_explicit\") is None or ctx_capture[-1].get(\"_json_explicit\") == False\n\n# Test with --quiet\nresult = runner.invoke(cli, [\"--quiet\", \"sub\"])\nassert ctx_capture[-1].get(\"_quiet_explicit\") == True"
+      "assertion_pseudocode": "# Test with --json: sets _json_explicit\nctx_capture = []\nrunner = CliRunner()\nresult = runner.invoke(cli, [\"--json\", \"sub\"])\nassert ctx_capture[-1].get(\"_json_explicit\") == True\n\n# Test with --no-json: ALSO sets _json_explicit (either flag in the pair)\nresult = runner.invoke(cli, [\"--no-json\", \"sub\"])\nassert ctx_capture[-1].get(\"_json_explicit\") == True\n\n# Test without any json/no-json flag: sentinel absent or False\nresult = runner.invoke(cli, [\"sub\"])\nassert ctx_capture[-1].get(\"_json_explicit\") is None or ctx_capture[-1].get(\"_json_explicit\") == False\n\n# Test with --quiet: sets _quiet_explicit\nresult = runner.invoke(cli, [\"--quiet\", \"sub\"])\nassert ctx_capture[-1].get(\"_quiet_explicit\") == True\n\n# Test with --verbose: ALSO sets _quiet_explicit (either flag in the pair)\nresult = runner.invoke(cli, [\"--verbose\", \"sub\"])\nassert ctx_capture[-1].get(\"_quiet_explicit\") == True\n\n# Test without any quiet/verbose flag: sentinel absent or False\nresult = runner.invoke(cli, [\"sub\"])\nassert ctx_capture[-1].get(\"_quiet_explicit\") is None or ctx_capture[-1].get(\"_quiet_explicit\") == False"
     },
     {
       "id": "TS-03-14",
@@ -391,7 +391,7 @@
       ],
       "input": "Call error_envelope() with AgentError having .category='rate_limit_error' and AgentError without .category",
       "expected": "type='rate_limit_error' with .category; type='agent_error' and retryable=False without .category",
-      "assertion_pseudocode": "pytest.importorskip(\"agentspec\")\nfrom agentspec.errors import AgentError\nfrom agentfox.io import error_envelope\n\nexc_with_cat = AgentError(\"too many requests\")\nexc_with_cat.category = \"rate_limit_error\"\nexc_with_cat.retryable = True\nresult = error_envelope(exc_with_cat)\nassert result[\"error\"][\"type\"] == \"rate_limit_error\"\nassert result[\"error\"][\"retryable\"] == True\n\nexc_no_cat = AgentError(\"generic agent error\")\nresult2 = error_envelope(exc_no_cat)\nassert result2[\"error\"][\"type\"] == \"agent_error\"\nassert result2[\"error\"][\"retryable\"] == False"
+      "assertion_pseudocode": "pytest.importorskip(\"agentspec\")\nfrom agentspec.errors import AgentError\nfrom agentfox.io import error_envelope\n\n# Case 1: AgentError with explicit .category (PUBLIC attribute, NOT ._category)\nexc_with_cat = AgentError(\"too many requests\")\n# IMPORTANT: set the PUBLIC attribute .category, never the private ._category\nexc_with_cat.category = \"rate_limit_error\"\nexc_with_cat.retryable = True\nresult = error_envelope(exc_with_cat)\nassert result[\"error\"][\"type\"] == \"rate_limit_error\"\nassert result[\"error\"][\"retryable\"] == True\n\n# Case 2: AgentError without explicit .category — MUST assert exact values\nexc_no_cat = AgentError(\"generic agent error\")\nresult2 = error_envelope(exc_no_cat)\n# Assert the EXACT expected type string, not just isinstance(str)\nassert result2[\"error\"][\"type\"] == \"agent_error\", f\"expected 'agent_error', got {result2['error']['type']!r}\"\n# Assert the EXACT expected retryable value, not just isinstance(bool)\nassert result2[\"error\"][\"retryable\"] == False, f\"expected False, got {result2['error']['retryable']!r}\""
     },
     {
       "id": "TS-03-32",
@@ -532,7 +532,7 @@
       ],
       "input": "Enter StatusSpinner context in TTY mode with quiet=False",
       "expected": "Rich Live is started with 'dots' spinner style; update() changes message; log() appends persistent line",
-      "assertion_pseudocode": "from agentfox.io import StatusSpinner\nwith mock_tty():\n    with StatusSpinner(\"Starting...\", quiet=False) as s:\n        # Verify spinner was started with 'dots' style\n        assert s._live is not None or s._spinner_style == \"dots\"\n        s.update(\"Step 1\")\n        s.log(\"detail\")"
+      "assertion_pseudocode": "from agentfox.io import StatusSpinner\nfrom unittest.mock import patch, MagicMock\n\nwith mock_tty():\n    # Patch Rich Spinner constructor to capture the spinner_name argument\n    with patch(\"rich.spinner.Spinner\") as MockSpinner:\n        mock_spinner_instance = MagicMock()\n        MockSpinner.return_value = mock_spinner_instance\n        with StatusSpinner(\"Starting...\", quiet=False) as s:\n            s.update(\"Step 1\")\n            s.log(\"detail\")\n\n    # 1. Verify 'dots' spinner style was used (not just that spinner is not None)\n    MockSpinner.assert_called()\n    spinner_name_arg = MockSpinner.call_args[0][0] if MockSpinner.call_args[0] else MockSpinner.call_args[1].get(\"name\")\n    assert spinner_name_arg == \"dots\", f\"expected 'dots' spinner style, got {spinner_name_arg!r}\"\n\n    # 2. Verify update() changed the message (check via mock or internal state)\n    # 3. Verify log() was called without raising\n    # NOTE: if mocking Rich internals is impractical, an alternative is to\n    # capture stderr and verify that spinner-related output was produced\n    # (not empty), which is strictly stronger than 'spinner is not None'"
     },
     {
       "id": "TS-03-43",
@@ -620,7 +620,7 @@
       ],
       "input": "Apply common_options to a group that already has a --json option",
       "expected": "No duplicate --json flag registered; debug-level warning logged; no exception raised",
-      "assertion_pseudocode": "import click\nimport logging\nfrom agentfox.io import common_options\n\n@click.group()\n@click.option(\"--json\", is_flag=True)\n@common_options\ndef cli(json): pass\n\n# Count json params - should be exactly 1\njson_params = [p for p in cli.params if p.name == \"json\"]\nassert len(json_params) == 1  # not duplicated\n# Warning should have been logged (implementation-dependent verification)"
+      "assertion_pseudocode": "import click\nimport logging\nfrom agentfox.io import common_options\n\n@click.group()\n@click.option(\"--json\", is_flag=True)\n@common_options\ndef cli(json): pass\n\n# 1. Count json params — MUST be exactly 1, not 0 and not 2\njson_params = [p for p in cli.params if p.name == \"json\"]\nassert len(json_params) == 1, f\"expected exactly 1 json param, got {len(json_params)}\"\n\n# 2. Verify a debug-level warning was logged about the name collision\n# Use pytest caplog fixture to capture log records\nwith caplog.at_level(logging.DEBUG):\n    @click.group()\n    @click.option(\"--json\", is_flag=True)\n    @common_options\n    def cli2(json): pass\n\ndebug_records = [r for r in caplog.records if r.levelno == logging.DEBUG]\nassert any(\"json\" in r.message.lower() and (\"skip\" in r.message.lower() or \"conflict\" in r.message.lower() or \"collision\" in r.message.lower() or \"already\" in r.message.lower()) for r in debug_records), \"expected debug log about json flag collision\""
     },
     {
       "id": "TS-03-50",
@@ -775,14 +775,14 @@
       "id": "TS-03-62",
       "requirement_id": "03-REQ-14.3",
       "kind": "property",
-      "description": "Verifies Hypothesis property tests cover error envelope serialization and that agentspec tests are guarded with pytest.importorskip.",
+      "description": "Verifies Hypothesis property tests cover error envelope serialization for ALL exception types (including agentspec types) and that agentspec tests are guarded with pytest.importorskip.",
       "preconditions": [
         "Hypothesis installed",
         "agentfox.io.errors and agentfox.io.json modules available"
       ],
       "input": "Run Hypothesis property tests for error envelope serialization",
-      "expected": "All property tests pass; agentspec-dependent tests are skipped when agentspec not installed",
-      "assertion_pseudocode": "import subprocess\nresult = subprocess.run(\n    [\"pytest\", \"tests/io/test_property_errors.py\", \"-v\"],\n    capture_output=True, text=True\n)\nassert result.returncode == 0"
+      "expected": "All property tests pass; agentspec-dependent tests are skipped when agentspec not installed; strategies MUST cover AgentFoxError, AgentError, AgentSpecError, SessionError, click.ClickException, and arbitrary Exception",
+      "assertion_pseudocode": "# The _any_exception_strategy used in test_property_errors.py MUST generate\n# ALL of the following exception types:\n#   - AgentFoxError (and dynamically created subclasses)\n#   - click.ClickException\n#   - ValueError / arbitrary Exception subclasses\n#   - AgentError from agentspec (guarded with pytest.importorskip('agentspec'))\n#   - AgentSpecError from agentspec (guarded with pytest.importorskip('agentspec'))\n#   - SessionError from agentspec (guarded with pytest.importorskip('agentspec'))\n#\n# Agentspec-dependent strategies MUST be guarded with:\n#   agentspec = pytest.importorskip('agentspec')\n# at the TOP of the test function or in a fixture, so they are SKIPPED\n# (not FAILED) when agentspec is not installed.\n#\n# The strategy should use st.one_of() combining:\n#   - st.builds(AgentFoxError, st.text())\n#   - st.builds(click.ClickException, st.text())\n#   - st.builds(ValueError, st.text())\n# And, when agentspec is available:\n#   - st.builds(AgentError, st.text())\n#   - st.builds(AgentSpecError, st.text())\n#   - st.builds(SessionError, st.text())\n#\n# Verification: run pytest and confirm 0 failures\nimport subprocess\nresult = subprocess.run(\n    [\"pytest\", \"tests/io/test_property_errors.py\", \"-v\"],\n    capture_output=True, text=True\n)\nassert result.returncode == 0"
     },
     {
       "id": "TS-03-63",
@@ -811,7 +811,7 @@
         "03-REQ-6.6"
       ],
       "description": "Property test verifying error_envelope() always returns a valid envelope dict for any exception type.",
-      "for_any_strategy": "Generate AgentFoxError subclass instances, click.ClickException instances, and arbitrary Exception subclass instances with Hypothesis-generated string messages",
+      "for_any_strategy": "Generate AgentFoxError subclass instances, click.ClickException instances, arbitrary Exception subclass instances, AND — when agentspec is installed (guarded by pytest.importorskip) — AgentError, AgentSpecError, and SessionError instances, all with Hypothesis-generated string messages. Use st.one_of() to combine all type strategies.",
       "invariant_check": "For any exception exc: result = error_envelope(exc); assert result['ok'] == False; assert isinstance(result['error']['type'], str) and len(result['error']['type']) > 0; assert result['error']['message'] == str(exc); assert isinstance(result['error']['retryable'], bool); assert ('detail' in result['error']) == (result['error']['type'] == 'internal_error')"
     },
     {
@@ -1008,7 +1008,7 @@
       ],
       "input": "Subcommand that raises KeyboardInterrupt",
       "expected": "KeyboardInterrupt propagates; no error envelope emitted; no sys.exit(1) called by the group",
-      "assertion_pseudocode": "from click.testing import CliRunner\nfrom agentfox.io import AgentFoxGroup\nimport click\n\n@click.group(cls=AgentFoxGroup)\ndef cli(): pass\n\n@cli.command()\ndef sub():\n    raise KeyboardInterrupt()\n\nrunner = CliRunner()\nresult = runner.invoke(cli, [\"sub\"])\n# CliRunner catches KeyboardInterrupt; exit code should not be 1 from our handler\nassert result.exit_code != 1 or isinstance(result.exception, KeyboardInterrupt)"
+      "assertion_pseudocode": "from click.testing import CliRunner\nfrom agentfox.io import AgentFoxGroup\nimport click\nimport json\n\n@click.group(cls=AgentFoxGroup)\ndef cli(): pass\n\n@cli.command()\ndef sub():\n    raise KeyboardInterrupt()\n\nrunner = CliRunner()\nresult = runner.invoke(cli, [\"sub\"])\n\n# 1. KeyboardInterrupt must propagate — CliRunner stores it in result.exception\nassert isinstance(result.exception, KeyboardInterrupt), (\n    f\"expected KeyboardInterrupt to propagate, got {type(result.exception).__name__}\"\n)\n\n# 2. AgentFoxGroup must NOT call sys.exit(1) for KeyboardInterrupt.\n#    CliRunner translates KI to exit_code 1 itself, so we cannot distinguish\n#    KI-from-propagation vs sys.exit(1) via exit_code alone. But we CAN verify\n#    that no error envelope was emitted — if the group routed KI through\n#    cli_error_handler, an error envelope would appear in stdout.\nassert result.output.strip() == \"\" or not _is_json_error_envelope(result.output), (\n    \"AgentFoxGroup must not emit an error envelope for KeyboardInterrupt\"\n)\n\ndef _is_json_error_envelope(text):\n    try:\n        parsed = json.loads(text)\n        return parsed.get(\"ok\") == False and \"error\" in parsed\n    except (json.JSONDecodeError, TypeError):\n        return False"
     },
     {
       "id": "TS-03-E10",

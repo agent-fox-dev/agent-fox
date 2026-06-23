@@ -31,7 +31,7 @@
             "03-REQ-1",
             "03-REQ-14.2"
           ],
-          "state": "done",
+          "state": "pending",
           "optional": false
         },
         {
@@ -46,7 +46,8 @@
             "Test banner() suppression rules for all (json_mode, quiet) combinations (TS-03-21)",
             "Test status() suppressed when quiet=True; written to stderr when quiet=False (TS-03-22)",
             "Test get_output_manager() fallback defaults when no Click context (TS-03-6); AF_AGENT=1 does NOT affect fallback (TS-03-E2)",
-            "Test setup_logging called with correct args from AgentFoxGroup (TS-03-63)"
+            "Test setup_logging called with correct args from AgentFoxGroup (TS-03-63)",
+            "AUDIT FIX TS-03-7: non-dict ctx.obj test MUST use pytest caplog fixture at DEBUG level and assert a debug record was emitted mentioning the non-dict ctx.obj \u2014 do NOT just assert exit_code in (0, 1) without log verification"
           ],
           "test_spec_refs": [
             "TS-03-4",
@@ -70,7 +71,7 @@
             "03-REQ-4",
             "03-REQ-15"
           ],
-          "state": "done",
+          "state": "pending",
           "optional": false
         },
         {
@@ -101,7 +102,7 @@
           "requirement_refs": [
             "03-REQ-5"
           ],
-          "state": "done",
+          "state": "pending",
           "optional": false
         },
         {
@@ -111,7 +112,7 @@
             "Create tests/io/test_errors.py",
             "Test error_envelope() returns ok=False, non-empty type, message==str(exc), retryable is bool (TS-03-29)",
             "Test AgentFoxError subclasses produce snake_case type; unknown custom subclasses never fall to internal_error (TS-03-30)",
-            "Test AgentError with/without .category mapping; guarded with pytest.importorskip('agentspec') (TS-03-31)",
+            "AUDIT FIX TS-03-31: Test AgentError with/without .category mapping; guarded with pytest.importorskip('agentspec'). CRITICAL: set the PUBLIC attribute exc.category (NOT exc._category). The no-category case MUST assert type=='agent_error' and retryable==False exactly, not just isinstance(str)/len>0 (TS-03-31)",
             "Test SessionError always maps to session_error, retryable=False; guarded with pytest.importorskip('agentspec') (TS-03-32)",
             "Test click.ClickException maps to input_error, retryable=False (TS-03-33)",
             "Test unknown exceptions map to internal_error with detail field; well-typed omit detail (TS-03-34)",
@@ -119,7 +120,7 @@
             "Test lazy import of agentspec: module loads without ImportError when agentspec absent (TS-03-36, TS-03-E7)",
             "Test cli_error_handler routes to emit_error (json_mode=True) vs click.echo stderr (json_mode=False) (TS-03-37, TS-03-38)",
             "Test handle_cli_errors decorator: catches Exception, resolves json_mode at call time, propagates SystemExit/KeyboardInterrupt (TS-03-39)",
-            "Test AgentFoxGroup.invoke() sys.exit(1) for Exception, exit 0 for SystemExit(0), no routing for KeyboardInterrupt (TS-03-40, TS-03-E8, TS-03-E9)"
+            "AUDIT FIX TS-03-E9: Test AgentFoxGroup.invoke() sys.exit(1) for Exception, exit 0 for SystemExit(0), no routing for KeyboardInterrupt. The KI test MUST assert isinstance(result.exception, KeyboardInterrupt) AND verify no error envelope was emitted to stdout \u2014 do NOT use the weak disjunction 'exit_code != 1 or isinstance(exception, KI)' which passes when both are true (TS-03-40, TS-03-E8, TS-03-E9)"
           ],
           "test_spec_refs": [
             "TS-03-29",
@@ -142,16 +143,16 @@
             "03-REQ-6",
             "03-REQ-7"
           ],
-          "state": "done",
+          "state": "pending",
           "optional": false
         },
         {
           "id": "1.5",
           "title": "Write unit tests for spinner, CLI options, and help decorator",
           "details": [
-            "Create tests/io/test_spinner.py: verify interface, 'dots' style in TTY, plain-text fallback for non-TTY update() and log(), quiet no-ops, thread safety, theme=None fallback (TS-03-41 through TS-03-46, TS-03-E10)",
-            "Create tests/io/test_cli.py: verify common_options adds all four flag groups, raises TypeError on subcommand, skips/warns on name collision, sentinel keys set correctly, ctx.obj conflict handling (TS-03-47, TS-03-48, TS-03-49)",
-            "Create tests/io/test_cli.py: verify AF_AGENT precedence rules all five combinations (TS-03-8 through TS-03-13)",
+            "AUDIT FIX TS-03-42: Create tests/io/test_spinner.py: verify interface, 'dots' style in TTY (MUST mock Rich Spinner constructor and verify 'dots' was passed as spinner_name \u2014 asserting 'spinner is not None' is vacuous and will fail audit), plain-text fallback for non-TTY update() and log(), quiet no-ops, thread safety, theme=None fallback (TS-03-41 through TS-03-46, TS-03-E10)",
+            "AUDIT FIX TS-03-49: Create tests/io/test_cli.py: verify common_options adds all four flag groups, raises TypeError on subcommand, skips/warns on name collision (MUST assert len(json_params) == 1 exactly \u2014 not <= 1 \u2014 AND verify a debug-level warning was logged via caplog about the collision), sentinel keys set correctly, ctx.obj conflict handling (TS-03-47, TS-03-48, TS-03-49)",
+            "AUDIT FIX TS-03-13: Create tests/io/test_cli.py: verify AF_AGENT precedence rules AND sentinel keys for ALL FOUR flags: --json sets _json_explicit, --no-json ALSO sets _json_explicit, --quiet sets _quiet_explicit, --verbose ALSO sets _quiet_explicit. Missing --no-json and --verbose sentinel tests will fail audit (TS-03-8 through TS-03-13)",
             "Create tests/io/test_help.py: verify exit_codes sets attribute on Command, raises TypeError for non-Command, second application overwrites, --help unchanged in Spec 03 (TS-03-50, TS-03-51, TS-03-52, TS-03-53)"
           ],
           "test_spec_refs": [
@@ -175,7 +176,7 @@
             "03-REQ-9",
             "03-REQ-10"
           ],
-          "state": "done",
+          "state": "pending",
           "optional": false
         },
         {
@@ -183,7 +184,7 @@
           "title": "Write Hypothesis property tests for error envelope serialization",
           "details": [
             "Create tests/io/test_property_errors.py using Hypothesis @given strategies",
-            "PROP-1: error_envelope() always returns valid envelope dict for any exception type (TS-03-P1)",
+            "AUDIT FIX TS-03-62/TS-03-P1: error_envelope() always returns valid envelope dict for any exception type. The _any_exception_strategy MUST include ALL of: AgentFoxError, click.ClickException, ValueError, AND agentspec types (AgentError, AgentSpecError, SessionError) guarded by pytest.importorskip('agentspec'). Omitting agentspec types from the strategy will fail audit (TS-03-P1)",
             "PROP-2: emit_error() output is valid JSON matching error_envelope() for same inputs (TS-03-P2)",
             "PROP-3: explicit CLI flags always override AF_AGENT=1 defaults (TS-03-P3)",
             "PROP-4: emit_ok() always sets ok=True regardless of input (TS-03-P4)",
@@ -207,7 +208,7 @@
           "requirement_refs": [
             "03-REQ-14.3"
           ],
-          "state": "done",
+          "state": "pending",
           "optional": false
         },
         {
@@ -222,7 +223,7 @@
             "03-REQ-14.2",
             "03-REQ-14.3"
           ],
-          "state": "done",
+          "state": "pending",
           "optional": false
         }
       ],
