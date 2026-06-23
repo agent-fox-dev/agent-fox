@@ -100,8 +100,32 @@ def night_shift_cmd(
     theme_config = getattr(config, "theme", None) or ThemeConfig()
     theme = create_theme(theme_config)
     quiet = ctx.obj.get("quiet", False) if isinstance(ctx.obj, dict) else False
-    progress = ProgressDisplay(theme, quiet=quiet)
+    progress = ProgressDisplay(theme, quiet=quiet or om.json_mode)
     progress.start()
+
+    # 04-REQ-3.7: JSONL progress events for agent-mode
+    task_cb = progress.task_callback
+    if om.json_mode:
+        from agentfox.io.progress import ProgressDisplay as JsonlProgressDisplay
+
+        _jsonl_progress = JsonlProgressDisplay(output_manager=om, json_mode=True)
+        _ui_task_cb = progress.task_callback
+
+        def _jsonl_task_callback(event: object) -> None:
+            """Bridge UI task events to JSONL progress events."""
+            _ui_task_cb(event)
+            node_id = getattr(event, "node_id", None)
+            status = getattr(event, "status", "")
+            if status == "completed":
+                _jsonl_progress.task_started(node_id=node_id)
+                _jsonl_progress.task_completed(node_id=node_id)
+            elif status == "failed":
+                error_msg = getattr(event, "error_message", "") or ""
+                _jsonl_progress.task_failed(node_id=node_id, error=error_msg)
+            else:
+                _jsonl_progress.task_started(node_id=node_id)
+
+        task_cb = _jsonl_task_callback
     # -----------------------------------------------------------------------
 
     # Create the engine for business logic (fix pipeline).
@@ -111,7 +135,7 @@ def night_shift_cmd(
         config=config,
         platform=platform,
         activity_callback=progress.activity_callback,
-        task_callback=progress.task_callback,
+        task_callback=task_cb,
         status_callback=progress.print_status,
         spinner_callback=progress.update_spinner_text,
         sink_dispatcher=_sink_dispatcher,

@@ -52,7 +52,7 @@ class OutputManager:
         trace: If True, enable trace-level output.
         console: Rich Console instance for stderr output.
 
-    Requirements: 03-REQ-2.1, 03-REQ-4
+    Requirements: 03-REQ-2.1, 03-REQ-4, 04-REQ-3
     """
 
     def __init__(
@@ -62,11 +62,13 @@ class OutputManager:
         quiet: bool = False,
         verbose: bool = False,
         trace: bool = False,
+        stderr: Any = None,
     ) -> None:
         self.json_mode = json_mode
         self.quiet = quiet
         self.verbose = verbose
         self.trace = trace
+        self._stderr = stderr if stderr is not None else sys.stderr
         self.console = Console(stderr=True)
 
     def emit_json(self, data: dict[str, Any]) -> None:
@@ -143,6 +145,28 @@ class OutputManager:
         if self.quiet:
             return
         self.console.print(message)
+
+    def emit_progress(self, event: dict[str, Any]) -> None:
+        """Write a JSONL progress event line to stderr.
+
+        Only writes when ``json_mode`` is ``True``.  IO errors
+        (``BrokenPipeError``, ``OSError``) are silently suppressed so
+        that a broken pipe on stderr never crashes the main command.
+
+        Args:
+            event: A dict with at least ``"event"`` and ``"timestamp"``
+                keys.  Serialised as a single JSON line to stderr.
+
+        Requirements: 04-REQ-3.1, 04-REQ-3.5, 04-REQ-3.E1
+        """
+        if not self.json_mode:
+            return
+        try:
+            line = json.dumps(event, default=str)
+            self._stderr.write(line + "\n")
+            self._stderr.flush()
+        except (BrokenPipeError, OSError):
+            pass
 
 
 def get_output_manager() -> OutputManager:

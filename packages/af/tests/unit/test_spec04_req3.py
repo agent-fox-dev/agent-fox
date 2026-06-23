@@ -15,7 +15,6 @@ from unittest.mock import MagicMock
 import pytest
 
 
-@pytest.mark.xfail(reason="ProgressDisplay new API not yet implemented")
 class TestTaskStartedEvent:
     """TS-04-10: ProgressDisplay emits task_started with node_id and timestamp."""
 
@@ -35,7 +34,6 @@ class TestTaskStartedEvent:
         assert re.match(r"\d{4}-\d{2}-\d{2}T", event_data["timestamp"])
 
 
-@pytest.mark.xfail(reason="ProgressDisplay new API not yet implemented")
 class TestTaskCompletedEvent:
     """TS-04-11: ProgressDisplay emits task_completed with duration_s."""
 
@@ -57,7 +55,6 @@ class TestTaskCompletedEvent:
         assert event_data["duration_s"] >= 0
 
 
-@pytest.mark.xfail(reason="ProgressDisplay new API not yet implemented")
 class TestTaskFailedEvent:
     """TS-04-12: ProgressDisplay emits task_failed with error message."""
 
@@ -76,7 +73,6 @@ class TestTaskFailedEvent:
         assert event_data["error"] == "something went wrong"
 
 
-@pytest.mark.xfail(reason="ProgressDisplay new API not yet implemented")
 class TestNoEmitProgressInTextMode:
     """TS-04-13: ProgressDisplay does NOT call emit_progress in text mode."""
 
@@ -160,7 +156,6 @@ class TestBrokenPipeSuppressed:
         )
 
 
-@pytest.mark.xfail(reason="ProgressDisplay null node_id handling not implemented")
 class TestNullNodeId:
     """TS-04-E4: ProgressDisplay emits event with node_id=null for None."""
 

@@ -366,6 +366,31 @@ def code_cmd(
     theme = create_theme(config.theme)
     progress = ProgressDisplay(theme, quiet=quiet or json_mode)
 
+    # 04-REQ-3.6: JSONL progress events for agent-mode
+    jsonl_progress = None
+    task_cb = progress.task_callback
+    if json_mode:
+        from agentfox.io.progress import ProgressDisplay as JsonlProgressDisplay
+
+        jsonl_progress = JsonlProgressDisplay(output_manager=om, json_mode=True)
+        _ui_task_cb = progress.task_callback
+
+        def _jsonl_task_callback(event: object) -> None:
+            """Bridge UI task events to JSONL progress events."""
+            _ui_task_cb(event)
+            node_id = getattr(event, "node_id", None)
+            status = getattr(event, "status", "")
+            if status == "completed":
+                jsonl_progress.task_started(node_id=node_id)
+                jsonl_progress.task_completed(node_id=node_id)
+            elif status == "failed":
+                error_msg = getattr(event, "error_message", "") or ""
+                jsonl_progress.task_failed(node_id=node_id, error=error_msg)
+            else:
+                jsonl_progress.task_started(node_id=node_id)
+
+        task_cb = _jsonl_task_callback
+
     progress.start()
     try:
         result = asyncio.run(
@@ -375,7 +400,7 @@ def code_cmd(
                 watch_interval=watch_interval,
                 specs_dir=Path(specs_dir) if specs_dir else None,
                 activity_callback=progress.activity_callback,
-                task_callback=progress.task_callback,
+                task_callback=task_cb,
             )
         )
     except KeyboardInterrupt:

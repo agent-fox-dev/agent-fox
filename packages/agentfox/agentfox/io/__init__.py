@@ -16,11 +16,13 @@ from agentfox.io.errors import error_envelope
 from agentfox.io.help import exit_codes
 from agentfox.io.json import emit, emit_error, emit_line, emit_ok, read_stdin
 from agentfox.io.output import OutputManager, format_table, get_output_manager
+from agentfox.io.progress import ProgressDisplay
 from agentfox.io.spinner import StatusSpinner
 
 __all__ = [
     "AgentFoxGroup",
     "OutputManager",
+    "ProgressDisplay",
     "StatusSpinner",
     "common_options",
     "emit",
