@@ -32,10 +32,18 @@ class AgentFoxGroup(click.Group):
     """
 
     def invoke(self, ctx: click.Context) -> None:
-        """Invoke the group with agent-mode detection and error routing."""
+        """Invoke the group with agent-mode detection and error routing.
+
+        Agent mode is activated by either ``AF_AGENT=1`` in the environment
+        or the ``--json`` flag (parameter name ``json_mode``) on the group.
+        In agent mode, errors are routed through JSON error envelopes on
+        stdout instead of plain text to stderr.
+        """
         ctx.ensure_object(dict)
 
-        agent_mode = os.environ.get("AF_AGENT") == "1"
+        env_agent = os.environ.get("AF_AGENT") == "1"
+        json_flag = ctx.params.get("json_mode", False)
+        agent_mode = env_agent or json_flag
         ctx.obj["agent_mode"] = agent_mode
 
         # Load config (delegated from individual CLIs)
@@ -44,7 +52,7 @@ class AgentFoxGroup(click.Group):
         config = load_config(Path(".agent-fox/config.toml"))
         ctx.obj.setdefault("config", config)
 
-        # Render banner unless in agent mode or quiet
+        # Render banner unless in agent/json mode or quiet
         quiet = ctx.params.get("quiet", False)
         if not agent_mode and not quiet:
             from agentfox.ui.display import create_theme, render_banner

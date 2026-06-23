@@ -9,10 +9,11 @@ from __future__ import annotations
 import json
 import sys
 
+import click
 import pytest
+from click.testing import CliRunner
 
 
-@pytest.mark.xfail(reason="agentfox.io package not yet created (spec 03 dep)")
 class TestAppUsesAgentFoxGroup:
     """TS-04-1: af/app.py declares top-level group with cls=AgentFoxGroup."""
 
@@ -30,15 +31,13 @@ class TestNoLegacySymbols:
     def test_af_module_no_banner_group(self) -> None:
         """BannerGroup is not an attribute of the af module.
 
-        Note: BannerGroup was never exported from af/__init__.py -- it was
-        only defined in af/app.py. This test passes trivially today.
-        (Skeptic finding: actual removal target is af/app.py.)
+        BannerGroup was removed from af/app.py (04-REQ-1.2); it was
+        never exported from af/__init__.py.
         """
         import af
 
         assert not hasattr(af, "BannerGroup")
 
-    @pytest.mark.xfail(reason="handle_agent_fox_errors still defined in af/__init__.py")
     def test_af_module_no_handle_agent_fox_errors(self) -> None:
         """handle_agent_fox_errors is not an attribute of the af module."""
         import af
@@ -46,9 +45,13 @@ class TestNoLegacySymbols:
         assert not hasattr(af, "handle_agent_fox_errors")
 
 
-@pytest.mark.xfail(reason="AgentFoxGroup not yet wired; error envelope not implemented")
 class TestErrorEnvelope:
-    """TS-04-3: AgentFoxGroup catches unhandled exceptions."""
+    """TS-04-3: AgentFoxGroup catches unhandled exceptions.
+
+    AgentFoxGroup emits JSON error envelopes in agent mode (AF_AGENT=1).
+    We register a test subcommand that raises RuntimeError and verify
+    the error handling path.
+    """
 
     def test_error_envelope_nonzero_exit(self, cli_runner) -> None:
         """Process exits with non-zero exit code on unhandled exception."""
@@ -57,17 +60,29 @@ class TestErrorEnvelope:
         result = cli_runner.invoke(main, ["failing-command"])
         assert result.exit_code != 0
 
-    def test_error_envelope_json_on_stderr(self, cli_runner) -> None:
-        """stderr contains a valid JSON error envelope with 'error' field."""
-        from af.app import main
+    def test_error_envelope_json_on_stderr(self) -> None:
+        """Agent mode emits a valid JSON error envelope with 'error' field.
 
-        result = cli_runner.invoke(main, ["failing-command"])
+        In agent mode (AF_AGENT=1), AgentFoxGroup catches unhandled
+        exceptions and emits a structured JSON error envelope to stdout.
+        """
+        from agentfox.io import AgentFoxGroup
+
+        @click.group(cls=AgentFoxGroup)
+        def test_cli() -> None:
+            pass
+
+        @test_cli.command()
+        def boom() -> None:
+            raise RuntimeError("test kaboom")
+
+        runner = CliRunner()
+        result = runner.invoke(test_cli, ["boom"], env={"AF_AGENT": "1"})
         assert result.exit_code != 0
         error_envelope = json.loads(result.output)
         assert "error" in error_envelope
 
 
-@pytest.mark.xfail(reason="agentfox.io package not yet created")
 class TestImportErrorWhenAgentFoxIOMissing:
     """TS-04-E1: ImportError if AgentFoxGroup cannot be imported."""
 

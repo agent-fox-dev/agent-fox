@@ -22,8 +22,6 @@ from agentfox.reporting.formatters import (
 from agentfox.reporting.standup import generate_standup
 from rich.console import Console
 
-from af import handle_agent_fox_errors
-
 logger = logging.getLogger(__name__)
 
 
@@ -35,7 +33,6 @@ logger = logging.getLogger(__name__)
     help="Reporting window in hours (default: 24)",
 )
 @click.pass_context
-@handle_agent_fox_errors
 def standup_cmd(ctx: click.Context, hours: int) -> None:
     """Generate daily activity report."""
     json_mode = ctx.obj.get("json", False)

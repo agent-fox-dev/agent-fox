@@ -7,6 +7,7 @@ module level.
 
 Requirements: 01-REQ-1.1, 01-REQ-1.2, 01-REQ-1.3, 01-REQ-1.4,
               01-REQ-1.E1, 01-REQ-4.E1,
+              04-REQ-1.1, 04-REQ-1.3,
               23-REQ-1.1, 23-REQ-1.2, 23-REQ-2.1, 23-REQ-6.1,
               23-REQ-6.2, 23-REQ-6.E1
 """
@@ -14,64 +15,19 @@ Requirements: 01-REQ-1.1, 01-REQ-1.2, 01-REQ-1.3, 01-REQ-1.4,
 from __future__ import annotations
 
 import logging
-import sys
 from pathlib import Path
 
 import click
 from agentfox import __version__
 from agentfox.core.config import ThemeConfig, load_config
-from agentfox.core.errors import AgentFoxError
 from agentfox.core.logging import setup_logging
+from agentfox.io import AgentFoxGroup
 from agentfox.ui.display import create_theme, render_banner
 
 logger = logging.getLogger(__name__)
 
 
-class BannerGroup(click.Group):
-    """Custom Click group with a top-level exception handler.
-
-    Wraps subcommand dispatch so that any unhandled exception is caught,
-    logged at DEBUG level, and reported as a user-friendly error message
-    with exit code 1.  In JSON mode, errors are emitted as JSON envelopes
-    to stdout instead of plain text to stderr.
-
-    Requirements: 01-REQ-4.E1, 23-REQ-6.1, 23-REQ-6.2, 23-REQ-6.E1
-    """
-
-    def invoke(self, ctx: click.Context) -> None:
-        try:
-            super().invoke(ctx)
-        except click.exceptions.Exit:
-            raise
-        except click.ClickException as exc:
-            # In JSON mode, convert Click errors to JSON envelopes
-            if ctx.obj and ctx.obj.get("json"):
-                from af.json_io import emit_error
-
-                emit_error(str(exc))
-                sys.exit(1)
-            raise
-        except AgentFoxError as exc:
-            logger.debug("Unhandled AgentFoxError", exc_info=True)
-            if ctx.obj and ctx.obj.get("json"):
-                from af.json_io import emit_error
-
-                emit_error(str(exc))
-                sys.exit(1)
-            click.echo(f"Error: {exc}", err=True)
-            sys.exit(1)
-        except Exception as exc:
-            logger.debug("Unexpected error", exc_info=True)
-            if ctx.obj and ctx.obj.get("json"):
-                from af.json_io import emit_error
-
-                emit_error(str(exc))
-                sys.exit(1)
-            click.echo(f"Error: unexpected error: {exc}", err=True)
-            sys.exit(1)
-
-
-@click.group(cls=BannerGroup, invoke_without_command=True)
+@click.group(cls=AgentFoxGroup, invoke_without_command=True)
 @click.version_option(version=__version__)
 @click.option("--verbose", "-v", is_flag=True, help="Enable debug logging")
 @click.option("--quiet", "-q", is_flag=True, help="Suppress info messages")
@@ -110,7 +66,11 @@ def main(ctx: click.Context, verbose: bool, quiet: bool, trace: bool, json_mode:
 
     # 14-REQ-4.1: render banner on every invocation (suppressed by --quiet)
     # 23-REQ-2.1: suppress banner in JSON mode
-    if not json_mode:
+    # 04-REQ-1.1: AgentFoxGroup already renders banner for non-agent,
+    # non-quiet invocations. We only render here if AgentFoxGroup
+    # suppressed it (agent_mode) but --json was not requested.
+    agent_mode = ctx.obj.get("agent_mode", False)
+    if not json_mode and agent_mode and not quiet:
         theme_config = config.theme if config else ThemeConfig()
         theme = create_theme(theme_config)
         render_banner(theme, quiet=quiet)

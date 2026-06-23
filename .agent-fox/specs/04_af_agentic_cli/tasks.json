@@ -242,7 +242,7 @@
           "requirement_refs": [
             "04-REQ-1.1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -260,7 +260,7 @@
           "requirement_refs": [
             "04-REQ-1.2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -277,7 +277,7 @@
           "requirement_refs": [
             "04-REQ-1.3"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],
