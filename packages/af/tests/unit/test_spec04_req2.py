@@ -38,9 +38,7 @@ class TestSubcommandsUseOutputManager:
         filepath = _AF_PACKAGE_DIR / filename
         content = filepath.read_text()
         has_output_retrieval = (
-            "ctx.obj['output']" in content
-            or 'ctx.obj["output"]' in content
-            or "get_output_manager" in content
+            "ctx.obj['output']" in content or 'ctx.obj["output"]' in content or "get_output_manager" in content
         )
         has_om_emit = "om.emit(" in content or "output.emit(" in content
         assert has_output_retrieval, f"{filename} missing OutputManager retrieval"
@@ -55,9 +53,7 @@ class TestSubcommandsUseOutputManager:
         """Subcommand file does not use click.echo() for data output."""
         filepath = _AF_PACKAGE_DIR / filename
         content = filepath.read_text()
-        assert "click.echo(" not in content, (
-            f"{filename} still uses click.echo() for data output"
-        )
+        assert "click.echo(" not in content, f"{filename} still uses click.echo() for data output"
 
 
 class TestNoJsonIoImports:
@@ -68,29 +64,39 @@ class TestNoJsonIoImports:
         """Subcommand file has no import from af.json_io."""
         filepath = _AF_PACKAGE_DIR / filename
         content = filepath.read_text()
-        assert "af.json_io" not in content, (
-            f"{filename} still imports from af.json_io"
-        )
-        assert "from af import json_io" not in content, (
-            f"{filename} still imports json_io from af"
-        )
+        assert "af.json_io" not in content, f"{filename} still imports from af.json_io"
+        assert "from af import json_io" not in content, f"{filename} still imports json_io from af"
 
 
 class TestOutputManagerTextMode:
     """TS-04-6: OutputManager renders human-readable text."""
 
     def test_emit_produces_human_readable_output(self) -> None:
-        """om.emit() with json_mode=False produces non-JSON output."""
+        """om.emit() with json_mode=False produces non-JSON output via human_fn."""
         import io
 
         from agentfox.io import OutputManager
 
         buf = io.StringIO()
         om = OutputManager(json_mode=False, stdout=buf)
-        om.emit({"key": "value"})
+        # emit() dispatches: json_mode → emit_json, else → human_fn.
+        # In text mode a human_fn callback produces the readable output.
+        om.emit({"key": "value"}, human_fn=lambda: om.emit_human("key: value"))
         output = buf.getvalue()
         assert len(output.strip()) > 0
         assert '{"key"' not in output
+
+    def test_emit_human_writes_to_stdout(self) -> None:
+        """emit_human() writes plain text to stdout when json_mode=False."""
+        import io
+
+        from agentfox.io import OutputManager
+
+        buf = io.StringIO()
+        om = OutputManager(json_mode=False, stdout=buf)
+        om.emit_human("hello world")
+        output = buf.getvalue()
+        assert "hello world" in output
 
 
 class TestOutputManagerJsonMode:
@@ -154,7 +160,6 @@ class TestMissingOutputManagerRaises:
         is created with json_mode=False and stored back in ctx.obj.
         """
         import click
-
         from af import get_output_manager
         from agentfox.io import OutputManager
 
@@ -171,7 +176,6 @@ class TestMissingOutputManagerRaises:
         so existing tests and direct subcommand invocations still work.
         """
         import click
-
         from af import get_output_manager
         from agentfox.io import OutputManager
 
@@ -184,7 +188,6 @@ class TestMissingOutputManagerRaises:
     def test_returns_existing_output_manager(self) -> None:
         """get_output_manager returns existing OutputManager from ctx.obj."""
         import click
-
         from af import get_output_manager
         from agentfox.io import OutputManager
 

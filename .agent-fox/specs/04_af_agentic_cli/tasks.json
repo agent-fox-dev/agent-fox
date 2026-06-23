@@ -756,7 +756,7 @@
           "requirement_refs": [
             "04-REQ-7.1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -773,7 +773,7 @@
           "requirement_refs": [
             "04-REQ-7.2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -797,7 +797,7 @@
             "04-REQ-4.1",
             "04-REQ-6.4"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],

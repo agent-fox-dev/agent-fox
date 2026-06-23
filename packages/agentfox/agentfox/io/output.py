@@ -62,14 +62,26 @@ class OutputManager:
         quiet: bool = False,
         verbose: bool = False,
         trace: bool = False,
+        stdout: Any = None,
         stderr: Any = None,
     ) -> None:
         self.json_mode = json_mode
         self.quiet = quiet
         self.verbose = verbose
         self.trace = trace
-        self._stderr = stderr if stderr is not None else sys.stderr
+        self._explicit_stdout = stdout
+        self._explicit_stderr = stderr
         self.console = Console(stderr=True)
+
+    @property
+    def _stdout(self) -> Any:
+        """Return the stdout stream: explicit override or current sys.stdout."""
+        return self._explicit_stdout if self._explicit_stdout is not None else sys.stdout
+
+    @property
+    def _stderr(self) -> Any:
+        """Return the stderr stream: explicit override or current sys.stderr."""
+        return self._explicit_stderr if self._explicit_stderr is not None else sys.stderr
 
     def emit_json(self, data: dict[str, Any]) -> None:
         """Write JSON to stdout if json_mode is True; no-op otherwise.
@@ -77,7 +89,7 @@ class OutputManager:
         Requirements: 03-REQ-4.1, 03-REQ-4.2
         """
         if self.json_mode:
-            print(json.dumps(data, indent=2, default=str), file=sys.stdout)
+            print(json.dumps(data, indent=2, default=str), file=self._stdout)
 
     def emit_human(self, text: str) -> None:
         """Write plain text to stdout if json_mode is False; no-op otherwise.
@@ -85,7 +97,7 @@ class OutputManager:
         Requirements: 03-REQ-4.3, 03-REQ-4.4
         """
         if not self.json_mode:
-            print(text, file=sys.stdout)
+            print(text, file=self._stdout)
 
     def emit(
         self,

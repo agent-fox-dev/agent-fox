@@ -78,29 +78,47 @@ def common_options(fn: Any) -> Any:
         return value
 
     if "json" not in existing_names:
-        fn = click.option("--json/--no-json", default=None,
+        fn = click.option(
+            "--json/--no-json",
+            default=None,
             help="Enable/disable JSON output mode",
-            callback=_json_callback, expose_value=True, is_eager=False)(fn)
+            callback=_json_callback,
+            expose_value=True,
+            is_eager=False,
+        )(fn)
     else:
         logger.debug("Skipping --json/--no-json: name collision with existing flag")
 
     if "trace" not in existing_names:
-        fn = click.option("--trace", is_flag=True, default=False,
-            help="Enable trace logging")(fn)
+        fn = click.option("--trace", is_flag=True, default=False, help="Enable trace logging")(fn)
     else:
         logger.debug("Skipping --trace: name collision with existing flag")
 
     if "quiet" not in existing_names:
-        fn = click.option("--quiet", "-q", is_flag=True, default=False,
-            help="Suppress info messages", callback=_quiet_verbose_callback,
-            expose_value=True, is_eager=False)(fn)
+        fn = click.option(
+            "--quiet",
+            "-q",
+            is_flag=True,
+            default=False,
+            help="Suppress info messages",
+            callback=_quiet_verbose_callback,
+            expose_value=True,
+            is_eager=False,
+        )(fn)
     else:
         logger.debug("Skipping --quiet: name collision with existing flag")
 
     if "verbose" not in existing_names:
-        fn = click.option("--verbose", "-v", is_flag=True, default=False,
-            help="Enable debug logging", callback=_quiet_verbose_callback,
-            expose_value=True, is_eager=False)(fn)
+        fn = click.option(
+            "--verbose",
+            "-v",
+            is_flag=True,
+            default=False,
+            help="Enable debug logging",
+            callback=_quiet_verbose_callback,
+            expose_value=True,
+            is_eager=False,
+        )(fn)
     else:
         logger.debug("Skipping --verbose: name collision with existing flag")
 
@@ -191,6 +209,7 @@ class AgentFoxGroup(click.Group):
 
         try:
             from agentfox.core.logging import setup_logging
+
             setup_logging(verbose=flags["verbose"], quiet=flags["quiet"], trace=flags["trace"])
         except ImportError:
             pass
@@ -236,6 +255,7 @@ class AgentFoxGroup(click.Group):
         except click.ClickException as exc:
             if flags.get("json_mode"):
                 from agentfox.io.json import emit as _emit
+
                 _emit({"ok": False, "error": exc.format_message()})
                 sys.exit(exc.exit_code)
             raise

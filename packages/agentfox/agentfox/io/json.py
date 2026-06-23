@@ -74,7 +74,7 @@ def emit_error(exc_or_message: Exception | str, *, state: str | None = None) -> 
 
     envelope = error_envelope(exc_or_message, state=state)
     try:
-        click.echo(json.dumps(envelope, indent=2, default=str))
+        click.echo(json.dumps(envelope, default=str))
     except BrokenPipeError:
         pass
 
