@@ -4,7 +4,8 @@ Generates a daily activity report covering agent work, human
 commits, file overlaps, and queued tasks.
 
 Requirements: 07-REQ-2.1, 07-REQ-3.1, 07-REQ-3.4,
-              23-REQ-3.2, 23-REQ-8.2
+              23-REQ-3.2, 23-REQ-8.2,
+              04-REQ-6.2
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from pathlib import Path
 
 import click
 from agentfox.core.node_id import DEFAULT_DB_PATH
+from agentfox.io import emit, format_table
 from agentfox.reporting.formatters import (
     OutputFormat,
     get_formatter,
@@ -23,6 +25,39 @@ from agentfox.reporting.standup import generate_standup
 from rich.console import Console
 
 logger = logging.getLogger(__name__)
+
+
+def _build_cost_tables(
+    report: object,
+    json_mode: bool,
+) -> dict:
+    """Build cost breakdown tables using format_table.
+
+    Returns a dict with ``cost_by_spec`` and ``cost_by_archetype`` keys,
+    each holding the format_table output (list-of-dicts in JSON mode,
+    Rich Table in text mode).
+
+    Requirements: 04-REQ-6.2
+    """
+    cost_by_spec = getattr(report, "cost_by_spec", {}) or {}
+    cost_by_archetype = getattr(report, "cost_by_archetype", {}) or {}
+
+    spec_table = format_table(
+        headers=["Spec", "Cost"],
+        rows=[[spec, f"${cost:.2f}"] for spec, cost in sorted(cost_by_spec.items())],
+        json_mode=json_mode,
+    )
+
+    archetype_table = format_table(
+        headers=["Archetype", "Cost"],
+        rows=[
+            [archetype, f"${cost:.2f}"]
+            for archetype, cost in sorted(cost_by_archetype.items())
+        ],
+        json_mode=json_mode,
+    )
+
+    return {"cost_by_spec": spec_table, "cost_by_archetype": archetype_table}
 
 
 @click.command("standup")
@@ -57,10 +92,14 @@ def standup_cmd(ctx: click.Context, hours: int) -> None:
         if db_conn is not None:
             db_conn.close()
 
-    if json_mode:
-        from agentfox.io import emit
+    # Build cost tables via format_table (04-REQ-6.2)
+    cost_tables = _build_cost_tables(report, json_mode=json_mode)
 
-        emit(asdict(report))
+    if json_mode:
+        data = asdict(report)
+        data["cost_by_spec"] = cost_tables["cost_by_spec"]
+        data["cost_by_archetype"] = cost_tables["cost_by_archetype"]
+        emit(data)
     else:
         console = Console()
         formatter = get_formatter(OutputFormat.TABLE, console=console)

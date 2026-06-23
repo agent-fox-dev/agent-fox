@@ -1,9 +1,12 @@
 """JSON output helpers for CLI commands.
 
-Provides ``emit``, ``emit_ok``, ``emit_line``, ``emit_error``, and
-``read_stdin`` for writing structured JSON envelopes to stdout and
-reading JSON input from stdin.  All JSON output in agent-fox CLIs
-should use these functions rather than raw ``click.echo(json.dumps(...))``.
+Provides ``emit``, ``emit_ok``, ``emit_line``, ``emit_error``,
+``read_stdin``, and ``format_table`` for writing structured JSON
+envelopes to stdout, reading JSON input from stdin, and rendering
+tabular data consistently for both human and JSON output modes.
+
+All JSON output in agent-fox CLIs should use these functions rather
+than raw ``click.echo(json.dumps(...))``.
 """
 
 from __future__ import annotations
@@ -13,6 +16,7 @@ import sys
 from typing import Any
 
 import click
+from rich.table import Table
 
 
 def emit(data: dict[str, Any]) -> None:
@@ -78,3 +82,68 @@ def read_stdin() -> dict[str, Any]:
     if not text:
         return {}
     return json.loads(text)  # type: ignore[no-any-return]
+
+
+def _pad_row(row: list[Any], n: int, fill: Any) -> list[Any]:
+    """Pad *row* to length *n* using *fill* for missing positions.
+
+    If *row* is already at least length *n*, return it unchanged
+    (extra trailing values are preserved).
+
+    Args:
+        row: The original row values.
+        n: Desired minimum length.
+        fill: Value to use for missing positions.
+
+    Returns:
+        A list of at least *n* elements.
+    """
+    if len(row) >= n:
+        return row
+    return list(row) + [fill] * (n - len(row))
+
+
+def format_table(
+    headers: list[str],
+    rows: list[list[Any]],
+    json_mode: bool,
+) -> list[dict[str, Any]] | Table:
+    """Render tabular data for human or JSON output.
+
+    In ``json_mode`` each row becomes a dict keyed by *headers*.  Rows
+    shorter than the header list are padded with ``None``; extra trailing
+    values are silently ignored.
+
+    In text mode the function returns a Rich ``Table`` ready for
+    rendering by ``Console.print()``.  Short rows are padded with empty
+    strings.
+
+    Args:
+        headers: Column header strings.
+        rows: List of row data (each row is a list of cell values).
+        json_mode: ``True`` for structured output; ``False`` for Rich table.
+
+    Returns:
+        ``list[dict]`` when *json_mode* is ``True``, or a Rich ``Table``
+        when ``False``.
+
+    Requirements: 04-REQ-6.1, 04-REQ-6.4, 04-REQ-6.5,
+                  04-REQ-6.E1, 04-REQ-6.E2
+    """
+    n = len(headers)
+
+    if json_mode:
+        result: list[dict[str, Any]] = []
+        for row in rows:
+            padded = _pad_row(row, n, None)
+            result.append(dict(zip(headers, padded[:n])))
+        return result
+
+    # Rich table for human-readable mode
+    table = Table()
+    for h in headers:
+        table.add_column(h)
+    for row in rows:
+        padded = _pad_row(row, n, "")
+        table.add_row(*(str(v) for v in padded[:n]))
+    return table

@@ -140,7 +140,6 @@ class TestJsonHelpNoExitCodesDecorator:
 # --- REQ-6: format_table ---
 
 
-@pytest.mark.xfail(reason="format_table not yet implemented in agentfox.io")
 class TestFormatTableBasic:
     """TS-04-22: format_table basic happy path."""
 
@@ -168,7 +167,6 @@ class TestFormatTableBasic:
         assert str(result) != ""
 
 
-@pytest.mark.xfail(reason="format_table not yet implemented in agentfox.io")
 class TestFormatTableJsonModeKeys:
     """TS-04-25: format_table JSON mode returns dicts with exact header keys."""
 
@@ -188,7 +186,6 @@ class TestFormatTableJsonModeKeys:
             assert set(row_dict.keys()) == {"A", "B", "C"}
 
 
-@pytest.mark.xfail(reason="format_table not yet implemented in agentfox.io")
 class TestFormatTableTextModeRich:
     """TS-04-26: format_table text mode returns Rich Table or renderable."""
 
@@ -210,7 +207,6 @@ class TestFormatTableTextModeRich:
 class TestStandupUsesFormatTable:
     """TS-04-23: af/standup.py uses format_table from agentfox.io."""
 
-    @pytest.mark.xfail(reason="standup not yet migrated to format_table")
     def test_standup_imports_format_table(self) -> None:
         """af/standup.py imports format_table from agentfox.io."""
         content = (_AF_PACKAGE_DIR / "standup.py").read_text()
@@ -221,7 +217,6 @@ class TestStandupUsesFormatTable:
 class TestInsightsUsesFormatTable:
     """TS-04-24: af/findings.py (insights) uses format_table from agentfox.io."""
 
-    @pytest.mark.xfail(reason="findings/insights not yet migrated to format_table")
     def test_findings_imports_format_table(self) -> None:
         """af/findings.py imports format_table from agentfox.io."""
         content = (_AF_PACKAGE_DIR / "findings.py").read_text()
@@ -229,7 +224,6 @@ class TestInsightsUsesFormatTable:
         assert "format_table(" in content
 
 
-@pytest.mark.xfail(reason="format_table not yet implemented in agentfox.io")
 class TestFormatTableEmptyRows:
     """TS-04-E7: format_table with empty rows returns empty structure."""
 
@@ -248,7 +242,6 @@ class TestFormatTableEmptyRows:
         assert result is not None
 
 
-@pytest.mark.xfail(reason="format_table not yet implemented in agentfox.io")
 class TestFormatTableShortRow:
     """TS-04-E8: format_table pads short rows."""
 

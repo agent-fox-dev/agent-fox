@@ -10,7 +10,14 @@ This module is the canonical import path for all CLI IO utilities.
 from __future__ import annotations
 
 from agentfox.io.group import AgentFoxGroup
-from agentfox.io.output import emit, emit_error, emit_line, emit_ok, read_stdin
+from agentfox.io.output import (
+    emit,
+    emit_error,
+    emit_line,
+    emit_ok,
+    format_table,
+    read_stdin,
+)
 from agentfox.io.spinner import StatusSpinner
 
 __all__ = [
@@ -20,5 +27,6 @@ __all__ = [
     "emit_error",
     "emit_line",
     "emit_ok",
+    "format_table",
     "read_stdin",
 ]

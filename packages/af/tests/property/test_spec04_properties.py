@@ -138,7 +138,6 @@ class TestProp3OutputManagerSoleChannel:
         )
 
 
-@pytest.mark.xfail(reason="format_table not yet implemented in agentfox.io")
 class TestProp5FormatTableKeyAlignment:
     """TS-04-P5: format_table JSON dicts always have header-matching keys."""
 

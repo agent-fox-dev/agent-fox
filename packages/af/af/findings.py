@@ -4,7 +4,8 @@ Implements the `agent-fox findings` command that queries the knowledge
 database for review findings and displays them in a formatted table or
 as JSON.
 
-Requirements: 84-REQ-4.1 through 84-REQ-4.6, 84-REQ-4.E1, 84-REQ-4.E2
+Requirements: 84-REQ-4.1 through 84-REQ-4.6, 84-REQ-4.E1, 84-REQ-4.E2,
+              04-REQ-6.3
 """
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ from pathlib import Path
 import click
 import duckdb
 from agentfox.core.node_id import DEFAULT_DB_PATH as _DEFAULT_DB_PATH
+from agentfox.io import format_table
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +63,7 @@ def findings_cmd(
                   592-AC-3, 592-AC-4
     """
     from agentfox.knowledge.review_store import dismiss_finding_by_id
-    from agentfox.reporting.findings import format_findings_table, query_findings
+    from agentfox.reporting.findings import query_findings
 
     # 84-REQ-4.E1: Handle missing DB gracefully
     if not DEFAULT_DB_PATH.exists():
@@ -114,5 +116,25 @@ def findings_cmd(
         click.echo("No findings match the given filters")
         return
 
-    output = format_findings_table(rows, json_output=json_output)
-    click.echo(output)
+    # 04-REQ-6.3: Use format_table from agentfox.io for tabular output
+    headers = ["Severity", "Archetype", "Spec", "Description", "Created"]
+    table_rows = [
+        [
+            f.severity,
+            f.archetype,
+            f.spec_name,
+            f.description[:80],
+            f.created_at.strftime("%Y-%m-%d %H:%M") if f.created_at else "N/A",
+        ]
+        for f in rows
+    ]
+    output = format_table(headers=headers, rows=table_rows, json_mode=json_output)
+
+    if json_output:
+        import json as _json
+
+        click.echo(_json.dumps(output, indent=2))
+    else:
+        from rich.console import Console
+
+        Console().print(output)
