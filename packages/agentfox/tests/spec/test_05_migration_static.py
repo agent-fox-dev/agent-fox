@@ -92,14 +92,11 @@ class TestStatusSpinnerImport:
             source = py_file.read_text()
             if "StatusSpinner" in source:
                 # Must not import from spec.ui
-                assert "from spec.ui import" not in source, (
-                    f"{py_file} still imports from spec.ui"
-                )
+                assert "from spec.ui import" not in source, f"{py_file} still imports from spec.ui"
                 # Must import StatusSpinner specifically from agentfox.io
                 # Handle single-line: from agentfox.io import StatusSpinner, ...
                 single_line = any(
-                    "from agentfox.io" in line and "StatusSpinner" in line
-                    for line in source.splitlines()
+                    "from agentfox.io" in line and "StatusSpinner" in line for line in source.splitlines()
                 )
                 # Handle multi-line: from agentfox.io import (\n    StatusSpinner,\n)
                 multi_line = bool(
@@ -131,9 +128,7 @@ class TestNoSpecUiImports:
         spec_dir = _get_spec_package_dir()
         for py_file in _find_python_files(spec_dir):
             source = py_file.read_text()
-            assert "from spec.ui import" not in source, (
-                f"{py_file} still contains 'from spec.ui import'"
-            )
+            assert "from spec.ui import" not in source, f"{py_file} still contains 'from spec.ui import'"
 
 
 # ===========================================================================
@@ -165,7 +160,6 @@ class TestNoJsonErrorExit:
     Requirement: 05-REQ-5.2
     """
 
-    @pytest.mark.xfail(reason="_json_error_exit not yet removed")
     def test_no_json_error_exit(self) -> None:
         """_json_error_exit does not appear in spec/cli.py."""
         source = _get_cli_source()
@@ -207,12 +201,8 @@ class TestNoTestImportsFromSpecUi:
         test_files = _find_test_python_files()
         for tf in test_files:
             source = tf.read_text()
-            assert "from spec.ui import" not in source, (
-                f"{tf} still contains 'from spec.ui import'"
-            )
-            assert "import spec.ui" not in source, (
-                f"{tf} still contains 'import spec.ui'"
-            )
+            assert "from spec.ui import" not in source, f"{tf} still contains 'from spec.ui import'"
+            assert "import spec.ui" not in source, f"{tf} still contains 'import spec.ui'"
 
 
 # ===========================================================================

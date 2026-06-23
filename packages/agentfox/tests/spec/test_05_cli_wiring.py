@@ -419,7 +419,6 @@ class TestRootGroupAgentFoxGroup:
     Requirement: 05-REQ-1.1
     """
 
-    @pytest.mark.xfail(reason="AgentFoxGroup migration not yet implemented")
     def test_root_group_is_agentfoxgroup(self) -> None:
         """The root CLI group object is an instance of AgentFoxGroup."""
         from agentfox.io import AgentFoxGroup
@@ -439,13 +438,11 @@ class TestNoBannerOrConfigLoad:
     Requirement: 05-REQ-1.2
     """
 
-    @pytest.mark.xfail(reason="Banner/config migration not yet implemented")
     def test_no_render_banner_call(self) -> None:
         """spec/cli.py does not call render_banner()."""
         source = _get_cli_source()
         assert "render_banner" not in source
 
-    @pytest.mark.xfail(reason="Banner/config migration not yet implemented")
     def test_no_manual_load_config(self) -> None:
         """spec/cli.py does not manually call load_config()."""
         source = _get_cli_source()
@@ -463,13 +460,11 @@ class TestLegacyHelpersRemoved:
     Requirement: 05-REQ-1.3
     """
 
-    @pytest.mark.xfail(reason="Legacy helpers not yet removed")
     def test_json_error_exit_absent(self) -> None:
         """_json_error_exit is not in spec/cli.py source."""
         source = _get_cli_source()
         assert "_json_error_exit" not in source
 
-    @pytest.mark.xfail(reason="Legacy helpers not yet removed")
     def test_error_type_absent(self) -> None:
         """_error_type is not in spec/cli.py source."""
         source = _get_cli_source()
@@ -487,7 +482,6 @@ class TestLegacyAgentFoxGroupCoexistence:
     Requirement: 05-REQ-1.E1
     """
 
-    @pytest.mark.xfail(reason="AgentFoxGroup migration not yet implemented")
     def test_no_legacy_with_agentfoxgroup(self) -> None:
         """_json_error_exit is absent and AgentFoxGroup is present."""
         source = _get_cli_source()
@@ -506,10 +500,7 @@ class TestAgentModeBannerSuppression:
     Requirement: 05-REQ-1.4
     """
 
-    @pytest.mark.xfail(reason="Agent mode banner suppression not yet implemented")
-    def test_no_banner_in_agent_mode(
-        self, runner: CliRunner, valid_spec_root: Path
-    ) -> None:
+    def test_no_banner_in_agent_mode(self, runner: CliRunner, valid_spec_root: Path) -> None:
         """No banner/fox-art text in stdout when AF_AGENT=1."""
         # Use a real subcommand (not --help which bypasses group callback)
         result = _invoke_spec_catching(
@@ -535,7 +526,6 @@ class TestUnhandledExceptionRouting:
     Requirement: 05-REQ-1.5
     """
 
-    @pytest.mark.xfail(reason="AgentFoxGroup error routing not yet implemented")
     def test_unhandled_exception_json_envelope(self, runner: CliRunner) -> None:
         """Unhandled RuntimeError produces JSON error with ok=false."""
         with patch(
@@ -564,9 +554,7 @@ class TestRenderJsonCombined:
     """
 
     @pytest.mark.xfail(reason="render --json not yet implemented")
-    def test_combined_json_envelope_fields(
-        self, runner: CliRunner, valid_spec_root: Path
-    ) -> None:
+    def test_combined_json_envelope_fields(self, runner: CliRunner, valid_spec_root: Path) -> None:
         """JSON envelope has ok, format, content, sections."""
         result = _invoke_spec(
             runner,
@@ -582,9 +570,7 @@ class TestRenderJsonCombined:
         assert isinstance(parsed["sections"], list)
 
     @pytest.mark.xfail(reason="render --json not yet implemented")
-    def test_combined_content_is_merged_string(
-        self, runner: CliRunner, valid_spec_root: Path
-    ) -> None:
+    def test_combined_content_is_merged_string(self, runner: CliRunner, valid_spec_root: Path) -> None:
         """Combined mode returns single content string, not artifacts map."""
         result = _invoke_spec(
             runner,
@@ -596,9 +582,7 @@ class TestRenderJsonCombined:
         assert isinstance(parsed["content"], str)
 
     @pytest.mark.xfail(reason="render --json not yet implemented")
-    def test_combined_sections_list(
-        self, runner: CliRunner, valid_spec_root: Path
-    ) -> None:
+    def test_combined_sections_list(self, runner: CliRunner, valid_spec_root: Path) -> None:
         """Combined mode includes sections array reflecting included artifacts."""
         result = _invoke_spec(
             runner,
@@ -623,9 +607,7 @@ class TestRenderJsonPerArtifact:
     """
 
     @pytest.mark.xfail(reason="render --json not yet implemented")
-    def test_per_artifact_envelope(
-        self, runner: CliRunner, valid_spec_root: Path
-    ) -> None:
+    def test_per_artifact_envelope(self, runner: CliRunner, valid_spec_root: Path) -> None:
         """JSON envelope has ok=true and artifacts map, no content key."""
         result = _invoke_spec(
             runner,
@@ -650,9 +632,7 @@ class TestRenderNoJson:
     Requirement: 05-REQ-2.4
     """
 
-    def test_raw_markdown_output(
-        self, runner: CliRunner, valid_spec_root: Path
-    ) -> None:
+    def test_raw_markdown_output(self, runner: CliRunner, valid_spec_root: Path) -> None:
         """Without --json, stdout is raw markdown, not JSON."""
         result = _invoke_spec_catching(
             runner,
@@ -707,9 +687,7 @@ class TestRenderJsonNonExistentSpec:
     """
 
     @pytest.mark.xfail(reason="render --json error handling not yet implemented")
-    def test_nonexistent_spec_error_envelope(
-        self, runner: CliRunner, tmp_path: Path
-    ) -> None:
+    def test_nonexistent_spec_error_envelope(self, runner: CliRunner, tmp_path: Path) -> None:
         """Non-existent spec produces ok=false JSON envelope."""
         empty_spec_dir = tmp_path / "empty_specs"
         empty_spec_dir.mkdir()
@@ -735,9 +713,7 @@ class TestRenderJsonMissingArtifactWarnings:
     """
 
     @pytest.mark.xfail(reason="render --json missing artifact warnings not yet implemented")
-    def test_missing_tasks_artifact_warning(
-        self, runner: CliRunner, no_tasks_spec_root: Path
-    ) -> None:
+    def test_missing_tasks_artifact_warning(self, runner: CliRunner, no_tasks_spec_root: Path) -> None:
         """Missing tasks artifact is omitted with a warning."""
         result = _invoke_spec(
             runner,
@@ -762,9 +738,7 @@ class TestValidateStructuredSchemaErrors:
     """
 
     @pytest.mark.xfail(reason="Structured validation errors not yet implemented")
-    def test_schema_error_structure(
-        self, runner: CliRunner, schema_error_spec_root: Path
-    ) -> None:
+    def test_schema_error_structure(self, runner: CliRunner, schema_error_spec_root: Path) -> None:
         """Schema errors have category, artifact, path, message, value fields."""
         result = _invoke_spec_catching(
             runner,
@@ -793,9 +767,7 @@ class TestValidateStructuredIntegrityErrors:
     """
 
     @pytest.mark.xfail(reason="Structured integrity errors not yet implemented")
-    def test_integrity_error_structure(
-        self, runner: CliRunner, integrity_error_spec_root: Path
-    ) -> None:
+    def test_integrity_error_structure(self, runner: CliRunner, integrity_error_spec_root: Path) -> None:
         """Integrity errors have category, check, message, requirement_id."""
         result = _invoke_spec_catching(
             runner,
@@ -822,9 +794,7 @@ class TestValidateSuccess:
     """
 
     @pytest.mark.xfail(reason="Structured validation output not yet implemented")
-    def test_valid_spec_result(
-        self, runner: CliRunner, valid_spec_root: Path
-    ) -> None:
+    def test_valid_spec_result(self, runner: CliRunner, valid_spec_root: Path) -> None:
         """Valid spec returns valid=true, errors=[] and exit code 0."""
         result = _invoke_spec(
             runner,
@@ -848,9 +818,7 @@ class TestValidateFailure:
     """
 
     @pytest.mark.xfail(reason="Structured validation output not yet implemented")
-    def test_invalid_spec_result(
-        self, runner: CliRunner, schema_error_spec_root: Path
-    ) -> None:
+    def test_invalid_spec_result(self, runner: CliRunner, schema_error_spec_root: Path) -> None:
         """Invalid spec returns valid=false, non-empty errors, exit code 1."""
         result = _invoke_spec_catching(
             runner,
@@ -899,9 +867,7 @@ class TestValidateIOError:
     """
 
     @pytest.mark.xfail(reason="Structured IO error not yet implemented")
-    def test_missing_artifact_io_error(
-        self, runner: CliRunner, missing_artifact_spec_root: Path
-    ) -> None:
+    def test_missing_artifact_io_error(self, runner: CliRunner, missing_artifact_spec_root: Path) -> None:
         """Missing artifact file produces category='io' error, exit code 1."""
         result = _invoke_spec_catching(
             runner,
@@ -929,9 +895,7 @@ class TestValidateTopLevelErrorOmitsPathValue:
     """
 
     @pytest.mark.xfail(reason="Structured error field omission not yet implemented")
-    def test_top_level_error_no_path_no_value(
-        self, runner: CliRunner, top_level_error_spec_root: Path
-    ) -> None:
+    def test_top_level_error_no_path_no_value(self, runner: CliRunner, top_level_error_spec_root: Path) -> None:
         """Top-level error object has no path or value keys.
 
         Uses a fixture with a missing required root-level field (spec_id),
@@ -952,8 +916,7 @@ class TestValidateTopLevelErrorOmitsPathValue:
         # At least one error must be top-level (no 'path' key at all)
         top_level_errs = [e for e in schema_errs if "path" not in e]
         assert len(top_level_errs) > 0, (
-            "Expected at least one top-level error without 'path' key, "
-            f"but all schema errors have paths: {schema_errs}"
+            f"Expected at least one top-level error without 'path' key, but all schema errors have paths: {schema_errs}"
         )
         # Verify top-level errors omit both 'path' and 'value' (not null, absent)
         for err in top_level_errs:

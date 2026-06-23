@@ -141,9 +141,7 @@ def _write_valid_spec(spec_dir: Path, *, include_tasks: bool = True) -> None:
     artifacts = ["requirements.json", "test_spec.json"]
     if include_tasks:
         artifacts.append("tasks.json")
-    (spec_dir / "_session.json").write_text(
-        json.dumps({"state": "generated", "generated_artifacts": artifacts})
-    )
+    (spec_dir / "_session.json").write_text(json.dumps({"state": "generated", "generated_artifacts": artifacts}))
 
 
 def _write_spec_with_schema_errors(spec_dir: Path) -> None:
@@ -320,9 +318,7 @@ class TestAgentModePurity:
             pytest.param(["status", "01"], id="status"),
         ],
     )
-    def test_agent_mode_json_output(
-        self, runner: CliRunner, tmp_path: Path, cmd_args: list[str]
-    ) -> None:
+    def test_agent_mode_json_output(self, runner: CliRunner, tmp_path: Path, cmd_args: list[str]) -> None:
         """Every stdout line is valid JSON with AF_AGENT=1."""
         spec_root = tmp_path / "specs"
         spec_root.mkdir()
@@ -606,7 +602,6 @@ class TestNoLegacyPatterns:
     Validates: 05-REQ-5.1, 05-REQ-5.2
     """
 
-    @pytest.mark.xfail(reason="Legacy patterns not yet removed")
     def test_no_json_error_exit_in_source(self) -> None:
         """spec/cli.py does not contain _json_error_exit."""
         source = _get_cli_source()
@@ -637,9 +632,5 @@ class TestNoSpecUiImportsAnywhere:
         spec_dir = _get_spec_package_dir()
         for py_file in spec_dir.rglob("*.py"):
             source = py_file.read_text()
-            assert "from spec.ui import" not in source, (
-                f"{py_file} contains 'from spec.ui import'"
-            )
-            assert "import spec.ui" not in source, (
-                f"{py_file} contains 'import spec.ui'"
-            )
+            assert "from spec.ui import" not in source, f"{py_file} contains 'from spec.ui import'"
+            assert "import spec.ui" not in source, f"{py_file} contains 'import spec.ui'"

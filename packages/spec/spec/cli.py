@@ -17,9 +17,8 @@ from typing import Any
 
 import click
 import yaml
-from agentfox.core.config import ThemeConfig, load_config
-from agentfox.ui.display import create_theme, render_banner
-from agentspec.errors import AgentError, AgentSpecError, SessionError
+from agentfox.io import AgentFoxGroup
+from agentspec.errors import AgentError
 from agentspec.session import SessionState, SpecSession
 
 from spec.ui import StatusSpinner
@@ -87,6 +86,90 @@ def _derive_spec_name(filename: str) -> str:
     return re.sub(r"[^a-z0-9]+", "_", stem.lower()).strip("_")
 
 
+# ---------------------------------------------------------------------------
+# CLI entry point
+# ---------------------------------------------------------------------------
+
+
+@click.group(cls=AgentFoxGroup, invoke_without_command=True)
+@click.option(
+    "--spec-dir",
+    "-d",
+    type=click.Path(),
+    default=_DEFAULT_SPEC_DIR,
+    envvar="SPEC_DIR",
+    help=f"Spec directory (default: {_DEFAULT_SPEC_DIR})",
+)
+@click.option("--quiet", "-q", is_flag=True, default=False, help="Suppress progress output")
+@click.version_option(package_name="spec")
+@click.pass_context
+def main(ctx: click.Context, spec_dir: str, quiet: bool) -> None:
+    """spec: AI-powered spec creation tool."""
+    ctx.ensure_object(dict)
+    ctx.obj["spec_dir"] = Path(spec_dir)
+    ctx.obj["quiet"] = quiet
+
+    if ctx.invoked_subcommand is None:
+        click.echo(ctx.get_help())
+
+
+# ---------------------------------------------------------------------------
+# new
+# ---------------------------------------------------------------------------
+
+
+@main.command("new")
+@click.argument("prd_file", type=click.Path(exists=True))
+@click.option("--name", default=None, help="Spec name (default: derived from filename)")
+@click.pass_context
+def new_cmd(ctx: click.Context, prd_file: str, name: str | None) -> None:
+    """Create a new spec from a PRD file."""
+    spec_dir: Path = ctx.obj["spec_dir"]
+    prd_path = Path(prd_file)
+    prd_content = prd_path.read_text()
+
+    if name is None:
+        name = _derive_spec_name(prd_path.name)
+
+    if not _SPEC_NAME_RE.match(name):
+        raise click.ClickException(
+            f"Invalid spec name {name!r}: must match [a-z][a-z0-9_]* "
+            "(start with lowercase letter, only lowercase letters, digits, underscores)"
+        )
+
+    spec_dir.mkdir(parents=True, exist_ok=True)
+
+    prefix = _next_prefix(spec_dir)
+    spec_id = f"{prefix:02d}"
+    dir_name = f"{spec_id}_{name}"
+    target = spec_dir / dir_name
+    target.mkdir()
+
+    now = datetime.now(UTC).isoformat()
+    frontmatter = {
+        "spec_id": spec_id,
+        "spec_name": name,
+        "title": name.replace("_", " ").title(),
+        "status": "draft",
+        "created_at": now,
+        "updated_at": now,
+        "owner": "",
+        "source": "interactive",
+        "schema_version": 1,
+    }
+    frontmatter_yaml = yaml.dump(frontmatter, default_flow_style=False, sort_keys=False)
+    (target / "prd.md").write_text(f"---\n{frontmatter_yaml}---\n{prd_content}\n")
+
+    SpecSession._create(target)
+
+    click.echo(json.dumps({"spec_dir": dir_name, "state": "init"}))
+
+
+# ---------------------------------------------------------------------------
+# refine
+# ---------------------------------------------------------------------------
+
+
 def _assessment_to_json(assessment: Any) -> dict[str, Any]:
     """Serialise an Assessment to a JSON-friendly dict."""
     questions = []
@@ -106,138 +189,6 @@ def _assessment_to_json(assessment: Any) -> dict[str, Any]:
         "gaps": list(assessment.gaps),
         "questions": questions,
     }
-
-
-def _error_type(exc: Exception) -> str:
-    """Map exception to a short error type string."""
-    if hasattr(exc, "category"):
-        return f"{exc.category}_error"
-    return "internal_error"
-
-
-def _json_error_exit(
-    exc: Exception,
-    *,
-    code: int = 1,
-    state: str | None = None,
-) -> None:
-    """Emit structured JSON error to stdout and exit."""
-    error_body: dict[str, Any] = {
-        "type": _error_type(exc),
-        "message": str(exc),
-    }
-
-    if isinstance(exc, AgentError):
-        error_body["retryable"] = exc.retryable
-        if exc.http_status is not None:
-            error_body["http_status"] = exc.http_status
-    else:
-        error_body["retryable"] = False
-
-    if state is not None:
-        error_body["state"] = state
-
-    if exc.__cause__ is not None:
-        error_body["cause"] = str(exc.__cause__)
-
-    click.echo(json.dumps({"ok": False, "error": error_body}))
-    sys.exit(code)
-
-
-# ---------------------------------------------------------------------------
-# CLI entry point
-# ---------------------------------------------------------------------------
-
-
-@click.group(invoke_without_command=True)
-@click.option(
-    "--spec-dir",
-    "-d",
-    type=click.Path(),
-    default=_DEFAULT_SPEC_DIR,
-    envvar="SPEC_DIR",
-    help=f"Spec directory (default: {_DEFAULT_SPEC_DIR})",
-)
-@click.option("--quiet", "-q", is_flag=True, default=False, help="Suppress progress output")
-@click.version_option(package_name="spec")
-@click.pass_context
-def main(ctx: click.Context, spec_dir: str, quiet: bool) -> None:
-    """spec: AI-powered spec creation tool."""
-    ctx.ensure_object(dict)
-    ctx.obj["spec_dir"] = Path(spec_dir)
-    ctx.obj["quiet"] = quiet
-
-    config = load_config(Path(".agent-fox/config.toml"))
-    theme_config = config.theme if config else ThemeConfig()
-    theme = create_theme(theme_config)
-    render_banner(theme, quiet=quiet)
-
-    if ctx.invoked_subcommand is None:
-        click.echo(ctx.get_help())
-
-
-# ---------------------------------------------------------------------------
-# new
-# ---------------------------------------------------------------------------
-
-
-@main.command("new")
-@click.argument("prd_file", type=click.Path(exists=True))
-@click.option("--name", default=None, help="Spec name (default: derived from filename)")
-@click.pass_context
-def new_cmd(ctx: click.Context, prd_file: str, name: str | None) -> None:
-    """Create a new spec from a PRD file."""
-    try:
-        spec_dir: Path = ctx.obj["spec_dir"]
-        prd_path = Path(prd_file)
-        prd_content = prd_path.read_text()
-
-        if name is None:
-            name = _derive_spec_name(prd_path.name)
-
-        if not _SPEC_NAME_RE.match(name):
-            raise click.ClickException(
-                f"Invalid spec name {name!r}: must match [a-z][a-z0-9_]* "
-                "(start with lowercase letter, only lowercase letters, digits, underscores)"
-            )
-
-        spec_dir.mkdir(parents=True, exist_ok=True)
-
-        prefix = _next_prefix(spec_dir)
-        spec_id = f"{prefix:02d}"
-        dir_name = f"{spec_id}_{name}"
-        target = spec_dir / dir_name
-        target.mkdir()
-
-        now = datetime.now(UTC).isoformat()
-        frontmatter = {
-            "spec_id": spec_id,
-            "spec_name": name,
-            "title": name.replace("_", " ").title(),
-            "status": "draft",
-            "created_at": now,
-            "updated_at": now,
-            "owner": "",
-            "source": "interactive",
-            "schema_version": 1,
-        }
-        frontmatter_yaml = yaml.dump(frontmatter, default_flow_style=False, sort_keys=False)
-        (target / "prd.md").write_text(f"---\n{frontmatter_yaml}---\n{prd_content}\n")
-
-        SpecSession._create(target)
-
-        click.echo(json.dumps({"spec_dir": dir_name, "state": "init"}))
-    except click.ClickException:
-        raise
-    except (AgentSpecError, SessionError) as exc:
-        _json_error_exit(exc)
-    except Exception as exc:
-        _json_error_exit(exc, code=2)
-
-
-# ---------------------------------------------------------------------------
-# refine
-# ---------------------------------------------------------------------------
 
 
 @main.command("refine")
@@ -261,89 +212,72 @@ def refine_cmd(ctx: click.Context, spec: str, answers: str | None, force: bool) 
 
     Loop until quality is "ready", then run generate.
     """
-    session: SpecSession | None = None
-    try:
-        spec_dir: Path = ctx.obj["spec_dir"]
-        quiet: bool = ctx.obj["quiet"]
-        target = _resolve_spec(spec_dir, spec)
-        session = SpecSession.resume(target)
+    spec_dir: Path = ctx.obj["spec_dir"]
+    quiet: bool = ctx.obj["quiet"]
+    target = _resolve_spec(spec_dir, spec)
+    session = SpecSession.resume(target)
 
-        if force:
-            for name in ("requirements.json", "test_spec.json", "tasks.json"):
-                artifact_path = target / name
-                if artifact_path.exists():
-                    artifact_path.unlink()
-            session._state = SessionState.INIT
-            session._assessment_history = []
-            session._qa_exchanges = []
-            session._generated_artifacts = []
-            session._persist()
+    if force:
+        for name in ("requirements.json", "test_spec.json", "tasks.json"):
+            artifact_path = target / name
+            if artifact_path.exists():
+                artifact_path.unlink()
+        session._state = SessionState.INIT
+        session._assessment_history = []
+        session._qa_exchanges = []
+        session._generated_artifacts = []
+        session._persist()
 
-        if answers is None:
-            if not session._assessment_history:
-                with StatusSpinner("Assessing PRD...", quiet=quiet):
-                    assessment = asyncio.run(session.assess())
-                result = _assessment_to_json(assessment)
-                result["type"] = "assessment"
-                click.echo(json.dumps(result, indent=2))
-                return
-
-            questions = session.pending_questions()
-            output: dict[str, Any] = {
-                "type": "questions",
-                "questions": questions,
-                "answers": {q["id"]: "" for q in questions},
-            }
-            click.echo(json.dumps(output, indent=2))
-            return
-
+    if answers is None:
         if not session._assessment_history:
             with StatusSpinner("Assessing PRD...", quiet=quiet):
-                asyncio.run(session.assess())
+                assessment = asyncio.run(session.assess())
+            result = _assessment_to_json(assessment)
+            result["type"] = "assessment"
+            click.echo(json.dumps(result, indent=2))
+            return
 
-        if answers == "-":
-            answers_text = sys.stdin.read()
-        else:
-            answers_path = Path(answers)
-            if not answers_path.exists():
-                _json_error_exit(
-                    AgentError(f"Answers file not found: {answers}", category="input"),
-                    state=session.state.value,
-                )
-            answers_text = answers_path.read_text()
+        questions = session.pending_questions()
+        output: dict[str, Any] = {
+            "type": "questions",
+            "questions": questions,
+            "answers": {q["id"]: "" for q in questions},
+        }
+        click.echo(json.dumps(output, indent=2))
+        return
 
-        try:
-            answers_data = json.loads(answers_text)
-        except json.JSONDecodeError as exc:
-            _json_error_exit(
-                AgentError(f"Invalid JSON in answers: {exc}", category="input"),
-                state=session.state.value,
-            )
+    if not session._assessment_history:
+        with StatusSpinner("Assessing PRD...", quiet=quiet):
+            asyncio.run(session.assess())
 
-        if not isinstance(answers_data, dict):
-            _json_error_exit(
-                AgentError(
-                    "Answers file must be a JSON object mapping question IDs to answers.",
-                    category="input",
-                ),
-                state=session.state.value,
-            )
+    if answers == "-":
+        answers_text = sys.stdin.read()
+    else:
+        answers_path = Path(answers)
+        if not answers_path.exists():
+            raise AgentError(f"Answers file not found: {answers}", category="input")
+        answers_text = answers_path.read_text()
 
-        if "answers" in answers_data and isinstance(answers_data["answers"], dict):
-            answers_data = answers_data["answers"]
+    try:
+        answers_data = json.loads(answers_text)
+    except json.JSONDecodeError as exc:
+        raise AgentError(f"Invalid JSON in answers: {exc}", category="input") from exc
 
-        with StatusSpinner("Refining PRD...", quiet=quiet):
-            assessment = asyncio.run(session.refine(answers_data))
+    if not isinstance(answers_data, dict):
+        raise AgentError(
+            "Answers file must be a JSON object mapping question IDs to answers.",
+            category="input",
+        )
 
-        result = _assessment_to_json(assessment)
-        result["type"] = "assessment"
-        click.echo(json.dumps(result, indent=2))
-    except click.ClickException:
-        raise
-    except (AgentSpecError, SessionError) as exc:
-        _json_error_exit(exc, state=session.state.value if session else None)
-    except Exception as exc:
-        _json_error_exit(exc, code=2, state=session.state.value if session else None)
+    if "answers" in answers_data and isinstance(answers_data["answers"], dict):
+        answers_data = answers_data["answers"]
+
+    with StatusSpinner("Refining PRD...", quiet=quiet):
+        assessment = asyncio.run(session.refine(answers_data))
+
+    result = _assessment_to_json(assessment)
+    result["type"] = "assessment"
+    click.echo(json.dumps(result, indent=2))
 
 
 # ---------------------------------------------------------------------------
@@ -357,38 +291,30 @@ def refine_cmd(ctx: click.Context, spec: str, answers: str | None, force: bool) 
 @click.pass_context
 def generate_cmd(ctx: click.Context, spec: str, force: bool) -> None:
     """Generate JSON artifacts from accepted PRD."""
-    session: SpecSession | None = None
-    try:
-        spec_dir: Path = ctx.obj["spec_dir"]
-        quiet: bool = ctx.obj["quiet"]
-        target = _resolve_spec(spec_dir, spec)
-        session = SpecSession.resume(target)
+    spec_dir: Path = ctx.obj["spec_dir"]
+    quiet: bool = ctx.obj["quiet"]
+    target = _resolve_spec(spec_dir, spec)
+    session = SpecSession.resume(target)
 
-        if force and session.state in (SessionState.GENERATED, SessionState.GENERATING):
-            for name in ("requirements.json", "test_spec.json", "tasks.json"):
-                artifact_path = target / name
-                if artifact_path.exists():
-                    artifact_path.unlink()
-            session._state = SessionState.PRD_ACCEPTED
-            session._generated_artifacts = []
-            session._persist()
+    if force and session.state in (SessionState.GENERATED, SessionState.GENERATING):
+        for name in ("requirements.json", "test_spec.json", "tasks.json"):
+            artifact_path = target / name
+            if artifact_path.exists():
+                artifact_path.unlink()
+        session._state = SessionState.PRD_ACCEPTED
+        session._generated_artifacts = []
+        session._persist()
 
-        if session.state in (SessionState.ASSESSING, SessionState.REFINING):
-            session.accept_prd()
+    if session.state in (SessionState.ASSESSING, SessionState.REFINING):
+        session.accept_prd()
 
-        with StatusSpinner("Generating artifacts...", quiet=quiet) as spinner:
-            result = asyncio.run(session.generate())
-            artifacts = result.artifacts if hasattr(result, "artifacts") else result.get("artifacts", [])
-            for artifact in artifacts:
-                spinner.log(f"  {artifact}")
+    with StatusSpinner("Generating artifacts...", quiet=quiet) as spinner:
+        result = asyncio.run(session.generate())
+        artifacts = result.artifacts if hasattr(result, "artifacts") else result.get("artifacts", [])
+        for artifact in artifacts:
+            spinner.log(f"  {artifact}")
 
-        click.echo(json.dumps({"artifacts": list(artifacts)}))
-    except click.ClickException:
-        raise
-    except (AgentSpecError, SessionError) as exc:
-        _json_error_exit(exc, state=session.state.value if session else None)
-    except Exception as exc:
-        _json_error_exit(exc, code=2, state=session.state.value if session else None)
+    click.echo(json.dumps({"artifacts": list(artifacts)}))
 
 
 # ---------------------------------------------------------------------------
@@ -402,25 +328,18 @@ def generate_cmd(ctx: click.Context, spec: str, force: bool) -> None:
 @click.pass_context
 def render_cmd(ctx: click.Context, spec: str, combined: bool) -> None:
     """Render spec as markdown."""
-    try:
-        spec_dir: Path = ctx.obj["spec_dir"]
-        target = _resolve_spec(spec_dir, spec)
-        session = SpecSession.resume(target)
-        result = session.render(combined=combined)
+    spec_dir: Path = ctx.obj["spec_dir"]
+    target = _resolve_spec(spec_dir, spec)
+    session = SpecSession.resume(target)
+    result = session.render(combined=combined)
 
-        if isinstance(result, str):
-            click.echo(result)
-        else:
-            for artifact_name, content in result.items():
-                click.echo(f"--- {artifact_name} ---")
-                click.echo(content)
-                click.echo()
-    except click.ClickException:
-        raise
-    except (AgentSpecError, SessionError) as exc:
-        _json_error_exit(exc)
-    except Exception as exc:
-        _json_error_exit(exc, code=2)
+    if isinstance(result, str):
+        click.echo(result)
+    else:
+        for artifact_name, content in result.items():
+            click.echo(f"--- {artifact_name} ---")
+            click.echo(content)
+            click.echo()
 
 
 # ---------------------------------------------------------------------------
@@ -433,30 +352,23 @@ def render_cmd(ctx: click.Context, spec: str, combined: bool) -> None:
 @click.pass_context
 def validate_cmd(ctx: click.Context, spec: str) -> None:
     """Run schema and cross-file checks."""
-    try:
-        spec_dir: Path = ctx.obj["spec_dir"]
-        target = _resolve_spec(spec_dir, spec)
-        session = SpecSession.resume(target)
-        validation = session.validate()
+    spec_dir: Path = ctx.obj["spec_dir"]
+    target = _resolve_spec(spec_dir, spec)
+    session = SpecSession.resume(target)
+    validation = session.validate()
 
-        if validation.valid:
-            click.echo(json.dumps({"valid": True}))
-            return
+    if validation.valid:
+        click.echo(json.dumps({"valid": True}))
+        return
 
-        errors: list[dict[str, str]] = []
-        for err in validation.schema_errors:
-            errors.append({"message": str(err)} if not isinstance(err, dict) else err)
-        for err in validation.integrity_errors:
-            errors.append({"message": str(err)} if not isinstance(err, dict) else err)
+    errors: list[dict[str, str]] = []
+    for err in validation.schema_errors:
+        errors.append({"message": str(err)} if not isinstance(err, dict) else err)
+    for err in validation.integrity_errors:
+        errors.append({"message": str(err)} if not isinstance(err, dict) else err)
 
-        click.echo(json.dumps({"valid": False, "errors": errors}, indent=2))
-        sys.exit(1)
-    except click.ClickException:
-        raise
-    except (AgentSpecError, SessionError) as exc:
-        _json_error_exit(exc)
-    except Exception as exc:
-        _json_error_exit(exc, code=2)
+    click.echo(json.dumps({"valid": False, "errors": errors}, indent=2))
+    sys.exit(1)
 
 
 # ---------------------------------------------------------------------------
@@ -469,31 +381,24 @@ def validate_cmd(ctx: click.Context, spec: str) -> None:
 @click.pass_context
 def status_cmd(ctx: click.Context, spec: str) -> None:
     """Query session state (read-only)."""
-    try:
-        spec_dir: Path = ctx.obj["spec_dir"]
-        target = _resolve_spec(spec_dir, spec)
-        session = SpecSession.resume(target)
+    spec_dir: Path = ctx.obj["spec_dir"]
+    target = _resolve_spec(spec_dir, spec)
+    session = SpecSession.resume(target)
 
-        output: dict[str, Any] = {
-            "state": session.state.value,
-            "has_assessment": bool(session._assessment_history),
-            "generated_artifacts": list(session._generated_artifacts),
-        }
+    output: dict[str, Any] = {
+        "state": session.state.value,
+        "has_assessment": bool(session._assessment_history),
+        "generated_artifacts": list(session._generated_artifacts),
+    }
 
-        if session._last_error is not None:
-            output["last_error"] = session._last_error
+    if session._last_error is not None:
+        output["last_error"] = session._last_error
 
-        assessment = session.assessment
-        if assessment is not None:
-            output["quality"] = assessment.quality
+    assessment = session.assessment
+    if assessment is not None:
+        output["quality"] = assessment.quality
 
-        click.echo(json.dumps(output))
-    except click.ClickException:
-        raise
-    except (AgentSpecError, SessionError) as exc:
-        _json_error_exit(exc)
-    except Exception as exc:
-        _json_error_exit(exc, code=2)
+    click.echo(json.dumps(output))
 
 
 cli = main
