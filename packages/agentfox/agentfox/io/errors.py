@@ -110,11 +110,7 @@ def error_envelope(exc: Exception, *, state: str | None = None) -> dict[str, Any
             error_type = "agent_error"
         retryable = getattr(exc, "retryable", False)
 
-    elif (
-        _AGENTSPEC_AVAILABLE
-        and _AgentSpecError is not None
-        and isinstance(exc, _AgentSpecError)
-    ):
+    elif _AGENTSPEC_AVAILABLE and _AgentSpecError is not None and isinstance(exc, _AgentSpecError):
         # AgentSpecError with .category
         category = getattr(exc, "category", None)
         if category and category != "internal":

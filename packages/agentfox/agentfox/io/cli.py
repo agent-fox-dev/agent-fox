@@ -53,9 +53,7 @@ def common_options(fn: Any) -> Any:
     Requirements: 03-REQ-3.6, 03-REQ-9.1, 03-REQ-9.2, 03-REQ-9.3
     """
     if isinstance(fn, click.Command) and not isinstance(fn, click.Group):
-        raise TypeError(
-            "common_options must be applied to the root Click group, not to a subcommand"
-        )
+        raise TypeError("common_options must be applied to the root Click group, not to a subcommand")
 
     # Collect existing param names from both Click Command/Group .params
     # and raw-function __click_params__ (set by earlier decorators).

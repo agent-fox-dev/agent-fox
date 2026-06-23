@@ -201,14 +201,16 @@ def _write_valid_spec(spec_dir: Path) -> None:
     (spec_dir / "test_spec.json").write_text(TEST_SPEC_JSON)
     (spec_dir / "tasks.json").write_text(TASKS_JSON)
     (spec_dir / "_session.json").write_text(
-        json.dumps({
-            "state": "generated",
-            "generated_artifacts": [
-                "requirements.json",
-                "test_spec.json",
-                "tasks.json",
-            ],
-        })
+        json.dumps(
+            {
+                "state": "generated",
+                "generated_artifacts": [
+                    "requirements.json",
+                    "test_spec.json",
+                    "tasks.json",
+                ],
+            }
+        )
     )
 
 
@@ -220,14 +222,16 @@ def _write_spec_with_integrity_errors(spec_dir: Path) -> None:
     (spec_dir / "test_spec.json").write_text(TEST_SPEC_JSON_PARTIAL_COVERAGE)
     (spec_dir / "tasks.json").write_text(TASKS_JSON)
     (spec_dir / "_session.json").write_text(
-        json.dumps({
-            "state": "generated",
-            "generated_artifacts": [
-                "requirements.json",
-                "test_spec.json",
-                "tasks.json",
-            ],
-        })
+        json.dumps(
+            {
+                "state": "generated",
+                "generated_artifacts": [
+                    "requirements.json",
+                    "test_spec.json",
+                    "tasks.json",
+                ],
+            }
+        )
     )
 
 
@@ -408,17 +412,11 @@ class TestSMOKEValidateStructuredErrors:
         valid_categories = {"schema", "integrity", "io"}
         for err in parsed["errors"]:
             assert "category" in err, f"Error missing 'category' field: {err}"
-            assert err["category"] in valid_categories, (
-                f"Invalid category '{err['category']}'"
-            )
+            assert err["category"] in valid_categories, f"Invalid category '{err['category']}'"
 
         # Expect at least one integrity error (uncovered requirement)
-        integrity_errs = [
-            e for e in parsed["errors"] if e["category"] == "integrity"
-        ]
-        assert len(integrity_errs) > 0, (
-            "Expected at least one integrity error for uncovered requirement"
-        )
+        integrity_errs = [e for e in parsed["errors"] if e["category"] == "integrity"]
+        assert len(integrity_errs) > 0, "Expected at least one integrity error for uncovered requirement"
         for ie in integrity_errs:
             assert "check" in ie
             assert "message" in ie
@@ -507,9 +505,7 @@ class TestSMOKEUnhandledExceptionErrorEnvelope:
                 env={"AF_AGENT": "1"},
             )
 
-        assert result.exit_code != 0, (
-            "Expected non-zero exit code for unhandled exception"
-        )
+        assert result.exit_code != 0, "Expected non-zero exit code for unhandled exception"
 
         # stdout must be valid JSON
         parsed = json.loads(result.output)
@@ -518,9 +514,7 @@ class TestSMOKEUnhandledExceptionErrorEnvelope:
         assert parsed.get("ok") is False, "Expected ok=false in error envelope"
 
         # No raw Python traceback should appear in stdout
-        assert "Traceback" not in result.output, (
-            "Raw traceback should not appear in stdout"
-        )
+        assert "Traceback" not in result.output, "Raw traceback should not appear in stdout"
 
 
 # ===========================================================================
@@ -560,15 +554,9 @@ class TestCrossSpecEntryPoints:
         render_start = source.find("def render_cmd")
         assert render_start != -1
         next_cmd = source.find("\ndef ", render_start + 10)
-        render_section = (
-            source[render_start:next_cmd]
-            if next_cmd != -1
-            else source[render_start:]
-        )
+        render_section = source[render_start:next_cmd] if next_cmd != -1 else source[render_start:]
         assert "emit_ok" in render_section, "render handler must use emit_ok"
-        assert "json.dumps" not in render_section, (
-            "render handler must not use json.dumps"
-        )
+        assert "json.dumps" not in render_section, "render handler must not use json.dumps"
 
     def test_emit_used_in_validate_handler(self) -> None:
         """spec/cli.py validate handler calls emit or emit_ok."""
@@ -578,11 +566,7 @@ class TestCrossSpecEntryPoints:
         validate_start = source.find("def validate_cmd")
         assert validate_start != -1
         next_cmd = source.find("\ndef ", validate_start + 10)
-        validate_section = (
-            source[validate_start:next_cmd]
-            if next_cmd != -1
-            else source[validate_start:]
-        )
+        validate_section = source[validate_start:next_cmd] if next_cmd != -1 else source[validate_start:]
         has_emit = "emit(" in validate_section or "emit_ok(" in validate_section
         assert has_emit, "validate handler must use emit or emit_ok"
 
@@ -614,9 +598,7 @@ class TestNoStubsOrDeadCode:
         spec_dir = Path(spec.__file__).parent
         for py_file in spec_dir.rglob("*.py"):
             source = py_file.read_text()
-            assert "raise NotImplementedError" not in source, (
-                f"{py_file} contains 'raise NotImplementedError'"
-            )
+            assert "raise NotImplementedError" not in source, f"{py_file} contains 'raise NotImplementedError'"
 
     def test_no_legacy_patterns(self) -> None:
         """spec/cli.py has no legacy inline patterns after migration."""

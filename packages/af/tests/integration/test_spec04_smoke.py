@@ -37,19 +37,14 @@ class TestFullSuiteCollectible:
         """pytest --collect-only on spec04 test files succeeds."""
         tests_dir = Path(__file__).resolve().parents[1]
         spec04_files = sorted(tests_dir.rglob("test_spec04_*.py"))
-        assert len(spec04_files) >= 5, (
-            f"Expected at least 5 spec04 test files, found {len(spec04_files)}"
-        )
+        assert len(spec04_files) >= 5, f"Expected at least 5 spec04 test files, found {len(spec04_files)}"
         result = subprocess.run(
-            ["uv", "run", "pytest", "--collect-only", "-q"]
-            + [str(f) for f in spec04_files],
+            ["uv", "run", "pytest", "--collect-only", "-q"] + [str(f) for f in spec04_files],
             capture_output=True,
             text=True,
             cwd=str(tests_dir.parent),
         )
-        assert result.returncode == 0, (
-            f"pytest collect failed:\n{result.stdout}\n{result.stderr}"
-        )
+        assert result.returncode == 0, f"pytest collect failed:\n{result.stdout}\n{result.stderr}"
 
 
 # --- TS-04-28: Subcommand contracts ---
@@ -64,9 +59,7 @@ class TestSubcommandContracts:
         from af.app import main
 
         result = cli_runner.invoke(main, [cmd, "--help"])
-        assert result.exit_code == 0, (
-            f"{cmd} --help failed with exit code {result.exit_code}"
-        )
+        assert result.exit_code == 0, f"{cmd} --help failed with exit code {result.exit_code}"
 
 
 # --- Smoke Tests ---

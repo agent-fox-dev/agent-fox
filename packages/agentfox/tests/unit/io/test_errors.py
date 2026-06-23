@@ -87,13 +87,9 @@ class TestErrorEnvelopeAgentError:
         exc = agentspec_errors.AgentError("generic agent error")
         result = error_envelope(exc)
         # Assert the EXACT expected type string, not just isinstance(str)
-        assert result["error"]["type"] == "agent_error", (
-            f"expected 'agent_error', got {result['error']['type']!r}"
-        )
+        assert result["error"]["type"] == "agent_error", f"expected 'agent_error', got {result['error']['type']!r}"
         # Assert the EXACT expected retryable value, not just isinstance(bool)
-        assert result["error"]["retryable"] is False, (
-            f"expected False, got {result['error']['retryable']!r}"
-        )
+        assert result["error"]["retryable"] is False, f"expected False, got {result['error']['retryable']!r}"
 
 
 class TestErrorEnvelopeSessionError:

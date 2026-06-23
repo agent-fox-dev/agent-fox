@@ -117,10 +117,9 @@ class TestAgentFoxGroupNonDictCtxObj:
 
         # 2. MUST verify a debug-level warning was logged about the non-dict ctx.obj
         debug_records = [r for r in caplog.records if r.levelno == logging.DEBUG]
-        assert any(
-            "dict" in r.message.lower() or "ctx.obj" in r.message.lower()
-            for r in debug_records
-        ), "expected debug log mentioning non-dict ctx.obj"
+        assert any("dict" in r.message.lower() or "ctx.obj" in r.message.lower() for r in debug_records), (
+            "expected debug log mentioning non-dict ctx.obj"
+        )
 
 
 class TestEmitJsonWritesWhenJsonMode:

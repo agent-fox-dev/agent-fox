@@ -52,10 +52,7 @@ def _build_cost_tables(
 
     archetype_table = format_table(
         headers=["Archetype", "Cost"],
-        rows=[
-            [archetype, f"${cost:.2f}"]
-            for archetype, cost in sorted(cost_by_archetype.items())
-        ],
+        rows=[[archetype, f"${cost:.2f}"] for archetype, cost in sorted(cost_by_archetype.items())],
         json_mode=json_mode,
     )
 

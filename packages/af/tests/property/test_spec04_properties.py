@@ -55,9 +55,7 @@ class TestProp1StdoutStderrSeparation:
     """
 
     @pytest.mark.parametrize("command", ["code", "night-shift"])
-    def test_stdout_stderr_no_cross_contamination(
-        self, cli_runner, command: str
-    ) -> None:
+    def test_stdout_stderr_no_cross_contamination(self, cli_runner, command: str) -> None:
         """All stdout lines are valid JSON; all stderr lines are JSONL events."""
         from af.app import main
         from click.testing import CliRunner
@@ -92,9 +90,7 @@ class TestProp4JsonModeValidOutput:
     """
 
     @pytest.mark.parametrize("command", _SUBCOMMANDS)
-    def test_json_mode_stdout_is_valid_json(
-        self, cli_runner, command: str
-    ) -> None:
+    def test_json_mode_stdout_is_valid_json(self, cli_runner, command: str) -> None:
         """af <cmd> --json produces valid JSON on stdout and exits 0."""
         from af.app import main
 
@@ -133,9 +129,7 @@ class TestProp3OutputManagerSoleChannel:
         """click.echo() is not used for data payloads in the given file."""
         filepath = _AF_PACKAGE_DIR / filename
         content = filepath.read_text()
-        assert "click.echo(" not in content, (
-            f"{filename} uses click.echo for data output"
-        )
+        assert "click.echo(" not in content, f"{filename} uses click.echo for data output"
 
 
 class TestProp5FormatTableKeyAlignment:
@@ -155,9 +149,7 @@ class TestProp5FormatTableKeyAlignment:
         ),
         num_rows=st.integers(min_value=1, max_value=20),
     )
-    def test_all_dicts_have_header_keys(
-        self, headers: list[str], num_rows: int
-    ) -> None:
+    def test_all_dicts_have_header_keys(self, headers: list[str], num_rows: int) -> None:
         """Every dict in format_table output has exactly the header keys."""
         from agentfox.io import format_table
 

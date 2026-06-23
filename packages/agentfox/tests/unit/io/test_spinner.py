@@ -61,9 +61,7 @@ class TestStatusSpinnerTTYMode:
             MockSpinner.assert_called()
             call_args = MockSpinner.call_args
             spinner_name_arg = call_args[0][0] if call_args[0] else call_args[1].get("name")
-            assert spinner_name_arg == "dots", (
-                f"expected 'dots' spinner style, got {spinner_name_arg!r}"
-            )
+            assert spinner_name_arg == "dots", f"expected 'dots' spinner style, got {spinner_name_arg!r}"
 
 
 class TestStatusSpinnerNonTTYMode:

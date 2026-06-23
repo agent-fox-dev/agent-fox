@@ -226,6 +226,4 @@ def night_shift_cmd(
     else:
         fixed = engine.state.issues_fixed
         cost = daemon_state.total_cost
-        click.echo(
-            f"Night-shift stopped. Issues fixed: {fixed}, Total cost: ${cost:.4f}"
-        )
+        click.echo(f"Night-shift stopped. Issues fixed: {fixed}, Total cost: ${cost:.4f}")

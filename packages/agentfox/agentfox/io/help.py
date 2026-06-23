@@ -16,8 +16,7 @@ def exit_codes(**mapping: Any):  # noqa: ANN201
     def decorator(cmd: Any) -> Any:
         if not isinstance(cmd, click.Command):
             raise TypeError(
-                "@exit_codes must be applied above @click.command; "
-                "received a plain function, not a Click Command"
+                "@exit_codes must be applied above @click.command; received a plain function, not a Click Command"
             )
         cmd.exit_codes = mapping  # type: ignore[attr-defined]
         return cmd
@@ -61,8 +60,7 @@ def render_json_help(cmd: click.Command) -> dict[str, Any]:
     # When the decorator was not applied, exit_codes_list is empty (04-REQ-5.E1).
     raw_codes: dict[str, str] = getattr(cmd, "exit_codes", None) or {}
     exit_codes_list: list[dict[str, Any]] = [
-        {"code": int(code_str), "description": desc}
-        for code_str, desc in raw_codes.items()
+        {"code": int(code_str), "description": desc} for code_str, desc in raw_codes.items()
     ]
 
     return {
