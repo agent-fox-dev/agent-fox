@@ -15,7 +15,7 @@ from pathlib import Path
 
 import click
 
-from agentfox.io.errors import format_error_envelope
+from agentfox.io.errors import error_envelope
 from agentfox.io.output import emit
 
 
@@ -72,7 +72,7 @@ class AgentFoxGroup(click.Group):
             raise
         except Exception as exc:
             if agent_mode:
-                envelope = format_error_envelope(exc)
+                envelope = error_envelope(exc)
                 emit(envelope)
                 sys.exit(1)
             click.echo(f"Error: {exc}", err=True)
