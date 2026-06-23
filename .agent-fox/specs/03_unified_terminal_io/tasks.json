@@ -31,7 +31,7 @@
             "03-REQ-1",
             "03-REQ-14.2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -70,7 +70,7 @@
             "03-REQ-4",
             "03-REQ-15"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -101,7 +101,7 @@
           "requirement_refs": [
             "03-REQ-5"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -142,7 +142,7 @@
             "03-REQ-6",
             "03-REQ-7"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -175,7 +175,7 @@
             "03-REQ-9",
             "03-REQ-10"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -207,7 +207,7 @@
           "requirement_refs": [
             "03-REQ-14.3"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -222,7 +222,7 @@
             "03-REQ-14.2",
             "03-REQ-14.3"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],
@@ -234,7 +234,7 @@
     {
       "id": 2,
       "kind": "standard",
-      "title": "Implement agentfox/io/errors.py — error envelope and routing",
+      "title": "Implement agentfox/io/errors.py \u2014 error envelope and routing",
       "subtasks": [
         {
           "id": "2.1",
@@ -242,8 +242,8 @@
           "details": [
             "Create agentfox/io/errors.py",
             "Implement lazy import guard for agentspec: try/except ImportError setting _AGENTSPEC_AVAILABLE flag",
-            "Implement snake_case conversion function for class names (CamelCase → snake_case) using re.sub or str manipulation",
-            "Implement error_envelope(exc, *, state=None) -> dict: AgentFoxError subclasses use snake_case class name and per-class retryable; AgentError uses .category if present else 'agent_error'; SessionError always session_error/False; click.ClickException → input_error/False; unknown → internal_error/False + detail field",
+            "Implement snake_case conversion function for class names (CamelCase \u2192 snake_case) using re.sub or str manipulation",
+            "Implement error_envelope(exc, *, state=None) -> dict: AgentFoxError subclasses use snake_case class name and per-class retryable; AgentError uses .category if present else 'agent_error'; SessionError always session_error/False; click.ClickException \u2192 input_error/False; unknown \u2192 internal_error/False + detail field",
             "Omit 'detail' key for well-typed exceptions; include only for internal_error fallback",
             "Include top-level 'state' key only when state is non-None",
             "When agentspec not installed, agentspec exception types fall through to internal_error (no ImportError at module load)"
@@ -280,7 +280,7 @@
             "Implement cli_error_handler(ctx, exc): checks json_mode from OutputManager (ctx.obj['output'] or get_output_manager()); if json_mode=True calls emit_error(exc); if json_mode=False calls click.echo(str(exc), err=True)",
             "Implement handle_cli_errors as a no-argument decorator (@handle_cli_errors without parentheses)",
             "Decorator catches Exception (not SystemExit or KeyboardInterrupt); resolves json_mode dynamically via get_output_manager() at call time; delegates to cli_error_handler()",
-            "Do NOT re-export handle_cli_errors from agentfox/io/__init__.py — it is internal only"
+            "Do NOT re-export handle_cli_errors from agentfox/io/__init__.py \u2014 it is internal only"
           ],
           "test_spec_refs": [
             "TS-03-37",
@@ -299,7 +299,7 @@
           "id": "2.3",
           "title": "Implement AgentSpecError mapping and edge case handling",
           "details": [
-            "AgentSpecError subclasses AgentError and carries .category attribute — apply same .category-first mapping logic as AgentError",
+            "AgentSpecError subclasses AgentError and carries .category attribute \u2014 apply same .category-first mapping logic as AgentError",
             "When agentspec is not installed, any exception falling through to internal_error still produces a valid envelope with detail=class name",
             "Guard all agentspec isinstance checks behind _AGENTSPEC_AVAILABLE flag to prevent NameError when package absent"
           ],
@@ -347,7 +347,7 @@
     {
       "id": 3,
       "kind": "standard",
-      "title": "Implement agentfox/io/json.py — unified JSON serialization",
+      "title": "Implement agentfox/io/json.py \u2014 unified JSON serialization",
       "subtasks": [
         {
           "id": "3.1",
@@ -429,7 +429,7 @@
     {
       "id": 4,
       "kind": "standard",
-      "title": "Implement agentfox/io/output.py — OutputManager",
+      "title": "Implement agentfox/io/output.py \u2014 OutputManager",
       "subtasks": [
         {
           "id": "4.1",
@@ -476,7 +476,7 @@
           "title": "Implement get_output_manager() convenience accessor",
           "details": [
             "Implement get_output_manager() -> OutputManager: tries click.get_current_context() to read ctx.obj['output']; if no context or key absent, returns fallback OutputManager(json_mode=False, quiet=False, verbose=False, trace=False)",
-            "AF_AGENT env var is NOT consulted in the fallback path — fallback is strictly for non-CLI contexts",
+            "AF_AGENT env var is NOT consulted in the fallback path \u2014 fallback is strictly for non-CLI contexts",
             "Fallback OutputManager always returns the four fixed defaults regardless of environment variables"
           ],
           "test_spec_refs": [
@@ -525,7 +525,7 @@
     {
       "id": 5,
       "kind": "standard",
-      "title": "Implement agentfox/io/spinner.py — unified StatusSpinner",
+      "title": "Implement agentfox/io/spinner.py \u2014 unified StatusSpinner",
       "subtasks": [
         {
           "id": "5.1",
@@ -562,7 +562,7 @@
             "StatusSpinner uses Rich Live internally; concurrent update() and log() calls are serialized by Rich Live's internal lock",
             "__exit__ must be called from the same thread as __enter__ (document this constraint with a comment)",
             "Update agentfox/ui/progress.py: remove PlanSpinner's spinner logic and import StatusSpinner from agentfox.io.spinner; PlanSpinner either delegates to StatusSpinner or is removed entirely",
-            "Verify no independent spinner logic remains in agentfox/ui/progress.py or spec/ui.py (spec/ui.py changes deferred — note the legacy StatusSpinner in spec/ui.py is NOT replaced in Spec 03)"
+            "Verify no independent spinner logic remains in agentfox/ui/progress.py or spec/ui.py (spec/ui.py changes deferred \u2014 note the legacy StatusSpinner in spec/ui.py is NOT replaced in Spec 03)"
           ],
           "test_spec_refs": [
             "TS-03-45",
@@ -603,7 +603,7 @@
     {
       "id": 6,
       "kind": "standard",
-      "title": "Implement agentfox/io/cli.py — common_options and AgentFoxGroup",
+      "title": "Implement agentfox/io/cli.py \u2014 common_options and AgentFoxGroup",
       "subtasks": [
         {
           "id": "6.1",
@@ -707,7 +707,7 @@
     {
       "id": 7,
       "kind": "standard",
-      "title": "Implement agentfox/io/help.py — exit_codes decorator and help scaffolding",
+      "title": "Implement agentfox/io/help.py \u2014 exit_codes decorator and help scaffolding",
       "subtasks": [
         {
           "id": "7.1",
@@ -760,7 +760,7 @@
     {
       "id": 8,
       "kind": "standard",
-      "title": "Implement agentfox/io/__init__.py — public API re-exports",
+      "title": "Implement agentfox/io/__init__.py \u2014 public API re-exports",
       "subtasks": [
         {
           "id": "8.1",
@@ -768,7 +768,7 @@
           "details": [
             "Create agentfox/io/__init__.py",
             "Re-export exactly twelve symbols: OutputManager, StatusSpinner, get_output_manager, emit, emit_ok, emit_line, emit_error, read_stdin, error_envelope, AgentFoxGroup, common_options, exit_codes",
-            "Do NOT re-export handle_cli_errors — it remains available only via 'from agentfox.io.errors import handle_cli_errors'",
+            "Do NOT re-export handle_cli_errors \u2014 it remains available only via 'from agentfox.io.errors import handle_cli_errors'",
             "Set __all__ to exactly the twelve listed symbols to prevent accidental re-export of internals",
             "Verify circular import safety: __init__.py imports from submodules only; submodules do not import from __init__.py"
           ],
@@ -924,7 +924,7 @@
           "details": [
             "Search all af/ Python files for imports of: handle_agent_fox_errors, BannerGroup, json_io symbols",
             "Verify all callers of af.json_io.emit/emit_line/emit_error/read_stdin continue to work via the shim",
-            "Verify af/__init__.py handle_agent_fox_errors() is superseded — update or remove as appropriate",
+            "Verify af/__init__.py handle_agent_fox_errors() is superseded \u2014 update or remove as appropriate",
             "Document any additional af-internal symbols that need update or shim; update them in this task"
           ],
           "test_spec_refs": [],
@@ -1053,14 +1053,14 @@
           "id": "12.1",
           "title": "Trace all eight execution paths end-to-end",
           "details": [
-            "PATH-1 (agent mode AF_AGENT=1): verify AgentFoxGroup.invoke() → OutputManager(json_mode=True, quiet=True) → emit_ok() → stdout JSON (TS-03-SMOKE-1)",
-            "PATH-2 (JSON error envelope): verify AgentFoxGroup catches Exception → cli_error_handler → emit_error → error_envelope → stdout JSON → sys.exit(1) (TS-03-SMOKE-2)",
-            "PATH-3 (human mode error): verify AgentFoxGroup catches Exception → cli_error_handler → click.echo(err=True) → stderr text → sys.exit(1) (TS-03-SMOKE-3)",
-            "PATH-4 (StatusSpinner non-TTY): verify StatusSpinner.__enter__ detects non-TTY → update()/log() print to stderr via Console(stderr=True) (TS-03-SMOKE-4)",
-            "PATH-5 (AF_AGENT overridden by --no-json): verify sentinel _json_explicit=True → OutputManager.json_mode=False while quiet=True (TS-03-SMOKE-5)",
-            "PATH-6 (read_stdin piped): verify sys.stdin.isatty()==False → read until EOF → parse JSON → return dict (TS-03-SMOKE-6)",
-            "PATH-7 (--version eager): verify click processes --version before invoke completes → callback uses click.echo() → SystemExit(0) propagates (TS-03-SMOKE-7)",
-            "PATH-8 (emit_error with state): verify emit_error(exc, state='executing') → error_envelope(state='executing') → JSON with top-level 'state' field (TS-03-SMOKE-8)"
+            "PATH-1 (agent mode AF_AGENT=1): verify AgentFoxGroup.invoke() \u2192 OutputManager(json_mode=True, quiet=True) \u2192 emit_ok() \u2192 stdout JSON (TS-03-SMOKE-1)",
+            "PATH-2 (JSON error envelope): verify AgentFoxGroup catches Exception \u2192 cli_error_handler \u2192 emit_error \u2192 error_envelope \u2192 stdout JSON \u2192 sys.exit(1) (TS-03-SMOKE-2)",
+            "PATH-3 (human mode error): verify AgentFoxGroup catches Exception \u2192 cli_error_handler \u2192 click.echo(err=True) \u2192 stderr text \u2192 sys.exit(1) (TS-03-SMOKE-3)",
+            "PATH-4 (StatusSpinner non-TTY): verify StatusSpinner.__enter__ detects non-TTY \u2192 update()/log() print to stderr via Console(stderr=True) (TS-03-SMOKE-4)",
+            "PATH-5 (AF_AGENT overridden by --no-json): verify sentinel _json_explicit=True \u2192 OutputManager.json_mode=False while quiet=True (TS-03-SMOKE-5)",
+            "PATH-6 (read_stdin piped): verify sys.stdin.isatty()==False \u2192 read until EOF \u2192 parse JSON \u2192 return dict (TS-03-SMOKE-6)",
+            "PATH-7 (--version eager): verify click processes --version before invoke completes \u2192 callback uses click.echo() \u2192 SystemExit(0) propagates (TS-03-SMOKE-7)",
+            "PATH-8 (emit_error with state): verify emit_error(exc, state='executing') \u2192 error_envelope(state='executing') \u2192 JSON with top-level 'state' field (TS-03-SMOKE-8)"
           ],
           "test_spec_refs": [
             "TS-03-SMOKE-1",
@@ -1090,7 +1090,7 @@
             "Confirm emit_error() calls error_envelope() and serializes the exact same dict (no divergence in type mapping logic)",
             "Confirm cli_error_handler() receives the correct exc from AgentFoxGroup.invoke() and passes it unmodified to emit_error() or click.echo(str(exc))",
             "Confirm AgentFoxGroup.invoke() stores OutputManager in ctx.obj['output'] before calling super().invoke() so subcommands can access it via ctx.obj['output'] or get_output_manager()",
-            "Confirm setup_logging() is called with the resolved (not default) flag values — verbose/quiet/trace reflect sentinel overrides and AF_AGENT defaults"
+            "Confirm setup_logging() is called with the resolved (not default) flag values \u2014 verbose/quiet/trace reflect sentinel overrides and AF_AGENT defaults"
           ],
           "test_spec_refs": [
             "TS-03-P2"
@@ -1134,7 +1134,7 @@
             "Search agentfox/io/ for Python stub markers: 'raise NotImplementedError', 'return None' in non-trivial methods, bare 'pass' in non-abstract method bodies, '# TODO', '# FIXME', '# STUB'",
             "Search af/json_io.py and af/app.py for any remaining stub markers introduced during migration",
             "Confirm every public symbol in agentfox/io/__init__.py is fully implemented (not a stub or placeholder)",
-            "Confirm PlanSpinner in agentfox/ui/progress.py either delegates to StatusSpinner or is removed — no duplicated spinner logic remains"
+            "Confirm PlanSpinner in agentfox/ui/progress.py either delegates to StatusSpinner or is removed \u2014 no duplicated spinner logic remains"
           ],
           "test_spec_refs": [],
           "requirement_refs": [
@@ -1199,13 +1199,13 @@
       "verification": {
         "id": "12.V",
         "checks": [
-          "pytest tests/ -q reports 0 failures and 0 errors — all pre-existing and new tests pass",
+          "pytest tests/ -q reports 0 failures and 0 errors \u2014 all pre-existing and new tests pass",
           "pytest tests/io/ -q -v reports 0 failures for all seven module test files plus property tests",
           "All eight smoke tests (TS-03-SMOKE-1 through TS-03-SMOKE-8) pass using real components via CliRunner",
           "ruff check agentfox/io/ af/json_io.py af/app.py tests/io/ reports 0 errors",
           "grep -r 'raise NotImplementedError\\|# TODO\\|# STUB\\|# FIXME' agentfox/io/ returns no results (no stub markers remain)",
           "python -c 'from agentfox.io import OutputManager, StatusSpinner, get_output_manager, emit, emit_ok, emit_line, emit_error, read_stdin, error_envelope, AgentFoxGroup, common_options, exit_codes' completes without error",
-          "git diff spec/cli.py is empty — spec/cli.py is byte-for-byte unchanged",
+          "git diff spec/cli.py is empty \u2014 spec/cli.py is byte-for-byte unchanged",
           "af/app.py source contains cls=AgentFoxGroup and inline audit comment block"
         ]
       }
