@@ -19,12 +19,14 @@ import sys
 from pathlib import Path
 
 import click
+from agentfox.io import exit_codes
 
 from af import get_output_manager
 
 logger = logging.getLogger(__name__)
 
 
+@exit_codes(**{"0": "Success", "1": "Startup failure", "130": "Immediate abort"})
 @click.command("night-shift")
 @click.pass_context
 def night_shift_cmd(

@@ -681,7 +681,8 @@
             "04-REQ-5.E1"
           ],
           "state": "pending",
-          "optional": false
+          "optional": false,
+          "done": true
         },
         {
           "id": "7.2",
@@ -701,7 +702,8 @@
             "04-REQ-5.3"
           ],
           "state": "pending",
-          "optional": false
+          "optional": false,
+          "done": true
         },
         {
           "id": "7.3",
@@ -718,7 +720,8 @@
             "04-REQ-5.2"
           ],
           "state": "pending",
-          "optional": false
+          "optional": false,
+          "done": true
         }
       ],
       "verification": {

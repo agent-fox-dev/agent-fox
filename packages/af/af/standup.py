@@ -16,7 +16,7 @@ from pathlib import Path
 
 import click
 from agentfox.core.node_id import DEFAULT_DB_PATH
-from agentfox.io import format_table
+from agentfox.io import exit_codes, format_table
 from agentfox.reporting.formatters import (
     OutputFormat,
     get_formatter,
@@ -62,6 +62,7 @@ def _build_cost_tables(
     return {"cost_by_spec": spec_table, "cost_by_archetype": archetype_table}
 
 
+@exit_codes(**{"0": "Success", "1": "Error"})
 @click.command("standup")
 @click.option(
     "--hours",

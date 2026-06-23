@@ -1,10 +1,11 @@
 """CLI group and common options for AgentFoxGroup.
 
-Requirements: 03-REQ-3, 03-REQ-9, 03-REQ-15
+Requirements: 03-REQ-3, 03-REQ-9, 03-REQ-15, 04-REQ-5
 """
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sys
@@ -147,6 +148,35 @@ class AgentFoxGroup(click.Group):
             setup_logging(verbose=flags["verbose"], quiet=flags["quiet"], trace=flags["trace"])
         except ImportError:
             pass
+
+        # 04-REQ-5.1, 04-REQ-5.3: intercept --json --help for subcommands.
+        # When both --json and --help appear in the subcommand args (or
+        # --json was parsed as a group-level flag), render a JSON command
+        # description instead of Click's standard text help.
+        # Use _protected_args to avoid Click 8.3+ deprecation warning on
+        # the public protected_args property (removed in Click 9.0).
+        _prot = getattr(ctx, "_protected_args", None) or []
+        sub_args = list(ctx.args or [])
+        all_remaining = list(_prot) + sub_args
+        help_in_args = "--help" in all_remaining
+        json_in_args = "--json" in all_remaining
+        json_from_group = flags.get("json_mode", False)
+
+        if help_in_args and (json_from_group or json_in_args):
+            # Find the subcommand name (first non-option token).
+            cmd_name: str | None = None
+            for tok in all_remaining:
+                if not tok.startswith("-"):
+                    cmd_name = tok
+                    break
+            if cmd_name is not None:
+                cmd = self.get_command(ctx, cmd_name)
+                if cmd is not None:
+                    from agentfox.io.help import render_json_help
+
+                    help_data = render_json_help(cmd)
+                    click.echo(json.dumps(help_data, indent=2))
+                    ctx.exit(0)
 
         try:
             super().invoke(ctx)

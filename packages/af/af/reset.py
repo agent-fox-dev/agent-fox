@@ -25,6 +25,7 @@ from agentfox.engine.reset import (
     reset_spec,
     reset_task,
 )
+from agentfox.io import exit_codes
 
 from af import get_output_manager
 
@@ -181,6 +182,7 @@ def _display_spec_result(result: ResetResult, spec_name: str) -> None:
         )
 
 
+@exit_codes(**{"0": "Success", "1": "Error"})
 @click.command("reset")
 @click.argument("task_id", required=False, default=None)
 @click.option("--hard", is_flag=True, help="Full state wipe including completed tasks")

@@ -67,7 +67,6 @@ class TestImportJsonIoRaises:
 # --- REQ-5: Structured JSON help ---
 
 
-@pytest.mark.xfail(reason="JSON help renderer not yet implemented")
 class TestJsonHelpOutput:
     """TS-04-19: --json --help emits JSON command description."""
 
@@ -84,7 +83,6 @@ class TestJsonHelpOutput:
         assert isinstance(obj.get("exit_codes"), list)
 
 
-@pytest.mark.xfail(reason="@exit_codes decorator not yet implemented")
 class TestExitCodesInJsonHelp:
     """TS-04-20: exit_codes entries have int code and str description."""
 
@@ -114,7 +112,6 @@ class TestTextHelpWithoutJson:
             json.loads(result.output)
 
 
-@pytest.mark.xfail(reason="JSON help not implemented; no @exit_codes decorator")
 class TestJsonHelpNoExitCodesDecorator:
     """TS-04-E6: Command without @exit_codes still renders valid JSON help."""
 
@@ -127,7 +124,9 @@ class TestJsonHelpNoExitCodesDecorator:
         def test_cli() -> None:
             pass
 
-        @test_cli.command()
+        # Explicitly name the command to ensure stable CLI invocation
+        # regardless of Click's function-name-to-command-name derivation.
+        @test_cli.command("no-exit-codes-cmd")
         def no_exit_codes_cmd() -> None:
             """A command without exit codes."""
 

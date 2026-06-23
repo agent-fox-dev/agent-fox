@@ -17,13 +17,14 @@ from pathlib import Path
 import click
 import duckdb
 from agentfox.core.node_id import DEFAULT_DB_PATH as _DEFAULT_DB_PATH
-from agentfox.io import format_table
+from agentfox.io import exit_codes, format_table
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_DB_PATH: Path = _DEFAULT_DB_PATH
 
 
+@exit_codes(**{"0": "Success", "1": "Error"})
 @click.command("insights")
 @click.option("--spec", default=None, help="Filter by spec name")
 @click.option("--severity", default=None, help="Minimum severity level (critical, major, minor, observation)")

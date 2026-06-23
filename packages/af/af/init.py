@@ -18,6 +18,7 @@ from pathlib import Path
 
 import agentfox
 import click
+from agentfox.io import exit_codes
 from agentfox.workspace.init_project import (
     _is_git_repo,
     init_project,
@@ -78,6 +79,7 @@ def init_profiles(project_dir: Path) -> list[Path]:
     return created
 
 
+@exit_codes(**{"0": "Success", "1": "Error"})
 @click.command("init")
 @click.option(
     "--skills",

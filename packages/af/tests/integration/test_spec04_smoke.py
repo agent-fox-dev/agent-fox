@@ -101,7 +101,6 @@ class TestSmoke2StandupJson:
         assert isinstance(obj, dict)
 
 
-@pytest.mark.xfail(reason="JSON help renderer not yet implemented")
 class TestSmoke3JsonHelp:
     """TS-04-SMOKE-3: af night-shift --json --help returns JSON help."""
 

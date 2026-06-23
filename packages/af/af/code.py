@@ -19,7 +19,7 @@ from agentfox.core.errors import AgentFoxError
 from agentfox.engine.run import InterruptedResult, run_code
 from agentfox.engine.state import ExecutionState
 from agentfox.graph.persistence import load_plan
-from agentfox.io import emit_error, emit_line, read_stdin
+from agentfox.io import emit_error, emit_line, exit_codes, read_stdin
 from agentfox.knowledge.db import open_knowledge_store
 from agentfox.reporting.formatters import format_tokens
 from agentfox.spec.discovery import discover_specs
@@ -258,6 +258,7 @@ def _check_dry_run_conflicts(
     return conflicts
 
 
+@exit_codes(**{"0": "Success", "1": "Error", "2": "Stalled", "3": "Cost/session limit", "130": "Interrupted"})
 @click.command("code")
 @click.option(
     "--specs-dir",

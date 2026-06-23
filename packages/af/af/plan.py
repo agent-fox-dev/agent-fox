@@ -17,7 +17,7 @@ from agentfox.core.config import load_config
 from agentfox.core.errors import PlanError
 from agentfox.graph.persistence import save_plan
 from agentfox.graph.planner import build_plan, format_plan_summary
-from agentfox.io import emit_error
+from agentfox.io import emit_error, exit_codes
 from agentfox.spec.discovery import discover_specs
 
 from af import get_output_manager
@@ -51,6 +51,7 @@ def _metadata_to_dict(meta: object) -> dict:
     }
 
 
+@exit_codes(**{"0": "Success", "1": "Error"})
 @click.command("plan")
 @click.option("--dry-run", is_flag=True, help="Show plan analysis without persisting to database")
 @click.option("--fast", is_flag=True, help="Exclude optional tasks")
