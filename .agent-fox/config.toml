@@ -10,6 +10,7 @@
 parallel = 8
 ## Maximum USD spend per session, 0 = unlimited (default: 8.0)
 max_budget_usd = 20.0
+session_timeout = 60
 
 [platform]
 ## Platform type (none or github) (default: "none")
@@ -22,6 +23,7 @@ coder = true
 reviewer = true
 ## Enable verifier archetype (default: true)
 verifier = true
+models = {coder = "ADVANCED", reviewer = "ADVANCED"}
 
 [archetypes.instances]
 ## Number of verifier instances (max clamped to 1) (1, default: 1)
