@@ -46,7 +46,8 @@ class TestSubcommandsUseOutputManager:
 
     @pytest.mark.xfail(
         strict=False,
-        reason="Not all files migrated yet; some use console.print",
+        reason="click.echo() still used for non-data output (error messages, "
+        "text-mode UI); data output uses om.emit()",
     )
     @pytest.mark.parametrize("filename", _SUBCOMMAND_FILES)
     def test_no_click_echo_data_output(self, filename: str) -> None:
@@ -116,29 +117,33 @@ class TestOutputManagerJsonMode:
         assert obj == {"key": "value"}
 
 
-@pytest.mark.xfail(reason="af standup not yet migrated to OutputManager")
 class TestStandupJsonOutput:
     """TS-04-8: af standup --json emits structured JSON."""
 
     def test_standup_json_exits_zero_with_valid_json(self, cli_runner) -> None:
-        """af standup --json returns exit 0 and valid JSON."""
+        """af standup --json returns exit 0 and valid JSON.
+
+        Note: --json is a group-level flag, so it must precede the subcommand.
+        """
         from af.app import main
 
-        result = cli_runner.invoke(main, ["standup", "--json"])
+        result = cli_runner.invoke(main, ["--json", "standup"])
         assert result.exit_code == 0
         obj = json.loads(result.output)
         assert isinstance(obj, dict)
 
 
-@pytest.mark.xfail(reason="af init not yet migrated to OutputManager")
 class TestInitJsonOutput:
     """TS-04-9: af init --json emits structured JSON."""
 
     def test_init_json_exits_zero_with_valid_json(self, cli_runner) -> None:
-        """af init --json returns exit 0 and valid JSON."""
+        """af init --json returns exit 0 and valid JSON.
+
+        Note: --json is a group-level flag, so it must precede the subcommand.
+        """
         from af.app import main
 
-        result = cli_runner.invoke(main, ["init", "--json"])
+        result = cli_runner.invoke(main, ["--json", "init"])
         assert result.exit_code == 0
         obj = json.loads(result.output)
         assert isinstance(obj, dict)

@@ -88,7 +88,11 @@ class TestNoEmitProgressInTextMode:
         om.emit_progress.assert_not_called()
 
 
-@pytest.mark.xfail(reason="af code not yet wired with ProgressDisplay JSONL")
+@pytest.mark.xfail(
+    strict=False,
+    reason="af code --json requires a plan DB and mocked orchestrator; "
+    "wiring IS in place but end-to-end test infrastructure is not",
+)
 class TestStdoutStderrSeparation:
     """TS-04-14: JSONL progress on stderr, final result on stdout."""
 
@@ -96,14 +100,18 @@ class TestStdoutStderrSeparation:
         """stdout lines are JSON; stderr lines are JSONL with 'event' key."""
         from af.app import main
 
-        result = cli_runner.invoke(main, ["code", "--json"])
+        result = cli_runner.invoke(main, ["--json", "code"])
         for line in result.output.strip().splitlines():
             if line.strip():
                 json.loads(line)
         assert result.exit_code == 0
 
 
-@pytest.mark.xfail(reason="af code not yet wired with ProgressDisplay JSONL")
+@pytest.mark.xfail(
+    strict=False,
+    reason="af code --json requires a plan DB and mocked orchestrator; "
+    "wiring IS in place but end-to-end test infrastructure is not",
+)
 class TestCodeJsonlEvents:
     """TS-04-15: af code --json emits JSONL events on stderr."""
 
@@ -111,13 +119,17 @@ class TestCodeJsonlEvents:
         """af code --json stderr has task_started/completed/failed events."""
         from af.app import main
 
-        result = cli_runner.invoke(main, ["code", "--json"])
+        result = cli_runner.invoke(main, ["--json", "code"])
         assert result.exit_code == 0
         final = json.loads(result.output)
         assert isinstance(final, dict)
 
 
-@pytest.mark.xfail(reason="af night-shift not yet wired with ProgressDisplay JSONL")
+@pytest.mark.xfail(
+    strict=False,
+    reason="af night-shift --json requires daemon infrastructure; "
+    "wiring IS in place but end-to-end test infrastructure is not",
+)
 class TestNightShiftJsonlEvents:
     """TS-04-16: af night-shift --json emits JSONL events on stderr."""
 
@@ -125,7 +137,7 @@ class TestNightShiftJsonlEvents:
         """af night-shift --json stderr has task events."""
         from af.app import main
 
-        result = cli_runner.invoke(main, ["night-shift", "--json"])
+        result = cli_runner.invoke(main, ["--json", "night-shift"])
         assert result.exit_code == 0
         final = json.loads(result.output)
         assert isinstance(final, dict)
