@@ -88,9 +88,9 @@ def _make_test_spec_json(
             "test_cases": [
                 {
                     "id": "TS-TEST-1",
-                    "title": "Test case",
-                    "requirement_ref": "TEST-REQ-1.1",
-                    "type": "unit",
+                    "description": "Test case",
+                    "requirement_id": "TEST-REQ-1.1",
+                    "kind": "unit",
                     "preconditions": ["test"],
                     "input": "test input",
                     "expected": "test output",
@@ -240,9 +240,9 @@ def _write_spec_with_integrity_errors(spec_dir: Path) -> None:
                 "test_cases": [
                     {
                         "id": "TS-TEST-1",
-                        "title": "Test for REQ-1 only",
-                        "requirement_ref": "TEST-REQ-1.1",
-                        "type": "unit",
+                        "description": "Test for REQ-1 only",
+                        "requirement_id": "TEST-REQ-1.1",
+                        "kind": "unit",
                         "preconditions": ["test"],
                         "input": "test input",
                         "expected": "test output",
@@ -465,7 +465,6 @@ class TestStructuredErrorCategory:
     VALID_CATEGORIES = {"schema", "integrity", "io"}
 
     @pytest.mark.property
-    @pytest.mark.xfail(reason="Structured errors not yet implemented")
     @settings(max_examples=10, deadline=None)
     @given(
         error_type=st.sampled_from(["valid", "schema", "integrity", "io"]),

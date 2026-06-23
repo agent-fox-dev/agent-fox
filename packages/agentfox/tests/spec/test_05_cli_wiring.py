@@ -76,9 +76,9 @@ TEST_SPEC_JSON = json.dumps(
         "test_cases": [
             {
                 "id": "TS-TEST-1",
-                "title": "Test case",
-                "requirement_ref": "TEST-REQ-1.1",
-                "type": "unit",
+                "description": "Test case",
+                "requirement_id": "TEST-REQ-1.1",
+                "kind": "unit",
                 "preconditions": ["test"],
                 "input": "test input",
                 "expected": "test output",
@@ -222,9 +222,9 @@ TEST_SPEC_JSON_PARTIAL_COVERAGE = json.dumps(
         "test_cases": [
             {
                 "id": "TS-TEST-1",
-                "title": "Test for REQ-1 only",
-                "requirement_ref": "TEST-REQ-1.1",
-                "type": "unit",
+                "description": "Test for REQ-1 only",
+                "requirement_id": "TEST-REQ-1.1",
+                "kind": "unit",
                 "preconditions": ["test"],
                 "input": "test input",
                 "expected": "test output",
@@ -737,7 +737,6 @@ class TestValidateStructuredSchemaErrors:
     Requirement: 05-REQ-3.1
     """
 
-    @pytest.mark.xfail(reason="Structured validation errors not yet implemented")
     def test_schema_error_structure(self, runner: CliRunner, schema_error_spec_root: Path) -> None:
         """Schema errors have category, artifact, path, message, value fields."""
         result = _invoke_spec_catching(
@@ -766,7 +765,6 @@ class TestValidateStructuredIntegrityErrors:
     Requirement: 05-REQ-3.2
     """
 
-    @pytest.mark.xfail(reason="Structured integrity errors not yet implemented")
     def test_integrity_error_structure(self, runner: CliRunner, integrity_error_spec_root: Path) -> None:
         """Integrity errors have category, check, message, requirement_id."""
         result = _invoke_spec_catching(
@@ -793,7 +791,6 @@ class TestValidateSuccess:
     Requirement: 05-REQ-3.3
     """
 
-    @pytest.mark.xfail(reason="Structured validation output not yet implemented")
     def test_valid_spec_result(self, runner: CliRunner, valid_spec_root: Path) -> None:
         """Valid spec returns valid=true, errors=[] and exit code 0."""
         result = _invoke_spec(
@@ -817,7 +814,6 @@ class TestValidateFailure:
     Requirement: 05-REQ-3.4
     """
 
-    @pytest.mark.xfail(reason="Structured validation output not yet implemented")
     def test_invalid_spec_result(self, runner: CliRunner, schema_error_spec_root: Path) -> None:
         """Invalid spec returns valid=false, non-empty errors, exit code 1."""
         result = _invoke_spec_catching(
@@ -841,7 +837,6 @@ class TestValidateUsesEmit:
     Requirement: 05-REQ-3.5
     """
 
-    @pytest.mark.xfail(reason="emit/emit_ok migration not yet implemented")
     def test_emit_in_validate_source(self) -> None:
         """Validate handler uses emit or emit_ok from agentfox.io."""
         source = _get_cli_source()
@@ -866,7 +861,6 @@ class TestValidateIOError:
     Requirement: 05-REQ-3.E1
     """
 
-    @pytest.mark.xfail(reason="Structured IO error not yet implemented")
     def test_missing_artifact_io_error(self, runner: CliRunner, missing_artifact_spec_root: Path) -> None:
         """Missing artifact file produces category='io' error, exit code 1."""
         result = _invoke_spec_catching(
@@ -894,7 +888,6 @@ class TestValidateTopLevelErrorOmitsPathValue:
     Requirement: 05-REQ-3.E2
     """
 
-    @pytest.mark.xfail(reason="Structured error field omission not yet implemented")
     def test_top_level_error_no_path_no_value(self, runner: CliRunner, top_level_error_spec_root: Path) -> None:
         """Top-level error object has no path or value keys.
 

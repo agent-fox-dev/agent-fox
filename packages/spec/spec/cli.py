@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import click
+import jsonschema
 import yaml
 from agentfox.io import AgentFoxGroup, emit, emit_ok
 from agentspec.errors import AgentError
@@ -29,19 +30,27 @@ _DEFAULT_SPEC_DIR = ".agent-fox/specs"
 
 
 class _SpecGroup(AgentFoxGroup):
-    """Extends AgentFoxGroup to suppress the banner when ``--json`` is present.
+    """Extends AgentFoxGroup to suppress the banner for JSON-producing commands.
 
     Subcommands like ``render --json`` require stdout to be pure JSON.
     ``AgentFoxGroup`` already suppresses the banner in agent mode
     (``AF_AGENT=1``) and when ``--quiet`` is passed.  This subclass
     additionally sets *quiet* when the remaining (subcommand) args
-    contain ``--json``, so the banner never contaminates JSON output.
+    contain ``--json`` or when the subcommand always produces JSON
+    output (``validate``, ``status``), so the banner never
+    contaminates JSON output.
     """
 
+    # Subcommands whose output is always JSON, even without ``--json``.
+    _JSON_SUBCOMMANDS = frozenset({"validate", "status"})
+
     def invoke(self, ctx: click.Context) -> None:
-        # Peek at unconsumed args: if any subcommand will receive ``--json``,
-        # force quiet so the banner is suppressed.
-        if "--json" in ctx.args:
+        # Peek at the protected (unconsumed) args.  Before Click
+        # resolves the subcommand, ``_protected_args`` contains the
+        # subcommand name followed by its arguments.
+        protected: list[str] = getattr(ctx, "_protected_args", [])
+        subcommand = protected[0] if protected else None
+        if "--json" in protected or subcommand in self._JSON_SUBCOMMANDS:
             ctx.params["quiet"] = True
         super().invoke(ctx)
 
@@ -465,29 +474,220 @@ def render_cmd(ctx: click.Context, spec: str, combined: bool, output_json: bool)
 # validate
 # ---------------------------------------------------------------------------
 
+_VALIDATE_ARTIFACT_FILES: dict[str, str] = {
+    "requirements": "requirements.json",
+    "test_spec": "test_spec.json",
+    "tasks": "tasks.json",
+}
+
+_VALIDATE_SCHEMA_MAP: dict[str, str] = {
+    "requirements.json": "requirements.v1.json",
+    "test_spec.json": "test_spec.v1.json",
+    "tasks.json": "tasks.v1.json",
+}
+
+
+def _get_value_at_path(data: Any, path: str) -> Any:
+    """Navigate a dotted path in a nested dict/list structure.
+
+    Returns the value at the path, or ``None`` when the path is
+    invalid or points nowhere.
+    """
+    if not path:
+        return None
+    parts = path.split(".")
+    current = data
+    for part in parts:
+        if isinstance(current, dict):
+            if part in current:
+                current = current[part]
+            else:
+                return None
+        elif isinstance(current, list):
+            try:
+                idx = int(part)
+                current = current[idx]
+            except (ValueError, IndexError):
+                return None
+        else:
+            return None
+    return current
+
+
+def _extract_requirement_id(message: str) -> str | None:
+    """Extract a requirement/criterion ID from a validation error message.
+
+    Looks for the first identifier in single quotes that matches a
+    typical requirement ID pattern (e.g., ``TEST-REQ-1.1``).
+    """
+    match = re.search(r"'([A-Z][\w.-]+)'", message)
+    return match.group(1) if match else None
+
+
+def _build_schema_errors(
+    target: Path,
+    artifact_data: dict[str, dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Validate raw JSON artifact data against JSON schemas.
+
+    Runs ``jsonschema`` validation directly on the raw JSON dicts
+    to capture both missing-required-field errors (which produce
+    top-level empty-path errors) and field-constraint errors (which
+    carry the offending value).
+
+    Returns a list of structured error dicts with
+    ``category="schema"``.
+    """
+    import afspec as _afspec
+
+    all_schemas = _afspec.schemas()
+    errors: list[dict[str, Any]] = []
+
+    for filename, schema_name in _VALIDATE_SCHEMA_MAP.items():
+        if filename not in artifact_data:
+            continue  # IO errors handled separately
+        raw_data = artifact_data[filename]
+        schema = json.loads(all_schemas[schema_name])
+        validator = jsonschema.Draft202012Validator(schema)
+        for err in validator.iter_errors(raw_data):
+            path = ".".join(str(p) for p in err.absolute_path) if err.absolute_path else ""
+            error_dict: dict[str, Any] = {
+                "category": "schema",
+                "artifact": filename,
+                "message": err.message,
+            }
+            if path:
+                error_dict["path"] = path
+                error_dict["value"] = err.instance
+            # Top-level errors (empty path) omit path and value per 05-REQ-3.E2
+            errors.append(error_dict)
+
+    return errors
+
+
+def _build_model_schema_errors(spec_obj: Any) -> list[dict[str, Any]]:
+    """Run model-level schema validation (EARS constraints, task group rules).
+
+    These checks require a loaded ``Spec`` object and complement
+    the raw JSON schema validation.
+    """
+    from afspec.validation import _validate_ears_constraints, _validate_task_group_structure
+
+    errors: list[dict[str, Any]] = []
+    for err in _validate_ears_constraints(spec_obj):
+        error_dict: dict[str, Any] = {
+            "category": "schema",
+            "artifact": err.file,
+            "message": err.message,
+        }
+        if err.path:
+            error_dict["path"] = err.path
+        errors.append(error_dict)
+
+    for err in _validate_task_group_structure(spec_obj):
+        error_dict = {
+            "category": "schema",
+            "artifact": err.file,
+            "message": err.message,
+        }
+        if err.path:
+            error_dict["path"] = err.path
+        errors.append(error_dict)
+
+    return errors
+
+
+def _build_integrity_errors(spec_obj: Any) -> list[dict[str, Any]]:
+    """Run cross-file integrity validation and produce structured errors."""
+    import afspec as _afspec
+
+    errors: list[dict[str, Any]] = []
+    for err in _afspec.validate_cross_file(spec_obj):
+        error_dict: dict[str, Any] = {
+            "category": "integrity",
+            "check": err.rule,
+            "message": err.message,
+        }
+        req_id = _extract_requirement_id(err.message)
+        if req_id:
+            error_dict["requirement_id"] = req_id
+        errors.append(error_dict)
+    return errors
+
 
 @main.command("validate")
 @click.argument("spec")
 @click.pass_context
 def validate_cmd(ctx: click.Context, spec: str) -> None:
     """Run schema and cross-file checks."""
+    import afspec as _afspec
+
     spec_dir: Path = ctx.obj["spec_dir"]
     target = _resolve_spec(spec_dir, spec)
-    session = SpecSession.resume(target)
-    validation = session.validate()
 
-    if validation.valid:
-        click.echo(json.dumps({"valid": True}))
+    # Check for missing artifact files (IO errors) ----------------------------
+    required_files = ["prd.md", "requirements.json", "test_spec.json", "tasks.json"]
+    io_errors: list[dict[str, Any]] = []
+    for filename in required_files:
+        fpath = target / filename
+        if not fpath.exists():
+            io_errors.append(
+                {
+                    "category": "io",
+                    "artifact": filename,
+                    "message": f"Artifact file not found: {filename}",
+                }
+            )
+
+    if io_errors:
+        emit({"valid": False, "errors": io_errors})
+        ctx.exit(1)
         return
 
-    errors: list[dict[str, str]] = []
-    for err in validation.schema_errors:
-        errors.append({"message": str(err)} if not isinstance(err, dict) else err)
-    for err in validation.integrity_errors:
-        errors.append({"message": str(err)} if not isinstance(err, dict) else err)
+    # Load raw JSON for schema validation -------------------------------------
+    artifact_data: dict[str, dict[str, Any]] = {}
+    for filename in ["requirements.json", "test_spec.json", "tasks.json"]:
+        fpath = target / filename
+        try:
+            artifact_data[filename] = json.loads(fpath.read_text())
+        except (OSError, json.JSONDecodeError) as exc:
+            io_errors.append(
+                {
+                    "category": "io",
+                    "artifact": filename,
+                    "message": f"Cannot read artifact: {exc}",
+                }
+            )
 
-    click.echo(json.dumps({"valid": False, "errors": errors}, indent=2))
-    sys.exit(1)
+    if io_errors:
+        emit({"valid": False, "errors": io_errors})
+        ctx.exit(1)
+        return
+
+    # Schema validation (raw JSON against JSON schemas) -----------------------
+    schema_errors = _build_schema_errors(target, artifact_data)
+
+    # Load spec object for model-level and cross-file validation --------------
+    try:
+        spec_obj = _afspec.load_spec(target)
+    except Exception:
+        session = SpecSession.resume(target)
+        spec_obj = session._load_spec_from_artifacts()
+
+    # Model-level schema checks (EARS constraints, task group structure)
+    schema_errors.extend(_build_model_schema_errors(spec_obj))
+
+    # Cross-file integrity validation -----------------------------------------
+    integrity_errors = _build_integrity_errors(spec_obj)
+
+    # Emit results ------------------------------------------------------------
+    all_errors = schema_errors + integrity_errors
+    if not all_errors:
+        emit_ok(valid=True, errors=[])
+        return
+
+    emit({"valid": False, "errors": all_errors})
+    ctx.exit(1)
 
 
 # ---------------------------------------------------------------------------
