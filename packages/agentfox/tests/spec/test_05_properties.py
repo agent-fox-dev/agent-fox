@@ -9,6 +9,7 @@ Requirements: 05-REQ-2.1, 05-REQ-2.2, 05-REQ-2.3, 05-REQ-3.1, 05-REQ-3.2,
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -253,15 +254,53 @@ class TestFullSuiteRegression:
 
     Requirement: 05-REQ-6.1
 
-    This is verified by running the full test suite externally.
-    The test here serves as a sentinel: if the test suite is not passing,
-    this test should also be investigated.
+    Runs pre-existing spec tests in a subprocess to verify no regressions
+    from the agentic CLI migration.
     """
 
     @pytest.mark.smoke
-    def test_test_suite_importable(self) -> None:
-        """Core spec modules are importable without error."""
-        import spec.cli  # noqa: F401
+    def test_spec_cli_importable(self) -> None:
+        """Core spec CLI module is importable after migration."""
+        from spec.cli import main
+
+        assert callable(main)
+
+    @pytest.mark.smoke
+    def test_preexisting_spec_tests_pass(self) -> None:
+        """Pre-existing spec tests pass after migration (TS-05-23).
+
+        Runs pytest in a subprocess against the spec test directory,
+        excluding spec 05 tests (to avoid recursion) and any other
+        recursive full-suite-runner tests. Verifies that the migration
+        did not break any pre-existing test cases.
+        """
+        project_root = Path(__file__).resolve().parents[4]
+        result = subprocess.run(
+            [
+                "uv",
+                "run",
+                "pytest",
+                "-q",
+                "--tb=line",
+                "packages/agentfox/tests/spec/",
+                "--ignore=packages/agentfox/tests/spec/test_05_cli_wiring.py",
+                "--ignore=packages/agentfox/tests/spec/test_05_migration_static.py",
+                "--ignore=packages/agentfox/tests/spec/test_05_properties.py",
+                # Exclude recursive suite-runner tests that invoke pytest
+                # in a subprocess (they cascade failures from unrelated areas)
+                "-k",
+                "not test_full_test_suite_passes",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=300,
+            cwd=str(project_root),
+        )
+        assert result.returncode == 0, (
+            f"Pre-existing spec tests failed (return code {result.returncode}).\n"
+            f"Output:\n{result.stdout[-1000:]}\n"
+            f"Errors:\n{result.stderr[-500:]}"
+        )
 
 
 # ===========================================================================

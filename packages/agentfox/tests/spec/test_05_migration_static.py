@@ -12,6 +12,7 @@ Requirements: 05-REQ-4.1, 05-REQ-4.2, 05-REQ-4.3, 05-REQ-5.1, 05-REQ-5.2,
 from __future__ import annotations
 
 import importlib
+import re
 from pathlib import Path
 
 import pytest
@@ -90,8 +91,26 @@ class TestStatusSpinnerImport:
         for py_file in _find_python_files(spec_dir):
             source = py_file.read_text()
             if "StatusSpinner" in source:
-                assert "from agentfox.io import StatusSpinner" in source or "from agentfox.io import" in source, (
-                    f"{py_file} imports StatusSpinner but not from agentfox.io"
+                # Must not import from spec.ui
+                assert "from spec.ui import" not in source, (
+                    f"{py_file} still imports from spec.ui"
+                )
+                # Must import StatusSpinner specifically from agentfox.io
+                # Handle single-line: from agentfox.io import StatusSpinner, ...
+                single_line = any(
+                    "from agentfox.io" in line and "StatusSpinner" in line
+                    for line in source.splitlines()
+                )
+                # Handle multi-line: from agentfox.io import (\n    StatusSpinner,\n)
+                multi_line = bool(
+                    re.search(
+                        r"from\s+agentfox\.io(?:\.\w+)*\s+import\s*\([^)]*StatusSpinner[^)]*\)",
+                        source,
+                        re.DOTALL,
+                    )
+                )
+                assert single_line or multi_line, (
+                    f"{py_file} uses StatusSpinner but does not import it from agentfox.io"
                 )
 
 

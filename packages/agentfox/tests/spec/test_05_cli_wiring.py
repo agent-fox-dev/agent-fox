@@ -135,6 +135,39 @@ REQUIREMENTS_JSON_SCHEMA_ERROR = json.dumps(
     indent=2,
 )
 
+# Top-level schema error: missing required root-level field 'spec_id'.
+# This produces a validation error with an empty/root path (not field-specific),
+# which is needed for TS-05-E5 to verify that path/value keys are omitted.
+REQUIREMENTS_JSON_TOP_LEVEL_ERROR = json.dumps(
+    {
+        # 'spec_id' is intentionally omitted — it's a required top-level field
+        "spec_name": "test_fixture",
+        "schema_version": 1,
+        "introduction": "Test requirements",
+        "glossary": {},
+        "requirements": [
+            {
+                "id": "TEST-REQ-1",
+                "title": "Test requirement",
+                "user_story": {"role": "tester", "goal": "test", "benefit": "verify"},
+                "acceptance_criteria": [
+                    {
+                        "id": "TEST-REQ-1.1",
+                        "ears_pattern": "ubiquitous",
+                        "system": "the system",
+                        "action": "SHALL do something",
+                    }
+                ],
+                "edge_cases": [],
+            }
+        ],
+        "correctness_properties": [],
+        "execution_paths": [],
+        "error_handling": [],
+    },
+    indent=2,
+)
+
 # Integrity error: requirement with no test case coverage
 REQUIREMENTS_JSON_INTEGRITY_ERROR = json.dumps(
     {
@@ -252,6 +285,22 @@ def _write_spec_schema_error(spec_dir: Path) -> None:
     )
 
 
+def _write_spec_top_level_error(spec_dir: Path) -> None:
+    """Populate a directory with a spec containing a top-level schema error.
+
+    Uses requirements JSON missing the required root-level 'spec_id' field,
+    producing a validation error with an empty/root path (not field-specific).
+    """
+    spec_dir.mkdir(parents=True, exist_ok=True)
+    (spec_dir / "prd.md").write_text(PRD_MD)
+    (spec_dir / "requirements.json").write_text(REQUIREMENTS_JSON_TOP_LEVEL_ERROR)
+    (spec_dir / "test_spec.json").write_text(TEST_SPEC_JSON)
+    (spec_dir / "tasks.json").write_text(TASKS_JSON)
+    (spec_dir / "_session.json").write_text(
+        json.dumps({"state": "generated", "generated_artifacts": ["requirements.json", "test_spec.json", "tasks.json"]})
+    )
+
+
 def _write_spec_integrity_error(spec_dir: Path) -> None:
     """Populate a directory with a spec containing an integrity error."""
     spec_dir.mkdir(parents=True, exist_ok=True)
@@ -294,6 +343,15 @@ def schema_error_spec_root(tmp_path: Path) -> Path:
     root = tmp_path / "specs"
     root.mkdir()
     _write_spec_schema_error(root / "01_schema_error")
+    return root
+
+
+@pytest.fixture
+def top_level_error_spec_root(tmp_path: Path) -> Path:
+    """A specs root with a spec containing a top-level schema error (missing spec_id)."""
+    root = tmp_path / "specs"
+    root.mkdir()
+    _write_spec_top_level_error(root / "01_top_level_error")
     return root
 
 
@@ -872,22 +930,32 @@ class TestValidateTopLevelErrorOmitsPathValue:
 
     @pytest.mark.xfail(reason="Structured error field omission not yet implemented")
     def test_top_level_error_no_path_no_value(
-        self, runner: CliRunner, schema_error_spec_root: Path
+        self, runner: CliRunner, top_level_error_spec_root: Path
     ) -> None:
-        """Top-level error object has no path or value keys."""
+        """Top-level error object has no path or value keys.
+
+        Uses a fixture with a missing required root-level field (spec_id),
+        which produces a genuinely top-level schema error (empty path).
+        The implementation must omit 'path' and 'value' keys entirely
+        rather than including them as null.
+        """
         result = _invoke_spec_catching(
             runner,
-            ["-d", str(schema_error_spec_root), "validate", "01"],
+            ["-d", str(top_level_error_spec_root), "validate", "01"],
         )
         parsed = json.loads(result.output)
-        # Find an error that is top-level (no specific field path)
-        for err in parsed.get("errors", []):
-            if err.get("category") == "schema" and not err.get("path"):
-                assert "path" not in err
-                assert "value" not in err
-                return
-        # If no top-level errors found, still verify the contract
-        # by checking that errors with empty paths don't have null values
-        for err in parsed.get("errors", []):
-            if "path" in err and err["path"] is None:
-                pytest.fail("Error object contains path=None; should omit key instead")
+        assert parsed["valid"] is False, "Expected validation to fail for missing spec_id"
+
+        schema_errs = [e for e in parsed["errors"] if e.get("category") == "schema"]
+        assert len(schema_errs) > 0, "Expected at least one schema error"
+
+        # At least one error must be top-level (no 'path' key at all)
+        top_level_errs = [e for e in schema_errs if "path" not in e]
+        assert len(top_level_errs) > 0, (
+            "Expected at least one top-level error without 'path' key, "
+            f"but all schema errors have paths: {schema_errs}"
+        )
+        # Verify top-level errors omit both 'path' and 'value' (not null, absent)
+        for err in top_level_errs:
+            assert "path" not in err, f"Top-level error should not have 'path' key: {err}"
+            assert "value" not in err, f"Top-level error should not have 'value' key: {err}"
