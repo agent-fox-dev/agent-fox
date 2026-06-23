@@ -1,0 +1,650 @@
+{
+  "$schema": null,
+  "spec_id": "04",
+  "spec_name": "af_agentic_cli",
+  "schema_version": 1,
+  "introduction": "The `af` CLI agentic optimization wires all `af` commands to the unified `agentfox/io/` terminal IO module from spec 03, adds JSONL streaming progress events for long-running commands, and removes legacy compatibility shims to ensure consistent, machine-readable output across every subcommand.",
+  "glossary": {
+    "AF_AGENT": "Environment variable (`AF_AGENT=1`) that signals the CLI is running inside an agent harness, enabling machine-readable output defaults.",
+    "AgentFoxGroup": "A Click Group subclass from `agentfox/io/` that provides unified error handling, `AF_AGENT` detection, and structured `--json --help` output.",
+    "BannerGroup": "A legacy Click Group subclass in `af/__init__.py` superseded by `AgentFoxGroup`.",
+    "JSONL": "JSON Lines format — one JSON object per line — used for streaming progress events to stderr.",
+    "OutputManager": "The shared output dispatch class from `agentfox/io/` (spec 03) that routes data to human-readable or JSON format based on the active mode.",
+    "ProgressDisplay": "The class responsible for showing task progress; updated in this spec to call `emit_progress()` in JSON mode.",
+    "af code": "The `af` CLI subcommand that runs an agentic coding session; a long-running command that benefits from JSONL streaming.",
+    "af init": "The `af` CLI subcommand that initializes the project configuration; previously emitted unstructured text in JSON mode.",
+    "af night-shift": "The `af` CLI subcommand that runs overnight batch agentic work; a long-running command that benefits from JSONL streaming.",
+    "af standup": "The `af` CLI subcommand that generates a standup summary; previously emitted unstructured text in JSON mode.",
+    "af/app.py": "The main Click application entry point for the `af` CLI.",
+    "af/json_io.py": "The legacy compatibility shim module inside the `af` package that re-exported symbols from `agentfox/io/`; deleted in this spec.",
+    "agentfox.io": "The unified terminal IO package created in spec 03, providing `OutputManager`, `AgentFoxGroup`, error envelopes, and help rendering.",
+    "emit_progress": "A method on `OutputManager` that writes JSONL progress event lines to stderr when `json_mode=True`.",
+    "exit_codes": "A metadata decorator from `agentfox/io/help.py` that annotates a Click command with its possible exit codes for structured help rendering.",
+    "format_table": "A utility function added to `agentfox/io/output.py` that renders tabular data consistently for both human and JSON output modes.",
+    "handle_agent_fox_errors": "A legacy error-handling decorator in `af/__init__.py` superseded by `AgentFoxGroup`'s built-in error handling.",
+    "json_mode": "The runtime flag indicating that the CLI should produce JSON/JSONL output instead of human-readable text; activated by the `--json` flag or `AF_AGENT=1`.",
+    "node_id": "A dot-notation task identifier (e.g. `1.1`) used in JSONL progress events to reference a specific task node in the execution plan.",
+    "om.emit": "The `OutputManager.emit()` method used to dispatch data output in either human-readable or JSON format.",
+    "task_completed": "A JSONL progress event type emitted when a task node finishes successfully.",
+    "task_failed": "A JSONL progress event type emitted when a task node fails.",
+    "task_started": "A JSONL progress event type emitted when a task node begins execution."
+  },
+  "requirements": [
+    {
+      "id": "04-REQ-1",
+      "title": "Wire af/app.py to AgentFoxGroup",
+      "user_story": {
+        "role": "af CLI developer",
+        "goal": "have af/app.py use cls=AgentFoxGroup so that all commands inherit unified error handling and agent-mode detection",
+        "benefit": "eliminating the need for the legacy BannerGroup and handle_agent_fox_errors constructs"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-1.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`af/app.py`",
+          "action": "declares the top-level Click group with `cls=AgentFoxGroup` imported from `agentfox.io`",
+          "return_contract": "The Click application object is an instance of `AgentFoxGroup`"
+        },
+        {
+          "id": "04-REQ-1.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`af/__init__.py`",
+          "action": "no longer defines or exports `BannerGroup` or `handle_agent_fox_errors`",
+          "return_contract": "Importing `af` does not expose `BannerGroup` or `handle_agent_fox_errors`"
+        },
+        {
+          "id": "04-REQ-1.3",
+          "ears_pattern": "event_driven",
+          "system": "`AgentFoxGroup`",
+          "action": "catches the exception and emits a structured JSON error envelope to stderr",
+          "return_contract": "Process exits with a non-zero exit code and a JSON error envelope on stderr",
+          "trigger": "any unhandled exception propagates from a subcommand"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "04-REQ-1.E1",
+          "ears_pattern": "unwanted",
+          "system": "`af/app.py`",
+          "action": "raises an `ImportError` at module load time with a clear message indicating the missing dependency",
+          "return_contract": "ImportError with message referencing `agentfox.io`",
+          "error_condition": "`AgentFoxGroup` cannot be imported from `agentfox.io` (spec 03 not installed)"
+        }
+      ]
+    },
+    {
+      "id": "04-REQ-2",
+      "title": "Migrate all af commands to OutputManager",
+      "user_story": {
+        "role": "af CLI developer",
+        "goal": "have every af subcommand retrieve an OutputManager from ctx.obj and use om.emit() for all data output",
+        "benefit": "eliminating duplicated inline json_mode conditionals and ensuring consistent format dispatch"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-2.1",
+          "ears_pattern": "ubiquitous",
+          "system": "Each `af` subcommand (`af code`, `af plan`, `af standup`, `af init`, `af night-shift`, `af reset`, `af insights`)",
+          "action": "retrieves `OutputManager` from `ctx.obj[\"output\"]` and uses `om.emit()` for all data output instead of direct `click.echo` calls for data",
+          "return_contract": null
+        },
+        {
+          "id": "04-REQ-2.2",
+          "ears_pattern": "ubiquitous",
+          "system": "Every `af` subcommand source file",
+          "action": "imports IO symbols exclusively from `agentfox.io` — no `from af.json_io import ...` statements remain",
+          "return_contract": null
+        },
+        {
+          "id": "04-REQ-2.3",
+          "ears_pattern": "state_driven",
+          "system": "`OutputManager`",
+          "action": "renders output as human-readable text via Rich when `om.emit()` is called",
+          "return_contract": "Human-readable text written to stdout",
+          "state": "`json_mode` is False"
+        },
+        {
+          "id": "04-REQ-2.4",
+          "ears_pattern": "state_driven",
+          "system": "`OutputManager`",
+          "action": "renders output as a single JSON object on stdout when `om.emit()` is called",
+          "return_contract": "Valid JSON object written to stdout, one object per `om.emit()` call",
+          "state": "`json_mode` is True"
+        },
+        {
+          "id": "04-REQ-2.5",
+          "ears_pattern": "event_driven",
+          "system": "`af standup`",
+          "action": "emits its standup summary as a structured JSON object via `om.emit()` with no unstructured text on stdout",
+          "return_contract": "Valid JSON object on stdout; exit code 0",
+          "trigger": "invoked with `--json`"
+        },
+        {
+          "id": "04-REQ-2.6",
+          "ears_pattern": "event_driven",
+          "system": "`af init`",
+          "action": "emits its initialization result as a structured JSON object via `om.emit()` with no unstructured text on stdout",
+          "return_contract": "Valid JSON object on stdout; exit code 0",
+          "trigger": "invoked with `--json`"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "04-REQ-2.E1",
+          "ears_pattern": "unwanted",
+          "system": "Any `af` subcommand",
+          "action": "raises a `RuntimeError` with a descriptive message before attempting any output",
+          "return_contract": "RuntimeError with message indicating missing OutputManager in context",
+          "error_condition": "`ctx.obj[\"output\"]` is None or missing"
+        }
+      ]
+    },
+    {
+      "id": "04-REQ-3",
+      "title": "JSONL streaming progress events for long-running commands",
+      "user_story": {
+        "role": "agent harness",
+        "goal": "receive machine-readable JSONL progress events on stderr while af code or af night-shift is executing",
+        "benefit": "gaining real-time visibility into task execution without polling or screen-scraping"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-3.1",
+          "ears_pattern": "state_driven",
+          "system": "`ProgressDisplay`",
+          "action": "calls `emit_progress()` on the `OutputManager` to write a `task_started` JSONL event to stderr when a task node begins",
+          "return_contract": "One JSONL line on stderr: `{\"event\": \"task_started\", \"node_id\": \"<id>\", \"timestamp\": \"<iso8601>\"}`",
+          "state": "`json_mode` is True"
+        },
+        {
+          "id": "04-REQ-3.2",
+          "ears_pattern": "state_driven",
+          "system": "`ProgressDisplay`",
+          "action": "calls `emit_progress()` to write a `task_completed` JSONL event to stderr when a task node finishes successfully",
+          "return_contract": "One JSONL line on stderr: `{\"event\": \"task_completed\", \"node_id\": \"<id>\", \"duration_s\": <float>, \"timestamp\": \"<iso8601>\"}`",
+          "state": "`json_mode` is True"
+        },
+        {
+          "id": "04-REQ-3.3",
+          "ears_pattern": "state_driven",
+          "system": "`ProgressDisplay`",
+          "action": "calls `emit_progress()` to write a `task_failed` JSONL event to stderr when a task node fails",
+          "return_contract": "One JSONL line on stderr: `{\"event\": \"task_failed\", \"node_id\": \"<id>\", \"error\": \"<message>\", \"timestamp\": \"<iso8601>\"}`",
+          "state": "`json_mode` is True"
+        },
+        {
+          "id": "04-REQ-3.4",
+          "ears_pattern": "state_driven",
+          "system": "`ProgressDisplay`",
+          "action": "renders progress using Rich spinner/progress UI to stdout and does NOT emit JSONL events",
+          "return_contract": "Rich progress UI on stdout; stderr receives no JSONL lines",
+          "state": "`json_mode` is False"
+        },
+        {
+          "id": "04-REQ-3.5",
+          "ears_pattern": "ubiquitous",
+          "system": "JSONL progress events",
+          "action": "are written to stderr so they do not interfere with the final JSON result written to stdout",
+          "return_contract": "stdout contains only the final JSON result; stderr contains only JSONL progress lines"
+        },
+        {
+          "id": "04-REQ-3.6",
+          "ears_pattern": "event_driven",
+          "system": "`af code`",
+          "action": "emits `task_started`, `task_completed`, or `task_failed` JSONL progress events via `ProgressDisplay` for each task node executed",
+          "return_contract": "One JSONL event line per task lifecycle transition; final JSON result on stdout after all tasks",
+          "trigger": "invoked with `--json`"
+        },
+        {
+          "id": "04-REQ-3.7",
+          "ears_pattern": "event_driven",
+          "system": "`af night-shift`",
+          "action": "emits `task_started`, `task_completed`, or `task_failed` JSONL progress events via `ProgressDisplay` for each task node executed",
+          "return_contract": "One JSONL event line per task lifecycle transition; final JSON result on stdout after all tasks",
+          "trigger": "invoked with `--json`"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "04-REQ-3.E1",
+          "ears_pattern": "unwanted",
+          "system": "`emit_progress()`",
+          "action": "suppresses the IO error and continues execution without crashing the main command",
+          "return_contract": "Main command continues; no exception propagated to the caller",
+          "error_condition": "stderr write fails (e.g. broken pipe)"
+        },
+        {
+          "id": "04-REQ-3.E2",
+          "ears_pattern": "unwanted",
+          "system": "`ProgressDisplay`",
+          "action": "emits the JSONL event with `node_id` set to `null` and logs a warning to stderr",
+          "return_contract": "JSONL line with `\"node_id\": null` written to stderr",
+          "error_condition": "`node_id` is None or empty when a progress event is about to be emitted"
+        }
+      ]
+    },
+    {
+      "id": "04-REQ-4",
+      "title": "Delete af/json_io.py compatibility shim",
+      "user_story": {
+        "role": "af CLI developer",
+        "goal": "have the af/json_io.py shim removed from the codebase",
+        "benefit": "eliminating dead code and preventing accidental use of the deprecated import path"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-4.1",
+          "ears_pattern": "ubiquitous",
+          "system": "The `af` package",
+          "action": "does not contain the file `af/json_io.py`",
+          "return_contract": "File does not exist on disk; importing `af.json_io` raises `ModuleNotFoundError`"
+        },
+        {
+          "id": "04-REQ-4.2",
+          "ears_pattern": "ubiquitous",
+          "system": "All source files under `af/`",
+          "action": "contain no `from af.json_io import` or `import af.json_io` statements",
+          "return_contract": "Static analysis (grep) finds zero occurrences of `af.json_io` in the `af/` directory"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "04-REQ-4.E1",
+          "ears_pattern": "unwanted",
+          "system": "Any external code",
+          "action": "receives a `ModuleNotFoundError` with a message indicating the module no longer exists",
+          "return_contract": "ModuleNotFoundError raised at import time",
+          "error_condition": "attempts to import `af.json_io` after the shim is deleted"
+        }
+      ]
+    },
+    {
+      "id": "04-REQ-5",
+      "title": "Structured JSON help output for all commands",
+      "user_story": {
+        "role": "agent harness",
+        "goal": "pass --json --help to any af command and receive a machine-readable JSON description of that command",
+        "benefit": "discovering available commands, options, and exit codes without parsing Click's text help format"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-5.1",
+          "ears_pattern": "event_driven",
+          "system": "`AgentFoxGroup`",
+          "action": "emits a JSON object describing the command's name, description, options, and exit codes to stdout instead of Click's text help",
+          "return_contract": "JSON object with fields `name` (string), `description` (string), `options` (array of option descriptors), `exit_codes` (array of exit code descriptors); exit code 0",
+          "trigger": "any `af` command is invoked with both `--json` and `--help`"
+        },
+        {
+          "id": "04-REQ-5.2",
+          "ears_pattern": "ubiquitous",
+          "system": "The JSON help renderer",
+          "action": "derives exit code metadata from the `@exit_codes` decorator applied to each command function",
+          "return_contract": "Each entry in `exit_codes` array contains `code` (integer) and `description` (string)"
+        },
+        {
+          "id": "04-REQ-5.3",
+          "ears_pattern": "event_driven",
+          "system": "`AgentFoxGroup`",
+          "action": "renders Click's standard text help to stdout",
+          "return_contract": "Click text help written to stdout; exit code 0",
+          "trigger": "a command is invoked with `--help` but without `--json`"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "04-REQ-5.E1",
+          "ears_pattern": "unwanted",
+          "system": "JSON help renderer",
+          "action": "emits the JSON help with an empty `exit_codes` array and does not raise an exception",
+          "return_contract": "JSON help object with `\"exit_codes\": []`",
+          "error_condition": "a command function does not have the `@exit_codes` decorator applied"
+        }
+      ]
+    },
+    {
+      "id": "04-REQ-6",
+      "title": "format_table utility and migration of manual table formatting",
+      "user_story": {
+        "role": "af CLI developer",
+        "goal": "use a shared format_table() function from agentfox/io/output.py instead of building tables by hand",
+        "benefit": "ensuring consistent table rendering across commands and reducing duplicated formatting code"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-6.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`agentfox/io/output.py`",
+          "action": "exports a `format_table(headers, rows, json_mode)` function that accepts a list of column header strings and a list of row data",
+          "return_contract": "In text mode: returns a Rich-rendered table string. In `json_mode`: returns a list of dicts mapping header names to row values."
+        },
+        {
+          "id": "04-REQ-6.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`af standup`",
+          "action": "uses `format_table()` from `agentfox.io` for all tabular output instead of manually constructing table strings",
+          "return_contract": null
+        },
+        {
+          "id": "04-REQ-6.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`af insights`",
+          "action": "uses `format_table()` from `agentfox.io` for all tabular output instead of manually constructing table strings",
+          "return_contract": null
+        },
+        {
+          "id": "04-REQ-6.4",
+          "ears_pattern": "state_driven",
+          "system": "`format_table()`",
+          "action": "returns a list of dicts where each dict maps header names to the corresponding row values",
+          "return_contract": "List of dicts; each dict has one key per header; values match the input row data",
+          "state": "`json_mode` is True"
+        },
+        {
+          "id": "04-REQ-6.5",
+          "ears_pattern": "state_driven",
+          "system": "`format_table()`",
+          "action": "returns a Rich-rendered table suitable for display in a terminal",
+          "return_contract": "Rich Table object or formatted string renderable by `OutputManager`",
+          "state": "`json_mode` is False"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "04-REQ-6.E1",
+          "ears_pattern": "unwanted",
+          "system": "`format_table()`",
+          "action": "returns an empty table structure (empty list in JSON mode; empty Rich table in text mode) without raising an exception",
+          "return_contract": "Empty list `[]` in `json_mode`; empty Rich table in text mode",
+          "error_condition": "rows is an empty list"
+        },
+        {
+          "id": "04-REQ-6.E2",
+          "ears_pattern": "unwanted",
+          "system": "`format_table()`",
+          "action": "fills missing values with `None` for JSON mode or an empty string for text mode, and does not raise an exception",
+          "return_contract": "Partial row padded with `None` (JSON) or empty string (text); no exception raised",
+          "error_condition": "a row contains fewer values than the number of headers"
+        }
+      ]
+    },
+    {
+      "id": "04-REQ-7",
+      "title": "Existing tests continue to pass after migration",
+      "user_story": {
+        "role": "af CLI developer",
+        "goal": "have all pre-existing af CLI tests pass without modification after the migration",
+        "benefit": "ensuring that the refactor introduces no regressions in command behavior or output contracts"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-7.1",
+          "ears_pattern": "ubiquitous",
+          "system": "The `af` test suite",
+          "action": "passes all existing tests without modification when run via `pytest` after the migration is applied",
+          "return_contract": "pytest exits with code 0; zero test failures or errors"
+        },
+        {
+          "id": "04-REQ-7.2",
+          "ears_pattern": "ubiquitous",
+          "system": "All `af` subcommands",
+          "action": "preserve their existing exit codes, flag names, and stdout/stderr contracts after the migration",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    }
+  ],
+  "correctness_properties": [
+    {
+      "id": "04-PROP-1",
+      "title": "stdout/stderr separation for JSONL streaming commands",
+      "for_any": "invocation of `af code` or `af night-shift` with `--json`",
+      "invariant": "every line written to stdout is valid JSON and every line written to stderr is a valid JSONL progress event; no JSONL event lines appear on stdout and no final result JSON appears on stderr",
+      "validates": [
+        "04-REQ-3.5",
+        "04-REQ-3.6",
+        "04-REQ-3.7"
+      ]
+    },
+    {
+      "id": "04-PROP-2",
+      "title": "No af.json_io references in the af package",
+      "for_any": "any Python source file under `af/`",
+      "invariant": "the string `af.json_io` does not appear as an import path in any source file, and the file `af/json_io.py` does not exist",
+      "validates": [
+        "04-REQ-4.1",
+        "04-REQ-4.2"
+      ]
+    },
+    {
+      "id": "04-PROP-3",
+      "title": "OutputManager is sole data output channel",
+      "for_any": "any `af` subcommand execution",
+      "invariant": "`om.emit()` is the only mechanism used to write data output; no subcommand calls `click.echo` directly for data payloads",
+      "validates": [
+        "04-REQ-2.1",
+        "04-REQ-2.3",
+        "04-REQ-2.4"
+      ]
+    },
+    {
+      "id": "04-PROP-4",
+      "title": "JSON mode produces valid JSON on stdout",
+      "for_any": "invocation of any `af` command with `--json`",
+      "invariant": "stdout contains only valid JSON text; the process exits with code 0 on success",
+      "validates": [
+        "04-REQ-2.4",
+        "04-REQ-2.5",
+        "04-REQ-2.6"
+      ]
+    },
+    {
+      "id": "04-PROP-5",
+      "title": "format_table header-row alignment",
+      "for_any": "call to `format_table(headers, rows, json_mode)` where rows is non-empty",
+      "invariant": "every dict in the returned list (when `json_mode` is True) has exactly the same set of keys as the `headers` list",
+      "validates": [
+        "04-REQ-6.4",
+        "04-REQ-6.E2"
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "04-PATH-1",
+      "title": "Agent invokes af code with --json and observes JSONL progress",
+      "steps": [
+        {
+          "actor": "Agent harness",
+          "action": "Invokes `af code --json` targeting a project"
+        },
+        {
+          "actor": "`af/app.py`",
+          "action": "Routes the command through `AgentFoxGroup`, sets `json_mode=True` on `OutputManager`, stores it in `ctx.obj[\"output\"]`"
+        },
+        {
+          "actor": "`af code` command",
+          "action": "Retrieves `OutputManager` from `ctx.obj[\"output\"]` and instantiates `ProgressDisplay` with `json_mode=True`"
+        },
+        {
+          "actor": "`ProgressDisplay`",
+          "action": "Calls `emit_progress()` with a `task_started` event for the first `node_id`, writing one JSONL line to stderr"
+        },
+        {
+          "actor": "`ProgressDisplay`",
+          "action": "Calls `emit_progress()` with `task_completed` or `task_failed` for each task node as it finishes, writing one JSONL line per event to stderr"
+        },
+        {
+          "actor": "`af code` command",
+          "action": "Calls `om.emit()` with the final result dict after all tasks complete"
+        },
+        {
+          "actor": "`OutputManager`",
+          "action": "Writes the final JSON result object to stdout and exits with code 0"
+        }
+      ]
+    },
+    {
+      "id": "04-PATH-2",
+      "title": "Developer invokes af standup --json and receives structured output",
+      "steps": [
+        {
+          "actor": "Developer",
+          "action": "Invokes `af standup --json`"
+        },
+        {
+          "actor": "`AgentFoxGroup`",
+          "action": "Sets `json_mode=True`, creates `OutputManager`, stores in `ctx.obj[\"output\"]`"
+        },
+        {
+          "actor": "`af standup` command",
+          "action": "Retrieves `OutputManager` from `ctx.obj[\"output\"]`, builds standup data"
+        },
+        {
+          "actor": "`af standup` command",
+          "action": "Calls `format_table()` for any tabular sections with `json_mode=True`"
+        },
+        {
+          "actor": "`af standup` command",
+          "action": "Calls `om.emit()` with the complete structured standup dict"
+        },
+        {
+          "actor": "`OutputManager`",
+          "action": "Writes a single valid JSON object to stdout; exits with code 0"
+        }
+      ]
+    },
+    {
+      "id": "04-PATH-3",
+      "title": "Agent requests JSON help output for af night-shift",
+      "steps": [
+        {
+          "actor": "Agent harness",
+          "action": "Invokes `af night-shift --json --help`"
+        },
+        {
+          "actor": "`AgentFoxGroup`",
+          "action": "Detects both `--json` and `--help` flags; activates JSON help renderer"
+        },
+        {
+          "actor": "JSON help renderer",
+          "action": "Reads command metadata including name, docstring, Click options, and `@exit_codes` decorator"
+        },
+        {
+          "actor": "JSON help renderer",
+          "action": "Serialises metadata to a JSON object and writes it to stdout"
+        },
+        {
+          "actor": "Process",
+          "action": "Exits with code 0 without executing the command body"
+        }
+      ]
+    },
+    {
+      "id": "04-PATH-4",
+      "title": "Developer verifies af/json_io.py shim is fully removed",
+      "steps": [
+        {
+          "actor": "Developer",
+          "action": "Runs `grep -r 'af.json_io' af/` in the repository"
+        },
+        {
+          "actor": "Shell",
+          "action": "Returns no matches, confirming no remaining references to the deleted shim"
+        },
+        {
+          "actor": "Developer",
+          "action": "Attempts `python -c 'import af.json_io'`"
+        },
+        {
+          "actor": "Python runtime",
+          "action": "Raises `ModuleNotFoundError`, confirming the shim is deleted"
+        }
+      ]
+    },
+    {
+      "id": "04-PATH-5",
+      "title": "Human developer invokes af standup without --json and sees Rich table",
+      "steps": [
+        {
+          "actor": "Developer",
+          "action": "Invokes `af standup` without any `--json` flag"
+        },
+        {
+          "actor": "`AgentFoxGroup`",
+          "action": "Sets `json_mode=False`, creates `OutputManager` in text mode"
+        },
+        {
+          "actor": "`af standup` command",
+          "action": "Calls `format_table()` with `json_mode=False` to build a Rich table"
+        },
+        {
+          "actor": "`af standup` command",
+          "action": "Calls `om.emit()` with the Rich-rendered output"
+        },
+        {
+          "actor": "`OutputManager`",
+          "action": "Renders the Rich table to stdout in human-readable format; exits with code 0"
+        }
+      ]
+    }
+  ],
+  "error_handling": [
+    {
+      "id": "04-ERR-1",
+      "condition": "Unhandled exception propagates from any `af` subcommand",
+      "behavior": "`AgentFoxGroup` catches the exception and emits a structured JSON error envelope to stderr, then exits with a non-zero code",
+      "requirement_id": "04-REQ-1.3"
+    },
+    {
+      "id": "04-ERR-2",
+      "condition": "`AgentFoxGroup` cannot be imported from `agentfox.io` at module load time",
+      "behavior": "Python raises `ImportError` at import time with a message referencing `agentfox.io`",
+      "requirement_id": "04-REQ-1.E1"
+    },
+    {
+      "id": "04-ERR-3",
+      "condition": "`ctx.obj[\"output\"]` is None or missing when a subcommand attempts to retrieve `OutputManager`",
+      "behavior": "The subcommand raises `RuntimeError` with a descriptive message before attempting any output",
+      "requirement_id": "04-REQ-2.E1"
+    },
+    {
+      "id": "04-ERR-4",
+      "condition": "stderr write fails during `emit_progress()` (e.g. broken pipe)",
+      "behavior": "The IO error is suppressed and command execution continues without crashing",
+      "requirement_id": "04-REQ-3.E1"
+    },
+    {
+      "id": "04-ERR-5",
+      "condition": "`node_id` is None or empty when a JSONL progress event is about to be emitted",
+      "behavior": "The JSONL event is emitted with `\"node_id\": null` and a warning is logged to stderr",
+      "requirement_id": "04-REQ-3.E2"
+    },
+    {
+      "id": "04-ERR-6",
+      "condition": "External code attempts to `import af.json_io` after the shim is deleted",
+      "behavior": "Python raises `ModuleNotFoundError` at import time",
+      "requirement_id": "04-REQ-4.E1"
+    },
+    {
+      "id": "04-ERR-7",
+      "condition": "A command function lacks the `@exit_codes` decorator when `--json --help` is requested",
+      "behavior": "JSON help renderer emits the help object with an empty `exit_codes` array; no exception is raised",
+      "requirement_id": "04-REQ-5.E1"
+    },
+    {
+      "id": "04-ERR-8",
+      "condition": "`format_table()` is called with an empty rows list",
+      "behavior": "Returns an empty list (JSON mode) or an empty Rich table (text mode) without raising an exception",
+      "requirement_id": "04-REQ-6.E1"
+    },
+    {
+      "id": "04-ERR-9",
+      "condition": "A row passed to `format_table()` contains fewer values than the number of headers",
+      "behavior": "Missing values are padded with `None` (JSON mode) or empty string (text mode); no exception is raised",
+      "requirement_id": "04-REQ-6.E2"
+    }
+  ]
+}

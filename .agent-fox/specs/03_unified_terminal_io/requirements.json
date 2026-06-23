@@ -1,0 +1,1213 @@
+{
+  "$schema": null,
+  "spec_id": "03",
+  "spec_name": "unified_terminal_io",
+  "schema_version": 1,
+  "introduction": "The Unified Terminal IO module (`agentfox/io/`) is a shared library imported by both the `af` and `spec` CLIs that consolidates all terminal output logic — including JSON serialization, error envelopes, spinner display, format dispatch, and common CLI flags — into a single, consistent implementation. It eliminates duplicated I/O code, establishes a unified error envelope schema, and provides an `AF_AGENT=1` environment variable toggle for agent-mode defaults across both tools.",
+  "glossary": {
+    "AF_AGENT": "Environment variable; when set to exactly `\"1\"`, activates agent mode by defaulting `json_mode=True` and `quiet=True` for the CLI session.",
+    "AgentError": "Exception class from the `agentspec` package representing agent-layer errors; carries an optional `.category` attribute.",
+    "AgentFoxError": "Base exception class in `agentfox/core/errors.py` from which all agentfox-specific errors inherit.",
+    "AgentFoxGroup": "A Click Group subclass defined in `agentfox/io/cli.py` that handles banner rendering, error routing, and OutputManager construction for both CLIs.",
+    "AgentSpecError": "Exception class from the `agentspec` package (subclass of `AgentError`) representing spec-processing errors.",
+    "AppTheme": "Existing theme class in `agentfox/ui/display.py` whose `console` attribute is used by `StatusSpinner` for styled stderr output.",
+    "BannerGroup": "Legacy Click group class in `af/app.py` that handled banner rendering and error handling; replaced by `AgentFoxGroup` in this spec.",
+    "BrokenPipeError": "Python exception raised when writing to a closed pipe (e.g. when stdout consumer exits early); silently suppressed by all emit functions.",
+    "Hypothesis": "Property-based testing library already used in this project, used for error envelope serialization property tests.",
+    "JSONL": "JSON Lines format: one compact JSON object per line, no indentation, used by `emit_line`.",
+    "LiveAwareHandler": "Existing log handler that routes Python log records through Rich Live, integrated with `StatusSpinner`.",
+    "OutputManager": "Central coordinator class for all CLI output, constructed once at startup and stored in `ctx.obj[\"output\"]`; controls json_mode, quiet, verbose, and trace settings.",
+    "PlanSpinner": "Legacy spinner class in `agentfox/ui/progress.py`, superseded by the new unified `StatusSpinner` in this spec.",
+    "ProgressDisplay": "Existing multi-task progress display class in `agentfox/ui/progress.py` for `af code` orchestration; not merged in this spec.",
+    "SessionError": "Exception class from the `agentspec` package representing session-layer errors; always maps to `session_error` type with `retryable: false`.",
+    "StatusSpinner": "The unified animated progress indicator class in `agentfox/io/spinner.py`, replacing both `PlanSpinner` and the old `StatusSpinner`.",
+    "_json_explicit": "Sentinel key written to `ctx.obj` by the `--json`/`--no-json` option callback when the user explicitly passes either flag, used to distinguish explicit flags from `AF_AGENT` defaults.",
+    "_quiet_explicit": "Sentinel key written to `ctx.obj` by the `--quiet`/`--verbose` option callback when the user explicitly passes either flag, used to distinguish explicit flags from `AF_AGENT` defaults.",
+    "af/json_io.py": "Compatibility shim file that re-exports `emit`, `emit_line`, `emit_error`, and `read_stdin` from `agentfox/io/json.py`; removed in Spec 04.",
+    "afspec": "Base package depended on by both `agentfox` and `agentspec` in the monorepo dependency graph.",
+    "agentfox/io/": "The new unified terminal I/O Python package created by this spec, located at `agentfox/io/` within the monorepo.",
+    "agentspec": "Sibling Python package in the monorepo providing `AgentError`, `AgentSpecError`, and `SessionError`; lazily imported by `agentfox/io/errors.py`.",
+    "cli_error_handler": "Function in `agentfox/io/errors.py` that routes an exception to either JSON stdout or plain-text stderr based on the active `json_mode`.",
+    "common_options": "A Click decorator defined in `agentfox/io/cli.py` that adds `--verbose`, `--quiet`, `--trace`, and `--json`/`--no-json` flags to the root Click group.",
+    "ctx.obj": "Click's context object dictionary used to pass data between the root group and subcommands; `OutputManager` is stored under the key `\"output\"`.",
+    "detail": "Optional field in the error envelope `error` object, present only for `internal_error` type, containing the exception class name to aid debugging.",
+    "emit": "Function in `agentfox/io/json.py` that writes pretty-printed JSON (indent=2) to stdout.",
+    "emit_error": "Function in `agentfox/io/json.py` that always writes a structured JSON error envelope to stdout regardless of json_mode.",
+    "emit_line": "Function in `agentfox/io/json.py` that writes compact JSONL (no indentation) to stdout.",
+    "emit_ok": "Function in `agentfox/io/json.py` that writes a JSON object with `\"ok\": true` merged with caller-supplied data to stdout.",
+    "error_envelope": "Function in `agentfox/io/errors.py` that builds a structured error dict `{\"ok\": false, \"error\": {...}}` from any exception without serializing or printing it.",
+    "exit_codes": "Decorator from `agentfox/io/help.py` that stores an exit-code-to-description mapping as an attribute on a Click Command object.",
+    "get_output_manager": "Convenience function in `agentfox/io/output.py` that returns the active `OutputManager` from the current Click context, or a fallback instance if no context is active.",
+    "handle_cli_errors": "No-argument decorator in `agentfox/io/errors.py` that wraps command functions to catch exceptions and delegate to `cli_error_handler`.",
+    "internal_error": "The catch-all error type string assigned to exceptions not matched by more specific type mappings; always accompanied by a `detail` field containing the exception class name.",
+    "json_mode": "Boolean field on `OutputManager` controlling whether output is written as JSON to stdout (`True`) or as human-readable text (`False`).",
+    "quiet": "Boolean field on `OutputManager`; when `True`, suppresses banner and status lines on stderr.",
+    "read_stdin": "Function in `agentfox/io/json.py` that reads and parses a JSON object from piped stdin, returning `{}` for interactive TTY or empty input.",
+    "setup_logging": "Existing function in `agentfox/core/logging.py` that configures the root logger level based on verbose, quiet, and trace flags.",
+    "state": "Optional free-form string parameter passed to `emit_error` and `error_envelope` representing the workflow phase (e.g. `\"planning\"`, `\"executing\"`) when an error occurred."
+  },
+  "requirements": [
+    {
+      "id": "03-REQ-1",
+      "title": "agentfox/io/ package structure and public API",
+      "user_story": {
+        "role": "developer importing from agentfox.io",
+        "goal": "import any of the twelve curated public symbols directly from `agentfox.io`",
+        "benefit": "I have a single, stable import surface without needing to know internal submodule locations"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-1.1",
+          "ears_pattern": "ubiquitous",
+          "system": "agentfox/io/__init__.py",
+          "action": "re-exports exactly the twelve public symbols: `OutputManager`, `StatusSpinner`, `get_output_manager`, `emit`, `emit_ok`, `emit_line`, `emit_error`, `read_stdin`, `error_envelope`, `AgentFoxGroup`, `common_options`, `exit_codes`",
+          "return_contract": "All twelve symbols are importable via `from agentfox.io import <symbol>`; no additional symbols beyond these twelve are exposed at the package level"
+        },
+        {
+          "id": "03-REQ-1.2",
+          "ears_pattern": "ubiquitous",
+          "system": "agentfox/io/__init__.py",
+          "action": "does not re-export `handle_cli_errors`; that symbol is available only via `from agentfox.io.errors import handle_cli_errors`",
+          "return_contract": "`from agentfox.io import handle_cli_errors` raises `ImportError`; `from agentfox.io.errors import handle_cli_errors` succeeds"
+        },
+        {
+          "id": "03-REQ-1.3",
+          "ears_pattern": "ubiquitous",
+          "system": "agentfox/io/ package",
+          "action": "consists of exactly the seven files: `__init__.py`, `output.py`, `json.py`, `spinner.py`, `errors.py`, `cli.py`, `help.py`",
+          "return_contract": "All seven files exist at the specified paths within the `agentfox/io/` directory"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "03-REQ-1.E1",
+          "ears_pattern": "unwanted",
+          "system": "agentfox/io/__init__.py",
+          "action": "raises `ImportError` for the unlisted symbol; the consumer must import from the specific submodule instead",
+          "return_contract": "`ImportError` is raised with a message indicating the symbol is not available at the package level",
+          "error_condition": "a consumer attempts to import a submodule-internal symbol (e.g. `handle_cli_errors`) directly from `agentfox.io`"
+        }
+      ]
+    },
+    {
+      "id": "03-REQ-2",
+      "title": "OutputManager construction and storage",
+      "user_story": {
+        "role": "CLI subcommand author",
+        "goal": "retrieve a pre-constructed `OutputManager` from `ctx.obj[\"output\"]` without constructing one myself",
+        "benefit": "I can focus on command logic rather than output mode resolution"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-2.1",
+          "ears_pattern": "ubiquitous",
+          "system": "OutputManager",
+          "action": "holds fields `json_mode: bool`, `quiet: bool`, `verbose: bool`, `trace: bool`, and `console: Console` (Rich console for stderr)",
+          "return_contract": "All five fields are accessible on every `OutputManager` instance"
+        },
+        {
+          "id": "03-REQ-2.2",
+          "ears_pattern": "event_driven",
+          "system": "AgentFoxGroup",
+          "action": "calls `ctx.ensure_object(dict)`, reads sentinel keys to resolve flags, constructs an `OutputManager`, and stores it at `ctx.obj[\"output\"]`",
+          "return_contract": "`ctx.obj[\"output\"]` is a fully constructed `OutputManager` instance before any subcommand executes",
+          "trigger": "its `invoke()` method is called"
+        },
+        {
+          "id": "03-REQ-2.3",
+          "ears_pattern": "ubiquitous",
+          "system": "get_output_manager()",
+          "action": "returns the `OutputManager` from `ctx.obj[\"output\"]` of the current Click context; when no Click context is active, returns a fallback `OutputManager` with `json_mode=False`, `quiet=False`, `verbose=False`, `trace=False`",
+          "return_contract": "Returns a valid `OutputManager` in both cases; `AF_AGENT` env var is NOT consulted in the fallback path"
+        },
+        {
+          "id": "03-REQ-2.4",
+          "ears_pattern": "state_driven",
+          "system": "AgentFoxGroup.invoke()",
+          "action": "logs a debug-level warning and falls back to constructing `OutputManager` with defaults (honoring `AF_AGENT` env var but with no sentinel data)",
+          "return_contract": "A default `OutputManager` is constructed and the CLI does not crash; a debug-level warning is emitted to the logger",
+          "state": "`ctx.obj` is already set to a non-dict value by an upstream parent group"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "03-REQ-2.E1",
+          "ears_pattern": "unwanted",
+          "system": "get_output_manager()",
+          "action": "returns the fallback `OutputManager` with `json_mode=False` — `AF_AGENT` is not consulted in the fallback path",
+          "return_contract": "Fallback `OutputManager` has `json_mode=False`, `quiet=False`, `verbose=False`, `trace=False` regardless of `AF_AGENT` environment variable",
+          "error_condition": "no Click context is active (e.g. called from a test or library context) and `AF_AGENT` is set to `\"1\"` in the environment"
+        }
+      ]
+    },
+    {
+      "id": "03-REQ-3",
+      "title": "AF_AGENT environment variable agent-mode activation",
+      "user_story": {
+        "role": "AI coding agent",
+        "goal": "set `AF_AGENT=1` once in my environment to enable JSON output and quiet mode for all CLI invocations",
+        "benefit": "I do not need to pass `--json --quiet` on every command invocation"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-3.1",
+          "ears_pattern": "state_driven",
+          "system": "AgentFoxGroup",
+          "action": "defaults `json_mode=True` and `quiet=True` when constructing the `OutputManager`",
+          "return_contract": "`OutputManager` has `json_mode=True` and `quiet=True`",
+          "state": "`AF_AGENT` environment variable is set to exactly the string `\"1\"` and no explicit format flags are passed"
+        },
+        {
+          "id": "03-REQ-3.2",
+          "ears_pattern": "complex_event",
+          "system": "AgentFoxGroup",
+          "action": "sets `json_mode=False` (explicit flag overrides env default) while `quiet` remains `True`",
+          "return_contract": "`OutputManager` has `json_mode=False` and `quiet=True`",
+          "trigger": "user explicitly passes `--no-json`",
+          "condition": "`AF_AGENT=1` is set"
+        },
+        {
+          "id": "03-REQ-3.3",
+          "ears_pattern": "complex_event",
+          "system": "AgentFoxGroup",
+          "action": "sets `quiet=False` (explicit flag overrides env default) while `json_mode` remains `True`",
+          "return_contract": "`OutputManager` has `json_mode=True` and `quiet=False`",
+          "trigger": "user explicitly passes `--verbose`",
+          "condition": "`AF_AGENT=1` is set"
+        },
+        {
+          "id": "03-REQ-3.4",
+          "ears_pattern": "complex_event",
+          "system": "AgentFoxGroup",
+          "action": "sets `json_mode=False` and `quiet=False`",
+          "return_contract": "`OutputManager` has `json_mode=False` and `quiet=False`",
+          "trigger": "user explicitly passes `--no-json --verbose`",
+          "condition": "`AF_AGENT=1` is set"
+        },
+        {
+          "id": "03-REQ-3.5",
+          "ears_pattern": "ubiquitous",
+          "system": "AgentFoxGroup",
+          "action": "treats `AF_AGENT` values other than exactly `\"1\"` (e.g. `\"true\"`, `\"yes\"`, `\"on\"`, `\"0\"`, empty string) as if `AF_AGENT` is unset — agent mode is not activated",
+          "return_contract": "Only `AF_AGENT=1` (exact string) activates agent mode; all other values leave default behavior unchanged"
+        },
+        {
+          "id": "03-REQ-3.6",
+          "ears_pattern": "ubiquitous",
+          "system": "common_options",
+          "action": "implements `--json`/`--no-json` using a Click option pair with a callback that calls `ctx.ensure_object(dict)` then sets `ctx.obj[\"_json_explicit\"] = True` when either flag is explicitly passed; the `--quiet`/`--verbose` callback sets `ctx.obj[\"_quiet_explicit\"] = True` when either flag is explicitly passed",
+          "return_contract": "`ctx.obj[\"_json_explicit\"]` is `True` iff the user passed `--json` or `--no-json`; `ctx.obj[\"_quiet_explicit\"]` is `True` iff the user passed `--quiet` or `--verbose`"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "03-REQ-3.E1",
+          "ears_pattern": "unwanted",
+          "system": "AgentFoxGroup",
+          "action": "does not activate agent mode; `json_mode` and `quiet` use their normal defaults (`False`)",
+          "return_contract": "`OutputManager` has `json_mode=False` and `quiet=False` (or whatever explicit flags dictate)",
+          "error_condition": "`AF_AGENT` is set to `\"true\"`, `\"yes\"`, `\"on\"`, `\"0\"`, or empty string"
+        }
+      ]
+    },
+    {
+      "id": "03-REQ-4",
+      "title": "OutputManager format dispatch methods",
+      "user_story": {
+        "role": "CLI command author",
+        "goal": "use a single `OutputManager` instance to dispatch output to either JSON or human-readable format",
+        "benefit": "I do not need to repeat `if json_mode: ... else: ...` in every command"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-4.1",
+          "ears_pattern": "state_driven",
+          "system": "OutputManager.emit_json(data)",
+          "action": "writes the dict serialized as pretty-printed JSON (indent=2) to stdout",
+          "return_contract": "JSON string with 2-space indentation is written to stdout",
+          "state": "`json_mode=True`"
+        },
+        {
+          "id": "03-REQ-4.2",
+          "ears_pattern": "state_driven",
+          "system": "OutputManager.emit_json(data)",
+          "action": "silently no-ops; nothing is written to stdout",
+          "return_contract": "No output is produced",
+          "state": "`json_mode=False`"
+        },
+        {
+          "id": "03-REQ-4.3",
+          "ears_pattern": "state_driven",
+          "system": "OutputManager.emit_human(text)",
+          "action": "writes the plain text string to stdout",
+          "return_contract": "Plain text string is written to stdout",
+          "state": "`json_mode=False`"
+        },
+        {
+          "id": "03-REQ-4.4",
+          "ears_pattern": "state_driven",
+          "system": "OutputManager.emit_human(text)",
+          "action": "silently no-ops; nothing is written to stdout",
+          "return_contract": "No output is produced",
+          "state": "`json_mode=True`"
+        },
+        {
+          "id": "03-REQ-4.5",
+          "ears_pattern": "state_driven",
+          "system": "OutputManager.emit(data, human_fn)",
+          "action": "calls `emit_json(data)` to write pretty-printed JSON to stdout; `human_fn` is ignored",
+          "return_contract": "JSON output is written to stdout; `human_fn` is not called",
+          "state": "`json_mode=True`"
+        },
+        {
+          "id": "03-REQ-4.6",
+          "ears_pattern": "state_driven",
+          "system": "OutputManager.emit(data, human_fn)",
+          "action": "calls `human_fn()` to produce human-readable output; no JSON is written",
+          "return_contract": "`human_fn()` is called exactly once; no JSON output is written to stdout",
+          "state": "`json_mode=False` and `human_fn` is provided"
+        },
+        {
+          "id": "03-REQ-4.7",
+          "ears_pattern": "state_driven",
+          "system": "OutputManager.emit(data, human_fn)",
+          "action": "silently no-ops; no output is produced",
+          "return_contract": "No output is produced",
+          "state": "`json_mode=False` and `human_fn` is `None`"
+        },
+        {
+          "id": "03-REQ-4.8",
+          "ears_pattern": "ubiquitous",
+          "system": "OutputManager.banner()",
+          "action": "renders the themed banner on stderr; suppressed when `json_mode=True` or `quiet=True`",
+          "return_contract": "Banner is written to stderr only when both `json_mode=False` and `quiet=False`"
+        },
+        {
+          "id": "03-REQ-4.9",
+          "ears_pattern": "ubiquitous",
+          "system": "OutputManager.status(message)",
+          "action": "writes the message to stderr; suppressed when `quiet=True`",
+          "return_contract": "Message is written to stderr only when `quiet=False`"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "03-REQ-5",
+      "title": "Unified JSON serialization functions",
+      "user_story": {
+        "role": "CLI command author",
+        "goal": "use standardized `emit`, `emit_ok`, `emit_line`, and `emit_error` functions from `agentfox.io`",
+        "benefit": "I get consistent JSON output format and error envelopes without writing custom serialization code"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-5.1",
+          "ears_pattern": "ubiquitous",
+          "system": "emit(data)",
+          "action": "writes the dict to stdout as pretty-printed JSON using `indent=2` and `default=str` for non-serializable values",
+          "return_contract": "Valid JSON string with 2-space indentation written to stdout; non-serializable values (e.g. `datetime`, `UUID`, `Path`) are coerced via `str()`"
+        },
+        {
+          "id": "03-REQ-5.2",
+          "ears_pattern": "ubiquitous",
+          "system": "emit_line(data)",
+          "action": "writes the dict to stdout as compact JSON (no indentation) on a single line, using `default=str`",
+          "return_contract": "Compact JSON string with no indentation written to stdout followed by a newline"
+        },
+        {
+          "id": "03-REQ-5.3",
+          "ears_pattern": "ubiquitous",
+          "system": "emit_ok(data)",
+          "action": "merges `{\"ok\": True}` into the caller-supplied dict (always overwriting the `\"ok\"` key) and writes as pretty-printed JSON with `indent=2` to stdout",
+          "return_contract": "JSON object with `\"ok\": true` at top level written to stdout; caller-supplied `\"ok\"` key is silently overwritten"
+        },
+        {
+          "id": "03-REQ-5.4",
+          "ears_pattern": "ubiquitous",
+          "system": "emit_error(exc, state=None)",
+          "action": "always writes a structured JSON error envelope to stdout regardless of `json_mode`; calls `error_envelope(exc, state=state)` internally to build the dict, then serializes and prints",
+          "return_contract": "JSON object conforming to `{\"ok\": false, \"error\": {\"type\": ..., \"message\": ..., \"retryable\": ...}}` written to stdout; `\"state\"` top-level field included iff `state` is non-`None`"
+        },
+        {
+          "id": "03-REQ-5.5",
+          "ears_pattern": "ubiquitous",
+          "system": "read_stdin()",
+          "action": "reads from stdin assuming UTF-8 encoding; returns `{}` if stdin is an interactive TTY or is empty; returns parsed dict if stdin contains valid UTF-8 JSON; blocks until EOF for piped stdin with no timeout",
+          "return_contract": "Returns `dict`; returns `{}` for interactive TTY or empty input"
+        },
+        {
+          "id": "03-REQ-5.6",
+          "ears_pattern": "ubiquitous",
+          "system": "emit(), emit_line(), emit_ok(), emit_error()",
+          "action": "silently suppresses `BrokenPipeError` by wrapping the stdout write in `try/except BrokenPipeError: pass`",
+          "return_contract": "No exception is raised or propagated to the caller when the downstream pipe is closed"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "03-REQ-5.E1",
+          "ears_pattern": "unwanted",
+          "system": "emit_ok(data)",
+          "action": "overwrites the caller's `\"ok\"` value with `True`; no warning is emitted",
+          "return_contract": "Emitted JSON contains `\"ok\": true` regardless of the input dict's `\"ok\"` field",
+          "error_condition": "caller-supplied `data` dict already contains `\"ok\": False`"
+        },
+        {
+          "id": "03-REQ-5.E2",
+          "ears_pattern": "unwanted",
+          "system": "read_stdin()",
+          "action": "raises `json.JSONDecodeError`",
+          "return_contract": "`json.JSONDecodeError` propagates to the caller",
+          "error_condition": "stdin contains malformed JSON (valid UTF-8 but not parseable)"
+        },
+        {
+          "id": "03-REQ-5.E3",
+          "ears_pattern": "unwanted",
+          "system": "read_stdin()",
+          "action": "raises `UnicodeDecodeError`",
+          "return_contract": "`UnicodeDecodeError` propagates to the caller",
+          "error_condition": "stdin contains non-UTF-8 bytes"
+        }
+      ]
+    },
+    {
+      "id": "03-REQ-6",
+      "title": "Unified error envelope schema",
+      "user_story": {
+        "role": "AI coding agent calling both `af` and `spec` CLIs",
+        "goal": "receive a consistent structured error envelope from both CLIs whenever an error occurs",
+        "benefit": "I can parse and handle errors from both CLIs using a single schema without conditional logic"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-6.1",
+          "ears_pattern": "ubiquitous",
+          "system": "error_envelope(exc, state=None)",
+          "action": "builds and returns a structured dict `{\"ok\": False, \"error\": {\"type\": ..., \"message\": ..., \"retryable\": ...}}` from any exception; does not serialize or print",
+          "return_contract": "Returns a `dict` with `\"ok\": False` and an `\"error\"` sub-dict containing non-empty string `\"type\"`, non-empty string `\"message\"` (from `str(exc)`), and boolean `\"retryable\"`"
+        },
+        {
+          "id": "03-REQ-6.2",
+          "ears_pattern": "ubiquitous",
+          "system": "error_envelope(exc)",
+          "action": "derives `\"type\"` from `AgentFoxError` subclasses by converting the class name to snake_case at runtime (e.g. `ConfigError` → `\"config_error\"`); applies to all `AgentFoxError` subclasses including unknown custom ones",
+          "return_contract": "`\"type\"` field is the snake_case form of the exception class name; `\"retryable\"` is the per-class attribute value"
+        },
+        {
+          "id": "03-REQ-6.3",
+          "ears_pattern": "ubiquitous",
+          "system": "error_envelope(exc)",
+          "action": "for `AgentError` with `.category`: sets `\"type\"` to `.category` value; for `AgentError` without `.category`: sets `\"type\"` to `\"agent_error\"` and `\"retryable\"` to `False`",
+          "return_contract": "`\"type\"` is `.category` if present, else `\"agent_error\"`; `\"retryable\"` is per-instance attribute if present, else `False`"
+        },
+        {
+          "id": "03-REQ-6.4",
+          "ears_pattern": "ubiquitous",
+          "system": "error_envelope(exc)",
+          "action": "for `SessionError`: sets `\"type\"` to `\"session_error\"` and `\"retryable\"` to `False` regardless of any instance attributes",
+          "return_contract": "`\"type\": \"session_error\"` and `\"retryable\": false` always for `SessionError`"
+        },
+        {
+          "id": "03-REQ-6.5",
+          "ears_pattern": "ubiquitous",
+          "system": "error_envelope(exc)",
+          "action": "for `click.ClickException`: sets `\"type\"` to `\"input_error\"` and `\"retryable\"` to `False`",
+          "return_contract": "`\"type\": \"input_error\"` and `\"retryable\": false` for all `click.ClickException` instances"
+        },
+        {
+          "id": "03-REQ-6.6",
+          "ears_pattern": "ubiquitous",
+          "system": "error_envelope(exc)",
+          "action": "for all other/unknown exceptions: sets `\"type\"` to `\"internal_error\"`, `\"retryable\"` to `False`, and includes a `\"detail\"` field with the exception class name; `\"detail\"` is omitted for well-typed exceptions",
+          "return_contract": "`\"type\": \"internal_error\"`, `\"retryable\": false`, and `\"error.detail\": \"<ClassName>\"` for unknown exceptions; `\"detail\"` key absent for `AgentFoxError`, `AgentError`, `AgentSpecError`, `SessionError`, and `click.ClickException`"
+        },
+        {
+          "id": "03-REQ-6.7",
+          "ears_pattern": "ubiquitous",
+          "system": "error_envelope(exc, state=state)",
+          "action": "includes `\"state\"` as a top-level field in the returned dict when `state` is non-`None`; omits `\"state\"` entirely when `state` is `None`",
+          "return_contract": "Top-level `\"state\"` key present iff `state` argument is non-`None`"
+        },
+        {
+          "id": "03-REQ-6.8",
+          "ears_pattern": "ubiquitous",
+          "system": "agentfox/io/errors.py",
+          "action": "lazily imports `AgentError`, `AgentSpecError`, `SessionError` from `agentspec` using `try/except ImportError`; gracefully skips agentspec type mapping when the package is not installed",
+          "return_contract": "When `agentspec` is not installed, agentspec exception instances fall through to `internal_error` mapping; no `ImportError` is raised at module load time"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "03-REQ-6.E1",
+          "ears_pattern": "unwanted",
+          "system": "error_envelope(exc)",
+          "action": "exception falls through to `internal_error` mapping; `\"type\": \"internal_error\"`, `\"retryable\": false`, `\"detail\"` set to class name",
+          "return_contract": "Valid error envelope with `\"type\": \"internal_error\"` and `\"detail\"` field; no `ImportError` raised",
+          "error_condition": "agentspec is not installed and an `AgentError`/`AgentSpecError`/`SessionError` instance is passed"
+        }
+      ]
+    },
+    {
+      "id": "03-REQ-7",
+      "title": "cli_error_handler and handle_cli_errors routing",
+      "user_story": {
+        "role": "CLI command author",
+        "goal": "have errors automatically routed to JSON stdout or plain-text stderr based on the current output mode",
+        "benefit": "I do not need to manually check `json_mode` in error-handling code"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-7.1",
+          "ears_pattern": "state_driven",
+          "system": "cli_error_handler(ctx, exc)",
+          "action": "calls `emit_error(exc)` to write structured JSON envelope to stdout",
+          "return_contract": "Structured JSON error envelope written to stdout; nothing written to stderr for the error",
+          "state": "`json_mode=True` on the active `OutputManager`"
+        },
+        {
+          "id": "03-REQ-7.2",
+          "ears_pattern": "state_driven",
+          "system": "cli_error_handler(ctx, exc)",
+          "action": "calls `click.echo(str(exc), err=True)` to write plain text to stderr",
+          "return_contract": "Plain text error message written to stderr; nothing written to stdout",
+          "state": "`json_mode=False` on the active `OutputManager`"
+        },
+        {
+          "id": "03-REQ-7.3",
+          "ears_pattern": "ubiquitous",
+          "system": "handle_cli_errors decorator",
+          "action": "takes no arguments (applied as `@handle_cli_errors` without parentheses); wraps the decorated function; when the function raises an `Exception` (not `SystemExit` or `KeyboardInterrupt`), resolves `json_mode` dynamically via `get_output_manager()` at call time and delegates to `cli_error_handler()`",
+          "return_contract": "`json_mode` is resolved at call time (not decoration time); `SystemExit` and `KeyboardInterrupt` propagate without being caught"
+        },
+        {
+          "id": "03-REQ-7.4",
+          "ears_pattern": "ubiquitous",
+          "system": "AgentFoxGroup.invoke()",
+          "action": "catches `Exception` subclasses (not `BaseException`), routes through `cli_error_handler`, then calls `sys.exit(1)`; re-raises `SystemExit` and `KeyboardInterrupt` immediately without routing",
+          "return_contract": "Exit code 1 for all caught `Exception` subclasses; exit code 0 on success; `SystemExit` and `KeyboardInterrupt` propagate normally"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "03-REQ-7.E1",
+          "ears_pattern": "unwanted",
+          "system": "AgentFoxGroup.invoke()",
+          "action": "re-raises `SystemExit` immediately without routing through `cli_error_handler` or calling `sys.exit(1)`",
+          "return_contract": "Process exits with the original `SystemExit` code; no error envelope is emitted",
+          "error_condition": "a `SystemExit(0)` is raised (e.g. from `--help` or `--version`)"
+        },
+        {
+          "id": "03-REQ-7.E2",
+          "ears_pattern": "unwanted",
+          "system": "AgentFoxGroup.invoke()",
+          "action": "re-raises `KeyboardInterrupt` immediately without routing through `cli_error_handler`",
+          "return_contract": "`KeyboardInterrupt` propagates normally; no error envelope is emitted; no `sys.exit(1)` is called by the group",
+          "error_condition": "a `KeyboardInterrupt` is raised (Ctrl-C)"
+        }
+      ]
+    },
+    {
+      "id": "03-REQ-8",
+      "title": "Unified StatusSpinner implementation",
+      "user_story": {
+        "role": "CLI developer needing animated progress feedback",
+        "goal": "use a single `StatusSpinner` class for all progress display needs",
+        "benefit": "there is no duplicated spinner logic and the behavior is consistent across both `af` and `spec` CLIs"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-8.1",
+          "ears_pattern": "ubiquitous",
+          "system": "StatusSpinner",
+          "action": "is a context manager (`__enter__`/`__exit__`) that accepts `message: str`, `quiet: bool = False`, and `theme: AppTheme | None = None`; provides `update(message: str)` and `log(message: str)` methods",
+          "return_contract": "All four methods exist and are callable on every `StatusSpinner` instance"
+        },
+        {
+          "id": "03-REQ-8.2",
+          "ears_pattern": "state_driven",
+          "system": "StatusSpinner",
+          "action": "displays an animated Rich spinner using the `\"dots\"` style on stderr in animated mode; `update()` changes the spinner message; `log()` prints a persistent line through Rich `Live`",
+          "return_contract": "Animated `\"dots\"` spinner displayed on stderr; `update()` changes the displayed message; `log()` appends a persistent line",
+          "state": "stdout/stderr is a TTY and `quiet=False`"
+        },
+        {
+          "id": "03-REQ-8.3",
+          "ears_pattern": "state_driven",
+          "system": "StatusSpinner",
+          "action": "prints plain text lines to stderr for both `update()` and `log()` calls instead of animating; uses `theme.console.print(message)` when `theme` is provided, or fallback `Console(stderr=True).print(message)` when `theme=None`; no additional markup applied by `StatusSpinner`",
+          "return_contract": "Plain text lines written to stderr for each `update()` and `log()` call; no Rich animation",
+          "state": "stdout/stderr is not a TTY and `quiet=False`"
+        },
+        {
+          "id": "03-REQ-8.4",
+          "ears_pattern": "state_driven",
+          "system": "StatusSpinner",
+          "action": "all methods (`update()`, `log()`, `__enter__()`, `__exit__()`) are no-ops; no output is produced",
+          "return_contract": "No output to stdout or stderr in quiet mode",
+          "state": "`quiet=True`"
+        },
+        {
+          "id": "03-REQ-8.5",
+          "ears_pattern": "ubiquitous",
+          "system": "StatusSpinner",
+          "action": "uses Rich `Live` internally; concurrent `update()` and `log()` calls are serialized by Rich `Live`'s internal lock; `__exit__` must be called from the same thread as `__enter__`",
+          "return_contract": "No race conditions between `update()` and `log()` calls from the same thread; cross-thread `__exit__` is unsupported"
+        },
+        {
+          "id": "03-REQ-8.6",
+          "ears_pattern": "ubiquitous",
+          "system": "agentfox/io/spinner.py",
+          "action": "replaces both the legacy `PlanSpinner` in `agentfox/ui/progress.py` and the legacy `StatusSpinner` in `spec/ui.py`; no duplicated spinner logic remains after migration",
+          "return_contract": "Exactly one `StatusSpinner` class exists in the codebase at `agentfox/io/spinner.py`; legacy spinner classes are removed or delegate to it"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "03-REQ-8.E1",
+          "ears_pattern": "state_driven",
+          "system": "StatusSpinner",
+          "action": "falls back to a `Rich Console(stderr=True)` with no styling for all output including `log()` and non-TTY `update()` messages",
+          "return_contract": "Output is produced on stderr with no custom styling; no `AttributeError` or `TypeError` raised",
+          "state": "`theme=None`"
+        }
+      ]
+    },
+    {
+      "id": "03-REQ-9",
+      "title": "common_options decorator and root-group flag scope",
+      "user_story": {
+        "role": "CLI developer adding common flags to a root Click group",
+        "goal": "apply `common_options` once to the root group and have subcommands automatically inherit resolved settings",
+        "benefit": "I avoid duplicate flag registration on subcommands and get a clear error if I misuse the decorator"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-9.1",
+          "ears_pattern": "ubiquitous",
+          "system": "common_options",
+          "action": "adds `--verbose`, `--quiet`, `--trace`, and `--json`/`--no-json` flags to the decorated root Click group; subcommands do not re-declare these flags and instead receive the resolved `OutputManager` via `ctx.obj[\"output\"]`",
+          "return_contract": "All four flag groups are registered on the root group; subcommands have no duplicate flags"
+        },
+        {
+          "id": "03-REQ-9.2",
+          "ears_pattern": "unwanted",
+          "system": "common_options",
+          "action": "raises `TypeError` at decoration time with a descriptive message",
+          "return_contract": "`TypeError` raised immediately at decoration time with message such as `\"common_options must be applied to the root Click group, not to a subcommand\"`",
+          "error_condition": "accidentally applied to a Click `Command` that is not a `Group` (i.e. a subcommand)"
+        },
+        {
+          "id": "03-REQ-9.3",
+          "ears_pattern": "event_driven",
+          "system": "common_options",
+          "action": "skips registering the conflicting flag and emits a debug-level warning to the logger; the root group's existing flag takes precedence",
+          "return_contract": "No duplicate flag registered; debug-level warning logged; no exception raised",
+          "trigger": "a name collision is detected between a common flag and an existing flag on the root group"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "03-REQ-10",
+      "title": "exit_codes decorator for Click command metadata",
+      "user_story": {
+        "role": "CLI developer documenting exit codes for a command",
+        "goal": "annotate my Click command with `@exit_codes` to store exit code metadata for future structured help rendering",
+        "benefit": "exit code mappings are stored on the Command object and ready for Spec 04's help renderer without requiring changes to decorated commands"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-10.1",
+          "ears_pattern": "ubiquitous",
+          "system": "exit_codes decorator",
+          "action": "is written above `@click.command`; receives the already-constructed Click `Command` object and sets `command.exit_codes` to the provided mapping dict",
+          "return_contract": "`command.exit_codes` attribute is set to the provided mapping dict; the `Command` object is returned unchanged otherwise"
+        },
+        {
+          "id": "03-REQ-10.2",
+          "ears_pattern": "unwanted",
+          "system": "exit_codes decorator",
+          "action": "raises `TypeError` with a descriptive message (e.g. `\"@exit_codes must be applied above @click.command; received a plain function, not a Click Command\"`)",
+          "return_contract": "`TypeError` raised immediately at decoration time with descriptive message",
+          "error_condition": "applied below `@click.command` in source (receives a raw Python function instead of a Click `Command`)"
+        },
+        {
+          "id": "03-REQ-10.3",
+          "ears_pattern": "event_driven",
+          "system": "exit_codes decorator",
+          "action": "the second application overwrites `command.exit_codes` with the new mapping; no merge is performed and no warning is emitted",
+          "return_contract": "`command.exit_codes` contains only the mapping from the second (outermost) `@exit_codes` application",
+          "trigger": "applied twice to the same command"
+        },
+        {
+          "id": "03-REQ-10.4",
+          "ears_pattern": "ubiquitous",
+          "system": "agentfox/io/help.py",
+          "action": "defers all structured JSON help rendering to Spec 04; `--help` behavior is unchanged from Click's standard formatted text help in this spec",
+          "return_contract": "`--help` output is Click's standard human-readable text in all cases; no JSON help rendering occurs in Spec 03"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "03-REQ-11",
+      "title": "af/app.py migration to AgentFoxGroup",
+      "user_story": {
+        "role": "af CLI developer",
+        "goal": "have `af/app.py` use `AgentFoxGroup` as the root Click group class",
+        "benefit": "`af` gains unified banner rendering, error handling, and `OutputManager` support without maintaining a separate `BannerGroup` implementation"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-11.1",
+          "ears_pattern": "ubiquitous",
+          "system": "af/app.py",
+          "action": "replaces the existing root group class (e.g. `BannerGroup`) with `cls=AgentFoxGroup`; `AgentFoxGroup` subsumes all banner rendering, error handling, and `OutputManager` construction behavior previously provided by the existing group class",
+          "return_contract": "`af` CLI uses `AgentFoxGroup` as root group; no separate `BannerGroup` class remains active"
+        },
+        {
+          "id": "03-REQ-11.2",
+          "ears_pattern": "ubiquitous",
+          "system": "af/app.py",
+          "action": "includes an inline comment block at the `BannerGroup` → `AgentFoxGroup` replacement site documenting: behaviors confirmed as covered by `AgentFoxGroup`, behaviors explicitly deferred to Spec 04, and the date of the audit",
+          "return_contract": "Inline comment block is present in `af/app.py` at the replacement site as evidence of the pre-migration audit"
+        },
+        {
+          "id": "03-REQ-11.3",
+          "ears_pattern": "ubiquitous",
+          "system": "af/app.py --version eager option",
+          "action": "continues to use `click.echo()` directly and does not call `get_output_manager()` or reference `ctx.obj` before `OutputManager` is constructed",
+          "return_contract": "`af --version` outputs the version string and exits without error; no `KeyError` or `AttributeError` raised"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "03-REQ-11.E1",
+          "ears_pattern": "state_driven",
+          "system": "af/app.py migration",
+          "action": "CLI wiring is deferred to Spec 04 per the Rollback/Abort Policy; `agentfox/io/` is merged as a functional, tested module with all new unit tests passing",
+          "return_contract": "`agentfox/io/` is functional and tested; `af/app.py` wiring is deferred; no full revert unless explicitly signed off by the team",
+          "state": "the `BannerGroup` → `AgentFoxGroup` wiring causes blocking regressions that cannot be resolved within Spec 03"
+        }
+      ]
+    },
+    {
+      "id": "03-REQ-12",
+      "title": "af/json_io.py compatibility shim",
+      "user_story": {
+        "role": "af internal module consumer using af/json_io.py imports",
+        "goal": "have my existing `from af.json_io import emit, emit_line, emit_error, read_stdin` imports continue to work unchanged after the migration",
+        "benefit": "I can migrate incrementally in Spec 04 without urgent breaking changes in Spec 03"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-12.1",
+          "ears_pattern": "ubiquitous",
+          "system": "af/json_io.py",
+          "action": "re-exports exactly four symbols from `agentfox/io/json.py`: `emit`, `emit_line`, `emit_error`, `read_stdin`; no other symbols are re-exported; `emit_ok` and `error_envelope` are intentionally excluded",
+          "return_contract": "`from af.json_io import emit, emit_line, emit_error, read_stdin` succeeds; `from af.json_io import emit_ok` raises `ImportError`"
+        },
+        {
+          "id": "03-REQ-12.2",
+          "ears_pattern": "ubiquitous",
+          "system": "af/json_io.py",
+          "action": "is explicitly marked as a temporary compatibility shim with a comment indicating removal in Spec 04",
+          "return_contract": "Comment `# compatibility shim, removed in Spec 04` (or equivalent) is present in the file"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "03-REQ-13",
+      "title": "spec/cli.py left unchanged in Spec 03",
+      "user_story": {
+        "role": "spec CLI user",
+        "goal": "have the `spec` CLI behave identically before and after Spec 03 lands",
+        "benefit": "I am not exposed to any regressions from the `agentfox/io/` migration until Spec 05 deliberately migrates `spec`"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-13.1",
+          "ears_pattern": "ubiquitous",
+          "system": "spec/cli.py",
+          "action": "is not modified in Spec 03; all inline JSON/error patterns in `spec/cli.py` remain entirely unchanged; no compatibility shim is introduced for `spec`",
+          "return_contract": "`spec/cli.py` is byte-for-byte identical before and after Spec 03 is applied; all existing `spec` CLI tests pass unchanged"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "03-REQ-14",
+      "title": "No regressions in existing test suites",
+      "user_story": {
+        "role": "CI engineer verifying the migration",
+        "goal": "have all pre-existing `af` and `spec` CLI unit and integration tests pass without modification after the migration",
+        "benefit": "the existing test suite serves as the regression contract and no test discipline is weakened"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-14.1",
+          "ears_pattern": "ubiquitous",
+          "system": "CI test suite",
+          "action": "runs all pre-existing `af` and `spec` CLI unit tests and integration tests against the migrated code without modification; all tests pass",
+          "return_contract": "Zero test failures; zero tests deleted, skipped, or marked `xfail` to satisfy this requirement"
+        },
+        {
+          "id": "03-REQ-14.2",
+          "ears_pattern": "ubiquitous",
+          "system": "agentfox/io/ new unit tests",
+          "action": "each of the seven new modules ships with dedicated unit tests covering happy-path behavior, error/exception handling, quiet-mode no-ops, non-TTY fallback, `AF_AGENT=1` precedence, edge cases enumerated in this spec, and the specific behaviors listed in the Testing Strategy",
+          "return_contract": "All new unit tests pass in CI"
+        },
+        {
+          "id": "03-REQ-14.3",
+          "ears_pattern": "ubiquitous",
+          "system": "Hypothesis property tests",
+          "action": "property tests verify that any `AgentFoxError`, `AgentError`, `AgentSpecError`, `SessionError`, or `click.ClickException` can be serialized to a valid unified error envelope where: `type` is a non-empty string, `message` is a non-empty string from `str(exc)`, `retryable` is a boolean, `detail` is present iff the exception falls to `internal_error`, `state` is present iff non-`None` was passed, and `emit_error()` output is valid JSON matching `error_envelope()` for the same inputs",
+          "return_contract": "All Hypothesis property tests pass; agentspec-dependent property tests are guarded with `pytest.importorskip(\"agentspec\")` and skipped when agentspec is not installed"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "03-REQ-15",
+      "title": "setup_logging integration via AgentFoxGroup",
+      "user_story": {
+        "role": "CLI developer relying on log-level configuration",
+        "goal": "have `setup_logging` called automatically with the correct resolved flags when the CLI starts",
+        "benefit": "I do not need to manually call `setup_logging` in each command or worry about log-level misconfiguration"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-15.1",
+          "ears_pattern": "event_driven",
+          "system": "AgentFoxGroup.invoke()",
+          "action": "calls `setup_logging(verbose=<resolved>, quiet=<resolved>, trace=<resolved>)` with the flag values derived from sentinels and `AF_AGENT` defaults",
+          "return_contract": "`setup_logging()` is called exactly once per CLI invocation with the correct `verbose`, `quiet`, and `trace` values",
+          "trigger": "the group's invoke method runs after resolving flags"
+        }
+      ],
+      "edge_cases": []
+    }
+  ],
+  "correctness_properties": [
+    {
+      "id": "03-PROP-1",
+      "title": "Error envelope always valid",
+      "for_any": "exception `exc` of any type passed to `error_envelope(exc)`",
+      "invariant": "`error_envelope(exc)` returns a dict where `\"ok\"` is `False`, `\"error.type\"` is a non-empty string, `\"error.message\"` equals `str(exc)` and is non-empty, `\"error.retryable\"` is a boolean, and `\"error.detail\"` is present if and only if the exception maps to `internal_error`",
+      "validates": [
+        "03-REQ-6.1",
+        "03-REQ-6.2",
+        "03-REQ-6.3",
+        "03-REQ-6.4",
+        "03-REQ-6.5",
+        "03-REQ-6.6"
+      ]
+    },
+    {
+      "id": "03-PROP-2",
+      "title": "emit_error output is valid JSON matching error_envelope",
+      "for_any": "exception `exc` and optional `state` string",
+      "invariant": "`emit_error(exc, state=state)` writes output parseable by `json.loads()` whose structure equals `error_envelope(exc, state=state)` for the same inputs; `emit_error()` always writes to stdout regardless of `json_mode`",
+      "validates": [
+        "03-REQ-5.4",
+        "03-REQ-6.1",
+        "03-REQ-7.1"
+      ]
+    },
+    {
+      "id": "03-PROP-3",
+      "title": "AF_AGENT precedence: explicit flags always win",
+      "for_any": "combination of `AF_AGENT` environment value and explicit CLI flags `--json`/`--no-json`/`--quiet`/`--verbose`",
+      "invariant": "when `_json_explicit` sentinel is set, the explicit flag value for `json_mode` always takes precedence over `AF_AGENT=1` default; when `_quiet_explicit` sentinel is set, the explicit flag value for `quiet` always takes precedence over `AF_AGENT=1` default",
+      "validates": [
+        "03-REQ-3.1",
+        "03-REQ-3.2",
+        "03-REQ-3.3",
+        "03-REQ-3.4",
+        "03-REQ-3.6"
+      ]
+    },
+    {
+      "id": "03-PROP-4",
+      "title": "emit_ok always sets ok to true",
+      "for_any": "dict `data` passed to `emit_ok(data)` including dicts where `data[\"ok\"] = False`",
+      "invariant": "the JSON written to stdout always contains `\"ok\": true` at the top level regardless of any `\"ok\"` key in the input `data`",
+      "validates": [
+        "03-REQ-5.3",
+        "03-REQ-5.E1"
+      ]
+    },
+    {
+      "id": "03-PROP-5",
+      "title": "BrokenPipeError always suppressed in emit functions",
+      "for_any": "invocation of `emit()`, `emit_line()`, `emit_ok()`, or `emit_error()` when stdout pipe is closed",
+      "invariant": "no `BrokenPipeError` propagates to the caller; all four emit functions complete without raising an exception when stdout is closed",
+      "validates": [
+        "03-REQ-5.6"
+      ]
+    },
+    {
+      "id": "03-PROP-6",
+      "title": "AgentFoxError subclasses always produce snake_case type",
+      "for_any": "`AgentFoxError` subclass instance `exc` including dynamically created unknown subclasses",
+      "invariant": "`error_envelope(exc)[\"error\"][\"type\"]` equals the snake_case form of `type(exc).__name__`; no `AgentFoxError` subclass falls through to `internal_error`",
+      "validates": [
+        "03-REQ-6.2"
+      ]
+    },
+    {
+      "id": "03-PROP-7",
+      "title": "OutputManager format dispatch mutual exclusion",
+      "for_any": "`OutputManager` instance with any combination of `json_mode` and `quiet` flags",
+      "invariant": "`emit_json()` writes to stdout iff `json_mode=True`; `emit_human()` writes to stdout iff `json_mode=False`; `banner()` writes to stderr iff `json_mode=False` and `quiet=False`; these behaviors are mutually exclusive with their no-op conditions",
+      "validates": [
+        "03-REQ-4.1",
+        "03-REQ-4.2",
+        "03-REQ-4.3",
+        "03-REQ-4.4",
+        "03-REQ-4.8"
+      ]
+    },
+    {
+      "id": "03-PROP-8",
+      "title": "get_output_manager fallback ignores AF_AGENT",
+      "for_any": "any environment where `AF_AGENT` may or may not be set",
+      "invariant": "when no Click context is active, `get_output_manager()` always returns an `OutputManager` with `json_mode=False`, `quiet=False`, `verbose=False`, `trace=False` — the `AF_AGENT` env var is never consulted in the fallback path",
+      "validates": [
+        "03-REQ-2.3",
+        "03-REQ-2.E1"
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "03-PATH-1",
+      "title": "Agent mode invocation with AF_AGENT=1",
+      "steps": [
+        {
+          "actor": "Agent",
+          "action": "sets `AF_AGENT=1` in the environment and invokes the `af` CLI without passing any format flags"
+        },
+        {
+          "actor": "AgentFoxGroup.invoke()",
+          "action": "calls `ctx.ensure_object(dict)`, reads sentinels — finds `_json_explicit` and `_quiet_explicit` absent — and checks `AF_AGENT` env var; finds exactly `\"1\"`, sets `json_mode=True` and `quiet=True`"
+        },
+        {
+          "actor": "AgentFoxGroup.invoke()",
+          "action": "constructs `OutputManager(json_mode=True, quiet=True, ...)` and stores it at `ctx.obj[\"output\"]`; calls `setup_logging(verbose=False, quiet=True, trace=False)`"
+        },
+        {
+          "actor": "AgentFoxGroup.invoke()",
+          "action": "skips banner rendering because `json_mode=True`"
+        },
+        {
+          "actor": "Subcommand",
+          "action": "retrieves `OutputManager` via `ctx.obj[\"output\"]` or `get_output_manager()` and executes; calls `emit_ok({\"result\": ...})` to produce JSON output to stdout"
+        },
+        {
+          "actor": "stdout",
+          "action": "receives pretty-printed JSON response `{\"ok\": true, \"result\": ...}` with `indent=2`"
+        }
+      ]
+    },
+    {
+      "id": "03-PATH-2",
+      "title": "Error in JSON mode producing structured envelope",
+      "steps": [
+        {
+          "actor": "User/Agent",
+          "action": "invokes `af <command>` with `--json` flag or `AF_AGENT=1`"
+        },
+        {
+          "actor": "AgentFoxGroup.invoke()",
+          "action": "constructs `OutputManager(json_mode=True, ...)` and stores it at `ctx.obj[\"output\"]`"
+        },
+        {
+          "actor": "Subcommand",
+          "action": "raises an `AgentFoxError` subclass (e.g. `ConfigError`) during execution"
+        },
+        {
+          "actor": "AgentFoxGroup.invoke()",
+          "action": "catches the `Exception`; calls `cli_error_handler(ctx, exc)`"
+        },
+        {
+          "actor": "cli_error_handler",
+          "action": "reads `json_mode=True` from `OutputManager`; calls `emit_error(exc)` which internally calls `error_envelope(exc)` to build `{\"ok\": false, \"error\": {\"type\": \"config_error\", \"message\": \"...\", \"retryable\": false}}`"
+        },
+        {
+          "actor": "stdout",
+          "action": "receives the structured JSON error envelope"
+        },
+        {
+          "actor": "AgentFoxGroup.invoke()",
+          "action": "calls `sys.exit(1)` after `cli_error_handler` returns"
+        }
+      ]
+    },
+    {
+      "id": "03-PATH-3",
+      "title": "Error in human mode producing plain-text stderr message",
+      "steps": [
+        {
+          "actor": "User",
+          "action": "invokes `af <command>` without any format flags and without `AF_AGENT=1`"
+        },
+        {
+          "actor": "AgentFoxGroup.invoke()",
+          "action": "constructs `OutputManager(json_mode=False, quiet=False, ...)` and stores it at `ctx.obj[\"output\"]`; renders banner to stderr"
+        },
+        {
+          "actor": "Subcommand",
+          "action": "raises an exception during execution"
+        },
+        {
+          "actor": "AgentFoxGroup.invoke()",
+          "action": "catches the `Exception`; calls `cli_error_handler(ctx, exc)`"
+        },
+        {
+          "actor": "cli_error_handler",
+          "action": "reads `json_mode=False` from `OutputManager`; calls `click.echo(str(exc), err=True)` to write plain text to stderr"
+        },
+        {
+          "actor": "stderr",
+          "action": "receives the plain-text error message"
+        },
+        {
+          "actor": "AgentFoxGroup.invoke()",
+          "action": "calls `sys.exit(1)` after `cli_error_handler` returns"
+        }
+      ]
+    },
+    {
+      "id": "03-PATH-4",
+      "title": "StatusSpinner in non-TTY CI environment",
+      "steps": [
+        {
+          "actor": "CLI command",
+          "action": "creates `StatusSpinner(message=\"Processing...\", quiet=False, theme=None)` and enters the context manager"
+        },
+        {
+          "actor": "StatusSpinner.__enter__()",
+          "action": "detects that stderr is not a TTY; initializes fallback `Console(stderr=True)` since `theme=None`; does not start Rich Live animation"
+        },
+        {
+          "actor": "CLI command",
+          "action": "calls `spinner.update(\"Step 1 complete\")` during processing"
+        },
+        {
+          "actor": "StatusSpinner.update()",
+          "action": "prints `\"Step 1 complete\"` as a plain text line to stderr via fallback `Console(stderr=True).print(message)`"
+        },
+        {
+          "actor": "CLI command",
+          "action": "calls `spinner.log(\"Detail logged\")` to emit a persistent log line"
+        },
+        {
+          "actor": "StatusSpinner.log()",
+          "action": "prints `\"Detail logged\"` as a plain text line to stderr via fallback `Console(stderr=True).print(message)`"
+        },
+        {
+          "actor": "CLI command",
+          "action": "exits the context manager via `StatusSpinner.__exit__()`"
+        },
+        {
+          "actor": "stderr",
+          "action": "has received two plain-text lines: `\"Step 1 complete\"` and `\"Detail logged\"`"
+        }
+      ]
+    },
+    {
+      "id": "03-PATH-5",
+      "title": "AF_AGENT=1 overridden by explicit --no-json flag",
+      "steps": [
+        {
+          "actor": "Agent",
+          "action": "sets `AF_AGENT=1` in the environment and invokes `af <command> --no-json`"
+        },
+        {
+          "actor": "common_options --no-json callback",
+          "action": "calls `ctx.ensure_object(dict)` then sets `ctx.obj[\"_json_explicit\"] = True` and stores the flag value `False`"
+        },
+        {
+          "actor": "AgentFoxGroup.invoke()",
+          "action": "reads `ctx.obj[\"_json_explicit\"] = True`; uses explicit flag value `json_mode=False`; `AF_AGENT=1` env default for json_mode is ignored"
+        },
+        {
+          "actor": "AgentFoxGroup.invoke()",
+          "action": "reads `_quiet_explicit` absent; applies `AF_AGENT=1` quiet default: `quiet=True`"
+        },
+        {
+          "actor": "AgentFoxGroup.invoke()",
+          "action": "constructs `OutputManager(json_mode=False, quiet=True, ...)`; banner is suppressed because `quiet=True`"
+        },
+        {
+          "actor": "Subcommand",
+          "action": "runs and calls `OutputManager.emit_human(text)` which writes plain text to stdout (json_mode=False)"
+        },
+        {
+          "actor": "stdout",
+          "action": "receives plain-text output"
+        }
+      ]
+    },
+    {
+      "id": "03-PATH-6",
+      "title": "read_stdin from piped JSON input",
+      "steps": [
+        {
+          "actor": "Shell/Agent",
+          "action": "pipes a JSON object to `af <command>` via stdin (e.g. `echo '{\"key\": \"val\"}' | af plan`)"
+        },
+        {
+          "actor": "CLI command",
+          "action": "calls `read_stdin()` to consume piped input"
+        },
+        {
+          "actor": "read_stdin()",
+          "action": "detects stdin is not an interactive TTY; reads from stdin until EOF using UTF-8 encoding; parses JSON"
+        },
+        {
+          "actor": "read_stdin()",
+          "action": "returns the parsed dict `{\"key\": \"val\"}`"
+        },
+        {
+          "actor": "CLI command",
+          "action": "uses the parsed dict as input parameters for the command logic"
+        }
+      ]
+    },
+    {
+      "id": "03-PATH-7",
+      "title": "--version eager option during AgentFoxGroup startup",
+      "steps": [
+        {
+          "actor": "User",
+          "action": "invokes `af --version`"
+        },
+        {
+          "actor": "Click",
+          "action": "processes the eager `--version` option before `AgentFoxGroup.invoke()` completes"
+        },
+        {
+          "actor": "--version callback",
+          "action": "calls `click.echo(<version_string>)` directly to stdout; does not call `get_output_manager()` or access `ctx.obj`"
+        },
+        {
+          "actor": "Click",
+          "action": "raises `SystemExit(0)` to terminate the process"
+        },
+        {
+          "actor": "AgentFoxGroup.invoke()",
+          "action": "does not catch `SystemExit`; it propagates normally"
+        },
+        {
+          "actor": "Process",
+          "action": "exits with code 0; version string was written to stdout"
+        }
+      ]
+    },
+    {
+      "id": "03-PATH-8",
+      "title": "emit_error with state parameter",
+      "steps": [
+        {
+          "actor": "CLI command",
+          "action": "catches an exception during the `\"executing\"` workflow phase and calls `emit_error(exc, state=\"executing\")`"
+        },
+        {
+          "actor": "emit_error()",
+          "action": "calls `error_envelope(exc, state=\"executing\")` to build the structured dict"
+        },
+        {
+          "actor": "error_envelope()",
+          "action": "builds `{\"ok\": false, \"state\": \"executing\", \"error\": {\"type\": \"agent_error\", \"message\": \"...\", \"retryable\": true}}`"
+        },
+        {
+          "actor": "emit_error()",
+          "action": "serializes the dict to JSON and writes to stdout regardless of current `json_mode`"
+        },
+        {
+          "actor": "stdout",
+          "action": "receives the full JSON envelope including the top-level `\"state\": \"executing\"` field"
+        }
+      ]
+    }
+  ],
+  "error_handling": [
+    {
+      "id": "03-ERR-1",
+      "condition": "`BrokenPipeError` raised when writing to stdout in any emit function",
+      "behavior": "Silently suppressed via `try/except BrokenPipeError: pass`; no exception propagates to the caller; no error envelope is emitted",
+      "requirement_id": "03-REQ-5.6"
+    },
+    {
+      "id": "03-ERR-2",
+      "condition": "`read_stdin()` receives malformed JSON (valid UTF-8 but not parseable)",
+      "behavior": "`json.JSONDecodeError` is raised and propagates to the caller without being caught",
+      "requirement_id": "03-REQ-5.E2"
+    },
+    {
+      "id": "03-ERR-3",
+      "condition": "`read_stdin()` receives non-UTF-8 bytes from stdin",
+      "behavior": "`UnicodeDecodeError` is raised and propagates to the caller without being caught",
+      "requirement_id": "03-REQ-5.E3"
+    },
+    {
+      "id": "03-ERR-4",
+      "condition": "An `Exception` subclass is raised during `AgentFoxGroup.invoke()` execution of a subcommand",
+      "behavior": "Exception is caught by `AgentFoxGroup`; `cli_error_handler` routes to JSON stdout or plain-text stderr based on `json_mode`; `sys.exit(1)` is called; the exception is not re-raised",
+      "requirement_id": "03-REQ-7.4"
+    },
+    {
+      "id": "03-ERR-5",
+      "condition": "`SystemExit` is raised during CLI execution (e.g. from `--help`, `--version`, or explicit `sys.exit(0)`)",
+      "behavior": "`SystemExit` is re-raised immediately by `AgentFoxGroup` without routing through `cli_error_handler`; process exits with the original exit code",
+      "requirement_id": "03-REQ-7.E1"
+    },
+    {
+      "id": "03-ERR-6",
+      "condition": "`KeyboardInterrupt` is raised (Ctrl-C) during CLI execution",
+      "behavior": "`KeyboardInterrupt` is re-raised immediately by `AgentFoxGroup` without routing through `cli_error_handler`; no error envelope is emitted",
+      "requirement_id": "03-REQ-7.E2"
+    },
+    {
+      "id": "03-ERR-7",
+      "condition": "`agentspec` is not installed and an `AgentError`, `AgentSpecError`, or `SessionError` instance reaches `error_envelope()`",
+      "behavior": "Exception falls through to `internal_error` mapping; envelope contains `\"type\": \"internal_error\"`, `\"retryable\": false`, and `\"detail\": \"<ClassName>\"`; no `ImportError` is raised",
+      "requirement_id": "03-REQ-6.E1"
+    },
+    {
+      "id": "03-ERR-8",
+      "condition": "`common_options` decorator is applied to a Click `Command` that is not a `Group` (a subcommand)",
+      "behavior": "`TypeError` is raised at decoration time with a descriptive message; the subcommand is not registered",
+      "requirement_id": "03-REQ-9.2"
+    },
+    {
+      "id": "03-ERR-9",
+      "condition": "`@exit_codes` decorator receives a raw Python function instead of a Click `Command` object (applied in wrong order relative to `@click.command`)",
+      "behavior": "`TypeError` is raised immediately at decoration time with a descriptive message such as `\"@exit_codes must be applied above @click.command; received a plain function, not a Click Command\"`",
+      "requirement_id": "03-REQ-10.2"
+    },
+    {
+      "id": "03-ERR-10",
+      "condition": "`ctx.obj` is already set to a non-dict value by an upstream parent group when `AgentFoxGroup.invoke()` runs",
+      "behavior": "`AgentFoxGroup` logs a debug-level warning and falls back to constructing `OutputManager` with defaults honoring `AF_AGENT` env var but no sentinel data; CLI execution continues without crashing",
+      "requirement_id": "03-REQ-2.4"
+    },
+    {
+      "id": "03-ERR-11",
+      "condition": "An eager option callback (e.g. `--version`) fires before `AgentFoxGroup.invoke()` completes and `ctx.obj[\"output\"]` is not yet populated",
+      "behavior": "Eager option callbacks use `click.echo()` directly and do not call `get_output_manager()`; no `KeyError` or `AttributeError` is raised",
+      "requirement_id": "03-REQ-11.3"
+    },
+    {
+      "id": "03-ERR-12",
+      "condition": "An unknown/unmapped exception type (not `AgentFoxError`, `AgentError`, `AgentSpecError`, `SessionError`, or `click.ClickException`) is passed to `error_envelope()`",
+      "behavior": "Envelope is built with `\"type\": \"internal_error\"`, `\"retryable\": false`, and `\"error.detail\": \"<ClassName>\"` containing the exception class name; no exception is raised by `error_envelope()` itself",
+      "requirement_id": "03-REQ-6.6"
+    }
+  ]
+}

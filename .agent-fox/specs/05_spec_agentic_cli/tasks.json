@@ -1,0 +1,1072 @@
+{
+  "$schema": null,
+  "spec_id": "05",
+  "spec_name": "spec_agentic_cli",
+  "schema_version": 1,
+  "test_commands": {
+    "spec_tests": "pytest -q tests/ -k 'spec_agentic_cli or spec_cli'",
+    "all_tests": "pytest -q",
+    "linter": "ruff check spec/ tests/"
+  },
+  "dependencies": [
+    {
+      "depends_on_spec": "03",
+      "from_group": 1,
+      "to_group": 1,
+      "relationship": "Imports AgentFoxGroup, emit, emit_ok, StatusSpinner from agentfox/io/ (spec 03, group 3)",
+      "sentinel": true
+    }
+  ],
+  "task_groups": [
+    {
+      "id": 1,
+      "kind": "tests",
+      "title": "Write spec tests for agentic CLI migration",
+      "subtasks": [
+        {
+          "id": "1.1",
+          "title": "Write unit tests for AgentFoxGroup wiring and legacy helper removal",
+          "details": [
+            "Create tests/test_cli_wiring.py with unit tests for AgentFoxGroup adoption.",
+            "TS-05-1: assert isinstance(cli, AgentFoxGroup) after importing from spec.cli.",
+            "TS-05-2: read spec/cli.py source and assert absence of manual banner/config-load patterns.",
+            "TS-05-3: assert '_json_error_exit' and '_error_type' are absent from spec/cli.py source.",
+            "TS-05-E1: assert '_json_error_exit' absent and 'AgentFoxGroup' present simultaneously in source."
+          ],
+          "test_spec_refs": [
+            "TS-05-1",
+            "TS-05-2",
+            "TS-05-3",
+            "TS-05-E1"
+          ],
+          "requirement_refs": [
+            "05-REQ-1.1",
+            "05-REQ-1.2",
+            "05-REQ-1.3",
+            "05-REQ-1.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.2",
+          "title": "Write integration tests for AF_AGENT mode and unhandled exception routing",
+          "details": [
+            "TS-05-4: use Click's CliRunner to invoke spec CLI with env={'AF_AGENT': '1'} and assert no banner in stdout/stderr.",
+            "TS-05-5: patch a subcommand to raise RuntimeError; assert stdout is JSON with ok=false and exit_code != 0.",
+            "Use pytest fixtures for CliRunner setup and environment isolation."
+          ],
+          "test_spec_refs": [
+            "TS-05-4",
+            "TS-05-5"
+          ],
+          "requirement_refs": [
+            "05-REQ-1.4",
+            "05-REQ-1.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.3",
+          "title": "Write integration tests for spec render --json modes",
+          "details": [
+            "TS-05-6/7: invoke render --json --combined; assert parsed JSON has ok=true, format='markdown', content (str), sections (list).",
+            "TS-05-8: invoke render --json (no --combined); assert 'artifacts' key present, 'content' absent.",
+            "TS-05-9: invoke render without --json; assert raw markdown on stdout, JSON parse fails.",
+            "TS-05-10: static check that render handler uses emit_ok and not click.echo(json.dumps.).",
+            "TS-05-E2: invoke render --json with non-existent spec; assert ok=false, 'error' key, exit_code=1.",
+            "TS-05-E3: invoke render --json on spec missing tasks artifact; assert 'tasks' not in artifacts, 'warnings' present.",
+            "Use fixture spec directories (tmp_path) with minimal artifact JSON files."
+          ],
+          "test_spec_refs": [
+            "TS-05-6",
+            "TS-05-7",
+            "TS-05-8",
+            "TS-05-9",
+            "TS-05-10",
+            "TS-05-E2",
+            "TS-05-E3"
+          ],
+          "requirement_refs": [
+            "05-REQ-2.1",
+            "05-REQ-2.2",
+            "05-REQ-2.3",
+            "05-REQ-2.4",
+            "05-REQ-2.5",
+            "05-REQ-2.E1",
+            "05-REQ-2.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.4",
+          "title": "Write integration tests for spec validate structured output",
+          "details": [
+            "TS-05-11: run validate on fixture with schema error; assert category='schema', artifact, path, message, value fields present.",
+            "TS-05-12: run validate on fixture with integrity error; assert category='integrity', check, message, requirement_id present.",
+            "TS-05-13: run validate on fully valid spec; assert {valid: true, errors: []} and exit_code=0.",
+            "TS-05-14: run validate on invalid spec; assert valid=false, non-empty errors, exit_code=1.",
+            "TS-05-15: static check that validate handler uses emit or emit_ok, not click.echo(json.dumps.).",
+            "TS-05-E4: run validate with missing artifact file; assert category='io' error, exit_code=1.",
+            "TS-05-E5: run validate with top-level error; assert 'path' and 'value' keys absent from that error object.",
+            "Create fixture spec directories using pytest tmp_path or conftest factories."
+          ],
+          "test_spec_refs": [
+            "TS-05-11",
+            "TS-05-12",
+            "TS-05-13",
+            "TS-05-14",
+            "TS-05-15",
+            "TS-05-E4",
+            "TS-05-E5"
+          ],
+          "requirement_refs": [
+            "05-REQ-3.1",
+            "05-REQ-3.2",
+            "05-REQ-3.3",
+            "05-REQ-3.4",
+            "05-REQ-3.5",
+            "05-REQ-3.E1",
+            "05-REQ-3.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.5",
+          "title": "Write unit tests for spec/ui.py deletion, StatusSpinner migration, and inline pattern removal",
+          "details": [
+            "TS-05-16: assert not os.path.exists('spec/ui.py').",
+            "TS-05-17: scan all .py files in spec/; for any containing 'StatusSpinner', assert 'from agentfox.io import StatusSpinner' present.",
+            "TS-05-18: grep spec/ for 'from spec.ui import' and assert zero matches.",
+            "TS-05-19: assert 'click.echo(json.dumps' not in spec/cli.py source.",
+            "TS-05-20: assert '_json_error_exit' not in spec/cli.py source.",
+            "TS-05-21: assert '_assessment_to_json' not in spec/cli.py source.",
+            "TS-05-24: grep tests/ for 'from spec.ui import' and 'import spec.ui'; assert zero matches.",
+            "TS-05-E6: assert that executing 'from spec.ui import StatusSpinner' raises ImportError.",
+            "Group static checks into a dedicated tests/test_migration_static.py file."
+          ],
+          "test_spec_refs": [
+            "TS-05-16",
+            "TS-05-17",
+            "TS-05-18",
+            "TS-05-19",
+            "TS-05-20",
+            "TS-05-21",
+            "TS-05-24",
+            "TS-05-E6"
+          ],
+          "requirement_refs": [
+            "05-REQ-4.1",
+            "05-REQ-4.2",
+            "05-REQ-4.3",
+            "05-REQ-5.1",
+            "05-REQ-5.2",
+            "05-REQ-5.3",
+            "05-REQ-5.4",
+            "05-REQ-6.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.6",
+          "title": "Write property-based and agent-mode integration tests",
+          "details": [
+            "TS-05-22: parametrize render/validate/status with AF_AGENT=1; assert each stdout line is valid JSON.",
+            "TS-05-23: run pytest against the full test suite and assert exit_code=0 (regression guard fixture).",
+            "TS-05-P1: use hypothesis to generate spec artifact sizes; assert render --json envelope always has required top-level keys.",
+            "TS-05-P2: generate specs with varying error combinations; assert every error object has a valid category value.",
+            "TS-05-P3: generate arbitrary spec invocations with AF_AGENT=1; assert every stdout line parses as JSON.",
+            "TS-05-P4/P5: static property checks wired as pytest tests (no hypothesis needed; apply to source files).",
+            "Place property tests in tests/test_properties.py; add hypothesis as a dev dependency if not already present."
+          ],
+          "test_spec_refs": [
+            "TS-05-22",
+            "TS-05-23",
+            "TS-05-P1",
+            "TS-05-P2",
+            "TS-05-P3",
+            "TS-05-P4",
+            "TS-05-P5"
+          ],
+          "requirement_refs": [
+            "05-REQ-5.4",
+            "05-REQ-6.1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "1.V",
+        "checks": [
+          "All newly written tests are collected by pytest without import errors: `pytest --collect-only -q tests/`",
+          "Tests that depend on not-yet-implemented code are marked with `pytest.mark.xfail` or skipped, ensuring the test file itself is importable",
+          "No linter warnings introduced in test files: `ruff check tests/`",
+          "Test file structure matches naming conventions: test_cli_wiring.py, test_migration_static.py, test_properties.py exist under tests/"
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "kind": "standard",
+      "title": "Wire spec/cli.py root group to AgentFoxGroup",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Import AgentFoxGroup and replace bare @click.group() decorator",
+          "details": [
+            "In spec/cli.py, add `from agentfox.io import AgentFoxGroup`.",
+            "Change `@click.group()` to `@click.group(cls=AgentFoxGroup)` on the root `cli` function.",
+            "Confirm the root group object's type is AgentFoxGroup at import time."
+          ],
+          "test_spec_refs": [
+            "TS-05-1"
+          ],
+          "requirement_refs": [
+            "05-REQ-1.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.2",
+          "title": "Remove manual banner rendering and config loading from spec/cli.py",
+          "details": [
+            "Identify and delete all calls to manual banner-rendering functions (e.g., render_banner(), print_banner()) that are now handled by AgentFoxGroup.",
+            "Remove manual config-loading blocks that AgentFoxGroup supersedes.",
+            "Ensure no banner-related imports remain that are no longer needed."
+          ],
+          "test_spec_refs": [
+            "TS-05-2"
+          ],
+          "requirement_refs": [
+            "05-REQ-1.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.3",
+          "title": "Remove _json_error_exit() and _error_type() helper functions",
+          "details": [
+            "Delete the `_json_error_exit()` function definition from spec/cli.py.",
+            "Delete the `_error_type()` function definition from spec/cli.py.",
+            "Update all former call sites to allow AgentFoxGroup error routing to handle exception formatting via agentfox/io/errors.py.",
+            "Verify no other file in the spec package imports these helpers."
+          ],
+          "test_spec_refs": [
+            "TS-05-3",
+            "TS-05-E1"
+          ],
+          "requirement_refs": [
+            "05-REQ-1.3",
+            "05-REQ-1.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.4",
+          "title": "Verify AF_AGENT=1 suppresses banner and routes errors as JSON",
+          "details": [
+            "Manually smoke-test `AF_AGENT=1 spec --help` to confirm no banner text appears on stdout/stderr.",
+            "Patch a subcommand to raise RuntimeError and confirm stdout contains a JSON error envelope with non-zero exit code.",
+            "Confirm AgentFoxGroup intercepts unhandled exceptions and formats them via agentfox/io/errors.py (05-ERR-5)."
+          ],
+          "test_spec_refs": [
+            "TS-05-4",
+            "TS-05-5"
+          ],
+          "requirement_refs": [
+            "05-REQ-1.4",
+            "05-REQ-1.5"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "2.V",
+        "checks": [
+          "TS-05-1, TS-05-2, TS-05-3, TS-05-4, TS-05-5, TS-05-E1 pass: `pytest -q tests/test_cli_wiring.py`",
+          "No linter warnings in spec/cli.py: `ruff check spec/cli.py`",
+          "Requirements 05-REQ-1.1, 05-REQ-1.2, 05-REQ-1.3, 05-REQ-1.4, 05-REQ-1.5 acceptance criteria met",
+          "All existing tests still pass: `pytest -q`"
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "kind": "standard",
+      "title": "Implement spec render --json mode",
+      "subtasks": [
+        {
+          "id": "3.1",
+          "title": "Add --json flag to spec render command",
+          "details": [
+            "Add `@click.option('--json', 'output_json', is_flag=True, default=False)` to the `render` command.",
+            "When `output_json` is False, preserve existing behavior: write raw markdown to stdout via Click echo.",
+            "When `output_json` is True, route through emit_ok (implemented in subtask 3.2/3.3)."
+          ],
+          "test_spec_refs": [
+            "TS-05-6",
+            "TS-05-9"
+          ],
+          "requirement_refs": [
+            "05-REQ-2.1",
+            "05-REQ-2.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.2",
+          "title": "Implement combined mode JSON envelope (--combined --json)",
+          "details": [
+            "When both `--json` and `--combined` flags are active, merge all artifact markdown into a single string.",
+            "Call `emit_ok(format='markdown', content=merged_markdown, sections=[...])` from agentfox.io.",
+            "The `sections` list should reflect which artifacts were included (e.g., ['requirements', 'test_spec', 'tasks']).",
+            "Import emit_ok: `from agentfox.io import emit_ok`."
+          ],
+          "test_spec_refs": [
+            "TS-05-7",
+            "TS-05-10"
+          ],
+          "requirement_refs": [
+            "05-REQ-2.2",
+            "05-REQ-2.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.3",
+          "title": "Implement per-artifact mode JSON envelope (--json without --combined)",
+          "details": [
+            "When `--json` is active but `--combined` is not, render each artifact separately.",
+            "Build an `artifacts` dict: {'requirements': '...', 'test_spec': '...', 'tasks': '...'}.",
+            "Call `emit_ok(artifacts=artifacts_dict)` from agentfox.io.",
+            "Handle missing artifacts per 05-REQ-2.E2 (see subtask 3.4)."
+          ],
+          "test_spec_refs": [
+            "TS-05-8",
+            "TS-05-10"
+          ],
+          "requirement_refs": [
+            "05-REQ-2.3",
+            "05-REQ-2.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.4",
+          "title": "Handle render errors and missing artifacts in JSON mode",
+          "details": [
+            "05-ERR-1: let AgentFoxGroup intercept render exceptions (file not found, template error) and emit {ok: false, error: '<message>'}; exit code 1.",
+            "05-ERR-2: when a requested artifact is missing (e.g., tasks), omit its key from the artifacts map and append to a `warnings` list.",
+            "Call emit_ok(artifacts={...}, warnings=['tasks artifact not found']) when warnings exist.",
+            "Do not raise an exception for missing optional artifacts; exit with code 0."
+          ],
+          "test_spec_refs": [
+            "TS-05-E2",
+            "TS-05-E3"
+          ],
+          "requirement_refs": [
+            "05-REQ-2.E1",
+            "05-REQ-2.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "3.V",
+        "checks": [
+          "TS-05-6, TS-05-7, TS-05-8, TS-05-9, TS-05-10, TS-05-E2, TS-05-E3 pass: `pytest -q tests/ -k 'render'`",
+          "No linter warnings: `ruff check spec/cli.py`",
+          "Requirements 05-REQ-2.1 through 05-REQ-2.5 and edge cases 05-REQ-2.E1, 05-REQ-2.E2 acceptance criteria met",
+          "All existing tests still pass: `pytest -q`",
+          "Property test TS-05-P1 passes: `pytest -q tests/test_properties.py -k 'P1'`"
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "kind": "standard",
+      "title": "Implement spec validate structured error output",
+      "subtasks": [
+        {
+          "id": "4.1",
+          "title": "Define structured error dataclasses/TypedDicts for schema and integrity errors",
+          "details": [
+            "Create a module or inline dataclasses in spec/validate.py (or spec/cli.py) for structured error types.",
+            "SchemaError: category='schema', artifact, path (Optional[str]), message, value (Optional[Any]).",
+            "IntegrityError: category='integrity', check, message, requirement_id (and other relevant IDs).",
+            "IOError entry: category='io', artifact, message.",
+            "Use Python dataclasses or TypedDicts; implement a to_dict() / asdict() method that omits None/empty fields (for 05-REQ-3.E2)."
+          ],
+          "test_spec_refs": [
+            "TS-05-11",
+            "TS-05-12"
+          ],
+          "requirement_refs": [
+            "05-REQ-3.1",
+            "05-REQ-3.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.2",
+          "title": "Update schema validation logic to produce structured SchemaError objects",
+          "details": [
+            "Identify where agentspec/validate runs jsonschema checks; wrap each error into a SchemaError with artifact filename, JSONPath, message, and offending value.",
+            "For top-level errors where path is None or empty, omit 'path' and 'value' keys from the serialized dict (05-REQ-3.E2).",
+            "Preserve existing validation logic; only change error collection/serialization."
+          ],
+          "test_spec_refs": [
+            "TS-05-11",
+            "TS-05-E5"
+          ],
+          "requirement_refs": [
+            "05-REQ-3.1",
+            "05-REQ-3.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.3",
+          "title": "Update integrity check logic to produce structured IntegrityError objects",
+          "details": [
+            "For each cross-artifact integrity rule (e.g., requirement_coverage), collect failures as IntegrityError objects.",
+            "Each IntegrityError must include: category='integrity', check (rule name), message, and relevant IDs (requirement_id, etc.).",
+            "Integrate with existing agentspec integrity checks without modifying agentspec library internals."
+          ],
+          "test_spec_refs": [
+            "TS-05-12"
+          ],
+          "requirement_refs": [
+            "05-REQ-3.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.4",
+          "title": "Emit validation results using emit/emit_ok and handle IO errors",
+          "details": [
+            "Replace existing click.echo(json.dumps({...})) in validate handler with `emit` or `emit_ok` from agentfox.io.",
+            "On success (no errors): emit_ok(valid=True, errors=[])  → exit code 0.",
+            "On failure (errors present): emit(valid=False, errors=[e.to_dict() for e in errors]) → exit code 1.",
+            "05-ERR-3: catch FileNotFoundError/PermissionError when reading artifact files; emit IOError structured entry with category='io', artifact, message; exit code 1.",
+            "Import: `from agentfox.io import emit, emit_ok`."
+          ],
+          "test_spec_refs": [
+            "TS-05-13",
+            "TS-05-14",
+            "TS-05-15",
+            "TS-05-E4"
+          ],
+          "requirement_refs": [
+            "05-REQ-3.3",
+            "05-REQ-3.4",
+            "05-REQ-3.5",
+            "05-REQ-3.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "4.V",
+        "checks": [
+          "TS-05-11, TS-05-12, TS-05-13, TS-05-14, TS-05-15, TS-05-E4, TS-05-E5 pass: `pytest -q tests/ -k 'validate'`",
+          "No linter warnings: `ruff check spec/`",
+          "Requirements 05-REQ-3.1 through 05-REQ-3.5 and edge cases 05-REQ-3.E1, 05-REQ-3.E2 acceptance criteria met",
+          "All existing tests still pass: `pytest -q`",
+          "Property test TS-05-P2 passes: `pytest -q tests/test_properties.py -k 'P2'`"
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "kind": "standard",
+      "title": "Delete spec/ui.py and migrate StatusSpinner imports",
+      "subtasks": [
+        {
+          "id": "5.1",
+          "title": "Identify all usages of StatusSpinner and spec/ui.py imports across the codebase",
+          "details": [
+            "Run: `grep -r 'from spec.ui import\\|import spec.ui\\|StatusSpinner' spec/ tests/ --include='*.py'`",
+            "Document every file and line number that references spec.ui or StatusSpinner.",
+            "Confirm which modules need their import updated to `from agentfox.io import StatusSpinner`."
+          ],
+          "test_spec_refs": [
+            "TS-05-16",
+            "TS-05-17",
+            "TS-05-18"
+          ],
+          "requirement_refs": [
+            "05-REQ-4.1",
+            "05-REQ-4.2",
+            "05-REQ-4.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.2",
+          "title": "Replace all spec.ui StatusSpinner imports with agentfox.io imports",
+          "details": [
+            "In each identified file, replace `from spec.ui import StatusSpinner` with `from agentfox.io import StatusSpinner`.",
+            "Remove any other imports from spec.ui.",
+            "Ensure spinner usage code remains functionally identical (agentfox.io StatusSpinner has the same interface as spec/ui.py StatusSpinner per spec 03)."
+          ],
+          "test_spec_refs": [
+            "TS-05-17",
+            "TS-05-18"
+          ],
+          "requirement_refs": [
+            "05-REQ-4.2",
+            "05-REQ-4.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.3",
+          "title": "Delete spec/ui.py from the repository",
+          "details": [
+            "Remove spec/ui.py from the filesystem and version control (git rm spec/ui.py).",
+            "Confirm no __init__.py or other module re-exports spec.ui contents.",
+            "After deletion, run: `python -c 'from spec.ui import StatusSpinner'` and confirm ImportError is raised (05-ERR-4)."
+          ],
+          "test_spec_refs": [
+            "TS-05-16",
+            "TS-05-E6"
+          ],
+          "requirement_refs": [
+            "05-REQ-4.1",
+            "05-REQ-4.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.4",
+          "title": "Update any test files that imported from spec.ui",
+          "details": [
+            "Run: `grep -r 'from spec.ui import\\|import spec.ui' tests/ --include='*.py'`",
+            "Update each test file to import from agentfox.io instead.",
+            "Ensure all updated tests still pass after the import change."
+          ],
+          "test_spec_refs": [
+            "TS-05-24"
+          ],
+          "requirement_refs": [
+            "05-REQ-6.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "5.V",
+        "checks": [
+          "TS-05-16, TS-05-17, TS-05-18, TS-05-24, TS-05-E6 pass: `pytest -q tests/test_migration_static.py`",
+          "spec/ui.py does not exist: `test ! -f spec/ui.py`",
+          "No remaining spec.ui references: `grep -r 'spec.ui' spec/ tests/ --include='*.py'` returns zero matches",
+          "No linter warnings: `ruff check spec/ tests/`",
+          "All existing tests still pass: `pytest -q`",
+          "Property test TS-05-P5 passes: `pytest -q tests/test_properties.py -k 'P5'`"
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "kind": "standard",
+      "title": "Migrate all inline JSON/error patterns to agentfox/io functions",
+      "subtasks": [
+        {
+          "id": "6.1",
+          "title": "Replace all click.echo(json.dumps(...)) calls with emit or emit_ok",
+          "details": [
+            "Run: `grep -n 'click.echo(json.dumps' spec/cli.py` to find all occurrences.",
+            "Replace each occurrence with the appropriate `emit(...)` or `emit_ok(...)` call from agentfox.io.",
+            "Ensure the payload structure remains equivalent (same keys/values, just routed through agentfox/io).",
+            "Import: `from agentfox.io import emit, emit_ok`."
+          ],
+          "test_spec_refs": [
+            "TS-05-19",
+            "TS-05-22"
+          ],
+          "requirement_refs": [
+            "05-REQ-5.1",
+            "05-REQ-5.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.2",
+          "title": "Remove _assessment_to_json() helper if replaceable by standard serialization",
+          "details": [
+            "Review _assessment_to_json() to determine if it performs custom serialization beyond what dataclasses.asdict() or model.dict() provides.",
+            "If replaceable: delete the helper and update call sites to use standard serialization + emit_ok.",
+            "If not fully replaceable: document the reason and keep only the irreducible logic, renaming to avoid the legacy pattern.",
+            "Assert '_assessment_to_json' not in spec/cli.py source after migration."
+          ],
+          "test_spec_refs": [
+            "TS-05-21"
+          ],
+          "requirement_refs": [
+            "05-REQ-5.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.3",
+          "title": "Guard against pre-initialization output in agent mode",
+          "details": [
+            "Audit spec/cli.py for any module-level side effects that write to stdout (e.g., print() at import time, logging misconfiguration).",
+            "If found, defer or suppress such output until after AgentFoxGroup.main() is entered.",
+            "Add a test or note confirming no stdout is produced during module import with AF_AGENT=1."
+          ],
+          "test_spec_refs": [
+            "TS-05-E7"
+          ],
+          "requirement_refs": [
+            "05-REQ-5.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.4",
+          "title": "Confirm agent-mode purity: no mixed plain-text/JSON output",
+          "details": [
+            "With AF_AGENT=1, invoke render, validate, and status subcommands.",
+            "Parse every stdout line as JSON; assert no lines fail JSON parsing.",
+            "Confirm property TS-05-P3 passes with hypothesis-generated invocations."
+          ],
+          "test_spec_refs": [
+            "TS-05-22",
+            "TS-05-P3"
+          ],
+          "requirement_refs": [
+            "05-REQ-5.4"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "6.V",
+        "checks": [
+          "TS-05-19, TS-05-20, TS-05-21, TS-05-22, TS-05-E7 pass: `pytest -q tests/test_migration_static.py tests/ -k 'inline or agent_mode or E7'`",
+          "Zero occurrences of legacy patterns: `grep -c 'click.echo(json.dumps\\|_json_error_exit\\|_assessment_to_json' spec/cli.py` returns 0",
+          "No linter warnings: `ruff check spec/cli.py`",
+          "Requirements 05-REQ-5.1, 05-REQ-5.2, 05-REQ-5.3, 05-REQ-5.4 acceptance criteria met",
+          "Property tests TS-05-P3, TS-05-P4 pass: `pytest -q tests/test_properties.py -k 'P3 or P4'`",
+          "All existing tests still pass: `pytest -q`"
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "kind": "checkpoint",
+      "title": "Regression and coverage checkpoint: all spec tests pass",
+      "subtasks": [
+        {
+          "id": "7.1",
+          "title": "Run full pytest suite and confirm zero failures",
+          "details": [
+            "Execute `pytest -q` against the full test suite.",
+            "Confirm exit code is 0 and zero tests are reported as failed.",
+            "If any pre-existing tests fail, identify whether caused by migration and fix."
+          ],
+          "test_spec_refs": [
+            "TS-05-23"
+          ],
+          "requirement_refs": [
+            "05-REQ-6.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.2",
+          "title": "Run all property-based tests and confirm invariants hold",
+          "details": [
+            "Execute `pytest -q tests/test_properties.py` and confirm all property tests pass.",
+            "Review hypothesis output for any shrunk counterexamples and fix if found.",
+            "Confirm TS-05-P1 through TS-05-P5 all report as passed."
+          ],
+          "test_spec_refs": [
+            "TS-05-P1",
+            "TS-05-P2",
+            "TS-05-P3",
+            "TS-05-P4",
+            "TS-05-P5"
+          ],
+          "requirement_refs": [
+            "05-REQ-2.1",
+            "05-REQ-3.1",
+            "05-REQ-5.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.3",
+          "title": "Run static analysis and confirm no legacy patterns remain",
+          "details": [
+            "Run: `grep -rn 'from spec.ui import\\|import spec.ui\\|click.echo(json.dumps\\|_json_error_exit\\|_assessment_to_json' spec/ tests/`",
+            "Assert zero matches.",
+            "Run ruff check across entire project: `ruff check spec/ tests/` with zero warnings."
+          ],
+          "test_spec_refs": [
+            "TS-05-P4",
+            "TS-05-P5"
+          ],
+          "requirement_refs": [
+            "05-REQ-4.3",
+            "05-REQ-5.1",
+            "05-REQ-5.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.4",
+          "title": "Confirm traceability: all requirements have corresponding passing tests",
+          "details": [
+            "Cross-reference traceability table: every requirement ID (05-REQ-1 through 05-REQ-6) must have at least one passing test.",
+            "Run `pytest -q --tb=no` and confirm no requirement lacks test coverage.",
+            "Document any gaps in a migration notes comment."
+          ],
+          "test_spec_refs": [
+            "TS-05-1",
+            "TS-05-6",
+            "TS-05-11",
+            "TS-05-16",
+            "TS-05-19",
+            "TS-05-23"
+          ],
+          "requirement_refs": [
+            "05-REQ-1.1",
+            "05-REQ-2.1",
+            "05-REQ-3.1",
+            "05-REQ-4.1",
+            "05-REQ-5.1",
+            "05-REQ-6.1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "7.V",
+        "checks": [
+          "Full test suite passes with zero failures: `pytest -q` exits with code 0",
+          "All property tests pass: `pytest -q tests/test_properties.py`",
+          "Ruff reports zero warnings across spec/ and tests/: `ruff check spec/ tests/`",
+          "Static grep for legacy patterns returns zero matches: `grep -rn 'from spec.ui import\\|click.echo(json.dumps\\|_json_error_exit' spec/ tests/`",
+          "Requirements 05-REQ-6.1 and 05-REQ-6.2 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 8,
+      "kind": "wiring_verification",
+      "title": "End-to-end wiring verification and smoke tests",
+      "subtasks": [
+        {
+          "id": "8.1",
+          "title": "Trace execution paths and verify no stubs remain in the call chain",
+          "details": [
+            "05-PATH-1: trace AgentFoxGroup → render command → agentspec render → emit_ok; confirm no function in the chain contains `raise NotImplementedError` or `pass` as a body.",
+            "05-PATH-2: trace AgentFoxGroup → render command (per-artifact) → emit_ok; confirm artifacts dict is built before emit_ok is called.",
+            "05-PATH-3: trace AgentFoxGroup → validate command → agentspec validate → structured error assembly → emit; confirm each step returns values consumed by the next.",
+            "05-PATH-4: trace AgentFoxGroup (non-agent mode) → render → click.echo (markdown); confirm raw markdown path still intact.",
+            "05-PATH-5: trace unhandled exception → AgentFoxGroup handler → agentfox/io/errors.py → JSON error envelope; confirm no raw traceback escapes.",
+            "Search for stub markers: `grep -rn 'raise NotImplementedError\\|pass$\\|# TODO\\|# FIXME' spec/cli.py spec/validate.py`; resolve or justify any found."
+          ],
+          "test_spec_refs": [
+            "TS-05-SMOKE-1",
+            "TS-05-SMOKE-2",
+            "TS-05-SMOKE-3"
+          ],
+          "requirement_refs": [
+            "05-REQ-1.1",
+            "05-REQ-2.5",
+            "05-REQ-3.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.2",
+          "title": "Verify return value propagation across the call chain",
+          "details": [
+            "Confirm render command receives the markdown string(s) from agentspec rendering and passes them to emit_ok (not discarded).",
+            "Confirm validate command receives the structured error list from agentspec validation and passes it to emit/emit_ok (not discarded).",
+            "Confirm emit_ok/emit return values (if any) are not silently ignored in a way that could mask errors.",
+            "Review agentfox.io emit/emit_ok signatures to confirm the payload keys match what render and validate pass."
+          ],
+          "test_spec_refs": [
+            "TS-05-SMOKE-1",
+            "TS-05-SMOKE-2",
+            "TS-05-SMOKE-3"
+          ],
+          "requirement_refs": [
+            "05-REQ-2.1",
+            "05-REQ-2.2",
+            "05-REQ-2.3",
+            "05-REQ-3.3",
+            "05-REQ-3.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.3",
+          "title": "Run all smoke tests with real components",
+          "details": [
+            "TS-05-SMOKE-1: run `spec render --json --combined` against a real fixture spec; assert single JSON object on stdout with ok=true, format='markdown', content, sections.",
+            "TS-05-SMOKE-2: run `spec render --json` (no --combined) against real fixture; assert ok=true, artifacts map, no 'content' key.",
+            "TS-05-SMOKE-3: run `spec validate` against fixture with known schema+integrity errors; assert valid=false, errors with category fields.",
+            "TS-05-SMOKE-4: run `spec render` (no --json) against real fixture; assert raw markdown on stdout, no JSON wrapping.",
+            "TS-05-SMOKE-5: patch a subcommand to raise RuntimeError; assert JSON error envelope on stdout, no raw traceback, non-zero exit code."
+          ],
+          "test_spec_refs": [
+            "TS-05-SMOKE-1",
+            "TS-05-SMOKE-2",
+            "TS-05-SMOKE-3",
+            "TS-05-SMOKE-4",
+            "TS-05-SMOKE-5"
+          ],
+          "requirement_refs": [
+            "05-REQ-2.1",
+            "05-REQ-2.3",
+            "05-REQ-3.4",
+            "05-REQ-2.4",
+            "05-REQ-1.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.4",
+          "title": "Audit for stub and dead-code markers across spec package",
+          "details": [
+            "Run: `grep -rn 'raise NotImplementedError\\|# TODO\\|# FIXME\\|pass$' spec/ --include='*.py'`",
+            "For each match: determine if it is intentional (abstract base, placeholder) or an unfinished migration stub.",
+            "Resolve all migration-related stubs; document intentional ones with a comment explaining why.",
+            "Also confirm no `return None` appears in functions that should return a structured result."
+          ],
+          "test_spec_refs": [
+            "TS-05-P4"
+          ],
+          "requirement_refs": [
+            "05-REQ-5.1",
+            "05-REQ-5.2",
+            "05-REQ-5.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.5",
+          "title": "Verify cross-spec entry points from spec 03 are called from production code",
+          "details": [
+            "Confirm `from agentfox.io import AgentFoxGroup` is present and used in spec/cli.py (not just imported but applied as cls=AgentFoxGroup).",
+            "Confirm `from agentfox.io import emit, emit_ok` is present and called in production paths for render and validate commands.",
+            "Confirm `from agentfox.io import StatusSpinner` is present in all files that use spinners.",
+            "Run: `python -c 'from spec.cli import cli; from agentfox.io import AgentFoxGroup; assert isinstance(cli, AgentFoxGroup)'` and confirm it exits with code 0.",
+            "Verify agentfox/io/ module (spec 03, group 3) is available in the environment: `python -c 'import agentfox.io'`."
+          ],
+          "test_spec_refs": [
+            "TS-05-1",
+            "TS-05-10",
+            "TS-05-15",
+            "TS-05-17"
+          ],
+          "requirement_refs": [
+            "05-REQ-1.1",
+            "05-REQ-2.5",
+            "05-REQ-3.5",
+            "05-REQ-4.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "8.V",
+        "checks": [
+          "All five smoke tests pass with real components: `pytest -q tests/ -k 'SMOKE'`",
+          "No stub markers found in spec/ migration code: `grep -rn 'raise NotImplementedError' spec/ --include='*.py'` returns zero matches",
+          "Cross-spec agentfox.io imports resolve correctly: `python -c 'from agentfox.io import AgentFoxGroup, emit, emit_ok, StatusSpinner'` exits with code 0",
+          "Root CLI group is AgentFoxGroup: `python -c 'from spec.cli import cli; from agentfox.io import AgentFoxGroup; assert isinstance(cli, AgentFoxGroup); print(\"OK\")'` prints OK",
+          "Full test suite passes: `pytest -q` exits with code 0 with zero failures",
+          "No linter warnings: `ruff check spec/ tests/`",
+          "All execution paths (05-PATH-1 through 05-PATH-5) are callable end-to-end without raising NotImplementedError"
+        ]
+      }
+    }
+  ],
+  "traceability": [
+    {
+      "requirement_id": "05-REQ-1.1",
+      "test_spec_id": "TS-05-1",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-1.2",
+      "test_spec_id": "TS-05-2",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-1.3",
+      "test_spec_id": "TS-05-3",
+      "task_id": "2.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-1.4",
+      "test_spec_id": "TS-05-4",
+      "task_id": "2.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-1.5",
+      "test_spec_id": "TS-05-5",
+      "task_id": "2.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-2.1",
+      "test_spec_id": "TS-05-6",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-2.2",
+      "test_spec_id": "TS-05-7",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-2.3",
+      "test_spec_id": "TS-05-8",
+      "task_id": "3.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-2.4",
+      "test_spec_id": "TS-05-9",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-2.5",
+      "test_spec_id": "TS-05-10",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-3.1",
+      "test_spec_id": "TS-05-11",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-3.2",
+      "test_spec_id": "TS-05-12",
+      "task_id": "4.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-3.3",
+      "test_spec_id": "TS-05-13",
+      "task_id": "4.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-3.4",
+      "test_spec_id": "TS-05-14",
+      "task_id": "4.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-3.5",
+      "test_spec_id": "TS-05-15",
+      "task_id": "4.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-4.1",
+      "test_spec_id": "TS-05-16",
+      "task_id": "5.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-4.2",
+      "test_spec_id": "TS-05-17",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-4.3",
+      "test_spec_id": "TS-05-18",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-5.1",
+      "test_spec_id": "TS-05-19",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-5.2",
+      "test_spec_id": "TS-05-20",
+      "task_id": "2.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-5.3",
+      "test_spec_id": "TS-05-21",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-5.4",
+      "test_spec_id": "TS-05-22",
+      "task_id": "6.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-6.1",
+      "test_spec_id": "TS-05-23",
+      "task_id": "7.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-6.2",
+      "test_spec_id": "TS-05-24",
+      "task_id": "5.4",
+      "test_path": null
+    }
+  ]
+}
