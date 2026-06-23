@@ -32,15 +32,38 @@ class TestStatusSpinnerTTYMode:
 
     def test_dots_spinner_in_tty(self) -> None:
         """03-REQ-8.2: Rich Live is started with 'dots' spinner style on stderr."""
+        from unittest.mock import MagicMock, patch
+
         from agentfox.io import StatusSpinner
 
-        # In TTY mode, the spinner should initialize with 'dots' style.
-        # We don't have a real TTY here, so we verify the spinner
-        # can be used and stores the style preference.
-        spinner = StatusSpinner("Starting...", quiet=False, theme=None)
-        # The spinner should accept update and log calls
-        # (actual TTY animation is verified in integration tests)
-        assert spinner is not None
+        # Mock Rich Spinner constructor to capture the spinner_name argument
+        with patch("agentfox.io.spinner.Spinner") as MockSpinner:
+            mock_spinner_instance = MagicMock()
+            MockSpinner.return_value = mock_spinner_instance
+
+            # Mock Rich Live to avoid actual terminal output
+            with patch("agentfox.io.spinner.Live") as MockLive:
+                mock_live_instance = MagicMock()
+                mock_live_instance.console = MagicMock()
+                MockLive.return_value = mock_live_instance
+
+                # Mock Console to report is_terminal=True (TTY mode)
+                with patch("agentfox.io.spinner.Console") as MockConsole:
+                    mock_console = MagicMock()
+                    mock_console.is_terminal = True
+                    MockConsole.return_value = mock_console
+
+                    with StatusSpinner("Starting...", quiet=False, theme=None) as s:
+                        s.update("Step 1")
+                        s.log("detail")
+
+            # Verify 'dots' spinner style was used
+            MockSpinner.assert_called()
+            call_args = MockSpinner.call_args
+            spinner_name_arg = call_args[0][0] if call_args[0] else call_args[1].get("name")
+            assert spinner_name_arg == "dots", (
+                f"expected 'dots' spinner style, got {spinner_name_arg!r}"
+            )
 
 
 class TestStatusSpinnerNonTTYMode:

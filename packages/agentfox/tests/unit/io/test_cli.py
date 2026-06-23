@@ -144,6 +144,26 @@ class TestSentinelKeys:
         runner.invoke(cli, ["sub"])
         assert ctx_capture[-1].get("_json_explicit") is None or (ctx_capture[-1].get("_json_explicit") is False)
 
+    def test_no_json_flag_also_sets_json_sentinel(self) -> None:
+        """03-REQ-3.6: _json_explicit=True when --no-json passed (either flag in pair)."""
+        from agentfox.io import AgentFoxGroup, common_options
+
+        ctx_capture: list[dict] = []
+
+        @click.group(cls=AgentFoxGroup)
+        @common_options
+        def cli(**kwargs: object) -> None:
+            pass
+
+        @cli.command()
+        @click.pass_context
+        def sub(ctx: click.Context) -> None:
+            ctx_capture.append(dict(ctx.obj))
+
+        runner = CliRunner()
+        runner.invoke(cli, ["--no-json", "sub"])
+        assert ctx_capture[-1].get("_json_explicit") is True
+
     def test_quiet_flag_sets_sentinel(self) -> None:
         """03-REQ-3.6: _quiet_explicit=True when --quiet passed."""
         from agentfox.io import AgentFoxGroup, common_options
@@ -162,6 +182,26 @@ class TestSentinelKeys:
 
         runner = CliRunner()
         runner.invoke(cli, ["--quiet", "sub"])
+        assert ctx_capture[-1].get("_quiet_explicit") is True
+
+    def test_verbose_flag_also_sets_quiet_sentinel(self) -> None:
+        """03-REQ-3.6: _quiet_explicit=True when --verbose passed (either flag in pair)."""
+        from agentfox.io import AgentFoxGroup, common_options
+
+        ctx_capture: list[dict] = []
+
+        @click.group(cls=AgentFoxGroup)
+        @common_options
+        def cli(**kwargs: object) -> None:
+            pass
+
+        @cli.command()
+        @click.pass_context
+        def sub(ctx: click.Context) -> None:
+            ctx_capture.append(dict(ctx.obj))
+
+        runner = CliRunner()
+        runner.invoke(cli, ["--verbose", "sub"])
         assert ctx_capture[-1].get("_quiet_explicit") is True
 
 
@@ -211,19 +251,36 @@ class TestCommonOptionsRejectsNonGroup:
 class TestCommonOptionsNameCollision:
     """TS-03-49: common_options skips conflicting flags and logs debug warning."""
 
-    def test_skips_conflicting_flag(self) -> None:
+    def test_skips_conflicting_flag(self, caplog: pytest.LogCaptureFixture) -> None:
         """03-REQ-9.3: No duplicate flag; debug warning logged; no exception."""
+        import logging
+
         from agentfox.io import common_options
 
-        @click.group()
-        @click.option("--json", is_flag=True)
-        @common_options
-        def cli(**kwargs: object) -> None:
-            pass
+        with caplog.at_level(logging.DEBUG):
 
-        # Count json params — should be exactly 1 (not duplicated)
+            @click.group()
+            @click.option("--json", is_flag=True)
+            @common_options
+            def cli(**kwargs: object) -> None:
+                pass
+
+        # Count json params — MUST be exactly 1, not 0 and not 2
         json_params = [p for p in cli.params if p.name == "json"]
-        assert len(json_params) <= 1, "json param should not be duplicated"
+        assert len(json_params) == 1, f"expected exactly 1 json param, got {len(json_params)}"
+
+        # Verify a debug-level warning was logged about the name collision
+        debug_records = [r for r in caplog.records if r.levelno == logging.DEBUG]
+        assert any(
+            "json" in r.message.lower()
+            and (
+                "skip" in r.message.lower()
+                or "conflict" in r.message.lower()
+                or "collision" in r.message.lower()
+                or "already" in r.message.lower()
+            )
+            for r in debug_records
+        ), "expected debug log about json flag collision"
 
 
 class TestAfAgentNon1Comprehensive:

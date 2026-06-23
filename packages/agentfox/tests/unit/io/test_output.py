@@ -93,8 +93,10 @@ class TestGetOutputManagerFallback:
 class TestAgentFoxGroupNonDictCtxObj:
     """TS-03-7: AgentFoxGroup logs debug warning when ctx.obj is non-dict."""
 
-    def test_non_dict_ctx_obj_does_not_crash(self) -> None:
+    def test_non_dict_ctx_obj_does_not_crash(self, caplog: pytest.LogCaptureFixture) -> None:
         """03-REQ-2.4: CLI does not crash when ctx.obj is pre-set to non-dict."""
+        import logging
+
         from agentfox.io import AgentFoxGroup
 
         @click.group(cls=AgentFoxGroup)
@@ -106,10 +108,19 @@ class TestAgentFoxGroupNonDictCtxObj:
         def sub() -> None:
             pass
 
-        runner = CliRunner()
-        result = runner.invoke(cli, ["sub"])
-        # Should not crash — exit code 0 or 1, not unhandled exception
+        with caplog.at_level(logging.DEBUG):
+            runner = CliRunner()
+            result = runner.invoke(cli, ["sub"])
+
+        # 1. Must not crash
         assert result.exit_code in (0, 1)
+
+        # 2. MUST verify a debug-level warning was logged about the non-dict ctx.obj
+        debug_records = [r for r in caplog.records if r.levelno == logging.DEBUG]
+        assert any(
+            "dict" in r.message.lower() or "ctx.obj" in r.message.lower()
+            for r in debug_records
+        ), "expected debug log mentioning non-dict ctx.obj"
 
 
 class TestEmitJsonWritesWhenJsonMode:

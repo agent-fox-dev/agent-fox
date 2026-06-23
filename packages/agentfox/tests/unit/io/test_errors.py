@@ -69,24 +69,31 @@ class TestErrorEnvelopeAgentError:
         agentspec_errors = pytest.importorskip("agentspec.errors")
         from agentfox.io import error_envelope
 
-        exc = agentspec_errors.AgentError("too many requests")
-        exc._category = "rate_limit_error"
-        exc.retryable = True
+        # CRITICAL: set the PUBLIC attribute .category, NOT the private ._category
+        exc = agentspec_errors.AgentError(
+            "too many requests",
+            category="rate_limit_error",
+            retryable=True,
+        )
         result = error_envelope(exc)
         assert result["error"]["type"] == "rate_limit_error"
         assert result["error"]["retryable"] is True
 
     def test_without_explicit_category_uses_default(self) -> None:
-        """03-REQ-6.3: AgentError always has a .category (default 'internal')."""
+        """03-REQ-6.3: AgentError without explicit category -> type='agent_error', retryable=False."""
         agentspec_errors = pytest.importorskip("agentspec.errors")
         from agentfox.io import error_envelope
 
         exc = agentspec_errors.AgentError("generic agent error")
         result = error_envelope(exc)
-        # AgentError always has .category (default 'internal'),
-        # so type should be the category value
-        assert isinstance(result["error"]["type"], str)
-        assert len(result["error"]["type"]) > 0
+        # Assert the EXACT expected type string, not just isinstance(str)
+        assert result["error"]["type"] == "agent_error", (
+            f"expected 'agent_error', got {result['error']['type']!r}"
+        )
+        # Assert the EXACT expected retryable value, not just isinstance(bool)
+        assert result["error"]["retryable"] is False, (
+            f"expected False, got {result['error']['retryable']!r}"
+        )
 
 
 class TestErrorEnvelopeSessionError:
@@ -339,6 +346,22 @@ class TestAgentFoxGroupKeyboardInterrupt:
 
         runner = CliRunner()
         result = runner.invoke(cli, ["sub"])
-        # CliRunner catches KeyboardInterrupt; exit code should not be 1
-        # from our handler
-        assert result.exit_code != 1 or isinstance(result.exception, KeyboardInterrupt)
+
+        # 1. KeyboardInterrupt must propagate — CliRunner stores it in result.exception
+        assert isinstance(result.exception, KeyboardInterrupt), (
+            f"expected KeyboardInterrupt to propagate, got {type(result.exception).__name__}"
+        )
+
+        # 2. AgentFoxGroup must NOT emit an error envelope for KeyboardInterrupt
+        assert result.output.strip() == "" or not _is_json_error_envelope(result.output), (
+            "AgentFoxGroup must not emit an error envelope for KeyboardInterrupt"
+        )
+
+
+def _is_json_error_envelope(text: str) -> bool:
+    """Check if text is a JSON error envelope with ok=False."""
+    try:
+        parsed = json.loads(text)
+        return parsed.get("ok") is False and "error" in parsed
+    except (json.JSONDecodeError, TypeError):
+        return False
