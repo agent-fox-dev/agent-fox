@@ -1,0 +1,447 @@
+{
+  "$schema": null,
+  "spec_id": "02",
+  "spec_name": "nightshift_prompt_alignment",
+  "schema_version": 1,
+  "test_cases": [
+    {
+      "id": "TS-02-1",
+      "requirement_id": "02-REQ-1.1",
+      "kind": "unit",
+      "description": "Verifies that `_build_coder_prompt()` calls `build_afspec_from_triage()` and `render_inmemory_spec_sections()`, joins issue body context first then rendered sections, and passes the combined string to `build_system_prompt()`.",
+      "preconditions": [
+        "`fix_pipeline.py` is importable with all dependencies available",
+        "`build_afspec_from_triage` is mocked to return a fake `afspec Spec` object",
+        "`render_inmemory_spec_sections` is mocked to return a string containing `## Requirements`, `## Test Specification`, and `## Tasks` sections",
+        "`build_system_prompt` is mocked to capture its `context` argument",
+        "A valid `TriageResult` with acceptance criteria is constructed"
+      ],
+      "input": {
+        "issue_body": "Issue body text describing the bug",
+        "spec": "a fake spec object",
+        "triage": "a TriageResult with two acceptance criteria"
+      },
+      "expected": {
+        "build_afspec_from_triage_called": true,
+        "context_arg_to_build_system_prompt": "starts with issue body text, followed by ## Requirements, ## Test Specification, and ## Tasks sections",
+        "render_inmemory_spec_sections_called": true,
+        "system_prompt_returned": "non-empty string"
+      },
+      "assertion_pseudocode": "mock build_afspec_from_triage returning fake_afspec\nmock render_inmemory_spec_sections returning '## Requirements\\n...\\n## Test Specification\\n...\\n## Tasks\\n...'\nmock build_system_prompt capturing context kwarg\n\nsystem_prompt, task_prompt = _build_coder_prompt(spec, triage, issue_body)\n\nassert build_afspec_from_triage called once with (spec, triage)\nassert render_inmemory_spec_sections called once with fake_afspec\ncaptured_context = build_system_prompt.call_args.kwargs['context']\nassert captured_context.startswith('Issue body text')\nassert '## Requirements' in captured_context\nassert '## Test Specification' in captured_context\nassert '## Tasks' in captured_context\nassert captured_context.index('Issue body text') < captured_context.index('## Requirements')"
+    },
+    {
+      "id": "TS-02-2",
+      "requirement_id": "02-REQ-1.2",
+      "kind": "unit",
+      "description": "Verifies that the task prompt returned by `_build_coder_prompt()` contains the exact phrase 'Refer to the tasks subtask list in the context above'.",
+      "preconditions": [
+        "`build_afspec_from_triage` is mocked to return a fake `afspec Spec`",
+        "`render_inmemory_spec_sections` is mocked to return a non-empty markdown string",
+        "A valid `TriageResult` is constructed"
+      ],
+      "input": {
+        "prior_context": null,
+        "review_feedback": null,
+        "spec": "a fake spec object",
+        "triage": "a TriageResult with acceptance criteria"
+      },
+      "expected": {
+        "task_prompt": "contains the exact phrase 'Refer to the tasks subtask list in the context above'"
+      },
+      "assertion_pseudocode": "mock build_afspec_from_triage, render_inmemory_spec_sections, build_system_prompt\n\n_, task_prompt = _build_coder_prompt(spec, triage, issue_body)\n\nassert 'Refer to the tasks subtask list in the context above' in task_prompt"
+    },
+    {
+      "id": "TS-02-3",
+      "requirement_id": "02-REQ-1.3",
+      "kind": "unit",
+      "description": "Verifies that when `review_feedback` is provided, it is appended to the task prompt returned by `_build_coder_prompt()`.",
+      "preconditions": [
+        "`build_afspec_from_triage` is mocked to return a fake `afspec Spec`",
+        "`render_inmemory_spec_sections` is mocked to return a non-empty markdown string",
+        "A valid `TriageResult` is constructed",
+        "`review_feedback` is a non-empty string"
+      ],
+      "input": {
+        "review_feedback": "Please fix the null pointer issue in line 42",
+        "spec": "a fake spec object",
+        "triage": "a TriageResult with acceptance criteria"
+      },
+      "expected": {
+        "task_prompt": "contains review_feedback text appended after the base task instructions"
+      },
+      "assertion_pseudocode": "mock build_afspec_from_triage, render_inmemory_spec_sections, build_system_prompt\nreview_feedback = 'Please fix the null pointer issue in line 42'\n\n_, task_prompt = _build_coder_prompt(spec, triage, issue_body, review_feedback=review_feedback)\n\nassert review_feedback in task_prompt\nbase_instructions_end = task_prompt.index('Refer to the tasks subtask list in the context above') + len('Refer to the tasks subtask list in the context above')\nfeedback_position = task_prompt.index(review_feedback)\nassert feedback_position > base_instructions_end"
+    },
+    {
+      "id": "TS-02-4",
+      "requirement_id": "02-REQ-1.4",
+      "kind": "unit",
+      "description": "Verifies that when `prior_context` is provided, it is prepended to the task prompt returned by `_build_coder_prompt()`.",
+      "preconditions": [
+        "`build_afspec_from_triage` is mocked to return a fake `afspec Spec`",
+        "`render_inmemory_spec_sections` is mocked to return a non-empty markdown string",
+        "A valid `TriageResult` is constructed",
+        "`prior_context` is a non-empty string"
+      ],
+      "input": {
+        "prior_context": "Previous attempt context: attempted fix in commit abc123",
+        "spec": "a fake spec object",
+        "triage": "a TriageResult with acceptance criteria"
+      },
+      "expected": {
+        "task_prompt": "contains prior_context text prepended before the base task instructions"
+      },
+      "assertion_pseudocode": "mock build_afspec_from_triage, render_inmemory_spec_sections, build_system_prompt\nprior_context = 'Previous attempt context: attempted fix in commit abc123'\n\n_, task_prompt = _build_coder_prompt(spec, triage, issue_body, prior_context=prior_context)\n\nassert prior_context in task_prompt\nprior_position = task_prompt.index(prior_context)\nbase_instruction_position = task_prompt.index('Refer to the tasks subtask list in the context above')\nassert prior_position < base_instruction_position"
+    },
+    {
+      "id": "TS-02-5",
+      "requirement_id": "02-REQ-2.1",
+      "kind": "unit",
+      "description": "Verifies that `_build_reviewer_prompt()` uses `build_afspec_from_triage()` and `render_inmemory_spec_sections()` to build the context and passes issue body followed by afspec sections to `build_system_prompt()`.",
+      "preconditions": [
+        "`build_afspec_from_triage` is mocked to return a fake `afspec Spec`",
+        "`render_inmemory_spec_sections` is mocked to return a markdown string with `## Requirements`, `## Test Specification`, `## Tasks` sections",
+        "`build_system_prompt` is mocked to capture its `context` argument",
+        "A valid `TriageResult` with acceptance criteria is constructed"
+      ],
+      "input": {
+        "issue_body": "Issue body text describing the bug",
+        "spec": "a fake spec object",
+        "triage": "a TriageResult with acceptance criteria"
+      },
+      "expected": {
+        "context_arg_to_build_system_prompt": "starts with issue body, followed by ## Requirements, ## Test Specification, ## Tasks sections"
+      },
+      "assertion_pseudocode": "mock build_afspec_from_triage returning fake_afspec\nmock render_inmemory_spec_sections returning '## Requirements\\n...\\n## Test Specification\\n...\\n## Tasks\\n...'\nmock build_system_prompt capturing context kwarg\n\nsystem_prompt, task_prompt = _build_reviewer_prompt(spec, triage, issue_body)\n\nassert build_afspec_from_triage called once\nassert render_inmemory_spec_sections called once with fake_afspec\ncaptured_context = build_system_prompt.call_args.kwargs['context']\nassert captured_context.startswith('Issue body text')\nassert '## Requirements' in captured_context\nassert captured_context.index('Issue body text') < captured_context.index('## Requirements')"
+    },
+    {
+      "id": "TS-02-6",
+      "requirement_id": "02-REQ-2.2",
+      "kind": "unit",
+      "description": "Verifies that the task prompt returned by `_build_reviewer_prompt()` instructs the reviewer to verify each acceptance criterion.",
+      "preconditions": [
+        "`build_afspec_from_triage` is mocked to return a fake `afspec Spec`",
+        "`render_inmemory_spec_sections` is mocked to return a non-empty markdown string",
+        "A valid `TriageResult` with acceptance criteria is constructed"
+      ],
+      "input": {
+        "spec": "a fake spec object",
+        "triage": "a TriageResult with two acceptance criteria"
+      },
+      "expected": {
+        "task_prompt": "contains text instructing the reviewer to verify each acceptance criterion"
+      },
+      "assertion_pseudocode": "mock build_afspec_from_triage, render_inmemory_spec_sections, build_system_prompt\n\n_, task_prompt = _build_reviewer_prompt(spec, triage, issue_body)\n\nassert 'verify each acceptance criterion' in task_prompt.lower() or 'verify' in task_prompt"
+    },
+    {
+      "id": "TS-02-7",
+      "requirement_id": "02-REQ-2.3",
+      "kind": "unit",
+      "description": "Verifies that when the `TriageResult` has no acceptance criteria, `_build_reviewer_prompt()` returns a task prompt containing the exact fallback message.",
+      "preconditions": [
+        "A `TriageResult` with an empty acceptance criteria list is constructed",
+        "`build_system_prompt` is mocked or available"
+      ],
+      "input": {
+        "spec": "a fake spec object",
+        "triage": "a TriageResult with acceptance_criteria=[]"
+      },
+      "expected": {
+        "task_prompt": "contains the exact string 'No acceptance criteria were produced by triage. Verify the fix based on the issue description above.'"
+      },
+      "assertion_pseudocode": "triage = TriageResult(acceptance_criteria=[])\n\n_, task_prompt = _build_reviewer_prompt(spec, triage, issue_body)\n\nassert 'No acceptance criteria were produced by triage. Verify the fix based on the issue description above.' in task_prompt"
+    },
+    {
+      "id": "TS-02-8",
+      "requirement_id": "02-REQ-3.1",
+      "kind": "static",
+      "description": "Verifies that `_render_criteria_context()` is retained in `fix_pipeline.py` as a private function with a comment marking it as a fallback only, and is not called on the happy path.",
+      "preconditions": [
+        "Source file `fix_pipeline.py` is accessible for static inspection"
+      ],
+      "input": {
+        "file": "agentfox/nightshift/fix_pipeline.py"
+      },
+      "expected": {
+        "comment_present": "a code comment on or near the function indicating it is a fallback only",
+        "function_present": "`_render_criteria_context` defined as a private function",
+        "not_called_on_happy_path": "`_render_criteria_context` is only called inside exception-handling blocks in `_build_coder_prompt` and `_build_reviewer_prompt`"
+      },
+      "assertion_pseudocode": "source = read_file('agentfox/nightshift/fix_pipeline.py')\n\nassert 'def _render_criteria_context' in source\nassert 'fallback' in source  // comment near the function definition\n\n// Verify it is only called inside except blocks\nfor each call-site of '_render_criteria_context' in source:\n    assert call is inside an except clause"
+    },
+    {
+      "id": "TS-02-9",
+      "requirement_id": "02-REQ-3.2",
+      "kind": "static",
+      "description": "Verifies that `_render_criteria_section()` is retained in `fix_pipeline.py` because `_format_triage_comment()` still calls it.",
+      "preconditions": [
+        "Source file `fix_pipeline.py` is accessible for static inspection"
+      ],
+      "input": {
+        "file": "agentfox/nightshift/fix_pipeline.py"
+      },
+      "expected": {
+        "called_by_format_triage_comment": "`_format_triage_comment` body contains a call to `_render_criteria_section`",
+        "function_present": "`_render_criteria_section` defined in `fix_pipeline.py`"
+      },
+      "assertion_pseudocode": "source = read_file('agentfox/nightshift/fix_pipeline.py')\n\nassert 'def _render_criteria_section' in source\n\nformat_triage_comment_body = extract_function_body(source, '_format_triage_comment')\nassert '_render_criteria_section' in format_triage_comment_body"
+    },
+    {
+      "id": "TS-02-10",
+      "requirement_id": "02-REQ-4.1",
+      "kind": "unit",
+      "description": "Verifies that `_format_triage_comment()` calls `_render_criteria_section()` with `bold=True` and does not call `render_inmemory_spec_sections()`, producing the same human-readable bold-formatted GitHub comment.",
+      "preconditions": [
+        "`_render_criteria_section` is available in `fix_pipeline.py`",
+        "A `TriageResult` with acceptance criteria is constructed",
+        "`render_inmemory_spec_sections` is importable and can be mocked"
+      ],
+      "input": {
+        "triage": "a TriageResult with two acceptance criteria"
+      },
+      "expected": {
+        "_render_criteria_section_called_with_bold_true": true,
+        "comment_string": "non-empty string with bold-formatted criteria headings",
+        "render_inmemory_spec_sections_not_called": true
+      },
+      "assertion_pseudocode": "mock _render_criteria_section capturing arguments, returning '**Criterion 1**\\n...'\nmock render_inmemory_spec_sections to detect any calls\n\ncomment = _format_triage_comment(triage)\n\nassert _render_criteria_section called with bold=True\nassert render_inmemory_spec_sections not called\nassert isinstance(comment, str) and len(comment) > 0"
+    },
+    {
+      "id": "TS-02-11",
+      "requirement_id": "02-REQ-5.1",
+      "kind": "unit",
+      "description": "Verifies that `FixReviewResult` and `parse_fix_review_output` are unmodified and correctly parse a JSON verdict report containing `criterion_id`, `verdict`, and `evidence` fields.",
+      "preconditions": [
+        "`parse_fix_review_output` is importable from `agentfox.nightshift.fix_pipeline`",
+        "`FixReviewResult` dataclass is importable",
+        "A sample JSON verdict string with afspec-style criterion IDs (e.g. 'NS-REQ-1') is prepared"
+      ],
+      "input": {
+        "verdict_json": "{\"verdicts\": [{\"criterion_id\": \"NS-REQ-1\", \"verdict\": \"pass\", \"evidence\": \"The fix correctly handles the null case.\"}]}"
+      },
+      "expected": {
+        "first_verdict_criterion_id": "NS-REQ-1",
+        "first_verdict_evidence": "The fix correctly handles the null case.",
+        "first_verdict_verdict": "pass",
+        "result_type": "FixReviewResult"
+      },
+      "assertion_pseudocode": "verdict_json = '{\"verdicts\": [{\"criterion_id\": \"NS-REQ-1\", \"verdict\": \"pass\", \"evidence\": \"The fix correctly handles the null case.\"}]}'\n\nresult = parse_fix_review_output(verdict_json)\n\nassert isinstance(result, FixReviewResult)\nassert result.verdicts[0].criterion_id == 'NS-REQ-1'\nassert result.verdicts[0].verdict == 'pass'\nassert result.verdicts[0].evidence == 'The fix correctly handles the null case.'"
+    }
+  ],
+  "property_tests": [
+    {
+      "id": "TS-02-P1",
+      "property_id": "02-PROP-1",
+      "validates": [
+        "02-REQ-1.1",
+        "02-REQ-2.1"
+      ],
+      "description": "For any successful invocation of `_build_coder_prompt()` or `_build_reviewer_prompt()` where `build_afspec_from_triage()` succeeds, `_render_criteria_context()` must never be called.",
+      "for_any_strategy": "arbitrary valid TriageResult objects (varying number of acceptance criteria from 1 to 20, varying field content)",
+      "invariant_check": "mock build_afspec_from_triage to succeed (return a fake Spec)\nmock _render_criteria_context to record calls\nfor each generated triage in sample:\n    _render_criteria_context_calls = 0\n    _build_coder_prompt(spec, triage, issue_body)\n    assert _render_criteria_context_calls == 0\n    _render_criteria_context_calls = 0\n    _build_reviewer_prompt(spec, triage, issue_body)\n    assert _render_criteria_context_calls == 0"
+    },
+    {
+      "id": "TS-02-P2",
+      "property_id": "02-PROP-2",
+      "validates": [
+        "02-REQ-1.1",
+        "02-REQ-2.1"
+      ],
+      "description": "For any invocation of `_build_coder_prompt()` or `_build_reviewer_prompt()` that produces a combined context string, the issue body always appears before the afspec-rendered (or fallback) sections.",
+      "for_any_strategy": "arbitrary issue_body strings (non-empty) and arbitrary TriageResult objects; also includes cases where build_afspec_from_triage raises (fallback path)",
+      "invariant_check": "for each (issue_body, triage) in sample:\n    captured_context = capture context arg to build_system_prompt from _build_coder_prompt(spec, triage, issue_body)\n    assert captured_context.index(issue_body) < first_section_header_index(captured_context)\n    captured_context = capture context arg to build_system_prompt from _build_reviewer_prompt(spec, triage, issue_body)\n    assert captured_context.index(issue_body) < first_section_header_index(captured_context)\n\nwhere first_section_header_index finds the position of the first '##' heading in captured_context"
+    },
+    {
+      "id": "TS-02-P3",
+      "property_id": "02-PROP-3",
+      "validates": [
+        "02-REQ-1.3",
+        "02-REQ-1.4"
+      ],
+      "description": "For any invocation of `_build_coder_prompt()` with non-empty `review_feedback` or `prior_context`, both values appear in the task prompt in the correct positions regardless of whether the afspec or fallback path was taken.",
+      "for_any_strategy": "arbitrary TriageResult objects (both valid and malformed to trigger both paths), arbitrary non-empty review_feedback strings, arbitrary non-empty prior_context strings",
+      "invariant_check": "for each (triage, review_feedback, prior_context) in sample:\n    _, task_prompt = _build_coder_prompt(spec, triage, issue_body, review_feedback=review_feedback, prior_context=prior_context)\n    assert prior_context in task_prompt\n    assert review_feedback in task_prompt\n    assert task_prompt.index(prior_context) < task_prompt.index(review_feedback)"
+    },
+    {
+      "id": "TS-02-P4",
+      "property_id": "02-PROP-4",
+      "validates": [
+        "02-REQ-4.1"
+      ],
+      "description": "For any execution that calls `_format_triage_comment()`, it always calls `_render_criteria_section()` with `bold=True` and never calls `render_inmemory_spec_sections()`.",
+      "for_any_strategy": "arbitrary TriageResult objects (varying acceptance criteria counts and content)",
+      "invariant_check": "mock _render_criteria_section to record calls and arguments\nmock render_inmemory_spec_sections to record calls\nfor each triage in sample:\n    _render_criteria_section_calls = []\n    render_inmemory_spec_sections_calls = []\n    _format_triage_comment(triage)\n    assert any(call.kwargs.get('bold') == True for call in _render_criteria_section_calls)\n    assert len(render_inmemory_spec_sections_calls) == 0"
+    },
+    {
+      "id": "TS-02-P5",
+      "property_id": "02-PROP-5",
+      "validates": [
+        "02-REQ-5.1"
+      ],
+      "description": "For any execution of `parse_fix_review_output` after this change, it correctly parses JSON verdict reports with any `criterion_id` values (including new afspec-style IDs) into `FixReviewResult` without schema validation failure.",
+      "for_any_strategy": "arbitrary criterion_id strings (including 'NS-REQ-1', 'AC-1', 'REQ-42', random alphanumeric strings), arbitrary verdict strings ('pass', 'fail', 'skip'), arbitrary evidence strings",
+      "invariant_check": "for each (criterion_id, verdict, evidence) in sample:\n    json_str = format_verdict_json(criterion_id, verdict, evidence)\n    result = parse_fix_review_output(json_str)\n    assert isinstance(result, FixReviewResult)\n    assert result.verdicts[0].criterion_id == criterion_id\n    assert result.verdicts[0].verdict == verdict\n    assert result.verdicts[0].evidence == evidence"
+    }
+  ],
+  "edge_case_tests": [
+    {
+      "id": "TS-02-E1",
+      "requirement_id": "02-REQ-1.E1",
+      "kind": "unit",
+      "description": "Verifies that when `build_afspec_from_triage()` raises an exception inside `_build_coder_prompt()`, a warning is logged and the function falls back to `_render_criteria_context()` without propagating the exception.",
+      "preconditions": [
+        "`build_afspec_from_triage` is mocked to raise a `ValueError` (simulating malformed triage data)",
+        "`_render_criteria_context` is mocked to return a fallback ad-hoc criteria string",
+        "`build_system_prompt` is mocked to capture its `context` argument",
+        "A logging warning capture mechanism is in place (e.g. `pytest` `caplog` or equivalent)"
+      ],
+      "input": {
+        "spec": "a fake spec object",
+        "triage": "a TriageResult with malformed data that causes build_afspec_from_triage to raise"
+      },
+      "expected": {
+        "_render_criteria_context_called": true,
+        "no_exception_raised": true,
+        "system_prompt_returned": "non-empty string built from fallback ad-hoc criteria context",
+        "warning_logged": true
+      },
+      "assertion_pseudocode": "mock build_afspec_from_triage raising ValueError('malformed triage')\nmock _render_criteria_context returning '## Acceptance Criteria from Triage\\n...'\nmock build_system_prompt capturing context\ncapture warning logs\n\n// Should NOT raise\nsystem_prompt, task_prompt = _build_coder_prompt(spec, triage, issue_body)\n\nassert _render_criteria_context called once\nassert at least one WARNING log entry containing description of failure\nassert isinstance(system_prompt, str) and len(system_prompt) > 0\nassert build_system_prompt called with context containing '## Acceptance Criteria from Triage'"
+    },
+    {
+      "id": "TS-02-E2",
+      "requirement_id": "02-REQ-2.E1",
+      "kind": "unit",
+      "description": "Verifies that when `build_afspec_from_triage()` raises an exception inside `_build_reviewer_prompt()`, a warning is logged and the function falls back to `_render_criteria_context()` without propagating the exception.",
+      "preconditions": [
+        "`build_afspec_from_triage` is mocked to raise a `ValueError` (simulating malformed triage data)",
+        "`_render_criteria_context` is mocked to return a fallback ad-hoc criteria string",
+        "`build_system_prompt` is mocked",
+        "A logging warning capture mechanism is in place"
+      ],
+      "input": {
+        "spec": "a fake spec object",
+        "triage": "a TriageResult with malformed data that causes build_afspec_from_triage to raise"
+      },
+      "expected": {
+        "_render_criteria_context_called": true,
+        "no_exception_raised": true,
+        "system_prompt_returned": "non-empty string built from fallback ad-hoc criteria context",
+        "warning_logged": true
+      },
+      "assertion_pseudocode": "mock build_afspec_from_triage raising ValueError('malformed triage')\nmock _render_criteria_context returning '## Acceptance Criteria from Triage\\n...'\nmock build_system_prompt capturing context\ncapture warning logs\n\n// Should NOT raise\nsystem_prompt, task_prompt = _build_reviewer_prompt(spec, triage, issue_body)\n\nassert _render_criteria_context called once\nassert at least one WARNING log entry\nassert isinstance(system_prompt, str) and len(system_prompt) > 0"
+    }
+  ],
+  "smoke_tests": [
+    {
+      "id": "TS-02-SMOKE-1",
+      "execution_path_id": "02-PATH-1",
+      "description": "End-to-end smoke test for the happy path: coder prompt is built with afspec-rendered context when `build_afspec_from_triage()` succeeds.",
+      "trigger": "Call `_build_coder_prompt(spec, triage, issue_body)` with a valid `TriageResult` containing acceptance criteria, with `build_afspec_from_triage` and `render_inmemory_spec_sections` using real implementations from spec 01.",
+      "real_components": [
+        "_build_coder_prompt() in agentfox/nightshift/fix_pipeline.py",
+        "build_afspec_from_triage() from agentfox/nightshift/spec_builder.py (spec 01)",
+        "render_inmemory_spec_sections() from agentfox/nightshift/spec_builder.py (spec 01)",
+        "build_system_prompt() utility"
+      ],
+      "mockable": [
+        "build_system_prompt() (capture context arg without full LLM integration)"
+      ],
+      "expected_effects": [
+        "build_afspec_from_triage() is called with the spec and triage arguments",
+        "render_inmemory_spec_sections() is called with the returned afspec Spec object",
+        "The context passed to build_system_prompt() begins with the issue body and contains ## Requirements, ## Test Specification, and ## Tasks sections",
+        "The returned task_prompt contains 'Refer to the tasks subtask list in the context above'",
+        "No exception is raised",
+        "_render_criteria_context() is NOT called"
+      ]
+    },
+    {
+      "id": "TS-02-SMOKE-2",
+      "execution_path_id": "02-PATH-2",
+      "description": "End-to-end smoke test for the fallback path: when `build_afspec_from_triage()` raises, `_build_coder_prompt()` falls back to ad-hoc criteria rendering and does not propagate the exception.",
+      "trigger": "Call `_build_coder_prompt(spec, triage, issue_body)` with `build_afspec_from_triage` mocked to raise a `ValueError`.",
+      "real_components": [
+        "_build_coder_prompt() in agentfox/nightshift/fix_pipeline.py",
+        "_render_criteria_context() in agentfox/nightshift/fix_pipeline.py (fallback)",
+        "build_system_prompt() utility",
+        "Python logging infrastructure"
+      ],
+      "mockable": [
+        "build_afspec_from_triage() (mocked to raise ValueError)",
+        "build_system_prompt() (capture context arg)"
+      ],
+      "expected_effects": [
+        "No exception propagated to the caller",
+        "A WARNING-level log entry is emitted describing the afspec construction failure",
+        "_render_criteria_context() is called once",
+        "The context passed to build_system_prompt() contains the ad-hoc criteria text",
+        "A valid (system_prompt, task_prompt) tuple is returned"
+      ]
+    },
+    {
+      "id": "TS-02-SMOKE-3",
+      "execution_path_id": "02-PATH-3",
+      "description": "End-to-end smoke test for the happy path: reviewer prompt is built with the same afspec-rendered context pipeline as the coder prompt.",
+      "trigger": "Call `_build_reviewer_prompt(spec, triage, issue_body)` with a valid `TriageResult` containing acceptance criteria.",
+      "real_components": [
+        "_build_reviewer_prompt() in agentfox/nightshift/fix_pipeline.py",
+        "build_afspec_from_triage() from agentfox/nightshift/spec_builder.py (spec 01)",
+        "render_inmemory_spec_sections() from agentfox/nightshift/spec_builder.py (spec 01)",
+        "build_system_prompt() utility"
+      ],
+      "mockable": [
+        "build_system_prompt() (capture context arg)"
+      ],
+      "expected_effects": [
+        "build_afspec_from_triage() is called with the spec and triage arguments",
+        "render_inmemory_spec_sections() is called with the returned afspec Spec",
+        "The context passed to build_system_prompt() starts with issue body and contains ## Requirements, ## Test Specification, ## Tasks sections",
+        "The returned task_prompt instructs the reviewer to verify each acceptance criterion",
+        "No exception is raised"
+      ]
+    },
+    {
+      "id": "TS-02-SMOKE-4",
+      "execution_path_id": "02-PATH-4",
+      "description": "End-to-end smoke test for the empty triage path: reviewer receives the exact fallback message when TriageResult has no acceptance criteria.",
+      "trigger": "Call `_build_reviewer_prompt(spec, triage, issue_body)` with a `TriageResult` whose `acceptance_criteria` list is empty.",
+      "real_components": [
+        "_build_reviewer_prompt() in agentfox/nightshift/fix_pipeline.py",
+        "TriageResult dataclass from agentfox/nightshift/fix_pipeline.py"
+      ],
+      "mockable": [
+        "build_system_prompt() (not necessarily needed but can be mocked to simplify)",
+        "build_afspec_from_triage() (may be mocked to avoid side effects on empty triage)"
+      ],
+      "expected_effects": [
+        "The returned task_prompt contains 'No acceptance criteria were produced by triage. Verify the fix based on the issue description above.'",
+        "No exception is raised",
+        "A valid (system_prompt, task_prompt) tuple is returned"
+      ]
+    },
+    {
+      "id": "TS-02-SMOKE-5",
+      "execution_path_id": "02-PATH-5",
+      "description": "End-to-end smoke test confirming that `_format_triage_comment()` continues to call `_render_criteria_section()` with `bold=True` and produces a human-readable bold-formatted GitHub comment without using afspec rendering.",
+      "trigger": "Call `_format_triage_comment(triage)` with a `TriageResult` containing acceptance criteria.",
+      "real_components": [
+        "_format_triage_comment() in agentfox/nightshift/fix_pipeline.py",
+        "_render_criteria_section() in agentfox/nightshift/fix_pipeline.py"
+      ],
+      "mockable": [
+        "render_inmemory_spec_sections() (to confirm it is never called)"
+      ],
+      "expected_effects": [
+        "_render_criteria_section() is called with bold=True",
+        "render_inmemory_spec_sections() is NOT called",
+        "The returned string is a non-empty GitHub comment with bold-formatted acceptance criteria headings",
+        "No exception is raised"
+      ]
+    }
+  ],
+  "coverage": {
+    "requirements_covered": [],
+    "properties_covered": [],
+    "paths_covered": [],
+    "gaps": []
+  }
+}

@@ -121,10 +121,15 @@ class CoderReviewerLoop:
         """Run one coder session, emitting events and tracking metrics."""
         p = self._pipeline
 
+        # Convert FixReviewResult to text for the coder prompt (02-REQ-1.3)
+        feedback_text: str | None = None
+        if review_feedback is not None:
+            feedback_text = p._render_review_feedback(review_feedback)
+
         system_prompt, task_prompt = p._build_coder_prompt(
             spec,
             triage,
-            review_feedback=review_feedback,
+            review_feedback=feedback_text,
             prior_context=prior_context,
         )
         node_id = f"fix-issue-{spec.issue_number}:0:coder"

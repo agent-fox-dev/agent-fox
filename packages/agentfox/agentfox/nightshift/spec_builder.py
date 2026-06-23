@@ -1,15 +1,35 @@
 """In-memory spec builder and branch name utilities.
 
-Requirements: 61-REQ-6.1, 61-REQ-6.2
+Requirements: 61-REQ-6.1, 61-REQ-6.2, 01-REQ-1.1 through 01-REQ-7.2
 """
 
-from __future__ import annotations
-
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+import afspec
+from afspec.models import (
+    Criterion,
+    PRDDocument,
+    PRDFrontmatter,
+    Requirement,
+    Requirements,
+    Spec,
+    Subtask,
+    SubtaskState,
+    TaskGroup,
+    TaskGroupKind,
+    Tasks,
+    TestCase,
+    TestSpec,
+    UserStory,
+)
 
 from agentfox.core.prompt_safety import sanitize_prompt_content
 from agentfox.platform.protocol import IssueResult
+
+if TYPE_CHECKING:
+    from agentfox.nightshift.fix_pipeline import TriageResult
 
 
 @dataclass(frozen=True)
@@ -24,6 +44,195 @@ class InMemorySpec:
     task_prompt: str
     system_context: str
     branch_name: str
+
+
+def build_afspec_from_triage(
+    triage_result: "TriageResult",
+    issue_number: int,
+) -> Spec:
+    """Build an afspec Spec from triage results.
+
+    Converts a TriageResult into a fully populated in-memory afspec Spec
+    with Requirements, TestSpec, Tasks, and PRDDocument — no file I/O.
+
+    Requirements: 01-REQ-1.1, 01-REQ-1.2, 01-REQ-1.3,
+                  01-REQ-2.1 through 01-REQ-2.5,
+                  01-REQ-3.1 through 01-REQ-3.5,
+                  01-REQ-4.1, 01-REQ-4.2,
+                  01-REQ-5.1, 01-REQ-5.2,
+                  01-REQ-7.1, 01-REQ-7.2
+    """
+    criteria = triage_result.criteria
+
+    # --- Requirements mapping (01-REQ-2) ---
+    requirements: list[Requirement] = []
+    for n, c in enumerate(criteria, start=1):
+        desc = c.description if c.description else ""
+        preconds = c.preconditions if c.preconditions else ""
+        expected = c.expected if c.expected else ""
+        assertion = c.assertion if c.assertion else ""
+
+        ac_criterion = Criterion(
+            id=f"NS-REQ-{n}.1",
+            condition=preconds,
+            action=expected,
+        )
+
+        requirements.append(
+            Requirement(
+                id=f"NS-REQ-{n}",
+                title=desc,
+                user_story=UserStory(goal=desc),
+                acceptance_criteria=[ac_criterion],
+                edge_cases=[],
+            )
+        )
+
+    # --- TestCase derivation (01-REQ-3) ---
+    test_cases: list[TestCase] = []
+    for n, c in enumerate(criteria, start=1):
+        desc = c.description if c.description else ""
+        preconds = c.preconditions if c.preconditions else ""
+        expected = c.expected if c.expected else ""
+        assertion = c.assertion if c.assertion else ""
+
+        # Convert preconditions string to list
+        preconditions_list: list[str] = [preconds] if preconds else []
+
+        test_cases.append(
+            TestCase(
+                id=f"TS-NS-{n}",
+                requirement_id=f"NS-REQ-{n}",
+                description=desc,
+                preconditions=preconditions_list,
+                expected=expected,
+                assertion_pseudocode=assertion,
+                input="",
+                kind="acceptance",
+            )
+        )
+
+    # --- TaskGroup and Subtask construction (01-REQ-4) ---
+    subtasks: list[Subtask] = []
+    if criteria:
+        for n, c in enumerate(criteria, start=1):
+            desc = c.description if c.description else ""
+            preconds = c.preconditions if c.preconditions else ""
+            expected = c.expected if c.expected else ""
+            assertion = c.assertion if c.assertion else ""
+
+            details: list[str] = []
+            if preconds:
+                details.append(preconds)
+            if expected:
+                details.append(expected)
+            if assertion:
+                details.append(assertion)
+
+            subtasks.append(
+                Subtask(
+                    id=f"1.{n}",
+                    title=desc,
+                    details=details,
+                    state=SubtaskState.PENDING,
+                    test_spec_refs=[f"TS-NS-{n}"],
+                    requirement_refs=[f"NS-REQ-{n}"],
+                )
+            )
+    else:
+        # 01-REQ-1.E1, 01-REQ-4.E1: fallback Subtask
+        subtasks.append(
+            Subtask(
+                id="1.1",
+                title="Fix the issue",
+                details=[],
+                state=SubtaskState.PENDING,
+                test_spec_refs=[],
+                requirement_refs=[],
+            )
+        )
+
+    task_group = TaskGroup(
+        id=1,
+        kind=TaskGroupKind.TESTS,
+        title=f"Fix issue #{issue_number}",
+        subtasks=subtasks,
+    )
+
+    # --- PRDDocument construction (01-REQ-5) ---
+    issue_body = triage_result.issue_body if hasattr(triage_result, "issue_body") else ""
+    frontmatter = PRDFrontmatter(
+        spec_id=f"fix-{issue_number}",
+        spec_name=f"fix_issue_{issue_number}",
+    )
+    prd = PRDDocument(
+        frontmatter=frontmatter,
+        body=issue_body if issue_body else "",
+    )
+
+    # --- Assemble final Spec (01-REQ-1.1) ---
+    return Spec(
+        requirements=Requirements(requirements=requirements),
+        test_spec=TestSpec(test_cases=test_cases),
+        tasks=Tasks(task_groups=[task_group]),
+        prd=prd,
+    )
+
+
+@dataclass(frozen=True)
+class AfspecContext:
+    """Structured afspec context built from triage criteria.
+
+    Legacy type retained for backward compatibility with spec-02 callers.
+
+    Requirements: 02-REQ-1.1, 02-REQ-2.1
+    """
+
+    requirements: list[str] = field(default_factory=list)
+    test_specifications: list[str] = field(default_factory=list)
+    tasks: list[str] = field(default_factory=list)
+
+
+def render_inmemory_spec_sections(
+    spec_or_context: Spec | AfspecContext,
+) -> str | list[str]:
+    """Render an in-memory spec into markdown sections.
+
+    Accepts either an afspec Spec or a legacy AfspecContext.
+
+    When given a Spec, delegates to ``afspec.render_individual`` and returns
+    a list of section strings (header + content).
+    When given a legacy AfspecContext, renders inline and returns a single
+    string (backward-compatible with the spec-02 pipeline).
+
+    Requirements: 02-REQ-1.1, 02-REQ-2.1
+    """
+    if isinstance(spec_or_context, Spec):
+        rendered = afspec.render_individual(spec_or_context)
+        sections: list[str] = []
+        section_headers = {
+            "requirements": "## Requirements",
+            "test_spec": "## Test Specification",
+            "tasks": "## Tasks",
+        }
+        for key, header in section_headers.items():
+            content = rendered.get(key, "")
+            if content:
+                sections.append(f"{header}\n\n{content}")
+        return sections
+
+    # Legacy AfspecContext path
+    lines: list[str] = []
+    lines.append("## Requirements")
+    lines.extend(spec_or_context.requirements)
+    lines.append("")
+    lines.append("## Test Specification")
+    lines.extend(spec_or_context.test_specifications)
+    lines.append("")
+    lines.append("## Tasks")
+    lines.extend(spec_or_context.tasks)
+    lines.append("")
+    return "\n".join(lines)
 
 
 def sanitise_branch_name(title: str, issue_number: int | None = None) -> str:

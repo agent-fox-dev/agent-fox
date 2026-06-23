@@ -175,8 +175,9 @@ class TestCoderPromptIncludesCriteria:
 
         system_prompt, task_prompt = pipeline._build_coder_prompt(spec, triage_result)
 
-        assert "AC-1" in system_prompt
-        assert "AC-2" in system_prompt
+        # After spec 01, criteria are rendered via afspec with NS-REQ-{N} IDs
+        assert "NS-REQ-1" in system_prompt
+        assert "NS-REQ-2" in system_prompt
         assert triage_result.criteria[0].description in system_prompt
 
 
@@ -202,7 +203,8 @@ class TestReviewerPromptIncludesCriteria:
 
         system_prompt, task_prompt = pipeline._build_reviewer_prompt(spec, triage_result)
 
-        assert "AC-1" in system_prompt
+        # After spec 01, criteria are rendered via afspec with NS-REQ-{N} IDs
+        assert "NS-REQ-1" in system_prompt
         assert triage_result.criteria[0].description in system_prompt
 
 

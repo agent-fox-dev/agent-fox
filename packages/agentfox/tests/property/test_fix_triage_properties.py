@@ -282,7 +282,9 @@ class TestRetryFeedbackInjection:
         config = MagicMock()
         pipeline = FixPipeline(config=config, platform=MagicMock())
 
-        _, task_prompt = pipeline._build_coder_prompt(spec, triage_result, review_feedback=review_result)
+        # Convert FixReviewResult to text (02-REQ-1.3: review_feedback is now a string)
+        feedback_text = pipeline._render_review_feedback(review_result)
+        _, task_prompt = pipeline._build_coder_prompt(spec, triage_result, review_feedback=feedback_text)
 
         # Every FAIL evidence must appear in the task prompt
         combined = task_prompt

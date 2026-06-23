@@ -1,0 +1,687 @@
+{
+  "$schema": null,
+  "spec_id": "02",
+  "spec_name": "nightshift_prompt_alignment",
+  "schema_version": 1,
+  "test_commands": {
+    "spec_tests": "pytest tests/nightshift/test_prompt_alignment.py -q -v",
+    "all_tests": "pytest -q",
+    "linter": "ruff check agentfox/nightshift/fix_pipeline.py"
+  },
+  "dependencies": [
+    {
+      "depends_on_spec": "01",
+      "from_group": 1,
+      "to_group": 1,
+      "relationship": "Uses build_afspec_from_triage() and render_inmemory_spec_sections() from spec 01",
+      "sentinel": true
+    }
+  ],
+  "task_groups": [
+    {
+      "id": 1,
+      "kind": "tests",
+      "title": "Write spec tests for prompt alignment changes",
+      "subtasks": [
+        {
+          "id": "1.1",
+          "title": "Create test module and fixtures for fix_pipeline prompt tests",
+          "details": [
+            "Create tests/nightshift/test_prompt_alignment.py",
+            "Define shared pytest fixtures: fake_spec, valid_triage_result (2 criteria), empty_triage_result, issue_body string",
+            "Set up mock targets for build_afspec_from_triage, render_inmemory_spec_sections, build_system_prompt, _render_criteria_context",
+            "Ensure TriageResult and AcceptanceCriterion can be imported and constructed in tests"
+          ],
+          "test_spec_refs": [
+            "TS-02-1",
+            "TS-02-5"
+          ],
+          "requirement_refs": [
+            "02-REQ-1",
+            "02-REQ-2"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "1.2",
+          "title": "Write unit tests for _build_coder_prompt() happy path and task prompt phrasing",
+          "details": [
+            "TS-02-1: Mock build_afspec_from_triage, render_inmemory_spec_sections, build_system_prompt; assert context kwarg starts with issue body and contains ## Requirements, ## Test Specification, ## Tasks in order",
+            "TS-02-2: Assert task prompt contains exact phrase 'Refer to the tasks subtask list in the context above'",
+            "TS-02-3: Provide review_feedback kwarg; assert it appears in task prompt after base instructions",
+            "TS-02-4: Provide prior_context kwarg; assert it appears in task prompt before base instructions"
+          ],
+          "test_spec_refs": [
+            "TS-02-1",
+            "TS-02-2",
+            "TS-02-3",
+            "TS-02-4"
+          ],
+          "requirement_refs": [
+            "02-REQ-1.1",
+            "02-REQ-1.2",
+            "02-REQ-1.3",
+            "02-REQ-1.4"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "1.3",
+          "title": "Write unit tests for _build_reviewer_prompt() happy path and edge cases",
+          "details": [
+            "TS-02-5: Mock build_afspec_from_triage, render_inmemory_spec_sections, build_system_prompt; assert context kwarg starts with issue body and contains all three ## sections",
+            "TS-02-6: Assert task prompt instructs reviewer to verify each acceptance criterion",
+            "TS-02-7: Pass TriageResult with acceptance_criteria=[]; assert task prompt contains exact fallback message 'No acceptance criteria were produced by triage. Verify the fix based on the issue description above.'"
+          ],
+          "test_spec_refs": [
+            "TS-02-5",
+            "TS-02-6",
+            "TS-02-7"
+          ],
+          "requirement_refs": [
+            "02-REQ-2.1",
+            "02-REQ-2.2",
+            "02-REQ-2.3"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "1.4",
+          "title": "Write edge case and fallback tests for build_afspec_from_triage() failure",
+          "details": [
+            "TS-02-E1: Mock build_afspec_from_triage to raise ValueError; assert _render_criteria_context is called once, a WARNING log entry is emitted (use pytest caplog), no exception propagates, returned system_prompt is non-empty string built from fallback context",
+            "TS-02-E2: Same scenario for _build_reviewer_prompt(); assert identical fallback behavior"
+          ],
+          "test_spec_refs": [
+            "TS-02-E1",
+            "TS-02-E2"
+          ],
+          "requirement_refs": [
+            "02-REQ-1.E1",
+            "02-REQ-2.E1"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "1.5",
+          "title": "Write static analysis tests and triage comment / verdict format tests",
+          "details": [
+            "TS-02-8: Read fix_pipeline.py source; assert 'def _render_criteria_context' present, 'fallback' comment near definition, all call sites are inside except blocks",
+            "TS-02-9: Read fix_pipeline.py source; assert 'def _render_criteria_section' present and '_render_criteria_section' appears inside _format_triage_comment body",
+            "TS-02-10: Mock _render_criteria_section and render_inmemory_spec_sections; call _format_triage_comment(triage); assert _render_criteria_section called with bold=True, render_inmemory_spec_sections never called, return value is non-empty string",
+            "TS-02-11: Import parse_fix_review_output; pass JSON with criterion_id='NS-REQ-1'; assert FixReviewResult fields match"
+          ],
+          "test_spec_refs": [
+            "TS-02-8",
+            "TS-02-9",
+            "TS-02-10",
+            "TS-02-11"
+          ],
+          "requirement_refs": [
+            "02-REQ-3.1",
+            "02-REQ-3.2",
+            "02-REQ-4.1",
+            "02-REQ-5.1"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "1.6",
+          "title": "Write property tests and smoke test stubs",
+          "details": [
+            "TS-02-P1: Parameterize over various valid TriageResult sizes (1\u201320 criteria); mock build_afspec_from_triage to succeed; assert _render_criteria_context call count == 0 for both prompt builders",
+            "TS-02-P2: Parameterize over various issue_body and TriageResult values; assert index(issue_body) < index of first '##' in captured context for both prompt builders; include fallback-triggering cases",
+            "TS-02-P3: Parameterize over (triage, review_feedback, prior_context) triples (valid and malformed triage); assert prior_context position < review_feedback position in task_prompt",
+            "TS-02-P4: Parameterize over various TriageResult values; assert _render_criteria_section called with bold=True and render_inmemory_spec_sections never called",
+            "TS-02-P5: Parameterize over arbitrary criterion_id strings; assert parse_fix_review_output returns FixReviewResult with matching fields",
+            "Smoke tests: add @pytest.mark.smoke markers; stubs call real implementations where available, mock only build_system_prompt to avoid LLM I/O"
+          ],
+          "test_spec_refs": [
+            "TS-02-P1",
+            "TS-02-P2",
+            "TS-02-P3",
+            "TS-02-P4",
+            "TS-02-P5",
+            "TS-02-SMOKE-1",
+            "TS-02-SMOKE-2",
+            "TS-02-SMOKE-3",
+            "TS-02-SMOKE-4",
+            "TS-02-SMOKE-5"
+          ],
+          "requirement_refs": [
+            "02-PROP-1",
+            "02-PROP-2",
+            "02-PROP-3",
+            "02-PROP-4",
+            "02-PROP-5"
+          ],
+          "state": "done",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "1.V",
+        "checks": [
+          "All newly written tests are collected by pytest with no import errors: pytest tests/nightshift/test_prompt_alignment.py --collect-only -q",
+          "Tests that are expected to fail (xfail / skip) before implementation are correctly marked; no unexpected passes",
+          "No linter warnings in the test file: ruff check tests/nightshift/test_prompt_alignment.py",
+          "Test IDs TS-02-1 through TS-02-11, TS-02-E1, TS-02-E2, TS-02-P1 through TS-02-P5, and TS-02-SMOKE-1 through TS-02-SMOKE-5 are all present in the collected test suite"
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "kind": "standard",
+      "title": "Integrate afspec rendering into _build_coder_prompt()",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Import build_afspec_from_triage and render_inmemory_spec_sections in fix_pipeline.py",
+          "details": [
+            "Add import of build_afspec_from_triage and render_inmemory_spec_sections from agentfox.nightshift.spec_builder at the top of fix_pipeline.py",
+            "Confirm spec 01 is available as a dependency before proceeding",
+            "Ensure no circular imports are introduced"
+          ],
+          "test_spec_refs": [
+            "TS-02-1"
+          ],
+          "requirement_refs": [
+            "02-REQ-1.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.2",
+          "title": "Rewrite _build_coder_prompt() to use afspec-rendered context on the happy path",
+          "details": [
+            "Call build_afspec_from_triage(spec, triage) to obtain the afspec Spec object",
+            "Call render_inmemory_spec_sections(afspec_spec) to obtain the markdown sections string",
+            "Join issue body context (first) with rendered sections, then pass combined string as the context kwarg to build_system_prompt()",
+            "Update the task prompt string to include the exact phrase: 'Refer to the tasks subtask list in the context above'"
+          ],
+          "test_spec_refs": [
+            "TS-02-1",
+            "TS-02-2"
+          ],
+          "requirement_refs": [
+            "02-REQ-1.1",
+            "02-REQ-1.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.3",
+          "title": "Add exception fallback with warning log in _build_coder_prompt()",
+          "details": [
+            "Wrap build_afspec_from_triage() call in a try/except block catching Exception",
+            "In the except block: emit a warning-level log entry describing the failure (include exception message)",
+            "In the except block: call _render_criteria_context() to produce fallback ad-hoc criteria context and continue prompt construction",
+            "Ensure no exception is propagated to the caller"
+          ],
+          "test_spec_refs": [
+            "TS-02-E1"
+          ],
+          "requirement_refs": [
+            "02-REQ-1.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.4",
+          "title": "Preserve review_feedback and prior_context injection in _build_coder_prompt()",
+          "details": [
+            "Ensure prior_context is prepended to the task prompt when provided (before base task instructions)",
+            "Ensure review_feedback is appended to the task prompt when provided (after base task instructions)",
+            "Both injections must apply regardless of whether the afspec or fallback path was taken"
+          ],
+          "test_spec_refs": [
+            "TS-02-3",
+            "TS-02-4"
+          ],
+          "requirement_refs": [
+            "02-REQ-1.3",
+            "02-REQ-1.4"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "2.V",
+        "checks": [
+          "Unit tests TS-02-1, TS-02-2, TS-02-3, TS-02-4, TS-02-E1 all pass: pytest tests/nightshift/test_prompt_alignment.py -q -k 'test_coder'",
+          "No linter warnings in fix_pipeline.py: ruff check agentfox/nightshift/fix_pipeline.py",
+          "All existing tests still pass: pytest -q",
+          "02-REQ-1.1, 02-REQ-1.2, 02-REQ-1.3, 02-REQ-1.4, 02-REQ-1.E1 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "kind": "standard",
+      "title": "Integrate afspec rendering into _build_reviewer_prompt()",
+      "subtasks": [
+        {
+          "id": "3.1",
+          "title": "Rewrite _build_reviewer_prompt() to use afspec-rendered context on the happy path",
+          "details": [
+            "Apply the same build_afspec_from_triage() + render_inmemory_spec_sections() pipeline used in _build_coder_prompt()",
+            "Join issue body context (first) with rendered sections, pass combined context to build_system_prompt()",
+            "Construct task prompt instructing the reviewer to verify each acceptance criterion against the structured requirements in context"
+          ],
+          "test_spec_refs": [
+            "TS-02-5",
+            "TS-02-6"
+          ],
+          "requirement_refs": [
+            "02-REQ-2.1",
+            "02-REQ-2.2"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "3.2",
+          "title": "Preserve empty-triage fallback message in _build_reviewer_prompt()",
+          "details": [
+            "Before calling build_afspec_from_triage(), check if TriageResult has no acceptance criteria",
+            "When empty: produce task prompt containing exact string 'No acceptance criteria were produced by triage. Verify the fix based on the issue description above.'",
+            "This check must be made before the afspec rendering attempt to avoid unnecessary work on empty triage"
+          ],
+          "test_spec_refs": [
+            "TS-02-7"
+          ],
+          "requirement_refs": [
+            "02-REQ-2.3"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "3.3",
+          "title": "Add exception fallback with warning log in _build_reviewer_prompt()",
+          "details": [
+            "Wrap build_afspec_from_triage() call in a try/except block catching Exception",
+            "In the except block: emit a warning-level log entry describing the failure",
+            "In the except block: call _render_criteria_context() to produce fallback ad-hoc criteria context and continue reviewer prompt construction",
+            "Ensure no exception is propagated to the caller"
+          ],
+          "test_spec_refs": [
+            "TS-02-E2"
+          ],
+          "requirement_refs": [
+            "02-REQ-2.E1"
+          ],
+          "state": "done",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "3.V",
+        "checks": [
+          "Unit tests TS-02-5, TS-02-6, TS-02-7, TS-02-E2 all pass: pytest tests/nightshift/test_prompt_alignment.py -q -k 'test_reviewer'",
+          "No linter warnings in fix_pipeline.py: ruff check agentfox/nightshift/fix_pipeline.py",
+          "All existing tests still pass: pytest -q",
+          "02-REQ-2.1, 02-REQ-2.2, 02-REQ-2.3, 02-REQ-2.E1 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "kind": "standard",
+      "title": "Mark _render_criteria_context() as fallback-only and preserve _render_criteria_section()",
+      "subtasks": [
+        {
+          "id": "4.1",
+          "title": "Add fallback-only comment to _render_criteria_context() and verify call sites",
+          "details": [
+            "Add a prominent code comment immediately above or inside _render_criteria_context() stating it is a fallback only and must not be called on the happy path",
+            "Verify (via grep or AST inspection) that _render_criteria_context() is only called inside except blocks in _build_coder_prompt() and _build_reviewer_prompt()",
+            "Do not remove or rename the function \u2014 it serves the resilience fallback purpose"
+          ],
+          "test_spec_refs": [
+            "TS-02-8"
+          ],
+          "requirement_refs": [
+            "02-REQ-3.1"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "4.2",
+          "title": "Confirm _render_criteria_section() is retained for _format_triage_comment()",
+          "details": [
+            "Verify _render_criteria_section() is still defined in fix_pipeline.py and is called with bold=True from _format_triage_comment()",
+            "Do NOT modify _format_triage_comment() to use afspec rendering",
+            "Confirm render_inmemory_spec_sections is not imported or called anywhere in _format_triage_comment()"
+          ],
+          "test_spec_refs": [
+            "TS-02-9",
+            "TS-02-10"
+          ],
+          "requirement_refs": [
+            "02-REQ-3.2",
+            "02-REQ-4.1"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "4.3",
+          "title": "Confirm parse_fix_review_output and FixReviewResult are unmodified",
+          "details": [
+            "Verify FixReviewResult dataclass fields (criterion_id, verdict, evidence) are unchanged",
+            "Verify parse_fix_review_output signature and implementation are unchanged",
+            "Run TS-02-11: parse a JSON verdict with criterion_id='NS-REQ-1' and assert result fields match"
+          ],
+          "test_spec_refs": [
+            "TS-02-11"
+          ],
+          "requirement_refs": [
+            "02-REQ-5.1"
+          ],
+          "state": "done",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "4.V",
+        "checks": [
+          "Static tests TS-02-8, TS-02-9 pass: pytest tests/nightshift/test_prompt_alignment.py -q -k 'static'",
+          "Unit tests TS-02-10, TS-02-11 pass: pytest tests/nightshift/test_prompt_alignment.py -q -k 'triage_comment or verdict'",
+          "No linter warnings: ruff check agentfox/nightshift/fix_pipeline.py",
+          "02-REQ-3.1, 02-REQ-3.2, 02-REQ-4.1, 02-REQ-5.1 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "kind": "checkpoint",
+      "title": "Run full property-test suite and confirm all unit tests pass",
+      "subtasks": [
+        {
+          "id": "5.1",
+          "title": "Run property tests TS-02-P1 through TS-02-P5",
+          "details": [
+            "Execute all property tests: pytest tests/nightshift/test_prompt_alignment.py -q -k 'property'",
+            "Confirm TS-02-P1 passes: _render_criteria_context never called when build_afspec_from_triage succeeds",
+            "Confirm TS-02-P2 passes: issue body always precedes spec sections in combined context",
+            "Confirm TS-02-P3 passes: prior_context and review_feedback always appear in correct positions",
+            "Confirm TS-02-P4 passes: _format_triage_comment always uses _render_criteria_section(bold=True)",
+            "Confirm TS-02-P5 passes: parse_fix_review_output accepts arbitrary criterion_id values"
+          ],
+          "test_spec_refs": [
+            "TS-02-P1",
+            "TS-02-P2",
+            "TS-02-P3",
+            "TS-02-P4",
+            "TS-02-P5"
+          ],
+          "requirement_refs": [
+            "02-PROP-1",
+            "02-PROP-2",
+            "02-PROP-3",
+            "02-PROP-4",
+            "02-PROP-5"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "5.2",
+          "title": "Run full spec unit-test suite and confirm no regressions",
+          "details": [
+            "Run: pytest tests/nightshift/test_prompt_alignment.py -q -v",
+            "All 13 unit/static tests and 2 edge case tests must pass",
+            "Run full test suite: pytest -q \u2014 confirm zero regressions in unrelated tests"
+          ],
+          "test_spec_refs": [
+            "TS-02-1",
+            "TS-02-2",
+            "TS-02-3",
+            "TS-02-4",
+            "TS-02-5",
+            "TS-02-6",
+            "TS-02-7",
+            "TS-02-8",
+            "TS-02-9",
+            "TS-02-10",
+            "TS-02-11",
+            "TS-02-E1",
+            "TS-02-E2"
+          ],
+          "requirement_refs": [
+            "02-REQ-1",
+            "02-REQ-2",
+            "02-REQ-3",
+            "02-REQ-4",
+            "02-REQ-5"
+          ],
+          "state": "done",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "5.V",
+        "checks": [
+          "All spec tests pass: pytest tests/nightshift/test_prompt_alignment.py -q \u2014 0 failures, 0 errors",
+          "Full test suite passes: pytest -q \u2014 no regressions",
+          "No linter warnings anywhere in agentfox/nightshift/: ruff check agentfox/nightshift/",
+          "All correctness properties 02-PROP-1 through 02-PROP-5 verified by property tests"
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "kind": "wiring_verification",
+      "title": "End-to-end wiring verification and smoke tests",
+      "subtasks": [
+        {
+          "id": "6.1",
+          "title": "Trace execution paths and verify no stubs remain in prompt-building functions",
+          "details": [
+            "Inspect _build_coder_prompt() source: confirm it calls build_afspec_from_triage() \u2192 render_inmemory_spec_sections() \u2192 build_system_prompt() in order with no raise NotImplementedError, pass, or return None stubs",
+            "Inspect _build_reviewer_prompt() source: confirm the same chain with no stubs",
+            "Search fix_pipeline.py for stub markers: grep -n 'raise NotImplementedError\\|pass$\\|return None' agentfox/nightshift/fix_pipeline.py and confirm none appear in the prompt-building functions"
+          ],
+          "test_spec_refs": [
+            "TS-02-SMOKE-1",
+            "TS-02-SMOKE-3"
+          ],
+          "requirement_refs": [
+            "02-REQ-1.1",
+            "02-REQ-2.1"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "6.2",
+          "title": "Verify return value propagation from afspec rendering to build_system_prompt()",
+          "details": [
+            "Confirm that the string returned by render_inmemory_spec_sections() is not discarded \u2014 it must be joined with issue body and passed to build_system_prompt(context=...)",
+            "Confirm that the string returned by build_system_prompt() is the first element of the returned tuple from both prompt-building functions",
+            "Code-review the return statements to ensure no intermediate result is silently dropped"
+          ],
+          "test_spec_refs": [
+            "TS-02-SMOKE-1",
+            "TS-02-SMOKE-3"
+          ],
+          "requirement_refs": [
+            "02-REQ-1.1",
+            "02-REQ-2.1",
+            "02-PROP-2"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "6.3",
+          "title": "Run smoke tests TS-02-SMOKE-1 through TS-02-SMOKE-5 with real components",
+          "details": [
+            "TS-02-SMOKE-1: Call _build_coder_prompt() with real build_afspec_from_triage and render_inmemory_spec_sections (from spec 01); mock only build_system_prompt; verify context ordering and task prompt phrase",
+            "TS-02-SMOKE-2: Call _build_coder_prompt() with build_afspec_from_triage mocked to raise; verify fallback path, WARNING log, no exception",
+            "TS-02-SMOKE-3: Call _build_reviewer_prompt() with real spec 01 implementations; verify afspec sections appear in context",
+            "TS-02-SMOKE-4: Call _build_reviewer_prompt() with empty TriageResult; verify exact fallback message in task_prompt",
+            "TS-02-SMOKE-5: Call _format_triage_comment() with real _render_criteria_section; verify bold=True and render_inmemory_spec_sections never called",
+            "Run: pytest tests/nightshift/test_prompt_alignment.py -q -m smoke"
+          ],
+          "test_spec_refs": [
+            "TS-02-SMOKE-1",
+            "TS-02-SMOKE-2",
+            "TS-02-SMOKE-3",
+            "TS-02-SMOKE-4",
+            "TS-02-SMOKE-5"
+          ],
+          "requirement_refs": [
+            "02-REQ-1",
+            "02-REQ-2",
+            "02-REQ-4"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "6.4",
+          "title": "Stub and dead-code audit across fix_pipeline.py",
+          "details": [
+            "Search for Python stub markers in fix_pipeline.py: raise NotImplementedError, bare pass in non-abstract methods, TODO comments near new code",
+            "Confirm _render_criteria_context() is not called on the happy path (only in except blocks)",
+            "Confirm _render_criteria_section() is still present and called from _format_triage_comment()",
+            "Confirm no orphaned imports remain from the old ad-hoc rendering path"
+          ],
+          "test_spec_refs": [
+            "TS-02-8",
+            "TS-02-9"
+          ],
+          "requirement_refs": [
+            "02-REQ-3.1",
+            "02-REQ-3.2"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "6.5",
+          "title": "Cross-spec entry point verification: confirm spec 01 functions are called from production code",
+          "details": [
+            "Confirm that build_afspec_from_triage and render_inmemory_spec_sections are imported from agentfox.nightshift.spec_builder (spec 01) and called in production code, not only in tests",
+            "Verify the import statement appears at module level in fix_pipeline.py (not inside function bodies, unless lazy-loading is intentional)",
+            "Run a final full test suite pass: pytest -q \u2014 all tests green, no regressions"
+          ],
+          "test_spec_refs": [
+            "TS-02-SMOKE-1",
+            "TS-02-SMOKE-3"
+          ],
+          "requirement_refs": [
+            "02-REQ-1.1",
+            "02-REQ-2.1"
+          ],
+          "state": "done",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "6.V",
+        "checks": [
+          "All smoke tests pass with real spec 01 components: pytest tests/nightshift/test_prompt_alignment.py -q -m smoke",
+          "All spec tests pass: pytest tests/nightshift/test_prompt_alignment.py -q \u2014 0 failures",
+          "Full test suite passes with no regressions: pytest -q",
+          "No stub markers found in prompt-building functions: grep -n 'raise NotImplementedError' agentfox/nightshift/fix_pipeline.py returns no results in _build_coder_prompt or _build_reviewer_prompt",
+          "No linter warnings: ruff check agentfox/nightshift/fix_pipeline.py",
+          "build_afspec_from_triage and render_inmemory_spec_sections confirmed imported and called from production fix_pipeline.py",
+          "02-REQ-1, 02-REQ-2, 02-REQ-3, 02-REQ-4, 02-REQ-5 all acceptance criteria verified end-to-end"
+        ]
+      }
+    }
+  ],
+  "traceability": [
+    {
+      "requirement_id": "02-REQ-1.1",
+      "test_spec_id": "TS-02-1",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-1.2",
+      "test_spec_id": "TS-02-2",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-1.3",
+      "test_spec_id": "TS-02-3",
+      "task_id": "2.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-1.4",
+      "test_spec_id": "TS-02-4",
+      "task_id": "2.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-1.E1",
+      "test_spec_id": "TS-02-E1",
+      "task_id": "2.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-2.1",
+      "test_spec_id": "TS-02-5",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-2.2",
+      "test_spec_id": "TS-02-6",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-2.3",
+      "test_spec_id": "TS-02-7",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-2.E1",
+      "test_spec_id": "TS-02-E2",
+      "task_id": "3.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-3.1",
+      "test_spec_id": "TS-02-8",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-3.2",
+      "test_spec_id": "TS-02-9",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-4.1",
+      "test_spec_id": "TS-02-10",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-5.1",
+      "test_spec_id": "TS-02-11",
+      "task_id": "4.3",
+      "test_path": null
+    }
+  ]
+}

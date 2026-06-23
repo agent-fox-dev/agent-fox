@@ -1,0 +1,774 @@
+{
+  "$schema": null,
+  "spec_id": "01",
+  "spec_name": "nightshift_afspec_models",
+  "schema_version": 1,
+  "test_commands": {
+    "spec_tests": "pytest -q tests/test_nightshift_afspec_models.py -v",
+    "all_tests": "pytest -q",
+    "linter": "ruff check agentfox/nightshift/spec_builder.py agentfox/session/context.py"
+  },
+  "dependencies": [],
+  "task_groups": [
+    {
+      "id": 1,
+      "kind": "tests",
+      "title": "Write tests for build_afspec_from_triage and render_inmemory_spec_sections",
+      "subtasks": [
+        {
+          "id": "1.1",
+          "title": "Write acceptance tests for build_afspec_from_triage happy-path mapping (REQ-1, REQ-2, REQ-3)",
+          "details": [
+            "Create tests/test_nightshift_afspec_models.py with pytest fixtures for TriageResult and AcceptanceCriterion objects.",
+            "Implement TS-01-1: assert returned Spec has all four top-level fields populated (requirements, test_spec, tasks, prd).",
+            "Implement TS-01-3: assert function importable from agentfox.nightshift.spec_builder with correct signature (triage_result: TriageResult, issue_number: int) -> Spec.",
+            "Implement TS-01-4 through TS-01-8: assert Requirement.id follows NS-REQ-{N}, title equals description, user_story verbatim, acceptance_criteria has one entry, edge_cases is empty list.",
+            "Implement TS-01-9 through TS-01-13: assert TestCase.id follows TS-NS-{N}, requirement_id equals NS-REQ-{N}, description/preconditions/expected/assertion_pseudocode mapped correctly, input=='' and kind=='acceptance'."
+          ],
+          "test_spec_refs": [
+            "TS-01-1",
+            "TS-01-3",
+            "TS-01-4",
+            "TS-01-5",
+            "TS-01-6",
+            "TS-01-7",
+            "TS-01-8",
+            "TS-01-9",
+            "TS-01-10",
+            "TS-01-11",
+            "TS-01-12",
+            "TS-01-13"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.1",
+            "01-REQ-1.3",
+            "01-REQ-2.1",
+            "01-REQ-2.2",
+            "01-REQ-2.3",
+            "01-REQ-2.4",
+            "01-REQ-2.5",
+            "01-REQ-3.1",
+            "01-REQ-3.2",
+            "01-REQ-3.3",
+            "01-REQ-3.4",
+            "01-REQ-3.5"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "1.2",
+          "title": "Write acceptance tests for TaskGroup, Subtask, PRDDocument construction (REQ-4, REQ-5)",
+          "details": [
+            "Implement TS-01-14: assert single TaskGroup with id=1, kind='tests', title='Fix issue #{issue_number}'.",
+            "Implement TS-01-15: assert each Subtask has id '1.N', title equals description, details contains preconditions/expected/assertion, state=SubtaskState.PENDING, test_spec_refs=['TS-NS-{N}'], requirement_refs=['NS-REQ-{N}'].",
+            "Implement TS-01-16: assert PRDDocument frontmatter spec_id='fix-{issue_number}', spec_name='fix_issue_{issue_number}', body equals issue_body.",
+            "Implement TS-01-17: assert optional PRDDocument fields (status, created_at, owner) match Pydantic model defaults."
+          ],
+          "test_spec_refs": [
+            "TS-01-14",
+            "TS-01-15",
+            "TS-01-16",
+            "TS-01-17"
+          ],
+          "requirement_refs": [
+            "01-REQ-4.1",
+            "01-REQ-4.2",
+            "01-REQ-5.1",
+            "01-REQ-5.2"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "1.3",
+          "title": "Write acceptance tests for render_inmemory_spec_sections and _render_spec_sections refactor (REQ-6)",
+          "details": [
+            "Implement TS-01-18: assert render_inmemory_spec_sections returns a list of non-empty strings (markdown sections) when given a valid Spec.",
+            "Implement TS-01-19: assert no file I/O occurs during render_inmemory_spec_sections by patching builtins.open.",
+            "Implement TS-01-20: assert _render_spec_sections internally calls render_inmemory_spec_sections exactly once with the loaded Spec using unittest.mock.patch wraps=."
+          ],
+          "test_spec_refs": [
+            "TS-01-18",
+            "TS-01-19",
+            "TS-01-20"
+          ],
+          "requirement_refs": [
+            "01-REQ-6.1",
+            "01-REQ-6.2",
+            "01-REQ-6.3"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "1.4",
+          "title": "Write ID cross-reference consistency tests (REQ-7)",
+          "details": [
+            "Implement TS-01-21: for N=1..3, assert Requirement.id=='NS-REQ-{N}', TestCase.id=='TS-NS-{N}', Subtask.id=='1.N', and all share the same criterion description.",
+            "Implement TS-01-22: assert each Subtask.test_spec_refs==['TS-NS-{N}'] and requirement_refs==['NS-REQ-{N}'].",
+            "Implement TS-01-2: assert no file I/O in build_afspec_from_triage by patching builtins.open, afspec.load_spec, afspec.save and verifying call_count==0."
+          ],
+          "test_spec_refs": [
+            "TS-01-21",
+            "TS-01-22",
+            "TS-01-2"
+          ],
+          "requirement_refs": [
+            "01-REQ-7.1",
+            "01-REQ-7.2",
+            "01-REQ-1.2"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "1.5",
+          "title": "Write edge case and property-based tests",
+          "details": [
+            "Implement TS-01-E1: empty criteria list produces Spec with empty requirements.items, empty test_spec.items, and single Subtask titled 'Fix the issue' with SubtaskState.PENDING.",
+            "Implement TS-01-E2: AcceptanceCriterion with None/empty fields substitutes empty strings without raising.",
+            "Implement TS-01-E3: fallback Subtask has empty details, no test_spec_refs, no requirement_refs.",
+            "Implement TS-01-E4: render_inmemory_spec_sections propagates RuntimeError from render_individual unmodified.",
+            "Implement TS-01-P1 and TS-01-P2 using hypothesis: generate TriageResult with N in [1,50] criteria and assert count and cross-reference invariants.",
+            "Implement TS-01-P3: property test confirming no file I/O for N in [0,20] criteria across both functions.",
+            "Implement TS-01-P4: property test confirming render_inmemory_spec_sections output equals _render_spec_sections output for the same Spec."
+          ],
+          "test_spec_refs": [
+            "TS-01-E1",
+            "TS-01-E2",
+            "TS-01-E3",
+            "TS-01-E4",
+            "TS-01-P1",
+            "TS-01-P2",
+            "TS-01-P3",
+            "TS-01-P4"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.E1",
+            "01-REQ-1.E2",
+            "01-REQ-4.E1",
+            "01-REQ-6.E1"
+          ],
+          "state": "done",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "1.V",
+        "checks": [
+          "All spec tests are collected without import errors: `pytest -q tests/test_nightshift_afspec_models.py --collect-only`",
+          "All newly written tests fail with NotImplementedError or ImportError (confirming they test real behaviour, not stubs): `pytest -q tests/test_nightshift_afspec_models.py`",
+          "No linter warnings in the test file: `ruff check tests/test_nightshift_afspec_models.py`",
+          "Tests cover TS-01-1 through TS-01-22, TS-01-E1 through TS-01-E4, and TS-01-P1 through TS-01-P4 as verified by pytest node IDs in collection output"
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "kind": "standard",
+      "title": "Implement build_afspec_from_triage in nightshift/spec_builder.py",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Create or extend agentfox/nightshift/spec_builder.py with type stubs and imports",
+          "details": [
+            "Ensure agentfox/nightshift/spec_builder.py exists and imports afspec models: Spec, Requirements, Requirement, TestSpec, TestCase, Tasks, TaskGroup, Subtask, SubtaskState, PRDDocument, PRDFrontmatter.",
+            "Import TriageResult and AcceptanceCriterion from agentfox.nightshift.fix_pipeline (or the canonical location).",
+            "Add the function stub: `def build_afspec_from_triage(triage_result: TriageResult, issue_number: int) -> Spec: raise NotImplementedError`.",
+            "Confirm the module is importable with the correct signature by running TS-01-3."
+          ],
+          "test_spec_refs": [
+            "TS-01-3"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.3"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "2.2",
+          "title": "Implement Requirement mapping loop (AcceptanceCriterion \u2192 Requirement)",
+          "details": [
+            "Iterate over triage_result.criteria with enumerate(start=1); guard each field access with `field or ''` to satisfy 01-REQ-1.E2.",
+            "Set Requirement.id = f'NS-REQ-{n}', Requirement.title = criterion.description or '', Requirement.user_story = criterion.description or '' (verbatim, no template).",
+            "Construct exactly one acceptance criterion entry from criterion.preconditions and criterion.expected and set Requirement.acceptance_criteria = [that entry].",
+            "Set Requirement.edge_cases = [].",
+            "Collect all Requirement objects into a Requirements(items=[...]) instance."
+          ],
+          "test_spec_refs": [
+            "TS-01-4",
+            "TS-01-5",
+            "TS-01-6",
+            "TS-01-7",
+            "TS-01-8",
+            "TS-01-E2"
+          ],
+          "requirement_refs": [
+            "01-REQ-2.1",
+            "01-REQ-2.2",
+            "01-REQ-2.3",
+            "01-REQ-2.4",
+            "01-REQ-2.5",
+            "01-REQ-1.E2"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "2.3",
+          "title": "Implement TestCase derivation loop (AcceptanceCriterion \u2192 TestCase)",
+          "details": [
+            "Iterate over triage_result.criteria with enumerate(start=1); guard each field with `field or ''`.",
+            "Set TestCase.id = f'TS-NS-{n}', TestCase.requirement_id = f'NS-REQ-{n}'.",
+            "Set TestCase.description = criterion.description or '', TestCase.preconditions = criterion.preconditions or [], TestCase.expected = criterion.expected or '', TestCase.assertion_pseudocode = criterion.assertion or ''.",
+            "Set TestCase.input = '' and TestCase.kind = 'acceptance'.",
+            "Collect all TestCase objects into a TestSpec(items=[...]) instance."
+          ],
+          "test_spec_refs": [
+            "TS-01-9",
+            "TS-01-10",
+            "TS-01-11",
+            "TS-01-12",
+            "TS-01-13",
+            "TS-01-E2"
+          ],
+          "requirement_refs": [
+            "01-REQ-3.1",
+            "01-REQ-3.2",
+            "01-REQ-3.3",
+            "01-REQ-3.4",
+            "01-REQ-3.5",
+            "01-REQ-1.E2"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "2.4",
+          "title": "Implement TaskGroup and Subtask construction",
+          "details": [
+            "Iterate over triage_result.criteria with enumerate(start=1) to build one Subtask per criterion.",
+            "Set Subtask.id = f'1.{n}', Subtask.title = criterion.description or '', Subtask.details = [str(criterion.preconditions or ''), criterion.expected or '', criterion.assertion or ''], Subtask.state = SubtaskState.PENDING, Subtask.test_spec_refs = [f'TS-NS-{n}'], Subtask.requirement_refs = [f'NS-REQ-{n}'].",
+            "When criteria list is empty, produce one fallback Subtask: id='1.1', title='Fix the issue', details=[], state=SubtaskState.PENDING, test_spec_refs=[], requirement_refs=[].",
+            "Wrap subtasks in a single TaskGroup(id=1, kind='tests', title=f'Fix issue #{issue_number}', subtasks=[...]).",
+            "Wrap the TaskGroup in Tasks(groups=[task_group])."
+          ],
+          "test_spec_refs": [
+            "TS-01-14",
+            "TS-01-15",
+            "TS-01-E1",
+            "TS-01-E3"
+          ],
+          "requirement_refs": [
+            "01-REQ-4.1",
+            "01-REQ-4.2",
+            "01-REQ-1.E1",
+            "01-REQ-4.E1"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "2.5",
+          "title": "Implement PRDDocument construction and assemble final Spec",
+          "details": [
+            "Construct PRDFrontmatter(spec_id=f'fix-{issue_number}', spec_name=f'fix_issue_{issue_number}'); leave all other fields at Pydantic defaults.",
+            "Construct PRDDocument(frontmatter=frontmatter, body=triage_result.issue_body or '').",
+            "Assemble and return Spec(requirements=requirements, test_spec=test_spec, tasks=tasks, prd=prd).",
+            "Confirm no calls to afspec.load_spec(), afspec.save(), or builtins.open anywhere in this function."
+          ],
+          "test_spec_refs": [
+            "TS-01-16",
+            "TS-01-17",
+            "TS-01-1",
+            "TS-01-2"
+          ],
+          "requirement_refs": [
+            "01-REQ-5.1",
+            "01-REQ-5.2",
+            "01-REQ-1.1",
+            "01-REQ-1.2"
+          ],
+          "state": "done",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "2.V",
+        "checks": [
+          "All spec tests for REQ-1 through REQ-5 and REQ-7 pass: `pytest -q tests/test_nightshift_afspec_models.py -k 'not render_inmemory'`",
+          "No linter warnings in spec_builder.py: `ruff check agentfox/nightshift/spec_builder.py`",
+          "All existing tests still pass: `pytest -q`",
+          "Requirements 01-REQ-1.1, 01-REQ-1.2, 01-REQ-1.3, 01-REQ-2.1\u20132.5, 01-REQ-3.1\u20133.5, 01-REQ-4.1, 01-REQ-4.2, 01-REQ-5.1, 01-REQ-5.2, 01-REQ-7.1, 01-REQ-7.2 acceptance criteria met",
+          "Edge case tests TS-01-E1, TS-01-E2, TS-01-E3 pass",
+          "Property tests TS-01-P1, TS-01-P2, TS-01-P3 (build side) pass"
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "kind": "standard",
+      "title": "Implement render_inmemory_spec_sections and refactor _render_spec_sections in session/context.py",
+      "subtasks": [
+        {
+          "id": "3.1",
+          "title": "Extract render_inmemory_spec_sections from _render_spec_sections",
+          "details": [
+            "In agentfox/session/context.py, add the new function: `def render_inmemory_spec_sections(spec: afspec.Spec) -> list[str]:` with no file I/O.",
+            "Implement by delegating directly to `afspec.render_individual(spec)` and returning the result.",
+            "Do not catch exceptions from render_individual \u2014 let them propagate as-is (01-REQ-6.E1).",
+            "The function must have no calls to open(), os.path, afspec.load_spec(), or any file system access."
+          ],
+          "test_spec_refs": [
+            "TS-01-18",
+            "TS-01-19",
+            "TS-01-E4"
+          ],
+          "requirement_refs": [
+            "01-REQ-6.1",
+            "01-REQ-6.2",
+            "01-REQ-6.E1"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "3.2",
+          "title": "Refactor _render_spec_sections to delegate to render_inmemory_spec_sections",
+          "details": [
+            "In the existing _render_spec_sections function, keep the afspec.load_spec() disk-loading call intact.",
+            "Replace the inline rendering logic with a call to render_inmemory_spec_sections(spec) and return its result.",
+            "Verify that the refactored function produces identical output to the pre-refactor version for any given on-disk spec.",
+            "Ensure no rendering logic is duplicated between _render_spec_sections and render_inmemory_spec_sections."
+          ],
+          "test_spec_refs": [
+            "TS-01-20"
+          ],
+          "requirement_refs": [
+            "01-REQ-6.3"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "3.3",
+          "title": "Run full render path tests and property tests",
+          "details": [
+            "Run TS-01-18, TS-01-19, TS-01-20, TS-01-E4 to confirm render_inmemory_spec_sections and _render_spec_sections behave correctly.",
+            "Run TS-01-P3 (render side) and TS-01-P4 to confirm no file I/O and output equivalence.",
+            "If TS-01-P4 requires a fixture on-disk spec, create a minimal fixture under tests/fixtures/specs/01_test/ for the test."
+          ],
+          "test_spec_refs": [
+            "TS-01-18",
+            "TS-01-19",
+            "TS-01-20",
+            "TS-01-E4",
+            "TS-01-P3",
+            "TS-01-P4"
+          ],
+          "requirement_refs": [
+            "01-REQ-6.1",
+            "01-REQ-6.2",
+            "01-REQ-6.3",
+            "01-REQ-6.E1"
+          ],
+          "state": "done",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "3.V",
+        "checks": [
+          "All spec tests for REQ-6 pass: `pytest -q tests/test_nightshift_afspec_models.py -k 'render'`",
+          "Edge case test TS-01-E4 passes (exception propagation verified)",
+          "Property tests TS-01-P3 and TS-01-P4 pass",
+          "No linter warnings in session/context.py: `ruff check agentfox/session/context.py`",
+          "All existing tests still pass: `pytest -q`",
+          "Requirements 01-REQ-6.1, 01-REQ-6.2, 01-REQ-6.3, 01-REQ-6.E1 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "kind": "checkpoint",
+      "title": "Integration checkpoint: full spec test suite and smoke tests",
+      "subtasks": [
+        {
+          "id": "4.1",
+          "title": "Run the complete spec test suite and confirm all tests pass",
+          "details": [
+            "Run `pytest -q tests/test_nightshift_afspec_models.py -v` and confirm 0 failures, 0 errors.",
+            "Confirm all 22 acceptance tests (TS-01-1 through TS-01-22), 4 edge case tests (TS-01-E1 through TS-01-E4), and 4 property tests (TS-01-P1 through TS-01-P4) are collected and pass.",
+            "Record any unexpected skips or xfails and resolve before proceeding."
+          ],
+          "test_spec_refs": [
+            "TS-01-1",
+            "TS-01-2",
+            "TS-01-3",
+            "TS-01-4",
+            "TS-01-5",
+            "TS-01-6",
+            "TS-01-7",
+            "TS-01-8",
+            "TS-01-9",
+            "TS-01-10",
+            "TS-01-11",
+            "TS-01-12",
+            "TS-01-13",
+            "TS-01-14",
+            "TS-01-15",
+            "TS-01-16",
+            "TS-01-17",
+            "TS-01-18",
+            "TS-01-19",
+            "TS-01-20",
+            "TS-01-21",
+            "TS-01-22"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.1",
+            "01-REQ-2.1",
+            "01-REQ-3.1",
+            "01-REQ-4.1",
+            "01-REQ-5.1",
+            "01-REQ-6.1",
+            "01-REQ-7.1"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "4.2",
+          "title": "Run smoke tests for all three execution paths",
+          "details": [
+            "Run TS-01-SMOKE-1: construct a real TriageResult with 2 criteria, call build_afspec_from_triage, then render_inmemory_spec_sections; assert list of non-empty strings returned and no file I/O.",
+            "Run TS-01-SMOKE-2: construct a TriageResult with empty criteria, call both functions end-to-end; assert fallback Spec renders without error.",
+            "Run TS-01-SMOKE-3: call _render_spec_sections with a fixture on-disk spec path; assert it delegates to render_inmemory_spec_sections and returns identical markdown sections."
+          ],
+          "test_spec_refs": [
+            "TS-01-SMOKE-1",
+            "TS-01-SMOKE-2",
+            "TS-01-SMOKE-3"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.1",
+            "01-REQ-6.1",
+            "01-REQ-6.3"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "4.3",
+          "title": "Confirm no regressions in the wider test suite",
+          "details": [
+            "Run `pytest -q` across the entire project and confirm no pre-existing tests have been broken by the refactor of _render_spec_sections.",
+            "Check for any tests that directly import or call _render_spec_sections and verify they still pass.",
+            "Run `ruff check agentfox/` to confirm no new linter warnings across the package."
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [
+            "01-REQ-6.3"
+          ],
+          "state": "done",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "4.V",
+        "checks": [
+          "All spec tests pass: `pytest -q tests/test_nightshift_afspec_models.py` reports 0 failures",
+          "All smoke tests pass (TS-01-SMOKE-1, TS-01-SMOKE-2, TS-01-SMOKE-3)",
+          "Full project test suite passes: `pytest -q` reports 0 failures",
+          "No linter warnings across the affected modules: `ruff check agentfox/nightshift/spec_builder.py agentfox/session/context.py`",
+          "All correctness properties 01-PROP-1 through 01-PROP-4 are exercised by passing property tests"
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "kind": "wiring_verification",
+      "title": "Wiring verification: end-to-end integration and stub audit",
+      "subtasks": [
+        {
+          "id": "5.1",
+          "title": "Trace execution paths end-to-end and verify no stubs remain",
+          "details": [
+            "Trace 01-PATH-1: confirm that build_afspec_from_triage \u2192 (Requirements, TestSpec, Tasks, PRDDocument) \u2192 Spec is fully implemented with no `raise NotImplementedError`, `pass`, or `return None` stubs in non-trivial branches.",
+            "Trace 01-PATH-2: confirm the empty-criteria branch in build_afspec_from_triage reaches the fallback Subtask construction without any stub.",
+            "Trace 01-PATH-3: confirm _render_spec_sections calls render_inmemory_spec_sections which calls render_individual \u2014 no intermediate stubs.",
+            "Search for stub markers: `grep -rn 'raise NotImplementedError\\|# TODO\\|pass$' agentfox/nightshift/spec_builder.py agentfox/session/context.py` should return 0 matches in non-abstract methods."
+          ],
+          "test_spec_refs": [
+            "TS-01-SMOKE-1",
+            "TS-01-SMOKE-2",
+            "TS-01-SMOKE-3"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.1",
+            "01-REQ-6.1",
+            "01-REQ-6.3"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "5.2",
+          "title": "Verify return value propagation through the call chain",
+          "details": [
+            "Confirm build_afspec_from_triage returns a Spec (not None) in both the normal and empty-criteria paths.",
+            "Confirm render_inmemory_spec_sections returns the list[str] from render_individual without modification.",
+            "Confirm _render_spec_sections returns the list[str] from render_inmemory_spec_sections without modification.",
+            "Confirm assemble_context (caller of _render_spec_sections) receives and uses the returned sections \u2014 check production code path, not just tests."
+          ],
+          "test_spec_refs": [
+            "TS-01-1",
+            "TS-01-18",
+            "TS-01-20"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.1",
+            "01-REQ-6.1",
+            "01-REQ-6.3"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "5.3",
+          "title": "Run all smoke tests with real components (no mocks on core functions)",
+          "details": [
+            "Execute TS-01-SMOKE-1 with real build_afspec_from_triage, render_inmemory_spec_sections, and afspec.render_individual \u2014 no mocks on these three.",
+            "Execute TS-01-SMOKE-2 with empty criteria TriageResult through the full chain.",
+            "Execute TS-01-SMOKE-3 with a real on-disk spec fixture to confirm _render_spec_sections delegation is live.",
+            "Confirm all smoke tests report pass: `pytest -q tests/test_nightshift_afspec_models.py -k 'SMOKE'`"
+          ],
+          "test_spec_refs": [
+            "TS-01-SMOKE-1",
+            "TS-01-SMOKE-2",
+            "TS-01-SMOKE-3"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.1",
+            "01-REQ-6.1",
+            "01-REQ-6.3"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "5.4",
+          "title": "Audit for dead code and confirm no file I/O in production paths",
+          "details": [
+            "Search for unreachable code and unused imports: `ruff check --select F401,F811 agentfox/nightshift/spec_builder.py agentfox/session/context.py`.",
+            "Confirm afspec.load_spec and afspec.save are not called in build_afspec_from_triage or render_inmemory_spec_sections: `grep -n 'load_spec\\|afspec.save' agentfox/nightshift/spec_builder.py agentfox/session/context.py` returns 0 hits in the new functions.",
+            "Confirm builtins.open is not called in the new functions by code review and TS-01-P3 passing.",
+            "Verify 01-PROP-3 (no file I/O) holds across all production paths."
+          ],
+          "test_spec_refs": [
+            "TS-01-2",
+            "TS-01-19",
+            "TS-01-P3"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.2",
+            "01-REQ-6.2"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "5.5",
+          "title": "Verify cross-spec entry points are called from production code",
+          "details": [
+            "Confirm that the night-shift fix pipeline (in agentfox/nightshift/fix_pipeline.py or equivalent) imports and calls build_afspec_from_triage from agentfox.nightshift.spec_builder in production code (not just tests).",
+            "Confirm that assemble_context in agentfox/session/context.py calls render_inmemory_spec_sections (or _render_spec_sections which delegates to it) in the night-shift code path.",
+            "If the above call sites are not yet wired (they are part of spec 02), document the gap and confirm the current spec's exports are in place: the function is importable and has the correct signature per TS-01-3."
+          ],
+          "test_spec_refs": [
+            "TS-01-3",
+            "TS-01-SMOKE-1"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.3",
+            "01-REQ-6.1"
+          ],
+          "state": "done",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "5.V",
+        "checks": [
+          "All spec tests pass: `pytest -q tests/test_nightshift_afspec_models.py` \u2014 0 failures, 0 errors",
+          "All smoke tests pass: `pytest -q tests/test_nightshift_afspec_models.py -k 'SMOKE'`",
+          "Full project test suite passes: `pytest -q` \u2014 0 regressions",
+          "No linter warnings: `ruff check agentfox/nightshift/spec_builder.py agentfox/session/context.py`",
+          "No stub markers in implemented files: `grep -rn 'raise NotImplementedError' agentfox/nightshift/spec_builder.py agentfox/session/context.py` returns 0 hits",
+          "No file I/O in new functions confirmed by grep and TS-01-P3 passing",
+          "All correctness properties 01-PROP-1 through 01-PROP-4 verified by passing property tests TS-01-P1 through TS-01-P4"
+        ]
+      }
+    }
+  ],
+  "traceability": [
+    {
+      "requirement_id": "01-REQ-1.1",
+      "test_spec_id": "TS-01-1",
+      "task_id": "2.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-1.2",
+      "test_spec_id": "TS-01-2",
+      "task_id": "2.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-1.3",
+      "test_spec_id": "TS-01-3",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-1.E1",
+      "test_spec_id": "TS-01-E1",
+      "task_id": "2.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-1.E2",
+      "test_spec_id": "TS-01-E2",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-2.1",
+      "test_spec_id": "TS-01-4",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-2.2",
+      "test_spec_id": "TS-01-5",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-2.3",
+      "test_spec_id": "TS-01-6",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-2.4",
+      "test_spec_id": "TS-01-7",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-2.5",
+      "test_spec_id": "TS-01-8",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-3.1",
+      "test_spec_id": "TS-01-9",
+      "task_id": "2.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-3.2",
+      "test_spec_id": "TS-01-10",
+      "task_id": "2.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-3.3",
+      "test_spec_id": "TS-01-11",
+      "task_id": "2.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-3.4",
+      "test_spec_id": "TS-01-12",
+      "task_id": "2.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-3.5",
+      "test_spec_id": "TS-01-13",
+      "task_id": "2.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-4.1",
+      "test_spec_id": "TS-01-14",
+      "task_id": "2.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-4.2",
+      "test_spec_id": "TS-01-15",
+      "task_id": "2.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-4.E1",
+      "test_spec_id": "TS-01-E3",
+      "task_id": "2.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-5.1",
+      "test_spec_id": "TS-01-16",
+      "task_id": "2.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-5.2",
+      "test_spec_id": "TS-01-17",
+      "task_id": "2.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-6.1",
+      "test_spec_id": "TS-01-18",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-6.2",
+      "test_spec_id": "TS-01-19",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-6.3",
+      "test_spec_id": "TS-01-20",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-6.E1",
+      "test_spec_id": "TS-01-E4",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-7.1",
+      "test_spec_id": "TS-01-21",
+      "task_id": "2.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-7.2",
+      "test_spec_id": "TS-01-22",
+      "task_id": "2.4",
+      "test_path": null
+    }
+  ]
+}

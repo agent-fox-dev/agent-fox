@@ -1,0 +1,55 @@
+{
+  "state": "generated",
+  "prd_path": "prd.md",
+  "assessment_history": [
+    {
+      "quality": "ready",
+      "summary": "The PRD for \"nightshift_prompt_alignment\" is well-structured and comprehensive. All four required spec sections (Intent, Goals, Non-Goals, Background) are present and of high quality. The Intent is clear and concise, Goals are actionable and implementation-specific, Non-Goals are explicit and well-bounded, and Background provides strong context with before/after comparisons. Beyond the core sections, the PRD includes detailed technical requirements, design decisions with rationale, error handling strategy, dependency mapping, and dead code guidance \u2014 all of which significantly exceed the minimum bar. The document is ready to proceed to artifact generation.",
+      "gaps": [
+        "Goals are framed as implementation tasks (e.g., 'Update _build_coder_prompt()') rather than measurable outcomes (e.g., reduced prompt divergence, consistency metrics). This is a minor concern for a deeply technical internal spec, but worth noting.",
+        "The owner field is empty \u2014 no accountable individual is identified for this spec.",
+        "No explicit acceptance criteria or testability statements are included (e.g., how will alignment between night-shift and code-path prompts be verified in testing?)",
+        "The dependency on spec 01 ('01_nightshift_afspec_models') is listed but its readiness/status is not confirmed within this document, creating a potential blocking risk."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "Who is the owner or DRI (Directly Responsible Individual) for this spec?",
+          "context": "The 'owner' field is blank. Knowing the owner ensures there is an accountable party for decisions and reviews during implementation.",
+          "options": [],
+          "required": false
+        },
+        {
+          "id": "q2",
+          "text": "Is spec 01 ('01_nightshift_afspec_models') already complete and merged, or is it still in progress?",
+          "context": "This spec has a hard dependency on build_afspec_from_triage() and render_inmemory_spec_sections() from spec 01. If spec 01 is not ready, this spec cannot be implemented and the dependency risk should be surfaced.",
+          "options": [
+            "Spec 01 is complete and merged",
+            "Spec 01 is in progress but on track",
+            "Spec 01 is not yet started"
+          ],
+          "required": false
+        },
+        {
+          "id": "q3",
+          "text": "How should the alignment between the night-shift and code-path prompt formats be verified? Is there an automated test, a manual review, or a diff-based comparison planned?",
+          "context": "The Goals describe implementation steps but do not specify how success will be measured or tested. A testability statement would make this spec fully verifiable.",
+          "options": [
+            "Automated unit tests comparing rendered output",
+            "Integration test running both pipelines on a sample triage",
+            "Manual review/diff by the author",
+            "No explicit verification planned beyond code review"
+          ],
+          "required": false
+        }
+      ]
+    }
+  ],
+  "qa_exchanges": [],
+  "generated_artifacts": [
+    "requirements",
+    "test_spec",
+    "tasks"
+  ],
+  "mode": "interactive"
+}
