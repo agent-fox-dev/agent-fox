@@ -428,15 +428,8 @@ class SpecAgent:
                 if system is not None:
                     kwargs["system"] = system
 
-                try:
-                    response = await self._client.messages.create(**kwargs)  # type: ignore[attr-defined]
-                except APIStatusError as create_exc:
-                    if create_exc.status_code == 400 and "streaming" in str(create_exc).lower():
-                        logger.debug("Non-streaming request rejected; retrying with streaming")
-                        async with self._client.messages.stream(**kwargs) as stream:  # type: ignore[attr-defined]
-                            response = await stream.get_final_message()
-                    else:
-                        raise
+                async with self._client.messages.stream(**kwargs) as stream:  # type: ignore[attr-defined]
+                    response = await stream.get_final_message()
                 logger.debug("API call succeeded on attempt %d", attempt + 1)
                 return response
 

@@ -20,6 +20,7 @@ from conftest_agent import (
     SAMPLE_REQUIREMENTS_JSON,
     SAMPLE_TASKS_JSON,
     SAMPLE_TEST_SPEC_JSON,
+    _make_mock_client,
     make_artifact_response,
     make_assessment_response,
     make_auth_error,
@@ -889,9 +890,7 @@ class TestPropertyRetryBound:
         number of attempts never exceeds 4 (1 initial + 3 retries)."""
         import asyncio
 
-        mock_client = type("MockClient", (), {})()
-        mock_messages = type("MockMessages", (), {})()
-        mock_client.messages = mock_messages
+        mock_client = _make_mock_client()
 
         responses = [make_rate_limit_error()] * n_errors + [make_assessment_response()]
         mock_client.messages.create = AsyncMock(side_effect=responses)
