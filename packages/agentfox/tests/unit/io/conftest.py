@@ -89,9 +89,20 @@ def mock_non_tty() -> Generator[None, None, None]:
 
 @contextmanager
 def mock_stdout_raises(exc_class: type) -> Generator[None, None, None]:
-    """Context manager that replaces stdout.write to raise the given exception."""
+    """Context manager that replaces stdout with a stream whose write() raises.
+
+    Sets ``encoding`` and ``errors`` on the mock so that
+    ``click.echo()`` can resolve the text stream wrapper without
+    hitting ``codecs.lookup(MagicMock())`` errors.
+    """
     mock_out = MagicMock()
     mock_out.write = MagicMock(side_effect=exc_class())
+    # click.echo inspects sys.stdout.encoding / .errors to decide
+    # whether to wrap the stream.  Provide realistic values so
+    # click.echo passes its internal checks and reaches the .write()
+    # call where the exception is raised.
+    mock_out.encoding = "utf-8"
+    mock_out.errors = "strict"
     with patch.object(sys, "stdout", mock_out):
         yield
 

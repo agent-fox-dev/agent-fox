@@ -374,7 +374,7 @@
             "03-REQ-5.3",
             "03-REQ-5.6"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -397,7 +397,7 @@
             "03-REQ-5.5",
             "03-REQ-5.6"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -418,7 +418,7 @@
           "requirement_refs": [
             "03-REQ-5"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],
