@@ -553,7 +553,6 @@ class TestRenderJsonCombined:
     Requirements: 05-REQ-2.1, 05-REQ-2.2
     """
 
-    @pytest.mark.xfail(reason="render --json not yet implemented")
     def test_combined_json_envelope_fields(self, runner: CliRunner, valid_spec_root: Path) -> None:
         """JSON envelope has ok, format, content, sections."""
         result = _invoke_spec(
@@ -569,7 +568,6 @@ class TestRenderJsonCombined:
         assert "sections" in parsed
         assert isinstance(parsed["sections"], list)
 
-    @pytest.mark.xfail(reason="render --json not yet implemented")
     def test_combined_content_is_merged_string(self, runner: CliRunner, valid_spec_root: Path) -> None:
         """Combined mode returns single content string, not artifacts map."""
         result = _invoke_spec(
@@ -581,7 +579,6 @@ class TestRenderJsonCombined:
         assert "artifacts" not in parsed
         assert isinstance(parsed["content"], str)
 
-    @pytest.mark.xfail(reason="render --json not yet implemented")
     def test_combined_sections_list(self, runner: CliRunner, valid_spec_root: Path) -> None:
         """Combined mode includes sections array reflecting included artifacts."""
         result = _invoke_spec(
@@ -606,7 +603,6 @@ class TestRenderJsonPerArtifact:
     Requirement: 05-REQ-2.3
     """
 
-    @pytest.mark.xfail(reason="render --json not yet implemented")
     def test_per_artifact_envelope(self, runner: CliRunner, valid_spec_root: Path) -> None:
         """JSON envelope has ok=true and artifacts map, no content key."""
         result = _invoke_spec(
@@ -655,7 +651,6 @@ class TestRenderUsesEmitOk:
     Requirement: 05-REQ-2.5
     """
 
-    @pytest.mark.xfail(reason="emit_ok migration not yet implemented")
     def test_emit_ok_in_source(self) -> None:
         """spec/cli.py source uses emit_ok for render JSON output."""
         source = _get_cli_source()
@@ -686,7 +681,6 @@ class TestRenderJsonNonExistentSpec:
     Requirement: 05-REQ-2.E1
     """
 
-    @pytest.mark.xfail(reason="render --json error handling not yet implemented")
     def test_nonexistent_spec_error_envelope(self, runner: CliRunner, tmp_path: Path) -> None:
         """Non-existent spec produces ok=false JSON envelope."""
         empty_spec_dir = tmp_path / "empty_specs"
@@ -712,7 +706,6 @@ class TestRenderJsonMissingArtifactWarnings:
     Requirement: 05-REQ-2.E2
     """
 
-    @pytest.mark.xfail(reason="render --json missing artifact warnings not yet implemented")
     def test_missing_tasks_artifact_warning(self, runner: CliRunner, no_tasks_spec_root: Path) -> None:
         """Missing tasks artifact is omitted with a warning."""
         result = _invoke_spec(
@@ -915,3 +908,33 @@ class TestValidateTopLevelErrorOmitsPathValue:
         for err in top_level_errs:
             assert "path" not in err, f"Top-level error should not have 'path' key: {err}"
             assert "value" not in err, f"Top-level error should not have 'value' key: {err}"
+
+
+# ===========================================================================
+# TS-05-E7: No pre-initialization output in agent mode
+# ===========================================================================
+
+
+class TestNoPreInitOutput:
+    """TS-05-E7: No output before AgentFoxGroup initialisation in agent mode.
+
+    Requirement: 05-REQ-5.E1
+    """
+
+    def test_no_output_during_module_import(self, runner: CliRunner, valid_spec_root: Path) -> None:
+        """No plain-text appears before JSON in agent mode.
+
+        Verifies that importing and invoking spec.cli with AF_AGENT=1
+        produces only valid JSON on stdout — no module-level side
+        effects or pre-initialisation output contaminates the stream.
+        """
+        result = _invoke_spec_catching(
+            runner,
+            ["-d", str(valid_spec_root), "render", "01", "--combined"],
+            env={"AF_AGENT": "1"},
+        )
+        stdout = result.output.strip()
+        if stdout:
+            # The entire stdout must be parseable as a single JSON
+            # object; no leading plain-text is allowed.
+            json.loads(stdout)

@@ -139,7 +139,6 @@ class TestNoClickEchoJsonDumps:
     Requirement: 05-REQ-5.1
     """
 
-    @pytest.mark.xfail(reason="click.echo(json.dumps) not yet removed")
     def test_no_click_echo_json_dumps(self) -> None:
         """spec/cli.py does not contain click.echo(json.dumps(...)."""
         source = _get_cli_source()
@@ -174,7 +173,6 @@ class TestNoAssessmentToJson:
     Requirement: 05-REQ-5.3
     """
 
-    @pytest.mark.xfail(reason="_assessment_to_json not yet removed")
     def test_no_assessment_to_json(self) -> None:
         """_assessment_to_json does not appear in spec/cli.py."""
         source = _get_cli_source()

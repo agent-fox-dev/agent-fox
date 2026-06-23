@@ -43,12 +43,13 @@ class _SpecGroup(AgentFoxGroup):
     _JSON_SUBCOMMANDS = frozenset({"validate", "status"})
 
     def invoke(self, ctx: click.Context) -> None:
-        # Peek at the protected (unconsumed) args.  Before Click
-        # resolves the subcommand, ``_protected_args`` contains the
-        # subcommand name followed by its arguments.
+        # Peek at unconsumed args.  ``_protected_args`` holds the
+        # subcommand name; ``args`` holds the remaining tokens
+        # (subcommand arguments).  Both must be checked for ``--json``.
         protected: list[str] = getattr(ctx, "_protected_args", [])
+        remaining: list[str] = getattr(ctx, "args", [])
         subcommand = protected[0] if protected else None
-        if "--json" in protected or subcommand in self._JSON_SUBCOMMANDS:
+        if "--json" in protected + remaining or subcommand in self._JSON_SUBCOMMANDS:
             ctx.params["quiet"] = True
         super().invoke(ctx)
 
@@ -189,7 +190,7 @@ def new_cmd(ctx: click.Context, prd_file: str, name: str | None) -> None:
 
     SpecSession._create(target)
 
-    click.echo(json.dumps({"spec_dir": dir_name, "state": "init"}))
+    emit_ok(spec_dir=dir_name, state="init")
 
 
 # ---------------------------------------------------------------------------
@@ -197,19 +198,22 @@ def new_cmd(ctx: click.Context, prd_file: str, name: str | None) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _assessment_to_json(assessment: Any) -> dict[str, Any]:
-    """Serialise an Assessment to a JSON-friendly dict."""
-    questions = []
-    for q in getattr(assessment, "questions", []):
-        questions.append(
-            {
-                "id": q.id,
-                "text": q.text,
-                "context": q.context,
-                "options": q.options,
-                "required": q.required,
-            }
-        )
+def _serialize_assessment(assessment: Any) -> dict[str, Any]:
+    """Serialise an Assessment to a JSON-friendly dict.
+
+    Converts assessment attributes and nested question objects into
+    plain Python dicts suitable for ``emit()`` / ``emit_ok()``.
+    """
+    questions = [
+        {
+            "id": q.id,
+            "text": q.text,
+            "context": q.context,
+            "options": q.options,
+            "required": q.required,
+        }
+        for q in getattr(assessment, "questions", [])
+    ]
     return {
         "quality": assessment.quality,
         "summary": assessment.summary,
@@ -259,9 +263,9 @@ def refine_cmd(ctx: click.Context, spec: str, answers: str | None, force: bool) 
         if not session._assessment_history:
             with StatusSpinner("Assessing PRD...", quiet=quiet):
                 assessment = asyncio.run(session.assess())
-            result = _assessment_to_json(assessment)
+            result = _serialize_assessment(assessment)
             result["type"] = "assessment"
-            click.echo(json.dumps(result, indent=2))
+            emit(result)
             return
 
         questions = session.pending_questions()
@@ -270,7 +274,7 @@ def refine_cmd(ctx: click.Context, spec: str, answers: str | None, force: bool) 
             "questions": questions,
             "answers": {q["id"]: "" for q in questions},
         }
-        click.echo(json.dumps(output, indent=2))
+        emit(output)
         return
 
     if not session._assessment_history:
@@ -302,9 +306,9 @@ def refine_cmd(ctx: click.Context, spec: str, answers: str | None, force: bool) 
     with StatusSpinner("Refining PRD...", quiet=quiet):
         assessment = asyncio.run(session.refine(answers_data))
 
-    result = _assessment_to_json(assessment)
+    result = _serialize_assessment(assessment)
     result["type"] = "assessment"
-    click.echo(json.dumps(result, indent=2))
+    emit(result)
 
 
 # ---------------------------------------------------------------------------
@@ -341,7 +345,7 @@ def generate_cmd(ctx: click.Context, spec: str, force: bool) -> None:
         for artifact in artifacts:
             spinner.log(f"  {artifact}")
 
-    click.echo(json.dumps({"artifacts": list(artifacts)}))
+    emit_ok(artifacts=list(artifacts))
 
 
 # ---------------------------------------------------------------------------
@@ -395,6 +399,12 @@ def _render_available_artifacts(target: Path) -> tuple[dict[str, str], list[str]
 def render_cmd(ctx: click.Context, spec: str, combined: bool, output_json: bool) -> None:
     """Render spec as markdown."""
     spec_dir: Path = ctx.obj["spec_dir"]
+
+    # Auto-enable JSON output in agent mode (AF_AGENT=1) so that
+    # agent consumers always receive structured envelopes without
+    # having to pass --json explicitly.
+    if ctx.obj.get("agent_mode"):
+        output_json = True
 
     if not output_json:
         # Original behaviour: raw markdown output
@@ -715,7 +725,7 @@ def status_cmd(ctx: click.Context, spec: str) -> None:
     if assessment is not None:
         output["quality"] = assessment.quality
 
-    click.echo(json.dumps(output))
+    emit(output)
 
 
 cli = main

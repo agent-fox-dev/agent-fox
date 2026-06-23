@@ -309,7 +309,6 @@ class TestAgentModePurity:
     Requirement: 05-REQ-5.4
     """
 
-    @pytest.mark.xfail(reason="Agent mode JSON purity not yet implemented")
     @pytest.mark.parametrize(
         "cmd_args",
         [
@@ -319,7 +318,7 @@ class TestAgentModePurity:
         ],
     )
     def test_agent_mode_json_output(self, runner: CliRunner, tmp_path: Path, cmd_args: list[str]) -> None:
-        """Every stdout line is valid JSON with AF_AGENT=1."""
+        """Stdout is valid JSON with AF_AGENT=1."""
         spec_root = tmp_path / "specs"
         spec_root.mkdir()
         _write_valid_spec(spec_root / "01_test")
@@ -333,10 +332,9 @@ class TestAgentModePurity:
         )
         stdout = result.output.strip()
         if stdout:
-            for line in stdout.split("\n"):
-                line = line.strip()
-                if line:
-                    json.loads(line)  # Must not raise
+            # Output may be pretty-printed (multi-line) JSON from emit().
+            # Parse the full output as a single JSON object.
+            json.loads(stdout)  # Must not raise
 
 
 # ===========================================================================
@@ -411,7 +409,6 @@ class TestRenderEnvelopeCompleteness:
     """
 
     @pytest.mark.property
-    @pytest.mark.xfail(reason="render --json not yet implemented")
     @settings(max_examples=5, deadline=None)
     @given(
         include_tasks=st.booleans(),
@@ -523,7 +520,6 @@ class TestNoMixedOutputAgentMode:
     """
 
     @pytest.mark.property
-    @pytest.mark.xfail(reason="Agent mode JSON purity not yet implemented")
     @settings(max_examples=10, deadline=None)
     @given(
         subcommand=st.sampled_from(["render", "validate", "status"]),
@@ -583,10 +579,9 @@ class TestNoMixedOutputAgentMode:
         )
         stdout_text = result.output.strip()
         if stdout_text:
-            for line in stdout_text.split("\n"):
-                line = line.strip()
-                if line:
-                    json.loads(line)  # Must not raise ParseError
+            # Output may be pretty-printed (multi-line) JSON from emit().
+            # Parse the full output as a single JSON object.
+            json.loads(stdout_text)  # Must not raise ParseError
 
 
 # ===========================================================================
@@ -606,7 +601,6 @@ class TestNoLegacyPatterns:
         source = _get_cli_source()
         assert "_json_error_exit" not in source
 
-    @pytest.mark.xfail(reason="Legacy patterns not yet removed")
     def test_no_click_echo_json_dumps_in_source(self) -> None:
         """spec/cli.py does not contain click.echo(json.dumps."""
         source = _get_cli_source()
