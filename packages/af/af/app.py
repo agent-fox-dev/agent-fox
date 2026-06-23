@@ -27,6 +27,23 @@ from agentfox.ui.display import create_theme, render_banner
 logger = logging.getLogger(__name__)
 
 
+# --- BannerGroup -> AgentFoxGroup migration audit (2026-06-23) ---
+# Covered by AgentFoxGroup (agentfox/io/cli.py):
+#   - ctx.obj initialization via ctx.ensure_object(dict)
+#   - AF_AGENT=1 environment variable detection for agent-mode defaults
+#   - Unified error routing: Exception -> cli_error_handler -> JSON or stderr
+#   - SystemExit / KeyboardInterrupt propagation (not caught)
+#   - OutputManager construction and storage at ctx.obj["output"]
+#   - setup_logging() invocation with resolved flags
+# Covered here in main() callback (app-level behavior):
+#   - Banner rendering (render_banner) -- suppressed when json_mode or quiet
+#   - Config loading (load_config) and ctx.obj wiring for subcommands
+#   - setup_logging with effective_quiet (json_mode implies quiet for logs)
+# Deferred to Spec 04 (completed):
+#   - common_options sentinel mechanism (--no-json, --verbose overrides)
+#   - JSON IO compatibility shim removal (json_io module)
+#   - Structured JSON help via --json --help
+# ---
 @click.group(cls=AgentFoxGroup, invoke_without_command=True)
 @click.version_option(version=__version__)
 @click.option("--verbose", "-v", is_flag=True, help="Enable debug logging")
