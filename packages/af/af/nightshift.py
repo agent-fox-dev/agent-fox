@@ -4,7 +4,8 @@ Runs continuously, polling for issues labelled ``af:fix`` and processing
 them through the full archetype pipeline.  A pull request is opened per
 fix.
 
-Requirements: 61-REQ-1.1, 61-REQ-1.2, 61-REQ-1.3, 61-REQ-1.4,
+Requirements: 04-REQ-2.1,
+              61-REQ-1.1, 61-REQ-1.2, 61-REQ-1.3, 61-REQ-1.4,
               85-REQ-2.1, 85-REQ-4.1, 85-REQ-6.1,
               125-REQ-4.1, 125-REQ-4.2, 125-REQ-4.3, 125-REQ-4.4
 """
@@ -18,6 +19,8 @@ import sys
 from pathlib import Path
 
 import click
+
+from af import get_output_manager
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +42,9 @@ def night_shift_cmd(
       1 -- startup failure (platform not configured, etc.)
       130 -- immediate abort (double SIGINT)
     """
+    # 04-REQ-2.1: retrieve OutputManager from context
+    om = get_output_manager(ctx)
+
     from agentfox.nightshift.daemon import DaemonRunner, SharedBudget
     from agentfox.nightshift.engine import (
         NightShiftEngine,
@@ -184,6 +190,16 @@ def night_shift_cmd(
             pass
 
     # Pull detailed stats from the engine state (streams don't track these).
-    click.echo(
-        f"Night-shift stopped. Issues fixed: {engine.state.issues_fixed}, Total cost: ${daemon_state.total_cost:.4f}"
-    )
+    summary = {
+        "status": "stopped",
+        "issues_fixed": engine.state.issues_fixed,
+        "total_cost": daemon_state.total_cost,
+    }
+    if om.json_mode:
+        om.emit(summary)
+    else:
+        fixed = engine.state.issues_fixed
+        cost = daemon_state.total_cost
+        click.echo(
+            f"Night-shift stopped. Issues fixed: {fixed}, Total cost: ${cost:.4f}"
+        )

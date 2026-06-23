@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from agentfox.io.group import AgentFoxGroup
 from agentfox.io.output import (
+    OutputManager,
     emit,
     emit_error,
     emit_line,
@@ -22,6 +23,7 @@ from agentfox.io.spinner import StatusSpinner
 
 __all__ = [
     "AgentFoxGroup",
+    "OutputManager",
     "StatusSpinner",
     "emit",
     "emit_error",

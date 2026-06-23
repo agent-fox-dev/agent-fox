@@ -135,7 +135,6 @@ class TestNightShiftJsonlEvents:
         assert isinstance(final, dict)
 
 
-@pytest.mark.xfail(reason="emit_progress() not yet implemented on OutputManager")
 class TestBrokenPipeSuppressed:
     """TS-04-E3: emit_progress suppresses IO errors from stderr."""
 

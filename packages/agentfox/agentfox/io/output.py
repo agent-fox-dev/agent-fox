@@ -1,12 +1,14 @@
 """JSON output helpers for CLI commands.
 
 Provides ``emit``, ``emit_ok``, ``emit_line``, ``emit_error``,
-``read_stdin``, and ``format_table`` for writing structured JSON
-envelopes to stdout, reading JSON input from stdin, and rendering
-tabular data consistently for both human and JSON output modes.
+``read_stdin``, ``format_table``, and ``OutputManager`` for writing
+structured JSON envelopes to stdout, reading JSON input from stdin,
+rendering tabular data, and unified output dispatch.
 
-All JSON output in agent-fox CLIs should use these functions rather
-than raw ``click.echo(json.dumps(...))``.
+All JSON output in agent-fox CLIs should use these functions or the
+``OutputManager`` class rather than raw ``click.echo(json.dumps(...))``.
+
+Requirements: 04-REQ-2.3, 04-REQ-2.4, 04-REQ-3.E1
 """
 
 from __future__ import annotations
@@ -147,3 +149,66 @@ def format_table(
         padded = _pad_row(row, n, "")
         table.add_row(*(str(v) for v in padded[:n]))
     return table
+
+
+class OutputManager:
+    """Unified output dispatch for CLI commands.
+
+    Routes data output to human-readable text or JSON format based on
+    the ``json_mode`` flag.  In JSON mode, ``emit()`` serializes data as
+    a pretty-printed JSON object to stdout.  In text mode, it renders a
+    simple key-value representation.
+
+    ``emit_progress()`` writes JSONL progress events to stderr, only in
+    JSON mode, and suppresses IO errors (e.g. broken pipe).
+
+    Requirements: 04-REQ-2.3, 04-REQ-2.4, 04-REQ-3.E1
+    """
+
+    def __init__(
+        self,
+        json_mode: bool,
+        stdout: Any | None = None,
+        stderr: Any | None = None,
+    ) -> None:
+        self.json_mode = json_mode
+        self._stdout = stdout or sys.stdout
+        self._stderr = stderr or sys.stderr
+
+    def emit(self, data: dict[str, Any]) -> None:
+        """Write data output to stdout.
+
+        In JSON mode, serializes *data* as an indented JSON object.
+        In text mode, renders each key-value pair on its own line.
+
+        Requirements: 04-REQ-2.3, 04-REQ-2.4
+        """
+        if self.json_mode:
+            line = json.dumps(data, indent=2, default=str)
+            click.echo(line, file=self._stdout)
+        else:
+            if isinstance(data, str):
+                click.echo(data, file=self._stdout)
+            elif isinstance(data, dict):
+                for key, value in data.items():
+                    click.echo(f"{key}: {value}", file=self._stdout)
+            else:
+                click.echo(str(data), file=self._stdout)
+
+    def emit_progress(self, event: dict[str, Any]) -> None:
+        """Write a JSONL progress event to stderr.
+
+        Only writes when ``json_mode`` is ``True``.  IO errors
+        (``OSError``, ``BrokenPipeError``) are suppressed so that a
+        broken stderr pipe does not crash the main command.
+
+        Requirements: 04-REQ-3.5, 04-REQ-3.E1
+        """
+        if not self.json_mode:
+            return
+        try:
+            line = json.dumps(event, default=str)
+            self._stderr.write(line + "\n")
+            self._stderr.flush()
+        except OSError:
+            pass

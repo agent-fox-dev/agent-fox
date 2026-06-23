@@ -21,7 +21,7 @@ import click
 from agentfox import __version__
 from agentfox.core.config import ThemeConfig, load_config
 from agentfox.core.logging import setup_logging
-from agentfox.io import AgentFoxGroup
+from agentfox.io import AgentFoxGroup, OutputManager
 from agentfox.ui.display import create_theme, render_banner
 
 logger = logging.getLogger(__name__)
@@ -51,6 +51,9 @@ def main(ctx: click.Context, verbose: bool, quiet: bool, trace: bool, json_mode:
 
     # 23-REQ-1.2: store JSON flag so every subcommand can access it
     ctx.obj["json"] = json_mode
+
+    # 04-REQ-2.1: create OutputManager for unified data output dispatch
+    ctx.obj["output"] = OutputManager(json_mode=json_mode)
 
     # In JSON mode, suppress warning-level log output so it doesn't pollute
     # the structured JSON stdout stream. Verbose/trace flags override this.

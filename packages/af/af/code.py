@@ -4,7 +4,7 @@ Thin CLI wrapper that delegates to ``engine.run.run_code()`` for
 orchestrator execution, then handles output formatting and exit codes.
 
 Requirements: 16-REQ-1.1 through 16-REQ-5.2, 23-REQ-5.1, 23-REQ-5.E1,
-              123-REQ-1.1 through 123-REQ-4.2
+              04-REQ-2.1, 123-REQ-1.1 through 123-REQ-4.2
 """
 
 from __future__ import annotations
@@ -19,10 +19,12 @@ from agentfox.core.errors import AgentFoxError
 from agentfox.engine.run import InterruptedResult, run_code
 from agentfox.engine.state import ExecutionState
 from agentfox.graph.persistence import load_plan
-from agentfox.io import emit, emit_error, emit_line, read_stdin
+from agentfox.io import emit_error, emit_line, read_stdin
 from agentfox.knowledge.db import open_knowledge_store
 from agentfox.reporting.formatters import format_tokens
 from agentfox.spec.discovery import discover_specs
+
+from af import get_output_manager
 
 logger = logging.getLogger(__name__)
 
@@ -120,15 +122,16 @@ def _print_summary(state: ExecutionState) -> None:
                 click.echo(f"  [{node_id}] {reason}")
 
 
-def _handle_dry_run(config: object, json_mode: bool, specs_dir: str | None) -> None:
+def _handle_dry_run(config: object, om: object, specs_dir: str | None) -> None:
     """Execute the dry-run analysis path.
 
     Loads the persisted plan from DuckDB (read-only), filters out completed
     nodes, computes analysis (phases, critical path, grouped edges), and
-    displays the result as text or JSON.
+    displays the result as text or JSON via *om*.
 
-    Requirements: 123-REQ-1.1, 123-REQ-1.3, 123-REQ-1.E1, 123-REQ-1.E2,
-                  123-REQ-1.E3, 123-REQ-3.1, 123-REQ-3.E1, 123-REQ-4.1
+    Requirements: 04-REQ-2.1, 123-REQ-1.1, 123-REQ-1.3, 123-REQ-1.E1,
+                  123-REQ-1.E2, 123-REQ-1.E3, 123-REQ-3.1, 123-REQ-3.E1,
+                  123-REQ-4.1
     """
     from agentfox.core.config import resolve_spec_root
     from agentfox.core.node_id import DEFAULT_DB_PATH
@@ -137,6 +140,8 @@ def _handle_dry_run(config: object, json_mode: bool, specs_dir: str | None) -> N
     from agentfox.graph.types import NodeStatus
 
     from af.plan import _edge_to_dict, _metadata_to_dict, _node_to_dict
+
+    json_mode = om.json_mode
 
     # 123-REQ-1.E1: check DB file exists
     if not DEFAULT_DB_PATH.exists():
@@ -157,7 +162,7 @@ def _handle_dry_run(config: object, json_mode: bool, specs_dir: str | None) -> N
     # 123-REQ-1.E2: empty plan (no nodes or None)
     if graph is None or not graph.nodes:
         if json_mode:
-            emit(
+            om.emit(
                 {
                     "nodes": {},
                     "edges": [],
@@ -178,7 +183,7 @@ def _handle_dry_run(config: object, json_mode: bool, specs_dir: str | None) -> N
     # 123-REQ-1.E3: all nodes completed
     if completed_ids == set(graph.nodes.keys()):
         if json_mode:
-            emit(
+            om.emit(
                 {
                     "nodes": {},
                     "edges": [],
@@ -211,9 +216,9 @@ def _handle_dry_run(config: object, json_mode: bool, specs_dir: str | None) -> N
     except Exception:
         specs = []
 
-    # 123-REQ-3.1: JSON output
+    # 123-REQ-3.1: JSON output via OutputManager
     if json_mode:
-        emit(
+        om.emit(
             {
                 "nodes": {nid: _node_to_dict(node) for nid, node in graph.nodes.items()},
                 "edges": [_edge_to_dict(e) for e in graph.edges],
@@ -294,10 +299,13 @@ def code_cmd(
     dry_run: bool,
 ) -> None:
     """Execute the task plan."""
+    # 04-REQ-2.1: retrieve OutputManager from context
+    om = get_output_manager(ctx)
+    json_mode: bool = om.json_mode
+
     # 16-REQ-1.2: load config from Click context
     config = ctx.obj["config"]
     quiet: bool = ctx.obj.get("quiet", False)
-    json_mode: bool = ctx.obj.get("json", False)
 
     # 123-REQ-2.1, 123-REQ-2.E1: mutual exclusion with execution flags
     conflicts = _check_dry_run_conflicts(
@@ -316,7 +324,7 @@ def code_cmd(
 
     # 123-REQ-4.1, 123-REQ-4.2: dry-run bypasses daemon guard
     if dry_run:
-        _handle_dry_run(config, json_mode, specs_dir)
+        _handle_dry_run(config, om, specs_dir)
         return
 
     # 118-REQ-2.2: CLI --force-clean flag overrides config value
@@ -396,7 +404,7 @@ def code_cmd(
 
     state: ExecutionState = result
 
-    # 23-REQ-5.1: emit JSONL summary in JSON mode
+    # 23-REQ-5.1, 04-REQ-2.1: emit summary via OutputManager
     if json_mode:
         counts = _count_by_status(state.node_states)
         summary_payload: dict = {
@@ -414,7 +422,7 @@ def code_cmd(
             summary_payload["workspace_state_errors"] = [
                 {"node_id": nid, "reason": reason} for nid, reason in ws_errors
             ]
-        emit_line({"event": "complete", "summary": summary_payload})
+        om.emit({"event": "complete", "summary": summary_payload})
     else:
         # 16-REQ-3.1: print summary
         _print_summary(state)

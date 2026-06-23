@@ -4,8 +4,8 @@ Implements the `agent-fox findings` command that queries the knowledge
 database for review findings and displays them in a formatted table or
 as JSON.
 
-Requirements: 84-REQ-4.1 through 84-REQ-4.6, 84-REQ-4.E1, 84-REQ-4.E2,
-              04-REQ-6.3
+Requirements: 04-REQ-2.1, 04-REQ-6.3,
+              84-REQ-4.1 through 84-REQ-4.6, 84-REQ-4.E1, 84-REQ-4.E2
 """
 
 from __future__ import annotations
@@ -41,7 +41,9 @@ DEFAULT_DB_PATH: Path = _DEFAULT_DB_PATH
     metavar="ID REASON",
     help="Dismiss a finding by ID: --dismiss <finding-id> <reason>",
 )
+@click.pass_context
 def findings_cmd(
+    ctx: click.Context,
     spec: str | None,
     severity: str | None,
     archetype: str | None,
@@ -59,9 +61,14 @@ def findings_cmd(
 
         agent-fox insights --dismiss <finding-id> "reason for dismissal"
 
-    Requirements: 84-REQ-4.1 through 84-REQ-4.6, 84-REQ-4.E1, 84-REQ-4.E2,
-                  592-AC-3, 592-AC-4
+    Requirements: 04-REQ-2.1, 84-REQ-4.1 through 84-REQ-4.6,
+                  84-REQ-4.E1, 84-REQ-4.E2, 592-AC-3, 592-AC-4
     """
+    # 04-REQ-2.1: retrieve OutputManager from context
+    from af import get_output_manager
+
+    om = get_output_manager(ctx)
+
     from agentfox.knowledge.review_store import dismiss_finding_by_id
     from agentfox.reporting.findings import query_findings
 
@@ -130,10 +137,8 @@ def findings_cmd(
     ]
     output = format_table(headers=headers, rows=table_rows, json_mode=json_output)
 
-    if json_output:
-        import json as _json
-
-        click.echo(_json.dumps(output, indent=2))
+    if json_output or om.json_mode:
+        om.emit({"findings": output})
     else:
         from rich.console import Console
 

@@ -3,7 +3,8 @@
 Thin CLI wrapper that delegates to ``graph.planner.build_plan()``
 for the planning pipeline, then handles persistence and display.
 
-Requirements: 02-REQ-7.1, 02-REQ-7.2, 02-REQ-7.3, 02-REQ-7.4, 02-REQ-7.5
+Requirements: 02-REQ-7.1, 02-REQ-7.2, 02-REQ-7.3, 02-REQ-7.4, 02-REQ-7.5,
+              04-REQ-2.1
 """
 
 from __future__ import annotations
@@ -16,7 +17,10 @@ from agentfox.core.config import load_config
 from agentfox.core.errors import PlanError
 from agentfox.graph.persistence import save_plan
 from agentfox.graph.planner import build_plan, format_plan_summary
+from agentfox.io import emit_error
 from agentfox.spec.discovery import discover_specs
+
+from af import get_output_manager
 
 
 def _node_to_dict(node: object) -> dict:
@@ -66,6 +70,10 @@ def plan_cmd(
     specs_dir: str | None,
 ) -> None:
     """Build an execution plan from specifications."""
+    # 04-REQ-2.1: retrieve OutputManager from context
+    om = get_output_manager(ctx)
+    json_mode = om.json_mode
+
     # 85-REQ-3.2: Refuse to run when daemon is active.
     from agentfox.nightshift.pid import PidStatus, check_pid_file
 
@@ -89,9 +97,6 @@ def plan_cmd(
     from agentfox.core.config import resolve_spec_root
 
     specs_path: Path = Path(specs_dir) if specs_dir else resolve_spec_root(config, project_root)
-
-    # Always rebuild the plan from specs directory (63-REQ-1.1)
-    json_mode = ctx.obj.get("json", False)
     from agentfox.ui.progress import PlanSpinner
 
     spinner = PlanSpinner("Planning...")
@@ -102,8 +107,6 @@ def plan_cmd(
     except PlanError as exc:
         spinner.stop()
         if json_mode:
-            from agentfox.io import emit_error
-
             emit_error(str(exc))
             ctx.exit(1)
             return
@@ -153,9 +156,7 @@ def plan_cmd(
             specs = []
 
         if json_mode:
-            from agentfox.io import emit
-
-            emit(
+            om.emit(
                 {
                     "nodes": {nid: _node_to_dict(node) for nid, node in graph.nodes.items()},
                     "edges": [_edge_to_dict(e) for e in graph.edges],
@@ -189,13 +190,11 @@ def plan_cmd(
     except PlanError:
         specs = []
 
-    # 23-REQ-3.4: JSON output for plan command
+    # 23-REQ-3.4, 04-REQ-2.1: JSON output via OutputManager
     if json_mode:
         from dataclasses import asdict
 
-        from agentfox.io import emit
-
-        emit(
+        om.emit(
             {
                 "nodes": {nid: asdict(node) for nid, node in graph.nodes.items()},
                 "edges": [asdict(e) for e in graph.edges],

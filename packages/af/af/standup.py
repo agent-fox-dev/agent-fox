@@ -3,9 +3,9 @@
 Generates a daily activity report covering agent work, human
 commits, file overlaps, and queued tasks.
 
-Requirements: 07-REQ-2.1, 07-REQ-3.1, 07-REQ-3.4,
-              23-REQ-3.2, 23-REQ-8.2,
-              04-REQ-6.2
+Requirements: 04-REQ-2.1, 04-REQ-2.5, 04-REQ-6.2,
+              07-REQ-2.1, 07-REQ-3.1, 07-REQ-3.4,
+              23-REQ-3.2, 23-REQ-8.2
 """
 
 from __future__ import annotations
@@ -16,13 +16,15 @@ from pathlib import Path
 
 import click
 from agentfox.core.node_id import DEFAULT_DB_PATH
-from agentfox.io import emit, format_table
+from agentfox.io import format_table
 from agentfox.reporting.formatters import (
     OutputFormat,
     get_formatter,
 )
 from agentfox.reporting.standup import generate_standup
 from rich.console import Console
+
+from af import get_output_manager
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +72,9 @@ def _build_cost_tables(
 @click.pass_context
 def standup_cmd(ctx: click.Context, hours: int) -> None:
     """Generate daily activity report."""
-    json_mode = ctx.obj.get("json", False)
+    # 04-REQ-2.1, 04-REQ-2.5: retrieve OutputManager from context
+    om = get_output_manager(ctx)
+    json_mode = om.json_mode
     project_root = Path.cwd()
 
     db_conn = None
@@ -99,7 +103,7 @@ def standup_cmd(ctx: click.Context, hours: int) -> None:
         data = asdict(report)
         data["cost_by_spec"] = cost_tables["cost_by_spec"]
         data["cost_by_archetype"] = cost_tables["cost_by_archetype"]
-        emit(data)
+        om.emit(data)
     else:
         console = Console()
         formatter = get_formatter(OutputFormat.TABLE, console=console)
