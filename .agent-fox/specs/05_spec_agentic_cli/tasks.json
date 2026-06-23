@@ -45,7 +45,7 @@
             "05-REQ-1.3",
             "05-REQ-1.E1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -64,7 +64,7 @@
             "05-REQ-1.4",
             "05-REQ-1.5"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -97,7 +97,7 @@
             "05-REQ-2.E1",
             "05-REQ-2.E2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -131,7 +131,7 @@
             "05-REQ-3.E1",
             "05-REQ-3.E2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -168,7 +168,7 @@
             "05-REQ-5.4",
             "05-REQ-6.2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -196,7 +196,7 @@
             "05-REQ-5.4",
             "05-REQ-6.1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],
@@ -462,8 +462,8 @@
           "title": "Emit validation results using emit/emit_ok and handle IO errors",
           "details": [
             "Replace existing click.echo(json.dumps({...})) in validate handler with `emit` or `emit_ok` from agentfox.io.",
-            "On success (no errors): emit_ok(valid=True, errors=[])  → exit code 0.",
-            "On failure (errors present): emit(valid=False, errors=[e.to_dict() for e in errors]) → exit code 1.",
+            "On success (no errors): emit_ok(valid=True, errors=[])  \u2192 exit code 0.",
+            "On failure (errors present): emit(valid=False, errors=[e.to_dict() for e in errors]) \u2192 exit code 1.",
             "05-ERR-3: catch FileNotFoundError/PermissionError when reading artifact files; emit IOError structured entry with category='io', artifact, message; exit code 1.",
             "Import: `from agentfox.io import emit, emit_ok`."
           ],
@@ -792,11 +792,11 @@
           "id": "8.1",
           "title": "Trace execution paths and verify no stubs remain in the call chain",
           "details": [
-            "05-PATH-1: trace AgentFoxGroup → render command → agentspec render → emit_ok; confirm no function in the chain contains `raise NotImplementedError` or `pass` as a body.",
-            "05-PATH-2: trace AgentFoxGroup → render command (per-artifact) → emit_ok; confirm artifacts dict is built before emit_ok is called.",
-            "05-PATH-3: trace AgentFoxGroup → validate command → agentspec validate → structured error assembly → emit; confirm each step returns values consumed by the next.",
-            "05-PATH-4: trace AgentFoxGroup (non-agent mode) → render → click.echo (markdown); confirm raw markdown path still intact.",
-            "05-PATH-5: trace unhandled exception → AgentFoxGroup handler → agentfox/io/errors.py → JSON error envelope; confirm no raw traceback escapes.",
+            "05-PATH-1: trace AgentFoxGroup \u2192 render command \u2192 agentspec render \u2192 emit_ok; confirm no function in the chain contains `raise NotImplementedError` or `pass` as a body.",
+            "05-PATH-2: trace AgentFoxGroup \u2192 render command (per-artifact) \u2192 emit_ok; confirm artifacts dict is built before emit_ok is called.",
+            "05-PATH-3: trace AgentFoxGroup \u2192 validate command \u2192 agentspec validate \u2192 structured error assembly \u2192 emit; confirm each step returns values consumed by the next.",
+            "05-PATH-4: trace AgentFoxGroup (non-agent mode) \u2192 render \u2192 click.echo (markdown); confirm raw markdown path still intact.",
+            "05-PATH-5: trace unhandled exception \u2192 AgentFoxGroup handler \u2192 agentfox/io/errors.py \u2192 JSON error envelope; confirm no raw traceback escapes.",
             "Search for stub markers: `grep -rn 'raise NotImplementedError\\|pass$\\|# TODO\\|# FIXME' spec/cli.py spec/validate.py`; resolve or justify any found."
           ],
           "test_spec_refs": [
