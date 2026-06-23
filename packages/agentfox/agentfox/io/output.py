@@ -104,12 +104,9 @@ class OutputManager:
             human_fn()
 
     def banner(self) -> None:
-        """Render the themed banner.
+        """Render the themed banner on stderr.
 
         Suppressed when ``json_mode=True`` or ``quiet=True``.
-
-        Uses the default theme console (stdout) for backward
-        compatibility with af CLI banner tests.
 
         Requirements: 03-REQ-4.8
         """
@@ -117,10 +114,23 @@ class OutputManager:
             return
 
         try:
+            from rich.theme import Theme as RichTheme
+
             from agentfox.core.config import ThemeConfig
             from agentfox.ui.display import create_theme, render_banner
 
             theme = create_theme(ThemeConfig())
+            # 03-REQ-4.8: Banner must render to stderr, not stdout.
+            # AppTheme creates Console() targeting stdout by default.
+            # Replace it with a stderr-targeting Console that preserves
+            # the same Rich theme styles for colored output.
+            cfg = theme.config
+            styles: dict[str, str] = {}
+            for role in ("header", "success", "error", "warning", "info", "tool", "muted"):
+                val = getattr(cfg, role, "")
+                if val:
+                    styles[role] = val
+            theme.console = Console(stderr=True, theme=RichTheme(styles))
             render_banner(theme, quiet=False)
         except Exception:
             pass

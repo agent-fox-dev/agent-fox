@@ -368,7 +368,14 @@ class TestPropGetOutputManagerFallbackIgnoresEnv:
     """
 
     @pytest.mark.property
-    @given(af_agent_val=st.one_of(st.none(), st.text(max_size=10)))
+    @given(
+        af_agent_val=st.one_of(
+            st.none(),
+            # Environment variables cannot contain null bytes; filter
+            # them out to avoid ValueError from os.environ.
+            st.text(max_size=10).filter(lambda s: "\x00" not in s),
+        ),
+    )
     @settings(max_examples=20)
     def test_fallback_ignores_af_agent(self, af_agent_val: str | None) -> None:
         from agentfox.io import get_output_manager

@@ -167,6 +167,19 @@ class AgentFoxGroup(click.Group):
             cli_error_handler(ctx, exc)
             sys.exit(1)
 
+        # 03-REQ-2.4: Detect if a group callback changed ctx.obj to a
+        # non-dict value during invocation. This can happen when a parent
+        # group callback overwrites ctx.obj after AgentFoxGroup has
+        # already constructed and stored the OutputManager.
+        # Use logging.debug() (root logger) because setup_logging may
+        # have set the 'agentfox' logger to WARNING, which would filter
+        # this DEBUG diagnostic from the module logger.
+        if not isinstance(ctx.obj, dict):
+            logging.debug(
+                "ctx.obj was changed to a non-dict value (%s) during invocation",
+                type(ctx.obj).__name__,
+            )
+
     def main(self, *args, **kwargs):
         self._pending_keyboard_interrupt = False
         try:
