@@ -554,7 +554,8 @@
             "03-REQ-8.E1"
           ],
           "state": "pending",
-          "optional": false
+          "optional": false,
+          "done": true
         },
         {
           "id": "5.2",
@@ -574,7 +575,8 @@
             "03-REQ-8.6"
           ],
           "state": "pending",
-          "optional": false
+          "optional": false,
+          "done": true
         },
         {
           "id": "5.V",
@@ -593,12 +595,14 @@
             "03-REQ-8"
           ],
           "state": "pending",
-          "optional": false
+          "optional": false,
+          "done": true
         }
       ],
       "verification": {
         "id": "",
-        "checks": []
+        "checks": [],
+        "done": true
       }
     },
     {
