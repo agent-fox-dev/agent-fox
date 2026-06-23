@@ -51,6 +51,30 @@ empty or insufficient, ask the user for additional context before proceeding.
 Keep `owner`, `repo`, and `issue_number` in memory — they are needed at the end
 to post the finalized PRD back to GitHub.
 
+### Complexity Check — Split Large Specs
+
+Before diving into issue analysis, assess whether the PRD describes a single
+cohesive feature or multiple independent concerns. A spec is **too complex** if
+it exhibits two or more of the following:
+
+- Covers **3+ distinct functional areas** that could be developed and tested
+  independently (e.g. a new CLI command AND a new storage backend AND a new
+  rendering mode).
+- Would produce **more than 10 requirements** in `requirements.json`.
+- Contains **unrelated user stories** that serve different actors or goals.
+- Would require **more than 5 task groups** in `tasks.json`.
+
+If the PRD is too complex, **do not proceed with a single spec**. Instead:
+
+1. Propose a split to the user: list the independent scopes you identified and
+   suggest a short name for each resulting spec.
+2. Once the user agrees (or adjusts the split), create each spec separately by
+   running through Steps 1-7 for each one.
+3. Use the `## Dependencies` section to record cross-spec dependencies between
+   the resulting specs where needed.
+
+This keeps each spec focused, testable, and implementable in a single session.
+
 ### Identify and Resolve Issues
 
 **Critical:** Before proceeding, identify and surface any issues:
@@ -239,7 +263,11 @@ step catches gaps that may have been missed during the manual review in Step 1.
    spec refine <spec_dir_name> --answers /tmp/answers_<spec_name>.json
    ```
 
-5. Repeat until the assessment returns `quality: "ready"`.
+5. Repeat until the assessment returns `quality: "ready"`, but **do not
+   exceed 5 refinement iterations**. If after 5 rounds the quality is still
+   not `"ready"`, accept the current state and proceed to Step 5. Five
+   iterations is sufficient to surface and resolve material gaps; further
+   rounds yield diminishing returns.
 
 6. **Verify incorporation.** After refinement with answers, re-read the
    generated `prd.md` to confirm the answers were actually incorporated into
