@@ -16,16 +16,54 @@ import click
 logger = logging.getLogger(__name__)
 
 
+class _UniqueParamList(list):
+    """List subclass that prevents duplicate Click params by name.
+
+    When a param whose ``name`` already exists in the list is appended,
+    the append is silently skipped and a debug-level warning is logged.
+    This prevents name collisions when ``common_options`` is the
+    innermost decorator and a subsequent ``@click.option`` adds a
+    conflicting flag.
+
+    Requirements: 03-REQ-9.3
+    """
+
+    def append(self, param: Any) -> None:  # noqa: ANN401
+        name = getattr(param, "name", None)
+        if name:
+            for existing in self:
+                if getattr(existing, "name", None) == name:
+                    logger.debug(
+                        "Skipping --%s: name collision with existing flag",
+                        name,
+                    )
+                    return
+        super().append(param)
+
+
 def common_options(fn: Any) -> Any:
-    """Add --verbose, --quiet, --trace, and --json/--no-json flags."""
+    """Add --verbose, --quiet, --trace, and --json/--no-json flags.
+
+    Must be applied to a Click Group (the root group), not a subcommand.
+    Raises ``TypeError`` if applied to a non-Group ``click.Command``.
+
+    Detects name collisions with existing flags on the group and skips
+    conflicting registrations, emitting a debug-level warning.
+
+    Requirements: 03-REQ-3.6, 03-REQ-9.1, 03-REQ-9.2, 03-REQ-9.3
+    """
     if isinstance(fn, click.Command) and not isinstance(fn, click.Group):
         raise TypeError(
             "common_options must be applied to the root Click group, not to a subcommand"
         )
 
+    # Collect existing param names from both Click Command/Group .params
+    # and raw-function __click_params__ (set by earlier decorators).
     existing_names: set[str] = set()
     if hasattr(fn, "params"):
         existing_names = {p.name for p in fn.params if p.name}
+    if hasattr(fn, "__click_params__"):
+        existing_names |= {p.name for p in fn.__click_params__ if p.name}
 
     def _json_callback(ctx, param, value):
         ctx.ensure_object(dict)
@@ -65,6 +103,14 @@ def common_options(fn: Any) -> Any:
             expose_value=True, is_eager=False)(fn)
     else:
         logger.debug("Skipping --verbose: name collision with existing flag")
+
+    # Replace __click_params__ with a dedup-aware list.  When
+    # common_options is the innermost decorator, subsequent
+    # @click.option decorators append to this list.  The custom list
+    # silently skips params whose name already exists and logs a
+    # debug warning, preventing duplicate flag registration.
+    if hasattr(fn, "__click_params__"):
+        fn.__click_params__ = _UniqueParamList(fn.__click_params__)
 
     return fn
 
