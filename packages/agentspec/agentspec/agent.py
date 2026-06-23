@@ -48,7 +48,7 @@ logger = logging.getLogger(__name__)
 _MAX_RETRIES = 3
 _BASE_DELAY = 1.0  # seconds
 _MAX_CUMULATIVE_WAIT = 30.0  # seconds
-_DEFAULT_MAX_TOKENS = 16384
+_DEFAULT_MAX_TOKENS = 65536
 _MAX_REPAIR_ATTEMPTS = 2
 
 _ARTIFACT_MODELS: dict[str, type[BaseModel]] = {
@@ -428,7 +428,15 @@ class SpecAgent:
                 if system is not None:
                     kwargs["system"] = system
 
-                response = await self._client.messages.create(**kwargs)  # type: ignore[attr-defined]
+                try:
+                    response = await self._client.messages.create(**kwargs)  # type: ignore[attr-defined]
+                except APIStatusError as create_exc:
+                    if create_exc.status_code == 400 and "streaming" in str(create_exc).lower():
+                        logger.debug("Non-streaming request rejected; retrying with streaming")
+                        async with self._client.messages.stream(**kwargs) as stream:  # type: ignore[attr-defined]
+                            response = await stream.get_final_message()
+                    else:
+                        raise
                 logger.debug("API call succeeded on attempt %d", attempt + 1)
                 return response
 

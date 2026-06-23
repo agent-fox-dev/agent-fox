@@ -129,10 +129,7 @@ class TestRequirementMapping:
             issue_body="body",
         )
         spec = build_afspec_from_triage(triage, 5)
-        assert (
-            spec.requirements.requirements[0].title
-            == "System handles large payloads gracefully"
-        )
+        assert spec.requirements.requirements[0].title == "System handles large payloads gracefully"
 
     def test_ts_01_6_requirement_user_story_verbatim(self):
         """TS-01-6: Requirement.user_story is criterion description verbatim.
@@ -151,10 +148,7 @@ class TestRequirementMapping:
             issue_body="body",
         )
         spec = build_afspec_from_triage(triage, 10)
-        assert (
-            spec.requirements.requirements[0].user_story.goal
-            == "User can log in with valid credentials"
-        )
+        assert spec.requirements.requirements[0].user_story.goal == "User can log in with valid credentials"
 
     def test_ts_01_7_acceptance_criteria_entry(self):
         """TS-01-7: acceptance_criteria has exactly one entry."""

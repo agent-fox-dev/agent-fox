@@ -394,9 +394,7 @@ def assemble_context(
     try:
         raw_sections = _render_spec_sections(spec_dir)
         # Sanitize rendered spec sections for safe prompt inclusion
-        file_sections = [
-            sanitize_prompt_content(s, label="spec") for s in raw_sections
-        ]
+        file_sections = [sanitize_prompt_content(s, label="spec") for s in raw_sections]
     except Exception:
         logger.warning(
             "Failed to load spec in %s",
