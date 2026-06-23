@@ -1,89 +1,162 @@
-"""JSON output helpers for CLI commands.
+"""OutputManager — central coordinator for CLI output.
 
-Provides ``emit``, ``emit_ok``, ``emit_line``, ``emit_error``,
-``read_stdin``, ``format_table``, and ``OutputManager`` for writing
-structured JSON envelopes to stdout, reading JSON input from stdin,
-rendering tabular data, and unified output dispatch.
+Provides the ``OutputManager`` class that controls json_mode, quiet,
+verbose, and trace settings, and ``get_output_manager()`` to retrieve
+the active instance from Click context or a fallback.
 
-All JSON output in agent-fox CLIs should use these functions or the
-``OutputManager`` class rather than raw ``click.echo(json.dumps(...))``.
+Also re-exports the JSON serialization functions from ``agentfox.io.json``
+for backward compatibility, and provides ``format_table`` for tabular
+data rendering.
 
-Requirements: 04-REQ-2.3, 04-REQ-2.4, 04-REQ-3.E1
+Requirements: 03-REQ-2, 03-REQ-4, 04-REQ-6
 """
 
 from __future__ import annotations
 
 import json
 import sys
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import click
+from rich.console import Console
 from rich.table import Table
 
+# Re-export JSON functions for backward compatibility with existing imports
+from agentfox.io.json import emit, emit_error, emit_line, emit_ok, read_stdin
 
-def emit(data: dict[str, Any]) -> None:
-    """Write a single JSON object to stdout, followed by newline.
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
-    Uses indented (pretty-printed) format for readability.
-    Non-serializable values are converted via ``str()``.
+__all__ = [
+    "OutputManager",
+    "format_table",
+    "get_output_manager",
+    "emit",
+    "emit_error",
+    "emit_line",
+    "emit_ok",
+    "read_stdin",
+]
 
-    Args:
-        data: Dictionary to serialize as JSON.
+
+class OutputManager:
+    """Central coordinator for all CLI output.
+
+    Controls whether output is written as JSON to stdout or as
+    human-readable text, and provides format dispatch methods.
+
+    Attributes:
+        json_mode: If True, output is JSON to stdout.
+        quiet: If True, suppress banner and status lines on stderr.
+        verbose: If True, enable verbose output.
+        trace: If True, enable trace-level output.
+        console: Rich Console instance for stderr output.
+
+    Requirements: 03-REQ-2.1, 03-REQ-4
     """
-    click.echo(json.dumps(data, indent=2, default=str))
+
+    def __init__(
+        self,
+        *,
+        json_mode: bool = False,
+        quiet: bool = False,
+        verbose: bool = False,
+        trace: bool = False,
+    ) -> None:
+        self.json_mode = json_mode
+        self.quiet = quiet
+        self.verbose = verbose
+        self.trace = trace
+        self.console = Console(stderr=True)
+
+    def emit_json(self, data: dict[str, Any]) -> None:
+        """Write JSON to stdout if json_mode is True; no-op otherwise.
+
+        Requirements: 03-REQ-4.1, 03-REQ-4.2
+        """
+        if self.json_mode:
+            print(json.dumps(data, indent=2, default=str), file=sys.stdout)
+
+    def emit_human(self, text: str) -> None:
+        """Write plain text to stdout if json_mode is False; no-op otherwise.
+
+        Requirements: 03-REQ-4.3, 03-REQ-4.4
+        """
+        if not self.json_mode:
+            print(text, file=sys.stdout)
+
+    def emit(
+        self,
+        data: dict[str, Any],
+        human_fn: Callable[[], None] | None = None,
+    ) -> None:
+        """Dispatch output to JSON or human format.
+
+        In json_mode, calls ``emit_json(data)``.  Otherwise, calls
+        ``human_fn()`` if provided.  Silent no-op when json_mode is
+        False and human_fn is None.
+
+        Requirements: 03-REQ-4.5, 03-REQ-4.6, 03-REQ-4.7
+        """
+        if self.json_mode:
+            self.emit_json(data)
+        elif human_fn is not None:
+            human_fn()
+
+    def banner(self) -> None:
+        """Render the themed banner.
+
+        Suppressed when ``json_mode=True`` or ``quiet=True``.
+
+        Uses the default theme console (stdout) for backward
+        compatibility with af CLI banner tests.
+
+        Requirements: 03-REQ-4.8
+        """
+        if self.json_mode or self.quiet:
+            return
+
+        try:
+            from agentfox.core.config import ThemeConfig
+            from agentfox.ui.display import create_theme, render_banner
+
+            theme = create_theme(ThemeConfig())
+            render_banner(theme, quiet=False)
+        except Exception:
+            pass
+
+    def status(self, message: str) -> None:
+        """Write a status message to stderr; suppressed when quiet=True.
+
+        Requirements: 03-REQ-4.9
+        """
+        if self.quiet:
+            return
+        self.console.print(message)
 
 
-def emit_ok(**kwargs: Any) -> None:
-    """Write a successful JSON response envelope to stdout.
+def get_output_manager() -> OutputManager:
+    """Return the active OutputManager from Click context, or a fallback.
 
-    Wraps the keyword arguments in ``{"ok": True, ...}`` and writes
-    the result as a JSON object to stdout.
+    When a Click context is active and ``ctx.obj["output"]`` exists,
+    returns that instance.  Otherwise returns a fallback with all
+    flags set to False.
 
-    Args:
-        **kwargs: Additional fields to include in the envelope.
+    The ``AF_AGENT`` env var is **not** consulted in the fallback path.
+
+    Requirements: 03-REQ-2.3, 03-REQ-2.E1
     """
-    emit({"ok": True, **kwargs})
+    try:
+        ctx = click.get_current_context(silent=True)
+        if ctx is not None and isinstance(ctx.obj, dict):
+            om = ctx.obj.get("output")
+            if isinstance(om, OutputManager):
+                return om
+    except Exception:
+        pass
 
-
-def emit_line(data: dict[str, Any]) -> None:
-    """Write a compact JSON object to stdout (JSONL mode, no indent).
-
-    Each call produces exactly one line of output, suitable for
-    streaming / JSONL consumers.
-
-    Args:
-        data: Dictionary to serialize as JSON.
-    """
-    click.echo(json.dumps(data, default=str))
-
-
-def emit_error(message: str) -> None:
-    """Write an error envelope ``{"error": "<message>"}`` to stdout.
-
-    Args:
-        message: Human-readable error description.
-    """
-    click.echo(json.dumps({"error": message}))
-
-
-def read_stdin() -> dict[str, Any]:
-    """Read a JSON object from stdin if input is piped (not a TTY).
-
-    Returns an empty dict when stdin is a TTY (interactive terminal)
-    or when piped input is empty, so callers never block.
-
-    Returns:
-        Parsed JSON dict, or ``{}`` if no input is available.
-
-    Raises:
-        json.JSONDecodeError: If stdin contains invalid JSON.
-    """
-    if sys.stdin.isatty():
-        return {}
-    text = sys.stdin.read().strip()
-    if not text:
-        return {}
-    return json.loads(text)  # type: ignore[no-any-return]
+    # Fallback: fixed defaults, AF_AGENT not consulted
+    return OutputManager(json_mode=False, quiet=False, verbose=False, trace=False)
 
 
 def _pad_row(row: list[Any], n: int, fill: Any) -> list[Any]:
@@ -149,66 +222,3 @@ def format_table(
         padded = _pad_row(row, n, "")
         table.add_row(*(str(v) for v in padded[:n]))
     return table
-
-
-class OutputManager:
-    """Unified output dispatch for CLI commands.
-
-    Routes data output to human-readable text or JSON format based on
-    the ``json_mode`` flag.  In JSON mode, ``emit()`` serializes data as
-    a pretty-printed JSON object to stdout.  In text mode, it renders a
-    simple key-value representation.
-
-    ``emit_progress()`` writes JSONL progress events to stderr, only in
-    JSON mode, and suppresses IO errors (e.g. broken pipe).
-
-    Requirements: 04-REQ-2.3, 04-REQ-2.4, 04-REQ-3.E1
-    """
-
-    def __init__(
-        self,
-        json_mode: bool,
-        stdout: Any | None = None,
-        stderr: Any | None = None,
-    ) -> None:
-        self.json_mode = json_mode
-        self._stdout = stdout or sys.stdout
-        self._stderr = stderr or sys.stderr
-
-    def emit(self, data: dict[str, Any]) -> None:
-        """Write data output to stdout.
-
-        In JSON mode, serializes *data* as an indented JSON object.
-        In text mode, renders each key-value pair on its own line.
-
-        Requirements: 04-REQ-2.3, 04-REQ-2.4
-        """
-        if self.json_mode:
-            line = json.dumps(data, indent=2, default=str)
-            click.echo(line, file=self._stdout)
-        else:
-            if isinstance(data, str):
-                click.echo(data, file=self._stdout)
-            elif isinstance(data, dict):
-                for key, value in data.items():
-                    click.echo(f"{key}: {value}", file=self._stdout)
-            else:
-                click.echo(str(data), file=self._stdout)
-
-    def emit_progress(self, event: dict[str, Any]) -> None:
-        """Write a JSONL progress event to stderr.
-
-        Only writes when ``json_mode`` is ``True``.  IO errors
-        (``OSError``, ``BrokenPipeError``) are suppressed so that a
-        broken stderr pipe does not crash the main command.
-
-        Requirements: 04-REQ-3.5, 04-REQ-3.E1
-        """
-        if not self.json_mode:
-            return
-        try:
-            line = json.dumps(event, default=str)
-            self._stderr.write(line + "\n")
-            self._stderr.flush()
-        except OSError:
-            pass

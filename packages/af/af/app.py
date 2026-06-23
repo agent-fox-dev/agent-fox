@@ -69,11 +69,10 @@ def main(ctx: click.Context, verbose: bool, quiet: bool, trace: bool, json_mode:
 
     # 14-REQ-4.1: render banner on every invocation (suppressed by --quiet)
     # 23-REQ-2.1: suppress banner in JSON mode
-    # 04-REQ-1.1: AgentFoxGroup already renders banner for non-agent,
-    # non-quiet invocations. We only render here if AgentFoxGroup
-    # suppressed it (agent_mode) but --json was not requested.
-    agent_mode = ctx.obj.get("agent_mode", False)
-    if not json_mode and agent_mode and not quiet:
+    # 03-REQ-4.8: AgentFoxGroup no longer renders banner in invoke();
+    # all banner rendering is consolidated here. Render when not in
+    # JSON mode and not quiet.
+    if not json_mode and not quiet:
         theme_config = config.theme if config else ThemeConfig()
         theme = create_theme(theme_config)
         render_banner(theme, quiet=quiet)
