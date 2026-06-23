@@ -17,7 +17,7 @@ from typing import Any
 
 import click
 import yaml
-from agentfox.io import AgentFoxGroup
+from agentfox.io import AgentFoxGroup, emit, emit_ok
 from agentspec.errors import AgentError
 from agentspec.session import SessionState, SpecSession
 
@@ -26,6 +26,24 @@ from spec.ui import StatusSpinner
 _SPEC_DIR_RE = re.compile(r"^(\d{2})_(.+)$")
 _SPEC_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 _DEFAULT_SPEC_DIR = ".agent-fox/specs"
+
+
+class _SpecGroup(AgentFoxGroup):
+    """Extends AgentFoxGroup to suppress the banner when ``--json`` is present.
+
+    Subcommands like ``render --json`` require stdout to be pure JSON.
+    ``AgentFoxGroup`` already suppresses the banner in agent mode
+    (``AF_AGENT=1``) and when ``--quiet`` is passed.  This subclass
+    additionally sets *quiet* when the remaining (subcommand) args
+    contain ``--json``, so the banner never contaminates JSON output.
+    """
+
+    def invoke(self, ctx: click.Context) -> None:
+        # Peek at unconsumed args: if any subcommand will receive ``--json``,
+        # force quiet so the banner is suppressed.
+        if "--json" in ctx.args:
+            ctx.params["quiet"] = True
+        super().invoke(ctx)
 
 
 # ---------------------------------------------------------------------------
@@ -91,7 +109,7 @@ def _derive_spec_name(filename: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-@click.group(cls=AgentFoxGroup, invoke_without_command=True)
+@click.group(cls=_SpecGroup, invoke_without_command=True)
 @click.option(
     "--spec-dir",
     "-d",
@@ -108,6 +126,8 @@ def main(ctx: click.Context, spec_dir: str, quiet: bool) -> None:
     ctx.ensure_object(dict)
     ctx.obj["spec_dir"] = Path(spec_dir)
     ctx.obj["quiet"] = quiet
+    # Propagate agent_mode if set by AgentFoxGroup
+    ctx.obj.setdefault("agent_mode", False)
 
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
@@ -322,24 +342,123 @@ def generate_cmd(ctx: click.Context, spec: str, force: bool) -> None:
 # ---------------------------------------------------------------------------
 
 
+_RENDER_ARTIFACT_FILES: dict[str, str] = {
+    "requirements": "requirements.json",
+    "test_spec": "test_spec.json",
+    "tasks": "tasks.json",
+}
+
+
+def _render_available_artifacts(target: Path) -> tuple[dict[str, str], list[str]]:
+    """Render whichever artifacts exist, returning (artifacts, warnings).
+
+    Loads each available JSON artifact individually and renders it to
+    markdown.  Returns a mapping of artifact name to rendered markdown
+    and a list of warning strings for missing artifacts.
+    """
+    import afspec  # type: ignore[import-untyped]
+    from afspec import Requirements, Tasks, TestSpec  # type: ignore[import-untyped]
+
+    artifacts: dict[str, str] = {}
+    warnings: list[str] = []
+
+    _loaders: dict[str, tuple[type, Any]] = {
+        "requirements": (Requirements, afspec.render_requirements),
+        "test_spec": (TestSpec, afspec.render_test_spec),
+        "tasks": (Tasks, afspec.render_tasks),
+    }
+
+    for name, filename in _RENDER_ARTIFACT_FILES.items():
+        fpath = target / filename
+        if not fpath.exists():
+            warnings.append(f"{name} artifact not found")
+            continue
+        model_cls, render_fn = _loaders[name]
+        model = model_cls.model_validate_json(fpath.read_text())
+        artifacts[name] = render_fn(model)
+
+    return artifacts, warnings
+
+
 @main.command("render")
 @click.argument("spec")
 @click.option("--combined", is_flag=True, help="Render as single combined document")
+@click.option("--json", "output_json", is_flag=True, default=False, help="Output JSON envelope")
 @click.pass_context
-def render_cmd(ctx: click.Context, spec: str, combined: bool) -> None:
+def render_cmd(ctx: click.Context, spec: str, combined: bool, output_json: bool) -> None:
     """Render spec as markdown."""
     spec_dir: Path = ctx.obj["spec_dir"]
-    target = _resolve_spec(spec_dir, spec)
-    session = SpecSession.resume(target)
-    result = session.render(combined=combined)
 
-    if isinstance(result, str):
-        click.echo(result)
+    if not output_json:
+        # Original behaviour: raw markdown output
+        target = _resolve_spec(spec_dir, spec)
+        session = SpecSession.resume(target)
+        result = session.render(combined=combined)
+        if isinstance(result, str):
+            click.echo(result)
+        else:
+            for artifact_name, content in result.items():
+                click.echo(f"--- {artifact_name} ---")
+                click.echo(content)
+                click.echo()
+        return
+
+    # --- JSON output mode ---
+    try:
+        target = _resolve_spec(spec_dir, spec)
+        session = SpecSession.resume(target)
+    except (click.ClickException, Exception) as exc:
+        msg = exc.format_message() if isinstance(exc, click.ClickException) else str(exc)
+        emit({"ok": False, "error": msg})
+        ctx.exit(1)
+        return
+
+    if combined:
+        # --json --combined: single merged content string + sections list
+        # Try full render first; fall back to partial if artifacts missing
+        try:
+            merged = session.render(combined=True)
+            assert isinstance(merged, str)
+            sections = [n for n, f in _RENDER_ARTIFACT_FILES.items() if (target / f).exists()]
+            emit_ok(format="markdown", content=merged, sections=sections)
+        except Exception:
+            # Partial render: merge what we can
+            arts, warnings = _render_available_artifacts(target)
+            prd_path = target / "prd.md"
+            parts: list[str] = []
+            if prd_path.exists():
+                parts.append(prd_path.read_text().rstrip())
+            for art_md in arts.values():
+                parts.append("")
+                parts.append("---")
+                parts.append("")
+                parts.append(art_md.rstrip())
+            parts.append("")
+            merged_partial = "\n".join(parts)
+            sections = list(arts.keys())
+            payload: dict[str, Any] = {
+                "format": "markdown",
+                "content": merged_partial,
+                "sections": sections,
+            }
+            if warnings:
+                payload["warnings"] = warnings
+            emit_ok(**payload)
     else:
-        for artifact_name, content in result.items():
-            click.echo(f"--- {artifact_name} ---")
-            click.echo(content)
-            click.echo()
+        # --json (per-artifact): artifacts map + optional warnings
+        # Check which artifact files exist to decide strategy
+        missing = [n for n, f in _RENDER_ARTIFACT_FILES.items() if not (target / f).exists()]
+        if not missing:
+            # All artifacts present – use the full session render
+            result = session.render(combined=False)
+            assert isinstance(result, dict)
+            # Keep only the three standard artifact keys
+            arts_map = {k: v for k, v in result.items() if k in _RENDER_ARTIFACT_FILES}
+            emit_ok(artifacts=arts_map)
+        else:
+            # Some artifacts missing – render available ones, emit warnings
+            arts_map, warnings = _render_available_artifacts(target)
+            emit_ok(artifacts=arts_map, warnings=warnings)
 
 
 # ---------------------------------------------------------------------------
