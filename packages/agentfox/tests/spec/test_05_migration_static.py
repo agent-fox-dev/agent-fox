@@ -65,7 +65,6 @@ class TestSpecUiDeleted:
     Requirement: 05-REQ-4.1
     """
 
-    @pytest.mark.xfail(reason="spec/ui.py not yet deleted")
     def test_spec_ui_does_not_exist(self) -> None:
         """spec/ui.py file does not exist in the spec package."""
         spec_dir = _get_spec_package_dir()
@@ -84,7 +83,6 @@ class TestStatusSpinnerImport:
     Requirement: 05-REQ-4.2
     """
 
-    @pytest.mark.xfail(reason="StatusSpinner import migration not yet done")
     def test_statusspinner_from_agentfox_io(self) -> None:
         """All spec package files import StatusSpinner from agentfox.io."""
         spec_dir = _get_spec_package_dir()
@@ -122,7 +120,6 @@ class TestNoSpecUiImports:
     Requirement: 05-REQ-4.3
     """
 
-    @pytest.mark.xfail(reason="spec.ui imports not yet migrated")
     def test_no_spec_ui_imports_in_spec_package(self) -> None:
         """Zero files in spec/ contain 'from spec.ui import'."""
         spec_dir = _get_spec_package_dir()
@@ -195,14 +192,23 @@ class TestNoTestImportsFromSpecUi:
     Requirement: 05-REQ-6.2
     """
 
-    @pytest.mark.xfail(reason="Test imports not yet migrated")
     def test_no_spec_ui_imports_in_tests(self) -> None:
-        """Zero test files contain 'from spec.ui import' or 'import spec.ui'."""
+        """Zero test files contain actual spec.ui import statements."""
         test_files = _find_test_python_files()
         for tf in test_files:
             source = tf.read_text()
-            assert "from spec.ui import" not in source, f"{tf} still contains 'from spec.ui import'"
-            assert "import spec.ui" not in source, f"{tf} still contains 'import spec.ui'"
+            # Check for actual import lines (not string literals in assertions/docstrings)
+            for line in source.splitlines():
+                stripped = line.strip()
+                # Skip comments, docstrings, and string literals containing the pattern
+                if stripped.startswith(("#", "'", '"', "assert", "f'")):
+                    continue
+                assert not stripped.startswith("from spec.ui import"), (
+                    f"{tf} still contains 'from spec.ui import' as an import statement"
+                )
+                assert not stripped.startswith("import spec.ui"), (
+                    f"{tf} still contains 'import spec.ui' as an import statement"
+                )
 
 
 # ===========================================================================
@@ -216,7 +222,6 @@ class TestSpecUiImportError:
     Requirement: 05-REQ-4.E1
     """
 
-    @pytest.mark.xfail(reason="spec/ui.py not yet deleted")
     def test_import_spec_ui_raises_importerror(self) -> None:
         """Attempting to import from spec.ui raises ImportError."""
         # Ensure any cached import is cleared

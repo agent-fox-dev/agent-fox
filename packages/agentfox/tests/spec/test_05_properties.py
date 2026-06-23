@@ -625,7 +625,6 @@ class TestNoSpecUiImportsAnywhere:
     Validates: 05-REQ-4.1, 05-REQ-4.2, 05-REQ-4.3
     """
 
-    @pytest.mark.xfail(reason="spec.ui imports not yet migrated")
     def test_no_spec_ui_imports_in_package(self) -> None:
         """No Python file in spec/ contains spec.ui import statements."""
         spec_dir = _get_spec_package_dir()

@@ -18,11 +18,9 @@ from typing import Any
 import click
 import jsonschema
 import yaml
-from agentfox.io import AgentFoxGroup, emit, emit_ok
+from agentfox.io import AgentFoxGroup, StatusSpinner, emit, emit_ok
 from agentspec.errors import AgentError
 from agentspec.session import SessionState, SpecSession
-
-from spec.ui import StatusSpinner
 
 _SPEC_DIR_RE = re.compile(r"^(\d{2})_(.+)$")
 _SPEC_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
