@@ -19,11 +19,10 @@ from agentfox.core.errors import AgentFoxError
 from agentfox.engine.run import InterruptedResult, run_code
 from agentfox.engine.state import ExecutionState
 from agentfox.graph.persistence import load_plan
+from agentfox.io import emit, emit_error, emit_line, read_stdin
 from agentfox.knowledge.db import open_knowledge_store
 from agentfox.reporting.formatters import format_tokens
 from agentfox.spec.discovery import discover_specs
-
-from af import json_io
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +142,7 @@ def _handle_dry_run(config: object, json_mode: bool, specs_dir: str | None) -> N
     if not DEFAULT_DB_PATH.exists():
         _err_msg = "No plan found. Run `agent-fox plan` first to generate a plan."
         if json_mode:
-            json_io.emit_error(_err_msg)
+            emit_error(_err_msg)
             sys.exit(1)
         click.echo(f"Error: {_err_msg}", err=True)
         sys.exit(1)
@@ -158,7 +157,7 @@ def _handle_dry_run(config: object, json_mode: bool, specs_dir: str | None) -> N
     # 123-REQ-1.E2: empty plan (no nodes or None)
     if graph is None or not graph.nodes:
         if json_mode:
-            json_io.emit(
+            emit(
                 {
                     "nodes": {},
                     "edges": [],
@@ -179,7 +178,7 @@ def _handle_dry_run(config: object, json_mode: bool, specs_dir: str | None) -> N
     # 123-REQ-1.E3: all nodes completed
     if completed_ids == set(graph.nodes.keys()):
         if json_mode:
-            json_io.emit(
+            emit(
                 {
                     "nodes": {},
                     "edges": [],
@@ -214,7 +213,7 @@ def _handle_dry_run(config: object, json_mode: bool, specs_dir: str | None) -> N
 
     # 123-REQ-3.1: JSON output
     if json_mode:
-        json_io.emit(
+        emit(
             {
                 "nodes": {nid: _node_to_dict(node) for nid, node in graph.nodes.items()},
                 "edges": [_edge_to_dict(e) for e in graph.edges],
@@ -310,7 +309,7 @@ def code_cmd(
         flag_list = ", ".join(conflicts)
         msg = f"Error: --dry-run cannot be combined with execution flags: {flag_list}"
         if json_mode:
-            json_io.emit_error(msg)
+            emit_error(msg)
         else:
             click.echo(msg, err=True)
         sys.exit(1)
@@ -332,14 +331,14 @@ def code_cmd(
     if pid_status == PidStatus.ALIVE:
         msg = f"Error: night-shift daemon is running (PID {_pid}). Stop the daemon before running `code`."
         if json_mode:
-            json_io.emit_error(msg)
+            emit_error(msg)
         else:
             click.echo(msg, err=True)
         sys.exit(1)
 
     # 23-REQ-7.1: read stdin JSON when in JSON mode
     if json_mode:
-        json_io.read_stdin()
+        read_stdin()
 
     # 16-REQ-1.E1: check plan exists in DB
     from agentfox.core.node_id import DEFAULT_DB_PATH
@@ -347,7 +346,7 @@ def code_cmd(
     if not DEFAULT_DB_PATH.exists():
         _err_msg = "No plan found. Run `agent-fox plan` first to generate a plan."
         if json_mode:
-            json_io.emit_error(_err_msg)
+            emit_error(_err_msg)
             sys.exit(1)
         click.echo(f"Error: {_err_msg}", err=True)
         sys.exit(1)
@@ -374,7 +373,7 @@ def code_cmd(
     except KeyboardInterrupt:
         # 23-REQ-5.E1: emit interrupted status in JSON mode
         if json_mode:
-            json_io.emit_line({"status": "interrupted"})
+            emit_line({"status": "interrupted"})
         sys.exit(130)
     except AgentFoxError:
         raise
@@ -382,7 +381,7 @@ def code_cmd(
         # 16-REQ-1.E2: unexpected exceptions
         logger.debug("Unexpected error during execution", exc_info=True)
         if json_mode:
-            json_io.emit_error(str(exc))
+            emit_error(str(exc))
             sys.exit(1)
         click.echo(f"Error: unexpected error: {exc}", err=True)
         sys.exit(1)
@@ -392,7 +391,7 @@ def code_cmd(
     # Handle interrupted result from run_code
     if isinstance(result, InterruptedResult):
         if json_mode:
-            json_io.emit_line({"status": "interrupted"})
+            emit_line({"status": "interrupted"})
         sys.exit(130)
 
     state: ExecutionState = result
@@ -415,7 +414,7 @@ def code_cmd(
             summary_payload["workspace_state_errors"] = [
                 {"node_id": nid, "reason": reason} for nid, reason in ws_errors
             ]
-        json_io.emit_line({"event": "complete", "summary": summary_payload})
+        emit_line({"event": "complete", "summary": summary_payload})
     else:
         # 16-REQ-3.1: print summary
         _print_summary(state)

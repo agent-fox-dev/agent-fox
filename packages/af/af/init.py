@@ -101,7 +101,7 @@ def init_cmd(ctx: click.Context, skills: bool, profiles: bool) -> None:
     # 01-REQ-3.5: check we are in a git repository
     if not _is_git_repo():
         if json_mode:
-            from af.json_io import emit_error
+            from agentfox.io import emit_error
 
             emit_error("Not inside a git repository. Run 'git init' first.")
             ctx.exit(1)
@@ -121,7 +121,7 @@ def init_cmd(ctx: click.Context, skills: bool, profiles: bool) -> None:
 
     # 23-REQ-4.1: JSON output for init command
     if json_mode:
-        from af.json_io import emit
+        from agentfox.io import emit
 
         result_data: dict = {
             "status": "ok",

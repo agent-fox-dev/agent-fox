@@ -58,7 +58,7 @@ def standup_cmd(ctx: click.Context, hours: int) -> None:
             db_conn.close()
 
     if json_mode:
-        from af.json_io import emit
+        from agentfox.io import emit
 
         emit(asdict(report))
     else:

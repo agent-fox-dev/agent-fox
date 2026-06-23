@@ -118,10 +118,6 @@ class TestSmoke3JsonHelp:
         assert "exit_codes" in obj
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="af/json_io.py shim not yet deleted",
-)
 class TestSmoke4ShimRemoval:
     """TS-04-SMOKE-4: af/json_io.py absent, no references remain."""
 

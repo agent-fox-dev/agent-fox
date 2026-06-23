@@ -104,10 +104,6 @@ class TestProp4JsonModeValidOutput:
         assert isinstance(obj, dict)
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="af.json_io shim not yet deleted; some files still reference it",
-)
 class TestProp2NoJsonIoReferences:
     """TS-04-P2: No af.json_io references in any af/ Python file."""
 

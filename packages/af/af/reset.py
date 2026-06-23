@@ -306,7 +306,7 @@ def _handle_spec_reset(
     )
 
     if json_mode:
-        from af.json_io import emit
+        from agentfox.io import emit
 
         emit(_spec_result_to_dict(result))
     else:
@@ -351,7 +351,7 @@ def _handle_hard_reset(
         )
 
     if json_mode:
-        from af.json_io import emit
+        from agentfox.io import emit
 
         emit(_hard_result_to_dict(result))
     else:
@@ -375,7 +375,7 @@ def _handle_soft_task_reset(
     )
 
     if json_mode:
-        from af.json_io import emit
+        from agentfox.io import emit
 
         emit(_result_to_dict(result))
     else:
@@ -403,7 +403,7 @@ def _handle_soft_reset_all(
 
     if not resettable:
         if json_mode:
-            from af.json_io import emit
+            from agentfox.io import emit
 
             emit(
                 _result_to_dict(
@@ -440,7 +440,7 @@ def _handle_soft_reset_all(
     )
 
     if json_mode:
-        from af.json_io import emit
+        from agentfox.io import emit
 
         emit(_result_to_dict(result))
     else:

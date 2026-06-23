@@ -102,7 +102,7 @@ def plan_cmd(
     except PlanError as exc:
         spinner.stop()
         if json_mode:
-            from af.json_io import emit_error
+            from agentfox.io import emit_error
 
             emit_error(str(exc))
             ctx.exit(1)
@@ -153,7 +153,7 @@ def plan_cmd(
             specs = []
 
         if json_mode:
-            from af.json_io import emit
+            from agentfox.io import emit
 
             emit(
                 {
@@ -193,7 +193,7 @@ def plan_cmd(
     if json_mode:
         from dataclasses import asdict
 
-        from af.json_io import emit
+        from agentfox.io import emit
 
         emit(
             {

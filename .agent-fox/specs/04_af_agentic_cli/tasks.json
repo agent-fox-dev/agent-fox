@@ -55,8 +55,8 @@
             "Create tests/test_spec04_req2.py",
             "TS-04-4: static-analysis loop over each af subcommand file asserting ctx.obj['output'] retrieval and om.emit() usage",
             "TS-04-5: grep af/ for 'af.json_io' and assert zero matches",
-            "TS-04-6: OutputManager(json_mode=False).emit({'key':'value'}) — assert human-readable, non-JSON stdout",
-            "TS-04-7: OutputManager(json_mode=True).emit({'key':'value'}) — assert valid JSON on stdout",
+            "TS-04-6: OutputManager(json_mode=False).emit({'key':'value'}) \u2014 assert human-readable, non-JSON stdout",
+            "TS-04-7: OutputManager(json_mode=True).emit({'key':'value'}) \u2014 assert valid JSON on stdout",
             "TS-04-8: CliRunner invoke 'af standup --json', assert exit 0 and json.loads(output) is dict",
             "TS-04-9: CliRunner isolated_filesystem invoke 'af init --json', assert exit 0 and json.loads(output) is dict",
             "TS-04-E2: invoke af standup with obj={} (no output key), assert RuntimeError or non-zero exit with OutputManager message"
@@ -314,7 +314,7 @@
             "04-REQ-4.1",
             "04-REQ-4.E1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -333,7 +333,7 @@
             "04-REQ-4.2",
             "04-REQ-2.2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],
@@ -343,7 +343,7 @@
           "TS-04-17 passes: `pytest -q tests/test_spec04_req456.py::test_json_io_file_absent`",
           "TS-04-18 passes: `pytest -q tests/test_spec04_req456.py::test_no_json_io_imports`",
           "TS-04-E5 passes: `pytest -q tests/test_spec04_req456.py::test_import_json_io_raises`",
-          "Requirements 04-REQ-4.1, 04-REQ-4.2 acceptance criteria met — 04-PROP-2 invariant holds",
+          "Requirements 04-REQ-4.1, 04-REQ-4.2 acceptance criteria met \u2014 04-PROP-2 invariant holds",
           "`grep -r 'af.json_io' af/` returns no matches (exit code 1)",
           "All existing tests still pass: `pytest -q`"
         ]
@@ -380,8 +380,8 @@
           "id": "4.2",
           "title": "Handle edge cases: empty rows and short rows in format_table",
           "details": [
-            "Empty rows list: return [] in json_mode; return empty Rich Table with headers in text mode — no exception",
-            "Row shorter than headers: pad missing positions with None (json_mode) or empty string (text mode) — no exception",
+            "Empty rows list: return [] in json_mode; return empty Rich Table with headers in text mode \u2014 no exception",
+            "Row shorter than headers: pad missing positions with None (json_mode) or empty string (text mode) \u2014 no exception",
             "Add a private helper `_pad_row(row, n, fill)` to keep the padding logic DRY"
           ],
           "test_spec_refs": [
@@ -558,7 +558,7 @@
           "details": [
             "Add `emit_progress(self, event: dict)` to OutputManager in agentfox/io/output.py",
             "Serialize event to a single JSON line and write to self.stderr (not stdout)",
-            "Wrap the write+flush in a try/except OSError (covers BrokenPipeError) and suppress — do not propagate",
+            "Wrap the write+flush in a try/except OSError (covers BrokenPipeError) and suppress \u2014 do not propagate",
             "Only write in json_mode; silently no-op when json_mode=False"
           ],
           "test_spec_refs": [
@@ -583,7 +583,7 @@
           "details": [
             "In ProgressDisplay (wherever it lives in agentfox.io or af/), add task_started(node_id), task_completed(node_id), task_failed(node_id, error) methods",
             "json_mode=True path: build event dict with 'event', 'node_id', 'timestamp' (datetime.utcnow().isoformat()+'Z'); for task_completed add 'duration_s'; call om.emit_progress(event)",
-            "json_mode=False path: use Rich Progress/spinner — do NOT call emit_progress",
+            "json_mode=False path: use Rich Progress/spinner \u2014 do NOT call emit_progress",
             "node_id=None or empty: emit event with node_id=null and write a warning line to stderr (e.g. 'WARNING: node_id missing')"
           ],
           "test_spec_refs": [
@@ -688,7 +688,7 @@
           "title": "Wire JSON help renderer into AgentFoxGroup to intercept --json --help",
           "details": [
             "Override AgentFoxGroup.invoke() or parse_args() to detect when both --json and --help are present",
-            "When detected: invoke JSON help renderer for the current command, print JSON to stdout, sys.exit(0) — skip Click's normal text help",
+            "When detected: invoke JSON help renderer for the current command, print JSON to stdout, sys.exit(0) \u2014 skip Click's normal text help",
             "When only --help (no --json): fall through to Click's standard help rendering",
             "Ensure process exits with code 0 in both branches"
           ],
@@ -737,7 +737,7 @@
     {
       "id": 8,
       "kind": "checkpoint",
-      "title": "Regression checkpoint — full test suite and property tests",
+      "title": "Regression checkpoint \u2014 full test suite and property tests",
       "subtasks": [
         {
           "id": "8.1",
@@ -818,10 +818,10 @@
           "id": "9.1",
           "title": "Trace all execution paths and confirm no stubs remain",
           "details": [
-            "04-PATH-1: confirm af/app.py → AgentFoxGroup → af/code.py → ProgressDisplay.task_started/completed/failed → emit_progress (stderr) → om.emit (stdout) chain is fully wired with no raise NotImplementedError or pass stubs",
-            "04-PATH-2: confirm af/standup.py → format_table → om.emit chain is wired",
-            "04-PATH-3: confirm --json --help → AgentFoxGroup → JSON help renderer → stdout chain is wired",
-            "04-PATH-5: confirm af/standup.py (no --json) → format_table(json_mode=False) → om.emit → Rich table chain is wired",
+            "04-PATH-1: confirm af/app.py \u2192 AgentFoxGroup \u2192 af/code.py \u2192 ProgressDisplay.task_started/completed/failed \u2192 emit_progress (stderr) \u2192 om.emit (stdout) chain is fully wired with no raise NotImplementedError or pass stubs",
+            "04-PATH-2: confirm af/standup.py \u2192 format_table \u2192 om.emit chain is wired",
+            "04-PATH-3: confirm --json --help \u2192 AgentFoxGroup \u2192 JSON help renderer \u2192 stdout chain is wired",
+            "04-PATH-5: confirm af/standup.py (no --json) \u2192 format_table(json_mode=False) \u2192 om.emit \u2192 Rich table chain is wired",
             "Search for stub markers: `grep -rn 'raise NotImplementedError\\|pass$\\|return None' af/ agentfox/io/` and review each hit"
           ],
           "test_spec_refs": [
@@ -866,11 +866,11 @@
           "id": "9.3",
           "title": "Run all smoke tests with real components",
           "details": [
-            "TS-04-SMOKE-1: 'af code --json' with mocked execution backend — verify ≥2 JSONL events on stderr and 1 JSON result on stdout, exit 0",
-            "TS-04-SMOKE-2: 'af standup --json' with mocked data source — verify single JSON dict on stdout, exit 0",
-            "TS-04-SMOKE-3: 'af night-shift --json --help' — verify JSON help with name/description/options/exit_codes on stdout, command body NOT executed",
-            "TS-04-SMOKE-4: grep and import check — verify af/json_io.py absent and ModuleNotFoundError raised",
-            "TS-04-SMOKE-5: 'af standup' (no --json) — verify Rich-rendered table on stdout, no raw JSON, exit 0"
+            "TS-04-SMOKE-1: 'af code --json' with mocked execution backend \u2014 verify \u22652 JSONL events on stderr and 1 JSON result on stdout, exit 0",
+            "TS-04-SMOKE-2: 'af standup --json' with mocked data source \u2014 verify single JSON dict on stdout, exit 0",
+            "TS-04-SMOKE-3: 'af night-shift --json --help' \u2014 verify JSON help with name/description/options/exit_codes on stdout, command body NOT executed",
+            "TS-04-SMOKE-4: grep and import check \u2014 verify af/json_io.py absent and ModuleNotFoundError raised",
+            "TS-04-SMOKE-5: 'af standup' (no --json) \u2014 verify Rich-rendered table on stdout, no raw JSON, exit 0"
           ],
           "test_spec_refs": [
             "TS-04-SMOKE-1",
@@ -893,11 +893,11 @@
           "id": "9.4",
           "title": "Audit for dead code and stub markers",
           "details": [
-            "Run `grep -rn 'raise NotImplementedError' af/ agentfox/io/` — all hits must be in abstract base classes only",
-            "Run `grep -rn 'TODO\\|FIXME\\|HACK' af/ agentfox/io/` — resolve or document any remaining items",
-            "Run `grep -rn 'af.json_io' af/` — must return no matches",
-            "Run `grep -rn 'BannerGroup\\|handle_agent_fox_errors' af/` — must return no matches",
-            "Run `grep -rn 'click.echo(' af/` — any remaining hits must be for non-data output (e.g. debug-only) and documented"
+            "Run `grep -rn 'raise NotImplementedError' af/ agentfox/io/` \u2014 all hits must be in abstract base classes only",
+            "Run `grep -rn 'TODO\\|FIXME\\|HACK' af/ agentfox/io/` \u2014 resolve or document any remaining items",
+            "Run `grep -rn 'af.json_io' af/` \u2014 must return no matches",
+            "Run `grep -rn 'BannerGroup\\|handle_agent_fox_errors' af/` \u2014 must return no matches",
+            "Run `grep -rn 'click.echo(' af/` \u2014 any remaining hits must be for non-data output (e.g. debug-only) and documented"
           ],
           "test_spec_refs": [
             "TS-04-P2"

@@ -65,10 +65,6 @@ class TestSubcommandsUseOutputManager:
 class TestNoJsonIoImports:
     """TS-04-5: No af subcommand imports from af.json_io."""
 
-    @pytest.mark.xfail(
-        strict=False,
-        reason="af.json_io shim not yet deleted; some files clean",
-    )
     @pytest.mark.parametrize("filename", _SUBCOMMAND_FILES)
     def test_no_json_io_import(self, filename: str) -> None:
         """Subcommand file has no import from af.json_io."""

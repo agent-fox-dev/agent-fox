@@ -28,7 +28,6 @@ _AF_PACKAGE_DIR = Path(__file__).resolve().parents[2] / "af"
 class TestJsonIoFileAbsent:
     """TS-04-17: af/json_io.py does not exist on disk."""
 
-    @pytest.mark.xfail(reason="af/json_io.py shim not yet deleted")
     def test_json_io_file_does_not_exist(self) -> None:
         """af/json_io.py must not be present in the af package."""
         assert not os.path.exists(_AF_PACKAGE_DIR / "json_io.py")
@@ -37,10 +36,6 @@ class TestJsonIoFileAbsent:
 class TestNoJsonIoImportsViaGrep:
     """TS-04-18: No 'af.json_io' references in af/ source tree."""
 
-    @pytest.mark.xfail(
-        strict=False,
-        reason="af.json_io shim still in use; grep finds matches",
-    )
     def test_grep_finds_no_json_io_references(self) -> None:
         """grep -r 'af.json_io' af/ returns no matches."""
         result = subprocess.run(
@@ -55,7 +50,6 @@ class TestNoJsonIoImportsViaGrep:
 class TestImportJsonIoRaises:
     """TS-04-E5: Importing af.json_io raises ModuleNotFoundError."""
 
-    @pytest.mark.xfail(reason="af/json_io.py shim not yet deleted")
     def test_import_raises_module_not_found(self) -> None:
         """import af.json_io raises ModuleNotFoundError."""
         import importlib
