@@ -146,8 +146,8 @@ def _write_valid_spec(spec_dir: Path, *, include_tasks: bool = True) -> None:
     )
 
 
-def _write_spec_with_errors(spec_dir: Path) -> None:
-    """Populate a directory with a spec that has schema/integrity errors."""
+def _write_spec_with_schema_errors(spec_dir: Path) -> None:
+    """Populate a directory with a spec that has schema errors."""
     spec_dir.mkdir(parents=True, exist_ok=True)
     (spec_dir / "prd.md").write_text(PRD_MD)
     # Requirements with empty ID (schema error)
@@ -179,6 +179,104 @@ def _write_spec_with_errors(spec_dir: Path) -> None:
     (spec_dir / "tasks.json").write_text(_make_tasks_json())
     (spec_dir / "_session.json").write_text(
         json.dumps({"state": "generated", "generated_artifacts": ["requirements.json", "test_spec.json", "tasks.json"]})
+    )
+
+
+def _write_spec_with_integrity_errors(spec_dir: Path) -> None:
+    """Populate a directory with a spec that has integrity errors (uncovered requirements)."""
+    spec_dir.mkdir(parents=True, exist_ok=True)
+    (spec_dir / "prd.md").write_text(PRD_MD)
+    # Two requirements, but test_spec only covers one
+    (spec_dir / "requirements.json").write_text(
+        json.dumps(
+            {
+                "spec_id": "test-05-prop",
+                "spec_name": "test_fixture",
+                "schema_version": 1,
+                "introduction": "Test requirements",
+                "glossary": {},
+                "requirements": [
+                    {
+                        "id": "TEST-REQ-1",
+                        "title": "Covered requirement",
+                        "user_story": {"role": "tester", "goal": "test", "benefit": "verify"},
+                        "acceptance_criteria": [
+                            {
+                                "id": "TEST-REQ-1.1",
+                                "ears_pattern": "ubiquitous",
+                                "system": "the system",
+                                "action": "SHALL do something",
+                            }
+                        ],
+                        "edge_cases": [],
+                    },
+                    {
+                        "id": "TEST-REQ-2",
+                        "title": "Uncovered requirement",
+                        "user_story": {"role": "tester", "goal": "coverage", "benefit": "verify"},
+                        "acceptance_criteria": [
+                            {
+                                "id": "TEST-REQ-2.1",
+                                "ears_pattern": "ubiquitous",
+                                "system": "the system",
+                                "action": "SHALL do another thing",
+                            }
+                        ],
+                        "edge_cases": [],
+                    },
+                ],
+                "correctness_properties": [],
+                "execution_paths": [],
+                "error_handling": [],
+            },
+            indent=2,
+        )
+    )
+    # test_spec only covers REQ-1, leaving REQ-2 uncovered
+    (spec_dir / "test_spec.json").write_text(
+        json.dumps(
+            {
+                "spec_id": "test-05-prop",
+                "spec_name": "test_fixture",
+                "schema_version": 1,
+                "test_cases": [
+                    {
+                        "id": "TS-TEST-1",
+                        "title": "Test for REQ-1 only",
+                        "requirement_ref": "TEST-REQ-1.1",
+                        "type": "unit",
+                        "preconditions": ["test"],
+                        "input": "test input",
+                        "expected": "test output",
+                        "assertion_pseudocode": "assert True",
+                    }
+                ],
+                "property_tests": [],
+                "edge_case_tests": [],
+                "smoke_tests": [],
+                "coverage": {
+                    "requirements_covered": ["TEST-REQ-1.1"],
+                    "properties_covered": [],
+                    "paths_covered": [],
+                    "gaps": ["TEST-REQ-2.1"],
+                },
+            },
+            indent=2,
+        )
+    )
+    (spec_dir / "tasks.json").write_text(_make_tasks_json())
+    (spec_dir / "_session.json").write_text(
+        json.dumps({"state": "generated", "generated_artifacts": ["requirements.json", "test_spec.json", "tasks.json"]})
+    )
+
+
+def _write_spec_with_io_errors(spec_dir: Path) -> None:
+    """Populate a directory with a spec that has IO errors (missing artifact files)."""
+    spec_dir.mkdir(parents=True, exist_ok=True)
+    (spec_dir / "prd.md").write_text(PRD_MD)
+    # Declare artifacts in session but don't write them to disk
+    (spec_dir / "_session.json").write_text(
+        json.dumps({"state": "generated", "generated_artifacts": ["requirements.json"]})
     )
 
 
@@ -219,6 +317,7 @@ class TestAgentModePurity:
         [
             pytest.param(["render", "01", "--combined"], id="render-combined"),
             pytest.param(["validate", "01"], id="validate"),
+            pytest.param(["status", "01"], id="status"),
         ],
     )
     def test_agent_mode_json_output(
@@ -371,23 +470,34 @@ class TestStructuredErrorCategory:
 
     @pytest.mark.property
     @pytest.mark.xfail(reason="Structured errors not yet implemented")
-    @settings(max_examples=5, deadline=None)
+    @settings(max_examples=10, deadline=None)
     @given(
-        has_schema_error=st.booleans(),
+        error_type=st.sampled_from(["valid", "schema", "integrity", "io"]),
     )
     def test_error_category_always_valid(
         self,
         tmp_path_factory: pytest.TempPathFactory,
-        has_schema_error: bool,
+        error_type: str,
     ) -> None:
-        """Every error in validate output has a valid category."""
+        """Every error in validate output has a valid category.
+
+        Generates specs with varying combinations of error types:
+        - valid: no errors
+        - schema: empty requirement ID triggers schema validation failure
+        - integrity: uncovered requirements trigger integrity check failure
+        - io: missing artifact files trigger IO errors
+        """
         from spec.cli import main
 
         runner = CliRunner()
         spec_root = tmp_path_factory.mktemp("prop_validate")
 
-        if has_schema_error:
-            _write_spec_with_errors(spec_root / "01_test")
+        if error_type == "schema":
+            _write_spec_with_schema_errors(spec_root / "01_test")
+        elif error_type == "integrity":
+            _write_spec_with_integrity_errors(spec_root / "01_test")
+        elif error_type == "io":
+            _write_spec_with_io_errors(spec_root / "01_test")
         else:
             _write_valid_spec(spec_root / "01_test")
 
@@ -419,30 +529,61 @@ class TestNoMixedOutputAgentMode:
 
     @pytest.mark.property
     @pytest.mark.xfail(reason="Agent mode JSON purity not yet implemented")
-    @settings(max_examples=5, deadline=None)
+    @settings(max_examples=10, deadline=None)
     @given(
+        subcommand=st.sampled_from(["render", "validate", "status"]),
         combined=st.booleans(),
+        use_json_flag=st.booleans(),
+        use_af_agent=st.booleans(),
+        use_invalid_spec=st.booleans(),
     )
     def test_agent_mode_pure_json(
         self,
         tmp_path_factory: pytest.TempPathFactory,
+        subcommand: str,
         combined: bool,
+        use_json_flag: bool,
+        use_af_agent: bool,
+        use_invalid_spec: bool,
     ) -> None:
-        """All stdout output is valid JSON with AF_AGENT=1."""
+        """All stdout output is valid JSON with AF_AGENT=1 or --json.
+
+        Generates arbitrary spec invocations covering:
+        - Subcommands: render, validate, status
+        - Flags: AF_AGENT=1 and/or --json
+        - Valid and invalid spec inputs
+
+        At least one of AF_AGENT=1 or --json must be active for the
+        JSON-purity invariant to apply.
+        """
+        # At least one agent/json mode must be active for this property
+        if not use_af_agent and not use_json_flag:
+            return  # Property only applies when JSON output is requested
+
         from spec.cli import main
 
         runner = CliRunner()
         spec_root = tmp_path_factory.mktemp("prop_agent")
-        _write_valid_spec(spec_root / "01_test")
 
-        args = ["-d", str(spec_root), "render", "01"]
-        if combined:
+        if use_invalid_spec:
+            _write_spec_with_schema_errors(spec_root / "01_test")
+        else:
+            _write_valid_spec(spec_root / "01_test")
+
+        args = ["-d", str(spec_root), subcommand, "01"]
+        if subcommand == "render" and combined:
             args.append("--combined")
+        if subcommand == "render" and use_json_flag:
+            args.append("--json")
+
+        env: dict[str, str] = {}
+        if use_af_agent:
+            env["AF_AGENT"] = "1"
 
         result = runner.invoke(
             main,
             args,
-            env={"AF_AGENT": "1"},
+            env=env if env else None,
             catch_exceptions=True,
         )
         stdout_text = result.output.strip()
