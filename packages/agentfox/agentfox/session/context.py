@@ -342,6 +342,11 @@ def assemble_context(
 ) -> str:
     """Assemble task-specific context for a coding session.
 
+    conn must be a read-only connection; write operations
+    (_migrate_legacy_files, index_errata_from_markdown) are performed
+    at orchestrator startup, not here.  See 06-REQ-5.1, 06-REQ-6.1,
+    06-REQ-7.1, 06-REQ-7.2.
+
     Renders spec documents via afspec (v1.2 JSON format).
 
     Renders review/verification/drift sections from DuckDB
@@ -368,15 +373,6 @@ def assemble_context(
 
     # DB-backed rendering — errors propagate (38-REQ-3.E1, 38-REQ-4.2)
     db_rendered_files: set[str] = set()
-
-    # Attempt legacy file migration first (27-REQ-10.1, 27-REQ-10.2)
-    _migrate_legacy_files(conn, spec_dir, spec_name)
-
-    # Index errata markdown files into DB so _query_errata() has data
-    if project_root is not None:
-        from agentfox.knowledge.errata import index_errata_from_markdown
-
-        index_errata_from_markdown(conn, project_root)
 
     # DB-backed rendering (27-REQ-5.1, 27-REQ-5.2, 38-REQ-4.3)
     review_md = render_review_context(conn, spec_name)

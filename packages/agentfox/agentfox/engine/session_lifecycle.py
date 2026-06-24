@@ -181,6 +181,7 @@ class NodeSessionRunner:
         instances: int = 1,
         sink_dispatcher: SinkDispatcher | None = None,
         knowledge_db: KnowledgeDB,
+        context_knowledge_db: KnowledgeDB | None = None,
         knowledge_provider: KnowledgeProvider | None = None,
         activity_callback: ActivityCallback | None = None,
         assessed_tier: ModelTier | None = None,
@@ -197,6 +198,8 @@ class NodeSessionRunner:
         self._sink = sink_dispatcher
         self._sink_dispatcher = sink_dispatcher  # alias for retrieval audit events
         self._knowledge_db = knowledge_db
+        # 06-REQ-7.3: read-only conn for session context assembly; writes done at startup
+        self._context_knowledge_db = context_knowledge_db or knowledge_db
         self._activity_callback = activity_callback
         self._run_id = run_id
         self._trace_enabled = trace_enabled
@@ -262,11 +265,15 @@ class NodeSessionRunner:
                 exc_info=True,
             )
 
+        # 06-REQ-7.3: Use the read-only connection for context assembly.
+        # Writes (_migrate_legacy_files, index_errata_from_markdown) are
+        # performed at orchestrator startup, not during context assembly.
+        _ctx_db = getattr(self, "_context_knowledge_db", self._knowledge_db)
         context = assemble_context(
             spec_dir,
             self._task_group,
             memory_facts=memory_facts,
-            conn=self._knowledge_db.connection,
+            conn=_ctx_db.connection,
             project_root=Path.cwd(),
             archetype=self._archetype,
         )

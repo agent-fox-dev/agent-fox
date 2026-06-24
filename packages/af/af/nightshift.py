@@ -94,6 +94,44 @@ def night_shift_cmd(
             exc_info=True,
         )
 
+    # 06-REQ-5.2, 06-REQ-6.2: Run legacy file migrations and errata
+    # indexing at startup with the read-write connection, before any
+    # sessions are dispatched.
+    if _knowledge_db is not None:
+        from agentfox.knowledge.errata import index_errata_from_markdown
+        from agentfox.session.context import _migrate_legacy_files
+
+        _conn = _knowledge_db.connection
+
+        # Migrate legacy files for each spec (06-REQ-5.2)
+        from agentfox.core.config import resolve_spec_root
+
+        _specs_path = resolve_spec_root(config, project_root)
+        if _specs_path.is_dir():
+            for _spec_dir in sorted(_specs_path.iterdir()):
+                if not _spec_dir.is_dir():
+                    continue
+                _spec_name = _spec_dir.name
+                try:
+                    _migrate_legacy_files(_conn, _spec_dir, _spec_name)
+                except Exception:
+                    # 06-REQ-5.E1: Log error with spec context and continue
+                    logger.warning(
+                        "Failed to migrate legacy files for spec %s, continuing",
+                        _spec_name,
+                        exc_info=True,
+                    )
+
+        # Index errata markdown files (06-REQ-6.2)
+        try:
+            index_errata_from_markdown(_conn, project_root)
+        except Exception:
+            # 06-REQ-6.E1: Log error and continue startup
+            logger.warning(
+                "Failed to index errata from markdown, continuing",
+                exc_info=True,
+            )
+
     # --- ProgressDisplay setup (81-REQ-2.1) ---------------------------------
     from agentfox.core.config import ThemeConfig
     from agentfox.ui.display import create_theme
