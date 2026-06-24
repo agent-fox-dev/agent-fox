@@ -151,7 +151,7 @@ class TestDriftFindingsInjected:
     """
 
     def test_drift_finding_included_for_group1(self, knowledge_db: KnowledgeDB) -> None:
-        """Critical drift finding (task_group='0') appears in group-1 context."""
+        """Critical drift finding (task_group='0') appears in group-1 context tagged with '(drift)'."""
         from agentfox.engine.session_lifecycle import build_retry_context
 
         conn = knowledge_db._conn
@@ -167,6 +167,7 @@ class TestDriftFindingsInjected:
 
         assert context, "build_retry_context must return non-empty string when drift findings exist"
         assert "drift-critical-divergence" in context, "Drift finding must appear in group-1 coder context"
+        assert "(drift)" in context, "Drift finding must be tagged with '(drift)' in the output"
 
     def test_major_drift_finding_included(self, knowledge_db: KnowledgeDB) -> None:
         """Major drift finding is surfaced in group-1 context."""
@@ -187,13 +188,67 @@ class TestDriftFindingsInjected:
 
 
 # ---------------------------------------------------------------------------
-# TS-NS-3: Empty DB → task prompt unchanged
+# TS-NS-3: query_active_drift_findings with include_prereview=True returns both
+#           group-0 and the target group's findings.
 # Requirements: NS-REQ-3
 # ---------------------------------------------------------------------------
 
 
+class TestQueryActiveDriftFindingsWithPrereview:
+    """TS-NS-3: query_active_drift_findings(conn, spec, task_group='1',
+    include_prereview=True) returns rows from both task_group='0' and '1'.
+    """
+
+    def test_returns_group0_and_group1_findings(self, knowledge_db: KnowledgeDB) -> None:
+        """include_prereview=True returns findings from task_group 0 AND 1."""
+        from agentfox.knowledge.review_store import query_active_drift_findings
+
+        conn = knowledge_db._conn
+        drift_group0 = _make_drift_finding(
+            severity="critical",
+            description="group0-drift-prereview",
+            spec_name="S",
+            task_group="0",
+        )
+        drift_group1 = _make_drift_finding(
+            severity="critical",
+            description="group1-drift-coder",
+            spec_name="S",
+            task_group="1",
+        )
+        insert_drift_findings(conn, [drift_group0, drift_group1])
+
+        results = query_active_drift_findings(conn, "S", task_group="1", include_prereview=True)
+
+        groups = {r.task_group for r in results}
+        assert "0" in groups, "group-0 (pre-review) findings must be returned"
+        assert "1" in groups, "group-1 (current task) findings must be returned"
+
+    def test_include_prereview_false_excludes_group0(self, knowledge_db: KnowledgeDB) -> None:
+        """Without include_prereview, group-0 findings are NOT returned for group-1."""
+        from agentfox.knowledge.review_store import query_active_drift_findings
+
+        conn = knowledge_db._conn
+        drift_group0 = _make_drift_finding(
+            severity="critical",
+            description="group0-prereview-only",
+            spec_name="S",
+            task_group="0",
+        )
+        insert_drift_findings(conn, [drift_group0])
+
+        results = query_active_drift_findings(conn, "S", task_group="1", include_prereview=False)
+
+        assert len(results) == 0, "Without include_prereview, group-0 findings must not be returned"
+
+
+# ---------------------------------------------------------------------------
+# Edge case: Empty DB → task prompt unchanged
+# ---------------------------------------------------------------------------
+
+
 class TestEmptyFindingsProducesEmptyContext:
-    """TS-NS-3: When no critical/major pre-review or drift findings exist,
+    """When no critical/major pre-review or drift findings exist,
     build_retry_context returns an empty string.
     """
 
