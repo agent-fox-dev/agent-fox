@@ -10,7 +10,6 @@ Complete reference for all `agent-fox` commands, options, and configuration.
 | `agent-fox plan` | Build execution plan from `.agent-fox/specs/` |
 | `agent-fox code` | Execute the task plan via orchestrator |
 | `agent-fox standup` | Generate daily activity report |
-| `agent-fox night-shift` | Run autonomous fix-only maintenance daemon |
 | `agent-fox reset` | Reset failed/blocked tasks for retry |
 | `agent-fox insights` | Query review findings from the knowledge database |
 
@@ -391,68 +390,6 @@ Hard reset requires confirmation unless `--yes` or `--json` is provided.
 
 ---
 
-### night-shift
-
-Run the fix-only maintenance daemon.
-
-```
-agent-fox night-shift [OPTIONS]
-```
-
-Night Shift is a continuously-running fix-only maintenance daemon that
-polls GitHub for open issues with the `af:fix` label at the configured
-`issue_check_interval`, then runs each through a three-stage pipeline
-(triage → coder → reviewer in fix-review mode). The fix phase drains all
-eligible issues in a single interval (up to 50 iterations) rather than
-processing one batch per interval.
-
-**Requirements:**
-
-- A `[platform]` configuration section with `type = "github"` and a valid
-  `GITHUB_PAT` environment variable (or equivalent token). Night Shift aborts
-  with exit code 1 if the platform is not configured.
-
-**Scheduling:**
-
-The issue check runs immediately on startup and then repeats on its configured
-interval. If the platform API is temporarily unavailable during an issue check,
-the error is logged as a warning and the next interval retries normally.
-
-**Cost control:**
-
-Night Shift honours `orchestrator.max_cost` and `orchestrator.max_sessions`.
-When the accumulated cost reaches `max_cost`, the daemon stops dispatching new
-fix sessions and exits with code 0.
-
-**Graceful shutdown:**
-
-Send SIGINT (Ctrl-C) or SIGTERM once to request a graceful shutdown. The daemon
-completes the currently active operation before exiting with code 0. Send a
-second signal to abort immediately; exit code is 130.
-
-**PID file:** The daemon writes a PID file to `.agent-fox/daemon.pid`. The
-`code` and `plan` commands refuse to run while the daemon is active.
-
-**Labels:** Night Shift uses GitHub labels to manage its fix workflow:
-
-| Label | Applied by | Meaning |
-|-------|-----------|---------|
-| `af:fix` | User | Issue eligible for automatic fixing |
-| `af:fixed` | Fix pipeline | Fix successfully merged |
-| `af:no-change` | Fix pipeline | Coder produced no commits; needs human review |
-
-**Exit codes:**
-
-| Code | Meaning |
-|------|---------|
-| `0` | Clean shutdown (SIGINT/SIGTERM or cost limit reached) |
-| `1` | Startup failure (platform not configured, missing token) |
-| `130` | Immediate abort (second interrupt signal) |
-
-**Configuration:** See `[night_shift]` in [config-reference.md](config-reference.md).
-
----
-
 ### insights
 
 Query review findings from the knowledge database.
@@ -594,6 +531,88 @@ spec validate <spec>
 **stdout:** `{"valid": true}` or `{"valid": false, "errors": [...]}`.
 
 **Exit codes:** `0` if valid, `1` if validation errors found.
+
+---
+
+## `night-shift` CLI
+
+The `night-shift` command is a standalone CLI for the AgentFox Night Shift
+fix daemon. It is provided by the `nightshift` package and runs independently
+of the `af` CLI.
+
+| Command | Description |
+|---------|-------------|
+| `night-shift` | Run autonomous fix-only maintenance daemon |
+
+### Global Options
+
+| Option | Short | Description |
+|--------|-------|-------------|
+| `--version` | | Show version and exit |
+| `--verbose` | `-v` | Enable debug logging |
+| `--quiet` | `-q` | Suppress info messages and banner |
+| `--trace` | | Enable trace logging (includes bulk AI prompt/response payloads; implies `--verbose`) |
+| `--json` / `--no-json` | | Switch to structured JSON I/O mode |
+
+### night-shift
+
+Run the fix-only maintenance daemon.
+
+```
+night-shift [OPTIONS]
+```
+
+Night Shift is a continuously-running fix-only maintenance daemon that
+polls GitHub for open issues with the `af:fix` label at the configured
+`issue_check_interval`, then runs each through a three-stage pipeline
+(triage → coder → reviewer in fix-review mode). The fix phase drains all
+eligible issues in a single interval (up to 50 iterations) rather than
+processing one batch per interval.
+
+**Requirements:**
+
+- A `[platform]` configuration section with `type = "github"` and a valid
+  `GITHUB_PAT` environment variable (or equivalent token). Night Shift aborts
+  with exit code 1 if the platform is not configured.
+
+**Scheduling:**
+
+The issue check runs immediately on startup and then repeats on its configured
+interval. If the platform API is temporarily unavailable during an issue check,
+the error is logged as a warning and the next interval retries normally.
+
+**Cost control:**
+
+Night Shift honours `orchestrator.max_cost` and `orchestrator.max_sessions`.
+When the accumulated cost reaches `max_cost`, the daemon stops dispatching new
+fix sessions and exits with code 0.
+
+**Graceful shutdown:**
+
+Send SIGINT (Ctrl-C) or SIGTERM once to request a graceful shutdown. The daemon
+completes the currently active operation before exiting with code 0. Send a
+second signal to abort immediately; exit code is 130.
+
+**PID file:** The daemon writes a PID file to `.agent-fox/daemon.pid`. The
+`code` and `plan` commands refuse to run while the daemon is active.
+
+**Labels:** Night Shift uses GitHub labels to manage its fix workflow:
+
+| Label | Applied by | Meaning |
+|-------|-----------|---------|
+| `af:fix` | User | Issue eligible for automatic fixing |
+| `af:fixed` | Fix pipeline | Fix successfully merged |
+| `af:no-change` | Fix pipeline | Coder produced no commits; needs human review |
+
+**Exit codes:**
+
+| Code | Meaning |
+|------|---------|
+| `0` | Clean shutdown (SIGINT/SIGTERM or cost limit reached) |
+| `1` | Startup failure (platform not configured, missing token) |
+| `130` | Immediate abort (second interrupt signal) |
+
+**Configuration:** See `[night_shift]` in [config-reference.md](config-reference.md).
 
 ---
 

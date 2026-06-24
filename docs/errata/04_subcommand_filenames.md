@@ -24,6 +24,7 @@ The Click commands are still registered under the names the spec expects:
 
 - Tests reference the correct actual filenames (`af/findings.py`,
   `af/nightshift.py`).
-- No functional impact: the CLI surface (`af insights`, `af night-shift`)
-  matches the spec.
+- No functional impact: the CLI surface (`af insights`, `night-shift`)
+  matches the spec. Note: `night-shift` was extracted from `af` into its
+  own standalone CLI package (`nightshift`).
 - Only the Python module filenames differ from what the spec text says.

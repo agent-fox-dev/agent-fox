@@ -203,7 +203,7 @@ The intended workflow is:
 
 - During active development: run the spec pipeline (`agent-fox code`) to
   implement features.
-- During off-hours: run night-shift (`agent-fox night-shift`) to process
+- During off-hours: run the standalone `night-shift` CLI to process
   fix issues.
 - The merge lock ensures that if both do run concurrently, they serialize
   their merge operations rather than corrupting the branch.
