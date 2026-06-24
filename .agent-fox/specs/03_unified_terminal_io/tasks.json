@@ -920,7 +920,7 @@
             "03-REQ-12.1",
             "03-REQ-12.2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -936,7 +936,7 @@
           "requirement_refs": [
             "03-REQ-12.1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -951,7 +951,7 @@
             "03-REQ-12.1",
             "03-REQ-12.2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],
