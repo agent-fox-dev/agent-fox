@@ -307,32 +307,33 @@ def query_oracle_context(config: AgentFoxConfig) -> str:
 def load_review_context(project_root: Path) -> str:
     """Load existing skeptic/verifier findings from DuckDB.
 
-    Returns a formatted context string, or empty string if no findings
-    exist. DuckDB errors propagate to the caller (38-REQ-3.1).
+    Opens knowledge.duckdb with ``read_only=True`` — this function
+    performs only SELECT queries via ``query_active_findings``.
+    DuckDB errors propagate to the caller (38-REQ-3.1, 06-REQ-4.E1).
 
-    Requirements: 31-REQ-3.2
+    Requirements: 31-REQ-3.2, 06-REQ-4.1, 06-REQ-4.2
     """
-    from agentfox.knowledge.db import KnowledgeDB
+    from agentfox.knowledge.db import open_knowledge_store
     from agentfox.knowledge.review_store import (
         query_active_findings,
     )
 
     config = AgentFoxConfig()
-    db = KnowledgeDB(config.knowledge)
-    db.open()
+    db = open_knowledge_store(config.knowledge, read_only=True)
     conn = db.connection
 
-    findings = query_active_findings(conn, spec_name="")
-    if not findings:
+    try:
+        findings = query_active_findings(conn, spec_name="")
+        if not findings:
+            return ""
+
+        parts: list[str] = []
+        for f in findings:
+            parts.append(f"- [{f.severity}] {f.description} (spec: {f.spec_name}, task: {f.task_group})")
+
+        return "\n".join(parts)
+    finally:
         db.close()
-        return ""
-
-    parts: list[str] = []
-    for f in findings:
-        parts.append(f"- [{f.severity}] {f.description} (spec: {f.spec_name}, task: {f.task_group})")
-
-    db.close()
-    return "\n".join(parts)
 
 
 def _load_conventions(project_root: Path) -> str:
