@@ -96,8 +96,8 @@ class TestContextRenderingDeterminism:
             assert finding.description in md2, f"Description '{finding.description}' missing from second render"
 
         # Structural markers must be present in both renders
-        assert "## Skeptic Review" in md1
-        assert "## Skeptic Review" in md2
+        assert "## Reviewer Findings" in md1
+        assert "## Reviewer Findings" in md2
         assert "Summary:" in md1
         assert "Summary:" in md2
 
@@ -210,7 +210,7 @@ class TestFallbackCorrectness:
         result = assemble_context(spec_dir, 1, conn=conn)
 
         # Review content should appear from one source
-        has_review = "Skeptic Review" in result or "review" in result.lower()
+        has_review = "Reviewer Findings" in result or "review" in result.lower()
         assert has_review
 
         conn.close()

@@ -1,4 +1,4 @@
-.PHONY: clean test test-unit test-property test-integration lint format check clean-branches install-skills uninstall-skills
+.PHONY: clean test test-fast test-unit test-property test-integration lint format check clean-branches install-skills uninstall-skills
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
@@ -10,6 +10,9 @@ clean:
 
 test:
 	uv run pytest -q
+
+test-fast:
+	uv run pytest -m "not slow" -q
 
 test-unit:
 	uv run pytest packages/agentfox/tests/unit/ packages/af/tests/unit/ -q
@@ -27,6 +30,8 @@ format:
 	uv run ruff format packages/
 
 check: lint test
+
+check-all: clear lint test test-unit test-property test-integration
 
 clean-branches:
 	@git branch --list 'feature/*' | xargs -r git branch -D

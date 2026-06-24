@@ -1,0 +1,1166 @@
+{
+  "$schema": null,
+  "spec_id": "04",
+  "spec_name": "af_agentic_cli",
+  "schema_version": 1,
+  "test_commands": {
+    "spec_tests": "pytest -q tests/ -k 'spec04 or af_agentic'",
+    "all_tests": "pytest -q",
+    "linter": "ruff check af/ agentfox/"
+  },
+  "dependencies": [
+    {
+      "depends_on_spec": "03",
+      "from_group": 1,
+      "to_group": 3,
+      "relationship": "Imports OutputManager, AgentFoxGroup, emit functions from agentfox/io/",
+      "sentinel": true
+    }
+  ],
+  "task_groups": [
+    {
+      "id": 1,
+      "kind": "tests",
+      "title": "Write spec tests for af agentic CLI migration",
+      "subtasks": [
+        {
+          "id": "1.1",
+          "title": "Write unit tests for AgentFoxGroup wiring (REQ-1)",
+          "details": [
+            "Create tests/test_spec04_req1.py",
+            "TS-04-1: assert isinstance(cli, AgentFoxGroup) after importing af.app",
+            "TS-04-2: assert af has no BannerGroup or handle_agent_fox_errors attributes",
+            "TS-04-3: invoke a registered failing subcommand via CliRunner(mix_stderr=False); assert non-zero exit and JSON error envelope on stderr",
+            "TS-04-E1: block agentfox.io via sys.modules manipulation and assert ImportError referencing agentfox.io on reload of af.app"
+          ],
+          "test_spec_refs": [
+            "TS-04-1",
+            "TS-04-2",
+            "TS-04-3",
+            "TS-04-E1"
+          ],
+          "requirement_refs": [
+            "04-REQ-1.1",
+            "04-REQ-1.2",
+            "04-REQ-1.3",
+            "04-REQ-1.E1"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "1.2",
+          "title": "Write unit and integration tests for OutputManager migration (REQ-2)",
+          "details": [
+            "Create tests/test_spec04_req2.py",
+            "TS-04-4: static-analysis loop over each af subcommand file asserting ctx.obj['output'] retrieval and om.emit() usage",
+            "TS-04-5: grep af/ for 'af.json_io' and assert zero matches",
+            "TS-04-6: OutputManager(json_mode=False).emit({'key':'value'}) \u2014 assert human-readable, non-JSON stdout",
+            "TS-04-7: OutputManager(json_mode=True).emit({'key':'value'}) \u2014 assert valid JSON on stdout",
+            "TS-04-8: CliRunner invoke 'af standup --json', assert exit 0 and json.loads(output) is dict",
+            "TS-04-9: CliRunner isolated_filesystem invoke 'af init --json', assert exit 0 and json.loads(output) is dict",
+            "TS-04-E2: invoke af standup with obj={} (no output key), assert RuntimeError or non-zero exit with OutputManager message"
+          ],
+          "test_spec_refs": [
+            "TS-04-4",
+            "TS-04-5",
+            "TS-04-6",
+            "TS-04-7",
+            "TS-04-8",
+            "TS-04-9",
+            "TS-04-E2"
+          ],
+          "requirement_refs": [
+            "04-REQ-2.1",
+            "04-REQ-2.2",
+            "04-REQ-2.3",
+            "04-REQ-2.4",
+            "04-REQ-2.5",
+            "04-REQ-2.6",
+            "04-REQ-2.E1"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "1.3",
+          "title": "Write unit and integration tests for JSONL streaming progress events (REQ-3)",
+          "details": [
+            "Create tests/test_spec04_req3.py",
+            "TS-04-10: ProgressDisplay(json_mode=True, om=MagicMock()); task_started('1.1'); assert emit_progress called with event=task_started, node_id='1.1', ISO timestamp",
+            "TS-04-11: task_started then task_completed; assert emit_progress called with task_completed, duration_s float >= 0",
+            "TS-04-12: task_failed('1.2', error='something went wrong'); assert emit_progress called with task_failed, error field",
+            "TS-04-13: ProgressDisplay(json_mode=False); task_started + task_completed; assert emit_progress never called",
+            "TS-04-14: CliRunner(mix_stderr=False) 'af code --json'; assert all stdout lines valid JSON; all stderr lines valid JSONL with 'event' key",
+            "TS-04-15: CliRunner 'af code --json'; assert stderr events in (task_started, task_completed, task_failed), node_id and timestamp present",
+            "TS-04-16: same as TS-04-15 but for 'af night-shift --json'",
+            "TS-04-E3: OutputManager(json_mode=True, stderr=BrokenStderr()); emit_progress(...) must not raise",
+            "TS-04-E4: ProgressDisplay(json_mode=True); task_started(node_id=None); assert emit_progress called with node_id=null and warning on stderr"
+          ],
+          "test_spec_refs": [
+            "TS-04-10",
+            "TS-04-11",
+            "TS-04-12",
+            "TS-04-13",
+            "TS-04-14",
+            "TS-04-15",
+            "TS-04-16",
+            "TS-04-E3",
+            "TS-04-E4"
+          ],
+          "requirement_refs": [
+            "04-REQ-3.1",
+            "04-REQ-3.2",
+            "04-REQ-3.3",
+            "04-REQ-3.4",
+            "04-REQ-3.5",
+            "04-REQ-3.6",
+            "04-REQ-3.7",
+            "04-REQ-3.E1",
+            "04-REQ-3.E2"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "1.4",
+          "title": "Write unit tests for shim deletion, JSON help, and format_table (REQ-4, REQ-5, REQ-6)",
+          "details": [
+            "Create tests/test_spec04_req456.py",
+            "TS-04-17: assert not os.path.exists('af/json_io.py'); assert import af.json_io raises ModuleNotFoundError",
+            "TS-04-18: subprocess grep -r 'af.json_io' af/; assert returncode != 0 and stdout empty",
+            "TS-04-19: CliRunner 'af standup --json --help'; assert exit 0 and JSON with name/description/options/exit_codes",
+            "TS-04-20: assert exit_codes entries have int 'code' and str 'description'",
+            "TS-04-21: CliRunner 'af standup --help' (no --json); assert 'Usage:' in output and output is not valid JSON",
+            "TS-04-22: format_table(headers, rows, json_mode=True/False) basic happy-path assertions",
+            "TS-04-23: static analysis of af/standup.py for format_table import and call",
+            "TS-04-24: static analysis of af/insights.py for format_table import and call",
+            "TS-04-25: format_table with 3 headers, 2 rows in json_mode=True; assert exact dict contents and key sets",
+            "TS-04-26: format_table in json_mode=False returns Rich Table or renderable with __rich_console__",
+            "TS-04-E5: import af.json_io raises ModuleNotFoundError with 'json_io' in message",
+            "TS-04-E6: undecorated command + --json --help; assert exit_codes == []",
+            "TS-04-E7: format_table with empty rows returns [] (json) or empty table (text) without exception",
+            "TS-04-E8: format_table with short row padded to None/empty-string per mode"
+          ],
+          "test_spec_refs": [
+            "TS-04-17",
+            "TS-04-18",
+            "TS-04-19",
+            "TS-04-20",
+            "TS-04-21",
+            "TS-04-22",
+            "TS-04-23",
+            "TS-04-24",
+            "TS-04-25",
+            "TS-04-26",
+            "TS-04-E5",
+            "TS-04-E6",
+            "TS-04-E7",
+            "TS-04-E8"
+          ],
+          "requirement_refs": [
+            "04-REQ-4.1",
+            "04-REQ-4.2",
+            "04-REQ-5.1",
+            "04-REQ-5.2",
+            "04-REQ-5.3",
+            "04-REQ-6.1",
+            "04-REQ-6.2",
+            "04-REQ-6.3",
+            "04-REQ-6.4",
+            "04-REQ-6.5",
+            "04-REQ-4.E1",
+            "04-REQ-5.E1",
+            "04-REQ-6.E1",
+            "04-REQ-6.E2"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "1.5",
+          "title": "Write property tests and regression / smoke test scaffolding (REQ-7, PROP-1..5)",
+          "details": [
+            "Create tests/test_spec04_properties.py using hypothesis for property tests",
+            "TS-04-P1: hypothesis strategy generating 1-20 task nodes; invoke af code/night-shift --json; verify stdout/stderr line validity and no cross-contamination",
+            "TS-04-P2: enumerate all .py files under af/ and assert 'af.json_io' not in content and json_io.py absent",
+            "TS-04-P3: for each subcommand source file assert click.echo not used for data output and om.emit used",
+            "TS-04-P4: for each subcommand with --json assert json.loads(stdout) succeeds and exit 0",
+            "TS-04-P5: hypothesis random headers (1-10) and rows (0-50, variable width); format_table(json_mode=True); assert key sets match headers",
+            "Create tests/test_spec04_smoke.py for SMOKE-1..5 with mocked backends",
+            "TS-04-27: subprocess pytest tests/ assert returncode 0",
+            "TS-04-28: CliRunner --help for each of the 7 subcommands assert exit 0"
+          ],
+          "test_spec_refs": [
+            "TS-04-27",
+            "TS-04-28",
+            "TS-04-P1",
+            "TS-04-P2",
+            "TS-04-P3",
+            "TS-04-P4",
+            "TS-04-P5",
+            "TS-04-SMOKE-1",
+            "TS-04-SMOKE-2",
+            "TS-04-SMOKE-3",
+            "TS-04-SMOKE-4",
+            "TS-04-SMOKE-5"
+          ],
+          "requirement_refs": [
+            "04-REQ-7.1",
+            "04-REQ-7.2"
+          ],
+          "state": "done",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "1.V",
+        "checks": [
+          "All newly written spec tests are collected by pytest without import errors: `pytest -q tests/test_spec04_*.py --collect-only`",
+          "Tests marked pending/xfail for unimplemented functionality are clearly labelled and do not cause suite failures",
+          "No linter warnings introduced in test files: `ruff check tests/test_spec04_*.py`",
+          "All previously passing tests still pass: `pytest -q --ignore=tests/test_spec04_*.py`"
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "kind": "standard",
+      "title": "Wire af/app.py to AgentFoxGroup and remove legacy constructs",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Import AgentFoxGroup in af/app.py and set cls=AgentFoxGroup on the top-level group",
+          "details": [
+            "In af/app.py, replace any existing `cls=BannerGroup` or bare `@click.group()` with `@click.group(cls=AgentFoxGroup)`",
+            "Add `from agentfox.io import AgentFoxGroup` at the top of af/app.py",
+            "Ensure the top-level group object named `cli` (or equivalent) is an instance of AgentFoxGroup at runtime"
+          ],
+          "test_spec_refs": [
+            "TS-04-1"
+          ],
+          "requirement_refs": [
+            "04-REQ-1.1"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "2.2",
+          "title": "Remove BannerGroup and handle_agent_fox_errors from af/__init__.py",
+          "details": [
+            "Delete the BannerGroup class definition from af/__init__.py (or wherever it is defined in the af package)",
+            "Delete the handle_agent_fox_errors decorator/function from af/__init__.py",
+            "Remove any re-exports of these symbols from af/__init__.py __all__ list if present",
+            "Update any remaining internal references in af/ that called handle_agent_fox_errors to rely on AgentFoxGroup's built-in error handling instead"
+          ],
+          "test_spec_refs": [
+            "TS-04-2"
+          ],
+          "requirement_refs": [
+            "04-REQ-1.2"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "2.3",
+          "title": "Verify AgentFoxGroup error envelope behaviour for unhandled exceptions",
+          "details": [
+            "Register a minimal test subcommand (or reuse an existing one) that raises RuntimeError to exercise the error path",
+            "Confirm via manual or automated invocation that AgentFoxGroup catches the exception and writes a JSON error envelope to stderr",
+            "Confirm process exits non-zero; envelope has at minimum an 'error' field"
+          ],
+          "test_spec_refs": [
+            "TS-04-3"
+          ],
+          "requirement_refs": [
+            "04-REQ-1.3"
+          ],
+          "state": "done",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "2.V",
+        "checks": [
+          "TS-04-1 passes: `pytest -q tests/test_spec04_req1.py::test_app_uses_agent_fox_group`",
+          "TS-04-2 passes: `pytest -q tests/test_spec04_req1.py::test_no_legacy_symbols`",
+          "TS-04-3 passes: `pytest -q tests/test_spec04_req1.py::test_error_envelope`",
+          "Requirements 04-REQ-1.1, 04-REQ-1.2, 04-REQ-1.3 acceptance criteria met",
+          "No linter warnings: `ruff check af/app.py af/__init__.py`",
+          "All existing tests still pass: `pytest -q`"
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "kind": "standard",
+      "title": "Delete af/json_io.py shim and update all imports to agentfox.io",
+      "subtasks": [
+        {
+          "id": "3.1",
+          "title": "Delete af/json_io.py from the repository",
+          "details": [
+            "Remove the file af/json_io.py from the filesystem and from version control (git rm af/json_io.py)",
+            "Confirm that `python -c 'import af.json_io'` raises ModuleNotFoundError after deletion",
+            "Do NOT add a stub __init__ re-export; the module must be fully absent"
+          ],
+          "test_spec_refs": [
+            "TS-04-17",
+            "TS-04-E5"
+          ],
+          "requirement_refs": [
+            "04-REQ-4.1",
+            "04-REQ-4.E1"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "3.2",
+          "title": "Replace all af.json_io imports across the af/ package with agentfox.io equivalents",
+          "details": [
+            "Run `grep -rn 'af.json_io\\|from af import json_io' af/` to find all occurrences",
+            "For each occurrence, replace with the equivalent `from agentfox.io import ...` statement",
+            "Verify zero remaining occurrences with a follow-up grep after edits"
+          ],
+          "test_spec_refs": [
+            "TS-04-5",
+            "TS-04-18"
+          ],
+          "requirement_refs": [
+            "04-REQ-4.2",
+            "04-REQ-2.2"
+          ],
+          "state": "done",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "3.V",
+        "checks": [
+          "TS-04-17 passes: `pytest -q tests/test_spec04_req456.py::test_json_io_file_absent`",
+          "TS-04-18 passes: `pytest -q tests/test_spec04_req456.py::test_no_json_io_imports`",
+          "TS-04-E5 passes: `pytest -q tests/test_spec04_req456.py::test_import_json_io_raises`",
+          "Requirements 04-REQ-4.1, 04-REQ-4.2 acceptance criteria met \u2014 04-PROP-2 invariant holds",
+          "`grep -r 'af.json_io' af/` returns no matches (exit code 1)",
+          "All existing tests still pass: `pytest -q`"
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "kind": "standard",
+      "title": "Add format_table utility to agentfox/io/output.py",
+      "subtasks": [
+        {
+          "id": "4.1",
+          "title": "Implement format_table(headers, rows, json_mode) in agentfox/io/output.py",
+          "details": [
+            "Add `format_table(headers: list[str], rows: list[list], json_mode: bool)` to agentfox/io/output.py",
+            "json_mode=True: zip each row with headers; missing values padded with None; return list of dicts",
+            "json_mode=False: construct a Rich Table with column headers; add rows with empty-string padding for missing values; return the Rich Table object",
+            "Export format_table from agentfox/io/__init__.py so callers can do `from agentfox.io import format_table`"
+          ],
+          "test_spec_refs": [
+            "TS-04-22",
+            "TS-04-25",
+            "TS-04-26"
+          ],
+          "requirement_refs": [
+            "04-REQ-6.1",
+            "04-REQ-6.4",
+            "04-REQ-6.5"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "4.2",
+          "title": "Handle edge cases: empty rows and short rows in format_table",
+          "details": [
+            "Empty rows list: return [] in json_mode; return empty Rich Table with headers in text mode \u2014 no exception",
+            "Row shorter than headers: pad missing positions with None (json_mode) or empty string (text mode) \u2014 no exception",
+            "Add a private helper `_pad_row(row, n, fill)` to keep the padding logic DRY"
+          ],
+          "test_spec_refs": [
+            "TS-04-E7",
+            "TS-04-E8"
+          ],
+          "requirement_refs": [
+            "04-REQ-6.E1",
+            "04-REQ-6.E2"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "4.3",
+          "title": "Migrate af/standup.py to use format_table from agentfox.io",
+          "details": [
+            "Add `from agentfox.io import format_table` to af/standup.py",
+            "Replace all manual table string construction (concatenated headers/rows) with calls to format_table(headers, rows, json_mode)",
+            "Pass the format_table result to om.emit() or include it in the emitted dict as appropriate"
+          ],
+          "test_spec_refs": [
+            "TS-04-23"
+          ],
+          "requirement_refs": [
+            "04-REQ-6.2"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "4.4",
+          "title": "Migrate af/insights.py to use format_table from agentfox.io",
+          "details": [
+            "Add `from agentfox.io import format_table` to af/insights.py",
+            "Replace all manual table construction with calls to format_table(headers, rows, json_mode)",
+            "Verify the output contract (json_mode=True returns list of dicts; text mode returns Rich Table) is preserved"
+          ],
+          "test_spec_refs": [
+            "TS-04-24"
+          ],
+          "requirement_refs": [
+            "04-REQ-6.3"
+          ],
+          "state": "done",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "4.V",
+        "checks": [
+          "TS-04-22 passes: `pytest -q tests/test_spec04_req456.py::test_format_table_basic`",
+          "TS-04-25 passes: `pytest -q tests/test_spec04_req456.py::test_format_table_json_mode_keys`",
+          "TS-04-26 passes: `pytest -q tests/test_spec04_req456.py::test_format_table_text_mode_rich`",
+          "TS-04-E7 and TS-04-E8 pass: `pytest -q tests/test_spec04_req456.py::test_format_table_empty_rows tests/test_spec04_req456.py::test_format_table_short_row`",
+          "TS-04-23 and TS-04-24 pass: `pytest -q tests/test_spec04_req456.py::test_standup_uses_format_table tests/test_spec04_req456.py::test_insights_uses_format_table`",
+          "04-PROP-5 invariant holds: every dict in format_table json output has exactly the headers key set",
+          "No linter warnings: `ruff check agentfox/io/output.py af/standup.py af/insights.py`",
+          "All existing tests still pass: `pytest -q`"
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "kind": "standard",
+      "title": "Migrate all af subcommands to OutputManager",
+      "subtasks": [
+        {
+          "id": "5.1",
+          "title": "Migrate af/code.py, af/plan.py, af/reset.py to OutputManager",
+          "details": [
+            "In each file: add `om = ctx.obj['output']` guard (raise RuntimeError if missing per REQ-2.E1)",
+            "Replace all `click.echo(data)` data-output calls with `om.emit(data)`",
+            "Replace all `from af.json_io import ...` with `from agentfox.io import ...`",
+            "Remove inline `if json_mode: ... else: ...` format dispatch blocks now handled by om.emit()"
+          ],
+          "test_spec_refs": [
+            "TS-04-4",
+            "TS-04-6",
+            "TS-04-7"
+          ],
+          "requirement_refs": [
+            "04-REQ-2.1",
+            "04-REQ-2.2",
+            "04-REQ-2.3",
+            "04-REQ-2.4"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "5.2",
+          "title": "Migrate af/standup.py and af/init.py to OutputManager",
+          "details": [
+            "af/standup.py: retrieve om from ctx.obj['output']; emit final standup dict via om.emit(); no unstructured text on stdout in --json mode",
+            "af/init.py: retrieve om from ctx.obj['output']; emit init result dict via om.emit(); no unstructured text on stdout in --json mode",
+            "Both files: replace af.json_io imports with agentfox.io imports"
+          ],
+          "test_spec_refs": [
+            "TS-04-8",
+            "TS-04-9"
+          ],
+          "requirement_refs": [
+            "04-REQ-2.5",
+            "04-REQ-2.6",
+            "04-REQ-2.1",
+            "04-REQ-2.2"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "5.3",
+          "title": "Migrate af/insights.py and af/night_shift.py to OutputManager",
+          "details": [
+            "af/insights.py: retrieve om; replace click.echo data calls with om.emit(); already handled format_table in group 4",
+            "af/night_shift.py: retrieve om; replace click.echo data calls with om.emit(); replace af.json_io imports",
+            "Add RuntimeError guard for missing ctx.obj['output'] in all remaining files not yet covered"
+          ],
+          "test_spec_refs": [
+            "TS-04-4",
+            "TS-04-P3"
+          ],
+          "requirement_refs": [
+            "04-REQ-2.1",
+            "04-REQ-2.2",
+            "04-REQ-2.3",
+            "04-REQ-2.4"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "5.4",
+          "title": "Implement RuntimeError guard for missing OutputManager in ctx.obj",
+          "details": [
+            "Create a shared helper `get_output_manager(ctx)` in af/ that raises RuntimeError('OutputManager not found in ctx.obj[\"output\"]') if key absent or None",
+            "Call this helper at the start of every af subcommand callback to replace repeated boilerplate",
+            "Verify TS-04-E2 passes: invoking af standup with obj={} produces RuntimeError / non-zero exit"
+          ],
+          "test_spec_refs": [
+            "TS-04-E2"
+          ],
+          "requirement_refs": [
+            "04-REQ-2.E1"
+          ],
+          "state": "done",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "5.V",
+        "checks": [
+          "TS-04-4 passes: `pytest -q tests/test_spec04_req2.py::test_subcommands_use_output_manager`",
+          "TS-04-5 passes: `pytest -q tests/test_spec04_req2.py::test_no_json_io_imports_in_subcommands`",
+          "TS-04-8 passes: `pytest -q tests/test_spec04_req2.py::test_standup_json_output`",
+          "TS-04-9 passes: `pytest -q tests/test_spec04_req2.py::test_init_json_output`",
+          "TS-04-E2 passes: `pytest -q tests/test_spec04_req2.py::test_missing_output_manager_raises`",
+          "04-PROP-3 invariant holds: no data-purpose click.echo calls remain",
+          "04-PROP-4 invariant holds: all --json invocations produce valid JSON on stdout",
+          "No linter warnings: `ruff check af/`",
+          "All existing tests still pass: `pytest -q`"
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "kind": "standard",
+      "title": "Implement JSONL streaming progress events via ProgressDisplay",
+      "subtasks": [
+        {
+          "id": "6.1",
+          "title": "Add emit_progress() method to OutputManager for JSONL stderr output",
+          "details": [
+            "Add `emit_progress(self, event: dict)` to OutputManager in agentfox/io/output.py",
+            "Serialize event to a single JSON line and write to self.stderr (not stdout)",
+            "Wrap the write+flush in a try/except OSError (covers BrokenPipeError) and suppress \u2014 do not propagate",
+            "Only write in json_mode; silently no-op when json_mode=False"
+          ],
+          "test_spec_refs": [
+            "TS-04-10",
+            "TS-04-11",
+            "TS-04-12",
+            "TS-04-E3"
+          ],
+          "requirement_refs": [
+            "04-REQ-3.1",
+            "04-REQ-3.2",
+            "04-REQ-3.3",
+            "04-REQ-3.5",
+            "04-REQ-3.E1"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "6.2",
+          "title": "Update ProgressDisplay to call emit_progress() in json_mode and Rich UI otherwise",
+          "details": [
+            "In ProgressDisplay (wherever it lives in agentfox.io or af/), add task_started(node_id), task_completed(node_id), task_failed(node_id, error) methods",
+            "json_mode=True path: build event dict with 'event', 'node_id', 'timestamp' (datetime.utcnow().isoformat()+'Z'); for task_completed add 'duration_s'; call om.emit_progress(event)",
+            "json_mode=False path: use Rich Progress/spinner \u2014 do NOT call emit_progress",
+            "node_id=None or empty: emit event with node_id=null and write a warning line to stderr (e.g. 'WARNING: node_id missing')"
+          ],
+          "test_spec_refs": [
+            "TS-04-10",
+            "TS-04-11",
+            "TS-04-12",
+            "TS-04-13",
+            "TS-04-E4"
+          ],
+          "requirement_refs": [
+            "04-REQ-3.1",
+            "04-REQ-3.2",
+            "04-REQ-3.3",
+            "04-REQ-3.4",
+            "04-REQ-3.E2"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "6.3",
+          "title": "Wire ProgressDisplay into af/code.py and af/night_shift.py",
+          "details": [
+            "In af/code.py: instantiate ProgressDisplay(output_manager=om, json_mode=om.json_mode) and pass to the execution engine",
+            "Call pd.task_started(node_id), pd.task_completed(node_id) or pd.task_failed(node_id, error) for each task lifecycle transition",
+            "Repeat for af/night_shift.py with the same pattern",
+            "Ensure the final result dict is emitted via om.emit() only after all task events have been sent"
+          ],
+          "test_spec_refs": [
+            "TS-04-15",
+            "TS-04-16"
+          ],
+          "requirement_refs": [
+            "04-REQ-3.6",
+            "04-REQ-3.7"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "6.4",
+          "title": "Validate stdout/stderr separation for streaming commands",
+          "details": [
+            "Run TS-04-14 integration test to confirm every stdout line is valid JSON and every stderr line is a valid JSONL progress event",
+            "Run TS-04-P1 property test with hypothesis to cover 1-20 task node scenarios",
+            "Confirm 04-PROP-1 invariant: no cross-contamination between stdout and stderr"
+          ],
+          "test_spec_refs": [
+            "TS-04-14",
+            "TS-04-P1"
+          ],
+          "requirement_refs": [
+            "04-REQ-3.5"
+          ],
+          "state": "done",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "6.V",
+        "checks": [
+          "TS-04-10, TS-04-11, TS-04-12 pass: `pytest -q tests/test_spec04_req3.py::test_task_started tests/test_spec04_req3.py::test_task_completed tests/test_spec04_req3.py::test_task_failed`",
+          "TS-04-13 passes: `pytest -q tests/test_spec04_req3.py::test_no_emit_progress_in_text_mode`",
+          "TS-04-14 passes: `pytest -q tests/test_spec04_req3.py::test_stdout_stderr_separation`",
+          "TS-04-15 and TS-04-16 pass: `pytest -q tests/test_spec04_req3.py::test_code_jsonl_events tests/test_spec04_req3.py::test_night_shift_jsonl_events`",
+          "TS-04-E3 and TS-04-E4 pass: `pytest -q tests/test_spec04_req3.py::test_broken_pipe_suppressed tests/test_spec04_req3.py::test_null_node_id`",
+          "04-PROP-1 invariant holds via property test: `pytest -q tests/test_spec04_properties.py::test_prop1_stdout_stderr_separation`",
+          "No linter warnings: `ruff check agentfox/io/output.py af/code.py af/night_shift.py`",
+          "All existing tests still pass: `pytest -q`"
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "kind": "standard",
+      "title": "Implement structured JSON help output (--json --help)",
+      "subtasks": [
+        {
+          "id": "7.1",
+          "title": "Implement JSON help renderer in agentfox/io/help.py",
+          "details": [
+            "In agentfox/io/help.py, implement a JSON help renderer function that accepts a Click Command/Group and returns a dict with: name (str), description (str from docstring), options (list of option descriptors), exit_codes (list from @exit_codes metadata)",
+            "Each option descriptor: {name: str, help: str, required: bool, default: any, type: str}",
+            "If @exit_codes decorator is absent, return exit_codes=[] without raising",
+            "Implement `@exit_codes(entries: list[tuple[int, str]])` decorator that attaches metadata to the command function as __exit_codes__"
+          ],
+          "test_spec_refs": [
+            "TS-04-19",
+            "TS-04-20",
+            "TS-04-E6"
+          ],
+          "requirement_refs": [
+            "04-REQ-5.1",
+            "04-REQ-5.2",
+            "04-REQ-5.E1"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "7.2",
+          "title": "Wire JSON help renderer into AgentFoxGroup to intercept --json --help",
+          "details": [
+            "Override AgentFoxGroup.invoke() or parse_args() to detect when both --json and --help are present",
+            "When detected: invoke JSON help renderer for the current command, print JSON to stdout, sys.exit(0) \u2014 skip Click's normal text help",
+            "When only --help (no --json): fall through to Click's standard help rendering",
+            "Ensure process exits with code 0 in both branches"
+          ],
+          "test_spec_refs": [
+            "TS-04-19",
+            "TS-04-21"
+          ],
+          "requirement_refs": [
+            "04-REQ-5.1",
+            "04-REQ-5.3"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "7.3",
+          "title": "Apply @exit_codes decorator to all af subcommands",
+          "details": [
+            "Import exit_codes from agentfox.io in each af subcommand file",
+            "Apply @exit_codes([(0, 'Success'), (1, 'Error'), ...]) to each subcommand function with appropriate exit code documentation",
+            "Verify TS-04-20 assertion: each exit_codes entry in JSON help has int 'code' and str 'description'"
+          ],
+          "test_spec_refs": [
+            "TS-04-20"
+          ],
+          "requirement_refs": [
+            "04-REQ-5.2"
+          ],
+          "state": "done",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "7.V",
+        "checks": [
+          "TS-04-19 passes: `pytest -q tests/test_spec04_req456.py::test_json_help_output`",
+          "TS-04-20 passes: `pytest -q tests/test_spec04_req456.py::test_exit_codes_in_json_help`",
+          "TS-04-21 passes: `pytest -q tests/test_spec04_req456.py::test_text_help_without_json`",
+          "TS-04-E6 passes: `pytest -q tests/test_spec04_req456.py::test_json_help_no_exit_codes_decorator`",
+          "Requirements 04-REQ-5.1, 04-REQ-5.2, 04-REQ-5.3 acceptance criteria met",
+          "No linter warnings: `ruff check agentfox/io/help.py af/`",
+          "All existing tests still pass: `pytest -q`"
+        ]
+      }
+    },
+    {
+      "id": 8,
+      "kind": "checkpoint",
+      "title": "Regression checkpoint \u2014 full test suite and property tests",
+      "subtasks": [
+        {
+          "id": "8.1",
+          "title": "Run the full af test suite and confirm zero failures",
+          "details": [
+            "Execute `pytest -q` from repository root",
+            "Assert exit code 0, zero failures, zero errors",
+            "Capture output; if failures exist, open failing tests and fix regressions before proceeding"
+          ],
+          "test_spec_refs": [
+            "TS-04-27"
+          ],
+          "requirement_refs": [
+            "04-REQ-7.1"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "8.2",
+          "title": "Verify existing subcommand contracts are unchanged",
+          "details": [
+            "For each subcommand (code, plan, standup, init, night-shift, reset, insights): invoke --help and verify exit 0",
+            "Spot-check exit codes match pre-migration baseline documentation",
+            "Verify flag names are unchanged (no renames introduced by migration)"
+          ],
+          "test_spec_refs": [
+            "TS-04-28"
+          ],
+          "requirement_refs": [
+            "04-REQ-7.2"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "8.3",
+          "title": "Run property tests and confirm all invariants hold",
+          "details": [
+            "Execute `pytest -q tests/test_spec04_properties.py` with hypothesis enabled",
+            "All five property tests must pass (04-PROP-1 through 04-PROP-5)",
+            "Review any hypothesis shrunk counterexamples and fix root causes"
+          ],
+          "test_spec_refs": [
+            "TS-04-P1",
+            "TS-04-P2",
+            "TS-04-P3",
+            "TS-04-P4",
+            "TS-04-P5"
+          ],
+          "requirement_refs": [
+            "04-REQ-2.1",
+            "04-REQ-3.5",
+            "04-REQ-4.1",
+            "04-REQ-6.4"
+          ],
+          "state": "done",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "8.V",
+        "checks": [
+          "Full test suite passes with zero failures: `pytest -q` exits code 0",
+          "TS-04-27 and TS-04-28 pass: `pytest -q tests/test_spec04_req2.py tests/test_spec04_req456.py -k 'test_full_suite or test_subcommand_contracts'`",
+          "All property tests pass: `pytest -q tests/test_spec04_properties.py`",
+          "No linter warnings across entire codebase: `ruff check af/ agentfox/`",
+          "04-PROP-1 through 04-PROP-5 invariants confirmed passing"
+        ]
+      }
+    },
+    {
+      "id": 9,
+      "kind": "wiring_verification",
+      "title": "End-to-end wiring verification and smoke tests",
+      "subtasks": [
+        {
+          "id": "9.1",
+          "title": "Trace all execution paths and confirm no stubs remain",
+          "details": [
+            "04-PATH-1: confirm af/app.py \u2192 AgentFoxGroup \u2192 af/code.py \u2192 ProgressDisplay.task_started/completed/failed \u2192 emit_progress (stderr) \u2192 om.emit (stdout) chain is fully wired with no raise NotImplementedError or pass stubs",
+            "04-PATH-2: confirm af/standup.py \u2192 format_table \u2192 om.emit chain is wired",
+            "04-PATH-3: confirm --json --help \u2192 AgentFoxGroup \u2192 JSON help renderer \u2192 stdout chain is wired",
+            "04-PATH-5: confirm af/standup.py (no --json) \u2192 format_table(json_mode=False) \u2192 om.emit \u2192 Rich table chain is wired",
+            "Search for stub markers: `grep -rn 'raise NotImplementedError\\|pass$\\|return None' af/ agentfox/io/` and review each hit"
+          ],
+          "test_spec_refs": [
+            "TS-04-SMOKE-1",
+            "TS-04-SMOKE-2",
+            "TS-04-SMOKE-3"
+          ],
+          "requirement_refs": [
+            "04-REQ-1.1",
+            "04-REQ-2.1",
+            "04-REQ-3.6",
+            "04-REQ-3.7",
+            "04-REQ-5.1"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "9.2",
+          "title": "Verify return value propagation across all command chains",
+          "details": [
+            "Confirm om.emit() receives the actual data dict from each subcommand (not None or empty)",
+            "Confirm emit_progress() receives fully-formed event dicts (event, node_id, timestamp all present and non-empty except the null node_id edge case)",
+            "Confirm format_table() return value is consumed by callers (not discarded with bare call)",
+            "Confirm the final JSON result from om.emit() in af/code.py and af/night_shift.py appears on stdout AFTER all JSONL events on stderr"
+          ],
+          "test_spec_refs": [
+            "TS-04-6",
+            "TS-04-7",
+            "TS-04-10"
+          ],
+          "requirement_refs": [
+            "04-REQ-2.3",
+            "04-REQ-2.4",
+            "04-REQ-3.1",
+            "04-REQ-6.1"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "9.3",
+          "title": "Run all smoke tests with real components",
+          "details": [
+            "TS-04-SMOKE-1: 'af code --json' with mocked execution backend \u2014 verify \u22652 JSONL events on stderr and 1 JSON result on stdout, exit 0",
+            "TS-04-SMOKE-2: 'af standup --json' with mocked data source \u2014 verify single JSON dict on stdout, exit 0",
+            "TS-04-SMOKE-3: 'af night-shift --json --help' \u2014 verify JSON help with name/description/options/exit_codes on stdout, command body NOT executed",
+            "TS-04-SMOKE-4: grep and import check \u2014 verify af/json_io.py absent and ModuleNotFoundError raised",
+            "TS-04-SMOKE-5: 'af standup' (no --json) \u2014 verify Rich-rendered table on stdout, no raw JSON, exit 0"
+          ],
+          "test_spec_refs": [
+            "TS-04-SMOKE-1",
+            "TS-04-SMOKE-2",
+            "TS-04-SMOKE-3",
+            "TS-04-SMOKE-4",
+            "TS-04-SMOKE-5"
+          ],
+          "requirement_refs": [
+            "04-REQ-1.3",
+            "04-REQ-2.5",
+            "04-REQ-3.6",
+            "04-REQ-5.1",
+            "04-REQ-6.2"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "9.4",
+          "title": "Audit for dead code and stub markers",
+          "details": [
+            "Run `grep -rn 'raise NotImplementedError' af/ agentfox/io/` \u2014 all hits must be in abstract base classes only",
+            "Run `grep -rn 'TODO\\|FIXME\\|HACK' af/ agentfox/io/` \u2014 resolve or document any remaining items",
+            "Run `grep -rn 'af.json_io' af/` \u2014 must return no matches",
+            "Run `grep -rn 'BannerGroup\\|handle_agent_fox_errors' af/` \u2014 must return no matches",
+            "Run `grep -rn 'click.echo(' af/` \u2014 any remaining hits must be for non-data output (e.g. debug-only) and documented"
+          ],
+          "test_spec_refs": [
+            "TS-04-P2"
+          ],
+          "requirement_refs": [
+            "04-REQ-4.1",
+            "04-REQ-4.2"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "9.5",
+          "title": "Cross-spec entry point verification for agentfox.io integration",
+          "details": [
+            "Confirm agentfox.io (spec 03, group 3) exports are called from production af/ code, not just test code: grep for 'from agentfox.io import' in af/*.py",
+            "Confirm AgentFoxGroup, OutputManager, format_table, exit_codes are all imported and used in production af/ files (not just re-exported)",
+            "Confirm TS-04-1 passes with installed spec 03 package (not a mock): `pytest -q tests/test_spec04_req1.py::test_app_uses_agent_fox_group`"
+          ],
+          "test_spec_refs": [
+            "TS-04-1",
+            "TS-04-SMOKE-1"
+          ],
+          "requirement_refs": [
+            "04-REQ-1.1",
+            "04-REQ-2.1",
+            "04-REQ-6.1"
+          ],
+          "state": "done",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "9.V",
+        "checks": [
+          "All smoke tests pass: `pytest -q tests/test_spec04_smoke.py`",
+          "No raise NotImplementedError stubs in non-abstract code: `grep -rn 'raise NotImplementedError' af/ agentfox/io/` returns only abstract class hits",
+          "No af.json_io references remain: `grep -r 'af.json_io' af/` exits with code 1 (no matches)",
+          "No BannerGroup or handle_agent_fox_errors references remain: `grep -rn 'BannerGroup\\|handle_agent_fox_errors' af/` returns no matches",
+          "Cross-spec imports confirmed in production code: `grep -rn 'from agentfox.io import' af/*.py` returns hits in each subcommand file",
+          "Full test suite passes with zero failures and zero warnings: `pytest -q` exits code 0",
+          "No linter warnings: `ruff check af/ agentfox/` exits code 0",
+          "All requirements 04-REQ-1 through 04-REQ-7 acceptance criteria confirmed met"
+        ]
+      }
+    }
+  ],
+  "traceability": [
+    {
+      "requirement_id": "04-REQ-1.1",
+      "test_spec_id": "TS-04-1",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-1.2",
+      "test_spec_id": "TS-04-2",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-1.3",
+      "test_spec_id": "TS-04-3",
+      "task_id": "2.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-1.E1",
+      "test_spec_id": "TS-04-E1",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-2.1",
+      "test_spec_id": "TS-04-4",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-2.2",
+      "test_spec_id": "TS-04-5",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-2.3",
+      "test_spec_id": "TS-04-6",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-2.4",
+      "test_spec_id": "TS-04-7",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-2.5",
+      "test_spec_id": "TS-04-8",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-2.6",
+      "test_spec_id": "TS-04-9",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-2.E1",
+      "test_spec_id": "TS-04-E2",
+      "task_id": "5.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-3.1",
+      "test_spec_id": "TS-04-10",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-3.2",
+      "test_spec_id": "TS-04-11",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-3.3",
+      "test_spec_id": "TS-04-12",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-3.4",
+      "test_spec_id": "TS-04-13",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-3.5",
+      "test_spec_id": "TS-04-14",
+      "task_id": "6.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-3.6",
+      "test_spec_id": "TS-04-15",
+      "task_id": "6.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-3.7",
+      "test_spec_id": "TS-04-16",
+      "task_id": "6.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-3.E1",
+      "test_spec_id": "TS-04-E3",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-3.E2",
+      "test_spec_id": "TS-04-E4",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-4.1",
+      "test_spec_id": "TS-04-17",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-4.2",
+      "test_spec_id": "TS-04-18",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-4.E1",
+      "test_spec_id": "TS-04-E5",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-5.1",
+      "test_spec_id": "TS-04-19",
+      "task_id": "7.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-5.2",
+      "test_spec_id": "TS-04-20",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-5.3",
+      "test_spec_id": "TS-04-21",
+      "task_id": "7.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-5.E1",
+      "test_spec_id": "TS-04-E6",
+      "task_id": "7.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-6.1",
+      "test_spec_id": "TS-04-22",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-6.2",
+      "test_spec_id": "TS-04-23",
+      "task_id": "4.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-6.3",
+      "test_spec_id": "TS-04-24",
+      "task_id": "4.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-6.4",
+      "test_spec_id": "TS-04-25",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-6.5",
+      "test_spec_id": "TS-04-26",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-6.E1",
+      "test_spec_id": "TS-04-E7",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-6.E2",
+      "test_spec_id": "TS-04-E8",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-7.1",
+      "test_spec_id": "TS-04-27",
+      "task_id": "8.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "04-REQ-7.2",
+      "test_spec_id": "TS-04-28",
+      "task_id": "8.2",
+      "test_path": null
+    }
+  ]
+}

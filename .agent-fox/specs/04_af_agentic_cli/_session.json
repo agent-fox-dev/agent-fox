@@ -1,0 +1,12 @@
+{
+  "state": "generated",
+  "prd_path": "prd.md",
+  "assessment_history": [],
+  "qa_exchanges": [],
+  "generated_artifacts": [
+    "requirements",
+    "test_spec",
+    "tasks"
+  ],
+  "mode": "interactive"
+}

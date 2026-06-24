@@ -40,7 +40,7 @@ _PATCHES = {
     "discover_specs": "af.plan.discover_specs",
     # These are imported inside the function body so patch at definition site.
     "save_plan": "agentfox.graph.persistence.save_plan",
-    "open_knowledge_store": "agentfox.knowledge.db.open_knowledge_store",
+    "open_knowledge_store": "af.plan.open_knowledge_store",
     "resolve_spec_root": "agentfox.core.config.resolve_spec_root",
 }
 

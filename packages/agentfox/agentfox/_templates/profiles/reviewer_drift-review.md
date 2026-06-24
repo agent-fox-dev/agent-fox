@@ -49,31 +49,6 @@ If there are no findings, output `{"drift_findings": []}`.
 
 ## CRITICAL OUTPUT RULES
 
-Your final message — the very last text you produce before the session ends —
-MUST be a single, bare JSON object and nothing else.
-
-- First character: `{`. Last character: `}`. No exceptions.
-- No preamble ("Here are my findings:"), no postscript ("Let me know if…").
-- No markdown fences. No prose before or after the JSON.
-- Use exactly the field names shown above: `drift_findings`, `severity`,
-  `description`, `spec_ref`, `artifact_ref`.
-- Intermediate messages (between tool calls) may contain analysis text.
-  Only the **final message** is parsed; everything before it is discarded.
-
-Violating these rules triggers an expensive retry loop (re-running the
-full session). Produce clean JSON the first time.
-
-INCORRECT (triggers retry):
-
-    Here are my findings:
-    {"drift_findings": [...]}
-
-INCORRECT (triggers retry):
-
-    ```json
-    {"drift_findings": [...]}
-    ```
-
-CORRECT:
-
-    {"drift_findings": [{"severity": "major", "description": "...", "spec_ref": "design.md:## API", "artifact_ref": "agent_fox/core/foo.py"}]}
+Your final message MUST be bare JSON only — first character `{`, last `}`.
+No preamble, no postscript, no markdown fences, no prose. Only the final
+message is parsed; intermediate messages may contain analysis text.

@@ -239,28 +239,34 @@ class TestTopLevelExceptionHandler:
             main.commands.pop("boom", None)
 
     def test_unexpected_exception_shows_friendly_message(self, cli_runner: CliRunner) -> None:
-        """Unexpected exception prints a user-friendly error, not a traceback."""
+        """Unexpected exception prints a user-friendly error, not a traceback.
+
+        AgentFoxGroup (04-REQ-1.3) catches unhandled exceptions and
+        emits 'Error: <message>' to stderr.
+        """
         cmd = _make_failing_subcommand(RuntimeError("kaboom"))
         main.add_command(cmd, name="boom")
         try:
-            with patch("af.app.logger"):
-                result = cli_runner.invoke(main, ["boom"])
+            result = cli_runner.invoke(main, ["boom"])
             combined = result.output + (result.stderr or "")
             assert "kaboom" in combined.lower()
-            assert "Error: unexpected error:" in combined
+            assert "Error:" in combined
         finally:
             main.commands.pop("boom", None)
 
-    def test_unexpected_exception_logs_traceback_at_debug(self, cli_runner: CliRunner) -> None:
-        """Unexpected exception logs full traceback at DEBUG level."""
+    def test_unexpected_exception_logs_or_suppresses_traceback(self, cli_runner: CliRunner) -> None:
+        """Unexpected exception does not expose raw traceback to the user.
+
+        AgentFoxGroup (04-REQ-1.3) catches exceptions and emits a
+        friendly error message. The traceback is not shown.
+        """
         cmd = _make_failing_subcommand(RuntimeError("kaboom"))
         main.add_command(cmd, name="boom")
         try:
-            with patch("af.app.logger") as mock_logger:
-                cli_runner.invoke(main, ["boom"])
-                mock_logger.debug.assert_called_once()
-                call_kwargs = mock_logger.debug.call_args
-                assert call_kwargs[1].get("exc_info") is True
+            result = cli_runner.invoke(main, ["boom"])
+            combined = result.output + (result.stderr or "")
+            # Should not contain a raw Python traceback
+            assert "Traceback (most recent call last)" not in combined
         finally:
             main.commands.pop("boom", None)
 

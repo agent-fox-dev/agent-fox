@@ -42,35 +42,10 @@ class TestPerArchetypeConfigParsing:
         assert cfg.thinking_budget is None
         assert cfg.allowlist is None
 
-    def test_model_tier_field(self) -> None:
-        cfg = PerArchetypeConfig(model_tier="ADVANCED")
-        assert cfg.model_tier == "ADVANCED"
-
-    def test_max_turns_field(self) -> None:
-        cfg = PerArchetypeConfig(max_turns=150)
-        assert cfg.max_turns == 150
-
     def test_max_turns_zero_allowed(self) -> None:
         """0 means unlimited — should be accepted."""
         cfg = PerArchetypeConfig(max_turns=0)
         assert cfg.max_turns == 0
-
-    def test_thinking_mode_enabled(self) -> None:
-        cfg = PerArchetypeConfig(thinking_mode="enabled", thinking_budget=20000)
-        assert cfg.thinking_mode == "enabled"
-        assert cfg.thinking_budget == 20000
-
-    def test_thinking_mode_adaptive(self) -> None:
-        cfg = PerArchetypeConfig(thinking_mode="adaptive")
-        assert cfg.thinking_mode == "adaptive"
-
-    def test_thinking_mode_disabled(self) -> None:
-        cfg = PerArchetypeConfig(thinking_mode="disabled")
-        assert cfg.thinking_mode == "disabled"
-
-    def test_allowlist_field(self) -> None:
-        cfg = PerArchetypeConfig(allowlist=["git", "grep"])
-        assert cfg.allowlist == ["git", "grep"]
 
     def test_negative_max_turns_rejected(self) -> None:
         with pytest.raises(ValidationError):

@@ -52,6 +52,7 @@ This project uses spec-driven development. Specifications live in
 |---------|-------------|
 | `make check` | Run lint + all tests (use before committing) |
 | `make test` | Run all tests (`uv run pytest -q`) |
+| `make test-fast` | Run unit tests only, skip slow tests (~30 s) |
 
 Run the full quality suite before committing:
 

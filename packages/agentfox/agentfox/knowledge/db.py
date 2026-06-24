@@ -147,22 +147,29 @@ class KnowledgeDB:
         self.close()
 
 
-def open_knowledge_store(config: KnowledgeConfig, *, read_only: bool = False) -> KnowledgeDB:
+def open_knowledge_store(config: KnowledgeConfig, *, read_only: bool) -> KnowledgeDB:
     """Open the knowledge store. Raises on failure.
+
+    ``read_only`` is required: pass ``True`` for concurrent reads,
+    ``False`` for writes.
 
     Args:
         config: Knowledge configuration with store path.
         read_only: If True, open in read-only mode (allows concurrent
-            access while another process holds a write lock).
+            access while another process holds a write lock).  This
+            parameter has no default — callers must declare intent
+            explicitly.
 
     Returns a KnowledgeDB instance on success.
 
     Raises:
+        TypeError: If ``read_only`` is omitted (no default value).
         RuntimeError: If the knowledge store cannot be opened,
             with message containing "Knowledge store initialization failed"
             and the underlying error detail including the file path.
 
-    Requirements: 38-REQ-1.1, 38-REQ-1.2, 38-REQ-1.E1
+    Requirements: 38-REQ-1.1, 38-REQ-1.2, 38-REQ-1.E1,
+                  06-REQ-1.1, 06-REQ-1.E1
     """
     try:
         db = KnowledgeDB(config, read_only=read_only)

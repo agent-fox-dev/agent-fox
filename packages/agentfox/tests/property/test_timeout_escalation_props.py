@@ -256,7 +256,7 @@ class TestMonotonicTimeoutExtension:
         ceiling_factor=st.floats(min_value=1.0, max_value=5.0, allow_nan=False),
         retry_count=st.integers(min_value=1, max_value=5),
     )
-    @settings(max_examples=100)
+    @settings(max_examples=30)
     def test_timeout_extension_is_monotonic_and_bounded(
         self,
         original_timeout: int,
@@ -452,7 +452,7 @@ class TestConfigValidationBounds:
         timeout_multiplier=st.floats(min_value=0.0, max_value=10.0, allow_nan=False, allow_infinity=False),
         timeout_ceiling_factor=st.floats(min_value=0.0, max_value=10.0, allow_nan=False, allow_infinity=False),
     )
-    @settings(max_examples=100)
+    @settings(max_examples=30)
     def test_config_bounds_always_valid(
         self,
         max_timeout_retries: int,

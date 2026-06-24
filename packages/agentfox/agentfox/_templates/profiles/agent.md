@@ -41,10 +41,10 @@ This project uses spec-driven development. Specifications live in
 `.specs/NN_name/` (numbered by creation order) and contain five artifacts:
 
 - `prd.md` — product requirements document (source of truth)
-- `requirements.md` — EARS-syntax acceptance criteria
-- `design.md` — architecture, interfaces, correctness properties
-- `test_spec.md` — language-agnostic test contracts
-- `tasks.md` — implementation plan with checkboxes
+- `requirements.json` — EARS-syntax acceptance criteria
+- `test_spec.json` — language-agnostic test contracts
+- `tasks.json` — implementation task groups with state machine
+- `architecture.md` — (optional) architecture overview
 
 ## Quality Commands
 

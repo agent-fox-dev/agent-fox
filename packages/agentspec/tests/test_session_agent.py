@@ -22,6 +22,7 @@ from conftest_agent import (
     SAMPLE_REQUIREMENTS_JSON,
     SAMPLE_TASKS_JSON,
     SAMPLE_TEST_SPEC_JSON,
+    _make_mock_client,
     make_artifact_response,
     make_assessment_response,
     make_bad_request_error,
@@ -310,7 +311,7 @@ async def test_partial_generation_preserves_artifacts(tmp_path: Path) -> None:
     artifact remains on disk and session stays in 'generating'."""
     session = _create_test_session(tmp_path, SessionState.PRD_ACCEPTED)
 
-    mock_client = MagicMock()
+    mock_client = _make_mock_client()
     mock_client.messages.create = AsyncMock(
         side_effect=[
             make_artifact_response("requirements", SAMPLE_REQUIREMENTS_JSON),
@@ -350,7 +351,7 @@ async def test_resume_after_partial_generation(tmp_path: Path) -> None:
     (session.spec_dir / "requirements.json").write_text(marshal_json(req_model))
 
     # Mock client returns only 2 responses (for the missing artifacts)
-    mock_client = MagicMock()
+    mock_client = _make_mock_client()
     mock_client.messages.create = AsyncMock(
         side_effect=[
             make_artifact_response("test_spec", SAMPLE_TEST_SPEC_JSON),
@@ -406,7 +407,7 @@ class TestPropertyPartialArtifacts:
             side_effects.append(make_artifact_response(artifact_names[i], artifact_jsons[i]))
         side_effects.append(make_bad_request_error())
 
-        mock_client = MagicMock()
+        mock_client = _make_mock_client()
         mock_client.messages.create = AsyncMock(side_effect=side_effects)
 
         from agentspec.agent import SpecAgent as _SA
@@ -556,7 +557,7 @@ async def test_smoke_retry_and_recovery(tmp_path: Path) -> None:
     followed by successful completion."""
     session = _create_test_session(tmp_path, SessionState.INIT)
 
-    mock_client = MagicMock()
+    mock_client = _make_mock_client()
     mock_client.messages.create = AsyncMock(
         side_effect=[
             make_rate_limit_error(),

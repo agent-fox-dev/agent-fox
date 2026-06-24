@@ -45,7 +45,7 @@ class TestInitNeverNone:
             config = KnowledgeConfig(store_path=str(db_path))
 
             try:
-                result = open_knowledge_store(config)
+                result = open_knowledge_store(config, read_only=False)
                 assert isinstance(result, KnowledgeDB)
                 assert result is not None
                 result.close()
@@ -60,7 +60,7 @@ class TestInitNeverNone:
         config = KnowledgeConfig(store_path=str(bad_dir / "test.duckdb"))
 
         try:
-            result = open_knowledge_store(config)
+            result = open_knowledge_store(config, read_only=False)
             # If it somehow succeeds, it still shouldn't be None
             assert result is not None
             result.close()

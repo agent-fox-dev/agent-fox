@@ -170,17 +170,16 @@ def _setup_specs(base: Path, *spec_names: str) -> Path:
 # Correct patch targets based on import analysis:
 #
 # cli/plan.py imports at module level:
-#   build_plan, format_plan_summary, save_plan, discover_specs
-#   -> patch at "af.plan.<name>"
+#   build_plan, format_plan_summary, save_plan, discover_specs,
+#   open_knowledge_store -> patch at "af.plan.<name>"
 #
 # cli/plan.py imports inline:
-#   open_knowledge_store -> patch at "agentfox.knowledge.db.open_knowledge_store"
 #   check_pid_file -> patch at "agentfox.nightshift.pid.check_pid_file"
 _P_BUILD = "af.plan.build_plan"
 _P_FORMAT_SUMMARY = "af.plan.format_plan_summary"
 _P_DISCOVER = "af.plan.discover_specs"
 _P_SAVE = "af.plan.save_plan"
-_P_OPEN_DB = "agentfox.knowledge.db.open_knowledge_store"
+_P_OPEN_DB = "af.plan.open_knowledge_store"
 _P_CHECK_PID = "agentfox.nightshift.pid.check_pid_file"
 
 

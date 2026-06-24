@@ -2238,17 +2238,21 @@ name = "spec"
 version = "0.9.0"
 source = { editable = "packages/spec" }
 dependencies = [
+    { name = "afspec" },
     { name = "agentfox" },
     { name = "agentspec" },
     { name = "click" },
+    { name = "jsonschema" },
     { name = "rich" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "afspec", editable = "packages/afspec" },
     { name = "agentfox", editable = "packages/agentfox" },
     { name = "agentspec", editable = "packages/agentspec" },
     { name = "click", specifier = ">=8.1" },
+    { name = "jsonschema", specifier = ">=4.0" },
     { name = "rich", specifier = ">=13.0" },
 ]
 

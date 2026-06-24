@@ -1,0 +1,563 @@
+{
+  "$schema": null,
+  "spec_id": "05",
+  "spec_name": "spec_agentic_cli",
+  "schema_version": 1,
+  "introduction": "The `spec` CLI agentic optimization migrates the `spec` command-line tool to use the shared `agentfox/io/` terminal IO module from spec 03, adding JSON output mode for the `render` command, structured validation error details, and removing all inline JSON/error patterns in favor of centralized IO utilities.",
+  "glossary": {
+    "--combined": "A CLI flag for `spec render` that merges all artifact content into a single output string instead of per-artifact keys.",
+    "--json": "A CLI flag that switches a command's output from human-readable text to a machine-readable JSON envelope.",
+    "AF_AGENT": "Environment variable (`AF_AGENT=1`) that activates agent mode, suppressing banners and enabling structured JSON output.",
+    "AgentFoxGroup": "A custom Click group class from `agentfox/io/` that provides agent-mode detection, banner suppression, and unified error routing for CLI commands.",
+    "OutputManager": "A class from `agentfox/io/` that manages terminal output, mode detection, and JSON envelope construction.",
+    "StatusSpinner": "A terminal spinner component; the canonical implementation lives in `agentfox/io/spinner.py`.",
+    "_json_error_exit": "A legacy inline helper function in `spec/cli.py` that formatted and exited with a JSON error payload; to be removed.",
+    "agentfox/io/": "The shared terminal IO module introduced in spec 03, providing OutputManager, AgentFoxGroup, StatusSpinner, emit, and emit_ok utilities.",
+    "agentspec": "The internal library that provides spec domain logic (parsing, validation, rendering); its internals are not modified by this spec.",
+    "emit": "A function from `agentfox/io/` that writes structured JSON output to stdout in a normalized envelope.",
+    "emit_ok": "A function from `agentfox/io/` that writes a successful JSON response envelope to stdout.",
+    "integrity check": "A cross-artifact validation rule (e.g. requirement coverage) that goes beyond schema conformance.",
+    "render envelope": "The JSON response shape returned by `spec render --json`, containing `ok`, `format`, `content` or `artifacts`, and optionally `sections`.",
+    "schema check": "A validation rule that verifies a JSON artifact conforms to its declared JSON schema.",
+    "spec render": "The CLI subcommand that generates rendered markdown artifacts from a spec definition.",
+    "spec validate": "The CLI subcommand that validates spec artifacts against their JSON schemas and cross-artifact integrity checks.",
+    "spec/cli.py": "The main entry-point module for the `spec` CLI tool.",
+    "spec/ui.py": "A legacy module in the `spec` package that duplicated the StatusSpinner and is targeted for deletion in this spec.",
+    "structured error": "A validation error object with typed fields such as `category`, `artifact`, `path`, `message`, `value`, `check`, and `requirement_id` instead of a plain string."
+  },
+  "requirements": [
+    {
+      "id": "05-REQ-1",
+      "title": "Wire spec/cli.py root group to AgentFoxGroup",
+      "user_story": {
+        "role": "CLI developer",
+        "goal": "replace the root click.group() with AgentFoxGroup so that agent-mode detection, banner suppression, and unified error routing are handled by the shared IO module",
+        "benefit": "eliminate duplicated infrastructure code and gain consistent behavior across all agentfox CLIs"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-1.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`spec/cli.py`",
+          "action": "declares its root Click group using `cls=AgentFoxGroup` instead of the bare `@click.group()` decorator",
+          "return_contract": null
+        },
+        {
+          "id": "05-REQ-1.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`spec/cli.py`",
+          "action": "removes all manual banner rendering and config loading that are now handled by `AgentFoxGroup`",
+          "return_contract": null
+        },
+        {
+          "id": "05-REQ-1.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`spec/cli.py`",
+          "action": "removes the `_json_error_exit()` and `_error_type()` helper functions, delegating their behavior to `agentfox/io/errors.py` via `AgentFoxGroup`",
+          "return_contract": null
+        },
+        {
+          "id": "05-REQ-1.4",
+          "ears_pattern": "state_driven",
+          "system": "`spec` CLI",
+          "action": "suppresses banner output and routes all errors through the `AgentFoxGroup` JSON error handler",
+          "return_contract": "No banner text is written to stdout or stderr; errors are emitted as JSON objects",
+          "state": "the `AF_AGENT` environment variable is set to `1`"
+        },
+        {
+          "id": "05-REQ-1.5",
+          "ears_pattern": "event_driven",
+          "system": "`spec` CLI",
+          "action": "delegates error formatting to `AgentFoxGroup` rather than a local handler",
+          "return_contract": "A JSON error envelope is written to stdout and the process exits with a non-zero exit code",
+          "trigger": "any unhandled exception propagates to the root group"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "05-REQ-1.E1",
+          "ears_pattern": "unwanted",
+          "system": "`spec/cli.py`",
+          "action": "fails at import time with an explicit error or is prevented by the migration removing the legacy function",
+          "return_contract": null,
+          "error_condition": "both the legacy `_json_error_exit()` function and an `AgentFoxGroup` import are present simultaneously"
+        }
+      ]
+    },
+    {
+      "id": "05-REQ-2",
+      "title": "spec render --json mode",
+      "user_story": {
+        "role": "agent or automation script",
+        "goal": "call spec render --json and receive a machine-parseable JSON envelope containing the rendered markdown content",
+        "benefit": "programmatically access rendered spec artifacts without screen-scraping raw markdown output"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-2.1",
+          "ears_pattern": "optional",
+          "system": "`spec render`",
+          "action": "wraps the markdown output in a `render envelope` and writes it to stdout",
+          "return_contract": "JSON object: `{\"ok\": true, \"format\": \"markdown\", \"content\": \"<markdown string>\", \"sections\": [\"requirements\", \"test_spec\", \"tasks\"]}`",
+          "feature": "`--json` flag is active on `spec render`"
+        },
+        {
+          "id": "05-REQ-2.2",
+          "ears_pattern": "complex_event",
+          "system": "`spec render`",
+          "action": "returns a single `content` string merging all artifact markdown",
+          "return_contract": "JSON object: `{\"ok\": true, \"format\": \"markdown\", \"content\": \"<merged markdown>\", \"sections\": [\"requirements\", \"test_spec\", \"tasks\"]}`",
+          "trigger": "the render command is invoked",
+          "condition": "`--combined` and `--json` are both active"
+        },
+        {
+          "id": "05-REQ-2.3",
+          "ears_pattern": "complex_event",
+          "system": "`spec render`",
+          "action": "returns per-artifact content under an `artifacts` key",
+          "return_contract": "JSON object: `{\"ok\": true, \"artifacts\": {\"requirements\": \"...\", \"test_spec\": \"...\", \"tasks\": \"...\"}}`",
+          "trigger": "the render command is invoked",
+          "condition": "`--json` is active but `--combined` is not"
+        },
+        {
+          "id": "05-REQ-2.4",
+          "ears_pattern": "event_driven",
+          "system": "`spec render`",
+          "action": "outputs raw markdown to stdout exactly as before (no behavioral change)",
+          "return_contract": "Raw markdown text written to stdout; no JSON wrapping",
+          "trigger": "`--json` flag is NOT provided"
+        },
+        {
+          "id": "05-REQ-2.5",
+          "ears_pattern": "ubiquitous",
+          "system": "`spec render`",
+          "action": "uses `emit_ok` from `agentfox/io/` to construct and write all JSON envelopes",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "05-REQ-2.E1",
+          "ears_pattern": "unwanted",
+          "system": "`spec render`",
+          "action": "emits a JSON error envelope via `AgentFoxGroup` error routing instead of printing raw traceback",
+          "return_contract": "JSON object: `{\"ok\": false, \"error\": \"<message>\"}`; non-zero exit code",
+          "error_condition": "rendering fails (e.g., spec file not found or template error) while `--json` is active"
+        },
+        {
+          "id": "05-REQ-2.E2",
+          "ears_pattern": "unwanted",
+          "system": "`spec render`",
+          "action": "omits the missing artifact key from the `artifacts` map and includes a `warnings` array noting the omission",
+          "return_contract": "JSON object: `{\"ok\": true, \"artifacts\": {...}, \"warnings\": [\"tasks artifact not found\"]}`",
+          "error_condition": "a requested artifact (e.g., `tasks`) does not exist for the given spec"
+        }
+      ]
+    },
+    {
+      "id": "05-REQ-3",
+      "title": "spec validate structured error output",
+      "user_story": {
+        "role": "agent or CI pipeline",
+        "goal": "receive structured error details from spec validate including schema name, check name, path, and offending value",
+        "benefit": "automatically triage and report validation failures without parsing free-form error strings"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-3.1",
+          "ears_pattern": "event_driven",
+          "system": "`spec validate`",
+          "action": "includes a `structured error` object per failure with fields: `category` (`\"schema\"`), `artifact`, `path`, `message`, and `value`",
+          "return_contract": "JSON array element: `{\"category\": \"schema\", \"artifact\": \"<filename>\", \"path\": \"<jsonpath>\", \"message\": \"<human text>\", \"value\": \"<offending value>\"}`",
+          "trigger": "validation finds one or more `schema check` failures"
+        },
+        {
+          "id": "05-REQ-3.2",
+          "ears_pattern": "event_driven",
+          "system": "`spec validate`",
+          "action": "includes a `structured error` object per failure with fields: `category` (`\"integrity\"`), `check`, `message`, and relevant identifiers such as `requirement_id`",
+          "return_contract": "JSON array element: `{\"category\": \"integrity\", \"check\": \"<check_name>\", \"message\": \"<human text>\", \"requirement_id\": \"<id>\"}`",
+          "trigger": "validation finds one or more `integrity check` failures"
+        },
+        {
+          "id": "05-REQ-3.3",
+          "ears_pattern": "event_driven",
+          "system": "`spec validate`",
+          "action": "returns a JSON object with `valid: true` and an empty `errors` array",
+          "return_contract": "JSON object: `{\"valid\": true, \"errors\": []}`",
+          "trigger": "validation completes with no errors"
+        },
+        {
+          "id": "05-REQ-3.4",
+          "ears_pattern": "event_driven",
+          "system": "`spec validate`",
+          "action": "returns a JSON object with `valid: false` and a non-empty `errors` array of `structured error` objects",
+          "return_contract": "JSON object: `{\"valid\": false, \"errors\": [{...}, ...]}`; exit code 1",
+          "trigger": "validation completes with one or more errors"
+        },
+        {
+          "id": "05-REQ-3.5",
+          "ears_pattern": "ubiquitous",
+          "system": "`spec validate`",
+          "action": "uses `emit_ok` or `emit` from `agentfox/io/` to write the validation result envelope",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "05-REQ-3.E1",
+          "ears_pattern": "unwanted",
+          "system": "`spec validate`",
+          "action": "emits a JSON error envelope with `category: \"io\"` and a descriptive message, then exits with code 1",
+          "return_contract": "JSON object: `{\"valid\": false, \"errors\": [{\"category\": \"io\", \"artifact\": \"<filename>\", \"message\": \"<reason>\"}]}`",
+          "error_condition": "a spec artifact file is missing or unreadable"
+        },
+        {
+          "id": "05-REQ-3.E2",
+          "ears_pattern": "unwanted",
+          "system": "`spec validate`",
+          "action": "omits the `path` and `value` fields from that error object rather than including null values",
+          "return_contract": "JSON array element without `path` or `value` keys",
+          "error_condition": "a `structured error` object contains a null or empty `path` because the error is top-level (not field-specific)"
+        }
+      ]
+    },
+    {
+      "id": "05-REQ-4",
+      "title": "Delete spec/ui.py and migrate StatusSpinner imports",
+      "user_story": {
+        "role": "developer maintaining the spec codebase",
+        "goal": "remove the duplicated StatusSpinner from spec/ui.py and use the canonical one from agentfox/io/spinner.py",
+        "benefit": "eliminate code duplication and ensure spinner behavior is consistent across all agentfox tools"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-4.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`spec` package",
+          "action": "does not contain a `spec/ui.py` module after migration",
+          "return_contract": null
+        },
+        {
+          "id": "05-REQ-4.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`spec` package",
+          "action": "imports `StatusSpinner` exclusively from `agentfox.io` (i.e., `from agentfox.io import StatusSpinner`) wherever a spinner is used",
+          "return_contract": null
+        },
+        {
+          "id": "05-REQ-4.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`spec` package",
+          "action": "contains no remaining `from spec.ui import` statements anywhere in the codebase",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "05-REQ-4.E1",
+          "ears_pattern": "unwanted",
+          "system": "`spec` package",
+          "action": "raises an `ImportError` at runtime because `spec/ui.py` no longer exists",
+          "return_contract": "Python ImportError with message indicating `spec.ui` module not found",
+          "error_condition": "any module attempts `from spec.ui import StatusSpinner` after the migration"
+        }
+      ]
+    },
+    {
+      "id": "05-REQ-5",
+      "title": "Migrate all inline JSON/error patterns to agentfox/io functions",
+      "user_story": {
+        "role": "developer",
+        "goal": "replace every click.echo(json.dumps(...)) and _json_error_exit() call with emit/emit_ok from agentfox/io/",
+        "benefit": "achieve a single, consistent output path that respects agent mode and eliminates duplicated serialization logic"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-5.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`spec/cli.py`",
+          "action": "contains no calls to `click.echo(json.dumps(...))` after migration; all JSON output goes through `emit` or `emit_ok`",
+          "return_contract": null
+        },
+        {
+          "id": "05-REQ-5.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`spec/cli.py`",
+          "action": "contains no definition or call to `_json_error_exit()` after migration",
+          "return_contract": null
+        },
+        {
+          "id": "05-REQ-5.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`spec/cli.py`",
+          "action": "removes the `_assessment_to_json()` helper if its behavior can be replaced by standard Python serialization plus `emit_ok`",
+          "return_contract": null
+        },
+        {
+          "id": "05-REQ-5.4",
+          "ears_pattern": "state_driven",
+          "system": "`spec` CLI",
+          "action": "all command output is written as JSON envelopes via `emit` or `emit_ok`; no mixed plain-text/JSON output occurs",
+          "return_contract": "Every line written to stdout is valid JSON",
+          "state": "`AF_AGENT` is set to `1` or `--json` is provided"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "05-REQ-5.E1",
+          "ears_pattern": "unwanted",
+          "system": "`spec/cli.py`",
+          "action": "the output is deferred or suppressed until after group initialization, preventing mixed plain-text before the JSON stream",
+          "return_contract": null,
+          "error_condition": "a command produces output before `AgentFoxGroup` has initialized (e.g., module-level side effect)"
+        }
+      ]
+    },
+    {
+      "id": "05-REQ-6",
+      "title": "All existing tests pass after migration",
+      "user_story": {
+        "role": "CI system",
+        "goal": "confirm that the migration introduces no regressions in existing spec CLI test cases",
+        "benefit": "safely ship the agentic migration without breaking established spec workflows"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-6.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`spec` test suite",
+          "action": "all pre-existing test cases pass without modification after the migration is complete",
+          "return_contract": "`pytest` exits with code 0 and reports zero failures"
+        },
+        {
+          "id": "05-REQ-6.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`spec` test suite",
+          "action": "no test imports from `spec.ui` remain; any that did are updated to import from `agentfox.io`",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    }
+  ],
+  "correctness_properties": [
+    {
+      "id": "05-PROP-1",
+      "title": "JSON output completeness: render envelope always contains required fields",
+      "for_any": "invocation of `spec render --json`",
+      "invariant": "the stdout JSON object always contains `ok` (boolean) and either `content` + `sections` (when `--combined`) or `artifacts` (when not `--combined`), and never omits these top-level keys",
+      "validates": [
+        "05-REQ-2.1",
+        "05-REQ-2.2",
+        "05-REQ-2.3"
+      ]
+    },
+    {
+      "id": "05-PROP-2",
+      "title": "Structured errors always include category field",
+      "for_any": "error object in the `errors` array returned by `spec validate`",
+      "invariant": "every error object contains a non-empty `category` field whose value is one of `\"schema\"`, `\"integrity\"`, or `\"io\"`",
+      "validates": [
+        "05-REQ-3.1",
+        "05-REQ-3.2",
+        "05-REQ-3.E1"
+      ]
+    },
+    {
+      "id": "05-PROP-3",
+      "title": "No mixed output: agent mode produces only JSON",
+      "for_any": "invocation of `spec` CLI with `AF_AGENT=1` or `--json`",
+      "invariant": "every byte written to stdout is part of a valid JSON object; no plain-text banner, spinner, or markdown is interleaved",
+      "validates": [
+        "05-REQ-1.4",
+        "05-REQ-5.4"
+      ]
+    },
+    {
+      "id": "05-PROP-4",
+      "title": "No legacy inline patterns remain post-migration",
+      "for_any": "static analysis scan of `spec/cli.py`",
+      "invariant": "the source file contains zero occurrences of `_json_error_exit`, `_json_error_exit()`, and `click.echo(json.dumps` after migration",
+      "validates": [
+        "05-REQ-5.1",
+        "05-REQ-5.2"
+      ]
+    },
+    {
+      "id": "05-PROP-5",
+      "title": "spec/ui.py absence: no residual import of deleted module",
+      "for_any": "static analysis scan of the entire `spec` package source tree",
+      "invariant": "no Python file contains `from spec.ui import` or `import spec.ui` after migration",
+      "validates": [
+        "05-REQ-4.1",
+        "05-REQ-4.2",
+        "05-REQ-4.3"
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "05-PATH-1",
+      "title": "Agent calls spec render --json (combined mode)",
+      "steps": [
+        {
+          "actor": "Agent",
+          "action": "invokes `spec render --json --combined` for a given spec"
+        },
+        {
+          "actor": "`spec` CLI (`AgentFoxGroup`)",
+          "action": "detects `--json` flag and activates JSON output mode"
+        },
+        {
+          "actor": "`spec render` command",
+          "action": "calls `agentspec` rendering logic to produce merged markdown"
+        },
+        {
+          "actor": "`spec render` command",
+          "action": "calls `emit_ok` with the merged markdown content and sections list"
+        },
+        {
+          "actor": "`agentfox/io/`",
+          "action": "writes the `render envelope` JSON object to stdout"
+        },
+        {
+          "actor": "Agent",
+          "action": "receives and parses the JSON envelope containing the full rendered markdown"
+        }
+      ]
+    },
+    {
+      "id": "05-PATH-2",
+      "title": "Agent calls spec render --json (per-artifact mode)",
+      "steps": [
+        {
+          "actor": "Agent",
+          "action": "invokes `spec render --json` without `--combined`"
+        },
+        {
+          "actor": "`spec` CLI (`AgentFoxGroup`)",
+          "action": "detects `--json` flag, activates JSON output mode"
+        },
+        {
+          "actor": "`spec render` command",
+          "action": "renders each artifact (requirements, test_spec, tasks) separately"
+        },
+        {
+          "actor": "`spec render` command",
+          "action": "calls `emit_ok` with an `artifacts` map keyed by artifact name"
+        },
+        {
+          "actor": "`agentfox/io/`",
+          "action": "writes the per-artifact JSON envelope to stdout"
+        }
+      ]
+    },
+    {
+      "id": "05-PATH-3",
+      "title": "CI pipeline calls spec validate and receives structured errors",
+      "steps": [
+        {
+          "actor": "CI pipeline",
+          "action": "invokes `spec validate` on a spec with known schema and integrity issues"
+        },
+        {
+          "actor": "`spec validate` command",
+          "action": "runs `schema check` for each artifact file"
+        },
+        {
+          "actor": "`spec validate` command",
+          "action": "runs `integrity check` rules across artifacts"
+        },
+        {
+          "actor": "`spec validate` command",
+          "action": "assembles a list of `structured error` objects for each failure"
+        },
+        {
+          "actor": "`spec validate` command",
+          "action": "calls `emit` with `{\"valid\": false, \"errors\": [...]}` and exits with code 1"
+        },
+        {
+          "actor": "CI pipeline",
+          "action": "parses the JSON result, reads each error's `category`, `path`, and `message` to generate a report"
+        }
+      ]
+    },
+    {
+      "id": "05-PATH-4",
+      "title": "Developer runs spec CLI in non-agent mode (plain text)",
+      "steps": [
+        {
+          "actor": "Developer",
+          "action": "invokes `spec render` without `--json` or `AF_AGENT`"
+        },
+        {
+          "actor": "`spec` CLI (`AgentFoxGroup`)",
+          "action": "detects non-agent mode, renders banner"
+        },
+        {
+          "actor": "`spec render` command",
+          "action": "produces raw markdown and writes it to stdout via normal Click echo"
+        },
+        {
+          "actor": "Terminal",
+          "action": "displays the markdown text to the developer"
+        }
+      ]
+    },
+    {
+      "id": "05-PATH-5",
+      "title": "Unhandled exception in spec CLI routes through AgentFoxGroup",
+      "steps": [
+        {
+          "actor": "Developer or Agent",
+          "action": "invokes any `spec` subcommand that raises an unhandled exception"
+        },
+        {
+          "actor": "`AgentFoxGroup`",
+          "action": "intercepts the exception via its error handler"
+        },
+        {
+          "actor": "`AgentFoxGroup`",
+          "action": "formats the error as a JSON error envelope using `agentfox/io/errors.py`"
+        },
+        {
+          "actor": "`agentfox/io/`",
+          "action": "writes the JSON error envelope to stdout and exits with non-zero code"
+        }
+      ]
+    }
+  ],
+  "error_handling": [
+    {
+      "id": "05-ERR-1",
+      "condition": "spec render --json fails because the spec file does not exist or cannot be read",
+      "behavior": "AgentFoxGroup intercepts the exception and emits `{\"ok\": false, \"error\": \"<message>\"}` to stdout; process exits with code 1",
+      "requirement_id": "05-REQ-2.E1"
+    },
+    {
+      "id": "05-ERR-2",
+      "condition": "spec render --json with --combined requests an artifact that is not present for the spec",
+      "behavior": "The missing artifact is omitted from the output map and a `warnings` array is included in the envelope; process exits with code 0",
+      "requirement_id": "05-REQ-2.E2"
+    },
+    {
+      "id": "05-ERR-3",
+      "condition": "spec validate cannot read one or more artifact files",
+      "behavior": "Emits `{\"valid\": false, \"errors\": [{\"category\": \"io\", \"artifact\": \"<filename>\", \"message\": \"<reason>\"}]}` and exits with code 1",
+      "requirement_id": "05-REQ-3.E1"
+    },
+    {
+      "id": "05-ERR-4",
+      "condition": "A module attempts to import from spec.ui after spec/ui.py has been deleted",
+      "behavior": "Python raises ImportError at runtime with a message indicating the spec.ui module is not found",
+      "requirement_id": "05-REQ-4.E1"
+    },
+    {
+      "id": "05-ERR-5",
+      "condition": "Any unhandled exception propagates to the AgentFoxGroup root handler",
+      "behavior": "AgentFoxGroup formats the exception as a JSON error envelope via agentfox/io/errors.py and exits with a non-zero code, suppressing any raw traceback in agent mode",
+      "requirement_id": "05-REQ-1.5"
+    }
+  ]
+}

@@ -4,13 +4,14 @@ Thin CLI wrapper that delegates to ``engine.run.run_code()`` for
 orchestrator execution, then handles output formatting and exit codes.
 
 Requirements: 16-REQ-1.1 through 16-REQ-5.2, 23-REQ-5.1, 23-REQ-5.E1,
-              123-REQ-1.1 through 123-REQ-4.2
+              04-REQ-2.1, 123-REQ-1.1 through 123-REQ-4.2
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
 import sys
 from pathlib import Path
 
@@ -19,11 +20,12 @@ from agentfox.core.errors import AgentFoxError
 from agentfox.engine.run import InterruptedResult, run_code
 from agentfox.engine.state import ExecutionState
 from agentfox.graph.persistence import load_plan
+from agentfox.io import emit_error, emit_line, exit_codes, read_stdin
 from agentfox.knowledge.db import open_knowledge_store
 from agentfox.reporting.formatters import format_tokens
 from agentfox.spec.discovery import discover_specs
 
-from af import json_io
+from af import get_output_manager
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +72,53 @@ def _extract_workspace_state_errors(state: ExecutionState) -> list[tuple[str, st
         if "workspace-state" in reason:
             results.append((node_id, reason))
     return results
+
+
+def _completed_spec_names(node_states: dict[str, str]) -> set[str]:
+    """Return spec names where all nodes are completed."""
+    spec_nodes: dict[str, list[str]] = {}
+    for node_id in node_states:
+        idx = node_id.find(":")
+        spec = node_id[:idx] if idx != -1 else node_id
+        spec_nodes.setdefault(spec, []).append(node_id)
+    return {spec for spec, nodes in spec_nodes.items() if all(node_states[n] == "completed" for n in nodes)}
+
+
+def _archive_completed_specs(
+    node_states: dict[str, str],
+    specs_dir: Path,
+    *,
+    json_mode: bool = False,
+) -> list[str]:
+    """Move completed spec directories to specs/archive/.
+
+    Returns list of spec names that were archived.
+    """
+    archive_dir = specs_dir / "archive"
+    if not archive_dir.is_dir():
+        logger.warning("Archive directory does not exist: %s", archive_dir)
+        if not json_mode:
+            click.echo(f"Warning: archive directory does not exist: {archive_dir}", err=True)
+        return []
+
+    completed = sorted(_completed_spec_names(node_states))
+    archived: list[str] = []
+    for spec_name in completed:
+        src = specs_dir / spec_name
+        dst = archive_dir / spec_name
+        if not src.is_dir():
+            continue
+        if dst.exists():
+            logger.warning("Spec already archived, skipping: %s", spec_name)
+            continue
+        shutil.move(str(src), str(dst))
+        archived.append(spec_name)
+        logger.info("Archived spec: %s", spec_name)
+
+    if archived and not json_mode:
+        click.echo(f"Archived {len(archived)} spec(s): {', '.join(archived)}")
+
+    return archived
 
 
 def _print_summary(state: ExecutionState) -> None:
@@ -121,15 +170,16 @@ def _print_summary(state: ExecutionState) -> None:
                 click.echo(f"  [{node_id}] {reason}")
 
 
-def _handle_dry_run(config: object, json_mode: bool, specs_dir: str | None) -> None:
+def _handle_dry_run(config: object, om: object, specs_dir: str | None) -> None:
     """Execute the dry-run analysis path.
 
     Loads the persisted plan from DuckDB (read-only), filters out completed
     nodes, computes analysis (phases, critical path, grouped edges), and
-    displays the result as text or JSON.
+    displays the result as text or JSON via *om*.
 
-    Requirements: 123-REQ-1.1, 123-REQ-1.3, 123-REQ-1.E1, 123-REQ-1.E2,
-                  123-REQ-1.E3, 123-REQ-3.1, 123-REQ-3.E1, 123-REQ-4.1
+    Requirements: 04-REQ-2.1, 123-REQ-1.1, 123-REQ-1.3, 123-REQ-1.E1,
+                  123-REQ-1.E2, 123-REQ-1.E3, 123-REQ-3.1, 123-REQ-3.E1,
+                  123-REQ-4.1
     """
     from agentfox.core.config import resolve_spec_root
     from agentfox.core.node_id import DEFAULT_DB_PATH
@@ -139,17 +189,27 @@ def _handle_dry_run(config: object, json_mode: bool, specs_dir: str | None) -> N
 
     from af.plan import _edge_to_dict, _metadata_to_dict, _node_to_dict
 
+    json_mode = om.json_mode
+
     # 123-REQ-1.E1: check DB file exists
     if not DEFAULT_DB_PATH.exists():
         _err_msg = "No plan found. Run `agent-fox plan` first to generate a plan."
         if json_mode:
-            json_io.emit_error(_err_msg)
+            emit_error(_err_msg)
             sys.exit(1)
         click.echo(f"Error: {_err_msg}", err=True)
         sys.exit(1)
 
-    # Load persisted plan from DuckDB (read-only)
-    _db = open_knowledge_store(config.knowledge)
+    # Load persisted plan from DuckDB (read-only); see spec 06-REQ-2
+    try:
+        _db = open_knowledge_store(config.knowledge, read_only=True)
+    except RuntimeError as exc:
+        _open_err = f"Failed to open knowledge store: {exc}"
+        if json_mode:
+            emit_error(_open_err)
+            sys.exit(1)
+        click.echo(f"Error: {_open_err}", err=True)
+        sys.exit(1)
     try:
         graph = load_plan(_db.connection)
     finally:
@@ -158,7 +218,7 @@ def _handle_dry_run(config: object, json_mode: bool, specs_dir: str | None) -> N
     # 123-REQ-1.E2: empty plan (no nodes or None)
     if graph is None or not graph.nodes:
         if json_mode:
-            json_io.emit(
+            om.emit(
                 {
                     "nodes": {},
                     "edges": [],
@@ -179,7 +239,7 @@ def _handle_dry_run(config: object, json_mode: bool, specs_dir: str | None) -> N
     # 123-REQ-1.E3: all nodes completed
     if completed_ids == set(graph.nodes.keys()):
         if json_mode:
-            json_io.emit(
+            om.emit(
                 {
                     "nodes": {},
                     "edges": [],
@@ -212,9 +272,9 @@ def _handle_dry_run(config: object, json_mode: bool, specs_dir: str | None) -> N
     except Exception:
         specs = []
 
-    # 123-REQ-3.1: JSON output
+    # 123-REQ-3.1: JSON output via OutputManager
     if json_mode:
-        json_io.emit(
+        om.emit(
             {
                 "nodes": {nid: _node_to_dict(node) for nid, node in graph.nodes.items()},
                 "edges": [_edge_to_dict(e) for e in graph.edges],
@@ -238,6 +298,7 @@ def _check_dry_run_conflicts(
     dry_run: bool,
     watch: bool,
     force_clean: bool,
+    archive: bool = False,
 ) -> list[str]:
     """Return list of flag names incompatible with --dry-run, or empty list.
 
@@ -251,9 +312,12 @@ def _check_dry_run_conflicts(
         conflicts.append("--watch")
     if force_clean:
         conflicts.append("--force-clean")
+    if archive:
+        conflicts.append("--archive")
     return conflicts
 
 
+@exit_codes(**{"0": "Success", "1": "Error", "2": "Stalled", "3": "Cost/session limit", "130": "Interrupted"})
 @click.command("code")
 @click.option(
     "--specs-dir",
@@ -285,6 +349,12 @@ def _check_dry_run_conflicts(
     default=False,
     help="Show plan analysis without running the orchestrator",
 )
+@click.option(
+    "--archive",
+    is_flag=True,
+    default=False,
+    help="Move completed specs to specs/archive/ after execution",
+)
 @click.pass_context
 def code_cmd(
     ctx: click.Context,
@@ -293,31 +363,36 @@ def code_cmd(
     watch_interval: int | None,
     force_clean: bool,
     dry_run: bool,
+    archive: bool,
 ) -> None:
     """Execute the task plan."""
+    # 04-REQ-2.1: retrieve OutputManager from context
+    om = get_output_manager(ctx)
+    json_mode: bool = om.json_mode
+
     # 16-REQ-1.2: load config from Click context
     config = ctx.obj["config"]
     quiet: bool = ctx.obj.get("quiet", False)
-    json_mode: bool = ctx.obj.get("json", False)
 
     # 123-REQ-2.1, 123-REQ-2.E1: mutual exclusion with execution flags
     conflicts = _check_dry_run_conflicts(
         dry_run=dry_run,
         watch=watch,
         force_clean=force_clean,
+        archive=archive,
     )
     if conflicts:
         flag_list = ", ".join(conflicts)
         msg = f"Error: --dry-run cannot be combined with execution flags: {flag_list}"
         if json_mode:
-            json_io.emit_error(msg)
+            emit_error(msg)
         else:
             click.echo(msg, err=True)
         sys.exit(1)
 
     # 123-REQ-4.1, 123-REQ-4.2: dry-run bypasses daemon guard
     if dry_run:
-        _handle_dry_run(config, json_mode, specs_dir)
+        _handle_dry_run(config, om, specs_dir)
         return
 
     # 118-REQ-2.2: CLI --force-clean flag overrides config value
@@ -332,14 +407,14 @@ def code_cmd(
     if pid_status == PidStatus.ALIVE:
         msg = f"Error: night-shift daemon is running (PID {_pid}). Stop the daemon before running `code`."
         if json_mode:
-            json_io.emit_error(msg)
+            emit_error(msg)
         else:
             click.echo(msg, err=True)
         sys.exit(1)
 
     # 23-REQ-7.1: read stdin JSON when in JSON mode
     if json_mode:
-        json_io.read_stdin()
+        read_stdin()
 
     # 16-REQ-1.E1: check plan exists in DB
     from agentfox.core.node_id import DEFAULT_DB_PATH
@@ -347,7 +422,7 @@ def code_cmd(
     if not DEFAULT_DB_PATH.exists():
         _err_msg = "No plan found. Run `agent-fox plan` first to generate a plan."
         if json_mode:
-            json_io.emit_error(_err_msg)
+            emit_error(_err_msg)
             sys.exit(1)
         click.echo(f"Error: {_err_msg}", err=True)
         sys.exit(1)
@@ -359,6 +434,31 @@ def code_cmd(
     theme = create_theme(config.theme)
     progress = ProgressDisplay(theme, quiet=quiet or json_mode)
 
+    # 04-REQ-3.6: JSONL progress events for agent-mode
+    jsonl_progress = None
+    task_cb = progress.task_callback
+    if json_mode:
+        from agentfox.io.progress import ProgressDisplay as JsonlProgressDisplay
+
+        jsonl_progress = JsonlProgressDisplay(output_manager=om, json_mode=True)
+        _ui_task_cb = progress.task_callback
+
+        def _jsonl_task_callback(event: object) -> None:
+            """Bridge UI task events to JSONL progress events."""
+            _ui_task_cb(event)
+            node_id = getattr(event, "node_id", None)
+            status = getattr(event, "status", "")
+            if status == "completed":
+                jsonl_progress.task_started(node_id=node_id)
+                jsonl_progress.task_completed(node_id=node_id)
+            elif status == "failed":
+                error_msg = getattr(event, "error_message", "") or ""
+                jsonl_progress.task_failed(node_id=node_id, error=error_msg)
+            else:
+                jsonl_progress.task_started(node_id=node_id)
+
+        task_cb = _jsonl_task_callback
+
     progress.start()
     try:
         result = asyncio.run(
@@ -368,13 +468,13 @@ def code_cmd(
                 watch_interval=watch_interval,
                 specs_dir=Path(specs_dir) if specs_dir else None,
                 activity_callback=progress.activity_callback,
-                task_callback=progress.task_callback,
+                task_callback=task_cb,
             )
         )
     except KeyboardInterrupt:
         # 23-REQ-5.E1: emit interrupted status in JSON mode
         if json_mode:
-            json_io.emit_line({"status": "interrupted"})
+            emit_line({"status": "interrupted"})
         sys.exit(130)
     except AgentFoxError:
         raise
@@ -382,7 +482,7 @@ def code_cmd(
         # 16-REQ-1.E2: unexpected exceptions
         logger.debug("Unexpected error during execution", exc_info=True)
         if json_mode:
-            json_io.emit_error(str(exc))
+            emit_error(str(exc))
             sys.exit(1)
         click.echo(f"Error: unexpected error: {exc}", err=True)
         sys.exit(1)
@@ -392,12 +492,12 @@ def code_cmd(
     # Handle interrupted result from run_code
     if isinstance(result, InterruptedResult):
         if json_mode:
-            json_io.emit_line({"status": "interrupted"})
+            emit_line({"status": "interrupted"})
         sys.exit(130)
 
     state: ExecutionState = result
 
-    # 23-REQ-5.1: emit JSONL summary in JSON mode
+    # 23-REQ-5.1, 04-REQ-2.1: emit summary via OutputManager
     if json_mode:
         counts = _count_by_status(state.node_states)
         summary_payload: dict = {
@@ -415,10 +515,22 @@ def code_cmd(
             summary_payload["workspace_state_errors"] = [
                 {"node_id": nid, "reason": reason} for nid, reason in ws_errors
             ]
-        json_io.emit_line({"event": "complete", "summary": summary_payload})
+        om.emit({"event": "complete", "summary": summary_payload})
     else:
         # 16-REQ-3.1: print summary
         _print_summary(state)
+
+    # Archive completed specs when --archive is set
+    if archive and state.run_status in ("completed", "stalled", "cost_limit", "session_limit"):
+        from agentfox.core.config import resolve_spec_root
+
+        _specs_path = Path(specs_dir) if specs_dir else resolve_spec_root(config, Path.cwd())
+        try:
+            _archive_completed_specs(state.node_states, _specs_path, json_mode=json_mode)
+        except Exception as exc:
+            logger.warning("Archive failed: %s", exc, exc_info=True)
+            if not json_mode:
+                click.echo(f"Warning: failed to archive specs: {exc}", err=True)
 
     # 16-REQ-4.*: exit with appropriate code
     exit_code = _exit_code_for_status(state.run_status)

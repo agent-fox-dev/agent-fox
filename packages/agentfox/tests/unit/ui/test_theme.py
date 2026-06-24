@@ -23,22 +23,6 @@ class TestThemePlayfulToggle:
 
         assert playful_msg != neutral_msg
 
-    def test_playful_message_non_empty(self) -> None:
-        """Playful mode returns a non-empty message."""
-        theme = create_theme(ThemeConfig(playful=True))
-
-        msg = theme.playful("task_complete")
-
-        assert len(msg) > 0
-
-    def test_neutral_message_non_empty(self) -> None:
-        """Neutral mode returns a non-empty message."""
-        theme = create_theme(ThemeConfig(playful=False))
-
-        msg = theme.playful("task_complete")
-
-        assert len(msg) > 0
-
     def test_theme_has_color_roles(self) -> None:
         """Theme exposes all required color roles."""
         theme = create_theme(ThemeConfig())

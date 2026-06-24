@@ -4,7 +4,8 @@ Implements the `agent-fox findings` command that queries the knowledge
 database for review findings and displays them in a formatted table or
 as JSON.
 
-Requirements: 84-REQ-4.1 through 84-REQ-4.6, 84-REQ-4.E1, 84-REQ-4.E2
+Requirements: 04-REQ-2.1, 04-REQ-6.3,
+              84-REQ-4.1 through 84-REQ-4.6, 84-REQ-4.E1, 84-REQ-4.E2
 """
 
 from __future__ import annotations
@@ -16,12 +17,14 @@ from pathlib import Path
 import click
 import duckdb
 from agentfox.core.node_id import DEFAULT_DB_PATH as _DEFAULT_DB_PATH
+from agentfox.io import exit_codes, format_table
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_DB_PATH: Path = _DEFAULT_DB_PATH
 
 
+@exit_codes(**{"0": "Success", "1": "Error"})
 @click.command("insights")
 @click.option("--spec", default=None, help="Filter by spec name")
 @click.option("--severity", default=None, help="Minimum severity level (critical, major, minor, observation)")
@@ -39,7 +42,9 @@ DEFAULT_DB_PATH: Path = _DEFAULT_DB_PATH
     metavar="ID REASON",
     help="Dismiss a finding by ID: --dismiss <finding-id> <reason>",
 )
+@click.pass_context
 def findings_cmd(
+    ctx: click.Context,
     spec: str | None,
     severity: str | None,
     archetype: str | None,
@@ -57,11 +62,16 @@ def findings_cmd(
 
         agent-fox insights --dismiss <finding-id> "reason for dismissal"
 
-    Requirements: 84-REQ-4.1 through 84-REQ-4.6, 84-REQ-4.E1, 84-REQ-4.E2,
-                  592-AC-3, 592-AC-4
+    Requirements: 04-REQ-2.1, 84-REQ-4.1 through 84-REQ-4.6,
+                  84-REQ-4.E1, 84-REQ-4.E2, 592-AC-3, 592-AC-4
     """
+    # 04-REQ-2.1: retrieve OutputManager from context
+    from af import get_output_manager
+
+    om = get_output_manager(ctx)
+
     from agentfox.knowledge.review_store import dismiss_finding_by_id
-    from agentfox.reporting.findings import format_findings_table, query_findings
+    from agentfox.reporting.findings import query_findings
 
     # 84-REQ-4.E1: Handle missing DB gracefully
     if not DEFAULT_DB_PATH.exists():
@@ -114,5 +124,23 @@ def findings_cmd(
         click.echo("No findings match the given filters")
         return
 
-    output = format_findings_table(rows, json_output=json_output)
-    click.echo(output)
+    # 04-REQ-6.3: Use format_table from agentfox.io for tabular output
+    headers = ["Severity", "Archetype", "Spec", "Description", "Created"]
+    table_rows = [
+        [
+            f.severity,
+            f.archetype,
+            f.spec_name,
+            f.description[:80],
+            f.created_at.strftime("%Y-%m-%d %H:%M") if f.created_at else "N/A",
+        ]
+        for f in rows
+    ]
+    output = format_table(headers=headers, rows=table_rows, json_mode=json_output)
+
+    if json_output or om.json_mode:
+        om.emit({"findings": output})
+    else:
+        from rich.console import Console
+
+        Console().print(output)

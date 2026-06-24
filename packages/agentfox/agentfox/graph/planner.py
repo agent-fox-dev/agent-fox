@@ -284,7 +284,7 @@ def run_plan(
         from agentfox.graph.persistence import save_plan
         from agentfox.knowledge.db import open_knowledge_store
 
-        knowledge_db = open_knowledge_store(config.knowledge)
+        knowledge_db = open_knowledge_store(config.knowledge, read_only=False)
         try:
             save_plan(graph, knowledge_db.connection)
         finally:

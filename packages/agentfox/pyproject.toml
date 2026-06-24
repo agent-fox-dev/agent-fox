@@ -1,6 +1,6 @@
 [project]
 name = "agentfox"
-version = "4.0.0-rc3"
+version = "4.0.0-rc4"
 description = "Core library for the agent-fox autonomous coding-agent orchestrator"
 requires-python = ">=3.12"
 dependencies = [
@@ -48,3 +48,6 @@ afspec = { workspace = true }
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "slow: tests that take >1s (property, integration, orchestrator, knowledge DB)",
+]

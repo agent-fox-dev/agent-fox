@@ -5,6 +5,7 @@ all initialization logic, then handles output formatting.
 
 Requirements: 01-REQ-3.1, 01-REQ-3.2, 01-REQ-3.3, 01-REQ-3.4,
               01-REQ-3.5, 01-REQ-3.E1, 01-REQ-3.E2,
+              04-REQ-2.1, 04-REQ-2.6,
               99-REQ-3.1, 99-REQ-3.2, 99-REQ-3.3, 99-REQ-3.E1
 """
 
@@ -17,10 +18,13 @@ from pathlib import Path
 
 import agentfox
 import click
+from agentfox.io import exit_codes
 from agentfox.workspace.init_project import (
     _is_git_repo,
     init_project,
 )
+
+from af import get_output_manager
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +79,7 @@ def init_profiles(project_dir: Path) -> list[Path]:
     return created
 
 
+@exit_codes(**{"0": "Success", "1": "Error"})
 @click.command("init")
 @click.option(
     "--skills",
@@ -96,14 +101,14 @@ def init_cmd(ctx: click.Context, skills: bool, profiles: bool) -> None:
     configuration file, sets up the development branch, and
     updates .gitignore.
     """
-    json_mode = ctx.obj.get("json", False)
+    # 04-REQ-2.1, 04-REQ-2.6: retrieve OutputManager from context
+    om = get_output_manager(ctx)
+    json_mode = om.json_mode
 
     # 01-REQ-3.5: check we are in a git repository
     if not _is_git_repo():
         if json_mode:
-            from af.json_io import emit_error
-
-            emit_error("Not inside a git repository. Run 'git init' first.")
+            om.emit({"error": "Not inside a git repository. Run 'git init' first."})
             ctx.exit(1)
             return
         click.echo(
@@ -119,10 +124,8 @@ def init_cmd(ctx: click.Context, skills: bool, profiles: bool) -> None:
 
     result = init_project(project_root, skills=skills, quiet=json_mode)
 
-    # 23-REQ-4.1: JSON output for init command
+    # 23-REQ-4.1, 04-REQ-2.6: JSON output via OutputManager
     if json_mode:
-        from af.json_io import emit
-
         result_data: dict = {
             "status": "ok",
             "agents_md": result.agents_md,
@@ -132,7 +135,7 @@ def init_cmd(ctx: click.Context, skills: bool, profiles: bool) -> None:
             result_data["skills_installed"] = result.skills_installed
         if result.labels_ensured:
             result_data["labels_ensured"] = result.labels_ensured
-        emit(result_data)
+        om.emit(result_data)
         return
 
     # Text output

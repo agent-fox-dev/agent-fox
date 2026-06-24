@@ -1,0 +1,1199 @@
+{
+  "$schema": null,
+  "spec_id": "03",
+  "spec_name": "unified_terminal_io",
+  "schema_version": 1,
+  "test_cases": [
+    {
+      "id": "TS-03-1",
+      "requirement_id": "03-REQ-1.1",
+      "kind": "unit",
+      "description": "Verifies that all twelve curated public symbols are importable directly from agentfox.io and no extras are exposed.",
+      "preconditions": [
+        "agentfox/io/ package is installed or on PYTHONPATH"
+      ],
+      "input": "Attempt to import all twelve symbols from agentfox.io",
+      "expected": "All twelve imports succeed without ImportError; the module's __all__ or dir() does not expose additional non-dunder public names beyond the twelve listed",
+      "assertion_pseudocode": "symbols = [\"OutputManager\", \"StatusSpinner\", \"get_output_manager\", \"emit\", \"emit_ok\", \"emit_line\", \"emit_error\", \"read_stdin\", \"error_envelope\", \"AgentFoxGroup\", \"common_options\", \"exit_codes\"]\nfor sym in symbols:\n    assert hasattr(agentfox.io, sym), f\"{sym} not found in agentfox.io\"\nassert not hasattr(agentfox.io, \"handle_cli_errors\"), \"handle_cli_errors should not be in public API\""
+    },
+    {
+      "id": "TS-03-2",
+      "requirement_id": "03-REQ-1.2",
+      "kind": "unit",
+      "description": "Verifies that handle_cli_errors is NOT importable from agentfox.io but IS importable from agentfox.io.errors.",
+      "preconditions": [
+        "agentfox/io/ package is installed or on PYTHONPATH"
+      ],
+      "input": "Attempt to import handle_cli_errors from agentfox.io and from agentfox.io.errors",
+      "expected": "from agentfox.io import handle_cli_errors raises ImportError; from agentfox.io.errors import handle_cli_errors succeeds",
+      "assertion_pseudocode": "try:\n    from agentfox.io import handle_cli_errors\n    assert False, \"should have raised ImportError\"\nexcept ImportError:\n    pass\nfrom agentfox.io.errors import handle_cli_errors\nassert callable(handle_cli_errors)"
+    },
+    {
+      "id": "TS-03-3",
+      "requirement_id": "03-REQ-1.3",
+      "kind": "unit",
+      "description": "Verifies that exactly the seven specified files exist within the agentfox/io/ directory.",
+      "preconditions": [
+        "agentfox/io/ directory exists in the repository"
+      ],
+      "input": "List files in agentfox/io/",
+      "expected": "Directory contains exactly: __init__.py, output.py, json.py, spinner.py, errors.py, cli.py, help.py",
+      "assertion_pseudocode": "import os\nfiles = set(os.listdir(\"agentfox/io/\"))\nexpected = {\"__init__.py\", \"output.py\", \"json.py\", \"spinner.py\", \"errors.py\", \"cli.py\", \"help.py\"}\nassert expected.issubset(files)"
+    },
+    {
+      "id": "TS-03-4",
+      "requirement_id": "03-REQ-2.1",
+      "kind": "unit",
+      "description": "Verifies that OutputManager instances expose all five required fields with correct types.",
+      "preconditions": [
+        "agentfox.io.output module is available"
+      ],
+      "input": "Instantiate OutputManager(json_mode=True, quiet=False, verbose=False, trace=False)",
+      "expected": "Instance has json_mode: bool, quiet: bool, verbose: bool, trace: bool, and console: Rich Console all accessible",
+      "assertion_pseudocode": "from agentfox.io import OutputManager\nfrom rich.console import Console\nom = OutputManager(json_mode=True, quiet=False, verbose=False, trace=False)\nassert isinstance(om.json_mode, bool)\nassert isinstance(om.quiet, bool)\nassert isinstance(om.verbose, bool)\nassert isinstance(om.trace, bool)\nassert isinstance(om.console, Console)"
+    },
+    {
+      "id": "TS-03-5",
+      "requirement_id": "03-REQ-2.2",
+      "kind": "unit",
+      "description": "Verifies that AgentFoxGroup.invoke() constructs OutputManager and stores it at ctx.obj['output'] before any subcommand executes.",
+      "preconditions": [
+        "agentfox.io.cli module is available",
+        "Click test runner (CliRunner) is available"
+      ],
+      "input": "Invoke a Click group using AgentFoxGroup with a subcommand that reads ctx.obj['output']",
+      "expected": "ctx.obj['output'] is a fully constructed OutputManager instance when the subcommand runs",
+      "assertion_pseudocode": "from click.testing import CliRunner\nfrom agentfox.io import AgentFoxGroup, OutputManager\nimport click\n\n@click.group(cls=AgentFoxGroup)\ndef cli(): pass\n\ncaptured = []\n@cli.command()\n@click.pass_context\ndef sub(ctx):\n    captured.append(ctx.obj.get(\"output\"))\n\nrunner = CliRunner()\nresult = runner.invoke(cli, [\"sub\"])\nassert len(captured) == 1\nassert isinstance(captured[0], OutputManager)"
+    },
+    {
+      "id": "TS-03-6",
+      "requirement_id": "03-REQ-2.3",
+      "kind": "unit",
+      "description": "Verifies get_output_manager() returns a fallback OutputManager with correct defaults when no Click context is active.",
+      "preconditions": [
+        "agentfox.io.output module available",
+        "No active Click context",
+        "AF_AGENT env var is unset"
+      ],
+      "input": "Call get_output_manager() outside any Click context",
+      "expected": "Returns OutputManager with json_mode=False, quiet=False, verbose=False, trace=False",
+      "assertion_pseudocode": "from agentfox.io import get_output_manager\nom = get_output_manager()\nassert om.json_mode == False\nassert om.quiet == False\nassert om.verbose == False\nassert om.trace == False"
+    },
+    {
+      "id": "TS-03-7",
+      "requirement_id": "03-REQ-2.4",
+      "kind": "unit",
+      "description": "Verifies that AgentFoxGroup.invoke() logs a debug warning and constructs a default OutputManager when ctx.obj is a non-dict value.",
+      "preconditions": [
+        "agentfox.io.cli module available",
+        "A parent Click group sets ctx.obj to a non-dict (e.g. a string)"
+      ],
+      "input": "Invoke AgentFoxGroup where parent has pre-set ctx.obj to a non-dict value",
+      "expected": "CLI does not crash; a debug-level warning is logged; OutputManager is constructed with defaults honoring AF_AGENT",
+      "assertion_pseudocode": "import logging\nfrom click.testing import CliRunner\nfrom agentfox.io import AgentFoxGroup\nimport click\n\n@click.group(cls=AgentFoxGroup)\n@click.pass_context\ndef cli(ctx):\n    ctx.obj = \"not_a_dict\"  # simulate pre-set non-dict\n\n@cli.command()\ndef sub(): pass\n\n# Use pytest caplog fixture at DEBUG level to capture log records\nwith caplog.at_level(logging.DEBUG):\n    runner = CliRunner()\n    result = runner.invoke(cli, [\"sub\"])\n\n# 1. Must not crash\nassert result.exit_code in (0, 1)\n\n# 2. MUST verify a debug-level warning was logged about the non-dict ctx.obj\nassert len(caplog.records) > 0, \"expected at least one log record\"\ndebug_records = [r for r in caplog.records if r.levelno == logging.DEBUG]\nassert any(\"non-dict\" in r.message.lower() or \"ctx.obj\" in r.message.lower() or \"dict\" in r.message.lower() for r in debug_records), \"expected debug log mentioning non-dict ctx.obj\""
+    },
+    {
+      "id": "TS-03-8",
+      "requirement_id": "03-REQ-3.1",
+      "kind": "unit",
+      "description": "Verifies that AF_AGENT=1 causes AgentFoxGroup to default json_mode=True and quiet=True when no explicit flags are passed.",
+      "preconditions": [
+        "agentfox.io.cli module available",
+        "AF_AGENT environment variable set to '1'"
+      ],
+      "input": "Invoke AgentFoxGroup-based CLI with AF_AGENT=1, no format flags",
+      "expected": "OutputManager has json_mode=True and quiet=True",
+      "assertion_pseudocode": "import os\nfrom click.testing import CliRunner\nfrom agentfox.io import AgentFoxGroup, OutputManager\nimport click\n\n@click.group(cls=AgentFoxGroup)\ndef cli(): pass\n\ncaptured = []\n@cli.command()\n@click.pass_context\ndef sub(ctx):\n    captured.append(ctx.obj[\"output\"])\n\nrunner = CliRunner(env={\"AF_AGENT\": \"1\"})\nresult = runner.invoke(cli, [\"sub\"])\nassert captured[0].json_mode == True\nassert captured[0].quiet == True"
+    },
+    {
+      "id": "TS-03-9",
+      "requirement_id": "03-REQ-3.2",
+      "kind": "unit",
+      "description": "Verifies that explicit --no-json overrides AF_AGENT=1 json_mode default while quiet remains True.",
+      "preconditions": [
+        "agentfox.io.cli module available",
+        "AF_AGENT=1 in environment",
+        "common_options applied to root group"
+      ],
+      "input": "Invoke CLI with AF_AGENT=1 and explicit --no-json flag",
+      "expected": "OutputManager has json_mode=False and quiet=True",
+      "assertion_pseudocode": "from click.testing import CliRunner\nfrom agentfox.io import AgentFoxGroup, common_options\nimport click\n\n@click.group(cls=AgentFoxGroup)\n@common_options\ndef cli(): pass\n\ncaptured = []\n@cli.command()\n@click.pass_context\ndef sub(ctx):\n    captured.append(ctx.obj[\"output\"])\n\nrunner = CliRunner(env={\"AF_AGENT\": \"1\"})\nresult = runner.invoke(cli, [\"--no-json\", \"sub\"])\nassert captured[0].json_mode == False\nassert captured[0].quiet == True"
+    },
+    {
+      "id": "TS-03-10",
+      "requirement_id": "03-REQ-3.3",
+      "kind": "unit",
+      "description": "Verifies that explicit --verbose overrides AF_AGENT=1 quiet default while json_mode remains True.",
+      "preconditions": [
+        "agentfox.io.cli module available",
+        "AF_AGENT=1 in environment",
+        "common_options applied to root group"
+      ],
+      "input": "Invoke CLI with AF_AGENT=1 and explicit --verbose flag",
+      "expected": "OutputManager has json_mode=True and quiet=False",
+      "assertion_pseudocode": "from click.testing import CliRunner\nfrom agentfox.io import AgentFoxGroup, common_options\nimport click\n\n@click.group(cls=AgentFoxGroup)\n@common_options\ndef cli(): pass\n\ncaptured = []\n@cli.command()\n@click.pass_context\ndef sub(ctx):\n    captured.append(ctx.obj[\"output\"])\n\nrunner = CliRunner(env={\"AF_AGENT\": \"1\"})\nresult = runner.invoke(cli, [\"--verbose\", \"sub\"])\nassert captured[0].json_mode == True\nassert captured[0].quiet == False"
+    },
+    {
+      "id": "TS-03-11",
+      "requirement_id": "03-REQ-3.4",
+      "kind": "unit",
+      "description": "Verifies that explicit --no-json --verbose overrides both AF_AGENT=1 defaults.",
+      "preconditions": [
+        "agentfox.io.cli module available",
+        "AF_AGENT=1 in environment",
+        "common_options applied to root group"
+      ],
+      "input": "Invoke CLI with AF_AGENT=1 and explicit --no-json --verbose flags",
+      "expected": "OutputManager has json_mode=False and quiet=False",
+      "assertion_pseudocode": "from click.testing import CliRunner\nfrom agentfox.io import AgentFoxGroup, common_options\nimport click\n\n@click.group(cls=AgentFoxGroup)\n@common_options\ndef cli(): pass\n\ncaptured = []\n@cli.command()\n@click.pass_context\ndef sub(ctx):\n    captured.append(ctx.obj[\"output\"])\n\nrunner = CliRunner(env={\"AF_AGENT\": \"1\"})\nresult = runner.invoke(cli, [\"--no-json\", \"--verbose\", \"sub\"])\nassert captured[0].json_mode == False\nassert captured[0].quiet == False"
+    },
+    {
+      "id": "TS-03-12",
+      "requirement_id": "03-REQ-3.5",
+      "kind": "unit",
+      "description": "Verifies that AF_AGENT values other than exactly '1' do not activate agent mode.",
+      "preconditions": [
+        "agentfox.io.cli module available",
+        "common_options applied to root group"
+      ],
+      "input": "Invoke CLI with AF_AGENT set to 'true', 'yes', 'on', '0', and empty string respectively",
+      "expected": "For each non-'1' value, OutputManager has json_mode=False and quiet=False (default behavior unchanged)",
+      "assertion_pseudocode": "for bad_val in [\"true\", \"yes\", \"on\", \"0\", \"\"]:\n    captured = []\n    runner = CliRunner(env={\"AF_AGENT\": bad_val})\n    result = runner.invoke(cli, [\"sub\"])\n    assert captured[0].json_mode == False, f\"AF_AGENT={bad_val} should not activate agent mode\"\n    assert captured[0].quiet == False, f\"AF_AGENT={bad_val} should not activate agent mode\""
+    },
+    {
+      "id": "TS-03-13",
+      "requirement_id": "03-REQ-3.6",
+      "kind": "unit",
+      "description": "Verifies that sentinel keys _json_explicit and _quiet_explicit are set correctly when flags are explicitly passed.",
+      "preconditions": [
+        "agentfox.io.cli module available",
+        "common_options applied to root group"
+      ],
+      "input": "Invoke CLI with explicit --json and then with explicit --quiet flags; observe ctx.obj sentinel keys",
+      "expected": "_json_explicit=True when --json or --no-json passed; _quiet_explicit=True when --quiet or --verbose passed; sentinels absent when flags omitted",
+      "assertion_pseudocode": "# Test with --json: sets _json_explicit\nctx_capture = []\nrunner = CliRunner()\nresult = runner.invoke(cli, [\"--json\", \"sub\"])\nassert ctx_capture[-1].get(\"_json_explicit\") == True\n\n# Test with --no-json: ALSO sets _json_explicit (either flag in the pair)\nresult = runner.invoke(cli, [\"--no-json\", \"sub\"])\nassert ctx_capture[-1].get(\"_json_explicit\") == True\n\n# Test without any json/no-json flag: sentinel absent or False\nresult = runner.invoke(cli, [\"sub\"])\nassert ctx_capture[-1].get(\"_json_explicit\") is None or ctx_capture[-1].get(\"_json_explicit\") == False\n\n# Test with --quiet: sets _quiet_explicit\nresult = runner.invoke(cli, [\"--quiet\", \"sub\"])\nassert ctx_capture[-1].get(\"_quiet_explicit\") == True\n\n# Test with --verbose: ALSO sets _quiet_explicit (either flag in the pair)\nresult = runner.invoke(cli, [\"--verbose\", \"sub\"])\nassert ctx_capture[-1].get(\"_quiet_explicit\") == True\n\n# Test without any quiet/verbose flag: sentinel absent or False\nresult = runner.invoke(cli, [\"sub\"])\nassert ctx_capture[-1].get(\"_quiet_explicit\") is None or ctx_capture[-1].get(\"_quiet_explicit\") == False"
+    },
+    {
+      "id": "TS-03-14",
+      "requirement_id": "03-REQ-4.1",
+      "kind": "unit",
+      "description": "Verifies that OutputManager.emit_json() writes pretty-printed JSON with indent=2 to stdout when json_mode=True.",
+      "preconditions": [
+        "OutputManager instance with json_mode=True"
+      ],
+      "input": "Call om.emit_json({'key': 'value'})",
+      "expected": "stdout receives JSON string indented with 2 spaces",
+      "assertion_pseudocode": "import json\nfrom io import StringIO\nfrom agentfox.io import OutputManager\nom = OutputManager(json_mode=True, quiet=False, verbose=False, trace=False)\nwith capture_stdout() as out:\n    om.emit_json({\"key\": \"value\"})\noutput = out.getvalue()\nparsed = json.loads(output)\nassert parsed == {\"key\": \"value\"}\nassert \"  \" in output  # indent=2 produces two-space indentation"
+    },
+    {
+      "id": "TS-03-15",
+      "requirement_id": "03-REQ-4.2",
+      "kind": "unit",
+      "description": "Verifies that OutputManager.emit_json() is a no-op when json_mode=False.",
+      "preconditions": [
+        "OutputManager instance with json_mode=False"
+      ],
+      "input": "Call om.emit_json({'key': 'value'})",
+      "expected": "Nothing is written to stdout",
+      "assertion_pseudocode": "from agentfox.io import OutputManager\nom = OutputManager(json_mode=False, quiet=False, verbose=False, trace=False)\nwith capture_stdout() as out:\n    om.emit_json({\"key\": \"value\"})\nassert out.getvalue() == \"\""
+    },
+    {
+      "id": "TS-03-16",
+      "requirement_id": "03-REQ-4.3",
+      "kind": "unit",
+      "description": "Verifies that OutputManager.emit_human() writes plain text to stdout when json_mode=False.",
+      "preconditions": [
+        "OutputManager instance with json_mode=False"
+      ],
+      "input": "Call om.emit_human('Hello world')",
+      "expected": "stdout receives the string 'Hello world'",
+      "assertion_pseudocode": "from agentfox.io import OutputManager\nom = OutputManager(json_mode=False, quiet=False, verbose=False, trace=False)\nwith capture_stdout() as out:\n    om.emit_human(\"Hello world\")\nassert \"Hello world\" in out.getvalue()"
+    },
+    {
+      "id": "TS-03-17",
+      "requirement_id": "03-REQ-4.4",
+      "kind": "unit",
+      "description": "Verifies that OutputManager.emit_human() is a no-op when json_mode=True.",
+      "preconditions": [
+        "OutputManager instance with json_mode=True"
+      ],
+      "input": "Call om.emit_human('Hello world')",
+      "expected": "Nothing is written to stdout",
+      "assertion_pseudocode": "from agentfox.io import OutputManager\nom = OutputManager(json_mode=True, quiet=False, verbose=False, trace=False)\nwith capture_stdout() as out:\n    om.emit_human(\"Hello world\")\nassert out.getvalue() == \"\""
+    },
+    {
+      "id": "TS-03-18",
+      "requirement_id": "03-REQ-4.5",
+      "kind": "unit",
+      "description": "Verifies that OutputManager.emit() writes JSON to stdout and does not call human_fn when json_mode=True.",
+      "preconditions": [
+        "OutputManager instance with json_mode=True"
+      ],
+      "input": "Call om.emit({'key': 'value'}, human_fn=mock_fn)",
+      "expected": "JSON is written to stdout; human_fn is not called",
+      "assertion_pseudocode": "from agentfox.io import OutputManager\ncalled = []\nhuman_fn = lambda: called.append(True)\nom = OutputManager(json_mode=True, quiet=False, verbose=False, trace=False)\nwith capture_stdout() as out:\n    om.emit({\"key\": \"value\"}, human_fn=human_fn)\nimport json\nassert json.loads(out.getvalue()) == {\"key\": \"value\"}\nassert len(called) == 0"
+    },
+    {
+      "id": "TS-03-19",
+      "requirement_id": "03-REQ-4.6",
+      "kind": "unit",
+      "description": "Verifies that OutputManager.emit() calls human_fn exactly once and writes no JSON when json_mode=False and human_fn is provided.",
+      "preconditions": [
+        "OutputManager instance with json_mode=False"
+      ],
+      "input": "Call om.emit({'key': 'value'}, human_fn=mock_fn)",
+      "expected": "human_fn is called exactly once; no JSON written to stdout",
+      "assertion_pseudocode": "from agentfox.io import OutputManager\ncalled = []\nhuman_fn = lambda: called.append(True)\nom = OutputManager(json_mode=False, quiet=False, verbose=False, trace=False)\nwith capture_stdout() as out:\n    om.emit({\"key\": \"value\"}, human_fn=human_fn)\nassert len(called) == 1\nassert out.getvalue() == \"\""
+    },
+    {
+      "id": "TS-03-20",
+      "requirement_id": "03-REQ-4.7",
+      "kind": "unit",
+      "description": "Verifies that OutputManager.emit() is a silent no-op when json_mode=False and human_fn is None.",
+      "preconditions": [
+        "OutputManager instance with json_mode=False"
+      ],
+      "input": "Call om.emit({'key': 'value'}, human_fn=None)",
+      "expected": "No output produced; no exception raised",
+      "assertion_pseudocode": "from agentfox.io import OutputManager\nom = OutputManager(json_mode=False, quiet=False, verbose=False, trace=False)\nwith capture_stdout() as out:\n    om.emit({\"key\": \"value\"}, human_fn=None)  # should not raise\nassert out.getvalue() == \"\""
+    },
+    {
+      "id": "TS-03-21",
+      "requirement_id": "03-REQ-4.8",
+      "kind": "unit",
+      "description": "Verifies banner() writes to stderr only when both json_mode=False and quiet=False; suppressed in all other combinations.",
+      "preconditions": [
+        "OutputManager instances with various flag combinations"
+      ],
+      "input": "Call om.banner() on instances with (json_mode=False, quiet=False), (json_mode=True, quiet=False), (json_mode=False, quiet=True), (json_mode=True, quiet=True)",
+      "expected": "Banner written to stderr only for (json_mode=False, quiet=False); no output for all other combinations",
+      "assertion_pseudocode": "from agentfox.io import OutputManager\n\nfor json_mode, quiet, expect_output in [(False, False, True), (True, False, False), (False, True, False), (True, True, False)]:\n    om = OutputManager(json_mode=json_mode, quiet=quiet, verbose=False, trace=False)\n    with capture_stderr() as err:\n        om.banner()\n    if expect_output:\n        assert len(err.getvalue()) > 0\n    else:\n        assert len(err.getvalue()) == 0"
+    },
+    {
+      "id": "TS-03-22",
+      "requirement_id": "03-REQ-4.9",
+      "kind": "unit",
+      "description": "Verifies that OutputManager.status() writes to stderr when quiet=False and is suppressed when quiet=True.",
+      "preconditions": [
+        "OutputManager instances with quiet=True and quiet=False"
+      ],
+      "input": "Call om.status('Processing...') on instances with quiet=False and quiet=True",
+      "expected": "Message written to stderr when quiet=False; no output when quiet=True",
+      "assertion_pseudocode": "from agentfox.io import OutputManager\n\nom_quiet = OutputManager(json_mode=False, quiet=True, verbose=False, trace=False)\nwith capture_stderr() as err:\n    om_quiet.status(\"Processing...\")\nassert err.getvalue() == \"\"\n\nom_verbose = OutputManager(json_mode=False, quiet=False, verbose=False, trace=False)\nwith capture_stderr() as err:\n    om_verbose.status(\"Processing...\")\nassert \"Processing...\" in err.getvalue()"
+    },
+    {
+      "id": "TS-03-23",
+      "requirement_id": "03-REQ-5.1",
+      "kind": "unit",
+      "description": "Verifies emit() writes pretty-printed JSON with indent=2 and default=str for non-serializable values.",
+      "preconditions": [
+        "agentfox.io.json module available"
+      ],
+      "input": "Call emit({'dt': datetime_obj, 'key': 'value'}) where datetime_obj is a datetime instance",
+      "expected": "stdout contains valid JSON with 2-space indentation; datetime is serialized as its str() representation",
+      "assertion_pseudocode": "import json\nfrom datetime import datetime\nfrom agentfox.io import emit\ndt = datetime(2026, 1, 1)\nwith capture_stdout() as out:\n    emit({\"dt\": dt, \"key\": \"value\"})\nparsed = json.loads(out.getvalue())\nassert parsed[\"key\"] == \"value\"\nassert parsed[\"dt\"] == str(dt)\nassert \"  \" in out.getvalue()  # indent=2"
+    },
+    {
+      "id": "TS-03-24",
+      "requirement_id": "03-REQ-5.2",
+      "kind": "unit",
+      "description": "Verifies emit_line() writes compact JSON with no indentation on a single line.",
+      "preconditions": [
+        "agentfox.io.json module available"
+      ],
+      "input": "Call emit_line({'key': 'value'})",
+      "expected": "stdout contains compact JSON with no indentation followed by a newline",
+      "assertion_pseudocode": "import json\nfrom agentfox.io import emit_line\nwith capture_stdout() as out:\n    emit_line({\"key\": \"value\"})\nline = out.getvalue().strip()\nparsed = json.loads(line)\nassert parsed == {\"key\": \"value\"}\nassert \"\\n  \" not in line  # no indentation"
+    },
+    {
+      "id": "TS-03-25",
+      "requirement_id": "03-REQ-5.3",
+      "kind": "unit",
+      "description": "Verifies emit_ok() merges 'ok': True and writes pretty-printed JSON with indent=2.",
+      "preconditions": [
+        "agentfox.io.json module available"
+      ],
+      "input": "Call emit_ok({'result': 'done'})",
+      "expected": "stdout contains JSON with 'ok': true and 'result': 'done' with indent=2",
+      "assertion_pseudocode": "import json\nfrom agentfox.io import emit_ok\nwith capture_stdout() as out:\n    emit_ok({\"result\": \"done\"})\nparsed = json.loads(out.getvalue())\nassert parsed[\"ok\"] == True\nassert parsed[\"result\"] == \"done\"\nassert \"  \" in out.getvalue()"
+    },
+    {
+      "id": "TS-03-26",
+      "requirement_id": "03-REQ-5.4",
+      "kind": "unit",
+      "description": "Verifies emit_error() always writes structured JSON error envelope to stdout regardless of json_mode, calling error_envelope() internally.",
+      "preconditions": [
+        "agentfox.io.json module available",
+        "agentfox.io.errors module available"
+      ],
+      "input": "Call emit_error(ConfigError('Config not found')) with json_mode contextually set to False",
+      "expected": "stdout contains valid JSON error envelope with ok=false regardless of json_mode setting",
+      "assertion_pseudocode": "import json\nfrom agentfox.io import emit_error\nfrom agentfox.core.errors import AgentFoxError\nclass ConfigError(AgentFoxError): pass\nexc = ConfigError(\"Config not found\")\nwith capture_stdout() as out:\n    emit_error(exc)\nparsed = json.loads(out.getvalue())\nassert parsed[\"ok\"] == False\nassert parsed[\"error\"][\"type\"] == \"config_error\"\nassert parsed[\"error\"][\"message\"] == \"Config not found\"\nassert isinstance(parsed[\"error\"][\"retryable\"], bool)"
+    },
+    {
+      "id": "TS-03-27",
+      "requirement_id": "03-REQ-5.5",
+      "kind": "unit",
+      "description": "Verifies read_stdin() returns {} for interactive TTY, {} for empty stdin, and parses valid JSON from piped input.",
+      "preconditions": [
+        "agentfox.io.json module available"
+      ],
+      "input": "Call read_stdin() with stdin mocked as TTY, empty pipe, and pipe with '{\"key\": \"val\"}'",
+      "expected": "Returns {} for TTY; {} for empty pipe; {'key': 'val'} for valid piped JSON",
+      "assertion_pseudocode": "from agentfox.io import read_stdin\nimport io\n\n# Simulate interactive TTY\nwith mock_stdin_as_tty():\n    result = read_stdin()\nassert result == {}\n\n# Simulate empty piped stdin\nwith mock_stdin(b\"\"):\n    result = read_stdin()\nassert result == {}\n\n# Simulate piped JSON\nwith mock_stdin(b'{\"key\": \"val\"}'):\n    result = read_stdin()\nassert result == {\"key\": \"val\"}"
+    },
+    {
+      "id": "TS-03-28",
+      "requirement_id": "03-REQ-5.6",
+      "kind": "unit",
+      "description": "Verifies that BrokenPipeError is silently suppressed in all four emit functions.",
+      "preconditions": [
+        "agentfox.io.json module available",
+        "stdout mocked to raise BrokenPipeError on write"
+      ],
+      "input": "Call emit(), emit_line(), emit_ok(), emit_error() each with a stdout that raises BrokenPipeError",
+      "expected": "No exception is raised or propagated; functions return normally",
+      "assertion_pseudocode": "from agentfox.io import emit, emit_line, emit_ok, emit_error\nfrom agentfox.core.errors import AgentFoxError\n\nfor fn, args in [\n    (emit, [{\"k\": \"v\"}]),\n    (emit_line, [{\"k\": \"v\"}]),\n    (emit_ok, [{\"k\": \"v\"}]),\n    (emit_error, [Exception(\"err\")]),\n]:\n    with mock_stdout_raises(BrokenPipeError):\n        fn(*args)  # must not raise"
+    },
+    {
+      "id": "TS-03-29",
+      "requirement_id": "03-REQ-6.1",
+      "kind": "unit",
+      "description": "Verifies error_envelope() returns a dict with ok=False, non-empty error.type, non-empty error.message matching str(exc), and boolean retryable.",
+      "preconditions": [
+        "agentfox.io.errors module available"
+      ],
+      "input": "Call error_envelope(ValueError('bad value'))",
+      "expected": "Returns dict with ok=False, error.type non-empty string, error.message == 'bad value', error.retryable is bool",
+      "assertion_pseudocode": "from agentfox.io import error_envelope\nexc = ValueError(\"bad value\")\nresult = error_envelope(exc)\nassert result[\"ok\"] == False\nassert isinstance(result[\"error\"][\"type\"], str) and len(result[\"error\"][\"type\"]) > 0\nassert result[\"error\"][\"message\"] == str(exc)\nassert isinstance(result[\"error\"][\"retryable\"], bool)"
+    },
+    {
+      "id": "TS-03-30",
+      "requirement_id": "03-REQ-6.2",
+      "kind": "unit",
+      "description": "Verifies error_envelope() derives type from AgentFoxError subclass name via snake_case at runtime.",
+      "preconditions": [
+        "agentfox.io.errors module available",
+        "agentfox.core.errors.AgentFoxError available"
+      ],
+      "input": "Pass ConfigError('msg') and a dynamically created CustomFoxError instance to error_envelope()",
+      "expected": "error.type is 'config_error' for ConfigError; snake_case of class name for any AgentFoxError subclass",
+      "assertion_pseudocode": "from agentfox.io import error_envelope\nfrom agentfox.core.errors import AgentFoxError\n\nclass ConfigError(AgentFoxError): retryable = False\nresult = error_envelope(ConfigError(\"msg\"))\nassert result[\"error\"][\"type\"] == \"config_error\"\n\n# Dynamic unknown subclass\nMyError = type(\"MyCustomFoxError\", (AgentFoxError,), {\"retryable\": False})\nresult2 = error_envelope(MyError(\"msg\"))\nassert result2[\"error\"][\"type\"] == \"my_custom_fox_error\"\nassert result2[\"error\"][\"type\"] != \"internal_error\""
+    },
+    {
+      "id": "TS-03-31",
+      "requirement_id": "03-REQ-6.3",
+      "kind": "unit",
+      "description": "Verifies error_envelope() maps AgentError correctly: using .category when present, falling back to 'agent_error'.",
+      "preconditions": [
+        "agentspec package installed",
+        "agentfox.io.errors module available"
+      ],
+      "input": "Call error_envelope() with AgentError having .category='rate_limit_error' and AgentError without .category",
+      "expected": "type='rate_limit_error' with .category; type='agent_error' and retryable=False without .category",
+      "assertion_pseudocode": "pytest.importorskip(\"agentspec\")\nfrom agentspec.errors import AgentError\nfrom agentfox.io import error_envelope\n\n# Case 1: AgentError with explicit .category (PUBLIC attribute, NOT ._category)\nexc_with_cat = AgentError(\"too many requests\")\n# IMPORTANT: set the PUBLIC attribute .category, never the private ._category\nexc_with_cat.category = \"rate_limit_error\"\nexc_with_cat.retryable = True\nresult = error_envelope(exc_with_cat)\nassert result[\"error\"][\"type\"] == \"rate_limit_error\"\nassert result[\"error\"][\"retryable\"] == True\n\n# Case 2: AgentError without explicit .category — MUST assert exact values\nexc_no_cat = AgentError(\"generic agent error\")\nresult2 = error_envelope(exc_no_cat)\n# Assert the EXACT expected type string, not just isinstance(str)\nassert result2[\"error\"][\"type\"] == \"agent_error\", f\"expected 'agent_error', got {result2['error']['type']!r}\"\n# Assert the EXACT expected retryable value, not just isinstance(bool)\nassert result2[\"error\"][\"retryable\"] == False, f\"expected False, got {result2['error']['retryable']!r}\""
+    },
+    {
+      "id": "TS-03-32",
+      "requirement_id": "03-REQ-6.4",
+      "kind": "unit",
+      "description": "Verifies error_envelope() always maps SessionError to type='session_error' and retryable=False.",
+      "preconditions": [
+        "agentspec package installed",
+        "agentfox.io.errors module available"
+      ],
+      "input": "Call error_envelope(SessionError('session expired'))",
+      "expected": "error.type='session_error' and error.retryable=False",
+      "assertion_pseudocode": "pytest.importorskip(\"agentspec\")\nfrom agentspec.errors import SessionError\nfrom agentfox.io import error_envelope\nexc = SessionError(\"session expired\")\nresult = error_envelope(exc)\nassert result[\"error\"][\"type\"] == \"session_error\"\nassert result[\"error\"][\"retryable\"] == False"
+    },
+    {
+      "id": "TS-03-33",
+      "requirement_id": "03-REQ-6.5",
+      "kind": "unit",
+      "description": "Verifies error_envelope() maps click.ClickException to type='input_error' and retryable=False.",
+      "preconditions": [
+        "agentfox.io.errors module available",
+        "click package available"
+      ],
+      "input": "Call error_envelope(click.ClickException('bad input'))",
+      "expected": "error.type='input_error' and error.retryable=False",
+      "assertion_pseudocode": "import click\nfrom agentfox.io import error_envelope\nexc = click.ClickException(\"bad input\")\nresult = error_envelope(exc)\nassert result[\"error\"][\"type\"] == \"input_error\"\nassert result[\"error\"][\"retryable\"] == False"
+    },
+    {
+      "id": "TS-03-34",
+      "requirement_id": "03-REQ-6.6",
+      "kind": "unit",
+      "description": "Verifies error_envelope() maps unknown exceptions to type='internal_error' with retryable=False and a detail field; well-typed exceptions omit detail.",
+      "preconditions": [
+        "agentfox.io.errors module available"
+      ],
+      "input": "Call error_envelope(RuntimeError('unexpected')) and error_envelope(ConfigError('msg'))",
+      "expected": "RuntimeError produces type='internal_error', retryable=False, and 'detail'='RuntimeError'; ConfigError omits 'detail' key",
+      "assertion_pseudocode": "from agentfox.io import error_envelope\nfrom agentfox.core.errors import AgentFoxError\nclass ConfigError(AgentFoxError): retryable = False\n\nresult_unknown = error_envelope(RuntimeError(\"unexpected\"))\nassert result_unknown[\"error\"][\"type\"] == \"internal_error\"\nassert result_unknown[\"error\"][\"retryable\"] == False\nassert result_unknown[\"error\"][\"detail\"] == \"RuntimeError\"\n\nresult_known = error_envelope(ConfigError(\"msg\"))\nassert \"detail\" not in result_known[\"error\"]"
+    },
+    {
+      "id": "TS-03-35",
+      "requirement_id": "03-REQ-6.7",
+      "kind": "unit",
+      "description": "Verifies error_envelope() includes 'state' as a top-level field when non-None, and omits it when None.",
+      "preconditions": [
+        "agentfox.io.errors module available"
+      ],
+      "input": "Call error_envelope(exc, state='executing') and error_envelope(exc, state=None)",
+      "expected": "state='executing' appears as top-level key when passed; no 'state' key when state=None",
+      "assertion_pseudocode": "from agentfox.io import error_envelope\nexc = ValueError(\"err\")\n\nresult_with_state = error_envelope(exc, state=\"executing\")\nassert result_with_state.get(\"state\") == \"executing\"\n\nresult_no_state = error_envelope(exc, state=None)\nassert \"state\" not in result_no_state"
+    },
+    {
+      "id": "TS-03-36",
+      "requirement_id": "03-REQ-6.8",
+      "kind": "unit",
+      "description": "Verifies agentfox/io/errors.py imports agentspec types lazily and does not raise ImportError at module load when agentspec is absent.",
+      "preconditions": [
+        "agentspec package is NOT installed",
+        "agentfox.io.errors module is importable without agentspec"
+      ],
+      "input": "Import agentfox.io.errors in an environment where agentspec is not installed",
+      "expected": "Module imports successfully; no ImportError raised at import time",
+      "assertion_pseudocode": "# In an environment without agentspec:\nimport importlib\ntry:\n    import agentspec\n    pytest.skip(\"agentspec is installed; need environment without it\")\nexcept ImportError:\n    pass\n\n# Should not raise:\nimport agentfox.io.errors\nassert True  # reached here means no ImportError"
+    },
+    {
+      "id": "TS-03-37",
+      "requirement_id": "03-REQ-7.1",
+      "kind": "unit",
+      "description": "Verifies cli_error_handler() calls emit_error() to write JSON envelope to stdout when json_mode=True.",
+      "preconditions": [
+        "agentfox.io.errors module available",
+        "Active Click context with OutputManager having json_mode=True"
+      ],
+      "input": "Call cli_error_handler(ctx, ValueError('fail')) with json_mode=True",
+      "expected": "stdout contains valid JSON error envelope; nothing written to stderr for the error",
+      "assertion_pseudocode": "import json\nfrom agentfox.io.errors import cli_error_handler\nfrom agentfox.io import OutputManager\n\nctx = make_mock_context(json_mode=True)\nexc = ValueError(\"fail\")\nwith capture_stdout() as out, capture_stderr() as err:\n    cli_error_handler(ctx, exc)\nparsed = json.loads(out.getvalue())\nassert parsed[\"ok\"] == False\nassert parsed[\"error\"][\"type\"] == \"internal_error\""
+    },
+    {
+      "id": "TS-03-38",
+      "requirement_id": "03-REQ-7.2",
+      "kind": "unit",
+      "description": "Verifies cli_error_handler() calls click.echo(str(exc), err=True) to write plain text to stderr when json_mode=False.",
+      "preconditions": [
+        "agentfox.io.errors module available",
+        "Active Click context with OutputManager having json_mode=False"
+      ],
+      "input": "Call cli_error_handler(ctx, ValueError('fail')) with json_mode=False",
+      "expected": "Plain text 'fail' written to stderr; nothing written to stdout",
+      "assertion_pseudocode": "from agentfox.io.errors import cli_error_handler\nctx = make_mock_context(json_mode=False)\nexc = ValueError(\"fail\")\nwith capture_stdout() as out, capture_stderr() as err:\n    cli_error_handler(ctx, exc)\nassert \"fail\" in err.getvalue()\nassert out.getvalue() == \"\""
+    },
+    {
+      "id": "TS-03-39",
+      "requirement_id": "03-REQ-7.3",
+      "kind": "unit",
+      "description": "Verifies handle_cli_errors decorator catches Exception, resolves json_mode at call time via get_output_manager(), and lets SystemExit/KeyboardInterrupt propagate.",
+      "preconditions": [
+        "agentfox.io.errors module available",
+        "agentfox.io.output.get_output_manager available"
+      ],
+      "input": "Decorated function that raises Exception, then SystemExit, then KeyboardInterrupt",
+      "expected": "Exception is caught and routed; SystemExit and KeyboardInterrupt propagate without being caught",
+      "assertion_pseudocode": "from agentfox.io.errors import handle_cli_errors\n\n@handle_cli_errors\ndef raises_exception():\n    raise ValueError(\"caught\")\n\n@handle_cli_errors\ndef raises_system_exit():\n    raise SystemExit(0)\n\n@handle_cli_errors\ndef raises_keyboard_interrupt():\n    raise KeyboardInterrupt()\n\n# ValueError is caught (no exception propagates from handle_cli_errors)\ntry:\n    raises_exception()\nexcept SystemExit:\n    pass  # expected sys.exit(1) from handler\nexcept ValueError:\n    assert False, \"ValueError should be caught\"\n\n# SystemExit propagates\ntry:\n    raises_system_exit()\nexcept SystemExit as e:\n    assert e.code == 0\n\n# KeyboardInterrupt propagates\ntry:\n    raises_keyboard_interrupt()\nexcept KeyboardInterrupt:\n    pass  # expected"
+    },
+    {
+      "id": "TS-03-40",
+      "requirement_id": "03-REQ-7.4",
+      "kind": "unit",
+      "description": "Verifies AgentFoxGroup.invoke() calls sys.exit(1) for caught Exception subclasses and re-raises SystemExit/KeyboardInterrupt without routing.",
+      "preconditions": [
+        "agentfox.io.cli module available",
+        "Click test runner available"
+      ],
+      "input": "Invoke AgentFoxGroup CLI with a subcommand that raises ValueError; then one that raises SystemExit(0)",
+      "expected": "ValueError results in exit code 1; SystemExit(0) results in exit code 0; no error envelope emitted for SystemExit",
+      "assertion_pseudocode": "from click.testing import CliRunner\nfrom agentfox.io import AgentFoxGroup\nimport click\n\n@click.group(cls=AgentFoxGroup)\ndef cli(): pass\n\n@cli.command()\ndef fail():\n    raise ValueError(\"oops\")\n\n@cli.command()\ndef succeed():\n    raise SystemExit(0)\n\nrunner = CliRunner()\nresult_fail = runner.invoke(cli, [\"fail\"])\nassert result_fail.exit_code == 1\n\nresult_succeed = runner.invoke(cli, [\"succeed\"])\nassert result_succeed.exit_code == 0"
+    },
+    {
+      "id": "TS-03-41",
+      "requirement_id": "03-REQ-8.1",
+      "kind": "unit",
+      "description": "Verifies StatusSpinner has the required interface: context manager methods and update()/log() methods.",
+      "preconditions": [
+        "agentfox.io.spinner module available"
+      ],
+      "input": "Instantiate StatusSpinner and inspect its interface",
+      "expected": "Instance has __enter__, __exit__, update, and log methods callable",
+      "assertion_pseudocode": "from agentfox.io import StatusSpinner\nspinner = StatusSpinner(\"Processing...\", quiet=False, theme=None)\nassert callable(getattr(spinner, \"__enter__\", None))\nassert callable(getattr(spinner, \"__exit__\", None))\nassert callable(getattr(spinner, \"update\", None))\nassert callable(getattr(spinner, \"log\", None))"
+    },
+    {
+      "id": "TS-03-42",
+      "requirement_id": "03-REQ-8.2",
+      "kind": "unit",
+      "description": "Verifies StatusSpinner uses the 'dots' Rich spinner style when stdout/stderr is a TTY and quiet=False.",
+      "preconditions": [
+        "agentfox.io.spinner module available",
+        "stdout/stderr mocked as TTY",
+        "Rich Live available"
+      ],
+      "input": "Enter StatusSpinner context in TTY mode with quiet=False",
+      "expected": "Rich Live is started with 'dots' spinner style; update() changes message; log() appends persistent line",
+      "assertion_pseudocode": "from agentfox.io import StatusSpinner\nfrom unittest.mock import patch, MagicMock\n\nwith mock_tty():\n    # Patch Rich Spinner constructor to capture the spinner_name argument\n    with patch(\"rich.spinner.Spinner\") as MockSpinner:\n        mock_spinner_instance = MagicMock()\n        MockSpinner.return_value = mock_spinner_instance\n        with StatusSpinner(\"Starting...\", quiet=False) as s:\n            s.update(\"Step 1\")\n            s.log(\"detail\")\n\n    # 1. Verify 'dots' spinner style was used (not just that spinner is not None)\n    MockSpinner.assert_called()\n    spinner_name_arg = MockSpinner.call_args[0][0] if MockSpinner.call_args[0] else MockSpinner.call_args[1].get(\"name\")\n    assert spinner_name_arg == \"dots\", f\"expected 'dots' spinner style, got {spinner_name_arg!r}\"\n\n    # 2. Verify update() changed the message (check via mock or internal state)\n    # 3. Verify log() was called without raising\n    # NOTE: if mocking Rich internals is impractical, an alternative is to\n    # capture stderr and verify that spinner-related output was produced\n    # (not empty), which is strictly stronger than 'spinner is not None'"
+    },
+    {
+      "id": "TS-03-43",
+      "requirement_id": "03-REQ-8.3",
+      "kind": "unit",
+      "description": "Verifies StatusSpinner prints plain text to stderr for both update() and log() in non-TTY mode, using theme.console or fallback Console.",
+      "preconditions": [
+        "agentfox.io.spinner module available",
+        "stdout/stderr mocked as non-TTY"
+      ],
+      "input": "Enter StatusSpinner in non-TTY mode with theme=None; call update() and log()",
+      "expected": "update() and log() both print plain text lines to stderr; no animation",
+      "assertion_pseudocode": "from agentfox.io import StatusSpinner\nwith mock_non_tty():\n    with capture_stderr() as err:\n        with StatusSpinner(\"Starting...\", quiet=False, theme=None) as s:\n            s.update(\"Step 1\")\n            s.log(\"Detail\")\noutput = err.getvalue()\nassert \"Step 1\" in output\nassert \"Detail\" in output"
+    },
+    {
+      "id": "TS-03-44",
+      "requirement_id": "03-REQ-8.4",
+      "kind": "unit",
+      "description": "Verifies that all StatusSpinner methods are no-ops in quiet=True mode.",
+      "preconditions": [
+        "agentfox.io.spinner module available"
+      ],
+      "input": "Enter StatusSpinner with quiet=True; call update() and log()",
+      "expected": "No output to stdout or stderr; no exception raised",
+      "assertion_pseudocode": "from agentfox.io import StatusSpinner\nwith capture_stderr() as err, capture_stdout() as out:\n    with StatusSpinner(\"msg\", quiet=True, theme=None) as s:\n        s.update(\"step\")\n        s.log(\"log msg\")\nassert err.getvalue() == \"\"\nassert out.getvalue() == \"\""
+    },
+    {
+      "id": "TS-03-45",
+      "requirement_id": "03-REQ-8.5",
+      "kind": "unit",
+      "description": "Verifies StatusSpinner uses Rich Live internally and serializes concurrent update()/log() calls via Live's internal lock.",
+      "preconditions": [
+        "agentfox.io.spinner module available",
+        "threading module available"
+      ],
+      "input": "Call update() and log() concurrently from multiple threads on the same spinner",
+      "expected": "No race conditions; all calls complete without exception; output lines are not interleaved",
+      "assertion_pseudocode": "import threading\nfrom agentfox.io import StatusSpinner\nerrors = []\nwith mock_non_tty():\n    with StatusSpinner(\"msg\", quiet=False, theme=None) as s:\n        def do_update():\n            try:\n                for i in range(10):\n                    s.update(f\"step {i}\")\n            except Exception as e:\n                errors.append(e)\n\n        threads = [threading.Thread(target=do_update) for _ in range(5)]\n        for t in threads: t.start()\n        for t in threads: t.join()\n\nassert len(errors) == 0"
+    },
+    {
+      "id": "TS-03-46",
+      "requirement_id": "03-REQ-8.6",
+      "kind": "unit",
+      "description": "Verifies that exactly one StatusSpinner class exists in the codebase and legacy spinner classes are removed or delegate to it.",
+      "preconditions": [
+        "agentfox/io/spinner.py exists",
+        "agentfox/ui/progress.py exists"
+      ],
+      "input": "Inspect agentfox.io.spinner module and check for PlanSpinner in agentfox.ui.progress",
+      "expected": "StatusSpinner exists in agentfox.io.spinner; no independent PlanSpinner spinner logic remains in agentfox/ui/progress.py",
+      "assertion_pseudocode": "from agentfox.io import StatusSpinner\nassert StatusSpinner is not None\n\nimport agentfox.ui.progress as progress_module\n# PlanSpinner should not exist OR should delegate to StatusSpinner\nif hasattr(progress_module, \"PlanSpinner\"):\n    # It must delegate, not duplicate\n    import inspect\n    src = inspect.getsource(progress_module.PlanSpinner)\n    assert \"StatusSpinner\" in src, \"PlanSpinner must delegate to StatusSpinner\""
+    },
+    {
+      "id": "TS-03-47",
+      "requirement_id": "03-REQ-9.1",
+      "kind": "unit",
+      "description": "Verifies common_options adds all four flag groups to the root Click group.",
+      "preconditions": [
+        "agentfox.io.cli module available"
+      ],
+      "input": "Apply common_options to a Click Group and inspect its params",
+      "expected": "Group has --verbose, --quiet, --trace, --json, --no-json params registered",
+      "assertion_pseudocode": "import click\nfrom agentfox.io import common_options\n\n@click.group()\n@common_options\ndef cli(): pass\n\nparam_names = [p.name for p in cli.params]\nassert \"verbose\" in param_names\nassert \"quiet\" in param_names\nassert \"trace\" in param_names\nassert \"json\" in param_names or \"no_json\" in param_names"
+    },
+    {
+      "id": "TS-03-48",
+      "requirement_id": "03-REQ-9.2",
+      "kind": "unit",
+      "description": "Verifies common_options raises TypeError when applied to a Click Command (non-Group subcommand).",
+      "preconditions": [
+        "agentfox.io.cli module available"
+      ],
+      "input": "Apply common_options to a @click.command (not a group)",
+      "expected": "TypeError raised at decoration time with a descriptive message",
+      "assertion_pseudocode": "import click\nfrom agentfox.io import common_options\n\ntry:\n    @common_options\n    @click.command()\n    def sub():\n        pass\n    assert False, \"should have raised TypeError\"\nexcept TypeError as e:\n    assert \"root\" in str(e).lower() or \"subcommand\" in str(e).lower()"
+    },
+    {
+      "id": "TS-03-49",
+      "requirement_id": "03-REQ-9.3",
+      "kind": "unit",
+      "description": "Verifies common_options skips a conflicting flag and emits a debug-level warning when a name collision is detected.",
+      "preconditions": [
+        "agentfox.io.cli module available",
+        "Root group already has a param named 'json'"
+      ],
+      "input": "Apply common_options to a group that already has a --json option",
+      "expected": "No duplicate --json flag registered; debug-level warning logged; no exception raised",
+      "assertion_pseudocode": "import click\nimport logging\nfrom agentfox.io import common_options\n\n@click.group()\n@click.option(\"--json\", is_flag=True)\n@common_options\ndef cli(json): pass\n\n# 1. Count json params — MUST be exactly 1, not 0 and not 2\njson_params = [p for p in cli.params if p.name == \"json\"]\nassert len(json_params) == 1, f\"expected exactly 1 json param, got {len(json_params)}\"\n\n# 2. Verify a debug-level warning was logged about the name collision\n# Use pytest caplog fixture to capture log records\nwith caplog.at_level(logging.DEBUG):\n    @click.group()\n    @click.option(\"--json\", is_flag=True)\n    @common_options\n    def cli2(json): pass\n\ndebug_records = [r for r in caplog.records if r.levelno == logging.DEBUG]\nassert any(\"json\" in r.message.lower() and (\"skip\" in r.message.lower() or \"conflict\" in r.message.lower() or \"collision\" in r.message.lower() or \"already\" in r.message.lower()) for r in debug_records), \"expected debug log about json flag collision\""
+    },
+    {
+      "id": "TS-03-50",
+      "requirement_id": "03-REQ-10.1",
+      "kind": "unit",
+      "description": "Verifies exit_codes decorator sets command.exit_codes attribute on the Click Command object.",
+      "preconditions": [
+        "agentfox.io.help module available"
+      ],
+      "input": "Apply @exit_codes(0='completed', 1='error') above @click.command",
+      "expected": "command.exit_codes == {'0': 'completed', '1': 'error'}; attribute is on the Command object",
+      "assertion_pseudocode": "import click\nfrom agentfox.io import exit_codes\n\n@exit_codes(**{\"0\": \"completed\", \"1\": \"error\"})\n@click.command()\ndef my_cmd():\n    pass\n\nassert hasattr(my_cmd, \"exit_codes\")\nassert my_cmd.exit_codes == {\"0\": \"completed\", \"1\": \"error\"}\n# Verify it's on the Command, not the raw function\nassert isinstance(my_cmd, click.Command)"
+    },
+    {
+      "id": "TS-03-51",
+      "requirement_id": "03-REQ-10.2",
+      "kind": "unit",
+      "description": "Verifies exit_codes raises TypeError when applied below @click.command (receives raw Python function).",
+      "preconditions": [
+        "agentfox.io.help module available"
+      ],
+      "input": "Apply @exit_codes below @click.command (wrong order), so it receives the raw function",
+      "expected": "TypeError raised at decoration time with descriptive message mentioning decorator order",
+      "assertion_pseudocode": "import click\nfrom agentfox.io import exit_codes\n\ntry:\n    @click.command()\n    @exit_codes(**{\"0\": \"done\"})\n    def my_cmd():\n        pass\n    assert False, \"should have raised TypeError\"\nexcept TypeError as e:\n    assert \"click.command\" in str(e).lower() or \"plain function\" in str(e).lower()"
+    },
+    {
+      "id": "TS-03-52",
+      "requirement_id": "03-REQ-10.3",
+      "kind": "unit",
+      "description": "Verifies that applying exit_codes twice overwrites the first mapping with no merge and no warning.",
+      "preconditions": [
+        "agentfox.io.help module available"
+      ],
+      "input": "Apply @exit_codes twice to the same command with different mappings",
+      "expected": "command.exit_codes contains only the second mapping; first is overwritten without warning",
+      "assertion_pseudocode": "import click\nfrom agentfox.io import exit_codes\n\n@exit_codes(**{\"0\": \"second\", \"2\": \"stalled\"})\n@exit_codes(**{\"0\": \"first\"})\n@click.command()\ndef my_cmd():\n    pass\n\nassert my_cmd.exit_codes == {\"0\": \"second\", \"2\": \"stalled\"}\nassert \"first\" not in str(my_cmd.exit_codes)"
+    },
+    {
+      "id": "TS-03-53",
+      "requirement_id": "03-REQ-10.4",
+      "kind": "unit",
+      "description": "Verifies that --help output in Spec 03 is standard Click text help, not JSON, regardless of --json flag.",
+      "preconditions": [
+        "AgentFoxGroup CLI set up with common_options"
+      ],
+      "input": "Invoke CLI with --help and with --json --help",
+      "expected": "Both produce Click's standard human-readable text help output; no JSON structure emitted",
+      "assertion_pseudocode": "from click.testing import CliRunner\nfrom agentfox.io import AgentFoxGroup, common_options\nimport click\n\n@click.group(cls=AgentFoxGroup)\n@common_options\ndef cli(): pass\n\nrunner = CliRunner()\nresult = runner.invoke(cli, [\"--help\"])\nassert result.exit_code == 0\nassert \"Usage\" in result.output or \"Options\" in result.output\n# Must not be JSON\ntry:\n    import json\n    json.loads(result.output)\n    assert False, \"should not be valid JSON\"\nexcept (json.JSONDecodeError, ValueError):\n    pass"
+    },
+    {
+      "id": "TS-03-54",
+      "requirement_id": "03-REQ-11.1",
+      "kind": "unit",
+      "description": "Verifies af/app.py uses cls=AgentFoxGroup as the root Click group and no separate BannerGroup remains active.",
+      "preconditions": [
+        "af/app.py has been migrated",
+        "agentfox.io.cli.AgentFoxGroup available"
+      ],
+      "input": "Import the root Click group from af.app and inspect its class",
+      "expected": "Root group is an instance of AgentFoxGroup; BannerGroup is not the active root group class",
+      "assertion_pseudocode": "from af.app import cli  # the root Click group\nfrom agentfox.io import AgentFoxGroup\nassert isinstance(cli, AgentFoxGroup) or type(cli).__name__ == \"AgentFoxGroup\""
+    },
+    {
+      "id": "TS-03-55",
+      "requirement_id": "03-REQ-11.2",
+      "kind": "unit",
+      "description": "Verifies af/app.py contains the required audit comment block at the BannerGroup replacement site.",
+      "preconditions": [
+        "af/app.py has been migrated"
+      ],
+      "input": "Read the source of af/app.py",
+      "expected": "An inline comment block documents: covered behaviors, deferred behaviors, and audit date",
+      "assertion_pseudocode": "with open(\"af/app.py\", \"r\") as f:\n    source = f.read()\nassert \"AgentFoxGroup\" in source\n# Audit comment must be present near the replacement site\nassert \"covered\" in source.lower() or \"audit\" in source.lower() or \"spec 04\" in source"
+    },
+    {
+      "id": "TS-03-56",
+      "requirement_id": "03-REQ-11.3",
+      "kind": "integration",
+      "description": "Verifies that af --version uses click.echo() directly and does not call get_output_manager() before OutputManager is constructed.",
+      "preconditions": [
+        "af CLI is installed and runnable",
+        "af/app.py migrated to AgentFoxGroup"
+      ],
+      "input": "Invoke 'af --version' via CliRunner",
+      "expected": "Version string output to stdout; exit code 0; no KeyError or AttributeError raised",
+      "assertion_pseudocode": "from click.testing import CliRunner\nfrom af.app import cli\nrunner = CliRunner()\nresult = runner.invoke(cli, [\"--version\"])\nassert result.exit_code == 0\nassert len(result.output.strip()) > 0  # version string present\nassert result.exception is None or isinstance(result.exception, SystemExit)"
+    },
+    {
+      "id": "TS-03-57",
+      "requirement_id": "03-REQ-12.1",
+      "kind": "unit",
+      "description": "Verifies af/json_io.py shim re-exports exactly emit, emit_line, emit_error, read_stdin and that emit_ok is not re-exported.",
+      "preconditions": [
+        "af/json_io.py shim exists"
+      ],
+      "input": "Import all four symbols from af.json_io; attempt to import emit_ok",
+      "expected": "emit, emit_line, emit_error, read_stdin all importable; emit_ok raises ImportError",
+      "assertion_pseudocode": "from af.json_io import emit, emit_line, emit_error, read_stdin\nassert callable(emit)\nassert callable(emit_line)\nassert callable(emit_error)\nassert callable(read_stdin)\n\ntry:\n    from af.json_io import emit_ok\n    assert False, \"emit_ok should not be in shim\"\nexcept ImportError:\n    pass"
+    },
+    {
+      "id": "TS-03-58",
+      "requirement_id": "03-REQ-12.2",
+      "kind": "unit",
+      "description": "Verifies af/json_io.py contains a comment marking it as a temporary compatibility shim scheduled for removal in Spec 04.",
+      "preconditions": [
+        "af/json_io.py shim file exists"
+      ],
+      "input": "Read af/json_io.py source",
+      "expected": "File contains a comment indicating it is a compatibility shim to be removed in Spec 04",
+      "assertion_pseudocode": "with open(\"af/json_io.py\", \"r\") as f:\n    source = f.read()\nassert \"shim\" in source.lower() or \"compatibility\" in source.lower()\nassert \"spec 04\" in source.lower() or \"removed\" in source.lower()"
+    },
+    {
+      "id": "TS-03-59",
+      "requirement_id": "03-REQ-13.1",
+      "kind": "integration",
+      "description": "Verifies spec/cli.py is not modified by Spec 03 and all existing spec CLI tests pass unchanged.",
+      "preconditions": [
+        "spec/cli.py git history available",
+        "pytest available with spec test suite"
+      ],
+      "input": "Compare spec/cli.py against pre-Spec-03 version; run existing spec test suite",
+      "expected": "spec/cli.py is unchanged; all existing spec CLI tests pass",
+      "assertion_pseudocode": "# Git-based check:\nimport subprocess\nresult = subprocess.run([\"git\", \"diff\", \"HEAD~1\", \"spec/cli.py\"], capture_output=True, text=True)\nassert result.stdout == \"\", \"spec/cli.py should not be modified\"\n\n# Pytest check:\nresult = subprocess.run([\"pytest\", \"tests/spec/\", \"-v\", \"--tb=short\"], capture_output=True, text=True)\nassert result.returncode == 0"
+    },
+    {
+      "id": "TS-03-60",
+      "requirement_id": "03-REQ-14.1",
+      "kind": "integration",
+      "description": "Verifies all pre-existing af and spec CLI unit and integration tests pass unchanged after migration.",
+      "preconditions": [
+        "Complete af and spec test suites exist",
+        "pytest available",
+        "agentfox/io/ migration complete"
+      ],
+      "input": "Run full pytest suite covering af and spec CLI tests",
+      "expected": "Zero failures; zero tests skipped or marked xfail that were not previously so",
+      "assertion_pseudocode": "import subprocess\nresult = subprocess.run(\n    [\"pytest\", \"tests/\", \"-v\", \"--tb=short\", \"--no-header\"],\n    capture_output=True, text=True\n)\nassert result.returncode == 0, f\"Test failures:\\n{result.stdout}\\n{result.stderr}\""
+    },
+    {
+      "id": "TS-03-61",
+      "requirement_id": "03-REQ-14.2",
+      "kind": "unit",
+      "description": "Verifies that each of the seven agentfox/io/ modules has corresponding unit tests that cover happy-path, error handling, quiet-mode no-ops, and other specified behaviors.",
+      "preconditions": [
+        "Test files for each agentfox/io/ module exist in the test suite"
+      ],
+      "input": "Check existence of test files for each module; run them",
+      "expected": "Test files exist for output.py, json.py, spinner.py, errors.py, cli.py, help.py, __init__.py; all pass",
+      "assertion_pseudocode": "import os\ntest_files = [\n    \"tests/io/test_output.py\",\n    \"tests/io/test_json.py\",\n    \"tests/io/test_spinner.py\",\n    \"tests/io/test_errors.py\",\n    \"tests/io/test_cli.py\",\n    \"tests/io/test_help.py\",\n    \"tests/io/test_init.py\",\n]\nfor tf in test_files:\n    assert os.path.exists(tf), f\"Missing test file: {tf}\""
+    },
+    {
+      "id": "TS-03-62",
+      "requirement_id": "03-REQ-14.3",
+      "kind": "property",
+      "description": "Verifies Hypothesis property tests cover error envelope serialization for ALL exception types (including agentspec types) and that agentspec tests are guarded with pytest.importorskip.",
+      "preconditions": [
+        "Hypothesis installed",
+        "agentfox.io.errors and agentfox.io.json modules available"
+      ],
+      "input": "Run Hypothesis property tests for error envelope serialization",
+      "expected": "All property tests pass; agentspec-dependent tests are skipped when agentspec not installed; strategies MUST cover AgentFoxError, AgentError, AgentSpecError, SessionError, click.ClickException, and arbitrary Exception",
+      "assertion_pseudocode": "# The _any_exception_strategy used in test_property_errors.py MUST generate\n# ALL of the following exception types:\n#   - AgentFoxError (and dynamically created subclasses)\n#   - click.ClickException\n#   - ValueError / arbitrary Exception subclasses\n#   - AgentError from agentspec (guarded with pytest.importorskip('agentspec'))\n#   - AgentSpecError from agentspec (guarded with pytest.importorskip('agentspec'))\n#   - SessionError from agentspec (guarded with pytest.importorskip('agentspec'))\n#\n# Agentspec-dependent strategies MUST be guarded with:\n#   agentspec = pytest.importorskip('agentspec')\n# at the TOP of the test function or in a fixture, so they are SKIPPED\n# (not FAILED) when agentspec is not installed.\n#\n# The strategy should use st.one_of() combining:\n#   - st.builds(AgentFoxError, st.text())\n#   - st.builds(click.ClickException, st.text())\n#   - st.builds(ValueError, st.text())\n# And, when agentspec is available:\n#   - st.builds(AgentError, st.text())\n#   - st.builds(AgentSpecError, st.text())\n#   - st.builds(SessionError, st.text())\n#\n# Verification: run pytest and confirm 0 failures\nimport subprocess\nresult = subprocess.run(\n    [\"pytest\", \"tests/io/test_property_errors.py\", \"-v\"],\n    capture_output=True, text=True\n)\nassert result.returncode == 0"
+    },
+    {
+      "id": "TS-03-63",
+      "requirement_id": "03-REQ-15.1",
+      "kind": "unit",
+      "description": "Verifies AgentFoxGroup.invoke() calls setup_logging() exactly once with correct resolved flag values.",
+      "preconditions": [
+        "agentfox.io.cli module available",
+        "agentfox.core.logging.setup_logging patchable"
+      ],
+      "input": "Invoke AgentFoxGroup CLI with --verbose flag; capture setup_logging call arguments",
+      "expected": "setup_logging called exactly once with verbose=True, quiet=False, trace=False",
+      "assertion_pseudocode": "from unittest.mock import patch\nfrom click.testing import CliRunner\nfrom agentfox.io import AgentFoxGroup, common_options\nimport click\n\ncalls = []\n@click.group(cls=AgentFoxGroup)\n@common_options\ndef cli(): pass\n\n@cli.command()\ndef sub(): pass\n\nwith patch(\"agentfox.core.logging.setup_logging\", side_effect=lambda **kw: calls.append(kw)):\n    runner = CliRunner()\n    result = runner.invoke(cli, [\"--verbose\", \"sub\"])\n\nassert len(calls) == 1\nassert calls[0].get(\"verbose\") == True\nassert calls[0].get(\"quiet\") == False\nassert calls[0].get(\"trace\") == False"
+    }
+  ],
+  "property_tests": [
+    {
+      "id": "TS-03-P1",
+      "property_id": "03-PROP-1",
+      "validates": [
+        "03-REQ-6.1",
+        "03-REQ-6.2",
+        "03-REQ-6.3",
+        "03-REQ-6.4",
+        "03-REQ-6.5",
+        "03-REQ-6.6"
+      ],
+      "description": "Property test verifying error_envelope() always returns a valid envelope dict for any exception type.",
+      "for_any_strategy": "Generate AgentFoxError subclass instances, click.ClickException instances, arbitrary Exception subclass instances, AND — when agentspec is installed (guarded by pytest.importorskip) — AgentError, AgentSpecError, and SessionError instances, all with Hypothesis-generated string messages. Use st.one_of() to combine all type strategies.",
+      "invariant_check": "For any exception exc: result = error_envelope(exc); assert result['ok'] == False; assert isinstance(result['error']['type'], str) and len(result['error']['type']) > 0; assert result['error']['message'] == str(exc); assert isinstance(result['error']['retryable'], bool); assert ('detail' in result['error']) == (result['error']['type'] == 'internal_error')"
+    },
+    {
+      "id": "TS-03-P2",
+      "property_id": "03-PROP-2",
+      "validates": [
+        "03-REQ-5.4",
+        "03-REQ-6.1",
+        "03-REQ-7.1"
+      ],
+      "description": "Property test verifying emit_error() always writes valid JSON to stdout that matches error_envelope() output for the same inputs.",
+      "for_any_strategy": "Generate (exception, optional state string) pairs using Hypothesis strategies; use st.one_of(st.none(), st.text()) for state",
+      "invariant_check": "import json; from io import StringIO; env = error_envelope(exc, state=state); with capture_stdout() as out: emit_error(exc, state=state); parsed = json.loads(out.getvalue()); assert parsed == env"
+    },
+    {
+      "id": "TS-03-P3",
+      "property_id": "03-PROP-3",
+      "validates": [
+        "03-REQ-3.1",
+        "03-REQ-3.2",
+        "03-REQ-3.3",
+        "03-REQ-3.4",
+        "03-REQ-3.6"
+      ],
+      "description": "Property test verifying explicit CLI flags always override AF_AGENT=1 defaults for both json_mode and quiet.",
+      "for_any_strategy": "Generate all combinations of (af_agent_set: bool, json_flag: one_of('--json', '--no-json', None), quiet_flag: one_of('--quiet', '--verbose', None))",
+      "invariant_check": "If _json_explicit sentinel is True, json_mode equals the explicit flag value regardless of AF_AGENT. If _quiet_explicit sentinel is True, quiet equals the explicit flag value regardless of AF_AGENT. When AF_AGENT=1 and no sentinel is set, json_mode=True and quiet=True."
+    },
+    {
+      "id": "TS-03-P4",
+      "property_id": "03-PROP-4",
+      "validates": [
+        "03-REQ-5.3",
+        "03-REQ-5.E1"
+      ],
+      "description": "Property test verifying emit_ok() always sets 'ok' to True in the output regardless of input dict contents.",
+      "for_any_strategy": "Generate arbitrary dicts using Hypothesis st.dictionaries(st.text(), st.one_of(st.booleans(), st.integers(), st.text(), st.none()))",
+      "invariant_check": "import json; with capture_stdout() as out: emit_ok(data); parsed = json.loads(out.getvalue()); assert parsed['ok'] == True"
+    },
+    {
+      "id": "TS-03-P5",
+      "property_id": "03-PROP-5",
+      "validates": [
+        "03-REQ-5.6"
+      ],
+      "description": "Property test verifying BrokenPipeError is always suppressed in all four emit functions when stdout pipe is closed.",
+      "for_any_strategy": "Generate arbitrary dict data and exception instances using Hypothesis strategies",
+      "invariant_check": "For each of emit(data), emit_line(data), emit_ok(data), emit_error(exc): mock stdout to raise BrokenPipeError; call the function; assert no exception propagates to the caller"
+    },
+    {
+      "id": "TS-03-P6",
+      "property_id": "03-PROP-6",
+      "validates": [
+        "03-REQ-6.2"
+      ],
+      "description": "Property test verifying all AgentFoxError subclasses always produce snake_case type field and never fall through to internal_error.",
+      "for_any_strategy": "Generate AgentFoxError subclasses dynamically using Hypothesis strategies: st.from_regex(r'[A-Z][a-zA-Z]+Error') for class names, create class via type(), instantiate with st.text() message",
+      "invariant_check": "result = error_envelope(exc); assert result['error']['type'] != 'internal_error'; import re; expected_type = re.sub(r'(?<!^)(?=[A-Z])', '_', type(exc).__name__).lower(); assert result['error']['type'] == expected_type"
+    },
+    {
+      "id": "TS-03-P7",
+      "property_id": "03-PROP-7",
+      "validates": [
+        "03-REQ-4.1",
+        "03-REQ-4.2",
+        "03-REQ-4.3",
+        "03-REQ-4.4",
+        "03-REQ-4.8"
+      ],
+      "description": "Property test verifying OutputManager format dispatch is mutually exclusive: emit_json writes iff json_mode=True, emit_human writes iff json_mode=False, banner writes iff both json_mode=False and quiet=False.",
+      "for_any_strategy": "Generate all boolean combinations of (json_mode, quiet) using Hypothesis st.booleans()",
+      "invariant_check": "For emit_json: output_present == json_mode; for emit_human: output_present == (not json_mode); for banner: output_present == (not json_mode and not quiet); these conditions are mutually exclusive with their no-op cases"
+    },
+    {
+      "id": "TS-03-P8",
+      "property_id": "03-PROP-8",
+      "validates": [
+        "03-REQ-2.3",
+        "03-REQ-2.E1"
+      ],
+      "description": "Property test verifying get_output_manager() fallback always returns fixed defaults regardless of AF_AGENT env var value.",
+      "for_any_strategy": "Generate arbitrary AF_AGENT env var values using Hypothesis st.one_of(st.none(), st.text())",
+      "invariant_check": "With no active Click context and AF_AGENT set to any generated value: om = get_output_manager(); assert om.json_mode == False; assert om.quiet == False; assert om.verbose == False; assert om.trace == False"
+    }
+  ],
+  "edge_case_tests": [
+    {
+      "id": "TS-03-E1",
+      "requirement_id": "03-REQ-1.E1",
+      "kind": "unit",
+      "description": "Verifies that attempting to import a submodule-internal symbol from agentfox.io raises ImportError.",
+      "preconditions": [
+        "agentfox.io package installed"
+      ],
+      "input": "from agentfox.io import handle_cli_errors",
+      "expected": "ImportError raised",
+      "assertion_pseudocode": "try:\n    from agentfox.io import handle_cli_errors\n    assert False, \"Expected ImportError\"\nexcept ImportError:\n    pass  # correct behavior"
+    },
+    {
+      "id": "TS-03-E2",
+      "requirement_id": "03-REQ-2.E1",
+      "kind": "unit",
+      "description": "Verifies get_output_manager() fallback returns json_mode=False even when AF_AGENT=1 is set in the environment.",
+      "preconditions": [
+        "No active Click context",
+        "AF_AGENT=1 set in environment"
+      ],
+      "input": "Call get_output_manager() outside Click context with AF_AGENT=1 in env",
+      "expected": "Returns OutputManager with json_mode=False, quiet=False, verbose=False, trace=False",
+      "assertion_pseudocode": "import os\nfrom agentfox.io import get_output_manager\nos.environ[\"AF_AGENT\"] = \"1\"\ntry:\n    om = get_output_manager()  # no Click context\n    assert om.json_mode == False, \"AF_AGENT should not affect fallback\"\n    assert om.quiet == False\n    assert om.verbose == False\n    assert om.trace == False\nfinally:\n    del os.environ[\"AF_AGENT\"]"
+    },
+    {
+      "id": "TS-03-E3",
+      "requirement_id": "03-REQ-3.E1",
+      "kind": "unit",
+      "description": "Verifies AF_AGENT set to non-'1' values like 'true', 'yes', 'on', '0', or empty string does not activate agent mode.",
+      "preconditions": [
+        "AgentFoxGroup CLI available with common_options"
+      ],
+      "input": "Invoke CLI with AF_AGENT='true', 'yes', 'on', '0', '' respectively",
+      "expected": "OutputManager has json_mode=False and quiet=False for all non-'1' values",
+      "assertion_pseudocode": "from click.testing import CliRunner\nfrom agentfox.io import AgentFoxGroup, common_options\nimport click\n\n@click.group(cls=AgentFoxGroup)\n@common_options\ndef cli(): pass\n\ncaptured = []\n@cli.command()\n@click.pass_context\ndef sub(ctx):\n    captured.append(ctx.obj[\"output\"])\n\nfor bad_val in [\"true\", \"yes\", \"on\", \"0\", \"\"]:\n    captured.clear()\n    runner = CliRunner(env={\"AF_AGENT\": bad_val})\n    runner.invoke(cli, [\"sub\"])\n    assert captured[0].json_mode == False, f\"AF_AGENT={bad_val!r} wrongly activated json_mode\"\n    assert captured[0].quiet == False, f\"AF_AGENT={bad_val!r} wrongly activated quiet\""
+    },
+    {
+      "id": "TS-03-E4",
+      "requirement_id": "03-REQ-5.E1",
+      "kind": "unit",
+      "description": "Verifies emit_ok() overwrites a caller-supplied 'ok': False with True in the output.",
+      "preconditions": [
+        "agentfox.io.json module available"
+      ],
+      "input": "Call emit_ok({'ok': False, 'result': 'done'})",
+      "expected": "Emitted JSON contains 'ok': true; caller's 'ok': false is silently overwritten",
+      "assertion_pseudocode": "import json\nfrom agentfox.io import emit_ok\nwith capture_stdout() as out:\n    emit_ok({\"ok\": False, \"result\": \"done\"})\nparsed = json.loads(out.getvalue())\nassert parsed[\"ok\"] == True\nassert parsed[\"result\"] == \"done\""
+    },
+    {
+      "id": "TS-03-E5",
+      "requirement_id": "03-REQ-5.E2",
+      "kind": "unit",
+      "description": "Verifies read_stdin() raises json.JSONDecodeError for malformed JSON input.",
+      "preconditions": [
+        "agentfox.io.json module available",
+        "stdin mocked as pipe with malformed JSON"
+      ],
+      "input": "Call read_stdin() with stdin containing 'not valid json'",
+      "expected": "json.JSONDecodeError propagates to caller",
+      "assertion_pseudocode": "import json\nfrom agentfox.io import read_stdin\nwith mock_stdin(b\"not valid json\"):\n    try:\n        read_stdin()\n        assert False, \"Expected JSONDecodeError\"\n    except json.JSONDecodeError:\n        pass  # expected"
+    },
+    {
+      "id": "TS-03-E6",
+      "requirement_id": "03-REQ-5.E3",
+      "kind": "unit",
+      "description": "Verifies read_stdin() raises UnicodeDecodeError for non-UTF-8 bytes in stdin.",
+      "preconditions": [
+        "agentfox.io.json module available",
+        "stdin mocked as pipe with non-UTF-8 bytes"
+      ],
+      "input": "Call read_stdin() with stdin containing bytes b'\\xff\\xfe' (invalid UTF-8)",
+      "expected": "UnicodeDecodeError propagates to caller",
+      "assertion_pseudocode": "from agentfox.io import read_stdin\nwith mock_stdin(b\"\\xff\\xfe\"):\n    try:\n        read_stdin()\n        assert False, \"Expected UnicodeDecodeError\"\n    except UnicodeDecodeError:\n        pass  # expected"
+    },
+    {
+      "id": "TS-03-E7",
+      "requirement_id": "03-REQ-6.E1",
+      "kind": "unit",
+      "description": "Verifies error_envelope() maps agentspec exceptions to internal_error when agentspec is not installed.",
+      "preconditions": [
+        "agentspec is NOT installed",
+        "agentfox.io.errors module available"
+      ],
+      "input": "Pass an exception of a class that matches agentspec exception names to error_envelope()",
+      "expected": "Envelope has type='internal_error', retryable=False, and detail field; no ImportError raised",
+      "assertion_pseudocode": "# Simulate agentspec not available by testing the fallback\nfrom agentfox.io import error_envelope\n\n# Create a mock that behaves like AgentError but is not the real one\nclass FakeAgentError(Exception): pass\nexc = FakeAgentError(\"agent error message\")\nresult = error_envelope(exc)\nassert result[\"error\"][\"type\"] == \"internal_error\"\nassert result[\"error\"][\"retryable\"] == False\nassert \"detail\" in result[\"error\"]"
+    },
+    {
+      "id": "TS-03-E8",
+      "requirement_id": "03-REQ-7.E1",
+      "kind": "unit",
+      "description": "Verifies AgentFoxGroup re-raises SystemExit(0) without routing through cli_error_handler.",
+      "preconditions": [
+        "AgentFoxGroup CLI available"
+      ],
+      "input": "Invoke subcommand that calls sys.exit(0)",
+      "expected": "Exit code 0; no error envelope emitted to stdout; cli_error_handler not called",
+      "assertion_pseudocode": "from click.testing import CliRunner\nfrom agentfox.io import AgentFoxGroup\nimport click, sys\n\n@click.group(cls=AgentFoxGroup)\ndef cli(): pass\n\n@cli.command()\ndef sub():\n    sys.exit(0)\n\nrunner = CliRunner()\nresult = runner.invoke(cli, [\"sub\"])\nassert result.exit_code == 0\nassert result.output.strip() == \"\"  # no error envelope"
+    },
+    {
+      "id": "TS-03-E9",
+      "requirement_id": "03-REQ-7.E2",
+      "kind": "unit",
+      "description": "Verifies AgentFoxGroup re-raises KeyboardInterrupt without routing through cli_error_handler.",
+      "preconditions": [
+        "AgentFoxGroup CLI available"
+      ],
+      "input": "Subcommand that raises KeyboardInterrupt",
+      "expected": "KeyboardInterrupt propagates; no error envelope emitted; no sys.exit(1) called by the group",
+      "assertion_pseudocode": "from click.testing import CliRunner\nfrom agentfox.io import AgentFoxGroup\nimport click\nimport json\n\n@click.group(cls=AgentFoxGroup)\ndef cli(): pass\n\n@cli.command()\ndef sub():\n    raise KeyboardInterrupt()\n\nrunner = CliRunner()\nresult = runner.invoke(cli, [\"sub\"])\n\n# 1. KeyboardInterrupt must propagate — CliRunner stores it in result.exception\nassert isinstance(result.exception, KeyboardInterrupt), (\n    f\"expected KeyboardInterrupt to propagate, got {type(result.exception).__name__}\"\n)\n\n# 2. AgentFoxGroup must NOT call sys.exit(1) for KeyboardInterrupt.\n#    CliRunner translates KI to exit_code 1 itself, so we cannot distinguish\n#    KI-from-propagation vs sys.exit(1) via exit_code alone. But we CAN verify\n#    that no error envelope was emitted — if the group routed KI through\n#    cli_error_handler, an error envelope would appear in stdout.\nassert result.output.strip() == \"\" or not _is_json_error_envelope(result.output), (\n    \"AgentFoxGroup must not emit an error envelope for KeyboardInterrupt\"\n)\n\ndef _is_json_error_envelope(text):\n    try:\n        parsed = json.loads(text)\n        return parsed.get(\"ok\") == False and \"error\" in parsed\n    except (json.JSONDecodeError, TypeError):\n        return False"
+    },
+    {
+      "id": "TS-03-E10",
+      "requirement_id": "03-REQ-8.E1",
+      "kind": "unit",
+      "description": "Verifies StatusSpinner falls back to Console(stderr=True) with no styling when theme=None.",
+      "preconditions": [
+        "agentfox.io.spinner module available",
+        "non-TTY environment"
+      ],
+      "input": "Create StatusSpinner with theme=None; call log() and update()",
+      "expected": "Output produced on stderr without AttributeError or TypeError; no custom styling applied",
+      "assertion_pseudocode": "from agentfox.io import StatusSpinner\nwith mock_non_tty():\n    with capture_stderr() as err:\n        with StatusSpinner(\"msg\", quiet=False, theme=None) as s:\n            s.log(\"log message\")\n            s.update(\"update message\")\nassert \"log message\" in err.getvalue()\nassert \"update message\" in err.getvalue()"
+    },
+    {
+      "id": "TS-03-E11",
+      "requirement_id": "03-REQ-11.E1",
+      "kind": "unit",
+      "description": "Verifies that if BannerGroup to AgentFoxGroup wiring causes blocking regressions, agentfox/io/ module still functions independently.",
+      "preconditions": [
+        "agentfox/io/ module installed and tested independently of af/app.py wiring"
+      ],
+      "input": "Import and use all agentfox.io public symbols without invoking af CLI",
+      "expected": "All public symbols work correctly; module is functional independent of af/app.py wiring status",
+      "assertion_pseudocode": "from agentfox.io import (OutputManager, StatusSpinner, get_output_manager, emit, emit_ok,\n    emit_line, emit_error, read_stdin, error_envelope, AgentFoxGroup, common_options, exit_codes)\n\n# Basic smoke checks\nom = OutputManager(json_mode=False, quiet=False, verbose=False, trace=False)\nassert om.json_mode == False\nassert callable(get_output_manager)\nassert callable(emit)"
+    }
+  ],
+  "smoke_tests": [
+    {
+      "id": "TS-03-SMOKE-1",
+      "execution_path_id": "03-PATH-1",
+      "description": "End-to-end smoke test for agent mode invocation: AF_AGENT=1 causes JSON output with ok=true for a successful subcommand.",
+      "trigger": "Invoke AgentFoxGroup CLI with AF_AGENT=1 set and no explicit format flags; subcommand calls emit_ok({'result': 'done'})",
+      "real_components": [
+        "AgentFoxGroup",
+        "OutputManager",
+        "common_options",
+        "emit_ok"
+      ],
+      "mockable": [
+        "setup_logging"
+      ],
+      "expected_effects": [
+        "stdout receives pretty-printed JSON with 'ok': true and 'result': 'done' with indent=2",
+        "stderr receives no banner output",
+        "exit code is 0",
+        "OutputManager constructed with json_mode=True and quiet=True"
+      ]
+    },
+    {
+      "id": "TS-03-SMOKE-2",
+      "execution_path_id": "03-PATH-2",
+      "description": "End-to-end smoke test for structured JSON error envelope when an AgentFoxError is raised in json_mode.",
+      "trigger": "Invoke CLI with --json flag; subcommand raises ConfigError('Config not found'); AgentFoxGroup catches and routes",
+      "real_components": [
+        "AgentFoxGroup",
+        "OutputManager",
+        "cli_error_handler",
+        "emit_error",
+        "error_envelope"
+      ],
+      "mockable": [
+        "setup_logging"
+      ],
+      "expected_effects": [
+        "stdout receives JSON with 'ok': false, 'error.type': 'config_error', 'error.message': 'Config not found', 'error.retryable': false",
+        "exit code is 1",
+        "No plain text error on stderr"
+      ]
+    },
+    {
+      "id": "TS-03-SMOKE-3",
+      "execution_path_id": "03-PATH-3",
+      "description": "End-to-end smoke test for plain-text stderr error output in human mode when an exception is raised.",
+      "trigger": "Invoke CLI without format flags and without AF_AGENT=1; subcommand raises ValueError('something broke'); AgentFoxGroup catches and routes",
+      "real_components": [
+        "AgentFoxGroup",
+        "OutputManager",
+        "cli_error_handler"
+      ],
+      "mockable": [
+        "setup_logging"
+      ],
+      "expected_effects": [
+        "stderr receives plain text 'something broke'",
+        "stdout receives no JSON",
+        "Banner is rendered to stderr before the error (json_mode=False, quiet=False)",
+        "exit code is 1"
+      ]
+    },
+    {
+      "id": "TS-03-SMOKE-4",
+      "execution_path_id": "03-PATH-4",
+      "description": "End-to-end smoke test for StatusSpinner in non-TTY CI environment printing plain text lines to stderr.",
+      "trigger": "CLI command creates StatusSpinner with theme=None in non-TTY environment; calls update() and log()",
+      "real_components": [
+        "StatusSpinner"
+      ],
+      "mockable": [
+        "sys.stderr.isatty (mocked to return False)"
+      ],
+      "expected_effects": [
+        "stderr receives 'Step 1 complete' as plain text line",
+        "stderr receives 'Detail logged' as plain text line",
+        "No Rich animation occurs",
+        "No exception raised"
+      ]
+    },
+    {
+      "id": "TS-03-SMOKE-5",
+      "execution_path_id": "03-PATH-5",
+      "description": "End-to-end smoke test for AF_AGENT=1 being overridden by explicit --no-json flag.",
+      "trigger": "Invoke CLI with AF_AGENT=1 in environment and explicit --no-json flag; subcommand calls emit_human()",
+      "real_components": [
+        "AgentFoxGroup",
+        "OutputManager",
+        "common_options"
+      ],
+      "mockable": [
+        "setup_logging"
+      ],
+      "expected_effects": [
+        "OutputManager has json_mode=False and quiet=True",
+        "stdout receives plain text output from emit_human()",
+        "Banner is suppressed because quiet=True",
+        "exit code is 0"
+      ]
+    },
+    {
+      "id": "TS-03-SMOKE-6",
+      "execution_path_id": "03-PATH-6",
+      "description": "End-to-end smoke test for read_stdin() consuming piped JSON input and returning parsed dict.",
+      "trigger": "CLI command calls read_stdin() with stdin piped as '{\"key\": \"val\"}'",
+      "real_components": [
+        "read_stdin"
+      ],
+      "mockable": [
+        "sys.stdin (mocked as non-TTY pipe with JSON bytes)"
+      ],
+      "expected_effects": [
+        "read_stdin() returns {'key': 'val'}",
+        "No exception raised",
+        "Function blocks until EOF then returns"
+      ]
+    },
+    {
+      "id": "TS-03-SMOKE-7",
+      "execution_path_id": "03-PATH-7",
+      "description": "End-to-end smoke test for --version eager option using click.echo() before OutputManager is constructed.",
+      "trigger": "Invoke 'af --version' via CliRunner",
+      "real_components": [
+        "AgentFoxGroup",
+        "af/app.py --version callback"
+      ],
+      "mockable": [],
+      "expected_effects": [
+        "Version string written to stdout via click.echo()",
+        "No KeyError or AttributeError raised",
+        "Process exits with code 0",
+        "OutputManager is never constructed (SystemExit before invoke completes)"
+      ]
+    },
+    {
+      "id": "TS-03-SMOKE-8",
+      "execution_path_id": "03-PATH-8",
+      "description": "End-to-end smoke test for emit_error() with state parameter including 'state' in the top-level envelope.",
+      "trigger": "CLI command calls emit_error(exc, state='executing') where exc is an AgentError with retryable=True",
+      "real_components": [
+        "emit_error",
+        "error_envelope"
+      ],
+      "mockable": [
+        "agentspec.errors.AgentError (or use real if installed)"
+      ],
+      "expected_effects": [
+        "stdout receives JSON with 'ok': false, 'state': 'executing', 'error.type': 'agent_error', 'error.retryable': true",
+        "Output is valid JSON parseable by json.loads()",
+        "No exception raised"
+      ]
+    }
+  ],
+  "coverage": {
+    "requirements_covered": [],
+    "properties_covered": [],
+    "paths_covered": [],
+    "gaps": []
+  }
+}

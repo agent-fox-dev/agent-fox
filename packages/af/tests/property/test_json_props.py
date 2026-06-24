@@ -223,7 +223,7 @@ class TestFlagPrecedence:
     @settings(max_examples=10)
     def test_cli_flag_overrides_stdin(self, cli_val: int) -> None:
         """CLI flag value takes precedence over stdin JSON value."""
-        from af.json_io import read_stdin
+        from agentfox.io import read_stdin
 
         stdin_val = cli_val + 1  # Always different from cli_val
 

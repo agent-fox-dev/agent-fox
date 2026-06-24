@@ -4,7 +4,8 @@ Runs continuously, polling for issues labelled ``af:fix`` and processing
 them through the full archetype pipeline.  A pull request is opened per
 fix.
 
-Requirements: 61-REQ-1.1, 61-REQ-1.2, 61-REQ-1.3, 61-REQ-1.4,
+Requirements: 04-REQ-2.1,
+              61-REQ-1.1, 61-REQ-1.2, 61-REQ-1.3, 61-REQ-1.4,
               85-REQ-2.1, 85-REQ-4.1, 85-REQ-6.1,
               125-REQ-4.1, 125-REQ-4.2, 125-REQ-4.3, 125-REQ-4.4
 """
@@ -18,10 +19,14 @@ import sys
 from pathlib import Path
 
 import click
+from agentfox.io import exit_codes
+
+from af import get_output_manager
 
 logger = logging.getLogger(__name__)
 
 
+@exit_codes(**{"0": "Success", "1": "Startup failure", "130": "Immediate abort"})
 @click.command("night-shift")
 @click.pass_context
 def night_shift_cmd(
@@ -39,6 +44,9 @@ def night_shift_cmd(
       1 -- startup failure (platform not configured, etc.)
       130 -- immediate abort (double SIGINT)
     """
+    # 04-REQ-2.1: retrieve OutputManager from context
+    om = get_output_manager(ctx)
+
     from agentfox.nightshift.daemon import DaemonRunner, SharedBudget
     from agentfox.nightshift.engine import (
         NightShiftEngine,
@@ -77,7 +85,7 @@ def night_shift_cmd(
         from agentfox.knowledge.duckdb_sink import DuckDBSink
         from agentfox.knowledge.sink import SinkDispatcher
 
-        _knowledge_db = open_knowledge_store(config.knowledge)
+        _knowledge_db = open_knowledge_store(config.knowledge, read_only=False)
         _db_sink = DuckDBSink(_knowledge_db.connection)
         _sink_dispatcher = SinkDispatcher([_db_sink])
     except Exception:
@@ -85,6 +93,44 @@ def night_shift_cmd(
             "Failed to open knowledge store for night-shift audit — cost tracking will be unavailable for this session",
             exc_info=True,
         )
+
+    # 06-REQ-5.2, 06-REQ-6.2: Run legacy file migrations and errata
+    # indexing at startup with the read-write connection, before any
+    # sessions are dispatched.
+    if _knowledge_db is not None:
+        from agentfox.knowledge.errata import index_errata_from_markdown
+        from agentfox.session.context import _migrate_legacy_files
+
+        _conn = _knowledge_db.connection
+
+        # Migrate legacy files for each spec (06-REQ-5.2)
+        from agentfox.core.config import resolve_spec_root
+
+        _specs_path = resolve_spec_root(config, project_root)
+        if _specs_path.is_dir():
+            for _spec_dir in sorted(_specs_path.iterdir()):
+                if not _spec_dir.is_dir():
+                    continue
+                _spec_name = _spec_dir.name
+                try:
+                    _migrate_legacy_files(_conn, _spec_dir, _spec_name)
+                except Exception:
+                    # 06-REQ-5.E1: Log error with spec context and continue
+                    logger.warning(
+                        "Failed to migrate legacy files for spec %s, continuing",
+                        _spec_name,
+                        exc_info=True,
+                    )
+
+        # Index errata markdown files (06-REQ-6.2)
+        try:
+            index_errata_from_markdown(_conn, project_root)
+        except Exception:
+            # 06-REQ-6.E1: Log error and continue startup
+            logger.warning(
+                "Failed to index errata from markdown, continuing",
+                exc_info=True,
+            )
 
     # --- ProgressDisplay setup (81-REQ-2.1) ---------------------------------
     from agentfox.core.config import ThemeConfig
@@ -94,8 +140,32 @@ def night_shift_cmd(
     theme_config = getattr(config, "theme", None) or ThemeConfig()
     theme = create_theme(theme_config)
     quiet = ctx.obj.get("quiet", False) if isinstance(ctx.obj, dict) else False
-    progress = ProgressDisplay(theme, quiet=quiet)
+    progress = ProgressDisplay(theme, quiet=quiet or om.json_mode)
     progress.start()
+
+    # 04-REQ-3.7: JSONL progress events for agent-mode
+    task_cb = progress.task_callback
+    if om.json_mode:
+        from agentfox.io.progress import ProgressDisplay as JsonlProgressDisplay
+
+        _jsonl_progress = JsonlProgressDisplay(output_manager=om, json_mode=True)
+        _ui_task_cb = progress.task_callback
+
+        def _jsonl_task_callback(event: object) -> None:
+            """Bridge UI task events to JSONL progress events."""
+            _ui_task_cb(event)
+            node_id = getattr(event, "node_id", None)
+            status = getattr(event, "status", "")
+            if status == "completed":
+                _jsonl_progress.task_started(node_id=node_id)
+                _jsonl_progress.task_completed(node_id=node_id)
+            elif status == "failed":
+                error_msg = getattr(event, "error_message", "") or ""
+                _jsonl_progress.task_failed(node_id=node_id, error=error_msg)
+            else:
+                _jsonl_progress.task_started(node_id=node_id)
+
+        task_cb = _jsonl_task_callback
     # -----------------------------------------------------------------------
 
     # Create the engine for business logic (fix pipeline).
@@ -105,7 +175,7 @@ def night_shift_cmd(
         config=config,
         platform=platform,
         activity_callback=progress.activity_callback,
-        task_callback=progress.task_callback,
+        task_callback=task_cb,
         status_callback=progress.print_status,
         spinner_callback=progress.update_spinner_text,
         sink_dispatcher=_sink_dispatcher,
@@ -184,6 +254,14 @@ def night_shift_cmd(
             pass
 
     # Pull detailed stats from the engine state (streams don't track these).
-    click.echo(
-        f"Night-shift stopped. Issues fixed: {engine.state.issues_fixed}, Total cost: ${daemon_state.total_cost:.4f}"
-    )
+    summary = {
+        "status": "stopped",
+        "issues_fixed": engine.state.issues_fixed,
+        "total_cost": daemon_state.total_cost,
+    }
+    if om.json_mode:
+        om.emit(summary)
+    else:
+        fixed = engine.state.issues_fixed
+        cost = daemon_state.total_cost
+        click.echo(f"Night-shift stopped. Issues fixed: {fixed}, Total cost: ${cost:.4f}")

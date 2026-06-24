@@ -572,8 +572,7 @@ class FixPipeline:
             context = f"{spec.system_context}\n\n{rendered}"
         except Exception:
             logger.warning(
-                "Failed to build afspec from triage for issue #%d, "
-                "falling back to ad-hoc criteria rendering",
+                "Failed to build afspec from triage for issue #%d, falling back to ad-hoc criteria rendering",
                 spec.issue_number,
                 exc_info=True,
             )
@@ -590,10 +589,7 @@ class FixPipeline:
         )
 
         # Build task prompt with subtask list reference
-        task_prompt = (
-            f"{spec.task_prompt}\n\n"
-            "Refer to the tasks subtask list in the context above"
-        )
+        task_prompt = f"{spec.task_prompt}\n\nRefer to the tasks subtask list in the context above"
 
         # Inject prior attempt context (prepended) and review feedback (appended)
         if prior_context:
@@ -647,8 +643,7 @@ class FixPipeline:
             context = f"{spec.system_context}\n\n{rendered}"
         except Exception:
             logger.warning(
-                "Failed to build afspec from triage for issue #%d, "
-                "falling back to ad-hoc criteria rendering",
+                "Failed to build afspec from triage for issue #%d, falling back to ad-hoc criteria rendering",
                 spec.issue_number,
                 exc_info=True,
             )

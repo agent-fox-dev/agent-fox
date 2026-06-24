@@ -590,3 +590,88 @@ class TestPostmortemPathInSummary:
             result = cli_runner.invoke(main, ["code"])
 
         assert "Post-mortem:" not in result.output
+
+
+class TestArchiveFlag:
+    """Tests for the --archive flag on the code command."""
+
+    def test_archive_flag_accepted(self, cli_runner: CliRunner) -> None:
+        """The --archive flag is recognized by the CLI."""
+        result = cli_runner.invoke(main, ["code", "--help"])
+        assert "--archive" in result.output
+
+    def test_archive_moves_completed_specs(self, cli_runner: CliRunner, tmp_path: Path) -> None:
+        """Completed specs are moved to archive/ after a successful run."""
+        specs_dir = tmp_path / "specs"
+        specs_dir.mkdir()
+        archive_dir = specs_dir / "archive"
+        archive_dir.mkdir()
+        spec_dir = specs_dir / "01_foo"
+        spec_dir.mkdir()
+        (spec_dir / "requirements.json").write_text("{}")
+
+        state = _make_execution_state(
+            run_status="completed",
+            node_states={"01_foo:1": "completed", "01_foo:2": "completed"},
+        )
+        with (
+            patch("af.code.run_code", _mock_run_code(state)),
+            patch("agentfox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
+        ):
+            mock_db_path.exists.return_value = True
+            result = cli_runner.invoke(main, ["code", "--archive", "--specs-dir", str(specs_dir)])
+
+        assert result.exit_code == 0
+        assert (archive_dir / "01_foo").is_dir()
+        assert not spec_dir.exists()
+        assert "Archived 1 spec(s)" in result.output
+
+    def test_archive_skips_partial_specs(self, cli_runner: CliRunner, tmp_path: Path) -> None:
+        """Specs with non-completed nodes are not archived."""
+        specs_dir = tmp_path / "specs"
+        specs_dir.mkdir()
+        archive_dir = specs_dir / "archive"
+        archive_dir.mkdir()
+        spec_dir = specs_dir / "01_foo"
+        spec_dir.mkdir()
+
+        state = _make_execution_state(
+            run_status="completed",
+            node_states={"01_foo:1": "completed", "01_foo:2": "pending"},
+        )
+        with (
+            patch("af.code.run_code", _mock_run_code(state)),
+            patch("agentfox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
+        ):
+            mock_db_path.exists.return_value = True
+            result = cli_runner.invoke(main, ["code", "--archive", "--specs-dir", str(specs_dir)])
+
+        assert result.exit_code == 0
+        assert spec_dir.is_dir()
+        assert "Archived" not in result.output
+
+    def test_archive_dry_run_conflict(self, cli_runner: CliRunner) -> None:
+        """--archive and --dry-run are mutually exclusive."""
+        result = cli_runner.invoke(main, ["code", "--archive", "--dry-run"])
+        assert result.exit_code == 1
+        assert "--archive" in result.output
+
+    def test_archive_missing_archive_dir(self, cli_runner: CliRunner, tmp_path: Path) -> None:
+        """Warning when archive directory does not exist."""
+        specs_dir = tmp_path / "specs"
+        specs_dir.mkdir()
+        # No archive/ subdirectory
+
+        state = _make_execution_state(
+            run_status="completed",
+            node_states={"01_foo:1": "completed"},
+        )
+        with (
+            patch("af.code.run_code", _mock_run_code(state)),
+            patch("agentfox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
+        ):
+            mock_db_path.exists.return_value = True
+            result = cli_runner.invoke(main, ["code", "--archive", "--specs-dir", str(specs_dir)])
+
+        assert result.exit_code == 0
+        assert "archive directory does not exist" in result.output.lower()

@@ -30,9 +30,8 @@ Treat this file as executable workflow policy.
 
 ## Constraints
 
-Read-only. Use `ls`, `cat`, `git` (log, diff, show, status), `wc`, `head`,
-`tail` only. Do NOT use `grep` or `find`. Do NOT create, modify, or delete
-files.
+Read-only. Use `ls`, `cat`, `git` (log, diff, show, status), `grep`, `find`,
+`wc`, `head`, `tail`. Do NOT create, modify, or delete files.
 
 ## Output Format
 
@@ -46,31 +45,6 @@ If there are no findings, output `{"findings": []}`.
 
 ## CRITICAL OUTPUT RULES
 
-Your final message — the very last text you produce before the session ends —
-MUST be a single, bare JSON object and nothing else.
-
-- First character: `{`. Last character: `}`. No exceptions.
-- No preamble ("Here are my findings:"), no postscript ("Let me know if…").
-- No markdown fences. No prose before or after the JSON.
-- Use exactly the field names shown above: `findings`, `severity`,
-  `description`, `requirement_ref`.
-- Intermediate messages (between tool calls) may contain analysis text.
-  Only the **final message** is parsed; everything before it is discarded.
-
-Violating these rules triggers an expensive retry loop (re-running the
-full session). Produce clean JSON the first time.
-
-INCORRECT (triggers retry):
-
-    Here are my findings:
-    {"findings": [...]}
-
-INCORRECT (triggers retry):
-
-    ```json
-    {"findings": [...]}
-    ```
-
-CORRECT:
-
-    {"findings": [{"severity": "major", "description": "...", "requirement_ref": "05-REQ-1.1"}]}
+Your final message MUST be bare JSON only — first character `{`, last `}`.
+No preamble, no postscript, no markdown fences, no prose. Only the final
+message is parsed; intermediate messages may contain analysis text.

@@ -1,0 +1,588 @@
+{
+  "$schema": null,
+  "spec_id": "05",
+  "spec_name": "spec_agentic_cli",
+  "schema_version": 1,
+  "test_cases": [
+    {
+      "id": "TS-05-1",
+      "requirement_id": "05-REQ-1.1",
+      "kind": "unit",
+      "description": "Verify that spec/cli.py declares its root Click group using cls=AgentFoxGroup instead of the bare @click.group() decorator.",
+      "preconditions": [
+        "spec/cli.py has been migrated",
+        "agentfox.io module is installed and importable"
+      ],
+      "input": "Import the root CLI group object from spec/cli.py",
+      "expected": "The root group object's class is AgentFoxGroup (i.e., type(root_group) is AgentFoxGroup)",
+      "assertion_pseudocode": "from spec.cli import cli; assert type(cli) == AgentFoxGroup OR isinstance(cli, AgentFoxGroup)"
+    },
+    {
+      "id": "TS-05-2",
+      "requirement_id": "05-REQ-1.2",
+      "kind": "unit",
+      "description": "Verify that spec/cli.py contains no manual banner rendering or config loading code after migration.",
+      "preconditions": [
+        "spec/cli.py has been migrated",
+        "Access to spec/cli.py source file"
+      ],
+      "input": "Read the source text of spec/cli.py",
+      "expected": "Source contains no calls to manual banner rendering functions or manual config loading that predated AgentFoxGroup adoption",
+      "assertion_pseudocode": "source = read_file('spec/cli.py'); assert 'render_banner' not in source; assert manual_config_load_pattern not in source"
+    },
+    {
+      "id": "TS-05-3",
+      "requirement_id": "05-REQ-1.3",
+      "kind": "unit",
+      "description": "Verify that _json_error_exit() and _error_type() helper functions have been removed from spec/cli.py.",
+      "preconditions": [
+        "spec/cli.py has been migrated"
+      ],
+      "input": "Read the source text of spec/cli.py",
+      "expected": "Neither '_json_error_exit' nor '_error_type' appear as definitions or calls in spec/cli.py",
+      "assertion_pseudocode": "source = read_file('spec/cli.py'); assert '_json_error_exit' not in source; assert '_error_type' not in source"
+    },
+    {
+      "id": "TS-05-4",
+      "requirement_id": "05-REQ-1.4",
+      "kind": "integration",
+      "description": "Verify that when AF_AGENT=1 is set, the spec CLI suppresses banner output and routes errors through the AgentFoxGroup JSON error handler.",
+      "preconditions": [
+        "spec CLI is installed",
+        "agentfox.io module is installed",
+        "Environment variable AF_AGENT=1 is set"
+      ],
+      "input": "Invoke `AF_AGENT=1 spec --help` or any valid spec subcommand",
+      "expected": "No banner text is written to stdout or stderr; any error is emitted as a JSON object",
+      "assertion_pseudocode": "result = run_cli(['spec', '--help'], env={'AF_AGENT': '1'}); assert 'banner' not in result.stdout.lower(); assert 'banner' not in result.stderr.lower()"
+    },
+    {
+      "id": "TS-05-5",
+      "requirement_id": "05-REQ-1.5",
+      "kind": "integration",
+      "description": "Verify that any unhandled exception propagating to the root group is formatted as a JSON error envelope with a non-zero exit code.",
+      "preconditions": [
+        "spec CLI is installed",
+        "A subcommand can be triggered to raise an unhandled exception (e.g., by patching internals)"
+      ],
+      "input": "Invoke a spec subcommand that raises an unhandled RuntimeError",
+      "expected": "stdout contains a JSON object with 'ok: false' or an error field; process exits with non-zero exit code",
+      "assertion_pseudocode": "result = run_cli_with_exception_trigger(['spec', 'render']); parsed = json.parse(result.stdout); assert parsed['ok'] == false; assert result.exit_code != 0"
+    },
+    {
+      "id": "TS-05-6",
+      "requirement_id": "05-REQ-2.1",
+      "kind": "integration",
+      "description": "Verify that spec render --json wraps markdown output in a render envelope with ok, format, content, and sections fields.",
+      "preconditions": [
+        "spec CLI is installed",
+        "A valid spec with all artifacts (requirements, test_spec, tasks) exists on disk",
+        "agentfox.io module is installed"
+      ],
+      "input": "Invoke `spec render --json --combined` for a valid spec",
+      "expected": "stdout is a JSON object containing ok=true, format='markdown', a non-empty content string, and a sections array",
+      "assertion_pseudocode": "result = run_cli(['spec', 'render', '--json', '--combined']); parsed = json.parse(result.stdout); assert parsed['ok'] == true; assert parsed['format'] == 'markdown'; assert 'content' in parsed; assert 'sections' in parsed"
+    },
+    {
+      "id": "TS-05-7",
+      "requirement_id": "05-REQ-2.2",
+      "kind": "integration",
+      "description": "Verify that spec render --combined --json returns a single merged content string in the envelope.",
+      "preconditions": [
+        "spec CLI is installed",
+        "A valid spec with multiple artifacts exists on disk"
+      ],
+      "input": "Invoke `spec render --json --combined` for a spec with requirements, test_spec, and tasks",
+      "expected": "stdout JSON has a single 'content' string (not an 'artifacts' map) containing merged markdown, plus a 'sections' array",
+      "assertion_pseudocode": "result = run_cli(['spec', 'render', '--json', '--combined']); parsed = json.parse(result.stdout); assert 'content' in parsed; assert 'artifacts' not in parsed; assert isinstance(parsed['content'], str); assert parsed['sections'] == ['requirements', 'test_spec', 'tasks']"
+    },
+    {
+      "id": "TS-05-8",
+      "requirement_id": "05-REQ-2.3",
+      "kind": "integration",
+      "description": "Verify that spec render --json without --combined returns per-artifact content under an 'artifacts' key.",
+      "preconditions": [
+        "spec CLI is installed",
+        "A valid spec with requirements, test_spec, and tasks artifacts exists on disk"
+      ],
+      "input": "Invoke `spec render --json` without --combined flag",
+      "expected": "stdout JSON has ok=true and an 'artifacts' map with keys for each artifact; no single 'content' key",
+      "assertion_pseudocode": "result = run_cli(['spec', 'render', '--json']); parsed = json.parse(result.stdout); assert parsed['ok'] == true; assert 'artifacts' in parsed; assert 'content' not in parsed; assert 'requirements' in parsed['artifacts']"
+    },
+    {
+      "id": "TS-05-9",
+      "requirement_id": "05-REQ-2.4",
+      "kind": "integration",
+      "description": "Verify that spec render without --json outputs raw markdown to stdout with no JSON wrapping.",
+      "preconditions": [
+        "spec CLI is installed",
+        "A valid spec exists on disk",
+        "AF_AGENT environment variable is not set"
+      ],
+      "input": "Invoke `spec render` without any --json flag",
+      "expected": "stdout is raw markdown text; json.parse(result.stdout) raises a parse error",
+      "assertion_pseudocode": "result = run_cli(['spec', 'render']); assert result.exit_code == 0; assert json_parse_fails(result.stdout); assert result.stdout.strip().startswith('#') OR is_markdown(result.stdout)"
+    },
+    {
+      "id": "TS-05-10",
+      "requirement_id": "05-REQ-2.5",
+      "kind": "unit",
+      "description": "Verify that spec render uses emit_ok from agentfox/io/ to construct all JSON envelopes.",
+      "preconditions": [
+        "spec/cli.py has been migrated",
+        "Access to spec/cli.py source file"
+      ],
+      "input": "Read the source text of spec/cli.py and inspect the render command implementation",
+      "expected": "The render command calls emit_ok (imported from agentfox.io) for all JSON output; no direct json.dumps or click.echo(json...) calls are present in the render handler",
+      "assertion_pseudocode": "source = read_file('spec/cli.py'); assert 'emit_ok' in source; render_section = extract_render_handler(source); assert 'json.dumps' not in render_section; assert 'click.echo' not in render_section OR render_section has no json output"
+    },
+    {
+      "id": "TS-05-11",
+      "requirement_id": "05-REQ-3.1",
+      "kind": "integration",
+      "description": "Verify that spec validate emits a structured error object with category='schema', artifact, path, message, and value fields for schema check failures.",
+      "preconditions": [
+        "spec CLI is installed",
+        "A spec artifact file exists with a known schema violation (e.g., malformed requirement ID)"
+      ],
+      "input": "Invoke `spec validate` on a spec containing a schema error",
+      "expected": "stdout JSON has valid=false; errors array contains at least one object with category='schema', non-empty artifact, path, message, and value fields",
+      "assertion_pseudocode": "result = run_cli(['spec', 'validate', '--spec', 'bad_schema_spec']); parsed = json.parse(result.stdout); assert parsed['valid'] == false; schema_errs = [e for e in parsed['errors'] if e['category'] == 'schema']; assert len(schema_errs) > 0; err = schema_errs[0]; assert 'artifact' in err; assert 'path' in err; assert 'message' in err; assert 'value' in err"
+    },
+    {
+      "id": "TS-05-12",
+      "requirement_id": "05-REQ-3.2",
+      "kind": "integration",
+      "description": "Verify that spec validate emits a structured error object with category='integrity', check, message, and requirement_id for integrity check failures.",
+      "preconditions": [
+        "spec CLI is installed",
+        "A spec with a known integrity violation exists (e.g., a requirement with no test cases in test_spec)"
+      ],
+      "input": "Invoke `spec validate` on a spec with an integrity error (missing test case coverage)",
+      "expected": "stdout JSON errors array contains at least one object with category='integrity', non-empty check, message, and requirement_id fields",
+      "assertion_pseudocode": "result = run_cli(['spec', 'validate', '--spec', 'integrity_violation_spec']); parsed = json.parse(result.stdout); integrity_errs = [e for e in parsed['errors'] if e['category'] == 'integrity']; assert len(integrity_errs) > 0; err = integrity_errs[0]; assert 'check' in err; assert 'message' in err; assert 'requirement_id' in err"
+    },
+    {
+      "id": "TS-05-13",
+      "requirement_id": "05-REQ-3.3",
+      "kind": "integration",
+      "description": "Verify that spec validate returns {valid: true, errors: []} when validation completes with no errors.",
+      "preconditions": [
+        "spec CLI is installed",
+        "A fully valid spec artifact set exists on disk with no schema or integrity errors"
+      ],
+      "input": "Invoke `spec validate` on a fully valid spec",
+      "expected": "stdout JSON is {valid: true, errors: []}; process exits with code 0",
+      "assertion_pseudocode": "result = run_cli(['spec', 'validate', '--spec', 'valid_spec']); parsed = json.parse(result.stdout); assert parsed['valid'] == true; assert parsed['errors'] == []; assert result.exit_code == 0"
+    },
+    {
+      "id": "TS-05-14",
+      "requirement_id": "05-REQ-3.4",
+      "kind": "integration",
+      "description": "Verify that spec validate returns valid=false and a non-empty errors array with exit code 1 when validation finds errors.",
+      "preconditions": [
+        "spec CLI is installed",
+        "A spec artifact set with at least one error exists on disk"
+      ],
+      "input": "Invoke `spec validate` on a spec with validation errors",
+      "expected": "stdout JSON has valid=false and errors is a non-empty array of structured error objects; exit code is 1",
+      "assertion_pseudocode": "result = run_cli(['spec', 'validate', '--spec', 'invalid_spec']); parsed = json.parse(result.stdout); assert parsed['valid'] == false; assert len(parsed['errors']) > 0; assert result.exit_code == 1"
+    },
+    {
+      "id": "TS-05-15",
+      "requirement_id": "05-REQ-3.5",
+      "kind": "unit",
+      "description": "Verify that spec validate uses emit_ok or emit from agentfox/io/ to write validation result envelopes.",
+      "preconditions": [
+        "spec/cli.py has been migrated",
+        "Access to spec/cli.py source file"
+      ],
+      "input": "Read the source text of the validate command handler in spec/cli.py",
+      "expected": "The validate handler calls emit or emit_ok (from agentfox.io) and does not use click.echo(json.dumps(...))",
+      "assertion_pseudocode": "source = read_file('spec/cli.py'); validate_section = extract_validate_handler(source); assert 'emit_ok' in validate_section OR 'emit' in validate_section; assert 'click.echo(json.dumps' not in validate_section"
+    },
+    {
+      "id": "TS-05-16",
+      "requirement_id": "05-REQ-4.1",
+      "kind": "unit",
+      "description": "Verify that spec/ui.py does not exist in the spec package after migration.",
+      "preconditions": [
+        "Migration has been completed"
+      ],
+      "input": "Check for the existence of spec/ui.py in the filesystem",
+      "expected": "spec/ui.py does not exist; file_exists('spec/ui.py') returns false",
+      "assertion_pseudocode": "assert file_exists('spec/ui.py') == false"
+    },
+    {
+      "id": "TS-05-17",
+      "requirement_id": "05-REQ-4.2",
+      "kind": "unit",
+      "description": "Verify that all StatusSpinner imports in the spec package use 'from agentfox.io import StatusSpinner'.",
+      "preconditions": [
+        "Migration has been completed",
+        "Access to all Python source files in the spec package"
+      ],
+      "input": "Search all .py files in the spec package for StatusSpinner import statements",
+      "expected": "Every StatusSpinner import uses 'from agentfox.io import StatusSpinner'; no import from spec.ui",
+      "assertion_pseudocode": "files = find_python_files('spec/'); for f in files: source = read_file(f); if 'StatusSpinner' in source: assert 'from agentfox.io import StatusSpinner' in source"
+    },
+    {
+      "id": "TS-05-18",
+      "requirement_id": "05-REQ-4.3",
+      "kind": "unit",
+      "description": "Verify that no 'from spec.ui import' statements remain anywhere in the spec codebase.",
+      "preconditions": [
+        "Migration has been completed",
+        "Access to all Python source files in the spec package"
+      ],
+      "input": "Grep all .py files under spec/ for 'from spec.ui import'",
+      "expected": "Zero matches found",
+      "assertion_pseudocode": "files = find_python_files('spec/'); for f in files: source = read_file(f); assert 'from spec.ui import' not in source"
+    },
+    {
+      "id": "TS-05-19",
+      "requirement_id": "05-REQ-5.1",
+      "kind": "unit",
+      "description": "Verify that spec/cli.py contains no calls to click.echo(json.dumps(...)) after migration.",
+      "preconditions": [
+        "Migration has been completed",
+        "Access to spec/cli.py source file"
+      ],
+      "input": "Read the source text of spec/cli.py",
+      "expected": "No occurrence of the pattern 'click.echo(json.dumps' in spec/cli.py",
+      "assertion_pseudocode": "source = read_file('spec/cli.py'); assert 'click.echo(json.dumps' not in source"
+    },
+    {
+      "id": "TS-05-20",
+      "requirement_id": "05-REQ-5.2",
+      "kind": "unit",
+      "description": "Verify that spec/cli.py contains no definition or call to _json_error_exit() after migration.",
+      "preconditions": [
+        "Migration has been completed",
+        "Access to spec/cli.py source file"
+      ],
+      "input": "Read the source text of spec/cli.py",
+      "expected": "No occurrence of '_json_error_exit' in spec/cli.py",
+      "assertion_pseudocode": "source = read_file('spec/cli.py'); assert '_json_error_exit' not in source"
+    },
+    {
+      "id": "TS-05-21",
+      "requirement_id": "05-REQ-5.3",
+      "kind": "unit",
+      "description": "Verify that _assessment_to_json() helper has been removed from spec/cli.py if its behavior was replaceable by standard serialization plus emit_ok.",
+      "preconditions": [
+        "Migration has been completed",
+        "Access to spec/cli.py source file"
+      ],
+      "input": "Read the source text of spec/cli.py",
+      "expected": "No definition of '_assessment_to_json' exists in spec/cli.py",
+      "assertion_pseudocode": "source = read_file('spec/cli.py'); assert '_assessment_to_json' not in source"
+    },
+    {
+      "id": "TS-05-22",
+      "requirement_id": "05-REQ-5.4",
+      "kind": "integration",
+      "description": "Verify that all command output is JSON envelopes when AF_AGENT=1 is set, with no mixed plain-text output.",
+      "preconditions": [
+        "spec CLI is installed",
+        "AF_AGENT=1 environment variable is set",
+        "A valid spec exists on disk"
+      ],
+      "input": "Invoke various spec subcommands (render, validate, status) with AF_AGENT=1",
+      "expected": "Every line written to stdout is valid JSON; no plain-text, banners, or raw markdown appear",
+      "assertion_pseudocode": "for cmd in [['spec', 'render'], ['spec', 'validate'], ['spec', 'status']]: result = run_cli(cmd, env={'AF_AGENT': '1'}); for line in result.stdout.strip().split('\\n'): if line: json.parse(line)  # must not raise"
+    },
+    {
+      "id": "TS-05-23",
+      "requirement_id": "05-REQ-6.1",
+      "kind": "integration",
+      "description": "Verify that all pre-existing spec test cases pass without modification after the migration.",
+      "preconditions": [
+        "Migration has been completed",
+        "pytest is installed",
+        "All spec package dependencies are installed"
+      ],
+      "input": "Run `pytest` against the full spec test suite",
+      "expected": "pytest exits with code 0 and reports zero failures",
+      "assertion_pseudocode": "result = run_command(['pytest', 'tests/']); assert result.exit_code == 0; assert '0 failed' in result.stdout OR 'passed' in result.stdout"
+    },
+    {
+      "id": "TS-05-24",
+      "requirement_id": "05-REQ-6.2",
+      "kind": "unit",
+      "description": "Verify that no test file imports from spec.ui; any that did have been updated to import from agentfox.io.",
+      "preconditions": [
+        "Migration has been completed",
+        "Access to all test files in the project"
+      ],
+      "input": "Grep all test .py files for 'from spec.ui import' or 'import spec.ui'",
+      "expected": "Zero occurrences of spec.ui imports in any test file",
+      "assertion_pseudocode": "test_files = find_python_files('tests/'); for f in test_files: source = read_file(f); assert 'from spec.ui import' not in source; assert 'import spec.ui' not in source"
+    }
+  ],
+  "property_tests": [
+    {
+      "id": "TS-05-P1",
+      "property_id": "05-PROP-1",
+      "validates": [
+        "05-REQ-2.1",
+        "05-REQ-2.2",
+        "05-REQ-2.3"
+      ],
+      "description": "For any invocation of spec render --json, the stdout JSON object always contains 'ok' and either 'content'+'sections' (combined mode) or 'artifacts' (per-artifact mode), never omitting these top-level keys.",
+      "for_any_strategy": "Generate arbitrary valid spec definitions (varying number of artifacts: 1-3, arbitrary markdown content lengths 0-10000 chars); run spec render --json and spec render --json --combined for each",
+      "invariant_check": "parsed = json.parse(stdout); assert 'ok' in parsed; if combined_mode: assert 'content' in parsed AND 'sections' in parsed; else: assert 'artifacts' in parsed"
+    },
+    {
+      "id": "TS-05-P2",
+      "property_id": "05-PROP-2",
+      "validates": [
+        "05-REQ-3.1",
+        "05-REQ-3.2",
+        "05-REQ-3.E1"
+      ],
+      "description": "For any error object in the errors array returned by spec validate, every error object contains a non-empty category field whose value is one of 'schema', 'integrity', or 'io'.",
+      "for_any_strategy": "Generate spec artifact files with varying combinations of schema errors (wrong ID format, missing fields), integrity errors (uncovered requirements), and IO errors (missing files); run spec validate for each combination",
+      "invariant_check": "parsed = json.parse(stdout); VALID_CATEGORIES = {'schema', 'integrity', 'io'}; for err in parsed['errors']: assert 'category' in err; assert err['category'] in VALID_CATEGORIES; assert len(err['category']) > 0"
+    },
+    {
+      "id": "TS-05-P3",
+      "property_id": "05-PROP-3",
+      "validates": [
+        "05-REQ-1.4",
+        "05-REQ-5.4"
+      ],
+      "description": "For any invocation of the spec CLI with AF_AGENT=1 or --json, every byte written to stdout is part of a valid JSON object with no interleaved plain-text, banners, spinners, or raw markdown.",
+      "for_any_strategy": "Generate arbitrary spec invocations (subcommands: render, validate, status; with AF_AGENT=1 or --json flag; valid and invalid spec inputs) using hypothesis or equivalent property-based testing framework",
+      "invariant_check": "result = run_cli(cmd, env={'AF_AGENT': '1'}); stdout_text = result.stdout.strip(); if stdout_text: for line in stdout_text.split('\\n'): if line.strip(): json.parse(line)  # must not raise ParseError"
+    },
+    {
+      "id": "TS-05-P4",
+      "property_id": "05-PROP-4",
+      "validates": [
+        "05-REQ-5.1",
+        "05-REQ-5.2"
+      ],
+      "description": "Static analysis of spec/cli.py shows zero occurrences of _json_error_exit, _json_error_exit(), and click.echo(json.dumps after migration.",
+      "for_any_strategy": "This is a static property; apply to the single spec/cli.py file. For generalization, also scan any files generated or modified during migration.",
+      "invariant_check": "source = read_file('spec/cli.py'); assert '_json_error_exit' not in source; assert 'click.echo(json.dumps' not in source"
+    },
+    {
+      "id": "TS-05-P5",
+      "property_id": "05-PROP-5",
+      "validates": [
+        "05-REQ-4.1",
+        "05-REQ-4.2",
+        "05-REQ-4.3"
+      ],
+      "description": "Static analysis of the entire spec package source tree shows no Python file contains 'from spec.ui import' or 'import spec.ui' after migration.",
+      "for_any_strategy": "Scan all .py files found under the spec/ package directory recursively",
+      "invariant_check": "files = find_python_files_recursive('spec/'); for f in files: source = read_file(f); assert 'from spec.ui import' not in source; assert 'import spec.ui' not in source"
+    }
+  ],
+  "edge_case_tests": [
+    {
+      "id": "TS-05-E1",
+      "requirement_id": "05-REQ-1.E1",
+      "kind": "unit",
+      "description": "Verify that the presence of the legacy _json_error_exit function alongside an AgentFoxGroup import is prevented by migration (i.e., the function is absent in the migrated source).",
+      "preconditions": [
+        "Migration has been completed",
+        "Access to spec/cli.py source file"
+      ],
+      "input": "Read spec/cli.py and check for simultaneous presence of _json_error_exit definition and AgentFoxGroup import",
+      "expected": "_json_error_exit is not present in spec/cli.py after migration; AgentFoxGroup import is present",
+      "assertion_pseudocode": "source = read_file('spec/cli.py'); assert '_json_error_exit' not in source; assert 'AgentFoxGroup' in source"
+    },
+    {
+      "id": "TS-05-E2",
+      "requirement_id": "05-REQ-2.E1",
+      "kind": "integration",
+      "description": "Verify that spec render --json emits a JSON error envelope with ok=false when the spec file does not exist or cannot be read.",
+      "preconditions": [
+        "spec CLI is installed",
+        "The target spec file does not exist on disk"
+      ],
+      "input": "Invoke `spec render --json` referencing a non-existent spec file",
+      "expected": "stdout is a JSON object with ok=false and an error message; exit code is 1; no raw traceback is printed",
+      "assertion_pseudocode": "result = run_cli(['spec', 'render', '--json', '--spec', 'nonexistent_spec']); parsed = json.parse(result.stdout); assert parsed['ok'] == false; assert 'error' in parsed; assert result.exit_code == 1"
+    },
+    {
+      "id": "TS-05-E3",
+      "requirement_id": "05-REQ-2.E2",
+      "kind": "integration",
+      "description": "Verify that spec render --json omits missing artifacts from the artifacts map and includes a warnings array noting the omission.",
+      "preconditions": [
+        "spec CLI is installed",
+        "A spec exists that has requirements and test_spec but no tasks artifact"
+      ],
+      "input": "Invoke `spec render --json` on a spec missing the tasks artifact",
+      "expected": "stdout JSON has ok=true, artifacts map without the 'tasks' key, and a warnings array mentioning the missing artifact",
+      "assertion_pseudocode": "result = run_cli(['spec', 'render', '--json', '--spec', 'no_tasks_spec']); parsed = json.parse(result.stdout); assert parsed['ok'] == true; assert 'tasks' not in parsed['artifacts']; assert 'warnings' in parsed; assert any('tasks' in w for w in parsed['warnings'])"
+    },
+    {
+      "id": "TS-05-E4",
+      "requirement_id": "05-REQ-3.E1",
+      "kind": "integration",
+      "description": "Verify that spec validate emits a structured IO error with category='io' when an artifact file is missing or unreadable.",
+      "preconditions": [
+        "spec CLI is installed",
+        "A spec directory exists but one or more artifact JSON files are missing or have no read permissions"
+      ],
+      "input": "Invoke `spec validate` on a spec with an unreadable or missing artifact file",
+      "expected": "stdout JSON has valid=false; errors array contains an object with category='io', artifact filename, and descriptive message; exit code is 1",
+      "assertion_pseudocode": "result = run_cli(['spec', 'validate', '--spec', 'missing_artifact_spec']); parsed = json.parse(result.stdout); assert parsed['valid'] == false; io_errs = [e for e in parsed['errors'] if e['category'] == 'io']; assert len(io_errs) > 0; err = io_errs[0]; assert 'artifact' in err; assert 'message' in err; assert result.exit_code == 1"
+    },
+    {
+      "id": "TS-05-E5",
+      "requirement_id": "05-REQ-3.E2",
+      "kind": "unit",
+      "description": "Verify that a structured error object for a top-level error omits the path and value fields rather than including null values.",
+      "preconditions": [
+        "spec CLI is installed",
+        "A spec artifact has a top-level schema error (not field-specific) that produces a structured error without a jsonpath"
+      ],
+      "input": "Invoke `spec validate` on a spec with a top-level (non-field-specific) error",
+      "expected": "The relevant error object in the errors array does not contain 'path' or 'value' keys at all (not null, but absent)",
+      "assertion_pseudocode": "result = run_cli(['spec', 'validate', '--spec', 'top_level_error_spec']); parsed = json.parse(result.stdout); err = find_top_level_error(parsed['errors']); assert 'path' not in err; assert 'value' not in err"
+    },
+    {
+      "id": "TS-05-E6",
+      "requirement_id": "05-REQ-4.E1",
+      "kind": "unit",
+      "description": "Verify that importing StatusSpinner from spec.ui after deletion raises an ImportError at runtime.",
+      "preconditions": [
+        "spec/ui.py has been deleted",
+        "Python interpreter is available"
+      ],
+      "input": "Execute `from spec.ui import StatusSpinner` in a Python interpreter",
+      "expected": "Python raises ImportError with a message indicating spec.ui module is not found",
+      "assertion_pseudocode": "try: exec('from spec.ui import StatusSpinner'); assert false, 'Should have raised ImportError'; except ImportError as e: assert 'spec.ui' in str(e) OR 'No module named' in str(e)"
+    },
+    {
+      "id": "TS-05-E7",
+      "requirement_id": "05-REQ-5.E1",
+      "kind": "integration",
+      "description": "Verify that output produced before AgentFoxGroup initialization is suppressed or deferred to prevent mixed plain-text before the JSON stream.",
+      "preconditions": [
+        "spec CLI is installed",
+        "AF_AGENT=1 is set",
+        "A module-level side effect that might produce output exists (or is simulated)"
+      ],
+      "input": "Invoke a spec subcommand with AF_AGENT=1 in an environment where module-level initialization would occur",
+      "expected": "No plain-text appears before the first JSON object on stdout; entire stdout parses as valid JSON lines",
+      "assertion_pseudocode": "result = run_cli(['spec', 'render'], env={'AF_AGENT': '1'}); lines = [l for l in result.stdout.strip().split('\\n') if l]; for line in lines: json.parse(line)  # each line must be valid JSON"
+    }
+  ],
+  "smoke_tests": [
+    {
+      "id": "TS-05-SMOKE-1",
+      "execution_path_id": "05-PATH-1",
+      "description": "End-to-end smoke test: agent calls spec render --json --combined and receives a valid render envelope with merged markdown content.",
+      "trigger": "Run `spec render --json --combined` for a spec with requirements, test_spec, and tasks artifacts",
+      "real_components": [
+        "spec/cli.py (AgentFoxGroup root)",
+        "spec render command handler",
+        "agentfox/io/ emit_ok function",
+        "agentspec rendering logic"
+      ],
+      "mockable": [
+        "agentspec rendering logic (can return fixture markdown)"
+      ],
+      "expected_effects": [
+        "stdout is a single valid JSON object",
+        "JSON contains ok=true, format='markdown', a non-empty content string, and a sections array with at least one entry",
+        "Process exits with code 0",
+        "No banner or plain-text appears before or after the JSON object"
+      ]
+    },
+    {
+      "id": "TS-05-SMOKE-2",
+      "execution_path_id": "05-PATH-2",
+      "description": "End-to-end smoke test: agent calls spec render --json (per-artifact mode) and receives an artifacts map envelope.",
+      "trigger": "Run `spec render --json` (without --combined) for a spec with multiple artifacts",
+      "real_components": [
+        "spec/cli.py (AgentFoxGroup root)",
+        "spec render command handler",
+        "agentfox/io/ emit_ok function",
+        "agentspec rendering logic"
+      ],
+      "mockable": [
+        "agentspec rendering logic (can return per-artifact fixture markdown)"
+      ],
+      "expected_effects": [
+        "stdout is a single valid JSON object",
+        "JSON contains ok=true and an 'artifacts' map keyed by artifact name",
+        "No 'content' top-level key is present",
+        "Process exits with code 0"
+      ]
+    },
+    {
+      "id": "TS-05-SMOKE-3",
+      "execution_path_id": "05-PATH-3",
+      "description": "End-to-end smoke test: CI pipeline calls spec validate on a spec with known errors and receives structured error objects.",
+      "trigger": "Run `spec validate` on a spec fixture containing both a schema error and an integrity error",
+      "real_components": [
+        "spec/cli.py (AgentFoxGroup root)",
+        "spec validate command handler",
+        "agentspec validation logic",
+        "agentfox/io/ emit function"
+      ],
+      "mockable": [
+        "agentspec validation logic (can return fixture error list)"
+      ],
+      "expected_effects": [
+        "stdout is a valid JSON object with valid=false",
+        "errors array contains at least one 'schema' category error with artifact, path, message, value fields",
+        "errors array contains at least one 'integrity' category error with check, message, requirement_id fields",
+        "Process exits with code 1"
+      ]
+    },
+    {
+      "id": "TS-05-SMOKE-4",
+      "execution_path_id": "05-PATH-4",
+      "description": "End-to-end smoke test: developer runs spec render without --json and receives raw markdown output.",
+      "trigger": "Run `spec render` without --json flag and without AF_AGENT=1",
+      "real_components": [
+        "spec/cli.py (AgentFoxGroup root)",
+        "spec render command handler",
+        "agentspec rendering logic"
+      ],
+      "mockable": [
+        "agentspec rendering logic (can return fixture markdown)"
+      ],
+      "expected_effects": [
+        "stdout contains raw markdown text (not a JSON object)",
+        "Banner may be displayed",
+        "Process exits with code 0",
+        "No JSON envelope wraps the output"
+      ]
+    },
+    {
+      "id": "TS-05-SMOKE-5",
+      "execution_path_id": "05-PATH-5",
+      "description": "End-to-end smoke test: an unhandled exception in a spec subcommand is routed through AgentFoxGroup and emitted as a JSON error envelope.",
+      "trigger": "Invoke a spec subcommand patched to raise an unhandled RuntimeError",
+      "real_components": [
+        "spec/cli.py (AgentFoxGroup root)",
+        "agentfox/io/errors.py error formatter"
+      ],
+      "mockable": [
+        "spec subcommand handler (patched to raise RuntimeError)",
+        "agentspec domain logic"
+      ],
+      "expected_effects": [
+        "stdout contains a JSON object with ok=false or an error field",
+        "No raw Python traceback is written to stdout",
+        "Process exits with a non-zero exit code",
+        "The JSON error envelope is produced by agentfox/io/errors.py via AgentFoxGroup"
+      ]
+    }
+  ],
+  "coverage": {
+    "requirements_covered": [],
+    "properties_covered": [],
+    "paths_covered": [],
+    "gaps": []
+  }
+}

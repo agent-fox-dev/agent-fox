@@ -147,9 +147,7 @@ class TestBuildCoderPromptNoCommitFormat:
         ):
             _, task_prompt = pipeline._build_coder_prompt(spec, triage, review_feedback=None)
 
-        assert task_prompt.startswith(original_task), (
-            f"task_prompt does not start with original; got {task_prompt!r}"
-        )
+        assert task_prompt.startswith(original_task), f"task_prompt does not start with original; got {task_prompt!r}"
         assert "Refer to the tasks subtask list in the context above" in task_prompt
 
     def test_task_prompt_has_no_hardcoded_nightshift_suffix(self) -> None:

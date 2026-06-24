@@ -1,0 +1,1665 @@
+{
+  "$schema": null,
+  "spec_id": "03",
+  "spec_name": "unified_terminal_io",
+  "schema_version": 1,
+  "test_commands": {
+    "spec_tests": "pytest tests/io/ -q -v",
+    "all_tests": "pytest -q",
+    "linter": "ruff check agentfox/io/ af/json_io.py"
+  },
+  "dependencies": [],
+  "task_groups": [
+    {
+      "id": 1,
+      "kind": "tests",
+      "title": "Write spec tests for agentfox/io/ before implementation",
+      "subtasks": [
+        {
+          "id": "1.1",
+          "title": "Create test directory structure and conftest for agentfox/io/",
+          "details": [
+            "Create tests/io/ directory with __init__.py",
+            "Add conftest.py with shared fixtures: capture_stdout(), capture_stderr(), mock_stdin(), mock_stdin_as_tty(), mock_tty(), mock_non_tty(), mock_stdout_raises(), make_mock_context()",
+            "Ensure pytest.importorskip('agentspec') guard pattern is documented in conftest for agentspec-dependent tests",
+            "Add tests/io/test_init.py skeleton verifying the twelve public symbols and handle_cli_errors exclusion (TS-03-1, TS-03-2, TS-03-3)"
+          ],
+          "test_spec_refs": [
+            "TS-03-61"
+          ],
+          "requirement_refs": [
+            "03-REQ-1",
+            "03-REQ-14.2"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "1.2",
+          "title": "Write unit tests for OutputManager (output.py)",
+          "details": [
+            "Create tests/io/test_output.py",
+            "Test OutputManager fields: json_mode, quiet, verbose, trace, console all present with correct types (TS-03-4)",
+            "Test emit_json() writes indent=2 JSON when json_mode=True; is no-op when json_mode=False (TS-03-14, TS-03-15)",
+            "Test emit_human() writes plain text when json_mode=False; is no-op when json_mode=True (TS-03-16, TS-03-17)",
+            "Test emit() dispatches to emit_json or human_fn; no-ops when json_mode=False and human_fn=None (TS-03-18, TS-03-19, TS-03-20)",
+            "Test banner() suppression rules for all (json_mode, quiet) combinations (TS-03-21)",
+            "Test status() suppressed when quiet=True; written to stderr when quiet=False (TS-03-22)",
+            "Test get_output_manager() fallback defaults when no Click context (TS-03-6); AF_AGENT=1 does NOT affect fallback (TS-03-E2)",
+            "Test setup_logging called with correct args from AgentFoxGroup (TS-03-63)",
+            "AUDIT FIX TS-03-7: non-dict ctx.obj test MUST use pytest caplog fixture at DEBUG level and assert a debug record was emitted mentioning the non-dict ctx.obj \u2014 do NOT just assert exit_code in (0, 1) without log verification"
+          ],
+          "test_spec_refs": [
+            "TS-03-4",
+            "TS-03-5",
+            "TS-03-6",
+            "TS-03-7",
+            "TS-03-14",
+            "TS-03-15",
+            "TS-03-16",
+            "TS-03-17",
+            "TS-03-18",
+            "TS-03-19",
+            "TS-03-20",
+            "TS-03-21",
+            "TS-03-22",
+            "TS-03-63",
+            "TS-03-E2"
+          ],
+          "requirement_refs": [
+            "03-REQ-2",
+            "03-REQ-4",
+            "03-REQ-15"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "1.3",
+          "title": "Write unit tests for JSON serialization functions (json.py)",
+          "details": [
+            "Create tests/io/test_json.py",
+            "Test emit() with indent=2, default=str coercion for datetime/UUID/Path (TS-03-23)",
+            "Test emit_line() compact JSON, no indentation (TS-03-24)",
+            "Test emit_ok() merges ok=True, overwrites caller-supplied ok=False (TS-03-25, TS-03-E4)",
+            "Test emit_error() always writes to stdout regardless of json_mode; calls error_envelope() internally (TS-03-26)",
+            "Test read_stdin() for TTY returns {}, empty pipe returns {}, valid JSON returns dict, slow/blocking until EOF (TS-03-27)",
+            "Test BrokenPipeError suppressed in all four emit functions (TS-03-28)",
+            "Test read_stdin() raises json.JSONDecodeError for malformed JSON (TS-03-E5)",
+            "Test read_stdin() raises UnicodeDecodeError for non-UTF-8 bytes (TS-03-E6)"
+          ],
+          "test_spec_refs": [
+            "TS-03-23",
+            "TS-03-24",
+            "TS-03-25",
+            "TS-03-26",
+            "TS-03-27",
+            "TS-03-28",
+            "TS-03-E4",
+            "TS-03-E5",
+            "TS-03-E6"
+          ],
+          "requirement_refs": [
+            "03-REQ-5"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "1.4",
+          "title": "Write unit tests for error envelope and routing (errors.py)",
+          "details": [
+            "Create tests/io/test_errors.py",
+            "Test error_envelope() returns ok=False, non-empty type, message==str(exc), retryable is bool (TS-03-29)",
+            "Test AgentFoxError subclasses produce snake_case type; unknown custom subclasses never fall to internal_error (TS-03-30)",
+            "AUDIT FIX TS-03-31: Test AgentError with/without .category mapping; guarded with pytest.importorskip('agentspec'). CRITICAL: set the PUBLIC attribute exc.category (NOT exc._category). The no-category case MUST assert type=='agent_error' and retryable==False exactly, not just isinstance(str)/len>0 (TS-03-31)",
+            "Test SessionError always maps to session_error, retryable=False; guarded with pytest.importorskip('agentspec') (TS-03-32)",
+            "Test click.ClickException maps to input_error, retryable=False (TS-03-33)",
+            "Test unknown exceptions map to internal_error with detail field; well-typed omit detail (TS-03-34)",
+            "Test state parameter: included when non-None, omitted when None (TS-03-35)",
+            "Test lazy import of agentspec: module loads without ImportError when agentspec absent (TS-03-36, TS-03-E7)",
+            "Test cli_error_handler routes to emit_error (json_mode=True) vs click.echo stderr (json_mode=False) (TS-03-37, TS-03-38)",
+            "Test handle_cli_errors decorator: catches Exception, resolves json_mode at call time, propagates SystemExit/KeyboardInterrupt (TS-03-39)",
+            "AUDIT FIX TS-03-E9: Test AgentFoxGroup.invoke() sys.exit(1) for Exception, exit 0 for SystemExit(0), no routing for KeyboardInterrupt. The KI test MUST assert isinstance(result.exception, KeyboardInterrupt) AND verify no error envelope was emitted to stdout \u2014 do NOT use the weak disjunction 'exit_code != 1 or isinstance(exception, KI)' which passes when both are true (TS-03-40, TS-03-E8, TS-03-E9)"
+          ],
+          "test_spec_refs": [
+            "TS-03-29",
+            "TS-03-30",
+            "TS-03-31",
+            "TS-03-32",
+            "TS-03-33",
+            "TS-03-34",
+            "TS-03-35",
+            "TS-03-36",
+            "TS-03-37",
+            "TS-03-38",
+            "TS-03-39",
+            "TS-03-40",
+            "TS-03-E7",
+            "TS-03-E8",
+            "TS-03-E9"
+          ],
+          "requirement_refs": [
+            "03-REQ-6",
+            "03-REQ-7"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "1.5",
+          "title": "Write unit tests for spinner, CLI options, and help decorator",
+          "details": [
+            "AUDIT FIX TS-03-42: Create tests/io/test_spinner.py: verify interface, 'dots' style in TTY (MUST mock Rich Spinner constructor and verify 'dots' was passed as spinner_name \u2014 asserting 'spinner is not None' is vacuous and will fail audit), plain-text fallback for non-TTY update() and log(), quiet no-ops, thread safety, theme=None fallback (TS-03-41 through TS-03-46, TS-03-E10)",
+            "AUDIT FIX TS-03-49: Create tests/io/test_cli.py: verify common_options adds all four flag groups, raises TypeError on subcommand, skips/warns on name collision (MUST assert len(json_params) == 1 exactly \u2014 not <= 1 \u2014 AND verify a debug-level warning was logged via caplog about the collision), sentinel keys set correctly, ctx.obj conflict handling (TS-03-47, TS-03-48, TS-03-49)",
+            "AUDIT FIX TS-03-13: Create tests/io/test_cli.py: verify AF_AGENT precedence rules AND sentinel keys for ALL FOUR flags: --json sets _json_explicit, --no-json ALSO sets _json_explicit, --quiet sets _quiet_explicit, --verbose ALSO sets _quiet_explicit. Missing --no-json and --verbose sentinel tests will fail audit (TS-03-8 through TS-03-13)",
+            "Create tests/io/test_help.py: verify exit_codes sets attribute on Command, raises TypeError for non-Command, second application overwrites, --help unchanged in Spec 03 (TS-03-50, TS-03-51, TS-03-52, TS-03-53)"
+          ],
+          "test_spec_refs": [
+            "TS-03-41",
+            "TS-03-42",
+            "TS-03-43",
+            "TS-03-44",
+            "TS-03-45",
+            "TS-03-46",
+            "TS-03-47",
+            "TS-03-48",
+            "TS-03-49",
+            "TS-03-50",
+            "TS-03-51",
+            "TS-03-52",
+            "TS-03-53",
+            "TS-03-E10"
+          ],
+          "requirement_refs": [
+            "03-REQ-8",
+            "03-REQ-9",
+            "03-REQ-10"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "1.6",
+          "title": "Write Hypothesis property tests for error envelope serialization",
+          "details": [
+            "Create tests/io/test_property_errors.py using Hypothesis @given strategies",
+            "AUDIT FIX TS-03-62/TS-03-P1: error_envelope() always returns valid envelope dict for any exception type. The _any_exception_strategy MUST include ALL of: AgentFoxError, click.ClickException, ValueError, AND agentspec types (AgentError, AgentSpecError, SessionError) guarded by pytest.importorskip('agentspec'). Omitting agentspec types from the strategy will fail audit (TS-03-P1)",
+            "PROP-2: emit_error() output is valid JSON matching error_envelope() for same inputs (TS-03-P2)",
+            "PROP-3: explicit CLI flags always override AF_AGENT=1 defaults (TS-03-P3)",
+            "PROP-4: emit_ok() always sets ok=True regardless of input (TS-03-P4)",
+            "PROP-5: BrokenPipeError always suppressed in all four emit functions (TS-03-P5)",
+            "PROP-6: AgentFoxError subclasses always produce snake_case type, never internal_error (TS-03-P6)",
+            "PROP-7: OutputManager format dispatch is mutually exclusive across all bool(json_mode, quiet) combos (TS-03-P7)",
+            "PROP-8: get_output_manager() fallback always returns fixed defaults regardless of AF_AGENT (TS-03-P8)",
+            "Guard agentspec-dependent strategies with pytest.importorskip('agentspec')"
+          ],
+          "test_spec_refs": [
+            "TS-03-P1",
+            "TS-03-P2",
+            "TS-03-P3",
+            "TS-03-P4",
+            "TS-03-P5",
+            "TS-03-P6",
+            "TS-03-P7",
+            "TS-03-P8",
+            "TS-03-62"
+          ],
+          "requirement_refs": [
+            "03-REQ-14.3"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "1.V",
+          "title": "Verify test scaffolding is complete and passes (skipping pending implementations)",
+          "details": [],
+          "test_spec_refs": [
+            "TS-03-61",
+            "TS-03-62"
+          ],
+          "requirement_refs": [
+            "03-REQ-14.2",
+            "03-REQ-14.3"
+          ],
+          "state": "done",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "",
+        "checks": []
+      }
+    },
+    {
+      "id": 2,
+      "kind": "standard",
+      "title": "Implement agentfox/io/errors.py \u2014 error envelope and routing",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Implement error_envelope() with full exception type mapping",
+          "details": [
+            "Create agentfox/io/errors.py",
+            "Implement lazy import guard for agentspec: try/except ImportError setting _AGENTSPEC_AVAILABLE flag",
+            "Implement snake_case conversion function for class names (CamelCase \u2192 snake_case) using re.sub or str manipulation",
+            "Implement error_envelope(exc, *, state=None) -> dict: AgentFoxError subclasses use snake_case class name and per-class retryable; AgentError uses .category if present else 'agent_error'; SessionError always session_error/False; click.ClickException \u2192 input_error/False; unknown \u2192 internal_error/False + detail field",
+            "Omit 'detail' key for well-typed exceptions; include only for internal_error fallback",
+            "Include top-level 'state' key only when state is non-None",
+            "When agentspec not installed, agentspec exception types fall through to internal_error (no ImportError at module load)"
+          ],
+          "test_spec_refs": [
+            "TS-03-29",
+            "TS-03-30",
+            "TS-03-31",
+            "TS-03-32",
+            "TS-03-33",
+            "TS-03-34",
+            "TS-03-35",
+            "TS-03-36",
+            "TS-03-P1",
+            "TS-03-P6"
+          ],
+          "requirement_refs": [
+            "03-REQ-6.1",
+            "03-REQ-6.2",
+            "03-REQ-6.3",
+            "03-REQ-6.4",
+            "03-REQ-6.5",
+            "03-REQ-6.6",
+            "03-REQ-6.7",
+            "03-REQ-6.8"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "2.2",
+          "title": "Implement cli_error_handler() and handle_cli_errors decorator",
+          "details": [
+            "Implement cli_error_handler(ctx, exc): checks json_mode from OutputManager (ctx.obj['output'] or get_output_manager()); if json_mode=True calls emit_error(exc); if json_mode=False calls click.echo(str(exc), err=True)",
+            "Implement handle_cli_errors as a no-argument decorator (@handle_cli_errors without parentheses)",
+            "Decorator catches Exception (not SystemExit or KeyboardInterrupt); resolves json_mode dynamically via get_output_manager() at call time; delegates to cli_error_handler()",
+            "Do NOT re-export handle_cli_errors from agentfox/io/__init__.py \u2014 it is internal only"
+          ],
+          "test_spec_refs": [
+            "TS-03-37",
+            "TS-03-38",
+            "TS-03-39"
+          ],
+          "requirement_refs": [
+            "03-REQ-7.1",
+            "03-REQ-7.2",
+            "03-REQ-7.3"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "2.3",
+          "title": "Implement AgentSpecError mapping and edge case handling",
+          "details": [
+            "AgentSpecError subclasses AgentError and carries .category attribute \u2014 apply same .category-first mapping logic as AgentError",
+            "When agentspec is not installed, any exception falling through to internal_error still produces a valid envelope with detail=class name",
+            "Guard all agentspec isinstance checks behind _AGENTSPEC_AVAILABLE flag to prevent NameError when package absent"
+          ],
+          "test_spec_refs": [
+            "TS-03-31",
+            "TS-03-E7"
+          ],
+          "requirement_refs": [
+            "03-REQ-6.3",
+            "03-REQ-6.E1"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "2.V",
+          "title": "Verify errors.py implementation passes all error-related tests",
+          "details": [],
+          "test_spec_refs": [
+            "TS-03-29",
+            "TS-03-30",
+            "TS-03-31",
+            "TS-03-32",
+            "TS-03-33",
+            "TS-03-34",
+            "TS-03-35",
+            "TS-03-36",
+            "TS-03-37",
+            "TS-03-38",
+            "TS-03-39"
+          ],
+          "requirement_refs": [
+            "03-REQ-6",
+            "03-REQ-7"
+          ],
+          "state": "done",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "",
+        "checks": []
+      }
+    },
+    {
+      "id": 3,
+      "kind": "standard",
+      "title": "Implement agentfox/io/json.py \u2014 unified JSON serialization",
+      "subtasks": [
+        {
+          "id": "3.1",
+          "title": "Implement emit(), emit_line(), and emit_ok() functions",
+          "details": [
+            "Create agentfox/io/json.py",
+            "Implement emit(data: dict) -> None: json.dumps(data, indent=2, default=str) written to sys.stdout; wrap write in try/except BrokenPipeError: pass",
+            "Implement emit_line(data: dict) -> None: json.dumps(data, default=str) compact (no indent) written to sys.stdout with newline; wrap in try/except BrokenPipeError: pass",
+            "Implement emit_ok(data: dict) -> None: always overwrites 'ok' key with True before calling emit(); caller-supplied 'ok' is silently ignored",
+            "All three functions suppress BrokenPipeError silently"
+          ],
+          "test_spec_refs": [
+            "TS-03-23",
+            "TS-03-24",
+            "TS-03-25",
+            "TS-03-28",
+            "TS-03-P4",
+            "TS-03-P5"
+          ],
+          "requirement_refs": [
+            "03-REQ-5.1",
+            "03-REQ-5.2",
+            "03-REQ-5.3",
+            "03-REQ-5.6"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "3.2",
+          "title": "Implement emit_error() and read_stdin()",
+          "details": [
+            "Implement emit_error(exc: Exception, *, state: str | None = None) -> None: calls error_envelope(exc, state=state) from errors.py to build dict; always writes to sys.stdout regardless of json_mode; wraps in try/except BrokenPipeError: pass",
+            "Implement read_stdin() -> dict: if sys.stdin.isatty() return {}; read sys.stdin with UTF-8 encoding until EOF; if empty return {}; parse JSON and return dict; raises json.JSONDecodeError for malformed JSON; raises UnicodeDecodeError for non-UTF-8 bytes; no timeout",
+            "No circular import: json.py imports error_envelope from errors.py; errors.py must not import from json.py"
+          ],
+          "test_spec_refs": [
+            "TS-03-26",
+            "TS-03-27",
+            "TS-03-E5",
+            "TS-03-E6",
+            "TS-03-P2"
+          ],
+          "requirement_refs": [
+            "03-REQ-5.4",
+            "03-REQ-5.5",
+            "03-REQ-5.6"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "3.V",
+          "title": "Verify json.py implementation passes all serialization tests",
+          "details": [],
+          "test_spec_refs": [
+            "TS-03-23",
+            "TS-03-24",
+            "TS-03-25",
+            "TS-03-26",
+            "TS-03-27",
+            "TS-03-28",
+            "TS-03-E4",
+            "TS-03-E5",
+            "TS-03-E6"
+          ],
+          "requirement_refs": [
+            "03-REQ-5"
+          ],
+          "state": "done",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "",
+        "checks": []
+      }
+    },
+    {
+      "id": 4,
+      "kind": "standard",
+      "title": "Implement agentfox/io/output.py \u2014 OutputManager",
+      "subtasks": [
+        {
+          "id": "4.1",
+          "title": "Implement OutputManager class with all fields and format dispatch methods",
+          "details": [
+            "Create agentfox/io/output.py",
+            "Define OutputManager dataclass or class with fields: json_mode: bool, quiet: bool, verbose: bool, trace: bool, console: Console (Rich Console for stderr)",
+            "Implement emit_json(data: dict) -> None: writes JSON (indent=2) to stdout iff json_mode=True; silently no-ops otherwise",
+            "Implement emit_human(text: str) -> None: writes plain text to stdout iff json_mode=False; silently no-ops otherwise",
+            "Implement emit(data: dict, human_fn: Callable[[], None] | None = None) -> None: calls emit_json if json_mode=True; calls human_fn() if json_mode=False and human_fn is provided; silently no-ops if json_mode=False and human_fn is None",
+            "Implement banner() -> None: renders themed banner to stderr; suppressed when json_mode=True OR quiet=True",
+            "Implement status(message: str) -> None: writes to stderr; suppressed when quiet=True"
+          ],
+          "test_spec_refs": [
+            "TS-03-4",
+            "TS-03-14",
+            "TS-03-15",
+            "TS-03-16",
+            "TS-03-17",
+            "TS-03-18",
+            "TS-03-19",
+            "TS-03-20",
+            "TS-03-21",
+            "TS-03-22",
+            "TS-03-P7"
+          ],
+          "requirement_refs": [
+            "03-REQ-2.1",
+            "03-REQ-4.1",
+            "03-REQ-4.2",
+            "03-REQ-4.3",
+            "03-REQ-4.4",
+            "03-REQ-4.5",
+            "03-REQ-4.6",
+            "03-REQ-4.7",
+            "03-REQ-4.8",
+            "03-REQ-4.9"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "4.2",
+          "title": "Implement get_output_manager() convenience accessor",
+          "details": [
+            "Implement get_output_manager() -> OutputManager: tries click.get_current_context() to read ctx.obj['output']; if no context or key absent, returns fallback OutputManager(json_mode=False, quiet=False, verbose=False, trace=False)",
+            "AF_AGENT env var is NOT consulted in the fallback path \u2014 fallback is strictly for non-CLI contexts",
+            "Fallback OutputManager always returns the four fixed defaults regardless of environment variables"
+          ],
+          "test_spec_refs": [
+            "TS-03-6",
+            "TS-03-E2",
+            "TS-03-P8"
+          ],
+          "requirement_refs": [
+            "03-REQ-2.3",
+            "03-REQ-2.E1"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "4.V",
+          "title": "Verify output.py implementation passes all OutputManager tests",
+          "details": [],
+          "test_spec_refs": [
+            "TS-03-4",
+            "TS-03-5",
+            "TS-03-6",
+            "TS-03-14",
+            "TS-03-15",
+            "TS-03-16",
+            "TS-03-17",
+            "TS-03-18",
+            "TS-03-19",
+            "TS-03-20",
+            "TS-03-21",
+            "TS-03-22"
+          ],
+          "requirement_refs": [
+            "03-REQ-2",
+            "03-REQ-4"
+          ],
+          "state": "done",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "",
+        "checks": []
+      }
+    },
+    {
+      "id": 5,
+      "kind": "standard",
+      "title": "Implement agentfox/io/spinner.py \u2014 unified StatusSpinner",
+      "subtasks": [
+        {
+          "id": "5.1",
+          "title": "Implement StatusSpinner context manager with TTY/non-TTY/quiet modes",
+          "details": [
+            "Create agentfox/io/spinner.py",
+            "Implement StatusSpinner(message: str, *, quiet: bool = False, theme: AppTheme | None = None) with lazy import of AppTheme from agentfox.ui.display",
+            "Implement __enter__/__exit__: in quiet mode, all methods are no-ops; in TTY mode, start Rich Live with 'dots' spinner style on stderr; in non-TTY mode, do not start animation",
+            "Implement update(message: str): in TTY mode updates spinner message via Live; in non-TTY mode prints plain text line to stderr using theme.console.print(message) or fallback Console(stderr=True).print(message); no-op in quiet mode",
+            "Implement log(message: str): in TTY mode prints persistent line through Rich Live; in non-TTY mode prints plain text line to stderr using theme.console or fallback Console; no-op in quiet mode",
+            "When theme=None, always fall back to Console(stderr=True) with no styling for all output"
+          ],
+          "test_spec_refs": [
+            "TS-03-41",
+            "TS-03-42",
+            "TS-03-43",
+            "TS-03-44",
+            "TS-03-E10"
+          ],
+          "requirement_refs": [
+            "03-REQ-8.1",
+            "03-REQ-8.2",
+            "03-REQ-8.3",
+            "03-REQ-8.4",
+            "03-REQ-8.E1"
+          ],
+          "state": "done",
+          "optional": false,
+          "done": true
+        },
+        {
+          "id": "5.2",
+          "title": "Ensure thread safety and replace legacy spinner classes",
+          "details": [
+            "StatusSpinner uses Rich Live internally; concurrent update() and log() calls are serialized by Rich Live's internal lock",
+            "__exit__ must be called from the same thread as __enter__ (document this constraint with a comment)",
+            "Update agentfox/ui/progress.py: remove PlanSpinner's spinner logic and import StatusSpinner from agentfox.io.spinner; PlanSpinner either delegates to StatusSpinner or is removed entirely",
+            "Verify no independent spinner logic remains in agentfox/ui/progress.py or spec/ui.py (spec/ui.py changes deferred \u2014 note the legacy StatusSpinner in spec/ui.py is NOT replaced in Spec 03)"
+          ],
+          "test_spec_refs": [
+            "TS-03-45",
+            "TS-03-46"
+          ],
+          "requirement_refs": [
+            "03-REQ-8.5",
+            "03-REQ-8.6"
+          ],
+          "state": "done",
+          "optional": false,
+          "done": true
+        },
+        {
+          "id": "5.V",
+          "title": "Verify spinner.py implementation passes all spinner tests",
+          "details": [],
+          "test_spec_refs": [
+            "TS-03-41",
+            "TS-03-42",
+            "TS-03-43",
+            "TS-03-44",
+            "TS-03-45",
+            "TS-03-46",
+            "TS-03-E10"
+          ],
+          "requirement_refs": [
+            "03-REQ-8"
+          ],
+          "state": "done",
+          "optional": false,
+          "done": true
+        }
+      ],
+      "verification": {
+        "id": "",
+        "checks": [],
+        "done": true
+      }
+    },
+    {
+      "id": 6,
+      "kind": "standard",
+      "title": "Implement agentfox/io/cli.py \u2014 common_options and AgentFoxGroup",
+      "subtasks": [
+        {
+          "id": "6.1",
+          "title": "Implement common_options decorator with sentinel mechanism",
+          "details": [
+            "Create agentfox/io/cli.py",
+            "Implement common_options(fn) decorator that checks the decorated object is a click.Group; raises TypeError with descriptive message if applied to a non-Group Command",
+            "Add --json/--no-json Click option pair with callback that calls ctx.ensure_object(dict) then sets ctx.obj['_json_explicit'] = True when either flag is explicitly passed",
+            "Add --quiet, --verbose, --trace options; callback sets ctx.obj['_quiet_explicit'] = True when --quiet or --verbose is explicitly passed",
+            "Detect name collisions with existing flags on the root group: skip conflicting flag and emit debug-level logger warning; no exception raised",
+            "Each callback calls ctx.ensure_object(dict) before writing any sentinel key"
+          ],
+          "test_spec_refs": [
+            "TS-03-13",
+            "TS-03-47",
+            "TS-03-48",
+            "TS-03-49"
+          ],
+          "requirement_refs": [
+            "03-REQ-3.6",
+            "03-REQ-9.1",
+            "03-REQ-9.2",
+            "03-REQ-9.3"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "6.2",
+          "title": "Implement AgentFoxGroup with OutputManager construction and error routing",
+          "details": [
+            "Implement AgentFoxGroup(click.Group) with overridden invoke() method",
+            "invoke() calls ctx.ensure_object(dict) first; if ctx.obj is non-dict logs debug warning and falls back to defaults",
+            "Read _json_explicit and _quiet_explicit sentinels; check AF_AGENT env var (exactly '1' only); resolve json_mode and quiet per precedence rules",
+            "Construct OutputManager with resolved flags; store at ctx.obj['output']",
+            "Render banner (via OutputManager.banner()) after construction",
+            "Call setup_logging(verbose=..., quiet=..., trace=...) with resolved flag values exactly once",
+            "Catch Exception (not BaseException): route through cli_error_handler(ctx, exc), then call sys.exit(1); re-raise SystemExit and KeyboardInterrupt immediately without routing",
+            "Eager option callbacks (e.g. --version) must use click.echo() directly and not access ctx.obj['output']"
+          ],
+          "test_spec_refs": [
+            "TS-03-5",
+            "TS-03-7",
+            "TS-03-8",
+            "TS-03-9",
+            "TS-03-10",
+            "TS-03-11",
+            "TS-03-12",
+            "TS-03-40",
+            "TS-03-63",
+            "TS-03-P3"
+          ],
+          "requirement_refs": [
+            "03-REQ-2.2",
+            "03-REQ-2.4",
+            "03-REQ-3.1",
+            "03-REQ-3.2",
+            "03-REQ-3.3",
+            "03-REQ-3.4",
+            "03-REQ-3.5",
+            "03-REQ-7.4",
+            "03-REQ-15.1"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "6.V",
+          "title": "Verify cli.py implementation passes all CLI flags and group tests",
+          "details": [],
+          "test_spec_refs": [
+            "TS-03-8",
+            "TS-03-9",
+            "TS-03-10",
+            "TS-03-11",
+            "TS-03-12",
+            "TS-03-13",
+            "TS-03-40",
+            "TS-03-47",
+            "TS-03-48",
+            "TS-03-49",
+            "TS-03-63",
+            "TS-03-E3",
+            "TS-03-E8",
+            "TS-03-E9"
+          ],
+          "requirement_refs": [
+            "03-REQ-3",
+            "03-REQ-9",
+            "03-REQ-15"
+          ],
+          "state": "done",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "",
+        "checks": []
+      }
+    },
+    {
+      "id": 7,
+      "kind": "standard",
+      "title": "Implement agentfox/io/help.py \u2014 exit_codes decorator and help scaffolding",
+      "subtasks": [
+        {
+          "id": "7.1",
+          "title": "Implement exit_codes decorator with misuse detection",
+          "details": [
+            "Create agentfox/io/help.py",
+            "Implement exit_codes(**mapping) factory returning a decorator",
+            "Decorator receives the decorated object: if not a click.Command, raise TypeError with descriptive message (catches wrong decorator order)",
+            "If it is a click.Command, set command.exit_codes = mapping and return the command unchanged",
+            "Second application overwrites first with no merge and no warning",
+            "No structured JSON help rendering in Spec 03; --help behavior unchanged from Click's standard text output"
+          ],
+          "test_spec_refs": [
+            "TS-03-50",
+            "TS-03-51",
+            "TS-03-52",
+            "TS-03-53"
+          ],
+          "requirement_refs": [
+            "03-REQ-10.1",
+            "03-REQ-10.2",
+            "03-REQ-10.3",
+            "03-REQ-10.4"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "7.V",
+          "title": "Verify help.py implementation passes all decorator tests",
+          "details": [],
+          "test_spec_refs": [
+            "TS-03-50",
+            "TS-03-51",
+            "TS-03-52",
+            "TS-03-53"
+          ],
+          "requirement_refs": [
+            "03-REQ-10"
+          ],
+          "state": "done",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "",
+        "checks": []
+      }
+    },
+    {
+      "id": 8,
+      "kind": "standard",
+      "title": "Implement agentfox/io/__init__.py \u2014 public API re-exports",
+      "subtasks": [
+        {
+          "id": "8.1",
+          "title": "Implement __init__.py with exactly twelve curated public symbols",
+          "details": [
+            "Create agentfox/io/__init__.py",
+            "Re-export exactly twelve symbols: OutputManager, StatusSpinner, get_output_manager, emit, emit_ok, emit_line, emit_error, read_stdin, error_envelope, AgentFoxGroup, common_options, exit_codes",
+            "Do NOT re-export handle_cli_errors \u2014 it remains available only via 'from agentfox.io.errors import handle_cli_errors'",
+            "Set __all__ to exactly the twelve listed symbols to prevent accidental re-export of internals",
+            "Verify circular import safety: __init__.py imports from submodules only; submodules do not import from __init__.py"
+          ],
+          "test_spec_refs": [
+            "TS-03-1",
+            "TS-03-2",
+            "TS-03-3",
+            "TS-03-E1"
+          ],
+          "requirement_refs": [
+            "03-REQ-1.1",
+            "03-REQ-1.2",
+            "03-REQ-1.3"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "8.V",
+          "title": "Verify __init__.py re-exports all twelve symbols and nothing more",
+          "details": [],
+          "test_spec_refs": [
+            "TS-03-1",
+            "TS-03-2",
+            "TS-03-3",
+            "TS-03-E1"
+          ],
+          "requirement_refs": [
+            "03-REQ-1.1",
+            "03-REQ-1.2",
+            "03-REQ-1.3"
+          ],
+          "state": "done",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "",
+        "checks": []
+      }
+    },
+    {
+      "id": 9,
+      "kind": "checkpoint",
+      "title": "Checkpoint: all agentfox/io/ unit tests pass; no existing tests broken",
+      "subtasks": [
+        {
+          "id": "9.1",
+          "title": "Run full agentfox/io/ test suite and verify zero failures",
+          "details": [
+            "Run: pytest tests/io/ -q -v and confirm zero failures, zero errors",
+            "Run: pytest tests/io/test_property_errors.py -q -v with Hypothesis and confirm all property tests pass",
+            "Verify agentspec-dependent property tests are skipped (not failing) when agentspec is not installed"
+          ],
+          "test_spec_refs": [
+            "TS-03-60",
+            "TS-03-61",
+            "TS-03-62"
+          ],
+          "requirement_refs": [
+            "03-REQ-14.1",
+            "03-REQ-14.2",
+            "03-REQ-14.3"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "9.2",
+          "title": "Run all existing af and spec CLI tests and confirm no regressions",
+          "details": [
+            "Run: pytest tests/ -q --tb=short and confirm all pre-existing af and spec tests pass",
+            "Zero tests may be deleted, skipped, or marked xfail that were not previously so",
+            "Confirm spec/cli.py is byte-for-byte unchanged (git diff)"
+          ],
+          "test_spec_refs": [
+            "TS-03-59",
+            "TS-03-60"
+          ],
+          "requirement_refs": [
+            "03-REQ-14.1"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "9.3",
+          "title": "Run linter across all new and modified files",
+          "details": [
+            "Run: ruff check agentfox/io/ and confirm zero linting errors",
+            "Run: ruff check tests/io/ and confirm zero linting errors",
+            "Run: ruff check agentfox/ui/progress.py and confirm no new errors introduced by PlanSpinner changes"
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [
+            "03-REQ-14.2"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "9.V",
+          "title": "Checkpoint gate: all new and existing tests pass, no regressions",
+          "details": [],
+          "test_spec_refs": [
+            "TS-03-60",
+            "TS-03-61",
+            "TS-03-62"
+          ],
+          "requirement_refs": [
+            "03-REQ-14.1",
+            "03-REQ-14.2",
+            "03-REQ-14.3"
+          ],
+          "state": "done",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "",
+        "checks": []
+      }
+    },
+    {
+      "id": 10,
+      "kind": "standard",
+      "title": "Create af/json_io.py compatibility shim",
+      "subtasks": [
+        {
+          "id": "10.1",
+          "title": "Implement af/json_io.py as a re-export shim for four symbols",
+          "details": [
+            "Update af/json_io.py to contain only re-export statements from agentfox.io.json",
+            "Re-export exactly: emit, emit_line, emit_error, read_stdin",
+            "Do NOT re-export emit_ok or error_envelope (not in original shim surface)",
+            "Add top-of-file comment: '# compatibility shim, removed in Spec 04'",
+            "Set __all__ = ['emit', 'emit_line', 'emit_error', 'read_stdin']"
+          ],
+          "test_spec_refs": [
+            "TS-03-57",
+            "TS-03-58"
+          ],
+          "requirement_refs": [
+            "03-REQ-12.1",
+            "03-REQ-12.2"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "10.2",
+          "title": "Audit af/ for transitive imports of superseded symbols",
+          "details": [
+            "Search all af/ Python files for imports of: handle_agent_fox_errors, BannerGroup, json_io symbols",
+            "Verify all callers of af.json_io.emit/emit_line/emit_error/read_stdin continue to work via the shim",
+            "Verify af/__init__.py handle_agent_fox_errors() is superseded \u2014 update or remove as appropriate",
+            "Document any additional af-internal symbols that need update or shim; update them in this task"
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [
+            "03-REQ-12.1"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "10.V",
+          "title": "Verify af/json_io.py shim works correctly for all callers",
+          "details": [],
+          "test_spec_refs": [
+            "TS-03-57",
+            "TS-03-58"
+          ],
+          "requirement_refs": [
+            "03-REQ-12.1",
+            "03-REQ-12.2"
+          ],
+          "state": "done",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "",
+        "checks": []
+      }
+    },
+    {
+      "id": 11,
+      "kind": "standard",
+      "title": "Wire af/app.py to use AgentFoxGroup",
+      "subtasks": [
+        {
+          "id": "11.1",
+          "title": "Audit BannerGroup (or equivalent) behavior before replacement",
+          "details": [
+            "Read af/app.py in full; identify the existing root group class (BannerGroup or equivalent)",
+            "Document all behaviors it provides: banner rendering, error handling, ctx.obj initialization, non-standard error codes, any other custom behaviors",
+            "Confirm which behaviors AgentFoxGroup already covers; list any that need to be ported or explicitly deferred to Spec 04",
+            "Leave this audit documented before proceeding with replacement"
+          ],
+          "test_spec_refs": [
+            "TS-03-54",
+            "TS-03-55"
+          ],
+          "requirement_refs": [
+            "03-REQ-11.1",
+            "03-REQ-11.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.2",
+          "title": "Replace root group class with cls=AgentFoxGroup and add audit comment block",
+          "details": [
+            "Replace cls=BannerGroup (or equivalent) with cls=AgentFoxGroup in af/app.py root group decorator",
+            "Add inline comment block at the replacement site documenting: behaviors confirmed covered by AgentFoxGroup, behaviors explicitly deferred to Spec 04, date of audit",
+            "Verify --version eager option uses click.echo() directly and does NOT call get_output_manager() or access ctx.obj before OutputManager is constructed",
+            "Apply common_options to the root group if not already present",
+            "If replacement causes blocking regressions, defer per Rollback/Abort Policy: keep agentfox/io/ functional and tested; note deferral in af/app.py with a TODO comment referencing Spec 04"
+          ],
+          "test_spec_refs": [
+            "TS-03-54",
+            "TS-03-55",
+            "TS-03-56"
+          ],
+          "requirement_refs": [
+            "03-REQ-11.1",
+            "03-REQ-11.2",
+            "03-REQ-11.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.3",
+          "title": "Remove or delegate legacy af/ symbols superseded by agentfox/io/",
+          "details": [
+            "Remove af/__init__.py::handle_agent_fox_errors() or replace it with a re-export/delegation to agentfox.io.errors.handle_cli_errors",
+            "Remove BannerGroup class from af/ (or leave only as a thin shim if needed for rollback safety)",
+            "Ensure no af/ file imports from the removed symbols without a corresponding update or shim"
+          ],
+          "test_spec_refs": [
+            "TS-03-54"
+          ],
+          "requirement_refs": [
+            "03-REQ-11.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.V",
+          "title": "Verify af/app.py migration passes all af integration tests",
+          "details": [],
+          "test_spec_refs": [
+            "TS-03-54",
+            "TS-03-55",
+            "TS-03-56"
+          ],
+          "requirement_refs": [
+            "03-REQ-11.1",
+            "03-REQ-11.2",
+            "03-REQ-11.3",
+            "03-REQ-11.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "",
+        "checks": []
+      }
+    },
+    {
+      "id": 12,
+      "kind": "wiring_verification",
+      "title": "End-to-end wiring verification: all smoke tests, path traces, and stub audits",
+      "subtasks": [
+        {
+          "id": "12.1",
+          "title": "Trace all eight execution paths end-to-end",
+          "details": [
+            "PATH-1 (agent mode AF_AGENT=1): verify AgentFoxGroup.invoke() \u2192 OutputManager(json_mode=True, quiet=True) \u2192 emit_ok() \u2192 stdout JSON (TS-03-SMOKE-1)",
+            "PATH-2 (JSON error envelope): verify AgentFoxGroup catches Exception \u2192 cli_error_handler \u2192 emit_error \u2192 error_envelope \u2192 stdout JSON \u2192 sys.exit(1) (TS-03-SMOKE-2)",
+            "PATH-3 (human mode error): verify AgentFoxGroup catches Exception \u2192 cli_error_handler \u2192 click.echo(err=True) \u2192 stderr text \u2192 sys.exit(1) (TS-03-SMOKE-3)",
+            "PATH-4 (StatusSpinner non-TTY): verify StatusSpinner.__enter__ detects non-TTY \u2192 update()/log() print to stderr via Console(stderr=True) (TS-03-SMOKE-4)",
+            "PATH-5 (AF_AGENT overridden by --no-json): verify sentinel _json_explicit=True \u2192 OutputManager.json_mode=False while quiet=True (TS-03-SMOKE-5)",
+            "PATH-6 (read_stdin piped): verify sys.stdin.isatty()==False \u2192 read until EOF \u2192 parse JSON \u2192 return dict (TS-03-SMOKE-6)",
+            "PATH-7 (--version eager): verify click processes --version before invoke completes \u2192 callback uses click.echo() \u2192 SystemExit(0) propagates (TS-03-SMOKE-7)",
+            "PATH-8 (emit_error with state): verify emit_error(exc, state='executing') \u2192 error_envelope(state='executing') \u2192 JSON with top-level 'state' field (TS-03-SMOKE-8)"
+          ],
+          "test_spec_refs": [
+            "TS-03-SMOKE-1",
+            "TS-03-SMOKE-2",
+            "TS-03-SMOKE-3",
+            "TS-03-SMOKE-4",
+            "TS-03-SMOKE-5",
+            "TS-03-SMOKE-6",
+            "TS-03-SMOKE-7",
+            "TS-03-SMOKE-8"
+          ],
+          "requirement_refs": [
+            "03-REQ-2.2",
+            "03-REQ-3.1",
+            "03-REQ-5.4",
+            "03-REQ-6.1",
+            "03-REQ-7.4",
+            "03-REQ-8.3"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "12.2",
+          "title": "Verify return value propagation through the call chain",
+          "details": [
+            "Confirm emit_error() calls error_envelope() and serializes the exact same dict (no divergence in type mapping logic)",
+            "Confirm cli_error_handler() receives the correct exc from AgentFoxGroup.invoke() and passes it unmodified to emit_error() or click.echo(str(exc))",
+            "Confirm AgentFoxGroup.invoke() stores OutputManager in ctx.obj['output'] before calling super().invoke() so subcommands can access it via ctx.obj['output'] or get_output_manager()",
+            "Confirm setup_logging() is called with the resolved (not default) flag values \u2014 verbose/quiet/trace reflect sentinel overrides and AF_AGENT defaults"
+          ],
+          "test_spec_refs": [
+            "TS-03-P2"
+          ],
+          "requirement_refs": [
+            "03-REQ-5.4",
+            "03-REQ-6.1",
+            "03-REQ-7.1"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "12.3",
+          "title": "Run all smoke tests with real components",
+          "details": [
+            "Execute all eight smoke tests using Click's CliRunner with real (non-mocked) components except where noted (setup_logging may be mocked to avoid logging side effects)",
+            "Confirm each smoke test produces the expected stdout, stderr, and exit code",
+            "TS-03-SMOKE-7 specifically: run 'af --version' and verify exit code 0, version string present, no AttributeError in exception chain"
+          ],
+          "test_spec_refs": [
+            "TS-03-SMOKE-1",
+            "TS-03-SMOKE-2",
+            "TS-03-SMOKE-3",
+            "TS-03-SMOKE-4",
+            "TS-03-SMOKE-5",
+            "TS-03-SMOKE-6",
+            "TS-03-SMOKE-7",
+            "TS-03-SMOKE-8"
+          ],
+          "requirement_refs": [
+            "03-REQ-14.1"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "12.4",
+          "title": "Stub and dead-code audit across all new files",
+          "details": [
+            "Search agentfox/io/ for Python stub markers: 'raise NotImplementedError', 'return None' in non-trivial methods, bare 'pass' in non-abstract method bodies, '# TODO', '# FIXME', '# STUB'",
+            "Search af/json_io.py and af/app.py for any remaining stub markers introduced during migration",
+            "Confirm every public symbol in agentfox/io/__init__.py is fully implemented (not a stub or placeholder)",
+            "Confirm PlanSpinner in agentfox/ui/progress.py either delegates to StatusSpinner or is removed \u2014 no duplicated spinner logic remains"
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [
+            "03-REQ-14.1",
+            "03-REQ-14.2"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "12.5",
+          "title": "Final full test suite run and linter clean sweep",
+          "details": [
+            "Run: pytest tests/ -q --tb=short and verify 0 failures",
+            "Run: pytest tests/io/ -q -v --tb=short and verify all new unit tests pass",
+            "Run: pytest tests/io/test_property_errors.py -q -v and verify all Hypothesis property tests pass",
+            "Run: ruff check agentfox/ af/ tests/ and verify 0 linting errors",
+            "Confirm spec/cli.py is unchanged (git diff is empty)",
+            "Confirm af/json_io.py shim comment is present",
+            "Confirm af/app.py audit comment block is present at AgentFoxGroup replacement site"
+          ],
+          "test_spec_refs": [
+            "TS-03-59",
+            "TS-03-60",
+            "TS-03-61",
+            "TS-03-62"
+          ],
+          "requirement_refs": [
+            "03-REQ-14.1",
+            "03-REQ-14.2",
+            "03-REQ-14.3"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "12.V",
+          "title": "Final wiring verification gate: all paths traced, no stubs, all tests green",
+          "details": [],
+          "test_spec_refs": [
+            "TS-03-SMOKE-1",
+            "TS-03-SMOKE-2",
+            "TS-03-SMOKE-3",
+            "TS-03-SMOKE-4",
+            "TS-03-SMOKE-5",
+            "TS-03-SMOKE-6",
+            "TS-03-SMOKE-7",
+            "TS-03-SMOKE-8",
+            "TS-03-60",
+            "TS-03-61",
+            "TS-03-62"
+          ],
+          "requirement_refs": [
+            "03-REQ-14.1",
+            "03-REQ-14.2",
+            "03-REQ-14.3"
+          ],
+          "state": "done",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "12.V",
+        "checks": [
+          "pytest tests/ -q reports 0 failures and 0 errors \u2014 all pre-existing and new tests pass",
+          "pytest tests/io/ -q -v reports 0 failures for all seven module test files plus property tests",
+          "All eight smoke tests (TS-03-SMOKE-1 through TS-03-SMOKE-8) pass using real components via CliRunner",
+          "ruff check agentfox/io/ af/json_io.py af/app.py tests/io/ reports 0 errors",
+          "grep -r 'raise NotImplementedError\\|# TODO\\|# STUB\\|# FIXME' agentfox/io/ returns no results (no stub markers remain)",
+          "python -c 'from agentfox.io import OutputManager, StatusSpinner, get_output_manager, emit, emit_ok, emit_line, emit_error, read_stdin, error_envelope, AgentFoxGroup, common_options, exit_codes' completes without error",
+          "git diff spec/cli.py is empty \u2014 spec/cli.py is byte-for-byte unchanged",
+          "af/app.py source contains cls=AgentFoxGroup and inline audit comment block"
+        ]
+      }
+    }
+  ],
+  "traceability": [
+    {
+      "requirement_id": "03-REQ-1.1",
+      "test_spec_id": "TS-03-1",
+      "task_id": "8.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-1.2",
+      "test_spec_id": "TS-03-2",
+      "task_id": "8.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-1.3",
+      "test_spec_id": "TS-03-3",
+      "task_id": "8.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-1.E1",
+      "test_spec_id": "TS-03-E1",
+      "task_id": "8.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-2.1",
+      "test_spec_id": "TS-03-4",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-2.2",
+      "test_spec_id": "TS-03-5",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-2.3",
+      "test_spec_id": "TS-03-6",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-2.4",
+      "test_spec_id": "TS-03-7",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-2.E1",
+      "test_spec_id": "TS-03-E2",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-3.1",
+      "test_spec_id": "TS-03-8",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-3.2",
+      "test_spec_id": "TS-03-9",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-3.3",
+      "test_spec_id": "TS-03-10",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-3.4",
+      "test_spec_id": "TS-03-11",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-3.5",
+      "test_spec_id": "TS-03-12",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-3.6",
+      "test_spec_id": "TS-03-13",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-3.E1",
+      "test_spec_id": "TS-03-E3",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-4.1",
+      "test_spec_id": "TS-03-14",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-4.2",
+      "test_spec_id": "TS-03-15",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-4.3",
+      "test_spec_id": "TS-03-16",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-4.4",
+      "test_spec_id": "TS-03-17",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-4.5",
+      "test_spec_id": "TS-03-18",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-4.6",
+      "test_spec_id": "TS-03-19",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-4.7",
+      "test_spec_id": "TS-03-20",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-4.8",
+      "test_spec_id": "TS-03-21",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-4.9",
+      "test_spec_id": "TS-03-22",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-5.1",
+      "test_spec_id": "TS-03-23",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-5.2",
+      "test_spec_id": "TS-03-24",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-5.3",
+      "test_spec_id": "TS-03-25",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-5.4",
+      "test_spec_id": "TS-03-26",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-5.5",
+      "test_spec_id": "TS-03-27",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-5.6",
+      "test_spec_id": "TS-03-28",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-5.E1",
+      "test_spec_id": "TS-03-E4",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-5.E2",
+      "test_spec_id": "TS-03-E5",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-5.E3",
+      "test_spec_id": "TS-03-E6",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-6.1",
+      "test_spec_id": "TS-03-29",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-6.2",
+      "test_spec_id": "TS-03-30",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-6.3",
+      "test_spec_id": "TS-03-31",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-6.4",
+      "test_spec_id": "TS-03-32",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-6.5",
+      "test_spec_id": "TS-03-33",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-6.6",
+      "test_spec_id": "TS-03-34",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-6.7",
+      "test_spec_id": "TS-03-35",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-6.8",
+      "test_spec_id": "TS-03-36",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-6.E1",
+      "test_spec_id": "TS-03-E7",
+      "task_id": "2.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-7.1",
+      "test_spec_id": "TS-03-37",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-7.2",
+      "test_spec_id": "TS-03-38",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-7.3",
+      "test_spec_id": "TS-03-39",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-7.4",
+      "test_spec_id": "TS-03-40",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-7.E1",
+      "test_spec_id": "TS-03-E8",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-7.E2",
+      "test_spec_id": "TS-03-E9",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-8.1",
+      "test_spec_id": "TS-03-41",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-8.2",
+      "test_spec_id": "TS-03-42",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-8.3",
+      "test_spec_id": "TS-03-43",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-8.4",
+      "test_spec_id": "TS-03-44",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-8.5",
+      "test_spec_id": "TS-03-45",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-8.6",
+      "test_spec_id": "TS-03-46",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-8.E1",
+      "test_spec_id": "TS-03-E10",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-9.1",
+      "test_spec_id": "TS-03-47",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-9.2",
+      "test_spec_id": "TS-03-48",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-9.3",
+      "test_spec_id": "TS-03-49",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-10.1",
+      "test_spec_id": "TS-03-50",
+      "task_id": "7.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-10.2",
+      "test_spec_id": "TS-03-51",
+      "task_id": "7.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-10.3",
+      "test_spec_id": "TS-03-52",
+      "task_id": "7.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-10.4",
+      "test_spec_id": "TS-03-53",
+      "task_id": "7.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-11.1",
+      "test_spec_id": "TS-03-54",
+      "task_id": "11.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-11.2",
+      "test_spec_id": "TS-03-55",
+      "task_id": "11.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-11.3",
+      "test_spec_id": "TS-03-56",
+      "task_id": "11.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-11.E1",
+      "test_spec_id": "TS-03-E11",
+      "task_id": "11.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-12.1",
+      "test_spec_id": "TS-03-57",
+      "task_id": "10.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-12.2",
+      "test_spec_id": "TS-03-58",
+      "task_id": "10.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-13.1",
+      "test_spec_id": "TS-03-59",
+      "task_id": "9.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-14.1",
+      "test_spec_id": "TS-03-60",
+      "task_id": "9.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-14.2",
+      "test_spec_id": "TS-03-61",
+      "task_id": "1.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-14.3",
+      "test_spec_id": "TS-03-62",
+      "task_id": "1.6",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-15.1",
+      "test_spec_id": "TS-03-63",
+      "task_id": "6.2",
+      "test_path": null
+    }
+  ]
+}

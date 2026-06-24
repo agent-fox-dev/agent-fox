@@ -427,10 +427,8 @@ class TestPlanCLIEndToEnd:
             f"Expected 'new_group' in plan output after spec change; got:\n{second.output}"
         )
 
-    def test_plan_verify_removed(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
-        """plan --verify is no longer a valid option (removed dead code)."""
-        _setup_project(tmp_git_repo)
+    def test_plan_verify_accepted(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
+        """plan --verify is a valid option."""
+        result = cli_runner.invoke(main, ["plan", "--help"])
 
-        result = cli_runner.invoke(main, ["plan", "--verify"])
-
-        assert result.exit_code == 2
+        assert "--verify" in result.output

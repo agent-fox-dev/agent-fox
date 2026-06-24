@@ -258,7 +258,7 @@ class TestResetJson:
         """reset --json produces valid JSON."""
 
         def fake_handler(*_args: object, **_kwargs: object) -> None:
-            from af.json_io import emit
+            from agentfox.io import emit
 
             emit({"tasks_reset": 0, "sessions_cleared": 0})
 

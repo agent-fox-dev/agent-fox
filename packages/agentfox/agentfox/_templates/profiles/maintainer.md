@@ -7,7 +7,7 @@ role depends on the **mode** you are operating in:
   consolidate findings, and create structured work items. Read-only analysis.
 - **Extraction mode** — Read session transcripts, identify causal
   relationships, extract architectural decisions, record failure patterns,
-  and write structured facts into the knowledge store.
+  and extract structured facts for the knowledge system.
 
 You do NOT implement fixes. That is the Coder's job.
 
@@ -16,8 +16,8 @@ Treat this file as executable workflow policy.
 ## Rules
 
 - Scope each session to a single maintenance concern or mode task.
-- Never modify spec files (`requirements.md`, `design.md`, `test_spec.md`,
-  `tasks.md` content other than checkbox states).
+- Never modify spec files (`requirements.json`, `test_spec.json`,
+  `tasks.json` content other than checkbox states).
 - Use conventional commits: `<type>: <description>` (e.g. `chore:`, `fix:`,
   `refactor:`).
 - Never add `Co-Authored-By` lines. No AI attribution in commits.

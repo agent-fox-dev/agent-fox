@@ -1,0 +1,651 @@
+{
+  "$schema": null,
+  "spec_id": "04",
+  "spec_name": "af_agentic_cli",
+  "schema_version": 1,
+  "test_cases": [
+    {
+      "id": "TS-04-1",
+      "requirement_id": "04-REQ-1.1",
+      "kind": "unit",
+      "description": "Verify that af/app.py declares the top-level Click group using cls=AgentFoxGroup imported from agentfox.io.",
+      "preconditions": [
+        "agentfox package (spec 03) is installed and importable",
+        "af package is installed in the Python environment"
+      ],
+      "input": "Import af.app and inspect the top-level Click group object",
+      "expected": "The Click group object is an instance of AgentFoxGroup from agentfox.io",
+      "assertion_pseudocode": "from af.app import cli\nfrom agentfox.io import AgentFoxGroup\nassert isinstance(cli, AgentFoxGroup)"
+    },
+    {
+      "id": "TS-04-2",
+      "requirement_id": "04-REQ-1.2",
+      "kind": "unit",
+      "description": "Verify that af/__init__.py no longer defines or exports BannerGroup or handle_agent_fox_errors.",
+      "preconditions": [
+        "af package is installed in the Python environment"
+      ],
+      "input": "Import the af module and inspect its namespace",
+      "expected": "Neither BannerGroup nor handle_agent_fox_errors exist as attributes of the af module",
+      "assertion_pseudocode": "import af\nassert not hasattr(af, 'BannerGroup')\nassert not hasattr(af, 'handle_agent_fox_errors')"
+    },
+    {
+      "id": "TS-04-3",
+      "requirement_id": "04-REQ-1.3",
+      "kind": "integration",
+      "description": "Verify that AgentFoxGroup catches an unhandled subcommand exception and emits a structured JSON error envelope to stderr with a non-zero exit code.",
+      "preconditions": [
+        "af package is installed",
+        "agentfox.io is installed",
+        "A test subcommand is registered that raises an unhandled RuntimeError"
+      ],
+      "input": "Invoke the test subcommand that raises a RuntimeError via Click's test runner with mix_stderr=False",
+      "expected": "Process exits with non-zero code; stderr contains a valid JSON error envelope with an 'error' field; stdout is empty or contains no error text",
+      "assertion_pseudocode": "from click.testing import CliRunner\nfrom af.app import cli\nrunner = CliRunner(mix_stderr=False)\nresult = runner.invoke(cli, ['failing-command'])\nassert result.exit_code != 0\nimport json\nerror_envelope = json.loads(result.stderr)\nassert 'error' in error_envelope"
+    },
+    {
+      "id": "TS-04-4",
+      "requirement_id": "04-REQ-2.1",
+      "kind": "unit",
+      "description": "Verify that each af subcommand retrieves OutputManager from ctx.obj['output'] and uses om.emit() for data output rather than direct click.echo calls.",
+      "preconditions": [
+        "af package is installed",
+        "agentfox.io is installed",
+        "Source files for af/code.py, af/plan.py, af/standup.py, af/init.py, af/night_shift.py, af/reset.py, af/insights.py are accessible"
+      ],
+      "input": "Static analysis of each af subcommand source file",
+      "expected": "Each subcommand file contains ctx.obj['output'] retrieval and om.emit() calls; no direct click.echo() calls for data payloads are present",
+      "assertion_pseudocode": "for source_file in ['af/code.py', 'af/plan.py', 'af/standup.py', 'af/init.py', 'af/night_shift.py', 'af/reset.py', 'af/insights.py']:\n    content = read_file(source_file)\n    assert \"ctx.obj['output']\" in content or 'ctx.obj[\"output\"]' in content\n    assert 'om.emit(' in content\n    # data-output click.echo calls must not appear\n    assert 'click.echo(' not in content  # or assert count of data-purpose click.echo == 0"
+    },
+    {
+      "id": "TS-04-5",
+      "requirement_id": "04-REQ-2.2",
+      "kind": "unit",
+      "description": "Verify that no af subcommand source file contains any import from af.json_io.",
+      "preconditions": [
+        "af package source directory is accessible on disk"
+      ],
+      "input": "Static analysis (grep) of all .py files under af/",
+      "expected": "Zero occurrences of 'from af.json_io import' or 'import af.json_io' in any file under af/",
+      "assertion_pseudocode": "matches = grep_recursive(directory='af/', pattern='af.json_io')\nassert len(matches) == 0"
+    },
+    {
+      "id": "TS-04-6",
+      "requirement_id": "04-REQ-2.3",
+      "kind": "integration",
+      "description": "Verify that OutputManager renders human-readable text to stdout via Rich when json_mode is False.",
+      "preconditions": [
+        "agentfox.io is installed",
+        "OutputManager is instantiated with json_mode=False"
+      ],
+      "input": "Call om.emit({'key': 'value'}) on an OutputManager with json_mode=False, capturing stdout",
+      "expected": "stdout contains human-readable text (not raw JSON); no JSON object structure on stdout",
+      "assertion_pseudocode": "from agentfox.io import OutputManager\nimport io\nom = OutputManager(json_mode=False, stdout=io.StringIO())\nom.emit({'key': 'value'})\noutput = om.stdout.getvalue()\nassert '{\"key\"' not in output  # not raw JSON\nassert len(output.strip()) > 0"
+    },
+    {
+      "id": "TS-04-7",
+      "requirement_id": "04-REQ-2.4",
+      "kind": "integration",
+      "description": "Verify that OutputManager renders a single valid JSON object to stdout when json_mode is True.",
+      "preconditions": [
+        "agentfox.io is installed",
+        "OutputManager is instantiated with json_mode=True"
+      ],
+      "input": "Call om.emit({'key': 'value'}) on an OutputManager with json_mode=True, capturing stdout",
+      "expected": "stdout contains exactly one valid JSON object with key 'key' and value 'value'",
+      "assertion_pseudocode": "from agentfox.io import OutputManager\nimport io, json\nom = OutputManager(json_mode=True, stdout=io.StringIO())\nom.emit({'key': 'value'})\noutput = om.stdout.getvalue().strip()\nobj = json.loads(output)\nassert obj == {'key': 'value'}"
+    },
+    {
+      "id": "TS-04-8",
+      "requirement_id": "04-REQ-2.5",
+      "kind": "integration",
+      "description": "Verify that af standup invoked with --json emits a structured JSON object on stdout with no unstructured text and exits with code 0.",
+      "preconditions": [
+        "af package is installed",
+        "agentfox.io is installed",
+        "A valid af project configuration exists in the test working directory or is mocked"
+      ],
+      "input": "Invoke 'af standup --json' via Click test runner with mix_stderr=False",
+      "expected": "stdout is a single valid JSON object; exit code is 0; no unstructured plain text on stdout",
+      "assertion_pseudocode": "from click.testing import CliRunner\nfrom af.app import cli\nimport json\nrunner = CliRunner(mix_stderr=False)\nresult = runner.invoke(cli, ['standup', '--json'])\nassert result.exit_code == 0\nobj = json.loads(result.output)\nassert isinstance(obj, dict)"
+    },
+    {
+      "id": "TS-04-9",
+      "requirement_id": "04-REQ-2.6",
+      "kind": "integration",
+      "description": "Verify that af init invoked with --json emits a structured JSON object on stdout with no unstructured text and exits with code 0.",
+      "preconditions": [
+        "af package is installed",
+        "agentfox.io is installed",
+        "Temporary empty directory available as working directory for init"
+      ],
+      "input": "Invoke 'af init --json' via Click test runner with mix_stderr=False in an empty temp directory",
+      "expected": "stdout is a single valid JSON object; exit code is 0; no plain unstructured text on stdout",
+      "assertion_pseudocode": "from click.testing import CliRunner\nfrom af.app import cli\nimport json\nrunner = CliRunner(mix_stderr=False)\nwith runner.isolated_filesystem():\n    result = runner.invoke(cli, ['init', '--json'])\nassert result.exit_code == 0\nobj = json.loads(result.output)\nassert isinstance(obj, dict)"
+    },
+    {
+      "id": "TS-04-10",
+      "requirement_id": "04-REQ-3.1",
+      "kind": "unit",
+      "description": "Verify that ProgressDisplay calls emit_progress() with a task_started event containing node_id and ISO-8601 timestamp when json_mode is True.",
+      "preconditions": [
+        "agentfox.io is installed",
+        "ProgressDisplay is importable from af or agentfox.io",
+        "OutputManager mock or spy is prepared"
+      ],
+      "input": "Instantiate ProgressDisplay with json_mode=True and a mock OutputManager; call the method that signals task start for node_id '1.1'",
+      "expected": "emit_progress was called once with event='task_started', node_id='1.1', and a valid ISO-8601 timestamp string",
+      "assertion_pseudocode": "from unittest.mock import MagicMock\nom = MagicMock()\npd = ProgressDisplay(output_manager=om, json_mode=True)\npd.task_started(node_id='1.1')\nom.emit_progress.assert_called_once()\ncall_kwargs = om.emit_progress.call_args\nassert call_kwargs['event'] == 'task_started' or call_kwargs[0][0]['event'] == 'task_started'\nassert call_kwargs.get('node_id', call_kwargs[0][0].get('node_id')) == '1.1'\n# timestamp matches ISO-8601\nimport re\nts = call_kwargs.get('timestamp', call_kwargs[0][0].get('timestamp'))\nassert re.match(r'\\d{4}-\\d{2}-\\d{2}T', ts)"
+    },
+    {
+      "id": "TS-04-11",
+      "requirement_id": "04-REQ-3.2",
+      "kind": "unit",
+      "description": "Verify that ProgressDisplay calls emit_progress() with a task_completed event including duration_s float when json_mode is True.",
+      "preconditions": [
+        "agentfox.io is installed",
+        "ProgressDisplay is importable",
+        "OutputManager mock is prepared"
+      ],
+      "input": "Instantiate ProgressDisplay with json_mode=True; call task_started then task_completed for node_id '1.1'",
+      "expected": "emit_progress called with event='task_completed', node_id='1.1', duration_s as a non-negative float, and a valid ISO-8601 timestamp",
+      "assertion_pseudocode": "from unittest.mock import MagicMock\nom = MagicMock()\npd = ProgressDisplay(output_manager=om, json_mode=True)\npd.task_started(node_id='1.1')\npd.task_completed(node_id='1.1')\ncalls = om.emit_progress.call_args_list\nlast = calls[-1]\nevent_data = last[0][0] if last[0] else last[1]\nassert event_data['event'] == 'task_completed'\nassert event_data['node_id'] == '1.1'\nassert isinstance(event_data['duration_s'], float)\nassert event_data['duration_s'] >= 0"
+    },
+    {
+      "id": "TS-04-12",
+      "requirement_id": "04-REQ-3.3",
+      "kind": "unit",
+      "description": "Verify that ProgressDisplay calls emit_progress() with a task_failed event including error message when json_mode is True.",
+      "preconditions": [
+        "agentfox.io is installed",
+        "ProgressDisplay is importable",
+        "OutputManager mock is prepared"
+      ],
+      "input": "Instantiate ProgressDisplay with json_mode=True; call task_failed for node_id '1.2' with error='something went wrong'",
+      "expected": "emit_progress called with event='task_failed', node_id='1.2', error='something went wrong', and a valid ISO-8601 timestamp",
+      "assertion_pseudocode": "from unittest.mock import MagicMock\nom = MagicMock()\npd = ProgressDisplay(output_manager=om, json_mode=True)\npd.task_failed(node_id='1.2', error='something went wrong')\ncall = om.emit_progress.call_args\nevent_data = call[0][0] if call[0] else call[1]\nassert event_data['event'] == 'task_failed'\nassert event_data['node_id'] == '1.2'\nassert event_data['error'] == 'something went wrong'"
+    },
+    {
+      "id": "TS-04-13",
+      "requirement_id": "04-REQ-3.4",
+      "kind": "unit",
+      "description": "Verify that ProgressDisplay uses Rich spinner/progress UI and does NOT call emit_progress() when json_mode is False.",
+      "preconditions": [
+        "agentfox.io is installed",
+        "ProgressDisplay is importable",
+        "OutputManager mock is prepared with json_mode=False"
+      ],
+      "input": "Instantiate ProgressDisplay with json_mode=False; call task_started and task_completed for node_id '1.1'",
+      "expected": "emit_progress is never called; Rich progress rendering is triggered instead",
+      "assertion_pseudocode": "from unittest.mock import MagicMock, patch\nom = MagicMock()\nom.json_mode = False\npd = ProgressDisplay(output_manager=om, json_mode=False)\npd.task_started(node_id='1.1')\npd.task_completed(node_id='1.1')\nom.emit_progress.assert_not_called()"
+    },
+    {
+      "id": "TS-04-14",
+      "requirement_id": "04-REQ-3.5",
+      "kind": "integration",
+      "description": "Verify that JSONL progress events are written exclusively to stderr and the final JSON result is on stdout with no cross-contamination.",
+      "preconditions": [
+        "af package and agentfox.io are installed",
+        "af code command can be invoked with a minimal mocked project"
+      ],
+      "input": "Invoke 'af code --json' via Click test runner with mix_stderr=False, capturing stdout and stderr separately",
+      "expected": "Every line on stdout is valid JSON (the final result); every line on stderr is a valid JSONL progress event; no JSONL event lines appear on stdout; no final result JSON appears on stderr",
+      "assertion_pseudocode": "from click.testing import CliRunner\nfrom af.app import cli\nimport json\nrunner = CliRunner(mix_stderr=False)\nresult = runner.invoke(cli, ['code', '--json', '--project', 'mock'])\nfor line in result.output.strip().splitlines():\n    json.loads(line)  # all stdout lines must be valid JSON\nfor line in result.stderr.strip().splitlines():\n    obj = json.loads(line)  # all stderr lines valid JSONL\n    assert 'event' in obj  # must be progress events\nassert result.exit_code == 0"
+    },
+    {
+      "id": "TS-04-15",
+      "requirement_id": "04-REQ-3.6",
+      "kind": "integration",
+      "description": "Verify that af code invoked with --json emits task_started, task_completed, or task_failed JSONL events on stderr for each task node.",
+      "preconditions": [
+        "af package and agentfox.io are installed",
+        "A mock or minimal project configuration with at least two task nodes is available"
+      ],
+      "input": "Invoke 'af code --json' via Click test runner with mix_stderr=False",
+      "expected": "stderr contains at least one JSONL line per task with event field being one of task_started, task_completed, task_failed; final JSON result appears on stdout after all tasks",
+      "assertion_pseudocode": "from click.testing import CliRunner\nfrom af.app import cli\nimport json\nrunner = CliRunner(mix_stderr=False)\nresult = runner.invoke(cli, ['code', '--json'])\nevents = [json.loads(l) for l in result.stderr.strip().splitlines() if l.strip()]\nassert len(events) > 0\nfor ev in events:\n    assert ev['event'] in ('task_started', 'task_completed', 'task_failed')\n    assert 'node_id' in ev\n    assert 'timestamp' in ev\nfinal = json.loads(result.output)\nassert isinstance(final, dict)"
+    },
+    {
+      "id": "TS-04-16",
+      "requirement_id": "04-REQ-3.7",
+      "kind": "integration",
+      "description": "Verify that af night-shift invoked with --json emits task_started, task_completed, or task_failed JSONL events on stderr for each task node.",
+      "preconditions": [
+        "af package and agentfox.io are installed",
+        "A mock or minimal project configuration with at least two task nodes is available"
+      ],
+      "input": "Invoke 'af night-shift --json' via Click test runner with mix_stderr=False",
+      "expected": "stderr contains at least one JSONL line per task with valid event fields; final JSON result appears on stdout",
+      "assertion_pseudocode": "from click.testing import CliRunner\nfrom af.app import cli\nimport json\nrunner = CliRunner(mix_stderr=False)\nresult = runner.invoke(cli, ['night-shift', '--json'])\nevents = [json.loads(l) for l in result.stderr.strip().splitlines() if l.strip()]\nassert len(events) > 0\nfor ev in events:\n    assert ev['event'] in ('task_started', 'task_completed', 'task_failed')\nfinal = json.loads(result.output)\nassert isinstance(final, dict)"
+    },
+    {
+      "id": "TS-04-17",
+      "requirement_id": "04-REQ-4.1",
+      "kind": "unit",
+      "description": "Verify that af/json_io.py does not exist on disk and that importing af.json_io raises ModuleNotFoundError.",
+      "preconditions": [
+        "af package is installed or source is accessible"
+      ],
+      "input": "Check filesystem for af/json_io.py and attempt Python import",
+      "expected": "File af/json_io.py does not exist; importing af.json_io raises ModuleNotFoundError",
+      "assertion_pseudocode": "import os\nassert not os.path.exists('af/json_io.py')\ntry:\n    import af.json_io\n    assert False, 'Expected ModuleNotFoundError'\nexcept ModuleNotFoundError:\n    pass"
+    },
+    {
+      "id": "TS-04-18",
+      "requirement_id": "04-REQ-4.2",
+      "kind": "unit",
+      "description": "Verify that no source file under af/ contains 'from af.json_io import' or 'import af.json_io' statements.",
+      "preconditions": [
+        "af package source directory is accessible on disk"
+      ],
+      "input": "Run grep -r 'af.json_io' af/ on the source tree",
+      "expected": "Zero matches returned",
+      "assertion_pseudocode": "import subprocess\nresult = subprocess.run(['grep', '-r', 'af.json_io', 'af/'], capture_output=True, text=True)\nassert result.returncode != 0  # grep returns 1 when no match found\nassert result.stdout.strip() == ''"
+    },
+    {
+      "id": "TS-04-19",
+      "requirement_id": "04-REQ-5.1",
+      "kind": "integration",
+      "description": "Verify that passing --json --help to any af command emits a JSON object with name, description, options, and exit_codes fields to stdout and exits with code 0.",
+      "preconditions": [
+        "af package and agentfox.io are installed",
+        "af standup command has @exit_codes decorator applied"
+      ],
+      "input": "Invoke 'af standup --json --help' via Click test runner",
+      "expected": "stdout is a valid JSON object with string fields 'name' and 'description', array fields 'options' and 'exit_codes'; exit code is 0",
+      "assertion_pseudocode": "from click.testing import CliRunner\nfrom af.app import cli\nimport json\nrunner = CliRunner()\nresult = runner.invoke(cli, ['standup', '--json', '--help'])\nassert result.exit_code == 0\nobj = json.loads(result.output)\nassert isinstance(obj.get('name'), str)\nassert isinstance(obj.get('description'), str)\nassert isinstance(obj.get('options'), list)\nassert isinstance(obj.get('exit_codes'), list)"
+    },
+    {
+      "id": "TS-04-20",
+      "requirement_id": "04-REQ-5.2",
+      "kind": "unit",
+      "description": "Verify that the JSON help renderer derives exit code metadata from the @exit_codes decorator and each entry contains integer 'code' and string 'description'.",
+      "preconditions": [
+        "agentfox.io is installed",
+        "A test command decorated with @exit_codes([(0, 'Success'), (1, 'Error')]) is defined"
+      ],
+      "input": "Invoke the test command with --json --help via Click test runner",
+      "expected": "exit_codes array in JSON output contains entries with integer 'code' and string 'description' matching the decorator values",
+      "assertion_pseudocode": "from click.testing import CliRunner\nfrom af.app import cli\nimport json\nrunner = CliRunner()\nresult = runner.invoke(cli, ['standup', '--json', '--help'])\nobj = json.loads(result.output)\nfor ec in obj['exit_codes']:\n    assert isinstance(ec['code'], int)\n    assert isinstance(ec['description'], str)"
+    },
+    {
+      "id": "TS-04-21",
+      "requirement_id": "04-REQ-5.3",
+      "kind": "integration",
+      "description": "Verify that passing --help without --json renders Click's standard text help to stdout and exits with code 0.",
+      "preconditions": [
+        "af package and agentfox.io are installed"
+      ],
+      "input": "Invoke 'af standup --help' (without --json) via Click test runner",
+      "expected": "stdout contains Click's standard text help format (includes 'Usage:'); output is not a JSON object; exit code is 0",
+      "assertion_pseudocode": "from click.testing import CliRunner\nfrom af.app import cli\nrunner = CliRunner()\nresult = runner.invoke(cli, ['standup', '--help'])\nassert result.exit_code == 0\nassert 'Usage:' in result.output\ntry:\n    import json; json.loads(result.output)\n    assert False, 'Should not be JSON'\nexcept (json.JSONDecodeError, ValueError):\n    pass"
+    },
+    {
+      "id": "TS-04-22",
+      "requirement_id": "04-REQ-6.1",
+      "kind": "unit",
+      "description": "Verify that agentfox/io/output.py exports a format_table(headers, rows, json_mode) function that returns a list of dicts in JSON mode and a Rich-rendered table in text mode.",
+      "preconditions": [
+        "agentfox.io is installed"
+      ],
+      "input": "Import format_table from agentfox.io; call with headers=['Name', 'Status'], rows=[['Alice', 'Done']], json_mode=True and again with json_mode=False",
+      "expected": "json_mode=True returns [{'Name': 'Alice', 'Status': 'Done'}]; json_mode=False returns a non-empty Rich table or string renderable",
+      "assertion_pseudocode": "from agentfox.io import format_table\nresult_json = format_table(headers=['Name', 'Status'], rows=[['Alice', 'Done']], json_mode=True)\nassert result_json == [{'Name': 'Alice', 'Status': 'Done'}]\nresult_text = format_table(headers=['Name', 'Status'], rows=[['Alice', 'Done']], json_mode=False)\nassert result_text is not None\nassert str(result_text) != ''"
+    },
+    {
+      "id": "TS-04-23",
+      "requirement_id": "04-REQ-6.2",
+      "kind": "unit",
+      "description": "Verify that af standup source uses format_table() from agentfox.io for tabular output and has no manual table construction.",
+      "preconditions": [
+        "af package source directory is accessible"
+      ],
+      "input": "Static analysis of af/standup.py source file",
+      "expected": "File imports format_table from agentfox.io and calls format_table(); no manual string concatenation for table headers/rows is present",
+      "assertion_pseudocode": "content = read_file('af/standup.py')\nassert 'from agentfox.io import' in content or 'from agentfox.io.output import' in content\nassert 'format_table(' in content"
+    },
+    {
+      "id": "TS-04-24",
+      "requirement_id": "04-REQ-6.3",
+      "kind": "unit",
+      "description": "Verify that af insights source uses format_table() from agentfox.io for tabular output and has no manual table construction.",
+      "preconditions": [
+        "af package source directory is accessible"
+      ],
+      "input": "Static analysis of af/insights.py source file",
+      "expected": "File imports format_table from agentfox.io and calls format_table(); no manual string-based table building present",
+      "assertion_pseudocode": "content = read_file('af/insights.py')\nassert 'from agentfox.io import' in content or 'from agentfox.io.output import' in content\nassert 'format_table(' in content"
+    },
+    {
+      "id": "TS-04-25",
+      "requirement_id": "04-REQ-6.4",
+      "kind": "unit",
+      "description": "Verify that format_table() returns a list of dicts with keys matching headers when json_mode is True.",
+      "preconditions": [
+        "agentfox.io is installed with format_table exported"
+      ],
+      "input": "Call format_table(headers=['A', 'B', 'C'], rows=[['x', 'y', 'z'], ['1', '2', '3']], json_mode=True)",
+      "expected": "Returns [{'A': 'x', 'B': 'y', 'C': 'z'}, {'A': '1', 'B': '2', 'C': '3'}]; each dict has exactly 3 keys matching the headers",
+      "assertion_pseudocode": "from agentfox.io import format_table\nresult = format_table(headers=['A', 'B', 'C'], rows=[['x', 'y', 'z'], ['1', '2', '3']], json_mode=True)\nassert len(result) == 2\nassert result[0] == {'A': 'x', 'B': 'y', 'C': 'z'}\nassert result[1] == {'A': '1', 'B': '2', 'C': '3'}\nfor row_dict in result:\n    assert set(row_dict.keys()) == {'A', 'B', 'C'}"
+    },
+    {
+      "id": "TS-04-26",
+      "requirement_id": "04-REQ-6.5",
+      "kind": "unit",
+      "description": "Verify that format_table() returns a Rich Table or renderable string suitable for terminal display when json_mode is False.",
+      "preconditions": [
+        "agentfox.io is installed",
+        "Rich is installed"
+      ],
+      "input": "Call format_table(headers=['Name', 'Value'], rows=[['foo', 'bar']], json_mode=False)",
+      "expected": "Returns a Rich Table object or a non-empty string; can be rendered by OutputManager without error",
+      "assertion_pseudocode": "from agentfox.io import format_table\nfrom rich.table import Table\nresult = format_table(headers=['Name', 'Value'], rows=[['foo', 'bar']], json_mode=False)\nassert isinstance(result, (Table, str)) or hasattr(result, '__rich_console__')\nassert result is not None"
+    },
+    {
+      "id": "TS-04-27",
+      "requirement_id": "04-REQ-7.1",
+      "kind": "integration",
+      "description": "Verify that the full af test suite passes with exit code 0 after the migration is applied.",
+      "preconditions": [
+        "af package is installed with all migrations applied",
+        "agentfox.io (spec 03) is installed",
+        "pytest is installed",
+        "All test dependencies are available"
+      ],
+      "input": "Run pytest on the af test suite from the repository root",
+      "expected": "pytest exits with code 0; zero test failures; zero test errors",
+      "assertion_pseudocode": "import subprocess\nresult = subprocess.run(['pytest', 'tests/', '-v', '--tb=short'], capture_output=True, text=True)\nassert result.returncode == 0, f'pytest failed:\\n{result.stdout}\\n{result.stderr}'"
+    },
+    {
+      "id": "TS-04-28",
+      "requirement_id": "04-REQ-7.2",
+      "kind": "integration",
+      "description": "Verify that all af subcommands preserve their existing exit codes, flag names, and stdout/stderr contracts after the migration.",
+      "preconditions": [
+        "af package is installed with migrations applied",
+        "agentfox.io is installed",
+        "Baseline exit code and flag contract documentation or snapshot tests are available"
+      ],
+      "input": "Invoke each af subcommand with standard flags and compare exit codes and output structure against pre-migration baseline",
+      "expected": "Exit codes match baseline; flag names are unchanged; stdout/stderr separation is preserved for all subcommands",
+      "assertion_pseudocode": "from click.testing import CliRunner\nfrom af.app import cli\nrunner = CliRunner(mix_stderr=False)\n# Verify --help for each command still works\nfor cmd in ['code', 'plan', 'standup', 'init', 'night-shift', 'reset', 'insights']:\n    result = runner.invoke(cli, [cmd, '--help'])\n    assert result.exit_code == 0, f'{cmd} --help failed with {result.exit_code}'"
+    }
+  ],
+  "property_tests": [
+    {
+      "id": "TS-04-P1",
+      "property_id": "04-PROP-1",
+      "validates": [
+        "04-REQ-3.5",
+        "04-REQ-3.6",
+        "04-REQ-3.7"
+      ],
+      "description": "For any invocation of af code or af night-shift with --json, every stdout line is valid JSON and every stderr line is a valid JSONL progress event with no cross-contamination.",
+      "for_any_strategy": "Generate random sets of task nodes (1-20 nodes) with randomly chosen outcomes (completed or failed) for af code or af night-shift invocations",
+      "invariant_check": "For each generated invocation: parse every stdout line as JSON (must succeed); parse every stderr line as JSON (must succeed) and verify it has an 'event' key; assert no stderr line appears on stdout and no stdout result line appears on stderr"
+    },
+    {
+      "id": "TS-04-P2",
+      "property_id": "04-PROP-2",
+      "validates": [
+        "04-REQ-4.1",
+        "04-REQ-4.2"
+      ],
+      "description": "For any Python source file under af/, the string 'af.json_io' never appears as an import path and the file af/json_io.py does not exist.",
+      "for_any_strategy": "Enumerate all .py files recursively under the af/ directory",
+      "invariant_check": "For each file: assert 'af.json_io' not in file contents; additionally assert os.path.exists('af/json_io.py') is False"
+    },
+    {
+      "id": "TS-04-P3",
+      "property_id": "04-PROP-3",
+      "validates": [
+        "04-REQ-2.1",
+        "04-REQ-2.3",
+        "04-REQ-2.4"
+      ],
+      "description": "For any af subcommand execution, om.emit() is the only mechanism used to write data output and no subcommand calls click.echo() directly for data payloads.",
+      "for_any_strategy": "Enumerate all af subcommand source files (code.py, plan.py, standup.py, init.py, night_shift.py, reset.py, insights.py)",
+      "invariant_check": "For each source file: assert 'click.echo(' not in data-output sections (static analysis); instrument OutputManager.emit in a test run and verify all output passes through it; assert no click.echo calls capture data payloads at runtime via mock patching"
+    },
+    {
+      "id": "TS-04-P4",
+      "property_id": "04-PROP-4",
+      "validates": [
+        "04-REQ-2.4",
+        "04-REQ-2.5",
+        "04-REQ-2.6"
+      ],
+      "description": "For any af command invoked with --json, stdout contains only valid JSON text and the process exits with code 0 on success.",
+      "for_any_strategy": "For each af subcommand (code, plan, standup, init, night-shift, reset, insights), generate varied but valid input configurations and invoke with --json",
+      "invariant_check": "For each invocation: assert json.loads(result.output) succeeds without exception; assert result.exit_code == 0; assert no non-JSON text appears on stdout"
+    },
+    {
+      "id": "TS-04-P5",
+      "property_id": "04-PROP-5",
+      "validates": [
+        "04-REQ-6.4",
+        "04-REQ-6.E2"
+      ],
+      "description": "For any call to format_table(headers, rows, json_mode=True) where rows is non-empty, every dict in the returned list has exactly the same set of keys as the headers list.",
+      "for_any_strategy": "Generate random headers lists (1-10 strings) and random rows (1-50 rows, each with 0 to len(headers)+2 values) using hypothesis or similar property testing library",
+      "invariant_check": "For each generated call: result = format_table(headers, rows, json_mode=True); assert len(result) == len(rows); for each dict d in result: assert set(d.keys()) == set(headers)"
+    }
+  ],
+  "edge_case_tests": [
+    {
+      "id": "TS-04-E1",
+      "requirement_id": "04-REQ-1.E1",
+      "kind": "unit",
+      "description": "Verify that if AgentFoxGroup cannot be imported from agentfox.io, an ImportError is raised at module load time with a message referencing agentfox.io.",
+      "preconditions": [
+        "agentfox package is NOT installed or agentfox.io is intentionally blocked"
+      ],
+      "input": "Attempt to import af.app while agentfox.io is unavailable (e.g. using importlib with sys.modules manipulation)",
+      "expected": "ImportError is raised before the module finishes loading; error message contains 'agentfox.io'",
+      "assertion_pseudocode": "import sys\n# Block agentfox.io import\nsys.modules['agentfox.io'] = None\ntry:\n    import importlib\n    import af.app\n    importlib.reload(af.app)\n    assert False, 'Expected ImportError'\nexcept ImportError as e:\n    assert 'agentfox.io' in str(e)\nfinally:\n    del sys.modules['agentfox.io']"
+    },
+    {
+      "id": "TS-04-E2",
+      "requirement_id": "04-REQ-2.E1",
+      "kind": "unit",
+      "description": "Verify that an af subcommand raises RuntimeError with a descriptive message when ctx.obj['output'] is None or missing.",
+      "preconditions": [
+        "af package is installed",
+        "agentfox.io is installed"
+      ],
+      "input": "Invoke an af subcommand (e.g. af standup) via Click test runner with ctx.obj set to an empty dict (no 'output' key)",
+      "expected": "RuntimeError is raised with a message indicating OutputManager is missing from context before any output is written",
+      "assertion_pseudocode": "from click.testing import CliRunner\nfrom af.app import cli\nrunner = CliRunner()\nresult = runner.invoke(cli, ['standup'], obj={})\nassert result.exit_code != 0\nassert isinstance(result.exception, RuntimeError) or 'RuntimeError' in str(result.output)\nassert 'output' in str(result.exception).lower() or 'OutputManager' in str(result.exception)"
+    },
+    {
+      "id": "TS-04-E3",
+      "requirement_id": "04-REQ-3.E1",
+      "kind": "unit",
+      "description": "Verify that emit_progress() suppresses IO errors from stderr write failures and does not propagate exceptions to the caller.",
+      "preconditions": [
+        "agentfox.io is installed",
+        "OutputManager is importable"
+      ],
+      "input": "Create an OutputManager with json_mode=True and a stderr stream that raises BrokenPipeError on write; call emit_progress() with a task_started event",
+      "expected": "No exception is raised from emit_progress(); the calling code continues executing normally",
+      "assertion_pseudocode": "from agentfox.io import OutputManager\nimport io\n\nclass BrokenStderr:\n    def write(self, data): raise BrokenPipeError('broken pipe')\n    def flush(self): pass\n\nom = OutputManager(json_mode=True, stderr=BrokenStderr())\n# Should not raise\nom.emit_progress({'event': 'task_started', 'node_id': '1.1', 'timestamp': '2026-01-01T00:00:00Z'})\n# If we reach here, the error was suppressed\nassert True"
+    },
+    {
+      "id": "TS-04-E4",
+      "requirement_id": "04-REQ-3.E2",
+      "kind": "unit",
+      "description": "Verify that ProgressDisplay emits a JSONL event with node_id set to null and logs a warning to stderr when node_id is None or empty.",
+      "preconditions": [
+        "agentfox.io is installed",
+        "ProgressDisplay is importable"
+      ],
+      "input": "Instantiate ProgressDisplay with json_mode=True; call task_started with node_id=None",
+      "expected": "emit_progress is called with node_id=null in the JSONL payload; a warning message is written to stderr",
+      "assertion_pseudocode": "from unittest.mock import MagicMock, patch\nimport io\nom = MagicMock()\nstderr_capture = io.StringIO()\npd = ProgressDisplay(output_manager=om, json_mode=True, stderr=stderr_capture)\npd.task_started(node_id=None)\ncall = om.emit_progress.call_args\nevent_data = call[0][0] if call[0] else call[1]\nassert event_data['node_id'] is None\n# Warning written to stderr\nassert 'warn' in stderr_capture.getvalue().lower() or len(stderr_capture.getvalue()) > 0"
+    },
+    {
+      "id": "TS-04-E5",
+      "requirement_id": "04-REQ-4.E1",
+      "kind": "unit",
+      "description": "Verify that attempting to import af.json_io after the shim is deleted raises ModuleNotFoundError.",
+      "preconditions": [
+        "af package is installed with af/json_io.py deleted"
+      ],
+      "input": "Execute 'import af.json_io' in Python",
+      "expected": "ModuleNotFoundError is raised at import time",
+      "assertion_pseudocode": "try:\n    import af.json_io\n    assert False, 'Expected ModuleNotFoundError'\nexcept ModuleNotFoundError as e:\n    assert 'af.json_io' in str(e) or 'json_io' in str(e)"
+    },
+    {
+      "id": "TS-04-E6",
+      "requirement_id": "04-REQ-5.E1",
+      "kind": "unit",
+      "description": "Verify that JSON help renderer emits help with an empty exit_codes array and no exception when the command lacks the @exit_codes decorator.",
+      "preconditions": [
+        "agentfox.io is installed",
+        "A test Click command is defined without @exit_codes decorator and registered under AgentFoxGroup"
+      ],
+      "input": "Invoke the undecorated test command with --json --help via Click test runner",
+      "expected": "stdout is a valid JSON object with exit_codes equal to an empty list; no exception is raised; exit code is 0",
+      "assertion_pseudocode": "from click.testing import CliRunner\nfrom agentfox.io import AgentFoxGroup\nimport click, json\n\n@click.group(cls=AgentFoxGroup)\ndef test_cli(): pass\n\n@test_cli.command()\ndef no_exit_codes_cmd(): pass\n\nrunner = CliRunner()\nresult = runner.invoke(test_cli, ['no-exit-codes-cmd', '--json', '--help'])\nassert result.exit_code == 0\nobj = json.loads(result.output)\nassert obj['exit_codes'] == []"
+    },
+    {
+      "id": "TS-04-E7",
+      "requirement_id": "04-REQ-6.E1",
+      "kind": "unit",
+      "description": "Verify that format_table() returns an empty list in JSON mode and an empty Rich table in text mode when rows is an empty list.",
+      "preconditions": [
+        "agentfox.io is installed with format_table exported"
+      ],
+      "input": "Call format_table(headers=['A', 'B'], rows=[], json_mode=True) and format_table(headers=['A', 'B'], rows=[], json_mode=False)",
+      "expected": "json_mode=True returns []; json_mode=False returns an empty Rich Table or empty string; no exception raised in either case",
+      "assertion_pseudocode": "from agentfox.io import format_table\nresult_json = format_table(headers=['A', 'B'], rows=[], json_mode=True)\nassert result_json == []\nresult_text = format_table(headers=['A', 'B'], rows=[], json_mode=False)\nassert result_text is not None  # empty table object, not an exception"
+    },
+    {
+      "id": "TS-04-E8",
+      "requirement_id": "04-REQ-6.E2",
+      "kind": "unit",
+      "description": "Verify that format_table() pads short rows with None in JSON mode and empty string in text mode without raising an exception.",
+      "preconditions": [
+        "agentfox.io is installed with format_table exported"
+      ],
+      "input": "Call format_table(headers=['A', 'B', 'C'], rows=[['only_one']], json_mode=True) and same with json_mode=False",
+      "expected": "json_mode=True returns [{'A': 'only_one', 'B': None, 'C': None}]; json_mode=False returns a renderable table with empty strings for missing cells; no exception raised",
+      "assertion_pseudocode": "from agentfox.io import format_table\nresult_json = format_table(headers=['A', 'B', 'C'], rows=[['only_one']], json_mode=True)\nassert len(result_json) == 1\nassert result_json[0]['A'] == 'only_one'\nassert result_json[0]['B'] is None\nassert result_json[0]['C'] is None\nresult_text = format_table(headers=['A', 'B', 'C'], rows=[['only_one']], json_mode=False)\nassert result_text is not None  # no exception"
+    }
+  ],
+  "smoke_tests": [
+    {
+      "id": "TS-04-SMOKE-1",
+      "execution_path_id": "04-PATH-1",
+      "description": "Smoke test the full JSONL streaming path: agent invokes af code --json, observes JSONL progress events on stderr, and receives the final JSON result on stdout.",
+      "trigger": "Run 'af code --json' via Click CliRunner with mix_stderr=False against a mocked project with at least two task nodes",
+      "real_components": [
+        "af/app.py",
+        "af/code.py",
+        "agentfox.io.OutputManager",
+        "agentfox.io.ProgressDisplay"
+      ],
+      "mockable": [
+        "LLM/agent execution backend",
+        "filesystem project loader",
+        "network calls"
+      ],
+      "expected_effects": [
+        "stderr contains at least two JSONL lines (one task_started and one task_completed or task_failed)",
+        "stdout contains exactly one valid JSON object as the final result",
+        "Process exits with code 0",
+        "No JSONL event lines appear on stdout",
+        "No final JSON result appears on stderr"
+      ]
+    },
+    {
+      "id": "TS-04-SMOKE-2",
+      "execution_path_id": "04-PATH-2",
+      "description": "Smoke test the af standup --json path: developer invokes standup, OutputManager emits a single structured JSON object to stdout via format_table and om.emit().",
+      "trigger": "Run 'af standup --json' via Click CliRunner with mix_stderr=False against a mocked project state",
+      "real_components": [
+        "af/app.py",
+        "af/standup.py",
+        "agentfox.io.OutputManager",
+        "agentfox.io.format_table"
+      ],
+      "mockable": [
+        "git log data source",
+        "task tracker integration",
+        "filesystem reads"
+      ],
+      "expected_effects": [
+        "stdout contains a single valid JSON object with standup fields",
+        "No unstructured text appears on stdout",
+        "Process exits with code 0",
+        "OutputManager.emit() was called exactly once for the final result"
+      ]
+    },
+    {
+      "id": "TS-04-SMOKE-3",
+      "execution_path_id": "04-PATH-3",
+      "description": "Smoke test the JSON help output path: agent invokes af night-shift --json --help and receives machine-readable JSON command description without executing the command body.",
+      "trigger": "Run 'af night-shift --json --help' via Click CliRunner",
+      "real_components": [
+        "af/app.py",
+        "agentfox.io.AgentFoxGroup",
+        "agentfox.io.help JSON renderer"
+      ],
+      "mockable": [
+        "@exit_codes decorator metadata (can use a real decorated command)"
+      ],
+      "expected_effects": [
+        "stdout contains a valid JSON object with fields: name, description, options, exit_codes",
+        "Process exits with code 0",
+        "Command body (night-shift logic) is NOT executed",
+        "Click's text help format is NOT written to stdout"
+      ]
+    },
+    {
+      "id": "TS-04-SMOKE-4",
+      "execution_path_id": "04-PATH-4",
+      "description": "Smoke test the shim removal verification path: developer confirms af/json_io.py is absent via grep and Python import attempt.",
+      "trigger": "Run grep -r 'af.json_io' af/ and then python -c 'import af.json_io' in the repository",
+      "real_components": [
+        "af/ source directory on disk",
+        "Python import system"
+      ],
+      "mockable": [],
+      "expected_effects": [
+        "grep returns exit code 1 with no matches (zero occurrences of 'af.json_io')",
+        "python -c 'import af.json_io' raises ModuleNotFoundError",
+        "af/json_io.py does not exist at the expected filesystem path"
+      ]
+    },
+    {
+      "id": "TS-04-SMOKE-5",
+      "execution_path_id": "04-PATH-5",
+      "description": "Smoke test the human-readable standup path: developer invokes af standup without --json and sees a Rich-rendered table in the terminal.",
+      "trigger": "Run 'af standup' (no --json flag) via Click CliRunner with mix_stderr=False",
+      "real_components": [
+        "af/app.py",
+        "af/standup.py",
+        "agentfox.io.OutputManager",
+        "agentfox.io.format_table",
+        "Rich library"
+      ],
+      "mockable": [
+        "git log data source",
+        "task tracker integration",
+        "filesystem reads"
+      ],
+      "expected_effects": [
+        "stdout contains human-readable Rich-rendered table output",
+        "stdout does NOT contain raw JSON",
+        "Process exits with code 0",
+        "No JSONL events appear on stderr"
+      ]
+    }
+  ],
+  "coverage": {
+    "requirements_covered": [],
+    "properties_covered": [],
+    "paths_covered": [],
+    "gaps": []
+  }
+}

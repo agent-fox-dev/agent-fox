@@ -50,31 +50,6 @@ Your output is a JSON object with:
 
 ## CRITICAL OUTPUT RULES
 
-Your final message — the very last text you produce before the session ends —
-MUST be a single, bare JSON object and nothing else.
-
-- First character: `{`. Last character: `}`. No exceptions.
-- No preamble ("Here are my findings:"), no postscript ("Let me know if…").
-- No markdown fences. No prose before or after the JSON.
-- Use exactly the field names shown above: `verdicts`, `criterion_id`,
-  `verdict`, `evidence`, `overall_verdict`, `summary`.
-- Intermediate messages (between tool calls) may contain analysis text.
-  Only the **final message** is parsed; everything before it is discarded.
-
-Violating these rules triggers an expensive retry loop (re-running the
-full session). Produce clean JSON the first time.
-
-INCORRECT (triggers retry):
-
-    Here are my findings:
-    {"verdicts": [...], "overall_verdict": "PASS", "summary": "..."}
-
-INCORRECT (triggers retry):
-
-    ```json
-    {"verdicts": [...], "overall_verdict": "PASS", "summary": "..."}
-    ```
-
-CORRECT:
-
-    {"verdicts": [{"criterion_id": "AC-1", "verdict": "PASS", "evidence": "Test passes; code correct at line 142"}], "overall_verdict": "PASS", "summary": "All criteria satisfied."}
+Your final message MUST be bare JSON only — first character `{`, last `}`.
+No preamble, no postscript, no markdown fences, no prose. Only the final
+message is parsed; intermediate messages may contain analysis text.

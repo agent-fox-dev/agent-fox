@@ -15,6 +15,29 @@ from hypothesis import settings
 settings.register_profile("ci", deadline=None)
 settings.load_profile("ci")
 
+_SLOW_DIRS = ("/property/", "/integration/", "/spec/", "/nightshift/")
+_SLOW_SUFFIXES = ("_props.py", "_properties.py")
+_SLOW_FILES = ("test_orchestrator.py", "test_block_budget.py", "test_knowledge_pruning.py")
+
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """Auto-mark tests as slow based on file path patterns.
+
+    Used by ``make test-fast`` (``pytest -m 'not slow'``) to skip
+    property tests, integration tests, orchestrator loop tests, and
+    other tests that take >1 s each.
+    """
+    slow = pytest.mark.slow
+    for item in items:
+        path = str(item.fspath)
+        if any(d in path for d in _SLOW_DIRS):
+            item.add_marker(slow)
+        elif any(path.endswith(s) for s in _SLOW_SUFFIXES):
+            item.add_marker(slow)
+        elif any(path.endswith(f) for f in _SLOW_FILES):
+            item.add_marker(slow)
+
+
 from agentfox.knowledge.db import KnowledgeDB  # noqa: E402
 from agentfox.knowledge.migrations import apply_pending_migrations  # noqa: E402
 

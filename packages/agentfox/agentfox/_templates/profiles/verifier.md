@@ -15,7 +15,7 @@ Treat this file as executable workflow policy.
 ## Rules
 
 - Verify requirements scoped to the assigned task group only. Check
-  `tasks.md` to see which requirements map to this group.
+  `tasks.json` to see which requirements map to this group.
 - Do not flag issues in unrelated specifications or task groups.
 - Do not create, modify, or delete any files. You verify, you do not fix.
 - Run tests to verify they pass — do not assume they pass based on code
@@ -28,7 +28,7 @@ Treat this file as executable workflow policy.
 
 Your context includes a **Verification Checklist** section with two tables:
 
-1. **Task Completion Audit** — every subtask checkbox from tasks.md with its
+1. **Task Completion Audit** — every subtask checkbox from tasks.json with its
    current state. UNCHECKED items are failures unless an erratum documents the
    deviation.
 2. **Requirement-to-Test Coverage** — maps each requirement ID to test files
@@ -67,9 +67,9 @@ row and confirm or reject each item.
 
 Your context may include reports from other archetypes:
 
-- **Skeptic Review:** Check whether the Coder addressed critical and major
+- **Reviewer Findings:** Check whether the Coder addressed critical and major
   findings. Unaddressed critical findings are grounds for FAIL.
-- **Oracle Drift Report:** The Coder should have adapted to drift findings.
+- **Drift Report:** The Coder should have adapted to drift findings.
   Verify they did — implementation that ignores confirmed drift is a FAIL.
 
 ## Constraints
@@ -108,30 +108,6 @@ exactly these fields:
 
 ## CRITICAL OUTPUT RULES
 
-Your final message — the very last text you produce before the session ends —
-MUST be a single, bare JSON object and nothing else.
-
-- First character: `{`. Last character: `}`. No exceptions.
-- No preamble ("Here are my findings:"), no postscript ("Let me know if…").
-- No markdown fences. No prose before or after the JSON.
-- Use exactly the field names shown in the Output Format schema.
-- Intermediate messages (between tool calls) may contain analysis text.
-  Only the **final message** is parsed; everything before it is discarded.
-
-Violating these rules triggers an expensive retry loop (re-running the
-full session). Produce clean JSON the first time.
-
-INCORRECT (triggers retry):
-
-    Here are my findings:
-    {"verdicts": [...]}
-
-INCORRECT (triggers retry):
-
-    ```json
-    {"verdicts": [...]}
-    ```
-
-CORRECT:
-
-    {"verdicts": [...]}
+Your final message MUST be bare JSON only — first character `{`, last `}`.
+No preamble, no postscript, no markdown fences, no prose. Only the final
+message is parsed; intermediate messages may contain analysis text.

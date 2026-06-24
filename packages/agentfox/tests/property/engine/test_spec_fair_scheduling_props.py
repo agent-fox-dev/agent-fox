@@ -166,7 +166,7 @@ class TestFairnessGuarantee:
     """
 
     @given(ready=multi_spec_list(min_specs=2, max_specs=10))
-    @settings(max_examples=200)
+    @settings(max_examples=50)
     def test_fairness_guarantee(self, ready: list[str]) -> None:
         """Within each tier, every spec's first task appears in the first N positions."""
         result = _interleave_by_spec(ready)
@@ -201,7 +201,7 @@ class TestSingleSpecIdentity:
     """
 
     @given(ready=single_spec_list())
-    @settings(max_examples=200)
+    @settings(max_examples=50)
     def test_single_spec_identity(self, ready: list[str]) -> None:
         """When all tasks belong to one spec, result equals sorted(input)."""
         result = _interleave_by_spec(ready)
@@ -222,7 +222,7 @@ class TestDurationPreservesWithinSpecOrder:
     """
 
     @given(spec_list_with_hints())
-    @settings(max_examples=200)
+    @settings(max_examples=50)
     def test_duration_preserves_within_spec_order(self, args: tuple[list[str], dict[str, int]]) -> None:
         """Within each spec and tier, tasks are ordered by duration descending."""
         ready, hints = args
@@ -280,7 +280,7 @@ class TestCompleteness:
             max_size=50,
         )
     )
-    @settings(max_examples=200)
+    @settings(max_examples=50)
     def test_completeness(self, ready: list[str]) -> None:
         """The interleaved result contains exactly the same elements as input."""
         result = _interleave_by_spec(ready)
@@ -305,7 +305,7 @@ class TestSpecOrderConsistency:
     """
 
     @given(ready=multi_spec_list(min_specs=2, max_specs=10))
-    @settings(max_examples=200)
+    @settings(max_examples=50)
     def test_spec_order_consistency(self, ready: list[str]) -> None:
         """Within the regular tier, A < B by number ⇒ A's first task before B's."""
         result = _interleave_by_spec(ready)

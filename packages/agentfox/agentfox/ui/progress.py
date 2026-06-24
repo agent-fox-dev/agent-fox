@@ -18,6 +18,7 @@ import logging
 import threading
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from rich.console import Console
 from rich.live import Live
@@ -26,6 +27,9 @@ from rich.text import Text
 
 from agentfox.reporting.formatters import format_tokens
 from agentfox.ui.display import AppTheme
+
+if TYPE_CHECKING:
+    from agentfox.io.spinner import StatusSpinner
 
 # ---------------------------------------------------------------------------
 # Event types and formatting helpers (formerly ui/events.py)
@@ -377,65 +381,42 @@ class ProgressDisplay:
 
 
 class PlanSpinner:
-    """Animated braille spinner on stderr for plan initialization.
+    """Spinner on stderr for plan initialization.
 
-    Displays a cycling braille character followed by a message on a single
-    terminal line, overwriting itself with carriage return. The animation
-    runs on a daemon thread and is one-shot: once stopped, start() is a no-op.
+    Delegates to ``StatusSpinner`` from ``agentfox.io.spinner`` for all
+    animation logic. Provides a ``start()``/``stop()`` lifecycle API
+    for callers that cannot use a context manager.
+
+    One-shot: once stopped, ``start()`` is a no-op.
     """
-
-    _FRAMES = ("⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏")
-    _INTERVAL = 0.08  # seconds
 
     def __init__(self, message: str = "Planning...") -> None:
         self._message = message
-        self._stop_event = threading.Event()
-        self._thread: threading.Thread | None = None
         self._started = False
         self._stopped = False
+        # Lazily imported StatusSpinner — see start()
+        self._spinner: StatusSpinner | None = None
 
     def start(self) -> None:
-        """Start the animation thread. No-op if already started or non-TTY."""
-        import sys
-
-        if self._started or not (hasattr(sys.stderr, "isatty") and sys.stderr.isatty()):
+        """Start the spinner. No-op if already started or non-TTY."""
+        if self._started:
             return
         self._started = True
-        self._thread = threading.Thread(target=self._animate, daemon=True)
-        self._thread.start()
+        from agentfox.io.spinner import StatusSpinner
 
-    def _animate(self) -> None:
-        """Animation loop running on the daemon thread."""
-        import sys
-
-        idx = 0
-        num_frames = len(self._FRAMES)
-        try:
-            while not self._stop_event.is_set():
-                frame = self._FRAMES[idx % num_frames]
-                sys.stderr.write(f"\r{frame} {self._message}")
-                sys.stderr.flush()
-                idx += 1
-                self._stop_event.wait(self._INTERVAL)
-        except Exception:
-            logger.debug("PlanSpinner animation thread failed", exc_info=True)
+        self._spinner = StatusSpinner(self._message, quiet=False)
+        self._spinner.__enter__()
 
     def stop(self) -> None:
-        """Stop the animation and clear the spinner line."""
-        import sys
-
+        """Stop the spinner and clear the line."""
         if not self._started or self._stopped:
             return
         self._stopped = True
-        self._stop_event.set()
-        if self._thread is not None:
-            self._thread.join(timeout=2.0)
-        if hasattr(sys.stderr, "isatty") and sys.stderr.isatty():
-            clear_len = len(self._message) + 4
-            sys.stderr.write("\r" + " " * clear_len + "\r")
-            sys.stderr.flush()
+        if self._spinner is not None:
+            self._spinner.__exit__(None, None, None)
+            self._spinner = None
 
     @property
     def is_running(self) -> bool:
-        """True while the animation thread is active."""
+        """True while the spinner is active."""
         return self._started and not self._stopped

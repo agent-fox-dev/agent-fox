@@ -156,11 +156,44 @@ def make_text_only_response(text: str = "I don't know how to use tools") -> Fake
 # ---------------------------------------------------------------------------
 
 
+class _FakeStream:
+    """Wraps a FakeMessage so ``await stream.get_final_message()`` works."""
+
+    def __init__(self, message: Any) -> None:
+        self._message = message
+
+    async def get_final_message(self) -> Any:
+        return self._message
+
+
+class _StreamContextManager:
+    """Async context manager returned by the mocked ``messages.stream``."""
+
+    def __init__(self, create_mock: AsyncMock, kwargs: dict[str, Any]) -> None:
+        self._create_mock = create_mock
+        self._kwargs = kwargs
+
+    async def __aenter__(self) -> _FakeStream:
+        result = await self._create_mock(**self._kwargs)
+        return _FakeStream(result)
+
+    async def __aexit__(self, *args: Any) -> None:
+        pass
+
+
 def _make_mock_client() -> MagicMock:
-    """Create a MagicMock Anthropic client with AsyncMock messages.create."""
+    """Create a MagicMock Anthropic client with AsyncMock messages.create.
+
+    ``messages.stream`` delegates to ``messages.create`` internally so
+    tests can set ``return_value`` / ``side_effect`` on ``create`` and
+    assert against its ``call_count`` / ``call_args`` as before.
+    """
     client = MagicMock()
     client.messages = MagicMock()
     client.messages.create = AsyncMock()
+    client.messages.stream = MagicMock(
+        side_effect=lambda **kwargs: _StreamContextManager(client.messages.create, kwargs)
+    )
     return client
 
 

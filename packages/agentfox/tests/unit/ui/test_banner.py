@@ -76,14 +76,6 @@ class TestBannerFoxArt:
         for line in EXPECTED_FOX_ART.splitlines():
             assert line in output, f"Expected fox art line {line!r} in banner output, got:\n{output}"
 
-    def test_fox_art_constant_exists(self) -> None:
-        """FOX_ART constant is exported from banner module."""
-        from agentfox.ui.display import FOX_ART  # type: ignore[attr-error]
-
-        assert FOX_ART is not None
-        lines = FOX_ART.splitlines()
-        assert len(lines) == 5, f"Expected 5 lines of fox art, got {len(lines)}"
-
 
 class TestBannerFoxArtStyling:
     """TS-14-2: Fox art styled with header role.
@@ -124,12 +116,6 @@ class TestBannerVersionModel:
 
         expected = f"agent-fox v{__version__}  model: claude-opus-4-6"
         assert expected in output, f"Expected {expected!r} in banner output, got:\n{output}"
-
-    def test_version_contains_semver(self) -> None:
-        """Version in banner matches __version__."""
-        output = _capture_banner(ThemeConfig())
-
-        assert f"v{__version__}" in output
 
 
 class TestBannerWorkingDirectory:

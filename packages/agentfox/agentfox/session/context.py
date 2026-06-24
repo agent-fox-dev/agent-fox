@@ -45,10 +45,10 @@ class PriorFinding:
 # ---------------------------------------------------------------------------
 
 # Archetype-produced files — only present after the corresponding archetype
-# (Skeptic / Verifier) has run.  Included silently when they exist on disk,
+# (Reviewer / Verifier) has run.  Included silently when they exist on disk,
 # skipped silently when they don't.
 _ARCHETYPE_SPEC_FILES: list[tuple[str, str]] = [
-    ("review.md", "## Skeptic Review"),
+    ("review.md", "## Reviewer Findings"),
     ("verification.md", "## Verification Report"),
 ]
 
@@ -123,7 +123,7 @@ def _render_severity_findings(
 
     Args:
         findings: List of finding objects with a ``severity`` attribute.
-        title: Markdown heading for the section (e.g. "## Skeptic Review").
+        title: Markdown heading for the section (e.g. "## Reviewer Findings").
         format_finding: Callable that formats a single finding as a string.
         show_empty_groups: If True, render "(none)" for severity levels
             with no findings.
@@ -188,7 +188,7 @@ def render_drift_context(
             desc += f" ({', '.join(refs)})"
         return f"- {desc}"
 
-    return _render_severity_findings(findings, "## Oracle Drift Report", _format)
+    return _render_severity_findings(findings, "## Drift Report", _format)
 
 
 def render_review_context(
@@ -215,7 +215,7 @@ def render_review_context(
 
     return _render_severity_findings(
         findings,
-        "## Skeptic Review",
+        "## Reviewer Findings",
         _format_review,
         show_empty_groups=True,
     )
@@ -268,10 +268,16 @@ def _migrate_legacy_files(
 ) -> None:
     """Migrate legacy review.md/verification.md files to DB records.
 
-    Only runs when no DB records exist for the spec. On parse failure,
-    logs a warning and skips (27-REQ-10.E1).
+    Idempotent: for each legacy file, the function queries existing active
+    records (``superseded_by IS NULL``) before attempting migration.  If
+    any active record already exists for the spec, the migration for that
+    file type is skipped entirely.  Running this function multiple times
+    with the same ``(conn, spec_dir, spec_name)`` arguments produces no
+    duplicate records and raises no errors.
 
-    Requirements: 27-REQ-10.1, 27-REQ-10.2, 27-REQ-10.E1
+    On parse failure, logs a warning and skips (27-REQ-10.E1).
+
+    Requirements: 27-REQ-10.1, 27-REQ-10.2, 27-REQ-10.E1, 06-REQ-5.3
     """
     from agentfox.knowledge.review_store import (
         insert_findings,
@@ -336,6 +342,11 @@ def assemble_context(
 ) -> str:
     """Assemble task-specific context for a coding session.
 
+    conn must be a read-only connection; write operations
+    (_migrate_legacy_files, index_errata_from_markdown) are performed
+    at orchestrator startup, not here.  See 06-REQ-5.1, 06-REQ-6.1,
+    06-REQ-7.1, 06-REQ-7.2.
+
     Renders spec documents via afspec (v1.2 JSON format).
 
     Renders review/verification/drift sections from DuckDB
@@ -363,15 +374,6 @@ def assemble_context(
     # DB-backed rendering — errors propagate (38-REQ-3.E1, 38-REQ-4.2)
     db_rendered_files: set[str] = set()
 
-    # Attempt legacy file migration first (27-REQ-10.1, 27-REQ-10.2)
-    _migrate_legacy_files(conn, spec_dir, spec_name)
-
-    # Index errata markdown files into DB so _query_errata() has data
-    if project_root is not None:
-        from agentfox.knowledge.errata import index_errata_from_markdown
-
-        index_errata_from_markdown(conn, project_root)
-
     # DB-backed rendering (27-REQ-5.1, 27-REQ-5.2, 38-REQ-4.3)
     review_md = render_review_context(conn, spec_name)
     if review_md is not None:
@@ -394,9 +396,7 @@ def assemble_context(
     try:
         raw_sections = _render_spec_sections(spec_dir)
         # Sanitize rendered spec sections for safe prompt inclusion
-        file_sections = [
-            sanitize_prompt_content(s, label="spec") for s in raw_sections
-        ]
+        file_sections = [sanitize_prompt_content(s, label="spec") for s in raw_sections]
     except Exception:
         logger.warning(
             "Failed to load spec in %s",

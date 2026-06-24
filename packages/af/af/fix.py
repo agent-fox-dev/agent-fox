@@ -27,12 +27,11 @@ from agentfox.fix.fix import TerminationReason, run_fix_loop
 from agentfox.fix.improve import ImproveResult, ImproveTermination, run_improve_loop
 from agentfox.fix.report import build_combined_json, render_combined_report, render_fix_report
 from agentfox.fix.runner import _build_fix_session_runner
+from agentfox.io import emit_error, emit_line, read_stdin
 from agentfox.session.session import run_session
 from agentfox.ui.display import create_theme, render_banner
 from agentfox.ui.progress import ProgressDisplay
 from agentfox.workspace import WorkspaceInfo
-
-from af import json_io
 
 logger = logging.getLogger(__name__)
 
@@ -189,7 +188,7 @@ def fix_cmd(
 
     # 23-REQ-7.1: read stdin JSON when in JSON mode
     if json_mode:
-        stdin_data = json_io.read_stdin()
+        stdin_data = read_stdin()
         if max_passes == 3 and "max_passes" in stdin_data:  # default
             max_passes = int(stdin_data["max_passes"])
         if auto and improve_passes == 3 and "improve_passes" in stdin_data:
@@ -199,7 +198,7 @@ def fix_cmd(
     checks = detect_checks(project_root)
     if not checks:
         if json_mode:
-            json_io.emit_error(
+            emit_error(
                 "No quality checks detected in this project. "
                 "Ensure configuration files (pyproject.toml, package.json, "
                 "Makefile, Cargo.toml) are present."
@@ -276,7 +275,7 @@ def fix_cmd(
         except KeyboardInterrupt:
             # 23-REQ-5.E1: emit interrupted status in JSON mode
             if json_mode:
-                json_io.emit_line({"status": "interrupted"})
+                emit_line({"status": "interrupted"})
             ctx.exit(130)
             return
 
@@ -307,7 +306,7 @@ def fix_cmd(
                 )
             except KeyboardInterrupt:
                 if json_mode:
-                    json_io.emit_line({"status": "interrupted"})
+                    emit_line({"status": "interrupted"})
                 ctx.exit(130)
                 return
 
@@ -322,7 +321,7 @@ def fix_cmd(
         # Combined Phase 1 + Phase 2 report
         total_cost = improve_result.total_cost
         if json_mode:
-            json_io.emit_line(build_combined_json(result, improve_result, total_cost))
+            emit_line(build_combined_json(result, improve_result, total_cost))
         else:
             render_combined_report(result, improve_result, total_cost, console)
 
@@ -333,7 +332,7 @@ def fix_cmd(
     else:
         # Phase 1 only report
         if json_mode:
-            json_io.emit_line(
+            emit_line(
                 {
                     "event": "complete",
                     "summary": {

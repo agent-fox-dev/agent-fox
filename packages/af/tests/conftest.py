@@ -26,3 +26,14 @@ def _reset_agent_fox_logger() -> Generator[None, None, None]:
 def cli_runner() -> CliRunner:
     """Provide a Click CLI test runner."""
     return CliRunner()
+
+
+@pytest.fixture
+def cli_runner_separated() -> CliRunner:
+    """Provide a Click CLI test runner with separated stdout/stderr.
+
+    Uses ``mix_stderr=False`` so that ``result.output`` captures stdout
+    and ``result.stderr`` captures stderr independently.  Required by
+    tests that validate the JSONL-on-stderr / JSON-on-stdout contract.
+    """
+    return CliRunner(mix_stderr=False)

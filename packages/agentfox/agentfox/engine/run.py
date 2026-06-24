@@ -5,7 +5,8 @@ Configures and runs the orchestrator, returning an ``ExecutionState``
 
 This module can be called without the Click framework.
 
-Requirements: 59-REQ-4.1, 59-REQ-4.2, 59-REQ-4.3, 59-REQ-4.E1
+Requirements: 59-REQ-4.1, 59-REQ-4.2, 59-REQ-4.3, 59-REQ-4.E1,
+              06-REQ-5.2, 06-REQ-6.2, 06-REQ-7.3
 """
 
 from __future__ import annotations
@@ -105,8 +106,22 @@ def _setup_infrastructure(
 
     # Create DuckDB sink for session outcome recording
     sink_dispatcher = SinkDispatcher()
-    knowledge_db = open_knowledge_store(config.knowledge)
+    knowledge_db = open_knowledge_store(config.knowledge, read_only=False)
     sink_dispatcher.add(DuckDBSink(knowledge_db.connection))
+
+    # 06-REQ-7.3: Open a separate read-only connection for session context
+    # assembly.  This ensures assemble_context never holds a write lock and
+    # can run concurrently with the orchestrator's write operations.
+    # read-only conn for session context assembly; writes done at startup
+    context_knowledge_db = None
+    try:
+        context_knowledge_db = open_knowledge_store(config.knowledge, read_only=True)
+    except Exception:
+        logger.warning(
+            "Failed to open read-only knowledge store for context assembly; "
+            "falling back to main connection",
+            exc_info=True,
+        )
 
     # Attach agent trace sink unconditionally so that trace-based transcript
     # reconstruction is available for knowledge extraction (113-REQ-1.1).
@@ -116,6 +131,11 @@ def _setup_infrastructure(
 
     # 115-REQ-10.1: Construct FoxKnowledgeProvider with config
     knowledge_provider = FoxKnowledgeProvider(knowledge_db, config.knowledge.provider)
+
+    # Determine the read-only connection for context assembly (06-REQ-7.3).
+    # Falls back to the main knowledge_db when a separate read-only
+    # connection is unavailable (e.g. in-memory databases in tests).
+    _context_db = context_knowledge_db if context_knowledge_db is not None else knowledge_db
 
     def session_runner_factory(
         node_id: str,
@@ -137,6 +157,7 @@ def _setup_infrastructure(
             instances=instances,
             sink_dispatcher=sink_dispatcher,
             knowledge_db=knowledge_db,
+            context_knowledge_db=_context_db,
             knowledge_provider=knowledge_provider,
             activity_callback=activity_callback,
             assessed_tier=assessed_tier,
@@ -156,11 +177,60 @@ def _setup_infrastructure(
     return {
         "sink_dispatcher": sink_dispatcher,
         "knowledge_db": knowledge_db,
+        "context_knowledge_db": context_knowledge_db,
         "knowledge_provider": knowledge_provider,
         "session_runner_factory": session_runner_factory,
         "audit_dir": AUDIT_DIR,
         "platform": platform,
     }
+
+
+def _run_startup_migrations(
+    knowledge_db: Any,
+    specs_path: Path,
+    project_root: Path,
+) -> None:
+    """Run legacy file migrations and errata indexing at orchestrator startup.
+
+    Migrates legacy review.md/verification.md files and indexes errata
+    markdown files into DuckDB using the read-write connection, before any
+    sessions are dispatched.
+
+    Errors on individual specs or errata indexing are logged and skipped —
+    they do not abort the startup sequence.
+
+    Requirements: 06-REQ-5.2, 06-REQ-5.E1, 06-REQ-6.2, 06-REQ-6.E1
+    """
+    from agentfox.knowledge.errata import index_errata_from_markdown
+    from agentfox.session.context import _migrate_legacy_files
+
+    conn = knowledge_db.connection
+
+    # Migrate legacy files for each spec (06-REQ-5.2)
+    if specs_path.is_dir():
+        for spec_dir in sorted(specs_path.iterdir()):
+            if not spec_dir.is_dir():
+                continue
+            spec_name = spec_dir.name
+            try:
+                _migrate_legacy_files(conn, spec_dir, spec_name)
+            except Exception:
+                # 06-REQ-5.E1: Log error with spec context and continue
+                logger.warning(
+                    "Failed to migrate legacy files for spec %s, continuing",
+                    spec_name,
+                    exc_info=True,
+                )
+
+    # Index errata markdown files (06-REQ-6.2)
+    try:
+        index_errata_from_markdown(conn, project_root)
+    except Exception:
+        # 06-REQ-6.E1: Log error and continue startup
+        logger.warning(
+            "Failed to index errata from markdown, continuing",
+            exc_info=True,
+        )
 
 
 async def run_code(
@@ -219,6 +289,19 @@ async def run_code(
         )
     except Exception:
         logger.warning("Infrastructure setup failed", exc_info=True)
+
+    # 06-REQ-5.2, 06-REQ-6.2: Run legacy migrations and errata indexing
+    # at startup with the read-write connection, before any sessions are
+    # dispatched.
+    if infra is not None:
+        try:
+            _run_startup_migrations(
+                infra["knowledge_db"],
+                specs_path,
+                Path.cwd(),
+            )
+        except Exception:
+            logger.warning("Startup migrations failed", exc_info=True)
 
     # Suppress noisy third-party warnings
     warnings.filterwarnings("ignore", module=r"huggingface_hub\..*")
@@ -315,6 +398,13 @@ def _cleanup_infrastructure(infra: dict[str, Any], config: Any) -> None:
         infra["sink_dispatcher"].close()
     except Exception:
         logger.warning("Sink dispatcher close failed", exc_info=True)
+    # Close the read-only context knowledge DB if it was opened separately
+    context_knowledge_db = infra.get("context_knowledge_db")
+    if context_knowledge_db is not None:
+        try:
+            context_knowledge_db.close()
+        except Exception:
+            logger.warning("Context knowledge DB close failed", exc_info=True)
     try:
         knowledge_db.close()
     except Exception:

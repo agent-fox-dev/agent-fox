@@ -19,7 +19,7 @@ class TestEmit:
 
     def test_emit_writes_valid_json(self) -> None:
         """emit() produces valid JSON output."""
-        from af.json_io import emit
+        from agentfox.io import emit
 
         with patch("click.echo") as mock_echo:
             emit({"key": "value", "count": 42})
@@ -29,7 +29,7 @@ class TestEmit:
 
     def test_emit_handles_nested_data(self) -> None:
         """emit() handles nested structures."""
-        from af.json_io import emit
+        from agentfox.io import emit
 
         nested = {"outer": {"inner": [1, 2, 3]}, "flag": True}
         with patch("click.echo") as mock_echo:
@@ -40,7 +40,7 @@ class TestEmit:
 
     def test_emit_uses_indent(self) -> None:
         """emit() produces indented (pretty-printed) JSON."""
-        from af.json_io import emit
+        from agentfox.io import emit
 
         with patch("click.echo") as mock_echo:
             emit({"a": 1})
@@ -52,7 +52,7 @@ class TestEmit:
         """emit() uses str() as default serializer for non-JSON types."""
         from pathlib import Path
 
-        from af.json_io import emit
+        from agentfox.io import emit
 
         with patch("click.echo") as mock_echo:
             emit({"path": Path("/tmp/test")})
@@ -66,7 +66,7 @@ class TestEmitLine:
 
     def test_emit_line_writes_valid_json(self) -> None:
         """emit_line() produces valid JSON."""
-        from af.json_io import emit_line
+        from agentfox.io import emit_line
 
         with patch("click.echo") as mock_echo:
             emit_line({"event": "progress", "step": 1})
@@ -76,7 +76,7 @@ class TestEmitLine:
 
     def test_emit_line_is_compact(self) -> None:
         """emit_line() produces single-line (non-indented) JSON."""
-        from af.json_io import emit_line
+        from agentfox.io import emit_line
 
         with patch("click.echo") as mock_echo:
             emit_line({"a": 1, "b": 2})
@@ -90,7 +90,7 @@ class TestEmitError:
 
     def test_emit_error_structure(self) -> None:
         """emit_error() produces {"error": "<message>"}."""
-        from af.json_io import emit_error
+        from agentfox.io import emit_error
 
         with patch("click.echo") as mock_echo:
             emit_error("something went wrong")
@@ -100,7 +100,7 @@ class TestEmitError:
 
     def test_emit_error_non_empty_message(self) -> None:
         """emit_error() message is always a non-empty string."""
-        from af.json_io import emit_error
+        from agentfox.io import emit_error
 
         with patch("click.echo") as mock_echo:
             emit_error("fail")
@@ -115,7 +115,7 @@ class TestReadStdin:
 
     def test_read_stdin_parses_json(self) -> None:
         """TS-23-19: read_stdin() parses JSON from piped input."""
-        from af.json_io import read_stdin
+        from agentfox.io import read_stdin
 
         fake_stdin = io.StringIO('{"question": "what is fox?"}')
         fake_stdin.isatty = lambda: False  # type: ignore[method-assign]
@@ -125,7 +125,7 @@ class TestReadStdin:
 
     def test_read_stdin_tty_returns_empty(self) -> None:
         """TS-23-20: read_stdin() returns {} immediately for TTY."""
-        from af.json_io import read_stdin
+        from agentfox.io import read_stdin
 
         fake_stdin = io.StringIO("")
         fake_stdin.isatty = lambda: True  # type: ignore[method-assign]
@@ -135,7 +135,7 @@ class TestReadStdin:
 
     def test_read_stdin_empty_input(self) -> None:
         """read_stdin() returns {} for empty piped input."""
-        from af.json_io import read_stdin
+        from agentfox.io import read_stdin
 
         fake_stdin = io.StringIO("")
         fake_stdin.isatty = lambda: False  # type: ignore[method-assign]
@@ -145,7 +145,7 @@ class TestReadStdin:
 
     def test_read_stdin_invalid_json_raises(self) -> None:
         """TS-23-E6: read_stdin() raises on invalid JSON."""
-        from af.json_io import read_stdin
+        from agentfox.io import read_stdin
 
         fake_stdin = io.StringIO("not valid json {")
         fake_stdin.isatty = lambda: False  # type: ignore[method-assign]
@@ -155,7 +155,7 @@ class TestReadStdin:
 
     def test_read_stdin_unknown_fields_preserved(self) -> None:
         """TS-23-E7: Unknown fields in stdin JSON are returned (caller ignores)."""
-        from af.json_io import read_stdin
+        from agentfox.io import read_stdin
 
         fake_stdin = io.StringIO('{"unknown_field": 42, "question": "test"}')
         fake_stdin.isatty = lambda: False  # type: ignore[method-assign]
