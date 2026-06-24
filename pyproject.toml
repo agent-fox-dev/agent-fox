@@ -28,6 +28,7 @@ asyncio_mode = "auto"
 addopts = "-n auto --timeout=10 -m 'not smoke'"
 markers = [
     "property: Hypothesis property-based test",
+    "slow: tests that take >1s (property, integration, orchestrator); excluded by test-fast",
     "smoke: End-to-end smoke test (slow, runs full suite as subprocess)",
 ]
 

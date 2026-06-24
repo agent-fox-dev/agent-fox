@@ -48,3 +48,6 @@ afspec = { workspace = true }
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+markers = [
+    "slow: tests that take >1s (property, integration, orchestrator, knowledge DB)",
+]
