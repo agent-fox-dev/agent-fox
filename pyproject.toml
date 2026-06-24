@@ -5,8 +5,8 @@ description = "Autonomous coding-agent orchestrator"
 requires-python = ">=3.12"
 dependencies = [
     "af>=4.0.0rc4",
-    "agentspec>=0.9.0",
-    "spec>=0.9.0",
+    "agentspec>=4.0.0rc4",
+    "spec>=4.0.0rc4",
 ]
 
 [dependency-groups]

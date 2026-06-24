@@ -7,7 +7,7 @@ dependencies = [
     "agentfox>=4.0.0rc4",
     "click>=8.1",
     "rich>=15.0",
-    "duckdb>=1.5",
+    "duckdb>=1.5.4",
 ]
 
 [project.scripts]
