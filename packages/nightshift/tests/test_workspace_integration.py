@@ -117,7 +117,10 @@ class TestTestpathsOmissionGuard:
             [sys.executable, "-m", "pytest", "--collect-only", "-q", *other_paths],
             capture_output=True, text=True, timeout=60,
         )
-        assert "nightshift" not in result.stdout, (
-            "Nightshift tests should NOT be discovered when nightshift is "
+        # Check that no test files from packages/nightshift/tests/ are collected.
+        # We check for the path prefix, not the bare word "nightshift", because
+        # other packages may have tests whose names or IDs reference nightshift.
+        assert "packages/nightshift/tests/" not in result.stdout, (
+            "Nightshift test files should NOT be discovered when nightshift is "
             "omitted from testpaths"
         )
