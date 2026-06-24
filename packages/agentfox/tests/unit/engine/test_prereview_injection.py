@@ -108,9 +108,7 @@ class TestPrereviewFindingsInjected:
 
         assert "pre-review-major-issue" in context
 
-    def test_prereview_finding_identical_on_attempt1_and_retry(
-        self, knowledge_db: KnowledgeDB
-    ) -> None:
+    def test_prereview_finding_identical_on_attempt1_and_retry(self, knowledge_db: KnowledgeDB) -> None:
         """TS-NS-5: build_retry_context produces consistent output regardless of attempt.
 
         The function does not receive an attempt number, so the same DB state
@@ -168,9 +166,7 @@ class TestDriftFindingsInjected:
         context = build_retry_context(knowledge_db, "02_spec", task_group="1")
 
         assert context, "build_retry_context must return non-empty string when drift findings exist"
-        assert "drift-critical-divergence" in context, (
-            "Drift finding must appear in group-1 coder context"
-        )
+        assert "drift-critical-divergence" in context, "Drift finding must appear in group-1 coder context"
 
     def test_major_drift_finding_included(self, knowledge_db: KnowledgeDB) -> None:
         """Major drift finding is surfaced in group-1 context."""
@@ -240,9 +236,7 @@ class TestOtherGroupFindingsExcluded:
     in the group-1 coder context — only group-0 and group-1 are included.
     """
 
-    def test_group2_review_finding_excluded_from_group1_context(
-        self, knowledge_db: KnowledgeDB
-    ) -> None:
+    def test_group2_review_finding_excluded_from_group1_context(self, knowledge_db: KnowledgeDB) -> None:
         """Critical group-2 review finding does not appear in group-1 context."""
         from agentfox.engine.session_lifecycle import build_retry_context
 
@@ -257,13 +251,9 @@ class TestOtherGroupFindingsExcluded:
 
         context = build_retry_context(knowledge_db, "02_spec", task_group="1")
 
-        assert context == "", (
-            "Group-2 review finding must not appear in group-1 coder context"
-        )
+        assert context == "", "Group-2 review finding must not appear in group-1 coder context"
 
-    def test_group2_drift_finding_excluded_from_group1_context(
-        self, knowledge_db: KnowledgeDB
-    ) -> None:
+    def test_group2_drift_finding_excluded_from_group1_context(self, knowledge_db: KnowledgeDB) -> None:
         """Critical group-2 drift finding does not appear in group-1 context."""
         from agentfox.engine.session_lifecycle import build_retry_context
 
@@ -278,9 +268,7 @@ class TestOtherGroupFindingsExcluded:
 
         context = build_retry_context(knowledge_db, "02_spec", task_group="1")
 
-        assert context == "", (
-            "Group-2 drift finding must not appear in group-1 coder context"
-        )
+        assert context == "", "Group-2 drift finding must not appear in group-1 coder context"
 
     def test_group0_included_but_group2_excluded(self, knowledge_db: KnowledgeDB) -> None:
         """group-0 pre-review finding appears; group-2 finding does not."""

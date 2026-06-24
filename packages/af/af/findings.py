@@ -15,9 +15,10 @@ import sys
 from pathlib import Path
 
 import click
-import duckdb
+from agentfox.core.config import KnowledgeConfig
 from agentfox.core.node_id import DEFAULT_DB_PATH as _DEFAULT_DB_PATH
 from agentfox.io import exit_codes, format_table
+from agentfox.knowledge.db import open_knowledge_store
 
 logger = logging.getLogger(__name__)
 
@@ -78,8 +79,13 @@ def findings_cmd(
         click.echo("No knowledge database found")
         return
 
+    # 06-REQ-9.1: open with read_only=False to support --dismiss UPDATE
     try:
-        conn = duckdb.connect(str(DEFAULT_DB_PATH))
+        _db = open_knowledge_store(
+            KnowledgeConfig(store_path=str(DEFAULT_DB_PATH)),
+            read_only=False,
+        )
+        conn = _db.connection
     except Exception:
         logger.debug("Failed to open knowledge database", exc_info=True)
         click.echo("No knowledge database found")
@@ -106,7 +112,7 @@ def findings_cmd(
             )
     finally:
         try:
-            conn.close()
+            _db.close()
         except Exception:
             pass
 

@@ -336,22 +336,49 @@ class TestOrchestratorPassesReadOnlyConn:
     """TS-06-18: orchestrator must pass read_only=True conn to assemble_context."""
 
     def test_orchestrator_setup_creates_read_only_context_conn(self) -> None:
-        """The orchestrator _setup_infrastructure must open a separate
-        read-only connection for context assembly (06-REQ-7.3)."""
+        """The orchestrator _setup_infrastructure must call
+        open_knowledge_store twice: once with read_only=False for the
+        main DB, and once with read_only=True for context assembly.
+        This verifies at runtime that the factory function is invoked
+        with the correct read_only values (06-REQ-7.3)."""
+        from unittest.mock import MagicMock
 
-        # Verify that _setup_infrastructure opens a read-only connection
-        # for context assembly by checking the source code pattern
-        import inspect
+        mock_db_rw = MagicMock()
+        mock_db_rw.connection = MagicMock()
+        mock_db_ro = MagicMock()
+        mock_db_ro.connection = MagicMock()
 
-        from agentfox.engine.run import _setup_infrastructure
+        call_log: list[bool] = []
 
-        source = inspect.getsource(_setup_infrastructure)
+        def _track_open(config, *, read_only):
+            call_log.append(read_only)
+            return mock_db_ro if read_only else mock_db_rw
 
-        # Must contain open_knowledge_store with read_only=True for context
-        assert "read_only=True" in source, "_setup_infrastructure must open a read-only connection for context assembly"
-        # Must reference context_knowledge_db
-        assert "context_knowledge_db" in source, (
-            "_setup_infrastructure must create a separate context_knowledge_db for read-only context assembly"
+        with (
+            patch(
+                "agentfox.engine.run.open_knowledge_store",
+                side_effect=_track_open,
+            ),
+            patch("agentfox.engine.run.DuckDBSink"),
+            patch("agentfox.engine.run.SinkDispatcher"),
+            patch("agentfox.engine.run.FoxKnowledgeProvider"),
+            patch("agentfox.knowledge.agent_trace.AgentTraceSink"),
+            patch(
+                "agentfox.nightshift.platform_factory.create_platform_safe",
+                return_value=None,
+            ),
+        ):
+            from agentfox.engine.run import _setup_infrastructure
+
+            mock_config = MagicMock()
+            _setup_infrastructure(mock_config)
+
+        # Must have called open_knowledge_store at least twice:
+        # first with read_only=False (main), then read_only=True (context)
+        assert len(call_log) >= 2, f"Expected at least 2 calls to open_knowledge_store, got {len(call_log)}: {call_log}"
+        assert call_log[0] is False, "First open_knowledge_store call must be read_only=False (main write connection)"
+        assert call_log[1] is True, (
+            "Second open_knowledge_store call must be read_only=True (context read-only connection)"
         )
 
 

@@ -1115,12 +1115,8 @@ def build_retry_context(
         )
 
         conn = knowledge_db.connection
-        findings = query_active_findings(
-            conn, spec_name, task_group=task_group, include_prereview=True
-        )
-        drift_findings = query_active_drift_findings(
-            conn, spec_name, task_group=task_group, include_prereview=True
-        )
+        findings = query_active_findings(conn, spec_name, task_group=task_group, include_prereview=True)
+        drift_findings = query_active_drift_findings(conn, spec_name, task_group=task_group, include_prereview=True)
 
         critical_major = [f for f in findings if f.severity in ("critical", "major")]
         critical_major_drift = [f for f in drift_findings if f.severity in ("critical", "major")]

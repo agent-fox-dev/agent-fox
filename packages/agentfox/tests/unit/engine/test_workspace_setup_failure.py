@@ -13,8 +13,8 @@ import time
 
 from agentfox.engine.graph_sync import GraphSync
 from agentfox.engine.result_handler import (
-    SessionResultHandler,
     _MAX_WORKSPACE_FAILURES,
+    SessionResultHandler,
 )
 from agentfox.engine.state import ExecutionState, SessionRecord, update_state_with_session
 

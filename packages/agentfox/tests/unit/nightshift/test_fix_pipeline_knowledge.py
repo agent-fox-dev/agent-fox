@@ -70,7 +70,9 @@ class TestRetrieveKnowledge:
         pipeline = _make_pipeline(knowledge_provider=provider)
 
         result = pipeline._retrieve_knowledge(
-            "fix-issue-42", "flaky test", session_id="fix-issue-42:0:coder",
+            "fix-issue-42",
+            "flaky test",
+            session_id="fix-issue-42:0:coder",
         )
 
         assert result == ["[REVIEW] critical: race condition"]
@@ -164,7 +166,9 @@ class TestBuildCoderPromptKnowledge:
         triage = _make_triage()
 
         pipeline._build_coder_prompt(
-            spec, triage, knowledge_context="## Memory Facts\n\n- fact1",
+            spec,
+            triage,
+            knowledge_context="## Memory Facts\n\n- fact1",
         )
 
         context_arg = mock_bsp.call_args[1].get("context") or mock_bsp.call_args[0][0]
@@ -198,14 +202,19 @@ class TestBuildReviewerPromptKnowledge:
         triage = TriageResult(
             criteria=[
                 AcceptanceCriterion(
-                    id="AC-1", description="d", preconditions="p",
-                    expected="e", assertion="a",
+                    id="AC-1",
+                    description="d",
+                    preconditions="p",
+                    expected="e",
+                    assertion="a",
                 ),
             ],
         )
 
         pipeline._build_reviewer_prompt(
-            spec, triage, knowledge_context="## Memory Facts\n\n- errata1",
+            spec,
+            triage,
+            knowledge_context="## Memory Facts\n\n- errata1",
         )
 
         context_arg = mock_bsp.call_args[1].get("context") or mock_bsp.call_args[0][0]
@@ -218,7 +227,9 @@ class TestBuildReviewerPromptKnowledge:
         triage = TriageResult()
 
         pipeline._build_reviewer_prompt(
-            spec, triage, knowledge_context="## Memory Facts\n\n- errata1",
+            spec,
+            triage,
+            knowledge_context="## Memory Facts\n\n- errata1",
         )
 
         context_arg = mock_bsp.call_args[1].get("context") or mock_bsp.call_args[0][0]
@@ -251,8 +262,11 @@ class TestEmitSessionEventIngestion:
             patch("agentfox.nightshift.fix_pipeline.emit_audit_event"),
         ):
             pipeline._emit_session_event(
-                outcome, "coder", "run-1",
-                node_id="fix-issue-42:0:coder", attempt=1,
+                outcome,
+                "coder",
+                "run-1",
+                node_id="fix-issue-42:0:coder",
+                attempt=1,
             )
 
         provider.ingest.assert_called_once()
@@ -278,8 +292,11 @@ class TestEmitSessionEventIngestion:
             patch("agentfox.nightshift.fix_pipeline.emit_audit_event"),
         ):
             pipeline._emit_session_event(
-                outcome, "coder", "run-1",
-                node_id="fix-issue-42:0:coder", attempt=1,
+                outcome,
+                "coder",
+                "run-1",
+                node_id="fix-issue-42:0:coder",
+                attempt=1,
             )
 
         provider.ingest.assert_not_called()

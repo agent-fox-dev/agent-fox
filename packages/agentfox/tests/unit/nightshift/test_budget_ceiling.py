@@ -34,9 +34,7 @@ class TestDefaultBudgetCeiling:
     def test_default_budget_at_least_20(self) -> None:
         """TS-NS-1: AgentFoxConfig() default max_budget_usd >= 20.0."""
         config = AgentFoxConfig()
-        assert config.orchestrator.max_budget_usd >= 20.0, (
-            f"Expected >= 20.0, got {config.orchestrator.max_budget_usd}"
-        )
+        assert config.orchestrator.max_budget_usd >= 20.0, f"Expected >= 20.0, got {config.orchestrator.max_budget_usd}"
 
     def test_default_budget_not_8(self) -> None:
         """Regression: default must not be the old 8.0 value."""
@@ -176,9 +174,7 @@ class TestSessionLifecycleArchetypeBudget:
         )
 
         sink = MagicMock()
-        runner = NodeSessionRunner(
-            "spec:1", config, knowledge_db=_MOCK_KB, sink_dispatcher=sink, archetype="coder"
-        )
+        runner = NodeSessionRunner("spec:1", config, knowledge_db=_MOCK_KB, sink_dispatcher=sink, archetype="coder")
 
         workspace = WorkspaceInfo(
             path=Path("/tmp/ws"),
@@ -242,9 +238,7 @@ class TestSessionLifecycleArchetypeBudget:
         )
 
         sink = MagicMock()
-        runner = NodeSessionRunner(
-            "spec:1", config, knowledge_db=_MOCK_KB, sink_dispatcher=sink, archetype="coder"
-        )
+        runner = NodeSessionRunner("spec:1", config, knowledge_db=_MOCK_KB, sink_dispatcher=sink, archetype="coder")
 
         workspace = WorkspaceInfo(
             path=Path("/tmp/ws"),

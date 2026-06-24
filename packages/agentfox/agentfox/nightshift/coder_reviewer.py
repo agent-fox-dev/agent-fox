@@ -196,7 +196,9 @@ class CoderReviewerLoop:
         p = self._pipeline
 
         reviewer_system, reviewer_task = p._build_reviewer_prompt(
-            spec, triage, knowledge_context=knowledge_context,
+            spec,
+            triage,
+            knowledge_context=knowledge_context,
         )
         reviewer_node_id = f"fix-issue-{spec.issue_number}:0:reviewer"
         p._update_spinner(f"Reviewing fix for issue #{spec.issue_number}…")

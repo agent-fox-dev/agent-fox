@@ -231,10 +231,7 @@ class FixPipeline:
             return ""
         from agentfox.core.prompt_safety import sanitize_prompt_content
 
-        facts_text = "\n".join(
-            f"- {sanitize_prompt_content(fact, label='memory-fact')}"
-            for fact in knowledge_items
-        )
+        facts_text = "\n".join(f"- {sanitize_prompt_content(fact, label='memory-fact')}" for fact in knowledge_items)
         return f"## Memory Facts\n\n{facts_text}"
 
     # ------------------------------------------------------------------
@@ -1037,7 +1034,9 @@ class FixPipeline:
             coder_node_id = f"fix-issue-{spec.issue_number}:0:coder"
             task_description = triage.summary or spec.title
             knowledge_items = self._retrieve_knowledge(
-                spec_name, task_description, session_id=coder_node_id,
+                spec_name,
+                task_description,
+                session_id=coder_node_id,
             )
             knowledge_context = self._format_knowledge_context(knowledge_items)
 

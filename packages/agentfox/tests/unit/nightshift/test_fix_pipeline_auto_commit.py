@@ -54,9 +54,7 @@ class TestAutoCommitDirtyBeforeHarvest:
 
         assert committed_paths == [tmp_path]
 
-    async def test_auto_commit_returns_true_logs_info(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    async def test_auto_commit_returns_true_logs_info(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         """When auto_commit_worktree returns True, an INFO is logged."""
         from agentfox.nightshift.fix_pipeline import FixPipeline
 
@@ -85,9 +83,7 @@ class TestAutoCommitCleanWorktreeNoOp:
     Requirement: NS-REQ-2.1
     """
 
-    async def test_no_warning_on_clean_worktree(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    async def test_no_warning_on_clean_worktree(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         """No WARNING is logged when auto_commit_worktree returns False (clean)."""
         from agentfox.nightshift.fix_pipeline import FixPipeline
 
@@ -134,9 +130,7 @@ class TestAutoCommitFailureDoesNotBlock:
             # Must not raise
             await pipeline._auto_commit_pending_changes(workspace)
 
-    async def test_logs_warning_on_exception(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    async def test_logs_warning_on_exception(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         """_auto_commit_pending_changes logs a WARNING when auto_commit_worktree raises."""
         from agentfox.nightshift.fix_pipeline import FixPipeline
 
@@ -189,6 +183,5 @@ class TestAutoCommitAfterCoderAndReviewer:
         assert harvest_pos != -1, "_harvest_and_push not found in source"
 
         assert loop_pos < auto_commit_pos < harvest_pos, (
-            "_auto_commit_pending_changes must appear between "
-            "_coder_review_loop and _harvest_and_push in the source"
+            "_auto_commit_pending_changes must appear between _coder_review_loop and _harvest_and_push in the source"
         )

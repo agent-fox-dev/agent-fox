@@ -100,10 +100,23 @@ _PRODUCTION_MODULES = [
     "packages/af/af/standup.py",
     "packages/af/af/findings.py",
     "packages/af/af/nightshift.py",
+    "packages/af/af/reset.py",
     "packages/agentfox/agentfox/engine/run.py",
     "packages/agentfox/agentfox/fix/analyzer.py",
     "packages/agentfox/agentfox/session/context.py",
     "packages/agentfox/agentfox/graph/planner.py",
+]
+
+# Modules that open DuckDB connections and must route through
+# open_knowledge_store rather than calling duckdb.connect directly.
+_MODULES_REQUIRING_FACTORY = [
+    "packages/af/af/code.py",
+    "packages/af/af/plan.py",
+    "packages/af/af/standup.py",
+    "packages/af/af/findings.py",
+    "packages/af/af/reset.py",
+    "packages/af/af/nightshift.py",
+    "packages/agentfox/agentfox/fix/analyzer.py",
 ]
 
 
@@ -126,6 +139,23 @@ def _get_open_knowledge_store_calls(source: str) -> list[ast.Call]:
         if isinstance(node.func, ast.Name) and node.func.id == "open_knowledge_store":
             calls.append(node)
         elif isinstance(node.func, ast.Attribute) and node.func.attr == "open_knowledge_store":
+            calls.append(node)
+    return calls
+
+
+def _get_duckdb_connect_calls(source: str) -> list[ast.Call]:
+    """AST-walk source code and return all calls to duckdb.connect."""
+    tree = ast.parse(source)
+    calls: list[ast.Call] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        if (
+            isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "duckdb"
+            and node.func.attr == "connect"
+        ):
             calls.append(node)
     return calls
 
@@ -159,4 +189,31 @@ class TestAllProductionCallersPassReadOnly:
 
         assert not violations, "Production call sites missing read_only keyword argument:\n" + "\n".join(
             f"  - {v}" for v in violations
+        )
+
+    def test_no_direct_duckdb_connect_in_production_modules(self) -> None:
+        """Production modules that open DuckDB connections must use
+        open_knowledge_store — not duckdb.connect() directly.
+        This ensures the factory-function convention is enforced
+        (06-REQ-10.1)."""
+        project_root = _find_project_root()
+        violations: list[str] = []
+
+        for module_path_str in _MODULES_REQUIRING_FACTORY:
+            module_path = project_root / module_path_str
+            if not module_path.exists():
+                continue
+
+            source = module_path.read_text(encoding="utf-8")
+            calls = _get_duckdb_connect_calls(source)
+
+            for call in calls:
+                violations.append(
+                    f"{module_path_str}:{call.lineno} — uses duckdb.connect() directly; "
+                    "must use open_knowledge_store() instead"
+                )
+
+        assert not violations, (
+            "Production modules bypass open_knowledge_store with direct duckdb.connect():\n"
+            + "\n".join(f"  - {v}" for v in violations)
         )

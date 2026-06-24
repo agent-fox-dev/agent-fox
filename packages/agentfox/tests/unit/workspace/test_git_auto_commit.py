@@ -8,12 +8,10 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from unittest.mock import AsyncMock, call, patch
+from unittest.mock import patch
 
 import pytest
-
 from agentfox.workspace.git import auto_commit_worktree
-
 
 # ---------------------------------------------------------------------------
 # TS-NS-4a: dirty worktree — stages and commits, returns True
@@ -172,9 +170,7 @@ class TestAutoCommitEmptyCommit:
             # Must not raise
             await auto_commit_worktree(tmp_path)
 
-    async def test_logs_warning_on_empty_commit(
-        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    async def test_logs_warning_on_empty_commit(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         """A WARNING is logged when git commit fails."""
 
         async def mock_run_git(args, cwd, check=True):
@@ -190,5 +186,4 @@ class TestAutoCommitEmptyCommit:
             with caplog.at_level(logging.WARNING, logger="agentfox.workspace.git"):
                 await auto_commit_worktree(tmp_path)
 
-        assert any("warning" in r.levelname.lower() or r.levelno >= logging.WARNING
-                   for r in caplog.records)
+        assert any("warning" in r.levelname.lower() or r.levelno >= logging.WARNING for r in caplog.records)

@@ -298,8 +298,7 @@ class PerArchetypeConfig(BaseModel):
     max_budget_usd: float | None = Field(
         default=None,
         description=(
-            "Per-archetype budget ceiling in USD. None = inherit global "
-            "orchestrator.max_budget_usd. 0 = unlimited."
+            "Per-archetype budget ceiling in USD. None = inherit global orchestrator.max_budget_usd. 0 = unlimited."
         ),
         ge=0.0,
     )
