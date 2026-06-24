@@ -592,6 +592,53 @@ async def fetch_remote(
     return True
 
 
+async def auto_commit_worktree(
+    worktree_path: Path,
+    message: str = "fix: auto-commit uncommitted changes from coder session",
+) -> bool:
+    """Stage and commit any uncommitted changes in the worktree.
+
+    Runs ``git status --porcelain`` to detect dirty state. If the worktree is
+    clean, returns ``False`` without executing any further git commands.
+
+    If changes are found, runs ``git add -A`` then ``git commit -m <message>``.
+    If the commit fails (e.g. all changes are gitignored), logs a WARNING and
+    returns ``False``.
+
+    Returns:
+        ``True`` if changes were successfully staged and committed.
+        ``False`` if the worktree was clean or the commit failed.
+
+    Never raises — all errors are handled internally.
+
+    Requirements: NS-REQ-1, NS-REQ-2, NS-REQ-3
+    """
+    _rc, stdout, _stderr = await run_git(
+        ["status", "--porcelain"],
+        cwd=worktree_path,
+        check=False,
+    )
+    if not stdout.strip():
+        return False
+
+    await run_git(["add", "-A"], cwd=worktree_path, check=False)
+
+    rc, _out, stderr = await run_git(
+        ["commit", "-m", message],
+        cwd=worktree_path,
+        check=False,
+    )
+    if rc != 0:
+        logger.warning(
+            "auto_commit_worktree: git commit failed (rc=%d): %s",
+            rc,
+            stderr.strip(),
+        )
+        return False
+
+    return True
+
+
 async def get_remote_url(
     repo_root: Path,
     remote: str = "origin",

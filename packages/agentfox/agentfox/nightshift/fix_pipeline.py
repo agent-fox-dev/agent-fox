@@ -1056,6 +1056,10 @@ class FixPipeline:
                 self._try_complete_run("completed")
                 return metrics
 
+            # Pre-harvest commit sweep: stage and commit any changes left
+            # uncommitted by the coder or reviewer session (NS-REQ-5).
+            await self._auto_commit_pending_changes(workspace)
+
             # Optionally push fix branch to upstream remote (93-REQ-3.1).
             # Must run BEFORE harvest, which changes the working tree.
             if self._config.night_shift.push_fix_branch:
@@ -1198,6 +1202,31 @@ class FixPipeline:
                 exc,
             )
             return False
+
+    async def _auto_commit_pending_changes(self, workspace: WorkspaceInfo) -> None:
+        """Stage and commit any uncommitted changes left in the worktree.
+
+        Called between the coder-reviewer loop and harvest to prevent silent
+        data loss when the coder or reviewer session exits without committing.
+
+        Best-effort: logs INFO on success, WARNING on failure, never raises.
+
+        Requirements: NS-REQ-4, NS-REQ-5
+        """
+        from agentfox.workspace import git as workspace_git
+
+        try:
+            committed = await workspace_git.auto_commit_worktree(workspace.path)
+            if committed:
+                logger.info(
+                    "Auto-committed uncommitted changes from coder session in worktree %s",
+                    workspace.path,
+                )
+        except Exception as exc:
+            logger.warning(
+                "Auto-commit sweep failed, continuing with harvest: %s",
+                exc,
+            )
 
     async def _harvest_and_push(
         self,

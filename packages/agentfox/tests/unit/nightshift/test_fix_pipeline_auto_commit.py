@@ -8,10 +8,9 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
-
 from agentfox.workspace import WorkspaceInfo
 
 
@@ -37,7 +36,7 @@ class TestAutoCommitDirtyBeforeHarvest:
 
     async def test_auto_commit_called_on_dirty_worktree(self, tmp_path: Path) -> None:
         """auto_commit_worktree is called with the worktree path."""
-        from agentfox.nightshift.fix_pipeline import NightShiftFixPipeline
+        from agentfox.nightshift.fix_pipeline import FixPipeline
 
         workspace = _make_workspace(tmp_path)
         committed_paths: list[Path] = []
@@ -46,7 +45,7 @@ class TestAutoCommitDirtyBeforeHarvest:
             committed_paths.append(worktree_path)
             return True
 
-        pipeline = NightShiftFixPipeline.__new__(NightShiftFixPipeline)
+        pipeline = FixPipeline.__new__(FixPipeline)
         with patch(
             "agentfox.workspace.git.auto_commit_worktree",
             side_effect=mock_auto_commit,
@@ -59,10 +58,10 @@ class TestAutoCommitDirtyBeforeHarvest:
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         """When auto_commit_worktree returns True, an INFO is logged."""
-        from agentfox.nightshift.fix_pipeline import NightShiftFixPipeline
+        from agentfox.nightshift.fix_pipeline import FixPipeline
 
         workspace = _make_workspace(tmp_path)
-        pipeline = NightShiftFixPipeline.__new__(NightShiftFixPipeline)
+        pipeline = FixPipeline.__new__(FixPipeline)
 
         with patch(
             "agentfox.workspace.git.auto_commit_worktree",
@@ -90,10 +89,10 @@ class TestAutoCommitCleanWorktreeNoOp:
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         """No WARNING is logged when auto_commit_worktree returns False (clean)."""
-        from agentfox.nightshift.fix_pipeline import NightShiftFixPipeline
+        from agentfox.nightshift.fix_pipeline import FixPipeline
 
         workspace = _make_workspace(tmp_path)
-        pipeline = NightShiftFixPipeline.__new__(NightShiftFixPipeline)
+        pipeline = FixPipeline.__new__(FixPipeline)
 
         with patch(
             "agentfox.workspace.git.auto_commit_worktree",
@@ -120,10 +119,10 @@ class TestAutoCommitFailureDoesNotBlock:
 
     async def test_does_not_raise_on_exception(self, tmp_path: Path) -> None:
         """_auto_commit_pending_changes does not propagate exceptions."""
-        from agentfox.nightshift.fix_pipeline import NightShiftFixPipeline
+        from agentfox.nightshift.fix_pipeline import FixPipeline
 
         workspace = _make_workspace(tmp_path)
-        pipeline = NightShiftFixPipeline.__new__(NightShiftFixPipeline)
+        pipeline = FixPipeline.__new__(FixPipeline)
 
         async def mock_auto_commit_raises(*args, **kwargs):
             raise RuntimeError("git commit failed: nothing to commit")
@@ -139,10 +138,10 @@ class TestAutoCommitFailureDoesNotBlock:
         self, tmp_path: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
         """_auto_commit_pending_changes logs a WARNING when auto_commit_worktree raises."""
-        from agentfox.nightshift.fix_pipeline import NightShiftFixPipeline
+        from agentfox.nightshift.fix_pipeline import FixPipeline
 
         workspace = _make_workspace(tmp_path)
-        pipeline = NightShiftFixPipeline.__new__(NightShiftFixPipeline)
+        pipeline = FixPipeline.__new__(FixPipeline)
 
         async def mock_auto_commit_raises(*args, **kwargs):
             raise RuntimeError("git commit failed")
