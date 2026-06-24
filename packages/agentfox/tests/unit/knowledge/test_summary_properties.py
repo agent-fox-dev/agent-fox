@@ -9,6 +9,7 @@ from __future__ import annotations
 import uuid
 
 import duckdb
+import pytest
 from agentfox.knowledge.migrations import run_migrations
 from agentfox.knowledge.summary_store import (
     SummaryRecord,
@@ -71,6 +72,7 @@ def _make_record(spec_name, task_group, archetype, attempt, run_id="run-1", crea
 
 
 # TS-119-P1: Prior-group filtering correctness (Property 2)
+@pytest.mark.timeout(30)
 class TestPriorGroupFilteringProperty:
     @settings(max_examples=100)
     @given(
@@ -112,6 +114,7 @@ class TestPriorGroupFilteringProperty:
 
 
 # TS-119-P2: Cross-spec exclusion (Property 3)
+@pytest.mark.timeout(30)
 class TestCrossSpecExclusionProperty:
     @settings(max_examples=100)
     @given(

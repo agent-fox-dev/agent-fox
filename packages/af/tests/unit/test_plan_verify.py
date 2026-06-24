@@ -53,9 +53,7 @@ class TestVerifyFlagRegistered:
 
 
 class TestVerifyMatchingStates:
-    def test_matching_states_exits_zero(
-        self, cli_runner: CliRunner, tmp_path: Path
-    ) -> None:
+    def test_matching_states_exits_zero(self, cli_runner: CliRunner, tmp_path: Path) -> None:
         """When spec and DB statuses match, exit 0 and print verified."""
         graph = _make_graph(
             {
@@ -73,18 +71,14 @@ class TestVerifyMatchingStates:
             mock_db_path.exists.return_value = True
             mock_db = MagicMock()
             mock_ks.return_value = mock_db
-            result = cli_runner.invoke(
-                main, ["plan", "--verify", "--specs-dir", str(tmp_path)]
-            )
+            result = cli_runner.invoke(main, ["plan", "--verify", "--specs-dir", str(tmp_path)])
 
         assert result.exit_code == 0
         assert "verified" in result.output.lower()
 
 
 class TestVerifyMismatchedStates:
-    def test_mismatch_exits_one(
-        self, cli_runner: CliRunner, tmp_path: Path
-    ) -> None:
+    def test_mismatch_exits_one(self, cli_runner: CliRunner, tmp_path: Path) -> None:
         """When statuses differ, exit 1 and report the mismatch."""
         spec_graph = _make_graph(
             {
@@ -108,9 +102,7 @@ class TestVerifyMismatchedStates:
             mock_db_path.exists.return_value = True
             mock_db = MagicMock()
             mock_ks.return_value = mock_db
-            result = cli_runner.invoke(
-                main, ["plan", "--verify", "--specs-dir", str(tmp_path)]
-            )
+            result = cli_runner.invoke(main, ["plan", "--verify", "--specs-dir", str(tmp_path)])
 
         assert result.exit_code == 1
         assert "01_foo:2" in result.output
@@ -119,9 +111,7 @@ class TestVerifyMismatchedStates:
 
 
 class TestVerifyNoDatabase:
-    def test_no_db_exits_one(
-        self, cli_runner: CliRunner, tmp_path: Path
-    ) -> None:
+    def test_no_db_exits_one(self, cli_runner: CliRunner, tmp_path: Path) -> None:
         """When no DB exists, exit 1 with error message."""
         spec_graph = _make_graph({"01_foo:1": NodeStatus.PENDING})
         with (
@@ -129,17 +119,13 @@ class TestVerifyNoDatabase:
             patch("agentfox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
         ):
             mock_db_path.exists.return_value = False
-            result = cli_runner.invoke(
-                main, ["plan", "--verify", "--specs-dir", str(tmp_path)]
-            )
+            result = cli_runner.invoke(main, ["plan", "--verify", "--specs-dir", str(tmp_path)])
 
         assert result.exit_code == 1
 
 
 class TestVerifyOrphanNodes:
-    def test_orphan_nodes_reported(
-        self, cli_runner: CliRunner, tmp_path: Path
-    ) -> None:
+    def test_orphan_nodes_reported(self, cli_runner: CliRunner, tmp_path: Path) -> None:
         """Nodes in DB but not in specs are reported as orphans."""
         spec_graph = _make_graph({"01_foo:1": NodeStatus.COMPLETED})
         db_graph = _make_graph(
@@ -158,9 +144,7 @@ class TestVerifyOrphanNodes:
             mock_db_path.exists.return_value = True
             mock_db = MagicMock()
             mock_ks.return_value = mock_db
-            result = cli_runner.invoke(
-                main, ["plan", "--verify", "--specs-dir", str(tmp_path)]
-            )
+            result = cli_runner.invoke(main, ["plan", "--verify", "--specs-dir", str(tmp_path)])
 
         assert result.exit_code == 1
         assert "orphan" in result.output.lower()
@@ -168,9 +152,7 @@ class TestVerifyOrphanNodes:
 
 
 class TestVerifyNewNodes:
-    def test_new_nodes_reported(
-        self, cli_runner: CliRunner, tmp_path: Path
-    ) -> None:
+    def test_new_nodes_reported(self, cli_runner: CliRunner, tmp_path: Path) -> None:
         """Nodes in specs but not in DB are reported as new."""
         spec_graph = _make_graph(
             {
@@ -189,9 +171,7 @@ class TestVerifyNewNodes:
             mock_db_path.exists.return_value = True
             mock_db = MagicMock()
             mock_ks.return_value = mock_db
-            result = cli_runner.invoke(
-                main, ["plan", "--verify", "--specs-dir", str(tmp_path)]
-            )
+            result = cli_runner.invoke(main, ["plan", "--verify", "--specs-dir", str(tmp_path)])
 
         assert result.exit_code == 1
         assert "new" in result.output.lower()
@@ -199,9 +179,7 @@ class TestVerifyNewNodes:
 
 
 class TestVerifyJsonOutput:
-    def test_json_output_format(
-        self, cli_runner: CliRunner, tmp_path: Path
-    ) -> None:
+    def test_json_output_format(self, cli_runner: CliRunner, tmp_path: Path) -> None:
         """JSON mode emits structured verify result."""
         import json
 
