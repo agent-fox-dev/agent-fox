@@ -17,6 +17,7 @@ import logging
 import math
 import re
 import subprocess
+import time
 import tomllib
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -36,6 +37,10 @@ from agentfox.ui.progress import TaskCallback, TaskEvent
 logger = logging.getLogger(__name__)
 
 
+_MAX_WORKSPACE_FAILURES = 3
+_MAX_WORKSPACE_BACKOFF_SECONDS = 30
+
+
 @dataclass
 class _NodeRetryState:
     timeout_retries: int = 0
@@ -45,6 +50,8 @@ class _NodeRetryState:
     timeout: int | None = None
     original_timeout: int | None = None
     coverage_baseline: Any = field(default=None, repr=False)
+    workspace_failures: int = 0
+    workspace_next_eligible: float = 0.0
 
 
 class SessionResultHandler:
@@ -550,6 +557,7 @@ class SessionResultHandler:
                     input_tokens=record.input_tokens,
                     output_tokens=record.output_tokens,
                     cost=record.cost,
+                    is_workspace_setup_failure=record.is_workspace_setup_failure,
                 )
             except Exception:
                 logger.warning("Failed to record session to DB", exc_info=True)
@@ -589,6 +597,11 @@ class SessionResultHandler:
     ) -> None:
         """Handle a successful session completion."""
         node_id = record.node_id
+
+        ns = self._node_retry_states.get(node_id)
+        if ns is not None:
+            ns.workspace_failures = 0
+
         prev_status = self._graph_sync.node_states.get(node_id, "in_progress")
         self._graph_sync.mark_completed(node_id)
 
@@ -795,6 +808,78 @@ class SessionResultHandler:
         )
         self._graph_sync.mark_pending(node_id, reason="transport error retry")
 
+    def is_workspace_backoff_active(self, node_id: str) -> bool:
+        """Return True when the node is in workspace-error backoff."""
+        ns = self._node_retry_states.get(node_id)
+        if ns is None or ns.workspace_failures == 0:
+            return False
+        return time.monotonic() < ns.workspace_next_eligible
+
+    def _handle_workspace_setup_failure(
+        self,
+        record: SessionRecord,
+        state: ExecutionState,
+    ) -> None:
+        """Handle a workspace-setup failure with exponential backoff.
+
+        Workspace-setup failures (worktree creation, branch checkout) are
+        infrastructure errors that should not consume escalation retries.
+        After ``_MAX_WORKSPACE_FAILURES`` consecutive failures for the same
+        node, the node is blocked with a diagnostic message.
+        """
+        node_id = record.node_id
+        ns = self._get_node_state(node_id)
+        ns.workspace_failures += 1
+        count = ns.workspace_failures
+
+        if count >= _MAX_WORKSPACE_FAILURES:
+            reason = (
+                f"Workspace setup failed {count} times consecutively for {node_id}: "
+                f"{record.error_message}. "
+                f"Check for stale worktrees (.agent-fox/worktrees/) or lock contention."
+            )
+            logger.warning("Workspace circuit breaker tripped for %s: %s", node_id, reason)
+            self._block_task(node_id, state, reason)
+            self._check_block_budget(state)
+            emit_audit_event(
+                self._sink,
+                self._run_id,
+                AuditEventType.WORKSPACE_SETUP_FAILED,
+                node_id=node_id,
+                payload={
+                    "consecutive_failures": count,
+                    "blocked": True,
+                    "error": record.error_message,
+                },
+            )
+            return
+
+        delay = min(2**count, _MAX_WORKSPACE_BACKOFF_SECONDS)
+        ns.workspace_next_eligible = time.monotonic() + delay
+
+        logger.warning(
+            "Workspace setup failed for %s (%d/%d), backing off %ds: %s",
+            node_id,
+            count,
+            _MAX_WORKSPACE_FAILURES,
+            delay,
+            record.error_message,
+        )
+        self._graph_sync.mark_pending(node_id, reason="workspace setup retry with backoff")
+
+        emit_audit_event(
+            self._sink,
+            self._run_id,
+            AuditEventType.WORKSPACE_SETUP_FAILED,
+            node_id=node_id,
+            payload={
+                "consecutive_failures": count,
+                "blocked": False,
+                "backoff_seconds": delay,
+                "error": record.error_message,
+            },
+        )
+
     def _handle_failure(
         self,
         record: SessionRecord,
@@ -806,6 +891,11 @@ class SessionResultHandler:
         """Handle a failed session: retry, escalate, or block."""
         node_id = record.node_id
         error_tracker[node_id] = record.error_message
+
+        # Workspace-setup failures get exponential backoff, not escalation.
+        if record.is_workspace_setup_failure:
+            self._handle_workspace_setup_failure(record, state)
+            return
 
         # 118-REQ-3.2, 118-REQ-3.3: Non-retryable errors (workspace-state)
         # are blocked immediately without consuming escalation ladder retries.
