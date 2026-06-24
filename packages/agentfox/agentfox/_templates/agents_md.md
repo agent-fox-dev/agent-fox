@@ -15,8 +15,6 @@ Before making any changes, orient yourself:
 5. **Explore the codebase:** `<main_package>/` is the main package, `<test_directory>/` has
    unit, property, and integration tests. Their location is language dependent.
 6. **Check git state:** `git log --oneline -20`, `git status --short --branch`.
-7. **Run `make check`** to confirm the baseline is green. If tests fail, fix
-   them before starting new work.
 
 **Important:** Read all documents and code in depth — don't skim.
 
@@ -59,16 +57,17 @@ Run the full quality suite before committing:
 make check
 ```
 
+**Important:** If `make check` or `make test` are not present, look for language specific test suites.
+
 ## Git Workflow
 
-- **Branch from `develop`**, not `main`: `feature/<descriptive-name>`.
-- **Never commit directly** to `main` or `develop`.
+- **Branch from `main`: `feature/<descriptive-name>`.
+- **Never commit directly** to `main`.
 - **Conventional commits:** `<type>: <description>` (e.g. `feat:`, `fix:`,
   `refactor:`, `docs:`, `test:`, `chore:`).
 - **Commit discipline:** only commit files relevant to the current change.
 - **Never add `Co-Authored-By` lines.** No AI attribution in commits — ever.
-- **Feature branches are local-only** — do not push them to origin. Only
-  `develop` (and `main` for releases) is pushed to the remote.
+- **Feature branches are local-only** — do not push them to origin. Only `main` is pushed to the remote.
 
 ## Scope Discipline
 
@@ -95,6 +94,6 @@ A session is not complete until:
 
 1. `make check` or `make test` passes (no regressions).
 2. Changes are committed with a clear conventional commit message.
-3. Changes are merged into `develop` locally.
+3. Changes are merged into `main` locally.
 4. `git status` shows a clean working tree.
 5. You provide a brief handoff note summarizing what was done and what remains.

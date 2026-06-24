@@ -10,13 +10,11 @@ Before making any changes, orient yourself:
 1. **Read `README.md`** for project overview and quick-start.
 2. **Read `.agent-fox/steering.md`** if it exists — project-level directives that
    apply to all agents and skills. Follow any instructions found there.
-3. **Read relevant specs** in `.agent-fox/specs/` for the area you're working on.
+3. **Read relevant specs** in `{{SPEC_ROOT}}/` for the area you're working on.
 4. **Read ADRs** in `docs/adr/` for architectural context.
 5. **Explore the codebase:** `<main_package>/` is the main package, `<test_directory>/` has
    unit, property, and integration tests. Their location is language dependent.
 6. **Check git state:** `git log --oneline -20`, `git status --short --branch`.
-7. **Run `make check`** to confirm the baseline is green. If tests fail, fix
-   them before starting new work.
 
 **Important:** Read all documents and code in depth — don't skim.
 
@@ -31,14 +29,14 @@ Do not implement anything before completing these steps.
 <main_package>/         # Main package
 <test_directory>/       # Tests directory
 docs/                   # Documentation
-.agent-fox/specs/                 # Specs to be implemented
-.agent-fox/specs/archive/         # Old specs. Ignore for coding tasks, except for reference
+{{SPEC_ROOT}}/                 # Specs to be implemented
+{{SPEC_ROOT}}/archive/         # Old specs. Ignore for coding tasks, except for reference
 ```
 
 ## Spec-Driven Workflow
 
 This project uses spec-driven development. Specifications live in
-`.agent-fox/specs/NN_name/` (numbered by creation order) and contain five artifacts:
+`{{SPEC_ROOT}}/NN_name/` (numbered by creation order) and contain five artifacts:
 
 - `prd.md` — product requirements document (source of truth)
 - `requirements.md` — EARS-syntax acceptance criteria
@@ -52,7 +50,6 @@ This project uses spec-driven development. Specifications live in
 |---------|-------------|
 | `make check` | Run lint + all tests (use before committing) |
 | `make test` | Run all tests (`uv run pytest -q`) |
-| `make test-fast` | Run unit tests only, skip slow tests (~30 s) |
 
 Run the full quality suite before committing:
 
@@ -60,16 +57,17 @@ Run the full quality suite before committing:
 make check
 ```
 
+**Important:** If `make check` or `make test` are not present, look for language specific test suites.
+
 ## Git Workflow
 
-- **Branch from `develop`**, not `main`: `feature/<descriptive-name>`.
-- **Never commit directly** to `main` or `develop`.
+- **Branch from `main`: `feature/<descriptive-name>`.
+- **Never commit directly** to `main`.
 - **Conventional commits:** `<type>: <description>` (e.g. `feat:`, `fix:`,
   `refactor:`, `docs:`, `test:`, `chore:`).
 - **Commit discipline:** only commit files relevant to the current change.
 - **Never add `Co-Authored-By` lines.** No AI attribution in commits — ever.
-- **Feature branches are local-only** — do not push them to origin. Only
-  `develop` (and `main` for releases) is pushed to the remote.
+- **Feature branches are local-only** — do not push them to origin. Only `main` is pushed to the remote.
 
 ## Scope Discipline
 
@@ -96,6 +94,6 @@ A session is not complete until:
 
 1. `make check` or `make test` passes (no regressions).
 2. Changes are committed with a clear conventional commit message.
-3. Changes are merged into `develop` locally.
+3. Changes are merged into `main` locally.
 4. `git status` shows a clean working tree.
 5. You provide a brief handoff note summarizing what was done and what remains.
