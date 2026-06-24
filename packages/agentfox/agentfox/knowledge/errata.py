@@ -300,8 +300,13 @@ def index_errata_from_markdown(
     suffix when present), and inserts ``Erratum`` rows for each file
     that has no existing rows for that ``spec_name``.
 
-    Idempotent: skips files whose ``spec_name`` already has rows in the
-    table. Parse failures on individual files are logged as warnings and
+    Idempotent: for each markdown file, ``query_errata(conn, spec_name,
+    limit=1)`` is called before parsing or inserting.  If any row already
+    exists for the derived ``spec_name``, the file is skipped entirely.
+    Re-indexing the same errata markdown files produces no duplicate
+    records and no errors (06-REQ-6.3).
+
+    Parse failures on individual files are logged as warnings and
     skipped — they do not abort indexing of other files or raise.
 
     Returns the total number of rows inserted. Returns 0 silently if the

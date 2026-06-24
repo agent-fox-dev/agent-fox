@@ -268,10 +268,16 @@ def _migrate_legacy_files(
 ) -> None:
     """Migrate legacy review.md/verification.md files to DB records.
 
-    Only runs when no DB records exist for the spec. On parse failure,
-    logs a warning and skips (27-REQ-10.E1).
+    Idempotent: for each legacy file, the function queries existing active
+    records (``superseded_by IS NULL``) before attempting migration.  If
+    any active record already exists for the spec, the migration for that
+    file type is skipped entirely.  Running this function multiple times
+    with the same ``(conn, spec_dir, spec_name)`` arguments produces no
+    duplicate records and raises no errors.
 
-    Requirements: 27-REQ-10.1, 27-REQ-10.2, 27-REQ-10.E1
+    On parse failure, logs a warning and skips (27-REQ-10.E1).
+
+    Requirements: 27-REQ-10.1, 27-REQ-10.2, 27-REQ-10.E1, 06-REQ-5.3
     """
     from agentfox.knowledge.review_store import (
         insert_findings,
