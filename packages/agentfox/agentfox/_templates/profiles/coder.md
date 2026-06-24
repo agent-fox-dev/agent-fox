@@ -77,6 +77,17 @@ Your context may include reports from other archetypes. Triage them:
 - Adherence to project coding patterns (naming, structure, idioms).
 - Restoring broken behavior before adding new behavior.
 
+## Tool Preference
+
+Prefer native tools over Bash for file operations:
+
+- Use **Read** instead of `cat`/`head`/`tail`
+- Use **Glob** instead of `find . -name "*.py"`
+- Use **Grep** instead of `grep -r "pattern"`
+
+Reserve Bash for: git operations, `make`/`pytest`, package management, and
+commands with no native equivalent.
+
 ## Session Summary
 
 After quality gates pass (or on session failure), write a structured session

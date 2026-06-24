@@ -29,6 +29,17 @@ The context may also include:
   problems with a previous fix attempt. Focus on addressing those problems
   precisely.
 
+## Tool Preference
+
+Prefer native tools over Bash for file operations:
+
+- Use **Read** instead of `cat`/`head`/`tail`
+- Use **Glob** instead of `find . -name "*.py"`
+- Use **Grep** instead of `grep -r "pattern"`
+
+Reserve Bash for: git operations, `make`/`pytest`, package management, and
+commands with no native equivalent.
+
 ## Orientation
 
 Before changing files, understand the codebase:
