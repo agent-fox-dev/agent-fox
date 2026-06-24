@@ -179,7 +179,7 @@ class TestCorruptedDatabaseDegradesGracefully:
         db_path.write_bytes(b"this is not a duckdb file")
         config = KnowledgeConfig(store_path=str(db_path))
         with pytest.raises(RuntimeError, match="Knowledge store initialization failed"):
-            open_knowledge_store(config)
+            open_knowledge_store(config, read_only=False)
 
 
 # -- Additional failure mode tests -------------------------------------------
@@ -213,7 +213,7 @@ class TestOpenKnowledgeStoreFailureModes:
         """Database path in a non-existent root raises RuntimeError."""
         config = KnowledgeConfig(store_path="/nonexistent/deep/path/db.duckdb")
         with pytest.raises(RuntimeError, match="Knowledge store initialization failed"):
-            open_knowledge_store(config)
+            open_knowledge_store(config, read_only=False)
 
     def test_double_close_is_safe(self, knowledge_config: KnowledgeConfig) -> None:
         """Calling close() twice does not raise."""

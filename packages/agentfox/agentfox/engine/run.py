@@ -105,7 +105,7 @@ def _setup_infrastructure(
 
     # Create DuckDB sink for session outcome recording
     sink_dispatcher = SinkDispatcher()
-    knowledge_db = open_knowledge_store(config.knowledge)
+    knowledge_db = open_knowledge_store(config.knowledge, read_only=False)
     sink_dispatcher.add(DuckDBSink(knowledge_db.connection))
 
     # Attach agent trace sink unconditionally so that trace-based transcript

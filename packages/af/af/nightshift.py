@@ -85,7 +85,7 @@ def night_shift_cmd(
         from agentfox.knowledge.duckdb_sink import DuckDBSink
         from agentfox.knowledge.sink import SinkDispatcher
 
-        _knowledge_db = open_knowledge_store(config.knowledge)
+        _knowledge_db = open_knowledge_store(config.knowledge, read_only=False)
         _db_sink = DuckDBSink(_knowledge_db.connection)
         _sink_dispatcher = SinkDispatcher([_db_sink])
     except Exception:

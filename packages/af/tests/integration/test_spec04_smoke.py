@@ -13,7 +13,6 @@ import subprocess
 from pathlib import Path
 
 import pytest
-from click.testing import CliRunner
 
 _AF_PACKAGE_DIR = Path(__file__).resolve().parents[2] / "af"
 

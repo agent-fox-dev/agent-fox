@@ -201,7 +201,7 @@ def _handle_dry_run(config: object, om: object, specs_dir: str | None) -> None:
         sys.exit(1)
 
     # Load persisted plan from DuckDB (read-only)
-    _db = open_knowledge_store(config.knowledge)
+    _db = open_knowledge_store(config.knowledge, read_only=True)
     try:
         graph = load_plan(_db.connection)
     finally:

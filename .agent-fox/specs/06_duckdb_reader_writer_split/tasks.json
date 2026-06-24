@@ -218,7 +218,7 @@
             "06-REQ-10.1",
             "06-REQ-10.E1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -241,7 +241,7 @@
             "06-REQ-1.3",
             "06-REQ-10.1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],

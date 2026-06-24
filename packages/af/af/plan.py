@@ -53,7 +53,7 @@ def _verify_plan(
             click.echo(f"Error: {msg}", err=True)
         sys.exit(1)
 
-    db = open_knowledge_store(config.knowledge)
+    db = open_knowledge_store(config.knowledge, read_only=True)
     try:
         persisted = load_plan(db.connection)
     finally:
@@ -245,7 +245,7 @@ def plan_cmd(
 
         # 122-REQ-1.4: merge persisted statuses and filter completed nodes
         try:
-            _db = open_knowledge_store(config.knowledge)
+            _db = open_knowledge_store(config.knowledge, read_only=True)
             try:
                 persisted = load_plan(_db.connection)
             finally:
@@ -294,7 +294,7 @@ def plan_cmd(
         return
 
     # Persist the plan to DuckDB (105-REQ-5.2)
-    _knowledge_db = open_knowledge_store(config.knowledge)
+    _knowledge_db = open_knowledge_store(config.knowledge, read_only=False)
     try:
         save_plan(graph, _knowledge_db.connection)
     finally:
