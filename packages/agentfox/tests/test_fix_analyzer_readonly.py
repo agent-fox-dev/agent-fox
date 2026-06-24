@@ -32,20 +32,21 @@ class TestAnalyzerReadOnly:
         mock_db = MagicMock()
         mock_db.connection = MagicMock()
 
-        with patch(
-            "agentfox.knowledge.db.open_knowledge_store",
-            return_value=mock_db,
-        ) as mock_open, patch(
-            "agentfox.knowledge.review_store.query_active_findings",
-            return_value=[],
+        with (
+            patch(
+                "agentfox.knowledge.db.open_knowledge_store",
+                return_value=mock_db,
+            ) as mock_open,
+            patch(
+                "agentfox.knowledge.review_store.query_active_findings",
+                return_value=[],
+            ),
         ):
             load_review_context(Path("/tmp/fake-project"))
 
         mock_open.assert_called_once()
         _, kwargs = mock_open.call_args
-        assert kwargs["read_only"] is True, (
-            "open_knowledge_store must be called with read_only=True"
-        )
+        assert kwargs["read_only"] is True, "open_knowledge_store must be called with read_only=True"
 
 
 # -----------------------------------------------------------------------
@@ -84,9 +85,7 @@ class TestAnalyzerNoWrites:
             "VALUES ('f1', 'critical', 'test finding', "
             "'REQ-1', 'test_spec', '1', 'sess1')"
         )
-        count_before = rw_conn.execute(
-            "SELECT COUNT(*) FROM review_findings"
-        ).fetchone()[0]
+        count_before = rw_conn.execute("SELECT COUNT(*) FROM review_findings").fetchone()[0]
         rw_conn.close()
 
         # Open read-only and run the query path
@@ -98,14 +97,10 @@ class TestAnalyzerNoWrites:
 
         # Verify no mutations occurred
         verify_conn = duckdb.connect(db_path, read_only=True)
-        count_after = verify_conn.execute(
-            "SELECT COUNT(*) FROM review_findings"
-        ).fetchone()[0]
+        count_after = verify_conn.execute("SELECT COUNT(*) FROM review_findings").fetchone()[0]
         verify_conn.close()
 
-        assert count_before == count_after, (
-            "query_active_findings must not mutate the database"
-        )
+        assert count_before == count_after, "query_active_findings must not mutate the database"
 
 
 # -----------------------------------------------------------------------
@@ -171,12 +166,15 @@ class TestAnalyzerResourceCleanup:
         mock_db = MagicMock()
         mock_db.connection = MagicMock()
 
-        with patch(
-            "agentfox.knowledge.db.open_knowledge_store",
-            return_value=mock_db,
-        ), patch(
-            "agentfox.knowledge.review_store.query_active_findings",
-            return_value=[],
+        with (
+            patch(
+                "agentfox.knowledge.db.open_knowledge_store",
+                return_value=mock_db,
+            ),
+            patch(
+                "agentfox.knowledge.review_store.query_active_findings",
+                return_value=[],
+            ),
         ):
             load_review_context(Path("/tmp/fake-project"))
 
@@ -189,12 +187,15 @@ class TestAnalyzerResourceCleanup:
         mock_db = MagicMock()
         mock_db.connection = MagicMock()
 
-        with patch(
-            "agentfox.knowledge.db.open_knowledge_store",
-            return_value=mock_db,
-        ), patch(
-            "agentfox.knowledge.review_store.query_active_findings",
-            side_effect=RuntimeError("query failed"),
+        with (
+            patch(
+                "agentfox.knowledge.db.open_knowledge_store",
+                return_value=mock_db,
+            ),
+            patch(
+                "agentfox.knowledge.review_store.query_active_findings",
+                side_effect=RuntimeError("query failed"),
+            ),
         ):
             with pytest.raises(RuntimeError, match="query failed"):
                 load_review_context(Path("/tmp/fake-project"))

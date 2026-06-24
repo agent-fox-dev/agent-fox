@@ -15,10 +15,8 @@ import inspect
 from pathlib import Path
 
 import pytest
-
 from agentfox.core.config import KnowledgeConfig
 from agentfox.knowledge.db import KnowledgeDB, open_knowledge_store
-
 
 # -----------------------------------------------------------------------
 # TS-06-1: open_knowledge_store requires read_only (no default)
@@ -34,9 +32,7 @@ class TestOpenKnowledgeStoreRequiresReadOnly:
         with pytest.raises(TypeError):
             open_knowledge_store()  # type: ignore[call-arg]
 
-    def test_calling_with_config_but_no_read_only_raises_type_error(
-        self, tmp_path: Path
-    ) -> None:
+    def test_calling_with_config_but_no_read_only_raises_type_error(self, tmp_path: Path) -> None:
         """open_knowledge_store(config) without read_only keyword must
         raise TypeError before any file I/O."""
         config = KnowledgeConfig(store_path=str(tmp_path / "test.duckdb"))
@@ -61,11 +57,12 @@ class TestOpenKnowledgeStoreRequiresReadOnly:
 class TestTypeErrorMessage:
     """TS-06-E1 / TS-06-E8: TypeError message must reference read_only."""
 
-    def test_type_error_message_contains_read_only(self) -> None:
+    def test_type_error_message_contains_read_only(self, tmp_path: Path) -> None:
         """The TypeError raised when read_only is omitted must mention
         'read_only' in its message to guide the developer."""
+        config = KnowledgeConfig(store_path=str(tmp_path / "test.duckdb"))
         with pytest.raises(TypeError, match="read_only"):
-            open_knowledge_store()  # type: ignore[call-arg]
+            open_knowledge_store(config)  # type: ignore[call-arg]
 
 
 # -----------------------------------------------------------------------
@@ -76,9 +73,7 @@ class TestTypeErrorMessage:
 class TestKnowledgeDBRetainsDefault:
     """TS-06-2: KnowledgeDB can be instantiated without passing read_only."""
 
-    def test_knowledge_db_instantiates_without_read_only(
-        self, tmp_path: Path
-    ) -> None:
+    def test_knowledge_db_instantiates_without_read_only(self, tmp_path: Path) -> None:
         """KnowledgeDB(config) without read_only must NOT raise TypeError.
         The class retains its default value for internal/test use."""
         config = KnowledgeConfig(store_path=str(tmp_path / "test.duckdb"))
@@ -130,10 +125,7 @@ def _get_open_knowledge_store_calls(source: str) -> list[ast.Call]:
             continue
         if isinstance(node.func, ast.Name) and node.func.id == "open_knowledge_store":
             calls.append(node)
-        elif (
-            isinstance(node.func, ast.Attribute)
-            and node.func.attr == "open_knowledge_store"
-        ):
+        elif isinstance(node.func, ast.Attribute) and node.func.attr == "open_knowledge_store":
             calls.append(node)
     return calls
 
@@ -159,16 +151,12 @@ class TestAllProductionCallersPassReadOnly:
             calls = _get_open_knowledge_store_calls(source)
 
             for call in calls:
-                kwarg_names = {
-                    kw.arg for kw in call.keywords if kw.arg is not None
-                }
+                kwarg_names = {kw.arg for kw in call.keywords if kw.arg is not None}
                 if "read_only" not in kwarg_names:
                     violations.append(
-                        f"{module_path_str}:{call.lineno} — "
-                        f"open_knowledge_store() missing read_only keyword"
+                        f"{module_path_str}:{call.lineno} — open_knowledge_store() missing read_only keyword"
                     )
 
-        assert not violations, (
-            "Production call sites missing read_only keyword argument:\n"
-            + "\n".join(f"  - {v}" for v in violations)
+        assert not violations, "Production call sites missing read_only keyword argument:\n" + "\n".join(
+            f"  - {v}" for v in violations
         )

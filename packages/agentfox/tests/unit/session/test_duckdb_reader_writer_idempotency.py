@@ -107,9 +107,7 @@ def _make_spec_dir(tmp_path: Path) -> Path:
     spec_dir = tmp_path / "specs" / "01_test_spec"
     spec_dir.mkdir(parents=True, exist_ok=True)
     (spec_dir / "review.md").write_text(SAMPLE_REVIEW_MD, encoding="utf-8")
-    (spec_dir / "verification.md").write_text(
-        SAMPLE_VERIFICATION_MD, encoding="utf-8"
-    )
+    (spec_dir / "verification.md").write_text(SAMPLE_VERIFICATION_MD, encoding="utf-8")
     return spec_dir
 
 
@@ -117,9 +115,7 @@ def _make_errata_dir(tmp_path: Path) -> Path:
     """Create an errata directory with a sample markdown file."""
     errata_dir = tmp_path / "docs" / "errata"
     errata_dir.mkdir(parents=True, exist_ok=True)
-    (errata_dir / "test_spec_auto_errata.md").write_text(
-        SAMPLE_ERRATA_MD, encoding="utf-8"
-    )
+    (errata_dir / "test_spec_auto_errata.md").write_text(SAMPLE_ERRATA_MD, encoding="utf-8")
     return errata_dir
 
 
@@ -152,8 +148,7 @@ class TestMigrateLegacyFilesIdempotency:
             [spec_name],
         ).fetchone()[0]
         assert count_after_first == count_after_second, (
-            f"Second call should not insert duplicates: "
-            f"first={count_after_first}, second={count_after_second}"
+            f"Second call should not insert duplicates: first={count_after_first}, second={count_after_second}"
         )
         conn.close()
 
@@ -177,8 +172,7 @@ class TestMigrateLegacyFilesIdempotency:
             [spec_name],
         ).fetchone()[0]
         assert count_after_first == count_after_second, (
-            f"Second call should not insert duplicates: "
-            f"first={count_after_first}, second={count_after_second}"
+            f"Second call should not insert duplicates: first={count_after_first}, second={count_after_second}"
         )
         conn.close()
 
@@ -253,21 +247,16 @@ class TestIndexErrataIdempotency:
         _make_errata_dir(tmp_path)
 
         first_inserted = index_errata_from_markdown(conn, tmp_path)
-        count_after_first = conn.execute(
-            "SELECT COUNT(*) FROM errata WHERE spec_name = 'test_spec'"
-        ).fetchone()[0]
+        count_after_first = conn.execute("SELECT COUNT(*) FROM errata WHERE spec_name = 'test_spec'").fetchone()[0]
         assert first_inserted > 0, "First call should insert errata"
         assert count_after_first > 0
 
         second_inserted = index_errata_from_markdown(conn, tmp_path)
-        count_after_second = conn.execute(
-            "SELECT COUNT(*) FROM errata WHERE spec_name = 'test_spec'"
-        ).fetchone()[0]
+        count_after_second = conn.execute("SELECT COUNT(*) FROM errata WHERE spec_name = 'test_spec'").fetchone()[0]
 
         assert second_inserted == 0, "Second call should insert nothing"
         assert count_after_first == count_after_second, (
-            f"Record count should be stable: "
-            f"first={count_after_first}, second={count_after_second}"
+            f"Record count should be stable: first={count_after_first}, second={count_after_second}"
         )
         conn.close()
 
@@ -313,9 +302,7 @@ class TestIdempotencyProperty:
 
     @given(n_calls=st.integers(min_value=2, max_value=5))
     @settings(max_examples=5, deadline=10000)
-    def test_migrate_legacy_files_stable_for_n_calls(
-        self, n_calls: int
-    ) -> None:
+    def test_migrate_legacy_files_stable_for_n_calls(self, n_calls: int) -> None:
         """_migrate_legacy_files record count is stable after N >= 2 calls."""
         with tempfile.TemporaryDirectory() as td:
             tmp_path = Path(td)
@@ -342,9 +329,7 @@ class TestIdempotencyProperty:
 
     @given(n_calls=st.integers(min_value=2, max_value=5))
     @settings(max_examples=5, deadline=10000)
-    def test_index_errata_stable_for_n_calls(
-        self, n_calls: int
-    ) -> None:
+    def test_index_errata_stable_for_n_calls(self, n_calls: int) -> None:
         """index_errata_from_markdown record count is stable after N >= 2 calls."""
         with tempfile.TemporaryDirectory() as td:
             tmp_path = Path(td)
@@ -353,15 +338,11 @@ class TestIdempotencyProperty:
             _make_errata_dir(tmp_path)
 
             index_errata_from_markdown(conn, tmp_path)
-            count_after_first = conn.execute(
-                "SELECT COUNT(*) FROM errata WHERE spec_name = 'test_spec'"
-            ).fetchone()[0]
+            count_after_first = conn.execute("SELECT COUNT(*) FROM errata WHERE spec_name = 'test_spec'").fetchone()[0]
 
             for _ in range(n_calls - 1):
                 index_errata_from_markdown(conn, tmp_path)
 
-            count_after_n = conn.execute(
-                "SELECT COUNT(*) FROM errata WHERE spec_name = 'test_spec'"
-            ).fetchone()[0]
+            count_after_n = conn.execute("SELECT COUNT(*) FROM errata WHERE spec_name = 'test_spec'").fetchone()[0]
             assert count_after_first == count_after_n
             conn.close()

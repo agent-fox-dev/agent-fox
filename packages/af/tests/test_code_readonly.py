@@ -9,14 +9,12 @@ Requirements: 06-REQ-2.1, 06-REQ-2.2, 06-REQ-2.E1
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
-from click.testing import CliRunner
-
 from af.app import main
+from click.testing import CliRunner
 
 
 @pytest.fixture(autouse=True)
@@ -38,9 +36,7 @@ def _no_daemon(monkeypatch: pytest.MonkeyPatch) -> None:
 class TestAfCodeReadOnly:
     """TS-06-4: af code must open knowledge store with read_only=True."""
 
-    def test_code_dry_run_uses_read_only_true(
-        self, cli_runner: CliRunner
-    ) -> None:
+    def test_code_dry_run_uses_read_only_true(self, cli_runner: CliRunner) -> None:
         """af code --dry-run must call open_knowledge_store with
         read_only=True before executing load_plan and compute_phases."""
         mock_db = MagicMock()
@@ -51,22 +47,28 @@ class TestAfCodeReadOnly:
         mock_graph.edges = []
         mock_graph.order = ["n1"]
         mock_graph.metadata = MagicMock(
-            created_at="2024-01-01", fast_mode=False,
-            filtered_spec=None, version="1",
+            created_at="2024-01-01",
+            fast_mode=False,
+            filtered_spec=None,
+            version="1",
         )
+
+        mock_db_path = MagicMock(exists=lambda: True)
 
         with (
             patch("af.code.open_knowledge_store", return_value=mock_db) as mock_oks,
-            patch("af.code.load_plan", return_value=mock_graph),
-            patch("agentfox.core.node_id.DEFAULT_DB_PATH", new=MagicMock(exists=lambda: True)),
-            patch("af.code.DEFAULT_DB_PATH", new=MagicMock(exists=lambda: True)),
-            patch("af.code.compute_phases", return_value=[]),
-            patch("af.code.critical_path", return_value=[]),
-            patch("af.code.group_edges", return_value=MagicMock(intra_spec=[], cross_spec=[])),
-            patch("af.code.discover_specs", return_value=[]),
-            patch("af.code.format_plan_analysis", return_value="Plan output"),
+            patch("agentfox.graph.persistence.load_plan", return_value=mock_graph),
+            patch("agentfox.core.node_id.DEFAULT_DB_PATH", new=mock_db_path),
+            patch("agentfox.graph.analyzer.compute_phases", return_value=[]),
+            patch("agentfox.graph.analyzer.critical_path", return_value=[]),
+            patch(
+                "agentfox.graph.analyzer.group_edges",
+                return_value=MagicMock(intra_spec=[], cross_spec=[]),
+            ),
+            patch("agentfox.spec.discovery.discover_specs", return_value=[]),
+            patch("agentfox.graph.planner.format_plan_analysis", return_value="Plan output"),
         ):
-            result = cli_runner.invoke(main, ["code", "--dry-run"])
+            cli_runner.invoke(main, ["code", "--dry-run"])
 
         # Verify open_knowledge_store was called with read_only=True
         mock_oks.assert_called_once()
@@ -139,22 +141,18 @@ class TestAfCodeNoWrites:
 class TestAfCodeMissingDB:
     """TS-06-E2: af code must exit non-zero when DB file is absent."""
 
-    def test_code_dry_run_missing_db_exits_nonzero(
-        self, cli_runner: CliRunner, tmp_path: Path
-    ) -> None:
+    def test_code_dry_run_missing_db_exits_nonzero(self, cli_runner: CliRunner, tmp_path: Path) -> None:
         """When knowledge.duckdb does not exist, af code --dry-run must
         exit with a non-zero status code and display an error message."""
         nonexistent_db = tmp_path / "nonexistent" / "knowledge.duckdb"
 
         with patch(
-            "af.code.DEFAULT_DB_PATH",
+            "agentfox.core.node_id.DEFAULT_DB_PATH",
             new=nonexistent_db,
         ):
             result = cli_runner.invoke(main, ["code", "--dry-run"])
 
-        assert result.exit_code != 0, (
-            f"Expected non-zero exit code when DB is missing, got {result.exit_code}"
-        )
+        assert result.exit_code != 0, f"Expected non-zero exit code when DB is missing, got {result.exit_code}"
         # Should contain an informative error message
         output = result.output.lower()
         assert "plan" in output or "error" in output or "not found" in output, (
