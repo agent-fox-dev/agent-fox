@@ -1073,22 +1073,37 @@ def build_retry_context(
 ) -> str:
     """Query active critical/major findings for the spec and format them.
 
-    Returns a structured block for inclusion in coder retry prompts,
-    listing all active critical and major review findings. Returns an
-    empty string if no such findings exist or if the DB is unavailable.
+    Returns a structured block for inclusion in coder prompts (both first
+    attempt and retries), listing all active critical and major review
+    findings plus drift findings.  Returns an empty string if no such
+    findings exist or if the DB is unavailable.
 
-    When ``task_group`` is provided, only findings tagged for that group
-    are included, avoiding noise from other task groups' findings.
+    When ``task_group`` is provided, findings from that group AND from
+    group ``"0"`` (pre-review / drift-review) are included.  Findings
+    from other task groups are excluded.  This ensures the coder sees
+    pre-review and drift-review findings on the very first attempt,
+    not only after a failed audit-review.
 
     Requirements: 53-REQ-5.1, 53-REQ-5.2, 53-REQ-5.E1
     """
     try:
-        from agentfox.knowledge.review_store import query_active_findings
+        from agentfox.knowledge.review_store import (
+            query_active_drift_findings,
+            query_active_findings,
+        )
 
         conn = knowledge_db.connection
-        findings = query_active_findings(conn, spec_name, task_group=task_group)
+        findings = query_active_findings(
+            conn, spec_name, task_group=task_group, include_prereview=True
+        )
+        drift_findings = query_active_drift_findings(
+            conn, spec_name, task_group=task_group, include_prereview=True
+        )
+
         critical_major = [f for f in findings if f.severity in ("critical", "major")]
-        if not critical_major:
+        critical_major_drift = [f for f in drift_findings if f.severity in ("critical", "major")]
+
+        if not critical_major and not critical_major_drift:
             return ""
 
         lines = [
@@ -1102,6 +1117,9 @@ def build_retry_context(
             ref_str = f" [{finding.requirement_ref}]" if finding.requirement_ref else ""
             safe_desc = sanitize_prompt_content(finding.description, label="review-finding")
             lines.append(f"- **{finding.severity.upper()}**{ref_str}: {safe_desc}")
+        for drift in critical_major_drift:
+            safe_desc = sanitize_prompt_content(drift.description, label="drift-finding")
+            lines.append(f"- **{drift.severity.upper()}** (drift): {safe_desc}")
         return "\n".join(lines)
 
     except Exception:

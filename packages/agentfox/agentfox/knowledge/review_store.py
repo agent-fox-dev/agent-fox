@@ -511,19 +511,34 @@ def query_active_drift_findings(
     conn: duckdb.DuckDBPyConnection,
     spec_name: str,
     task_group: str | None = None,
+    include_prereview: bool = False,
 ) -> list[DriftFinding]:
     """Query non-superseded drift findings for a spec, sorted by severity.
 
+    When *include_prereview* is ``True`` and *task_group* is not ``None``
+    and not ``"0"``, findings from both the requested task group and group
+    ``"0"`` (pre-review drift) are returned.  This mirrors the behaviour of
+    ``query_active_findings`` so callers can surface drift-review findings
+    on the first coder attempt without a separate query.
+
     Requirements: 32-REQ-7.4
     """
-    rows = _query_active(
-        conn,
-        "drift_findings",
-        _DRIFT_COLS,
-        spec_name,
-        task_group,
-        "severity, description",
-    )
+    if include_prereview and task_group is not None and task_group != "0":
+        rows = conn.execute(
+            f"SELECT {_DRIFT_COLS} FROM drift_findings "  # noqa: S608
+            "WHERE spec_name = ? AND task_group IN (?, '0') AND superseded_by IS NULL "
+            "ORDER BY severity, description",
+            [spec_name, task_group],
+        ).fetchall()
+    else:
+        rows = _query_active(
+            conn,
+            "drift_findings",
+            _DRIFT_COLS,
+            spec_name,
+            task_group,
+            "severity, description",
+        )
     findings = [_row_to_drift_finding(r) for r in rows]
     findings.sort(key=lambda f: (_SEVERITY_ORDER.get(f.severity, 99), f.description))
     return findings
