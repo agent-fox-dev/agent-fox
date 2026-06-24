@@ -18,7 +18,9 @@ from typing import Any
 import click
 import jsonschema
 import yaml
+from agentfox.core.config import ThemeConfig, load_config
 from agentfox.io import AgentFoxGroup, StatusSpinner, emit, emit_ok
+from agentfox.ui.display import create_theme, render_banner
 from agentspec.errors import AgentError
 from agentspec.session import SessionState, SpecSession
 
@@ -134,8 +136,14 @@ def main(ctx: click.Context, spec_dir: str, quiet: bool) -> None:
     ctx.ensure_object(dict)
     ctx.obj["spec_dir"] = Path(spec_dir)
     ctx.obj["quiet"] = quiet
-    # Propagate agent_mode if set by AgentFoxGroup
     ctx.obj.setdefault("agent_mode", False)
+
+    json_mode = ctx.obj.get("agent_mode", False)
+    if not json_mode and not quiet:
+        config = load_config(Path(".agent-fox/config.toml"))
+        theme_config = config.theme if config else ThemeConfig()
+        theme = create_theme(theme_config)
+        render_banner(theme, quiet=quiet)
 
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
