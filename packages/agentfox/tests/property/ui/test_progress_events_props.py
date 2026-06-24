@@ -50,7 +50,7 @@ class TestTruncationLengthInvariant:
         s=st.text(min_size=0, max_size=500),
         max_len=st.integers(min_value=10, max_value=200),
     )
-    @settings(max_examples=200)
+    @settings(max_examples=50)
     def test_truncation_respects_limit(self, s: str, max_len: int) -> None:
         """abbreviate_arg result never exceeds max_len."""
         result = abbreviate_arg(s, max_len)

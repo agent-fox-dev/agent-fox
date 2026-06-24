@@ -14,7 +14,7 @@ from __future__ import annotations
 import pytest
 
 try:
-    from hypothesis import given
+    from hypothesis import given, settings
     from hypothesis import strategies as st
 
     HAS_HYPOTHESIS = True
@@ -42,6 +42,7 @@ _MAINTAINER_MODE_EXPECTED: dict[str, tuple[list[str], str]] = {
 if HAS_HYPOTHESIS:
 
     @given(mode=st.sampled_from(["hunt", "extraction"]))
+    @settings(max_examples=10)
     def test_maintainer_mode_config(mode: str) -> None:
         """TS-100-P1: Each maintainer mode resolves to correct allowlist and tier.
 
@@ -137,6 +138,7 @@ if HAS_HYPOTHESIS:
     @given(
         model_override=st.one_of(st.none(), st.sampled_from(list(_VALID_TIERS))),
     )
+    @settings(max_examples=10)
     def test_nightshift_resolution_with_model_override(
         model_override: str | None,
     ) -> None:

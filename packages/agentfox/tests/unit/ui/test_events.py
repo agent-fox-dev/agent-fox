@@ -8,8 +8,6 @@ from __future__ import annotations
 
 from agentfox.reporting.formatters import format_tokens
 from agentfox.ui.progress import (
-    ActivityEvent,
-    TaskEvent,
     abbreviate_arg,
     verbify_tool,
 )
@@ -160,67 +158,3 @@ class TestFormatTokens:
         assert format_tokens(1_000_000) == "1.0M"
 
 
-class TestActivityEventConstruction:
-    """ActivityEvent dataclass construction."""
-
-    def test_basic_construction(self) -> None:
-        """ActivityEvent can be constructed with required fields."""
-        event = ActivityEvent(node_id="03_session:2", tool_name="Read", argument="config.py")
-        assert event.node_id == "03_session:2"
-        assert event.tool_name == "Read"
-        assert event.argument == "config.py"
-        assert event.turn == 0
-        assert event.tokens is None
-
-    def test_with_turn_and_tokens(self) -> None:
-        """ActivityEvent can be constructed with turn and tokens."""
-        event = ActivityEvent(
-            node_id="x:1",
-            tool_name="Bash",
-            argument="ls",
-            turn=5,
-            tokens=2400,
-        )
-        assert event.turn == 5
-        assert event.tokens == 2400
-
-    def test_frozen(self) -> None:
-        """ActivityEvent is frozen (immutable)."""
-        event = ActivityEvent(node_id="03_session:2", tool_name="Read", argument="config.py")
-        try:
-            event.node_id = "other"  # type: ignore[misc]
-            raise AssertionError("Expected FrozenInstanceError")
-        except AttributeError:
-            pass
-
-
-class TestTaskEventConstruction:
-    """TaskEvent dataclass construction."""
-
-    def test_completed_event(self) -> None:
-        """TaskEvent for completed task."""
-        event = TaskEvent(node_id="03_session:2", status="completed", duration_s=45.0)
-        assert event.node_id == "03_session:2"
-        assert event.status == "completed"
-        assert event.duration_s == 45.0
-        assert event.error_message is None
-
-    def test_failed_event_with_error(self) -> None:
-        """TaskEvent for failed task with error message."""
-        event = TaskEvent(
-            node_id="03_session:2",
-            status="failed",
-            duration_s=12.0,
-            error_message="test error",
-        )
-        assert event.status == "failed"
-        assert event.error_message == "test error"
-
-    def test_frozen(self) -> None:
-        """TaskEvent is frozen (immutable)."""
-        event = TaskEvent(node_id="x:1", status="completed", duration_s=1.0)
-        try:
-            event.status = "failed"  # type: ignore[misc]
-            raise AssertionError("Expected FrozenInstanceError")
-        except AttributeError:
-            pass

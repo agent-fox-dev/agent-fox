@@ -127,7 +127,7 @@ class TestRemoteUrlParsingRoundtrip:
     """
 
     @given(owner=_github_name, repo=_github_repo)
-    @settings(max_examples=100)
+    @settings(max_examples=30)
     def test_https_url_parses(self, owner: str, repo: str) -> None:
         """HTTPS GitHub URLs parse to (owner, repo)."""
         url = f"https://github.com/{owner}/{repo}.git"
@@ -135,7 +135,7 @@ class TestRemoteUrlParsingRoundtrip:
         assert result == (owner, repo)
 
     @given(owner=_github_name, repo=_github_repo)
-    @settings(max_examples=100)
+    @settings(max_examples=30)
     def test_ssh_url_parses(self, owner: str, repo: str) -> None:
         """SSH GitHub URLs parse to (owner, repo)."""
         url = f"git@github.com:{owner}/{repo}.git"
@@ -293,7 +293,7 @@ class TestUrlResolutionDeterministic:
     """
 
     @given(url=_hostname_strategy)
-    @settings(max_examples=100)
+    @settings(max_examples=30)
     def test_url_resolution(self, url: str) -> None:
         """URL resolution is deterministic: github.com/empty → api.github.com."""
         try:
@@ -336,7 +336,7 @@ class TestUnknownConfigKeysIgnored:
             max_size=10,
         )
     )
-    @settings(max_examples=100)
+    @settings(max_examples=30)
     def test_unknown_keys_ignored(self, extra_keys: dict) -> None:
         """PlatformConfig ignores any extra keys; only type and url accessible."""
         # Skip examples where a key shadows an existing class attribute

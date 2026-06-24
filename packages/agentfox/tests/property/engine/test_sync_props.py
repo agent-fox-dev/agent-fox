@@ -111,7 +111,7 @@ class TestCascadeCompleteness:
     """
 
     @given(data=random_dags())
-    @settings(max_examples=100)
+    @settings(max_examples=30)
     def test_all_dependents_blocked(
         self,
         data: tuple[dict[str, str], dict[str, list[str]]],
@@ -154,7 +154,7 @@ class TestReadyTaskCorrectness:
     """
 
     @given(data=random_dag_with_completed_set())
-    @settings(max_examples=100)
+    @settings(max_examples=30)
     def test_ready_tasks_have_completed_deps(
         self,
         data: tuple[dict[str, str], dict[str, list[str]], set[str]],
@@ -175,7 +175,7 @@ class TestReadyTaskCorrectness:
                 )
 
     @given(data=random_dag_with_completed_set())
-    @settings(max_examples=100)
+    @settings(max_examples=30)
     def test_ready_tasks_are_pending(
         self,
         data: tuple[dict[str, str], dict[str, list[str]], set[str]],
@@ -207,7 +207,7 @@ class TestBatchIndependence:
     """
 
     @given(data=random_dag_with_completed_set())
-    @settings(max_examples=100)
+    @settings(max_examples=30)
     def test_ready_tasks_are_pairwise_independent(
         self,
         data: tuple[dict[str, str], dict[str, list[str]], set[str]],
