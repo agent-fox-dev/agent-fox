@@ -23,7 +23,6 @@ _SUBCOMMAND_FILES = [
     "plan.py",
     "standup.py",
     "init.py",
-    "nightshift.py",
     "reset.py",
     "findings.py",
 ]
@@ -36,7 +35,6 @@ _SUBCOMMANDS = [
     "plan",
     "standup",
     "init",
-    "night-shift",
     "reset",
     "insights",
 ]
@@ -45,7 +43,7 @@ _SUBCOMMANDS = [
 class TestProp1StdoutStderrSeparation:
     """TS-04-P1: stdout/stderr separation for JSONL streaming commands.
 
-    For any invocation of af code or af night-shift with --json, every
+    For any invocation of af code with --json, every
     stdout line is valid JSON and every stderr line is a valid JSONL
     progress event; no cross-contamination occurs.
 
@@ -123,7 +121,7 @@ class TestProp1StdoutStderrSeparation:
 
 @pytest.mark.xfail(
     strict=False,
-    reason="Some subcommands (code, night-shift) require backend infrastructure; "
+    reason="Some subcommands (code) require backend infrastructure; "
     "subcommands with no external deps (standup, init) now pass",
 )
 class TestProp4JsonModeValidOutput:

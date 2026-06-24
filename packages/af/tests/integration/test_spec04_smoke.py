@@ -21,7 +21,6 @@ _SUBCOMMANDS = [
     "plan",
     "standup",
     "init",
-    "night-shift",
     "reset",
     "insights",
 ]
@@ -152,21 +151,6 @@ class TestSmoke2StandupJson:
         obj = json.loads(result.output)
         assert isinstance(obj, dict)
 
-
-class TestSmoke3JsonHelp:
-    """TS-04-SMOKE-3: af night-shift --json --help returns JSON help."""
-
-    def test_json_help_for_night_shift(self, cli_runner) -> None:
-        """af night-shift --json --help: JSON with command metadata."""
-        from af.app import main
-
-        result = cli_runner.invoke(main, ["night-shift", "--json", "--help"])
-        assert result.exit_code == 0
-        obj = json.loads(result.output)
-        assert "name" in obj
-        assert "description" in obj
-        assert "options" in obj
-        assert "exit_codes" in obj
 
 
 class TestSmoke4ShimRemoval:

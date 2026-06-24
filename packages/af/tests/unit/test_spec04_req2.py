@@ -21,7 +21,6 @@ _SUBCOMMAND_FILES = [
     "plan.py",
     "standup.py",
     "init.py",
-    "nightshift.py",
     "reset.py",
     "findings.py",
 ]

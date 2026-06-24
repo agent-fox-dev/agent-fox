@@ -99,7 +99,6 @@ def main(ctx: click.Context, **kwargs) -> None:  # noqa: ARG001
 from af.code import code_cmd  # noqa: E402
 from af.findings import findings_cmd  # noqa: E402
 from af.init import init_cmd  # noqa: E402
-from af.nightshift import night_shift_cmd  # noqa: E402
 from af.plan import plan_cmd  # noqa: E402
 from af.reset import reset_cmd  # noqa: E402
 from af.standup import standup_cmd  # noqa: E402
@@ -107,7 +106,6 @@ from af.standup import standup_cmd  # noqa: E402
 main.add_command(code_cmd, name="code")
 main.add_command(findings_cmd, name="insights")
 main.add_command(init_cmd, name="init")
-main.add_command(night_shift_cmd, name="night-shift")
 main.add_command(plan_cmd, name="plan")
 main.add_command(reset_cmd, name="reset")
 main.add_command(standup_cmd, name="standup")
