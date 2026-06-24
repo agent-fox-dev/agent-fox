@@ -148,7 +148,7 @@ class OrchestratorConfig(BaseModel):
         ),
     )
     max_budget_usd: float = Field(
-        default=8.0,
+        default=20.0,
         ge=0.0,
         description="Maximum USD spend per session, 0 = unlimited",
     )
@@ -294,6 +294,14 @@ class PerArchetypeConfig(BaseModel):
     allowlist: list[str] | None = Field(
         default=None,
         description="Bash command allowlist override. None = use registry default.",
+    )
+    max_budget_usd: float | None = Field(
+        default=None,
+        description=(
+            "Per-archetype budget ceiling in USD. None = inherit global "
+            "orchestrator.max_budget_usd. 0 = unlimited."
+        ),
+        ge=0.0,
     )
     modes: dict[str, PerArchetypeConfig] = Field(
         default_factory=dict,
