@@ -8,7 +8,7 @@ clean:
 	rm -rf packages/*/.pytest_cache packages/*/.mypy_cache packages/*/.ruff_cache
 	rm -rf packages/*/build packages/*/dist packages/*/*.egg-info
 
-test: clean
+test:
 	uv run pytest -q
 
 test-fast:
@@ -31,7 +31,7 @@ format:
 
 check: lint test
 
-check-all: lint test test-unit test-property test-integration
+check-all: clear lint test test-unit test-property test-integration
 
 clean-branches:
 	@git branch --list 'feature/*' | xargs -r git branch -D

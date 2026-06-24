@@ -1,0 +1,616 @@
+{
+  "$schema": null,
+  "spec_id": "06",
+  "spec_name": "duckdb_reader_writer_split",
+  "schema_version": 1,
+  "introduction": "This specification governs the DuckDB reader/writer split for the agent-fox project, enforcing that read-only call sites open `knowledge.duckdb` with `read_only=True` and that write operations are removed from the `assemble_context` read path and moved to the orchestrator startup sequence.",
+  "glossary": {
+    "KnowledgeDB": "The internal DuckDB connection class; keeps its `read_only` default for test and internal use.",
+    "_migrate_legacy_files": "An idempotent function that migrates legacy `review.md` / `verification.md` files into DuckDB records; must be moved to orchestrator startup.",
+    "af code": "The CLI command (`af/code.py`) that loads and displays the current plan; performs only SELECT operations.",
+    "af findings": "The CLI command (`af/findings.py`) that lists and optionally dismisses findings; requires read-write when dismissing.",
+    "af plan --verify": "The verification subcommand of `af plan` that checks the plan against the database; performs only SELECT operations.",
+    "af standup": "The CLI command (`af/standup.py`) that displays standup information; already uses `read_only=True`.",
+    "assemble_context": "A function in `agentfox/session/context.py` that builds the session context from the database; currently performs opportunistic writes that must be extracted.",
+    "compute_phases": "A function that derives execution phases from the plan graph using only SELECT queries.",
+    "fix/analyzer.py": "The module `agentfox/fix/analyzer.py` that queries active findings; performs only SELECT operations.",
+    "index_errata_from_markdown": "An idempotent function that indexes errata markdown files into DuckDB; must be moved to orchestrator startup.",
+    "knowledge.duckdb": "The DuckDB database file used by agent-fox to store plans, findings, session outcomes, and errata.",
+    "load_plan": "A function that reads the current plan from DuckDB for display.",
+    "make check": "The project's top-level CI command that runs linting and all tests.",
+    "nightshift": "The long-running orchestrator process (`af/nightshift.py`) that holds a DuckDB write lock during multi-session runs.",
+    "open_knowledge_store": "The public factory function in agent-fox that opens a DuckDB connection to knowledge.duckdb; its `read_only` parameter will be made required (no default).",
+    "orchestrator startup": "The initialization phase of the nightshift orchestrator or engine runner that executes before any sessions are dispatched.",
+    "plan_edges": "DuckDB table storing directed edges between plan nodes.",
+    "plan_meta": "DuckDB table storing metadata associated with a plan.",
+    "plan_nodes": "DuckDB table storing individual nodes of the task plan.",
+    "query_active_findings": "A function in `fix/analyzer.py` that retrieves active findings via SELECT.",
+    "conn": "A `duckdb.DuckDBPyConnection` instance passed to functions that need database access; may be read-only or read-write depending on the call site.",
+    "read_only": "The boolean keyword argument passed to `open_knowledge_store` or `KnowledgeDB` that opens the DuckDB file in read-only mode, allowing concurrent readers.",
+    "read_only=False": "Keyword argument value passed to `open_knowledge_store` to open the database in read-write mode, allowing INSERT, UPDATE, and DELETE operations.",
+    "read_only=True": "Keyword argument value passed to `open_knowledge_store` to open the database in read-only mode, enabling concurrent access while another process holds the write lock.",
+    "spec_dir": "The filesystem directory for a given spec, used by `_migrate_legacy_files` to locate legacy markdown files.",
+    "spec_name": "The identifier of a spec, passed to `_migrate_legacy_files` to scope the migration."
+  },
+  "requirements": [
+    {
+      "id": "06-REQ-1",
+      "title": "Make read_only parameter required on open_knowledge_store",
+      "user_story": {
+        "role": "developer",
+        "goal": "be forced to declare read intent when opening the knowledge store",
+        "benefit": "preventing accidental read-write connections and making the convention self-enforcing"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "06-REQ-1.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`open_knowledge_store`",
+          "action": "defines its `read_only` parameter with no default value, so calling it without `read_only` raises a TypeError at call time",
+          "return_contract": "TypeError raised when `read_only` is omitted"
+        },
+        {
+          "id": "06-REQ-1.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`KnowledgeDB`",
+          "action": "retains its existing `read_only` default to remain compatible with internal and test usage",
+          "return_contract": null
+        },
+        {
+          "id": "06-REQ-1.3",
+          "ears_pattern": "ubiquitous",
+          "system": "every production caller of `open_knowledge_store`",
+          "action": "passes an explicit `read_only=True` or `read_only=False` keyword argument",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "06-REQ-1.E1",
+          "ears_pattern": "unwanted",
+          "system": "`open_knowledge_store`",
+          "action": "raises TypeError immediately before any file I/O is performed",
+          "return_contract": "TypeError with a message indicating `read_only` is required",
+          "error_condition": "called without the `read_only` keyword argument"
+        }
+      ]
+    },
+    {
+      "id": "06-REQ-2",
+      "title": "Switch af code to read-only database connection",
+      "user_story": {
+        "role": "developer running af code",
+        "goal": "have the command open knowledge.duckdb in read-only mode",
+        "benefit": "allowing it to run concurrently while the nightshift orchestrator holds the write lock"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "06-REQ-2.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`af code`",
+          "action": "calls `open_knowledge_store` with `read_only=True` before executing `load_plan` and `compute_phases`",
+          "return_contract": null
+        },
+        {
+          "id": "06-REQ-2.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`af code`",
+          "action": "performs no INSERT, UPDATE, or DELETE operations against `knowledge.duckdb`",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "06-REQ-2.E1",
+          "ears_pattern": "unwanted",
+          "system": "`af code`",
+          "action": "surfaces a clear error message to the user and exits with a non-zero status code",
+          "return_contract": "non-zero exit code and human-readable error message on stderr",
+          "error_condition": "`knowledge.duckdb` does not exist at the expected path"
+        }
+      ]
+    },
+    {
+      "id": "06-REQ-3",
+      "title": "Switch af plan --verify to read-only database connection",
+      "user_story": {
+        "role": "developer running af plan --verify",
+        "goal": "have the verify path open knowledge.duckdb in read-only mode",
+        "benefit": "allowing plan verification to run concurrently with the orchestrator"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "06-REQ-3.1",
+          "ears_pattern": "state_driven",
+          "system": "`af plan --verify`",
+          "action": "calls `open_knowledge_store` with `read_only=True`",
+          "return_contract": null,
+          "state": "the plan command is executing the verify path (not the save path)"
+        },
+        {
+          "id": "06-REQ-3.2",
+          "ears_pattern": "state_driven",
+          "system": "`af plan`",
+          "action": "calls `open_knowledge_store` with `read_only=False` to allow writes to `plan_nodes`, `plan_edges`, and `plan_meta`",
+          "return_contract": null,
+          "state": "the plan command is executing the save path"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "06-REQ-3.E1",
+          "ears_pattern": "unwanted",
+          "system": "`af plan --verify`",
+          "action": "raises a DuckDB read-only exception and exits with a non-zero status code without corrupting the database",
+          "return_contract": "non-zero exit code and error message identifying the unexpected write attempt",
+          "error_condition": "a write operation is attempted on the read-only connection opened during the verify path"
+        }
+      ]
+    },
+    {
+      "id": "06-REQ-4",
+      "title": "Switch fix/analyzer.py to read-only database connection",
+      "user_story": {
+        "role": "developer or orchestrator invoking the fix analyzer",
+        "goal": "have the analyzer open knowledge.duckdb in read-only mode",
+        "benefit": "allowing finding queries to proceed concurrently with the orchestrator's write lock"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "06-REQ-4.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`fix/analyzer.py`",
+          "action": "calls `open_knowledge_store` with `read_only=True` before executing `query_active_findings`",
+          "return_contract": null
+        },
+        {
+          "id": "06-REQ-4.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`fix/analyzer.py`",
+          "action": "performs no INSERT, UPDATE, or DELETE operations against `knowledge.duckdb`",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "06-REQ-4.E1",
+          "ears_pattern": "unwanted",
+          "system": "`fix/analyzer.py`",
+          "action": "raises a DuckDB read-only exception without silently swallowing it",
+          "return_contract": "exception propagated to the caller with the original DuckDB error message",
+          "error_condition": "a write operation is attempted on the read-only connection"
+        }
+      ]
+    },
+    {
+      "id": "06-REQ-5",
+      "title": "Extract _migrate_legacy_files from assemble_context to orchestrator startup",
+      "user_story": {
+        "role": "orchestrator operator",
+        "goal": "have legacy file migration run once at startup rather than per session",
+        "benefit": "allowing assemble_context to operate with a read-only connection"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "06-REQ-5.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`assemble_context`",
+          "action": "no longer calls `_migrate_legacy_files` under any circumstances",
+          "return_contract": null
+        },
+        {
+          "id": "06-REQ-5.2",
+          "ears_pattern": "event_driven",
+          "system": "orchestrator startup sequence",
+          "action": "calls `_migrate_legacy_files` with a read-write connection for every spec it will process, before dispatching any sessions",
+          "return_contract": null,
+          "trigger": "the `nightshift` orchestrator or engine runner starts up"
+        },
+        {
+          "id": "06-REQ-5.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`_migrate_legacy_files`",
+          "action": "remains idempotent — running it multiple times with the same `spec_dir` and `spec_name` produces no duplicate records and no errors",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "06-REQ-5.E1",
+          "ears_pattern": "unwanted",
+          "system": "orchestrator startup sequence",
+          "action": "logs the error with spec context and continues processing remaining specs rather than aborting the entire startup",
+          "return_contract": null,
+          "error_condition": "`_migrate_legacy_files` fails for one spec due to a missing or malformed legacy file"
+        }
+      ]
+    },
+    {
+      "id": "06-REQ-6",
+      "title": "Extract index_errata_from_markdown from assemble_context to orchestrator startup",
+      "user_story": {
+        "role": "orchestrator operator",
+        "goal": "have errata indexing run once at startup rather than per session",
+        "benefit": "allowing assemble_context to operate with a read-only connection"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "06-REQ-6.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`assemble_context`",
+          "action": "no longer calls `index_errata_from_markdown` under any circumstances",
+          "return_contract": null
+        },
+        {
+          "id": "06-REQ-6.2",
+          "ears_pattern": "event_driven",
+          "system": "orchestrator startup sequence",
+          "action": "calls `index_errata_from_markdown` with a read-write connection before dispatching any sessions",
+          "return_contract": null,
+          "trigger": "the `nightshift` orchestrator or engine runner starts up"
+        },
+        {
+          "id": "06-REQ-6.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`index_errata_from_markdown`",
+          "action": "remains idempotent — re-indexing the same errata markdown files produces no duplicate records and no errors",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "06-REQ-6.E1",
+          "ears_pattern": "unwanted",
+          "system": "orchestrator startup sequence",
+          "action": "logs the error and continues startup rather than blocking session dispatch",
+          "return_contract": null,
+          "error_condition": "`index_errata_from_markdown` fails due to malformed or missing errata markdown files"
+        }
+      ]
+    },
+    {
+      "id": "06-REQ-7",
+      "title": "Make assemble_context operate exclusively with a read-only connection",
+      "user_story": {
+        "role": "session context builder",
+        "goal": "receive a read-only connection when calling assemble_context",
+        "benefit": "allowing sessions to read context data concurrently with the orchestrator's write lock"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "06-REQ-7.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`assemble_context`",
+          "action": "retains the `conn` parameter and uses it exclusively for SELECT queries after write operations are extracted",
+          "return_contract": null
+        },
+        {
+          "id": "06-REQ-7.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`assemble_context`",
+          "action": "performs zero write operations (no INSERT, UPDATE, or DELETE) on the connection it receives",
+          "return_contract": null
+        },
+        {
+          "id": "06-REQ-7.3",
+          "ears_pattern": "event_driven",
+          "system": "orchestrator",
+          "action": "passes a connection opened with `read_only=True` to `assemble_context`",
+          "return_contract": null,
+          "trigger": "the orchestrator calls `assemble_context` during a session"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "06-REQ-7.E1",
+          "ears_pattern": "unwanted",
+          "system": "`assemble_context`",
+          "action": "raises a DuckDB read-only exception immediately, surfacing the regression rather than silently failing",
+          "return_contract": "DuckDB read-only exception propagated to the orchestrator session handler",
+          "error_condition": "a write operation is inadvertently re-introduced into `assemble_context` and the read-only connection rejects it"
+        }
+      ]
+    },
+    {
+      "id": "06-REQ-8",
+      "title": "Confirm af standup retains read-only connection",
+      "user_story": {
+        "role": "developer running af standup",
+        "goal": "confirm that af standup already uses read_only=True and continues to do so",
+        "benefit": "ensuring no regression in concurrent access behavior for the standup command"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "06-REQ-8.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`af standup`",
+          "action": "calls `open_knowledge_store` with `read_only=True` and performs only SELECT operations",
+          "return_contract": null
+        },
+        {
+          "id": "06-REQ-8.2",
+          "ears_pattern": "ubiquitous",
+          "system": "test suite",
+          "action": "includes a unit test that asserts `af standup` passes `read_only=True` to `open_knowledge_store`",
+          "return_contract": "test passes as part of `make check`"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "06-REQ-9",
+      "title": "Keep af findings read-write for dismiss support",
+      "user_story": {
+        "role": "developer running af findings",
+        "goal": "have the findings command retain its read-write connection to support the --dismiss flag",
+        "benefit": "avoiding unnecessary complexity from splitting a single command into read/write paths"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "06-REQ-9.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`af findings`",
+          "action": "calls `open_knowledge_store` with `read_only=False` to support both SELECT queries and the optional UPDATE performed by --dismiss",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "06-REQ-10",
+      "title": "All production call sites pass explicit read_only argument",
+      "user_story": {
+        "role": "developer",
+        "goal": "have every production call site to open_knowledge_store pass an explicit read_only value",
+        "benefit": "making connection intent self-documenting and catching mistakes at call time"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "06-REQ-10.1",
+          "ears_pattern": "ubiquitous",
+          "system": "codebase",
+          "action": "contains no call to `open_knowledge_store` that omits the `read_only` keyword argument in any production module",
+          "return_contract": null
+        },
+        {
+          "id": "06-REQ-10.2",
+          "ears_pattern": "ubiquitous",
+          "system": "test suite",
+          "action": "passes `make check` green after all callers are updated atomically with no deprecation window",
+          "return_contract": "`make check` exits with status 0"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "06-REQ-10.E1",
+          "ears_pattern": "unwanted",
+          "system": "`open_knowledge_store`",
+          "action": "Python raises TypeError at runtime before any database I/O occurs",
+          "return_contract": "TypeError with message indicating the missing required keyword argument",
+          "error_condition": "any future caller omits the `read_only` argument"
+        }
+      ]
+    }
+  ],
+  "correctness_properties": [
+    {
+      "id": "06-PROP-1",
+      "title": "Read-only call sites never perform writes",
+      "for_any": "call site designated as read-only (`af code`, `af plan --verify`, `fix/analyzer.py`, `assemble_context`)",
+      "invariant": "the connection passed to or opened by that call site has `read_only=True` and no INSERT, UPDATE, or DELETE statement is executed on `knowledge.duckdb` during its lifetime",
+      "validates": [
+        "06-REQ-2.1",
+        "06-REQ-2.2",
+        "06-REQ-3.1",
+        "06-REQ-4.1",
+        "06-REQ-4.2",
+        "06-REQ-7.2"
+      ]
+    },
+    {
+      "id": "06-PROP-2",
+      "title": "open_knowledge_store requires explicit read_only on every call",
+      "for_any": "invocation of `open_knowledge_store`",
+      "invariant": "`read_only` is always supplied as an explicit keyword argument; omitting it always raises TypeError before any I/O",
+      "validates": [
+        "06-REQ-1.1",
+        "06-REQ-1.3",
+        "06-REQ-10.1"
+      ]
+    },
+    {
+      "id": "06-PROP-3",
+      "title": "assemble_context performs zero writes",
+      "for_any": "invocation of `assemble_context`",
+      "invariant": "neither `_migrate_legacy_files` nor `index_errata_from_markdown` is called inside `assemble_context`, and the connection it receives is used exclusively for SELECT operations",
+      "validates": [
+        "06-REQ-5.1",
+        "06-REQ-6.1",
+        "06-REQ-7.1",
+        "06-REQ-7.2"
+      ]
+    },
+    {
+      "id": "06-PROP-4",
+      "title": "Idempotency of startup write operations",
+      "for_any": "invocation of `_migrate_legacy_files` or `index_errata_from_markdown` at orchestrator startup",
+      "invariant": "running either function multiple times with identical inputs produces no duplicate records and no errors in `knowledge.duckdb`",
+      "validates": [
+        "06-REQ-5.3",
+        "06-REQ-6.3"
+      ]
+    },
+    {
+      "id": "06-PROP-5",
+      "title": "af standup always uses read-only connection",
+      "for_any": "invocation of `af standup`",
+      "invariant": "`open_knowledge_store` is called with `read_only=True` and no write operation is performed on `knowledge.duckdb`",
+      "validates": [
+        "06-REQ-8.1",
+        "06-REQ-8.2"
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "06-PATH-1",
+      "title": "af code displays plan using read-only connection",
+      "steps": [
+        {
+          "actor": "Developer",
+          "action": "runs `af code` from the CLI"
+        },
+        {
+          "actor": "`af code`",
+          "action": "calls `open_knowledge_store` with `read_only=True`"
+        },
+        {
+          "actor": "`af code`",
+          "action": "executes `load_plan` and `compute_phases` via SELECT queries on `knowledge.duckdb`"
+        },
+        {
+          "actor": "`af code`",
+          "action": "displays the plan output to the developer's terminal and closes the read-only connection"
+        }
+      ]
+    },
+    {
+      "id": "06-PATH-2",
+      "title": "af plan --verify checks plan using read-only connection",
+      "steps": [
+        {
+          "actor": "Developer",
+          "action": "runs `af plan --verify` from the CLI"
+        },
+        {
+          "actor": "`af plan --verify`",
+          "action": "detects it is on the verify path and calls `open_knowledge_store` with `read_only=True`"
+        },
+        {
+          "actor": "`af plan --verify`",
+          "action": "executes SELECT queries to load the stored plan for comparison"
+        },
+        {
+          "actor": "`af plan --verify`",
+          "action": "prints the verification result and exits without writing to `knowledge.duckdb`"
+        }
+      ]
+    },
+    {
+      "id": "06-PATH-3",
+      "title": "Orchestrator startup migrates legacy files and indexes errata before sessions",
+      "steps": [
+        {
+          "actor": "Orchestrator",
+          "action": "starts the `nightshift` or engine runner process"
+        },
+        {
+          "actor": "Orchestrator startup sequence",
+          "action": "opens `knowledge.duckdb` with `read_only=False` and calls `_migrate_legacy_files` for every spec"
+        },
+        {
+          "actor": "Orchestrator startup sequence",
+          "action": "calls `index_errata_from_markdown` with the same read-write connection"
+        },
+        {
+          "actor": "Orchestrator startup sequence",
+          "action": "closes the write connection and begins dispatching sessions"
+        },
+        {
+          "actor": "Session",
+          "action": "calls `assemble_context` with a read-only connection and reads findings, verdicts, and errata without performing writes"
+        }
+      ]
+    },
+    {
+      "id": "06-PATH-4",
+      "title": "fix/analyzer queries active findings using read-only connection",
+      "steps": [
+        {
+          "actor": "Orchestrator or developer",
+          "action": "invokes `fix/analyzer.py` to analyze active findings"
+        },
+        {
+          "actor": "`fix/analyzer.py`",
+          "action": "calls `open_knowledge_store` with `read_only=True`"
+        },
+        {
+          "actor": "`fix/analyzer.py`",
+          "action": "executes `query_active_findings` via SELECT on `knowledge.duckdb`"
+        },
+        {
+          "actor": "`fix/analyzer.py`",
+          "action": "returns the findings result to the caller and closes the read-only connection"
+        }
+      ]
+    },
+    {
+      "id": "06-PATH-5",
+      "title": "af standup displays standup info using existing read-only connection",
+      "steps": [
+        {
+          "actor": "Developer",
+          "action": "runs `af standup` from the CLI"
+        },
+        {
+          "actor": "`af standup`",
+          "action": "calls `open_knowledge_store` with `read_only=True` (existing behavior)"
+        },
+        {
+          "actor": "`af standup`",
+          "action": "executes SELECT queries and returns standup output to the terminal"
+        }
+      ]
+    }
+  ],
+  "error_handling": [
+    {
+      "id": "06-ERR-1",
+      "condition": "`open_knowledge_store` is called without the `read_only` keyword argument",
+      "behavior": "Python raises TypeError immediately before any file I/O, with a message indicating `read_only` is a required keyword argument",
+      "requirement_id": "06-REQ-1.E1"
+    },
+    {
+      "id": "06-ERR-2",
+      "condition": "`knowledge.duckdb` does not exist when `af code` attempts to open it with `read_only=True`",
+      "behavior": "`af code` surfaces a clear error message to stderr and exits with a non-zero status code",
+      "requirement_id": "06-REQ-2.E1"
+    },
+    {
+      "id": "06-ERR-3",
+      "condition": "A write operation is attempted on the read-only connection opened by `af plan --verify`",
+      "behavior": "DuckDB raises a read-only exception; the command exits with a non-zero status code without corrupting `knowledge.duckdb`",
+      "requirement_id": "06-REQ-3.E1"
+    },
+    {
+      "id": "06-ERR-4",
+      "condition": "A write operation is attempted on the read-only connection opened by `fix/analyzer.py`",
+      "behavior": "The DuckDB read-only exception is propagated to the caller without being swallowed",
+      "requirement_id": "06-REQ-4.E1"
+    },
+    {
+      "id": "06-ERR-5",
+      "condition": "`_migrate_legacy_files` fails for one spec during orchestrator startup due to a missing or malformed legacy file",
+      "behavior": "Orchestrator logs the error with spec context and continues processing remaining specs",
+      "requirement_id": "06-REQ-5.E1"
+    },
+    {
+      "id": "06-ERR-6",
+      "condition": "`index_errata_from_markdown` fails during orchestrator startup due to malformed or missing errata markdown files",
+      "behavior": "Orchestrator logs the error and continues startup rather than blocking session dispatch",
+      "requirement_id": "06-REQ-6.E1"
+    },
+    {
+      "id": "06-ERR-7",
+      "condition": "A write operation is inadvertently re-introduced into `assemble_context` and the read-only connection rejects it",
+      "behavior": "DuckDB read-only exception is propagated immediately to the orchestrator session handler, surfacing the regression",
+      "requirement_id": "06-REQ-7.E1"
+    },
+    {
+      "id": "06-ERR-8",
+      "condition": "A future production caller omits `read_only` when calling `open_knowledge_store`",
+      "behavior": "Python raises TypeError at call time before any database I/O, indicating the missing required keyword argument",
+      "requirement_id": "06-REQ-10.E1"
+    }
+  ]
+}

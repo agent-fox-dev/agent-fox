@@ -1,0 +1,991 @@
+{
+  "$schema": null,
+  "spec_id": "06",
+  "spec_name": "duckdb_reader_writer_split",
+  "schema_version": 1,
+  "test_commands": {
+    "spec_tests": "pytest -q -k 'test_duckdb_reader_writer'",
+    "all_tests": "make check",
+    "linter": "ruff check packages/"
+  },
+  "dependencies": [],
+  "task_groups": [
+    {
+      "id": 1,
+      "kind": "tests",
+      "title": "Write spec tests for DuckDB reader/writer split",
+      "subtasks": [
+        {
+          "id": "1.1",
+          "title": "Write unit tests for open_knowledge_store required read_only parameter",
+          "details": [
+            "Create test file: packages/agentfox/tests/test_knowledge_store_api.py",
+            "TS-06-1: assert calling open_knowledge_store() with no args raises TypeError immediately, no file I/O",
+            "TS-06-2: assert KnowledgeDB can be instantiated without read_only (default retained)",
+            "TS-06-3: AST-walk all production call sites (code.py, plan.py, standup.py, findings.py, nightshift.py, engine/run.py, fix/analyzer.py, session/context.py) and assert every call includes read_only keyword arg",
+            "TS-06-E1 / TS-06-E8: assert TypeError message references 'read_only'"
+          ],
+          "test_spec_refs": [
+            "TS-06-1",
+            "TS-06-2",
+            "TS-06-3",
+            "TS-06-E1",
+            "TS-06-E8"
+          ],
+          "requirement_refs": [
+            "06-REQ-1.1",
+            "06-REQ-1.2",
+            "06-REQ-1.3",
+            "06-REQ-1.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.2",
+          "title": "Write unit tests for af code read-only connection",
+          "details": [
+            "Create test file: packages/af/tests/test_code_readonly.py",
+            "TS-06-4: mock open_knowledge_store, invoke af code main logic, assert mock called with read_only=True",
+            "TS-06-5: run af code against seeded in-memory DuckDB, snapshot row counts before/after, assert equal",
+            "TS-06-E2: patch DB path to nonexistent location, run af code, assert exit_code != 0 and stderr contains informative message"
+          ],
+          "test_spec_refs": [
+            "TS-06-4",
+            "TS-06-5",
+            "TS-06-E2"
+          ],
+          "requirement_refs": [
+            "06-REQ-2.1",
+            "06-REQ-2.2",
+            "06-REQ-2.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.3",
+          "title": "Write unit tests for af plan --verify read-only and save path read-write",
+          "details": [
+            "Create test file: packages/af/tests/test_plan_readonly.py",
+            "TS-06-6: mock open_knowledge_store, invoke verify path, assert called with read_only=True",
+            "TS-06-7: mock open_knowledge_store, invoke save path, assert called with read_only=False",
+            "TS-06-E3: open a real read-only DuckDB connection and attempt INSERT into plan_nodes, assert DuckDB read-only exception is raised and DB remains intact"
+          ],
+          "test_spec_refs": [
+            "TS-06-6",
+            "TS-06-7",
+            "TS-06-E3"
+          ],
+          "requirement_refs": [
+            "06-REQ-3.1",
+            "06-REQ-3.2",
+            "06-REQ-3.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.4",
+          "title": "Write unit tests for fix/analyzer.py read-only connection",
+          "details": [
+            "Create test file: packages/agentfox/tests/test_fix_analyzer_readonly.py",
+            "TS-06-8: mock open_knowledge_store, invoke analyzer entry point, assert called with read_only=True",
+            "TS-06-9: run analyzer against seeded in-memory DuckDB (read_only=True), snapshot before/after, assert unchanged",
+            "TS-06-E4: inject a write on the read-only connection used by analyzer, assert DuckDB exception propagates to caller"
+          ],
+          "test_spec_refs": [
+            "TS-06-8",
+            "TS-06-9",
+            "TS-06-E4"
+          ],
+          "requirement_refs": [
+            "06-REQ-4.1",
+            "06-REQ-4.2",
+            "06-REQ-4.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.5",
+          "title": "Write unit tests for assemble_context write extraction and orchestrator startup",
+          "details": [
+            "Create test file: packages/agentfox/tests/test_assemble_context_readonly.py",
+            "TS-06-10: patch _migrate_legacy_files, call assemble_context, assert call_count == 0",
+            "TS-06-11: patch _migrate_legacy_files, trigger orchestrator startup with 2 specs, assert call_count == 2 with rw conn, before session dispatch",
+            "TS-06-12: call _migrate_legacy_files twice with same args, assert record count identical after both calls",
+            "TS-06-13: patch index_errata_from_markdown, call assemble_context, assert call_count == 0",
+            "TS-06-14: patch index_errata_from_markdown, trigger orchestrator startup, assert called with rw conn before sessions",
+            "TS-06-15: call index_errata_from_markdown twice, assert errata count identical",
+            "TS-06-16: call assemble_context with seeded read-only conn, assert result is non-None with populated findings",
+            "TS-06-17: snapshot DB state before/after assemble_context, assert unchanged",
+            "TS-06-18: capture conn arg passed to assemble_context by orchestrator, assert conn.read_only == True",
+            "TS-06-E5: patch _migrate_legacy_files to raise for spec_a only, assert error logged and spec_b processed",
+            "TS-06-E6: patch index_errata_from_markdown to raise IOError, assert error logged, sessions still dispatched",
+            "TS-06-E7: call assemble_context_with_injected_write with read-only conn, assert DuckDBReadOnlyException propagates"
+          ],
+          "test_spec_refs": [
+            "TS-06-10",
+            "TS-06-11",
+            "TS-06-12",
+            "TS-06-13",
+            "TS-06-14",
+            "TS-06-15",
+            "TS-06-16",
+            "TS-06-17",
+            "TS-06-18",
+            "TS-06-E5",
+            "TS-06-E6",
+            "TS-06-E7"
+          ],
+          "requirement_refs": [
+            "06-REQ-5.1",
+            "06-REQ-5.2",
+            "06-REQ-5.3",
+            "06-REQ-6.1",
+            "06-REQ-6.2",
+            "06-REQ-6.3",
+            "06-REQ-7.1",
+            "06-REQ-7.2",
+            "06-REQ-7.3",
+            "06-REQ-7.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.6",
+          "title": "Write unit tests for af standup (regression), af findings read-write, and make check integration",
+          "details": [
+            "Create test file: packages/af/tests/test_standup_findings_readonly.py",
+            "TS-06-19: mock open_knowledge_store, invoke af standup, assert called with read_only=True",
+            "TS-06-20: run make check, assert exit code 0 (can be done as a CI gate check or subprocess call in integration test)",
+            "TS-06-21: mock open_knowledge_store, invoke af findings with and without --dismiss, assert called with read_only=False both times",
+            "TS-06-22: AST-walk all production modules for open_knowledge_store calls, assert each has read_only keyword arg (deduplicates TS-06-3 at module scope)",
+            "TS-06-23: marked integration test, run make check, assert exits 0"
+          ],
+          "test_spec_refs": [
+            "TS-06-19",
+            "TS-06-20",
+            "TS-06-21",
+            "TS-06-22",
+            "TS-06-23"
+          ],
+          "requirement_refs": [
+            "06-REQ-8.1",
+            "06-REQ-8.2",
+            "06-REQ-9.1",
+            "06-REQ-10.1",
+            "06-REQ-10.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "1.V",
+        "checks": [
+          "All new test files are syntactically valid Python: ruff check packages/",
+          "All new test files are collected by pytest without import errors: pytest --collect-only -q",
+          "All tests in the new test files fail with NotImplementedError or ImportError (expected at stub stage, not with unrelated errors)",
+          "No production code has been modified in this group — only test files added"
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "kind": "standard",
+      "title": "Make read_only parameter required on open_knowledge_store",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Remove default value from read_only parameter on open_knowledge_store",
+          "details": [
+            "Locate open_knowledge_store factory function (likely packages/agentfox/agentfox/knowledge/store.py or similar)",
+            "Change signature from open_knowledge_store(..., read_only=False) to open_knowledge_store(..., read_only) with no default",
+            "Ensure KnowledgeDB class signature is NOT changed — it retains its read_only default",
+            "Add a clear docstring comment: 'read_only is required: pass True for concurrent reads, False for writes'"
+          ],
+          "test_spec_refs": [
+            "TS-06-1",
+            "TS-06-E1",
+            "TS-06-E8"
+          ],
+          "requirement_refs": [
+            "06-REQ-1.1",
+            "06-REQ-1.E1",
+            "06-REQ-10.1",
+            "06-REQ-10.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.2",
+          "title": "Update all production callers of open_knowledge_store to pass explicit read_only",
+          "details": [
+            "af/nightshift.py: add read_only=False (orchestrator holds write lock)",
+            "agentfox/engine/run.py: add read_only=False (orchestrator holds write lock)",
+            "af/plan.py save path (lines ~248, ~297): add read_only=False",
+            "af/reset.py: add read_only=False (performs UPDATE plan_nodes)",
+            "af/findings.py: add read_only=False (dismiss needs writes — see REQ-9)",
+            "af/standup.py: confirm read_only=True already present (no change needed, or add if missing)",
+            "Audit for any other production callers by grepping: grep -r 'open_knowledge_store' packages/ --include='*.py'"
+          ],
+          "test_spec_refs": [
+            "TS-06-3",
+            "TS-06-22"
+          ],
+          "requirement_refs": [
+            "06-REQ-1.3",
+            "06-REQ-10.1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "2.V",
+        "checks": [
+          "TS-06-1 passes: pytest -q -k 'test_open_knowledge_store_requires_read_only'",
+          "TS-06-E1 passes: TypeError raised when read_only omitted",
+          "TS-06-3 / TS-06-22 pass: AST scan finds no call site missing read_only kwarg",
+          "06-REQ-1.1 met: open_knowledge_store signature has no default for read_only",
+          "06-REQ-1.2 met: KnowledgeDB still instantiates without read_only in tests",
+          "All existing tests still pass: make check",
+          "No linter warnings introduced: ruff check packages/"
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "kind": "standard",
+      "title": "Switch af code and af plan --verify to read-only connections",
+      "subtasks": [
+        {
+          "id": "3.1",
+          "title": "Switch af code to open_knowledge_store with read_only=True",
+          "details": [
+            "Open packages/af/af/code.py",
+            "Find the call to open_knowledge_store (currently read-write) in the main code path",
+            "Change to open_knowledge_store(..., read_only=True)",
+            "Verify no INSERT/UPDATE/DELETE calls exist in code.py — it only calls load_plan and compute_phases",
+            "Add error handling: catch FileNotFoundError or DuckDB OperationalError when DB path does not exist, print message to stderr, sys.exit(1)"
+          ],
+          "test_spec_refs": [
+            "TS-06-4",
+            "TS-06-5",
+            "TS-06-E2",
+            "TS-06-SMOKE-1"
+          ],
+          "requirement_refs": [
+            "06-REQ-2.1",
+            "06-REQ-2.2",
+            "06-REQ-2.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.2",
+          "title": "Switch af plan --verify path to open_knowledge_store with read_only=True",
+          "details": [
+            "Open packages/af/af/plan.py",
+            "Locate the verify path (approximately line 56) where open_knowledge_store is called for plan comparison",
+            "Change that specific call to open_knowledge_store(..., read_only=True)",
+            "Leave the save path calls (lines ~248, ~297) as read_only=False — these perform DELETE + INSERT into plan_nodes, plan_edges, plan_meta",
+            "Confirm the verify and save paths are mutually exclusive code branches (conditional on --verify flag)"
+          ],
+          "test_spec_refs": [
+            "TS-06-6",
+            "TS-06-7",
+            "TS-06-E3",
+            "TS-06-SMOKE-2"
+          ],
+          "requirement_refs": [
+            "06-REQ-3.1",
+            "06-REQ-3.2",
+            "06-REQ-3.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.3",
+          "title": "Confirm af standup retains read_only=True (no-change verification)",
+          "details": [
+            "Open packages/af/af/standup.py",
+            "Confirm the call to open_knowledge_store already passes read_only=True",
+            "If missing (unlikely per PRD), add read_only=True",
+            "Document in a code comment: '# read_only=True: standup is read-only; see spec 06-REQ-8'"
+          ],
+          "test_spec_refs": [
+            "TS-06-19",
+            "TS-06-20",
+            "TS-06-SMOKE-5"
+          ],
+          "requirement_refs": [
+            "06-REQ-8.1",
+            "06-REQ-8.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "3.V",
+        "checks": [
+          "TS-06-4 passes: af code calls open_knowledge_store with read_only=True",
+          "TS-06-5 passes: af code produces no DB mutations",
+          "TS-06-E2 passes: af code exits non-zero when DB missing",
+          "TS-06-6 passes: af plan --verify calls open_knowledge_store with read_only=True",
+          "TS-06-7 passes: af plan save path calls open_knowledge_store with read_only=False",
+          "TS-06-19 passes: af standup calls open_knowledge_store with read_only=True",
+          "06-REQ-2.1, 06-REQ-3.1, 06-REQ-8.1 acceptance criteria met",
+          "All existing tests still pass: make check",
+          "No linter warnings: ruff check packages/"
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "kind": "standard",
+      "title": "Switch fix/analyzer.py to read-only connection",
+      "subtasks": [
+        {
+          "id": "4.1",
+          "title": "Change fix/analyzer.py to call open_knowledge_store with read_only=True",
+          "details": [
+            "Open packages/agentfox/agentfox/fix/analyzer.py",
+            "Find the call to open_knowledge_store (currently read-write)",
+            "Change to open_knowledge_store(..., read_only=True)",
+            "Verify query_active_findings only uses SELECT statements — no INSERT/UPDATE/DELETE",
+            "Ensure DuckDB read-only exceptions are NOT caught within the analyzer — they must propagate to the caller per 06-REQ-4.E1"
+          ],
+          "test_spec_refs": [
+            "TS-06-8",
+            "TS-06-9",
+            "TS-06-E4",
+            "TS-06-SMOKE-4"
+          ],
+          "requirement_refs": [
+            "06-REQ-4.1",
+            "06-REQ-4.2",
+            "06-REQ-4.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.2",
+          "title": "Audit fix/analyzer.py for any hidden write operations",
+          "details": [
+            "Grep fix/analyzer.py for INSERT, UPDATE, DELETE, .execute( patterns",
+            "Review query_active_findings and all helper functions it calls",
+            "Confirm zero write operations — document finding in a code comment if non-obvious",
+            "If any writes exist, raise with the team before proceeding (out of scope per PRD)"
+          ],
+          "test_spec_refs": [
+            "TS-06-9"
+          ],
+          "requirement_refs": [
+            "06-REQ-4.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "4.V",
+        "checks": [
+          "TS-06-8 passes: fix/analyzer.py calls open_knowledge_store with read_only=True",
+          "TS-06-9 passes: DB state unchanged after analyzer run",
+          "TS-06-E4 passes: DuckDB read-only exception propagates from analyzer",
+          "06-REQ-4.1, 06-REQ-4.2 acceptance criteria met",
+          "All existing tests still pass: make check",
+          "No linter warnings: ruff check packages/agentfox/agentfox/fix/"
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "kind": "standard",
+      "title": "Extract _migrate_legacy_files and index_errata_from_markdown from assemble_context",
+      "subtasks": [
+        {
+          "id": "5.1",
+          "title": "Remove _migrate_legacy_files call from assemble_context",
+          "details": [
+            "Open packages/agentfox/agentfox/session/context.py",
+            "Locate the call to _migrate_legacy_files(conn, spec_dir, spec_name) inside assemble_context",
+            "Remove the call (do NOT remove the function definition — it will be called from orchestrator startup)",
+            "Confirm assemble_context still receives conn and spec_dir/spec_name parameters if needed for remaining logic",
+            "Run tests after removal to identify any secondary failures"
+          ],
+          "test_spec_refs": [
+            "TS-06-10",
+            "TS-06-P3"
+          ],
+          "requirement_refs": [
+            "06-REQ-5.1",
+            "06-REQ-7.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.2",
+          "title": "Remove index_errata_from_markdown call from assemble_context",
+          "details": [
+            "In packages/agentfox/agentfox/session/context.py, locate the call to index_errata_from_markdown(conn, project_root) inside assemble_context",
+            "Remove the call (do NOT remove the function definition)",
+            "Confirm no other writes remain in assemble_context after both extractions",
+            "Add a docstring note to assemble_context: 'conn must be a read-only connection; writes are performed at orchestrator startup'"
+          ],
+          "test_spec_refs": [
+            "TS-06-13",
+            "TS-06-P3"
+          ],
+          "requirement_refs": [
+            "06-REQ-6.1",
+            "06-REQ-7.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.3",
+          "title": "Add _migrate_legacy_files and index_errata_from_markdown calls to orchestrator startup sequence",
+          "details": [
+            "Open af/nightshift.py and agentfox/engine/run.py (both orchestrator entry points)",
+            "In the startup sequence (before any sessions are dispatched), open a read-write connection",
+            "For each spec the orchestrator will process: call _migrate_legacy_files(rw_conn, spec_dir, spec_name) inside a try/except block — log error with spec context and continue on failure (06-REQ-5.E1)",
+            "After per-spec migration: call index_errata_from_markdown(rw_conn, project_root) inside a try/except block — log error and continue on failure (06-REQ-6.E1)",
+            "Close the read-write connection before dispatching sessions",
+            "Import _migrate_legacy_files and index_errata_from_markdown at the top of the orchestrator module"
+          ],
+          "test_spec_refs": [
+            "TS-06-11",
+            "TS-06-14",
+            "TS-06-E5",
+            "TS-06-E6",
+            "TS-06-SMOKE-3"
+          ],
+          "requirement_refs": [
+            "06-REQ-5.2",
+            "06-REQ-6.2",
+            "06-REQ-5.E1",
+            "06-REQ-6.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.4",
+          "title": "Update orchestrator to pass read-only connection to assemble_context",
+          "details": [
+            "In af/nightshift.py and agentfox/engine/run.py, locate where assemble_context is called (directly or via session dispatch)",
+            "Ensure the conn passed to assemble_context is opened with read_only=True (open a separate read-only connection for session use)",
+            "Confirm the read-write startup connection is NOT reused for assemble_context calls",
+            "Add inline comment: '# read-only conn for session context assembly; writes done at startup'"
+          ],
+          "test_spec_refs": [
+            "TS-06-16",
+            "TS-06-17",
+            "TS-06-18"
+          ],
+          "requirement_refs": [
+            "06-REQ-7.1",
+            "06-REQ-7.3"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "5.V",
+        "checks": [
+          "TS-06-10 passes: _migrate_legacy_files call count in assemble_context == 0",
+          "TS-06-13 passes: index_errata_from_markdown call count in assemble_context == 0",
+          "TS-06-11 passes: orchestrator startup calls _migrate_legacy_files once per spec with rw conn",
+          "TS-06-14 passes: orchestrator startup calls index_errata_from_markdown with rw conn before sessions",
+          "TS-06-17 passes: assemble_context produces no DB mutations",
+          "TS-06-18 passes: orchestrator passes read_only=True conn to assemble_context",
+          "TS-06-E5 passes: _migrate_legacy_files failure for one spec does not abort startup",
+          "TS-06-E6 passes: index_errata_from_markdown failure does not block session dispatch",
+          "06-REQ-5.1, 06-REQ-5.2, 06-REQ-6.1, 06-REQ-6.2, 06-REQ-7.1, 06-REQ-7.2, 06-REQ-7.3 acceptance criteria met",
+          "All existing tests still pass: make check",
+          "No linter warnings: ruff check packages/"
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "kind": "standard",
+      "title": "Verify idempotency of startup write operations",
+      "subtasks": [
+        {
+          "id": "6.1",
+          "title": "Verify and document _migrate_legacy_files idempotency",
+          "details": [
+            "Run TS-06-12: call _migrate_legacy_files twice with identical (conn, spec_dir, spec_name), assert record counts are equal after both calls",
+            "Inspect _migrate_legacy_files implementation to confirm it checks for existing DB records before inserting (e.g. uses INSERT OR IGNORE or checks existence first)",
+            "If not idempotent, add the necessary guard: check whether records for spec_name already exist before inserting",
+            "Document idempotency guarantee in the function docstring"
+          ],
+          "test_spec_refs": [
+            "TS-06-12",
+            "TS-06-P4"
+          ],
+          "requirement_refs": [
+            "06-REQ-5.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.2",
+          "title": "Verify and document index_errata_from_markdown idempotency",
+          "details": [
+            "Run TS-06-15: call index_errata_from_markdown twice with identical (conn, project_root), assert errata record counts are equal",
+            "Inspect index_errata_from_markdown implementation for idempotency guards (INSERT OR IGNORE, UPSERT, or existence checks)",
+            "If not idempotent, add the necessary guard before inserting errata records",
+            "Document idempotency guarantee in the function docstring"
+          ],
+          "test_spec_refs": [
+            "TS-06-15",
+            "TS-06-P4"
+          ],
+          "requirement_refs": [
+            "06-REQ-6.3"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "6.V",
+        "checks": [
+          "TS-06-12 passes: _migrate_legacy_files is idempotent (same record count after 2 calls)",
+          "TS-06-15 passes: index_errata_from_markdown is idempotent (same errata count after 2 calls)",
+          "TS-06-P4 property test passes for arbitrary N repetitions",
+          "06-REQ-5.3 and 06-REQ-6.3 acceptance criteria met",
+          "All existing tests still pass: make check"
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "kind": "checkpoint",
+      "title": "Checkpoint: all unit tests pass and make check is green",
+      "subtasks": [
+        {
+          "id": "7.1",
+          "title": "Run full test suite and confirm make check exits 0",
+          "details": [
+            "Run: make check from project root",
+            "Confirm exit code 0",
+            "Capture and review output for any unexpected skips or warnings",
+            "If any test fails, fix the root cause before proceeding to wiring verification"
+          ],
+          "test_spec_refs": [
+            "TS-06-20",
+            "TS-06-23"
+          ],
+          "requirement_refs": [
+            "06-REQ-10.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.2",
+          "title": "Run property tests and edge case tests",
+          "details": [
+            "Run: pytest -q -k 'property or edge_case' packages/",
+            "Verify all property tests (TS-06-P1 through TS-06-P5) pass",
+            "Verify all edge case tests (TS-06-E1 through TS-06-E8) pass",
+            "Address any flaky tests before the wiring verification group"
+          ],
+          "test_spec_refs": [
+            "TS-06-P1",
+            "TS-06-P2",
+            "TS-06-P3",
+            "TS-06-P4",
+            "TS-06-P5",
+            "TS-06-E1",
+            "TS-06-E2",
+            "TS-06-E3",
+            "TS-06-E4",
+            "TS-06-E5",
+            "TS-06-E6",
+            "TS-06-E7",
+            "TS-06-E8"
+          ],
+          "requirement_refs": [
+            "06-REQ-1.1",
+            "06-REQ-2.2",
+            "06-REQ-4.2",
+            "06-REQ-7.2",
+            "06-REQ-8.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.3",
+          "title": "Confirm af findings retains read_only=False",
+          "details": [
+            "Run TS-06-21: af findings (with and without --dismiss) calls open_knowledge_store with read_only=False",
+            "Confirm af/findings.py was not accidentally switched to read_only=True during other changes",
+            "Grep: grep 'open_knowledge_store' packages/af/af/findings.py — should show read_only=False"
+          ],
+          "test_spec_refs": [
+            "TS-06-21"
+          ],
+          "requirement_refs": [
+            "06-REQ-9.1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "7.V",
+        "checks": [
+          "make check exits with status 0",
+          "pytest -q reports 0 failures, 0 errors",
+          "TS-06-21 passes: af findings uses read_only=False",
+          "All property tests TS-06-P1 through TS-06-P5 pass",
+          "All edge case tests TS-06-E1 through TS-06-E8 pass",
+          "06-REQ-10.2 acceptance criteria met: make check green"
+        ]
+      }
+    },
+    {
+      "id": 8,
+      "kind": "wiring_verification",
+      "title": "Wiring verification: end-to-end integration and stub audit",
+      "subtasks": [
+        {
+          "id": "8.1",
+          "title": "Trace execution paths and verify entry point chains have no stubs",
+          "details": [
+            "PATH-1 (af code): verify af code → open_knowledge_store(read_only=True) → load_plan → compute_phases chain is fully wired with no pass/raise NotImplementedError stubs",
+            "PATH-2 (af plan --verify): verify --verify flag → open_knowledge_store(read_only=True) → SELECT plan load chain is wired",
+            "PATH-3 (orchestrator startup): verify startup → _migrate_legacy_files (rw) → index_errata_from_markdown (rw) → close rw conn → dispatch sessions → assemble_context(read_only conn) chain is wired",
+            "PATH-4 (fix/analyzer): verify invocation → open_knowledge_store(read_only=True) → query_active_findings → return to caller is wired",
+            "PATH-5 (af standup): verify af standup → open_knowledge_store(read_only=True) → SELECT queries is wired"
+          ],
+          "test_spec_refs": [
+            "TS-06-SMOKE-1",
+            "TS-06-SMOKE-2",
+            "TS-06-SMOKE-3",
+            "TS-06-SMOKE-4",
+            "TS-06-SMOKE-5"
+          ],
+          "requirement_refs": [
+            "06-REQ-2.1",
+            "06-REQ-3.1",
+            "06-REQ-4.1",
+            "06-REQ-7.3",
+            "06-REQ-8.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.2",
+          "title": "Verify return value propagation across the reader/writer split",
+          "details": [
+            "Confirm open_knowledge_store(read_only=True) return value (connection object) is used by load_plan and compute_phases in af code",
+            "Confirm query_active_findings return value (findings list) is propagated to the caller of fix/analyzer.py",
+            "Confirm assemble_context return value (context object) is used by orchestrator session dispatch",
+            "Confirm _migrate_legacy_files and index_errata_from_markdown results (or lack thereof) are handled in orchestrator startup error handlers"
+          ],
+          "test_spec_refs": [
+            "TS-06-16",
+            "TS-06-SMOKE-4"
+          ],
+          "requirement_refs": [
+            "06-REQ-2.1",
+            "06-REQ-4.1",
+            "06-REQ-7.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.3",
+          "title": "Run all smoke tests with real components",
+          "details": [
+            "TS-06-SMOKE-1: run af code against populated knowledge.duckdb, verify read_only=True, no DB mutations, exit 0",
+            "TS-06-SMOKE-2: run af plan --verify against populated knowledge.duckdb, verify read_only=True on verify path, no mutations, exit 0",
+            "TS-06-SMOKE-3: run orchestrator startup with real _migrate_legacy_files and index_errata_from_markdown, verify rw conn at startup then ro conn for assemble_context",
+            "TS-06-SMOKE-4: invoke fix/analyzer.py against populated knowledge.duckdb, verify read_only=True, findings returned, no mutations",
+            "TS-06-SMOKE-5: run af standup against populated knowledge.duckdb, verify read_only=True, standup output written, no mutations"
+          ],
+          "test_spec_refs": [
+            "TS-06-SMOKE-1",
+            "TS-06-SMOKE-2",
+            "TS-06-SMOKE-3",
+            "TS-06-SMOKE-4",
+            "TS-06-SMOKE-5"
+          ],
+          "requirement_refs": [
+            "06-REQ-2.1",
+            "06-REQ-3.1",
+            "06-REQ-4.1",
+            "06-REQ-5.2",
+            "06-REQ-6.2",
+            "06-REQ-7.3",
+            "06-REQ-8.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.4",
+          "title": "Stub and dead-code audit across all modified files",
+          "details": [
+            "Search for raise NotImplementedError in all modified files: grep -r 'raise NotImplementedError' packages/af/ packages/agentfox/",
+            "Search for bare pass statements in non-abstract modified methods: grep -n '^    pass$' packages/af/af/code.py packages/af/af/plan.py packages/agentfox/agentfox/fix/analyzer.py packages/agentfox/agentfox/session/context.py",
+            "Search for TODO comments introduced in this spec's changes: grep -r 'TODO.*06\\|TODO.*read.only\\|TODO.*migrate\\|TODO.*errata' packages/",
+            "Confirm _migrate_legacy_files and index_errata_from_markdown are fully implemented (not stubbed) in their new orchestrator startup location",
+            "Confirm open_knowledge_store is fully implemented with no default for read_only (no # type: ignore hacks)"
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [
+            "06-REQ-1.1",
+            "06-REQ-5.1",
+            "06-REQ-6.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.5",
+          "title": "Final make check and linter clean run",
+          "details": [
+            "Run: make check from project root — must exit 0",
+            "Run: ruff check packages/ — must report 0 warnings",
+            "Run: pytest -q packages/ — must report 0 failures, 0 errors",
+            "Confirm no regression in pre-existing tests (all tests that passed before this spec still pass)",
+            "Record the final test count delta (new tests added by this spec) in PR description"
+          ],
+          "test_spec_refs": [
+            "TS-06-23"
+          ],
+          "requirement_refs": [
+            "06-REQ-10.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "8.V",
+        "checks": [
+          "All 5 smoke tests pass with real components: TS-06-SMOKE-1 through TS-06-SMOKE-5",
+          "No raise NotImplementedError or bare pass stubs remain in modified production files",
+          "No TODO comments related to this spec remain in production code",
+          "All execution paths (06-PATH-1 through 06-PATH-5) are fully wired — each function in the chain is called by the previous with correct arguments",
+          "Return values are propagated: open_knowledge_store conn used by callers, query_active_findings result returned to analyzer caller, assemble_context result used by orchestrator",
+          "make check exits with status 0",
+          "ruff check packages/ reports 0 warnings",
+          "pytest -q reports 0 failures, 0 errors",
+          "06-REQ-1.1 through 06-REQ-10.2 all acceptance criteria met as confirmed by passing test suite"
+        ]
+      }
+    }
+  ],
+  "traceability": [
+    {
+      "requirement_id": "06-REQ-1.1",
+      "test_spec_id": "TS-06-1",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-1.2",
+      "test_spec_id": "TS-06-2",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-1.3",
+      "test_spec_id": "TS-06-3",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-1.E1",
+      "test_spec_id": "TS-06-E1",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-2.1",
+      "test_spec_id": "TS-06-4",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-2.2",
+      "test_spec_id": "TS-06-5",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-2.E1",
+      "test_spec_id": "TS-06-E2",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-3.1",
+      "test_spec_id": "TS-06-6",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-3.2",
+      "test_spec_id": "TS-06-7",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-3.E1",
+      "test_spec_id": "TS-06-E3",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-4.1",
+      "test_spec_id": "TS-06-8",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-4.2",
+      "test_spec_id": "TS-06-9",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-4.E1",
+      "test_spec_id": "TS-06-E4",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-5.1",
+      "test_spec_id": "TS-06-10",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-5.2",
+      "test_spec_id": "TS-06-11",
+      "task_id": "5.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-5.3",
+      "test_spec_id": "TS-06-12",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-5.E1",
+      "test_spec_id": "TS-06-E5",
+      "task_id": "5.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-6.1",
+      "test_spec_id": "TS-06-13",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-6.2",
+      "test_spec_id": "TS-06-14",
+      "task_id": "5.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-6.3",
+      "test_spec_id": "TS-06-15",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-6.E1",
+      "test_spec_id": "TS-06-E6",
+      "task_id": "5.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-7.1",
+      "test_spec_id": "TS-06-16",
+      "task_id": "5.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-7.2",
+      "test_spec_id": "TS-06-17",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-7.3",
+      "test_spec_id": "TS-06-18",
+      "task_id": "5.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-7.E1",
+      "test_spec_id": "TS-06-E7",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-8.1",
+      "test_spec_id": "TS-06-19",
+      "task_id": "3.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-8.2",
+      "test_spec_id": "TS-06-20",
+      "task_id": "3.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-9.1",
+      "test_spec_id": "TS-06-21",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-10.1",
+      "test_spec_id": "TS-06-22",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-10.2",
+      "test_spec_id": "TS-06-23",
+      "task_id": "8.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "06-REQ-10.E1",
+      "test_spec_id": "TS-06-E8",
+      "task_id": "2.1",
+      "test_path": null
+    }
+  ]
+}

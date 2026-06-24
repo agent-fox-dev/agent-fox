@@ -1,0 +1,612 @@
+{
+  "$schema": null,
+  "spec_id": "06",
+  "spec_name": "duckdb_reader_writer_split",
+  "schema_version": 1,
+  "test_cases": [
+    {
+      "id": "TS-06-1",
+      "requirement_id": "06-REQ-1.1",
+      "kind": "unit",
+      "description": "Verifies that calling open_knowledge_store without the read_only keyword argument raises TypeError before any file I/O occurs.",
+      "preconditions": [
+        "open_knowledge_store is importable from the knowledge store module",
+        "The read_only parameter has no default value in the function signature"
+      ],
+      "input": "open_knowledge_store() called with no arguments",
+      "expected": "TypeError is raised immediately with a message indicating read_only is a required keyword argument; no database file is opened or created",
+      "assertion_pseudocode": "assert raises(TypeError, open_knowledge_store)"
+    },
+    {
+      "id": "TS-06-2",
+      "requirement_id": "06-REQ-1.2",
+      "kind": "unit",
+      "description": "Verifies that KnowledgeDB retains its existing read_only default value so internal and test usage remains unaffected.",
+      "preconditions": [
+        "KnowledgeDB class is importable",
+        "A test DuckDB file path is available or an in-memory DB path is used"
+      ],
+      "input": "KnowledgeDB instantiated without passing read_only",
+      "expected": "KnowledgeDB instantiates successfully without raising TypeError, using its default read_only value",
+      "assertion_pseudocode": "db = KnowledgeDB(path=TEST_DB_PATH); assert db is not None"
+    },
+    {
+      "id": "TS-06-3",
+      "requirement_id": "06-REQ-1.3",
+      "kind": "unit",
+      "description": "Verifies that every production caller of open_knowledge_store passes an explicit read_only keyword argument.",
+      "preconditions": [
+        "Source files for all production modules are accessible",
+        "A static analysis or AST inspection tool is available"
+      ],
+      "input": "Inspect all call sites of open_knowledge_store in production modules: af/code.py, af/plan.py, af/standup.py, af/findings.py, af/nightshift.py, agentfox/engine/run.py, agentfox/fix/analyzer.py, agentfox/session/context.py",
+      "expected": "Every call to open_knowledge_store includes read_only=True or read_only=False as an explicit keyword argument; no call omits read_only",
+      "assertion_pseudocode": "for each call_site in ast_find_calls('open_knowledge_store', production_modules): assert 'read_only' in call_site.keyword_args"
+    },
+    {
+      "id": "TS-06-4",
+      "requirement_id": "06-REQ-2.1",
+      "kind": "unit",
+      "description": "Verifies that af code calls open_knowledge_store with read_only=True before executing load_plan and compute_phases.",
+      "preconditions": [
+        "af/code.py is importable",
+        "open_knowledge_store is mockable/patchable",
+        "knowledge.duckdb exists at the expected path or is mocked"
+      ],
+      "input": "Invoke the main logic of af code with open_knowledge_store mocked",
+      "expected": "The mock for open_knowledge_store is called exactly once with read_only=True; load_plan and compute_phases are called after the store is opened",
+      "assertion_pseudocode": "with mock(open_knowledge_store) as m: run_af_code(); assert m.called_with(read_only=True)"
+    },
+    {
+      "id": "TS-06-5",
+      "requirement_id": "06-REQ-2.2",
+      "kind": "unit",
+      "description": "Verifies that af code performs no INSERT, UPDATE, or DELETE operations against knowledge.duckdb.",
+      "preconditions": [
+        "af/code.py is importable",
+        "A real or in-memory DuckDB instance is seeded with plan data",
+        "The DB is opened with read_only=True"
+      ],
+      "input": "Run af code against a test DuckDB with plan data present",
+      "expected": "No INSERT, UPDATE, or DELETE SQL statements are executed on knowledge.duckdb; the database state is identical before and after the call",
+      "assertion_pseudocode": "db_state_before = snapshot(test_db); run_af_code(db=read_only_conn); db_state_after = snapshot(test_db); assert db_state_before == db_state_after"
+    },
+    {
+      "id": "TS-06-6",
+      "requirement_id": "06-REQ-3.1",
+      "kind": "unit",
+      "description": "Verifies that af plan --verify calls open_knowledge_store with read_only=True on the verify path.",
+      "preconditions": [
+        "af/plan.py is importable",
+        "open_knowledge_store is mockable",
+        "The verify code path (line ~56 in af/plan.py) is exercised"
+      ],
+      "input": "Invoke af plan with --verify flag, mocking open_knowledge_store",
+      "expected": "open_knowledge_store is called with read_only=True on the verify path; no write operations are performed",
+      "assertion_pseudocode": "with mock(open_knowledge_store) as m: run_af_plan(verify=True); assert m.called_with(read_only=True)"
+    },
+    {
+      "id": "TS-06-7",
+      "requirement_id": "06-REQ-3.2",
+      "kind": "unit",
+      "description": "Verifies that af plan on the save path calls open_knowledge_store with read_only=False to permit writes.",
+      "preconditions": [
+        "af/plan.py is importable",
+        "open_knowledge_store is mockable",
+        "The save code path (lines ~248, ~297 in af/plan.py) is exercised"
+      ],
+      "input": "Invoke af plan on the save path (without --verify), mocking open_knowledge_store",
+      "expected": "open_knowledge_store is called with read_only=False on the save path",
+      "assertion_pseudocode": "with mock(open_knowledge_store) as m: run_af_plan(verify=False); assert m.called_with(read_only=False)"
+    },
+    {
+      "id": "TS-06-8",
+      "requirement_id": "06-REQ-4.1",
+      "kind": "unit",
+      "description": "Verifies that fix/analyzer.py calls open_knowledge_store with read_only=True before executing query_active_findings.",
+      "preconditions": [
+        "agentfox/fix/analyzer.py is importable",
+        "open_knowledge_store is mockable",
+        "query_active_findings is mockable"
+      ],
+      "input": "Invoke the analyzer's main entry point with open_knowledge_store mocked",
+      "expected": "open_knowledge_store is called with read_only=True; query_active_findings is called afterwards on the returned connection",
+      "assertion_pseudocode": "with mock(open_knowledge_store) as m: run_analyzer(); assert m.called_with(read_only=True)"
+    },
+    {
+      "id": "TS-06-9",
+      "requirement_id": "06-REQ-4.2",
+      "kind": "unit",
+      "description": "Verifies that fix/analyzer.py performs no INSERT, UPDATE, or DELETE operations on knowledge.duckdb.",
+      "preconditions": [
+        "agentfox/fix/analyzer.py is importable",
+        "A test DuckDB instance is seeded with active findings data",
+        "Connection is opened with read_only=True"
+      ],
+      "input": "Run the analyzer against a test DuckDB with active findings present",
+      "expected": "No INSERT, UPDATE, or DELETE SQL statements are executed; the database state is unchanged after the call",
+      "assertion_pseudocode": "db_state_before = snapshot(test_db); run_analyzer(db=read_only_conn); db_state_after = snapshot(test_db); assert db_state_before == db_state_after"
+    },
+    {
+      "id": "TS-06-10",
+      "requirement_id": "06-REQ-5.1",
+      "kind": "unit",
+      "description": "Verifies that assemble_context no longer calls _migrate_legacy_files under any circumstances.",
+      "preconditions": [
+        "agentfox/session/context.py is importable",
+        "_migrate_legacy_files is mockable/patchable",
+        "A read-only connection to a test DuckDB is available"
+      ],
+      "input": "Call assemble_context with a read-only connection and all required parameters",
+      "expected": "_migrate_legacy_files is never called during the execution of assemble_context",
+      "assertion_pseudocode": "with mock(_migrate_legacy_files) as m: assemble_context(conn=read_only_conn, ...); assert m.call_count == 0"
+    },
+    {
+      "id": "TS-06-11",
+      "requirement_id": "06-REQ-5.2",
+      "kind": "unit",
+      "description": "Verifies that the orchestrator startup sequence calls _migrate_legacy_files with a read-write connection for every spec before dispatching sessions.",
+      "preconditions": [
+        "The orchestrator startup module (af/nightshift.py or agentfox/engine/run.py) is importable",
+        "_migrate_legacy_files is mockable",
+        "A list of specs is configured for the orchestrator"
+      ],
+      "input": "Trigger orchestrator startup with two configured specs, mocking _migrate_legacy_files",
+      "expected": "_migrate_legacy_files is called once per spec with a read-write connection before any sessions are dispatched",
+      "assertion_pseudocode": "with mock(_migrate_legacy_files) as m: run_orchestrator_startup(specs=[spec_a, spec_b]); assert m.call_count == 2; assert all calls used read_write_conn"
+    },
+    {
+      "id": "TS-06-12",
+      "requirement_id": "06-REQ-5.3",
+      "kind": "unit",
+      "description": "Verifies that _migrate_legacy_files is idempotent — running it twice with the same spec_dir and spec_name produces no duplicates and no errors.",
+      "preconditions": [
+        "_migrate_legacy_files is importable",
+        "A test DuckDB is set up with no existing records for the target spec",
+        "Legacy review.md and verification.md files exist in spec_dir"
+      ],
+      "input": "Call _migrate_legacy_files(conn, spec_dir, spec_name) twice with identical arguments",
+      "expected": "Both calls succeed without error; the DB contains exactly the same number of records after the second call as after the first call",
+      "assertion_pseudocode": "_migrate_legacy_files(conn, spec_dir, spec_name); count_after_first = count_records(conn, spec_name); _migrate_legacy_files(conn, spec_dir, spec_name); count_after_second = count_records(conn, spec_name); assert count_after_first == count_after_second"
+    },
+    {
+      "id": "TS-06-13",
+      "requirement_id": "06-REQ-6.1",
+      "kind": "unit",
+      "description": "Verifies that assemble_context no longer calls index_errata_from_markdown under any circumstances.",
+      "preconditions": [
+        "agentfox/session/context.py is importable",
+        "index_errata_from_markdown is mockable/patchable",
+        "A read-only connection to a test DuckDB is available"
+      ],
+      "input": "Call assemble_context with a read-only connection and all required parameters",
+      "expected": "index_errata_from_markdown is never called during the execution of assemble_context",
+      "assertion_pseudocode": "with mock(index_errata_from_markdown) as m: assemble_context(conn=read_only_conn, ...); assert m.call_count == 0"
+    },
+    {
+      "id": "TS-06-14",
+      "requirement_id": "06-REQ-6.2",
+      "kind": "unit",
+      "description": "Verifies that the orchestrator startup sequence calls index_errata_from_markdown with a read-write connection before dispatching any sessions.",
+      "preconditions": [
+        "The orchestrator startup module is importable",
+        "index_errata_from_markdown is mockable",
+        "project_root is configured"
+      ],
+      "input": "Trigger orchestrator startup, mocking index_errata_from_markdown",
+      "expected": "index_errata_from_markdown is called at least once with a read-write connection before any sessions are dispatched",
+      "assertion_pseudocode": "with mock(index_errata_from_markdown) as m: run_orchestrator_startup(); assert m.call_count >= 1; assert called before any session dispatch"
+    },
+    {
+      "id": "TS-06-15",
+      "requirement_id": "06-REQ-6.3",
+      "kind": "unit",
+      "description": "Verifies that index_errata_from_markdown is idempotent — re-indexing the same errata markdown files produces no duplicate records and no errors.",
+      "preconditions": [
+        "index_errata_from_markdown is importable",
+        "A test DuckDB is available with no pre-existing errata records",
+        "Errata markdown files exist at project_root"
+      ],
+      "input": "Call index_errata_from_markdown(conn, project_root) twice with identical arguments",
+      "expected": "Both calls succeed without error; the errata record count in the DB is the same after the second call as after the first",
+      "assertion_pseudocode": "index_errata_from_markdown(conn, project_root); count_first = count_errata(conn); index_errata_from_markdown(conn, project_root); count_second = count_errata(conn); assert count_first == count_second"
+    },
+    {
+      "id": "TS-06-16",
+      "requirement_id": "06-REQ-7.1",
+      "kind": "unit",
+      "description": "Verifies that assemble_context retains the conn parameter and uses it exclusively for SELECT queries after write operations are extracted.",
+      "preconditions": [
+        "agentfox/session/context.py is importable",
+        "A read-only test DuckDB connection is available with findings, verdicts, drift reports, and group findings data seeded"
+      ],
+      "input": "Call assemble_context(conn=read_only_conn, ...) with all required parameters",
+      "expected": "assemble_context completes successfully, returning a populated context object built from SELECT queries only",
+      "assertion_pseudocode": "ctx = assemble_context(conn=read_only_conn, spec_dir=TEST_SPEC_DIR, ...); assert ctx is not None; assert ctx.findings is not None"
+    },
+    {
+      "id": "TS-06-17",
+      "requirement_id": "06-REQ-7.2",
+      "kind": "unit",
+      "description": "Verifies that assemble_context performs zero write operations on the connection it receives.",
+      "preconditions": [
+        "agentfox/session/context.py is importable",
+        "A test DuckDB is seeded with all required context data",
+        "Connection is opened with read_only=True"
+      ],
+      "input": "Call assemble_context with a read-only connection",
+      "expected": "No INSERT, UPDATE, or DELETE SQL statements are executed on the connection; the DB state is unchanged after the call",
+      "assertion_pseudocode": "db_state_before = snapshot(test_db); assemble_context(conn=read_only_conn, ...); db_state_after = snapshot(test_db); assert db_state_before == db_state_after"
+    },
+    {
+      "id": "TS-06-18",
+      "requirement_id": "06-REQ-7.3",
+      "kind": "unit",
+      "description": "Verifies that the orchestrator passes a read_only=True connection to assemble_context when dispatching a session.",
+      "preconditions": [
+        "The orchestrator session dispatch code is importable",
+        "assemble_context is mockable",
+        "Orchestrator startup has completed (migrations and errata indexing already done)"
+      ],
+      "input": "Trigger orchestrator session dispatch, capturing the conn argument passed to assemble_context",
+      "expected": "assemble_context is called with a connection that was opened with read_only=True",
+      "assertion_pseudocode": "with mock(assemble_context) as m: orchestrator.dispatch_session(...); conn_arg = m.calls[0].kwargs['conn']; assert conn_arg.read_only == True"
+    },
+    {
+      "id": "TS-06-19",
+      "requirement_id": "06-REQ-8.1",
+      "kind": "unit",
+      "description": "Verifies that af standup calls open_knowledge_store with read_only=True and performs only SELECT operations.",
+      "preconditions": [
+        "af/standup.py is importable",
+        "open_knowledge_store is mockable",
+        "A test DuckDB is seeded with standup data"
+      ],
+      "input": "Invoke af standup with open_knowledge_store mocked",
+      "expected": "open_knowledge_store is called with read_only=True; no write operations are performed on knowledge.duckdb",
+      "assertion_pseudocode": "with mock(open_knowledge_store) as m: run_af_standup(); assert m.called_with(read_only=True)"
+    },
+    {
+      "id": "TS-06-20",
+      "requirement_id": "06-REQ-8.2",
+      "kind": "unit",
+      "description": "Verifies that the test suite contains a unit test asserting af standup passes read_only=True to open_knowledge_store, and that it passes as part of make check.",
+      "preconditions": [
+        "Test suite for af/standup.py exists",
+        "make check is runnable in the CI environment"
+      ],
+      "input": "Run make check from the project root",
+      "expected": "make check exits with status 0; the test asserting af standup uses read_only=True passes",
+      "assertion_pseudocode": "exit_code = run_shell('make check'); assert exit_code == 0"
+    },
+    {
+      "id": "TS-06-21",
+      "requirement_id": "06-REQ-9.1",
+      "kind": "unit",
+      "description": "Verifies that af findings calls open_knowledge_store with read_only=False to support both SELECT queries and the optional --dismiss UPDATE.",
+      "preconditions": [
+        "af/findings.py is importable",
+        "open_knowledge_store is mockable"
+      ],
+      "input": "Invoke af findings with open_knowledge_store mocked (both with and without --dismiss flag)",
+      "expected": "open_knowledge_store is called with read_only=False in both cases",
+      "assertion_pseudocode": "with mock(open_knowledge_store) as m: run_af_findings(); assert m.called_with(read_only=False); run_af_findings(dismiss=True); assert m.called_with(read_only=False)"
+    },
+    {
+      "id": "TS-06-22",
+      "requirement_id": "06-REQ-10.1",
+      "kind": "unit",
+      "description": "Verifies that no production module calls open_knowledge_store without the read_only keyword argument.",
+      "preconditions": [
+        "All production source files are accessible for static analysis",
+        "An AST parser or grep-based tool is available"
+      ],
+      "input": "Statically inspect all call sites of open_knowledge_store in production modules: af/code.py, af/plan.py, af/standup.py, af/findings.py, af/nightshift.py, agentfox/engine/run.py, agentfox/fix/analyzer.py, agentfox/session/context.py",
+      "expected": "Every call to open_knowledge_store contains read_only as an explicit keyword argument; zero calls omit it",
+      "assertion_pseudocode": "calls = ast_find_all_calls('open_knowledge_store', production_modules); for call in calls: assert 'read_only' in call.keyword_args"
+    },
+    {
+      "id": "TS-06-23",
+      "requirement_id": "06-REQ-10.2",
+      "kind": "integration",
+      "description": "Verifies that make check passes green after all callers of open_knowledge_store are updated atomically with explicit read_only arguments.",
+      "preconditions": [
+        "All production callers have been updated to pass explicit read_only",
+        "make check is runnable in the CI environment",
+        "All test dependencies are installed"
+      ],
+      "input": "Run make check from the project root",
+      "expected": "make check exits with status 0 and all tests pass",
+      "assertion_pseudocode": "exit_code = run_shell('make check'); assert exit_code == 0"
+    }
+  ],
+  "property_tests": [
+    {
+      "id": "TS-06-P1",
+      "property_id": "06-PROP-1",
+      "validates": [
+        "06-REQ-2.1",
+        "06-REQ-2.2",
+        "06-REQ-3.1",
+        "06-REQ-4.1",
+        "06-REQ-4.2",
+        "06-REQ-7.2"
+      ],
+      "description": "For any designated read-only call site (af code, af plan --verify, fix/analyzer.py, assemble_context), the connection used is always opened with read_only=True and no write SQL statement is ever executed on knowledge.duckdb during its lifetime.",
+      "for_any_strategy": "One of the read-only call sites chosen arbitrarily; arbitrary valid database state in knowledge.duckdb; arbitrary valid input arguments to the call site",
+      "invariant_check": "open_knowledge_store is called with read_only=True; no INSERT, UPDATE, or DELETE is executed on the returned connection; db row counts and table checksums are identical before and after the call"
+    },
+    {
+      "id": "TS-06-P2",
+      "property_id": "06-PROP-2",
+      "validates": [
+        "06-REQ-1.1",
+        "06-REQ-1.3",
+        "06-REQ-10.1"
+      ],
+      "description": "For any invocation of open_knowledge_store, read_only is always supplied as an explicit keyword argument; omitting it always raises TypeError before any I/O regardless of other arguments.",
+      "for_any_strategy": "Arbitrary positional and keyword arguments to open_knowledge_store, with read_only present in some and absent in others",
+      "invariant_check": "If read_only is absent, TypeError is raised immediately and no file I/O occurs; if read_only is present, no TypeError is raised due to the parameter"
+    },
+    {
+      "id": "TS-06-P3",
+      "property_id": "06-PROP-3",
+      "validates": [
+        "06-REQ-5.1",
+        "06-REQ-6.1",
+        "06-REQ-7.1",
+        "06-REQ-7.2"
+      ],
+      "description": "For any invocation of assemble_context, neither _migrate_legacy_files nor index_errata_from_markdown is called inside it, and the conn it receives is used exclusively for SELECT operations.",
+      "for_any_strategy": "Arbitrary valid read-only connection; arbitrary populated knowledge.duckdb state; arbitrary spec_dir and spec_name values",
+      "invariant_check": "_migrate_legacy_files call count == 0 inside assemble_context; index_errata_from_markdown call count == 0 inside assemble_context; all SQL executed on conn are SELECT statements; db state unchanged after call"
+    },
+    {
+      "id": "TS-06-P4",
+      "property_id": "06-PROP-4",
+      "validates": [
+        "06-REQ-5.3",
+        "06-REQ-6.3"
+      ],
+      "description": "For any invocation of _migrate_legacy_files or index_errata_from_markdown at orchestrator startup, running either function multiple times with identical inputs produces no duplicate records and no errors.",
+      "for_any_strategy": "Arbitrary number of repeated calls N >= 2 with the same (conn, spec_dir, spec_name) or (conn, project_root) arguments",
+      "invariant_check": "record_count after N calls == record_count after 1 call; no exception raised on any call; all calls return successfully"
+    },
+    {
+      "id": "TS-06-P5",
+      "property_id": "06-PROP-5",
+      "validates": [
+        "06-REQ-8.1",
+        "06-REQ-8.2"
+      ],
+      "description": "For any invocation of af standup, open_knowledge_store is always called with read_only=True and no write operation is performed on knowledge.duckdb.",
+      "for_any_strategy": "Arbitrary valid knowledge.duckdb state containing standup-relevant data; arbitrary CLI invocation context",
+      "invariant_check": "open_knowledge_store called with read_only=True; no INSERT, UPDATE, or DELETE executed on knowledge.duckdb; db state unchanged after af standup completes"
+    }
+  ],
+  "edge_case_tests": [
+    {
+      "id": "TS-06-E1",
+      "requirement_id": "06-REQ-1.E1",
+      "kind": "unit",
+      "description": "Verifies that open_knowledge_store raises TypeError immediately before any file I/O when called without the read_only keyword argument.",
+      "preconditions": [
+        "open_knowledge_store is importable",
+        "The function's read_only parameter has no default value"
+      ],
+      "input": "open_knowledge_store() called with no arguments (read_only omitted)",
+      "expected": "TypeError is raised immediately; no database file is opened, created, or modified; the error message references read_only as a required argument",
+      "assertion_pseudocode": "err = assert raises(TypeError, open_knowledge_store); assert 'read_only' in str(err)"
+    },
+    {
+      "id": "TS-06-E2",
+      "requirement_id": "06-REQ-2.E1",
+      "kind": "unit",
+      "description": "Verifies that af code surfaces a clear error message to stderr and exits with a non-zero status code when knowledge.duckdb does not exist.",
+      "preconditions": [
+        "knowledge.duckdb does not exist at the expected path",
+        "af/code.py is runnable as a CLI command"
+      ],
+      "input": "Run af code when knowledge.duckdb is absent",
+      "expected": "The command exits with a non-zero status code; a human-readable error message is written to stderr indicating the database file was not found",
+      "assertion_pseudocode": "result = run_cli('af code', env={'DB_PATH': '/nonexistent/knowledge.duckdb'}); assert result.exit_code != 0; assert 'knowledge.duckdb' in result.stderr or 'not found' in result.stderr"
+    },
+    {
+      "id": "TS-06-E3",
+      "requirement_id": "06-REQ-3.E1",
+      "kind": "unit",
+      "description": "Verifies that attempting a write on the read-only connection opened by af plan --verify raises a DuckDB exception and exits without corrupting the database.",
+      "preconditions": [
+        "af/plan.py is importable",
+        "A test DuckDB exists with plan data",
+        "A code path is available to attempt a write on the verify connection"
+      ],
+      "input": "Attempt an INSERT/UPDATE/DELETE on the read-only connection opened during af plan --verify",
+      "expected": "DuckDB raises a read-only exception; af plan exits with a non-zero status code; the database remains uncorrupted",
+      "assertion_pseudocode": "conn = open_knowledge_store(read_only=True); err = assert raises(DuckDBReadOnlyException, conn.execute, 'INSERT INTO plan_nodes VALUES (...)'); assert db_is_intact(test_db)"
+    },
+    {
+      "id": "TS-06-E4",
+      "requirement_id": "06-REQ-4.E1",
+      "kind": "unit",
+      "description": "Verifies that a write operation attempted on the read-only connection in fix/analyzer.py raises and propagates the DuckDB exception without swallowing it.",
+      "preconditions": [
+        "agentfox/fix/analyzer.py is importable",
+        "A test DuckDB is available",
+        "A test hook or subclass allows injecting a write attempt"
+      ],
+      "input": "Inject a write operation (e.g. INSERT) on the read-only connection used by fix/analyzer.py",
+      "expected": "DuckDB read-only exception is raised and propagated to the caller; it is not caught or swallowed within the analyzer",
+      "assertion_pseudocode": "conn = open_knowledge_store(read_only=True); err = assert raises(DuckDBReadOnlyException, analyzer.attempt_write, conn); assert type(err) is DuckDBReadOnlyException"
+    },
+    {
+      "id": "TS-06-E5",
+      "requirement_id": "06-REQ-5.E1",
+      "kind": "unit",
+      "description": "Verifies that when _migrate_legacy_files fails for one spec during orchestrator startup, the error is logged with spec context and processing continues for remaining specs.",
+      "preconditions": [
+        "Orchestrator startup sequence is importable",
+        "_migrate_legacy_files is patchable to raise an exception for one spec",
+        "At least two specs are configured"
+      ],
+      "input": "_migrate_legacy_files raises an exception for spec_a but not for spec_b during startup",
+      "expected": "The orchestrator logs an error message containing spec_a's context, does not abort, and successfully processes spec_b",
+      "assertion_pseudocode": "with mock(_migrate_legacy_files, raises_for='spec_a') as m: run_orchestrator_startup(specs=[spec_a, spec_b]); assert error_logged_for(spec_a); assert m.call_count == 2; assert startup_completed_for(spec_b)"
+    },
+    {
+      "id": "TS-06-E6",
+      "requirement_id": "06-REQ-6.E1",
+      "kind": "unit",
+      "description": "Verifies that when index_errata_from_markdown fails during orchestrator startup, the error is logged and startup continues without blocking session dispatch.",
+      "preconditions": [
+        "Orchestrator startup sequence is importable",
+        "index_errata_from_markdown is patchable to raise an exception"
+      ],
+      "input": "index_errata_from_markdown raises an exception due to a missing errata markdown file",
+      "expected": "The orchestrator logs the error and proceeds with session dispatch; startup does not abort",
+      "assertion_pseudocode": "with mock(index_errata_from_markdown, raises=IOError('missing errata')) as m: run_orchestrator_startup(); assert error_was_logged(); assert sessions_were_dispatched()"
+    },
+    {
+      "id": "TS-06-E7",
+      "requirement_id": "06-REQ-7.E1",
+      "kind": "unit",
+      "description": "Verifies that if a write operation is inadvertently re-introduced into assemble_context, the read-only connection immediately raises a DuckDB exception that propagates to the orchestrator session handler.",
+      "preconditions": [
+        "agentfox/session/context.py is importable",
+        "A read-only test DuckDB connection is available",
+        "A test version of assemble_context that contains an injected write is used"
+      ],
+      "input": "Call assemble_context with a read-only connection where an INSERT has been injected into the function body",
+      "expected": "DuckDB raises a read-only exception immediately on the write attempt; the exception propagates to the caller (orchestrator session handler) without being caught inside assemble_context",
+      "assertion_pseudocode": "err = assert raises(DuckDBReadOnlyException, assemble_context_with_injected_write, conn=read_only_conn); assert type(err) is DuckDBReadOnlyException"
+    },
+    {
+      "id": "TS-06-E8",
+      "requirement_id": "06-REQ-10.E1",
+      "kind": "unit",
+      "description": "Verifies that any future caller of open_knowledge_store that omits read_only receives a TypeError at call time before any database I/O.",
+      "preconditions": [
+        "open_knowledge_store is importable with no default for read_only"
+      ],
+      "input": "Call open_knowledge_store() with no arguments to simulate a future caller omitting read_only",
+      "expected": "TypeError is raised immediately before any database file is opened; the error message indicates read_only is a required keyword argument",
+      "assertion_pseudocode": "err = assert raises(TypeError, open_knowledge_store); assert 'read_only' in str(err); assert no_db_file_created()"
+    }
+  ],
+  "smoke_tests": [
+    {
+      "id": "TS-06-SMOKE-1",
+      "execution_path_id": "06-PATH-1",
+      "description": "End-to-end smoke test verifying that af code opens knowledge.duckdb read-only, executes load_plan and compute_phases via SELECT, displays output, and closes the connection without any writes.",
+      "trigger": "Developer runs `af code` from the CLI against a populated knowledge.duckdb",
+      "real_components": [
+        "af/code.py",
+        "open_knowledge_store",
+        "knowledge.duckdb"
+      ],
+      "mockable": [
+        "load_plan output display (terminal)"
+      ],
+      "expected_effects": [
+        "open_knowledge_store is called with read_only=True",
+        "load_plan and compute_phases execute successfully via SELECT queries",
+        "Plan output is written to stdout",
+        "knowledge.duckdb row counts are unchanged after the command completes",
+        "Command exits with status 0"
+      ]
+    },
+    {
+      "id": "TS-06-SMOKE-2",
+      "execution_path_id": "06-PATH-2",
+      "description": "End-to-end smoke test verifying that af plan --verify opens knowledge.duckdb read-only, executes SELECT queries to load the stored plan, prints the verification result, and exits without writing.",
+      "trigger": "Developer runs `af plan --verify` from the CLI against a populated knowledge.duckdb",
+      "real_components": [
+        "af/plan.py",
+        "open_knowledge_store",
+        "knowledge.duckdb"
+      ],
+      "mockable": [
+        "terminal output display"
+      ],
+      "expected_effects": [
+        "open_knowledge_store is called with read_only=True on the verify path",
+        "SELECT queries execute successfully to load the stored plan",
+        "Verification result is printed to stdout",
+        "knowledge.duckdb is not modified",
+        "Command exits with status 0"
+      ]
+    },
+    {
+      "id": "TS-06-SMOKE-3",
+      "execution_path_id": "06-PATH-3",
+      "description": "End-to-end smoke test verifying that the orchestrator startup sequence calls _migrate_legacy_files and index_errata_from_markdown with a read-write connection before dispatching sessions, and that sessions receive a read-only connection to assemble_context.",
+      "trigger": "The nightshift orchestrator or engine runner process starts with a configured set of specs",
+      "real_components": [
+        "af/nightshift.py or agentfox/engine/run.py",
+        "_migrate_legacy_files",
+        "index_errata_from_markdown",
+        "assemble_context",
+        "knowledge.duckdb"
+      ],
+      "mockable": [
+        "session execution logic",
+        "spec file system (spec_dir, project_root)"
+      ],
+      "expected_effects": [
+        "_migrate_legacy_files is called with a read-write connection for each spec before sessions start",
+        "index_errata_from_markdown is called with a read-write connection before sessions start",
+        "The write connection is closed before session dispatch",
+        "assemble_context receives a read-only connection during session execution",
+        "No writes are performed by assemble_context on knowledge.duckdb"
+      ]
+    },
+    {
+      "id": "TS-06-SMOKE-4",
+      "execution_path_id": "06-PATH-4",
+      "description": "End-to-end smoke test verifying that fix/analyzer.py opens knowledge.duckdb read-only, executes query_active_findings via SELECT, returns results, and closes the connection without writes.",
+      "trigger": "Orchestrator or developer invokes agentfox/fix/analyzer.py to analyze active findings",
+      "real_components": [
+        "agentfox/fix/analyzer.py",
+        "open_knowledge_store",
+        "knowledge.duckdb"
+      ],
+      "mockable": [
+        "caller that receives findings results"
+      ],
+      "expected_effects": [
+        "open_knowledge_store is called with read_only=True",
+        "query_active_findings executes successfully via SELECT",
+        "A non-empty findings result is returned to the caller",
+        "knowledge.duckdb row counts are unchanged after the call",
+        "The read-only connection is closed after use"
+      ]
+    },
+    {
+      "id": "TS-06-SMOKE-5",
+      "execution_path_id": "06-PATH-5",
+      "description": "End-to-end smoke test confirming that af standup opens knowledge.duckdb with the existing read_only=True behavior, executes SELECT queries, and displays standup output without performing any writes.",
+      "trigger": "Developer runs `af standup` from the CLI against a populated knowledge.duckdb",
+      "real_components": [
+        "af/standup.py",
+        "open_knowledge_store",
+        "knowledge.duckdb"
+      ],
+      "mockable": [
+        "terminal output display"
+      ],
+      "expected_effects": [
+        "open_knowledge_store is called with read_only=True",
+        "SELECT queries execute successfully and return standup data",
+        "Standup output is written to stdout",
+        "knowledge.duckdb is not modified",
+        "Command exits with status 0"
+      ]
+    }
+  ],
+  "coverage": {
+    "requirements_covered": [],
+    "properties_covered": [],
+    "paths_covered": [],
+    "gaps": []
+  }
+}
