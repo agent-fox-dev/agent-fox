@@ -78,6 +78,26 @@ class TestBannerDisplay:
             f"Expected fox ASCII art banner in output, got:\n{result.output}"
         )
 
+    def test_banner_appears_before_startup_message(self, cli_runner: CliRunner) -> None:
+        """Fox banner must appear before 'Night-shift daemon starting' message.
+
+        TS-07-9 Expected: banner printed to stdout before the daemon start message.
+        """
+        from nightshift.app import main
+
+        result = cli_runner.invoke(main, [])
+        assert FOX_BANNER_PATTERN in result.output, (
+            "Fox banner must be present in output"
+        )
+        assert "Night-shift daemon starting" in result.output, (
+            "Startup message must be present in output"
+        )
+        banner_pos = result.output.index(FOX_BANNER_PATTERN)
+        startup_pos = result.output.index("Night-shift daemon starting")
+        assert banner_pos < startup_pos, (
+            "Fox ASCII art banner must appear before the daemon start message"
+        )
+
 
 class TestBannerSuppression:
     """TS-07-10: Banner suppressed with --quiet or --json.
@@ -203,7 +223,7 @@ class TestConfigLoading:
 
 
 class TestStartupMessage:
-    """TS-07-14: Startup message 'Night-shift daemon starting' on startup.
+    """TS-07-14: Startup message and summary stats on startup/exit.
 
     Requirements: 07-REQ-3.6
     """
@@ -215,6 +235,24 @@ class TestStartupMessage:
         result = cli_runner.invoke(main, [])
         assert "Night-shift daemon starting" in result.output, (
             f"Expected 'Night-shift daemon starting' in output, got:\n{result.output}"
+        )
+
+    def test_summary_stats_present_at_exit(self, cli_runner: CliRunner) -> None:
+        """Daemon exit emits summary statistics to stdout.
+
+        TS-07-14 Expected: 'summary stats on stdout at exit'.
+        After a graceful shutdown the daemon prints a summary line
+        containing at least 'Night-shift stopped' (normal mode) or
+        a JSON summary event (--json mode).
+        """
+        from nightshift.app import main
+
+        result = cli_runner.invoke(main, [])
+        # The daemon's normal-mode summary contains 'Night-shift stopped'
+        # and statistics such as 'Issues fixed' and 'Total cost'.
+        assert "Night-shift stopped" in result.output, (
+            f"Expected 'Night-shift stopped' summary stats in output, "
+            f"got:\n{result.output}"
         )
 
 
