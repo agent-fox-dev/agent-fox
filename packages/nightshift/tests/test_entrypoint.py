@@ -22,14 +22,18 @@ class TestPythonModuleEntryPoint:
     def test_python_m_nightshift_help_exits_zero(self) -> None:
         result = subprocess.run(
             [sys.executable, "-m", "nightshift", "--help"],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         assert result.returncode == 0
 
     def test_python_m_nightshift_help_contains_version(self) -> None:
         result = subprocess.run(
             [sys.executable, "-m", "nightshift", "--help"],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         assert "--version" in result.stdout
 
@@ -45,7 +49,9 @@ class TestNightShiftScriptEntryPoint:
             pytest.skip("night-shift not installed as a script entry point")
         result = subprocess.run(
             ["night-shift", "--help"],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         assert result.returncode == 0
 
@@ -54,7 +60,9 @@ class TestNightShiftScriptEntryPoint:
             pytest.skip("night-shift not installed as a script entry point")
         result = subprocess.run(
             ["night-shift", "--help"],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         assert "--version" in result.stdout
 
@@ -108,7 +116,9 @@ class TestFallbackMechanism:
         """python -m nightshift --help always works regardless of PATH."""
         result = subprocess.run(
             [sys.executable, "-m", "nightshift", "--help"],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         assert result.returncode == 0
         assert "--version" in result.stdout, (

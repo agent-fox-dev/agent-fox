@@ -27,17 +27,13 @@ class TestPyprojectNoBannedDeps:
         config = _load_nightshift_toml()
         deps = config["project"]["dependencies"]
         for dep in deps:
-            assert "agentspec" not in dep.lower(), (
-                f"nightshift must not depend on agentspec: {dep}"
-            )
+            assert "agentspec" not in dep.lower(), f"nightshift must not depend on agentspec: {dep}"
 
     def test_no_afspec_in_pyproject(self) -> None:
         config = _load_nightshift_toml()
         deps = config["project"]["dependencies"]
         for dep in deps:
-            assert "afspec" not in dep.lower(), (
-                f"nightshift must not depend on afspec: {dep}"
-            )
+            assert "afspec" not in dep.lower(), f"nightshift must not depend on afspec: {dep}"
 
 
 class TestInstalledDepsNoBanned:
@@ -51,21 +47,13 @@ class TestInstalledDepsNoBanned:
         source_dir = Path("packages/nightshift/nightshift")
         for py_file in source_dir.glob("*.py"):
             content = py_file.read_text()
-            assert "import agentspec" not in content, (
-                f"{py_file} imports agentspec"
-            )
-            assert "from agentspec" not in content, (
-                f"{py_file} imports from agentspec"
-            )
+            assert "import agentspec" not in content, f"{py_file} imports agentspec"
+            assert "from agentspec" not in content, f"{py_file} imports from agentspec"
 
     def test_no_afspec_importable_from_nightshift(self) -> None:
         """nightshift package itself does not import afspec."""
         source_dir = Path("packages/nightshift/nightshift")
         for py_file in source_dir.glob("*.py"):
             content = py_file.read_text()
-            assert "import afspec" not in content, (
-                f"{py_file} imports afspec"
-            )
-            assert "from afspec" not in content, (
-                f"{py_file} imports from afspec"
-            )
+            assert "import afspec" not in content, f"{py_file} imports afspec"
+            assert "from afspec" not in content, f"{py_file} imports from afspec"

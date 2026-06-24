@@ -25,11 +25,10 @@ class TestGrepAfNightShift:
         """grep -r 'af night-shift' docs/ returns no matches."""
         result = subprocess.run(
             ["grep", "-r", "af night-shift", "docs/"],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
-        assert result.stdout == "", (
-            f"Found stale 'af night-shift' in docs/:\n{result.stdout}"
-        )
+        assert result.stdout == "", f"Found stale 'af night-shift' in docs/:\n{result.stdout}"
 
     def test_no_af_night_shift_in_readme(self) -> None:
         """grep 'af night-shift' README.md returns no matches."""
@@ -37,21 +36,19 @@ class TestGrepAfNightShift:
             pytest.skip("README.md not found")
         result = subprocess.run(
             ["grep", "af night-shift", "README.md"],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
-        assert result.stdout == "", (
-            f"Found stale 'af night-shift' in README.md:\n{result.stdout}"
-        )
+        assert result.stdout == "", f"Found stale 'af night-shift' in README.md:\n{result.stdout}"
 
     def test_no_agent_fox_night_shift_in_docs(self) -> None:
         """grep -r 'agent-fox night-shift' docs/ returns no matches."""
         result = subprocess.run(
             ["grep", "-r", "agent-fox night-shift", "docs/"],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
-        assert result.stdout == "", (
-            f"Found stale 'agent-fox night-shift' in docs/:\n{result.stdout}"
-        )
+        assert result.stdout == "", f"Found stale 'agent-fox night-shift' in docs/:\n{result.stdout}"
 
 
 class TestGrepAcceptanceMechanism:
@@ -99,17 +96,13 @@ class TestReadmeContent:
         if not os.path.exists("README.md"):
             pytest.skip("README.md not found")
         content = open("README.md").read()
-        assert "night-shift" in content, (
-            "README.md should reference the standalone night-shift CLI"
-        )
+        assert "night-shift" in content, "README.md should reference the standalone night-shift CLI"
 
     def test_readme_contains_nightshift_package(self) -> None:
         if not os.path.exists("README.md"):
             pytest.skip("README.md not found")
         content = open("README.md").read()
-        assert "nightshift" in content, (
-            "README.md should reference the nightshift package"
-        )
+        assert "nightshift" in content, "README.md should reference the nightshift package"
 
 
 class TestCliReferenceDoc:
@@ -123,18 +116,14 @@ class TestCliReferenceDoc:
         if not os.path.exists(path):
             pytest.skip(f"{path} not found")
         content = open(path).read()
-        assert "af night-shift" not in content, (
-            "docs/cli-reference.md still contains 'af night-shift'"
-        )
+        assert "af night-shift" not in content, "docs/cli-reference.md still contains 'af night-shift'"
 
     def test_night_shift_in_cli_ref(self) -> None:
         path = "docs/cli-reference.md"
         if not os.path.exists(path):
             pytest.skip(f"{path} not found")
         content = open(path).read()
-        assert "night-shift" in content, (
-            "docs/cli-reference.md should document night-shift"
-        )
+        assert "night-shift" in content, "docs/cli-reference.md should document night-shift"
 
 
 class TestConfigReferenceDoc:
@@ -158,21 +147,22 @@ class TestArchitectureDocs:
     Requirements: 07-REQ-5.5
     """
 
-    @pytest.mark.parametrize("doc_path", [
-        "docs/architecture/04-night-shift.md",
-        "docs/architecture/README.md",
-        "docs/architecture/03-execution-and-archetypes.md",
-        "docs/profiles.md",
-        "docs/architecture/prd.md",
-        "docs/README.md",
-    ])
+    @pytest.mark.parametrize(
+        "doc_path",
+        [
+            "docs/architecture/04-night-shift.md",
+            "docs/architecture/README.md",
+            "docs/architecture/03-execution-and-archetypes.md",
+            "docs/profiles.md",
+            "docs/architecture/prd.md",
+            "docs/README.md",
+        ],
+    )
     def test_no_af_night_shift_in_arch_doc(self, doc_path: str) -> None:
         if not os.path.exists(doc_path):
             pytest.skip(f"{doc_path} not found")
         content = open(doc_path).read()
-        assert "af night-shift" not in content, (
-            f"{doc_path} still contains 'af night-shift'"
-        )
+        assert "af night-shift" not in content, f"{doc_path} still contains 'af night-shift'"
 
 
 class TestDependencyDiagramTopology:
@@ -236,9 +226,7 @@ class TestDocFileWalk:
                     continue
                 fpath = os.path.join(root, fname)
                 content = open(fpath).read()
-                assert "af night-shift" not in content, (
-                    f"Stale 'af night-shift' found in {fpath}"
-                )
+                assert "af night-shift" not in content, f"Stale 'af night-shift' found in {fpath}"
 
 
 class TestGrepAcceptanceCheck:
@@ -253,6 +241,4 @@ class TestGrepAcceptanceCheck:
         if os.path.exists("README.md"):
             cmd.append("README.md")
         result = subprocess.run(cmd, capture_output=True, text=True)
-        assert result.stdout.strip() == "", (
-            f"Stale references found:\n{result.stdout}"
-        )
+        assert result.stdout.strip() == "", f"Stale references found:\n{result.stdout}"

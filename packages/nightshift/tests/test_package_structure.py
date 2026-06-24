@@ -61,9 +61,7 @@ class TestPyprojectMetadata:
 
     def test_project_description(self) -> None:
         config = _load_nightshift_toml()
-        assert config["project"]["description"] == (
-            "Standalone CLI for the AgentFox Night Shift fix daemon"
-        )
+        assert config["project"]["description"] == ("Standalone CLI for the AgentFox Night Shift fix daemon")
 
     def test_build_backend(self) -> None:
         config = _load_nightshift_toml()
@@ -140,17 +138,13 @@ class TestNoDependencyOnAgentspecAfspec:
         config = _load_nightshift_toml()
         deps = config["project"]["dependencies"]
         for dep in deps:
-            assert "agentspec" not in dep.lower(), (
-                f"nightshift must not depend on agentspec: {dep}"
-            )
+            assert "agentspec" not in dep.lower(), f"nightshift must not depend on agentspec: {dep}"
 
     def test_no_afspec_in_dependencies(self) -> None:
         config = _load_nightshift_toml()
         deps = config["project"]["dependencies"]
         for dep in deps:
-            assert "afspec" not in dep.lower(), (
-                f"nightshift must not depend on afspec: {dep}"
-            )
+            assert "afspec" not in dep.lower(), f"nightshift must not depend on afspec: {dep}"
 
 
 class TestRichDuckdbDirectDeps:
@@ -161,12 +155,10 @@ class TestRichDuckdbDirectDeps:
 
     def test_rich_is_direct_dependency(self) -> None:
         config = _load_nightshift_toml()
-        dep_names = [d.split(">")[0].split("<")[0].split("=")[0].strip()
-                     for d in config["project"]["dependencies"]]
+        dep_names = [d.split(">")[0].split("<")[0].split("=")[0].strip() for d in config["project"]["dependencies"]]
         assert "rich" in dep_names
 
     def test_duckdb_is_direct_dependency(self) -> None:
         config = _load_nightshift_toml()
-        dep_names = [d.split(">")[0].split("<")[0].split("=")[0].strip()
-                     for d in config["project"]["dependencies"]]
+        dep_names = [d.split(">")[0].split("<")[0].split("=")[0].strip() for d in config["project"]["dependencies"]]
         assert "duckdb" in dep_names

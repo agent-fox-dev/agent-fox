@@ -26,17 +26,13 @@ class TestAppDelegation:
     def test_imports_agentfox_nightshift(self) -> None:
         """app.py imports from agentfox.nightshift or agentfox."""
         source = _read_app_source()
-        assert "agentfox" in source, (
-            "app.py must import from agentfox"
-        )
+        assert "agentfox" in source, "app.py must import from agentfox"
 
     def test_thin_wrapper_line_count(self) -> None:
         """app.py is a thin delegation layer (< 150 lines)."""
         source = _read_app_source()
         line_count = len(source.splitlines())
-        assert line_count < 150, (
-            f"app.py has {line_count} lines; expected < 150 for a thin wrapper"
-        )
+        assert line_count < 150, f"app.py has {line_count} lines; expected < 150 for a thin wrapper"
 
 
 class TestAppUsesAgentFoxGroup:
@@ -48,9 +44,7 @@ class TestAppUsesAgentFoxGroup:
     def test_source_references_agentfox_group(self) -> None:
         """app.py source contains 'AgentFoxGroup'."""
         source = _read_app_source()
-        assert "AgentFoxGroup" in source, (
-            "app.py must use AgentFoxGroup"
-        )
+        assert "AgentFoxGroup" in source, "app.py must use AgentFoxGroup"
 
     def test_source_references_common_options(self) -> None:
         """app.py source contains 'common_options'."""
@@ -108,9 +102,7 @@ class TestNoDaemonLogicReimplementation:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 defined_names.add(node.name)
         overlap = defined_names & self.BANNED_FUNCTION_NAMES
-        assert not overlap, (
-            f"app.py redefines business logic functions: {overlap}"
-        )
+        assert not overlap, f"app.py redefines business logic functions: {overlap}"
 
 
 class TestNoCopyPastedLogic:

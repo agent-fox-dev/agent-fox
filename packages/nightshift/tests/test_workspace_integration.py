@@ -30,13 +30,8 @@ class TestWorkspaceMember:
         """packages/nightshift is covered by a workspace member glob."""
         config = _load_root_toml()
         members = config["tool"]["uv"]["workspace"]["members"]
-        matched = any(
-            fnmatch.fnmatch("packages/nightshift", pattern)
-            for pattern in members
-        )
-        assert matched, (
-            f"packages/nightshift not matched by any workspace member pattern: {members}"
-        )
+        matched = any(fnmatch.fnmatch("packages/nightshift", pattern) for pattern in members)
+        assert matched, f"packages/nightshift not matched by any workspace member pattern: {members}"
 
 
 class TestWorkspaceDependency:
@@ -55,9 +50,7 @@ class TestWorkspaceDependency:
     def test_nightshift_workspace_source(self) -> None:
         config = _load_root_toml()
         sources = config["tool"]["uv"]["sources"]
-        assert sources.get("nightshift", {}).get("workspace") is True, (
-            "nightshift must be a workspace source"
-        )
+        assert sources.get("nightshift", {}).get("workspace") is True, "nightshift must be a workspace source"
 
 
 class TestTestpaths:
@@ -70,9 +63,7 @@ class TestTestpaths:
         config = _load_root_toml()
         testpaths = config["tool"]["pytest"]["ini_options"]["testpaths"]
         matched = any("nightshift" in tp for tp in testpaths)
-        assert matched, (
-            f"packages/nightshift/tests not in testpaths: {testpaths}"
-        )
+        assert matched, f"packages/nightshift/tests not in testpaths: {testpaths}"
 
 
 class TestMakeCheckDiscovery:

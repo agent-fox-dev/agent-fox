@@ -21,9 +21,7 @@ class TestNightShiftNotRegistered:
         """The af Click group commands dict does not contain 'night-shift'."""
         from af.app import main
 
-        assert "night-shift" not in main.commands, (
-            "night-shift must be removed from af CLI commands"
-        )
+        assert "night-shift" not in main.commands, "night-shift must be removed from af CLI commands"
 
 
 class TestNightShiftFileDeleted:
@@ -48,8 +46,7 @@ class TestNightShiftGuard:
     def test_guard_nightshift_file_absent(self) -> None:
         """Guard: nightshift.py must be absent for CI to pass."""
         assert not os.path.exists("packages/af/af/nightshift.py"), (
-            "nightshift.py must be deleted; this guard test failing means CI would catch "
-            "the incomplete removal"
+            "nightshift.py must be deleted; this guard test failing means CI would catch the incomplete removal"
         )
 
 

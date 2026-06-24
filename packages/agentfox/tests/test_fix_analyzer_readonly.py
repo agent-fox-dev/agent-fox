@@ -111,44 +111,35 @@ class TestAnalyzerNoWrites:
 class TestAnalyzerReadOnlyExceptionPropagation:
     """TS-06-E4: DuckDB read-only exceptions must propagate to caller."""
 
-    def test_read_only_exception_not_swallowed(self, tmp_path: Path) -> None:
-        """A write operation on a read-only connection used by the analyzer
-        must raise and propagate the DuckDB exception — it must NOT be
-        caught or silenced within the analyzer module (06-REQ-4.E1)."""
-        db_path = str(tmp_path / "test.duckdb")
+    def test_read_only_exception_propagates_through_analyzer(self) -> None:
+        """A DuckDB read-only exception raised during query_active_findings
+        must propagate through the analyzer's load_review_context without
+        being caught or silenced (06-REQ-4.E1).
 
-        # Create DB with review_findings table
-        conn_rw = duckdb.connect(db_path)
-        conn_rw.execute("""
-            CREATE TABLE IF NOT EXISTS review_findings (
-                id VARCHAR PRIMARY KEY,
-                severity VARCHAR,
-                description VARCHAR,
-                requirement_ref VARCHAR,
-                spec_name VARCHAR,
-                task_group VARCHAR,
-                session_id VARCHAR,
-                superseded_by VARCHAR,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                category VARCHAR
-            )
-        """)
-        conn_rw.close()
+        This test exercises the actual analyzer code path by patching
+        query_active_findings to raise a DuckDB read-only exception and
+        verifying it propagates to the caller."""
+        from agentfox.fix.analyzer import load_review_context
 
-        # Open read-only connection
-        conn_ro = duckdb.connect(db_path, read_only=True)
+        mock_db = MagicMock()
+        mock_db.connection = MagicMock()
 
-        # Attempting a write on a read-only connection must raise
-        with pytest.raises(duckdb.InvalidInputException):
-            conn_ro.execute(
-                "INSERT INTO review_findings "
-                "(id, severity, description, requirement_ref, "
-                "spec_name, task_group, session_id) "
-                "VALUES ('x', 'critical', 'injected', "
-                "'REQ-X', 'spec', '1', 'sess')"
-            )
+        # Simulate a DuckDB read-only exception raised inside query_active_findings
+        with (
+            patch(
+                "agentfox.knowledge.db.open_knowledge_store",
+                return_value=mock_db,
+            ),
+            patch(
+                "agentfox.knowledge.review_store.query_active_findings",
+                side_effect=duckdb.InvalidInputException("Cannot execute write operation in read-only mode"),
+            ),
+        ):
+            with pytest.raises(duckdb.InvalidInputException, match="read-only"):
+                load_review_context(Path("/tmp/fake-project"))
 
-        conn_ro.close()
+        # Verify db.close() was still called (cleanup in finally block)
+        mock_db.close.assert_called_once()
 
 
 # -----------------------------------------------------------------------

@@ -32,7 +32,9 @@ class TestPythonMInvocation:
         """python -m nightshift --help exits 0."""
         result = subprocess.run(
             [sys.executable, "-m", "nightshift", "--help"],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         assert result.returncode == 0
 
@@ -133,28 +135,36 @@ class TestGlobalOptions:
     def test_help_contains_json_flag(self) -> None:
         result = subprocess.run(
             [sys.executable, "-m", "nightshift", "--help"],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         assert "--json" in result.stdout
 
     def test_help_contains_no_json_flag(self) -> None:
         result = subprocess.run(
             [sys.executable, "-m", "nightshift", "--help"],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         assert "--no-json" in result.stdout
 
     def test_help_contains_verbose_flag(self) -> None:
         result = subprocess.run(
             [sys.executable, "-m", "nightshift", "--help"],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         assert "--verbose" in result.stdout or "-v" in result.stdout
 
     def test_help_contains_quiet_flag(self) -> None:
         result = subprocess.run(
             [sys.executable, "-m", "nightshift", "--help"],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         assert "--quiet" in result.stdout or "-q" in result.stdout
 
@@ -169,7 +179,9 @@ class TestGlobalOptions:
     def test_help_contains_version_flag(self) -> None:
         result = subprocess.run(
             [sys.executable, "-m", "nightshift", "--help"],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         assert "--version" in result.stdout
 
@@ -417,7 +429,10 @@ class TestEnvironmentVariables:
         env["AF_AGENT"] = "1"
         result = subprocess.run(
             [sys.executable, "-m", "nightshift", "--help"],
-            capture_output=True, text=True, timeout=30, env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=env,
         )
         assert result.returncode == 0
 
@@ -427,7 +442,10 @@ class TestEnvironmentVariables:
         env["AF_LOG_LEVEL"] = "DEBUG"
         result = subprocess.run(
             [sys.executable, "-m", "nightshift", "--help"],
-            capture_output=True, text=True, timeout=30, env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=env,
         )
         assert result.returncode == 0
 
@@ -504,7 +522,9 @@ class TestBehavioralParity:
         """Flag combination produces the expected exit code."""
         result = subprocess.run(
             [sys.executable, "-m", "nightshift", *flags],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         assert result.returncode == expected_exit, (
             f"Flags {flags} expected exit {expected_exit}, got {result.returncode}"
@@ -554,7 +574,10 @@ class TestEnvVarSemantics:
         env[env_var] = value
         result = subprocess.run(
             [sys.executable, "-m", "nightshift", "--help"],
-            capture_output=True, text=True, timeout=30, env=env,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            env=env,
         )
         assert result.returncode == 0
 

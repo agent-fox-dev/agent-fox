@@ -40,9 +40,7 @@ class TestMigratedTestFilesExist:
             if test_file in files:
                 found = True
                 break
-        assert found, (
-            f"{test_file} not found under {NIGHTSHIFT_TESTS_DIR}"
-        )
+        assert found, f"{test_file} not found under {NIGHTSHIFT_TESTS_DIR}"
 
 
 class TestMigratedTestsPass:
@@ -114,9 +112,7 @@ class TestRemovalTestInAfSuite:
     def test_removal_test_file_exists(self) -> None:
         """A test file in af tests validates night-shift removal."""
         removal_test = AF_TESTS_DIR / "test_nightshift_removal.py"
-        assert removal_test.exists(), (
-            "packages/af/tests/test_nightshift_removal.py must exist"
-        )
+        assert removal_test.exists(), "packages/af/tests/test_nightshift_removal.py must exist"
 
 
 class TestCodeDryRunRemainsInAf:
@@ -128,9 +124,7 @@ class TestCodeDryRunRemainsInAf:
     def test_code_dry_run_not_in_nightshift(self) -> None:
         """test_code_dry_run.py should NOT be in nightshift tests."""
         for root, _dirs, files in os.walk(NIGHTSHIFT_TESTS_DIR):
-            assert "test_code_dry_run.py" not in files, (
-                "test_code_dry_run.py tests af CLI --dry-run, not nightshift"
-            )
+            assert "test_code_dry_run.py" not in files, "test_code_dry_run.py tests af CLI --dry-run, not nightshift"
 
     def test_code_dry_run_still_in_af(self) -> None:
         """test_code_dry_run.py should remain in af tests."""

@@ -65,10 +65,10 @@ class TestPlanVerifyReadOnly:
             cli_runner.invoke(main, ["plan", "--verify", "--specs-dir", str(specs_dir)])
 
         # Verify open_knowledge_store was called with read_only=True
-        if mock_oks.called:
-            call_kwargs = mock_oks.call_args
-            read_only_val = call_kwargs.kwargs.get("read_only")
-            assert read_only_val is True, f"af plan --verify must use read_only=True, got {read_only_val}"
+        mock_oks.assert_called_once()
+        call_kwargs = mock_oks.call_args
+        read_only_val = call_kwargs.kwargs.get("read_only")
+        assert read_only_val is True, f"af plan --verify must use read_only=True, got {read_only_val}"
 
 
 # -----------------------------------------------------------------------
@@ -108,16 +108,16 @@ class TestPlanSaveReadWrite:
 
             cli_runner.invoke(main, ["plan", "--specs-dir", str(specs_dir)])
 
-        # The save path should call open_knowledge_store with read_only=False
-        if mock_oks.called:
-            # Find the call that uses read_only=False (save path)
-            found_write_call = False
-            for call in mock_oks.call_args_list:
-                read_only_val = call.kwargs.get("read_only")
-                if read_only_val is False:
-                    found_write_call = True
-                    break
-            assert found_write_call, "af plan save path must call open_knowledge_store with read_only=False"
+        # The save path must call open_knowledge_store with read_only=False
+        mock_oks.assert_called()
+        # Find the call that uses read_only=False (save path)
+        found_write_call = False
+        for call in mock_oks.call_args_list:
+            read_only_val = call.kwargs.get("read_only")
+            if read_only_val is False:
+                found_write_call = True
+                break
+        assert found_write_call, "af plan save path must call open_knowledge_store with read_only=False"
 
 
 # -----------------------------------------------------------------------
