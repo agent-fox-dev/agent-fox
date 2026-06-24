@@ -94,17 +94,30 @@ class TestNoEmitProgressInTextMode:
     "wiring IS in place but end-to-end test infrastructure is not",
 )
 class TestStdoutStderrSeparation:
-    """TS-04-14: JSONL progress on stderr, final result on stdout."""
+    """TS-04-14: JSONL progress on stderr, final result on stdout.
 
-    def test_stdout_is_valid_json_stderr_is_jsonl(self, cli_runner) -> None:
+    Uses ``mix_stderr=False`` to capture stdout and stderr independently
+    so the stdout/stderr separation contract can be validated.
+    """
+
+    def test_stdout_is_valid_json_stderr_is_jsonl(self, cli_runner_separated) -> None:
         """stdout lines are JSON; stderr lines are JSONL with 'event' key."""
         from af.app import main
 
-        result = cli_runner.invoke(main, ["--json", "code"])
+        result = cli_runner_separated.invoke(main, ["--json", "code"])
+        assert result.exit_code == 0
+
+        # All stdout lines must be valid JSON (the final result)
         for line in result.output.strip().splitlines():
             if line.strip():
                 json.loads(line)
-        assert result.exit_code == 0
+
+        # All stderr lines must be valid JSONL progress events
+        stderr_lines = [line for line in result.stderr.strip().splitlines() if line.strip()]
+        assert len(stderr_lines) >= 2, "Expected at least 2 JSONL progress events on stderr"
+        for line in stderr_lines:
+            obj = json.loads(line)
+            assert "event" in obj, f"JSONL line missing 'event' key: {line}"
 
 
 @pytest.mark.xfail(
@@ -113,16 +126,34 @@ class TestStdoutStderrSeparation:
     "wiring IS in place but end-to-end test infrastructure is not",
 )
 class TestCodeJsonlEvents:
-    """TS-04-15: af code --json emits JSONL events on stderr."""
+    """TS-04-15: af code --json emits JSONL events on stderr.
 
-    def test_code_emits_progress_events(self, cli_runner) -> None:
+    Uses ``mix_stderr=False`` to validate stderr JSONL events independently
+    from the stdout JSON result.
+    """
+
+    def test_code_emits_progress_events(self, cli_runner_separated) -> None:
         """af code --json stderr has task_started/completed/failed events."""
         from af.app import main
 
-        result = cli_runner.invoke(main, ["--json", "code"])
+        result = cli_runner_separated.invoke(main, ["--json", "code"])
         assert result.exit_code == 0
+
+        # stdout: final JSON result
         final = json.loads(result.output)
         assert isinstance(final, dict)
+
+        # stderr: JSONL progress events
+        events = [json.loads(line) for line in result.stderr.strip().splitlines() if line.strip()]
+        assert len(events) > 0, "Expected at least one JSONL event on stderr"
+        for ev in events:
+            assert ev["event"] in (
+                "task_started",
+                "task_completed",
+                "task_failed",
+            )
+            assert "node_id" in ev
+            assert "timestamp" in ev
 
 
 @pytest.mark.xfail(
@@ -131,16 +162,32 @@ class TestCodeJsonlEvents:
     "wiring IS in place but end-to-end test infrastructure is not",
 )
 class TestNightShiftJsonlEvents:
-    """TS-04-16: af night-shift --json emits JSONL events on stderr."""
+    """TS-04-16: af night-shift --json emits JSONL events on stderr.
 
-    def test_night_shift_emits_progress_events(self, cli_runner) -> None:
+    Uses ``mix_stderr=False`` to validate stderr JSONL events independently
+    from the stdout JSON result.
+    """
+
+    def test_night_shift_emits_progress_events(self, cli_runner_separated) -> None:
         """af night-shift --json stderr has task events."""
         from af.app import main
 
-        result = cli_runner.invoke(main, ["--json", "night-shift"])
+        result = cli_runner_separated.invoke(main, ["--json", "night-shift"])
         assert result.exit_code == 0
+
+        # stdout: final JSON result
         final = json.loads(result.output)
         assert isinstance(final, dict)
+
+        # stderr: JSONL progress events
+        events = [json.loads(line) for line in result.stderr.strip().splitlines() if line.strip()]
+        assert len(events) > 0, "Expected at least one JSONL event on stderr"
+        for ev in events:
+            assert ev["event"] in (
+                "task_started",
+                "task_completed",
+                "task_failed",
+            )
 
 
 class TestBrokenPipeSuppressed:
@@ -169,16 +216,32 @@ class TestBrokenPipeSuppressed:
 
 
 class TestNullNodeId:
-    """TS-04-E4: ProgressDisplay emits event with node_id=null for None."""
+    """TS-04-E4: ProgressDisplay emits event with node_id=null for None.
+
+    When node_id is None or empty, the JSONL event is emitted with
+    ``node_id=null`` and a warning message is written to stderr.
+    """
 
     def test_null_node_id_emits_with_warning(self) -> None:
-        """task_started(node_id=None) emits with node_id=null."""
+        """task_started(node_id=None) emits with node_id=null and warns on stderr."""
+        import io
+        from unittest.mock import patch
+
         from agentfox.io import ProgressDisplay
 
         om = MagicMock()
+        stderr_capture = io.StringIO()
         pd = ProgressDisplay(output_manager=om, json_mode=True)
-        pd.task_started(node_id=None)
 
+        with patch("sys.stderr", stderr_capture):
+            pd.task_started(node_id=None)
+
+        # Verify event emitted with null node_id
         call = om.emit_progress.call_args
         event_data = call[0][0] if call[0] else call[1]
         assert event_data["node_id"] is None
+
+        # Verify warning written to stderr (04-REQ-3.E2)
+        warning_output = stderr_capture.getvalue()
+        assert "WARNING" in warning_output or "warning" in warning_output.lower()
+        assert "node_id" in warning_output.lower()

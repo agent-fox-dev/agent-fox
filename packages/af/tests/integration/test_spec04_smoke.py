@@ -30,21 +30,38 @@ _SUBCOMMANDS = [
 # --- TS-04-27: Full test suite collectible ---
 
 
-class TestFullSuiteCollectible:
-    """TS-04-27: All spec-04 test files are collectible by pytest."""
+class TestFullSuitePass:
+    """TS-04-27: Full af test suite passes with exit code 0.
 
-    def test_spec04_tests_collect_without_errors(self) -> None:
-        """pytest --collect-only on spec04 test files succeeds."""
+    Runs pytest on the af test directory (excluding spec04 files to
+    avoid recursive self-invocation) and verifies zero failures.
+    Spec04 tests are validated by the test runner that invokes *this*
+    file, so we verify the non-spec04 suite remains green.
+    """
+
+    def test_af_test_suite_passes(self) -> None:
+        """pytest on af test suite exits with code 0 (zero failures)."""
         tests_dir = Path(__file__).resolve().parents[1]
-        spec04_files = sorted(tests_dir.rglob("test_spec04_*.py"))
-        assert len(spec04_files) >= 5, f"Expected at least 5 spec04 test files, found {len(spec04_files)}"
         result = subprocess.run(
-            ["uv", "run", "pytest", "--collect-only", "-q"] + [str(f) for f in spec04_files],
+            [
+                "uv",
+                "run",
+                "pytest",
+                "-q",
+                "--timeout=30",
+                "--ignore=packages/af/tests/integration/test_spec04_smoke.py",
+                "-k",
+                "not spec04",
+                str(tests_dir),
+            ],
             capture_output=True,
             text=True,
-            cwd=str(tests_dir.parent),
+            cwd=str(tests_dir.parents[1]),
+            timeout=300,
         )
-        assert result.returncode == 0, f"pytest collect failed:\n{result.stdout}\n{result.stderr}"
+        assert result.returncode == 0, (
+            f"pytest failed with exit code {result.returncode}:\n{result.stdout[-2000:]}\n{result.stderr[-500:]}"
+        )
 
 
 # --- TS-04-28: Subcommand contracts ---
@@ -77,17 +94,33 @@ class TestSmoke1CodeJsonlStreaming:
     there is no plan DB.  The wiring IS in place (code.py uses
     ProgressDisplay + emit_progress), but the test fixture lacks
     the infrastructure to run the orchestrator.
+
+    Uses ``mix_stderr=False`` to validate stdout/stderr separation.
     """
 
-    def test_code_json_streaming_path(self, cli_runner) -> None:
+    def test_code_json_streaming_path(self, cli_runner_separated) -> None:
         """af code --json: stderr has JSONL events, stdout has JSON result."""
         from af.app import main
 
-        result = cli_runner.invoke(main, ["--json", "code"])
+        result = cli_runner_separated.invoke(main, ["--json", "code"])
         assert result.exit_code == 0
-        # stdout is valid JSON
+
+        # stdout: single valid JSON object (final result)
         final = json.loads(result.output)
         assert isinstance(final, dict)
+
+        # stderr: at least two JSONL lines (task_started + task_completed/failed)
+        stderr_lines = [line for line in result.stderr.strip().splitlines() if line.strip()]
+        assert len(stderr_lines) >= 2, "Expected at least 2 JSONL progress events on stderr"
+        for line in stderr_lines:
+            obj = json.loads(line)
+            assert "event" in obj
+        # No JSONL event lines on stdout
+        stdout_lines = result.output.strip().splitlines()
+        for line in stdout_lines:
+            if line.strip():
+                parsed = json.loads(line)
+                assert "event" not in parsed or isinstance(parsed.get("event"), dict), "JSONL event leaked to stdout"
 
 
 class TestSmoke2StandupJson:

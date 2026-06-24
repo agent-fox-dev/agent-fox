@@ -44,16 +44,36 @@ class TestSubcommandsUseOutputManager:
         assert has_output_retrieval, f"{filename} missing OutputManager retrieval"
         assert has_om_emit, f"{filename} missing om.emit() call"
 
-    @pytest.mark.xfail(
-        strict=False,
-        reason="click.echo() still used for non-data output (error messages, text-mode UI); data output uses om.emit()",
-    )
     @pytest.mark.parametrize("filename", _SUBCOMMAND_FILES)
-    def test_no_click_echo_data_output(self, filename: str) -> None:
-        """Subcommand file does not use click.echo() for data output."""
+    def test_no_click_echo_json_data_output(self, filename: str) -> None:
+        """Subcommand does not use click.echo() to emit structured JSON data.
+
+        Data payloads (JSON dicts) must go through om.emit(), not
+        click.echo(json.dumps(...)). Text-mode human output and
+        stderr error messages via click.echo() are acceptable per
+        04-REQ-2.1 (which only requires data output through om.emit).
+
+        Verifies that click.echo is never used to serialize JSON data
+        directly — patterns like ``click.echo(json.dumps(...))``.
+        """
+        import re
+
         filepath = _AF_PACKAGE_DIR / filename
         content = filepath.read_text()
-        assert "click.echo(" not in content, f"{filename} still uses click.echo() for data output"
+
+        # click.echo(json.dumps(...)) would bypass OutputManager for data
+        assert "click.echo(json.dumps(" not in content, (
+            f"{filename} uses click.echo(json.dumps(...)) — data should go through om.emit()"
+        )
+        # click.echo with emit_json/emit_ok/emit_line patterns (legacy shim)
+        assert "click.echo(emit" not in content, (
+            f"{filename} uses click.echo(emit*(...)) — data should go through om.emit()"
+        )
+        # Verify all click.echo calls are either err=True or text-mode output
+        # by checking no click.echo call directly outputs a dict/json structure
+        echo_calls = re.findall(r"click\.echo\(([^)]+)\)", content)
+        for call_arg in echo_calls:
+            assert "json.dumps" not in call_arg, f"{filename} has click.echo with json.dumps in args"
 
 
 class TestNoJsonIoImports:
