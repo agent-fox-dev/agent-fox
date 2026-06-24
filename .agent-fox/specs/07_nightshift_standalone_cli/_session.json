@@ -1,0 +1,413 @@
+{
+  "state": "generated",
+  "prd_path": "prd.md",
+  "assessment_history": [
+    {
+      "quality": "ready",
+      "summary": "The PRD for `nightshift_standalone_cli` is well-structured and detailed. It clearly articulates the intent (extracting `night-shift` from the `af` CLI into a standalone package), provides concrete functional and non-functional requirements, explicitly defines out-of-scope items, and includes dependency context. All four expected spec sections are effectively covered \u2014 Intent (Overview + Motivation), Goals (implicit via FRs), Non-Goals (Out of Scope), and Background (Motivation + Tech Stack). The document is specific enough to proceed to artifact generation with only minor observations noted below.",
+      "gaps": [
+        "No explicit 'Goals' section with measurable outcomes (e.g., install size reduction targets, performance benchmarks, adoption metrics). Goals are implied by the functional requirements but not stated as verifiable success criteria.",
+        "Owner field is empty \u2014 no accountable person or team is identified for this spec.",
+        "No testing strategy or coverage expectations are defined beyond test migration (NFR-2). There is no mention of CI integration, minimum coverage thresholds, or test types (unit, integration, e2e).",
+        "No rollout or release plan is mentioned \u2014 it is unclear whether the removal of `af night-shift` is coordinated with a specific release gate or version bump.",
+        "The dependency on spec '04_af_agentic_cli' is noted but its completion status or blocking nature is not clarified \u2014 it is ambiguous whether this spec can proceed in parallel or must wait."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "Who is the owner or responsible team for this spec?",
+          "context": "The owner field is blank. Identifying an owner ensures accountability for decisions and reviews during artifact generation and implementation.",
+          "options": [],
+          "required": false
+        },
+        {
+          "id": "q2",
+          "text": "Are there any measurable success criteria or goals for this extraction? For example, a target reduction in install size, time-to-first-run, or a user adoption milestone?",
+          "context": "The PRD lacks an explicit Goals section with verifiable outcomes. While the functional requirements are clear, measurable goals help validate the work was successful post-release.",
+          "options": [
+            "No formal metrics \u2014 successful extraction and parity with af night-shift is sufficient",
+            "Reduced install footprint (e.g., nightshift package < X MB without full af dependencies)",
+            "All existing night-shift tests passing in the new package",
+            "Other (please specify)"
+          ],
+          "required": false
+        },
+        {
+          "id": "q3",
+          "text": "Is spec '04_af_agentic_cli' a hard blocker for this work, or can development proceed in parallel assuming its interfaces are stable?",
+          "context": "The dependency table references spec 04 as a provider of AgentFoxGroup, OutputManager, and common_options. Clarifying the blocking nature helps sequence implementation correctly.",
+          "options": [
+            "Hard blocker \u2014 spec 04 must be complete before nightshift CLI can be implemented",
+            "Soft dependency \u2014 interfaces are stable enough to develop in parallel",
+            "Already complete \u2014 spec 04 artifacts are available"
+          ],
+          "required": false
+        },
+        {
+          "id": "q4",
+          "text": "Should the removal of `af night-shift` be treated as a breaking change requiring a major version bump or a deprecation notice in any prior release?",
+          "context": "FR-1 specifies removing the command with no deprecation stub. If any external users or downstream tools depend on `af night-shift`, a coordinated deprecation may be needed.",
+          "options": [
+            "No deprecation needed \u2014 removal is intentional and aligned with the 4.0.0-rc4 release cycle",
+            "A deprecation notice in the previous release is required before hard removal",
+            "Unknown \u2014 needs investigation of downstream usage"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD is well-structured and clearly scoped. It covers functional requirements, tech stack, non-functional requirements, and out-of-scope items with good specificity. However, several gaps remain: migration strategy for existing tests is underspecified, there is no CI/CD integration requirement, rollback/compatibility guidance for users upgrading from af to nightshift is absent, and there are open questions around how `pyproject.toml` metadata (description, license, authors) should be populated for the new package. Addressing these will make the spec fully implementation-ready.",
+      "gaps": [
+        "No CI/CD integration requirement specified \u2014 it is unclear whether the new `nightshift` package should be included in existing lint, test, and publish pipelines (e.g. GitHub Actions workflows).",
+        "Test migration strategy is underspecified \u2014 FR-5/NFR-2 say to move or adapt tests but do not clarify whether tests are physically moved (git mv), copied, or symlinked, nor how to handle shared fixtures between af and nightshift test suites.",
+        "No pyproject.toml metadata specified for the new package \u2014 authors, description, license, classifiers, and homepage URL are missing and may be required for PyPI publishing or internal registry consistency.",
+        "No migration/upgrade guide for existing users \u2014 users currently using `af night-shift` will break silently after upgrading to 4.0.0-rc4 if they are not instructed to install the new `nightshift` package separately.",
+        "No changelog or release-notes requirement \u2014 it is unclear whether CHANGELOG.md or release notes should document the removal of `af night-shift` and the introduction of the standalone CLI.",
+        "The package diagram in FR-6 does not clarify the relationship between `spec` and `nightshift` \u2014 it is ambiguous whether `nightshift` directly depends on `agentspec` or only on `agentfox`.",
+        "No explicit requirement to verify the `python -m nightshift` entry point works correctly in tests or CI."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "Should the new `nightshift` package be added to existing CI/CD pipelines (e.g. lint, test, publish workflows)? If so, are there any pipeline files that need updating?",
+          "context": "Without CI integration, the new package may not be automatically tested or published, undermining the reliability of the extraction.",
+          "options": [
+            "Yes \u2014 add to all existing pipelines (lint, test, publish)",
+            "Yes \u2014 add to test and lint only; publishing is handled separately",
+            "No \u2014 nightshift will have its own separate pipeline",
+            "To be decided later"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "How should existing night-shift tests be migrated from `packages/af/tests/` to `packages/nightshift/tests/`? Are there shared fixtures with other af tests?",
+          "context": "A clear migration strategy prevents test duplication and ensures shared fixtures are handled consistently without breaking af's remaining test suite.",
+          "options": [
+            "Physical move (git mv) \u2014 tests are fully self-contained with no shared fixtures",
+            "Copy tests and refactor shared fixtures into a common package or conftest",
+            "Shared fixtures will be imported from agentfox or a test-utilities package",
+            "Unknown \u2014 needs investigation before implementation"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "What `pyproject.toml` metadata should the new `nightshift` package carry? Specifically: description, license, authors, and any PyPI classifiers?",
+          "context": "Consistent package metadata is required for PyPI publishing and internal registry standards. It also signals to users what the package does.",
+          "options": [
+            "Reuse the same metadata as the `af` package (same authors, license, classifiers)",
+            "Use minimal metadata \u2014 description and license only",
+            "Full metadata including classifiers, homepage URL, and changelog link",
+            "Not publishing to PyPI \u2014 internal workspace use only, minimal metadata needed"
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "Should there be a user-facing migration notice (e.g. in README, CHANGELOG, or a printed deprecation warning on `af` startup) for users upgrading from `af night-shift` to the standalone `night-shift` CLI?",
+          "context": "Existing users of `af night-shift` will receive a 'command not found' error after upgrading to 4.0.0-rc4 unless they are guided to install the new package. A migration notice reduces support burden.",
+          "options": [
+            "Yes \u2014 add a migration note to README and CHANGELOG",
+            "Yes \u2014 also print a one-time warning at af startup if nightshift is not installed",
+            "No \u2014 the removal is intentional and clean; users will see the release notes",
+            "Partial \u2014 CHANGELOG only, no runtime warning"
+          ],
+          "required": true
+        },
+        {
+          "id": "q5",
+          "text": "Should the `python -m nightshift` entry point be explicitly tested in the migrated test suite or in CI?",
+          "context": "FR-2 specifies `__main__.py` to support `python -m nightshift`, but there is no test or CI requirement to verify it works correctly end-to-end.",
+          "options": [
+            "Yes \u2014 add an integration test that invokes `python -m nightshift --help`",
+            "Yes \u2014 verify in CI via a smoke-test step",
+            "No \u2014 the Click wiring is trivial and does not need explicit testing",
+            "To be decided by the implementer"
+          ],
+          "required": false
+        },
+        {
+          "id": "q6",
+          "text": "In the package diagram (FR-6), does `nightshift` depend only on `agentfox`, or does it also have a direct dependency on `agentspec` or `afspec`?",
+          "context": "The diagram as written is ambiguous \u2014 the caret (\u25b2) and branch from `agentspec` could imply nightshift depends on agentspec. Clarifying this prevents incorrect dependency declarations in pyproject.toml.",
+          "options": [
+            "nightshift depends only on agentfox (and click/rich/duckdb)",
+            "nightshift also depends on agentspec directly",
+            "nightshift also depends on afspec directly",
+            "Unsure \u2014 needs investigation"
+          ],
+          "required": true
+        }
+      ]
+    },
+    {
+      "quality": "ready",
+      "summary": "This is a well-structured, clearly scoped PRD for extracting the `night-shift` command into a standalone CLI package. The requirements are precise, technically detailed, and internally consistent. The scope is deliberately narrow (functional parity extraction), success criteria are explicit and measurable, and edge cases (fixture sharing, CI integration, deprecation strategy) are thoughtfully addressed. The document is nearly ready for implementation handoff with only a few minor clarifications that would improve completeness.",
+      "gaps": [
+        "The `description` field for the new `pyproject.toml` is listed as required (FR-2a) but no suggested or example value is provided \u2014 the implementer must guess it.",
+        "It is unclear whether `testpaths` in the root `pyproject.toml` must be manually updated to include `packages/nightshift/tests/` or if this is inferred automatically by the uv workspace setup (NFR-4 implies it must be added but the phrasing is ambiguous).",
+        "The `--version` flag behavior for the standalone CLI is mentioned in FR-3 but there is no explicit statement of what the version string should display (e.g., `night-shift 4.0.0-rc4` vs. `nightshift 4.0.0-rc4`).",
+        "No mention of whether the `night-shift` CLI should also support config overrides via environment variables that `af` may have supported (e.g. `AF_CONFIG`, `AF_AGENT=1`), beyond the AF_AGENT=1 note.",
+        "The package diagram in FR-6 does not clarify whether `nightshift` depends on `duckdb` and `rich` directly or transitively through `agentfox`, which could matter for the `pyproject.toml` dependency list."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What should the one-line `description` field in the new `nightshift` package's `pyproject.toml` say?",
+          "context": "FR-2a marks `description` as required but provides no example. Having this locked down prevents ambiguity during implementation.",
+          "options": [
+            "Standalone CLI for the AgentFox Night Shift fix daemon",
+            "Night Shift: autonomous fix daemon for AgentFox",
+            "Continuously-running fix-only daemon extracted from the af orchestrator"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "What should the `--version` flag display in the standalone `night-shift` CLI?",
+          "context": "FR-3 lists `--version` as a required global option but does not specify the version string format, which affects both the implementation and the NFR-3 integration test assertion.",
+          "options": [
+            "night-shift, version 4.0.0-rc4",
+            "nightshift 4.0.0-rc4",
+            "4.0.0-rc4",
+            "Mirror whatever Click's default version_option produces from pyproject.toml metadata"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "Should `nightshift` depend on `duckdb` and `rich` directly in its `pyproject.toml`, or are those transitive dependencies pulled in via `agentfox`?",
+          "context": "The FR-2 dependency list explicitly includes `rich>=15.0` and `duckdb>=1.5.4`, but the FR-6 diagram only shows `agentfox` as a direct dependency. This affects whether the `pyproject.toml` should declare them explicitly.",
+          "options": [
+            "Declare them explicitly in nightshift's pyproject.toml as direct dependencies (belt-and-suspenders approach)",
+            "They are transitive via agentfox \u2014 only declare agentfox and click as direct dependencies",
+            "Follow whatever the current af/nightshift.py imports directly to determine directness"
+          ],
+          "required": false
+        },
+        {
+          "id": "q4",
+          "text": "Beyond `AF_AGENT=1`, are there other environment variables (e.g. `AF_CONFIG`, `AF_LOG_LEVEL`) that the standalone `night-shift` CLI must support?",
+          "context": "FR-3 mentions `AF_AGENT=1` explicitly but does not address other env vars that the `af` CLI may have supported. Implementers may inadvertently omit them if not specified.",
+          "options": [
+            "Only AF_AGENT=1 \u2014 no other environment variables are required",
+            "All environment variables currently supported by `af night-shift` must be preserved (implementer to audit)",
+            "Specify a list: AF_AGENT, AF_CONFIG, AF_LOG_LEVEL (add others as needed)"
+          ],
+          "required": false
+        },
+        {
+          "id": "q5",
+          "text": "Does the root `pyproject.toml` `testpaths` list need to be manually updated to include `packages/nightshift/tests/`, or will the uv workspace configuration make this automatic?",
+          "context": "NFR-4 states that adding `packages/nightshift/tests/` to the root `pyproject.toml` `testpaths` is sufficient, but also says no CI/CD changes are required. It's unclear if this root `pyproject.toml` edit is itself required or optional.",
+          "options": [
+            "Yes \u2014 manually add packages/nightshift/tests/ to testpaths in the root pyproject.toml",
+            "No \u2014 the uv workspace membership is sufficient; testpaths does not need updating",
+            "Run tests from packages/nightshift/ directly; root testpaths is irrelevant"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD is well-structured and highly detailed for an extraction/refactoring task. It covers goals, functional requirements, NFRs, scope boundaries, and the dependency table clearly. However, a few gaps remain: the test migration strategy lacks specificity about which test files exist and should move, the env var audit expectation is placed on the implementer without a baseline list, the conftest fixture sharing situation is unknown, and the exact `af` pyproject.toml dependency pattern (whether `rich`/`duckdb` are direct or transitive) is deferred to the implementer without a definitive answer. Resolving these ambiguities would make the PRD fully implementation-ready.",
+      "gaps": [
+        "No explicit list of night-shift test files currently in packages/af/tests/ \u2014 implementer must discover these independently, risking oversight.",
+        "The dependency declaration pattern for `rich` and `duckdb` (direct vs. transitive) is described as 'must follow the same pattern used in af' but the actual pattern is not stated in the PRD, leaving ambiguity.",
+        "The environment variable audit is delegated entirely to the implementer with no baseline list of known env vars beyond three examples (AF_CONFIG, AF_LOG_LEVEL, AF_AGENT), creating a risk of silent omissions.",
+        "No explicit acceptance criteria for the documentation updates (FR-5) \u2014 it is unclear how completeness of doc updates will be verified.",
+        "The conftest.py fixture sharing situation is fully unknown \u2014 no guidance on what fixtures are expected to be exclusive vs. shared, which could cause test suite regressions if mishandled.",
+        "No rollback or contingency plan if the removal of af night-shift breaks downstream consumers during the rc4 cycle."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What test files currently exist in packages/af/tests/ that are specific to night-shift and should be migrated to packages/nightshift/tests/?",
+          "context": "Without a known list of files, the implementer must audit the test suite manually, risking missed migrations or accidental removal of shared tests. An explicit list removes this ambiguity.",
+          "options": [
+            "Provide a list of specific filenames (e.g. test_nightshift.py, test_daemon.py)",
+            "Confirm the implementer should discover them via full audit",
+            "There are no existing night-shift tests to migrate"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "In the af package's pyproject.toml, are `rich` and `duckdb` declared as direct dependencies or are they transitive (pulled in via agentfox)?",
+          "context": "FR-2 requires the nightshift package to follow the same pattern as af, but does not state what that pattern actually is. The implementer needs a definitive answer to write the correct pyproject.toml.",
+          "options": [
+            "Both rich and duckdb are direct dependencies in af's pyproject.toml",
+            "Both are transitive \u2014 only agentfox and click are direct in af",
+            "rich is direct, duckdb is transitive",
+            "duckdb is direct, rich is transitive"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "Beyond AF_CONFIG, AF_LOG_LEVEL, and AF_AGENT, are there any other environment variables currently supported by the af night-shift invocation path that must be preserved?",
+          "context": "FR-3 requires full env var parity but only names three examples. If there are known additional env vars, listing them here prevents silent omissions and reduces implementation risk.",
+          "options": [
+            "No others \u2014 those three are the complete set",
+            "Yes \u2014 provide additional env var names",
+            "Unknown \u2014 implementer must audit AgentFoxGroup and common_options source"
+          ],
+          "required": false
+        },
+        {
+          "id": "q4",
+          "text": "Are there shared fixtures in packages/af/tests/conftest.py that are used by both af and night-shift tests, or are the night-shift fixtures isolated?",
+          "context": "NFR-2 requires the implementer to inspect conftest.py before moving files, but if you already know the answer, it can be specified here to reduce risk of af test suite regressions.",
+          "options": [
+            "Night-shift fixtures are fully isolated \u2014 safe to move the entire conftest section",
+            "Some fixtures are shared \u2014 implementer must copy and refactor",
+            "Unknown \u2014 implementer should audit before deciding"
+          ],
+          "required": false
+        },
+        {
+          "id": "q5",
+          "text": "How should documentation update completeness (FR-5) be verified \u2014 is a reviewer sign-off, a doc link-check CI step, or a manual review against a checklist sufficient?",
+          "context": "FR-5 lists six documentation files to update but provides no acceptance criteria for verifying completeness. Defining this prevents the doc updates from being marked done prematurely.",
+          "options": [
+            "Manual review by the owner (Michael Kuehl) is sufficient",
+            "A checklist item per file in the PR description is sufficient",
+            "A CI doc link-check or grep for 'af night-shift' in updated files is required",
+            "No formal verification needed \u2014 best-effort updates are acceptable"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD is well-structured and detailed overall, covering functional requirements, non-functional requirements, tech stack, and out-of-scope items clearly. The goals are narrow and measurable, and most implementation decisions are explicit. However, several gaps remain that could cause ambiguity or rework during implementation: the test migration strategy leaves fixture discovery entirely to the implementer without a fallback plan, the `__main__.py` and `app.py` contract is not specified, versioning policy for future releases is unclear, and there is no explicit acceptance criterion for the workspace integration or entry-point wiring beyond the help-flag smoke test.",
+      "gaps": [
+        "No specification of what __main__.py should contain or how it should delegate to app.py (e.g., does it call main() directly or use sys.exit?).",
+        "No acceptance criterion for FR-4 workspace integration \u2014 there is no verification step (e.g., a uv sync or import check) to confirm the workspace member is wired correctly beyond the testpaths edit.",
+        "The fixture sharing situation in conftest.py is described as 'unknown', with no fallback or escalation path if the split turns out to be highly entangled.",
+        "No guidance on how to handle the version field going forward after 4.0.0-rc4 (e.g., is it kept in sync manually, via a release script, or derived from a single source of truth?).",
+        "The integration test requirement (NFR-3) specifies asserting 'expected output (e.g. presence of the --version flag)' but does not lock down the minimum set of assertions, leaving test coverage quality undefined.",
+        "FR-5 lists specific doc files to update but does not clarify what 'update if it references af night-shift' means for optional files \u2014 a reviewer cannot confirm completion without checking each file manually.",
+        "No rollback or contingency strategy if migrated tests fail due to entangled fixtures or hidden af dependencies in the night-shift test files."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What should packages/nightshift/nightshift/__main__.py contain? Should it simply call main() from app.py, and should it wrap the call in sys.exit()?",
+          "context": "The PRD lists __main__.py as a required file but does not specify its contents or how it delegates to app.py. This is important because `python -m nightshift` behavior depends on it, and it is tested by NFR-3.",
+          "options": [
+            "Call main() directly (e.g., `from nightshift.app import main; main()`)",
+            "Wrap with sys.exit (e.g., `import sys; from nightshift.app import main; sys.exit(main())`)",
+            "Mirror exactly what af's __main__.py does (copy the pattern)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "What is the minimum set of assertions required for the NFR-3 entry-point integration test to be considered passing?",
+          "context": "NFR-3 says to assert 'expected output (e.g. presence of the --version flag in help text)' but 'e.g.' leaves it open. Locking down the minimum set prevents under-testing.",
+          "options": [
+            "Zero exit code + '--version' appears in stdout",
+            "Zero exit code + '--version' and '--json' appear in stdout",
+            "Zero exit code + full help text snapshot match",
+            "Zero exit code only (output not checked)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "If the conftest.py fixture split turns out to be highly entangled (e.g., a fixture used by both af and night-shift tests cannot be cleanly separated), what is the preferred fallback strategy?",
+          "context": "NFR-2 acknowledges the fixture sharing situation is unknown. Without a fallback, an implementer facing a complex split may make an arbitrary call that diverges from your intent.",
+          "options": [
+            "Duplicate the fixture in both conftest files and accept temporary duplication",
+            "Extract shared fixtures into a conftest.py in the workspace root or a shared test-helpers package",
+            "Leave shared fixtures in packages/af/tests/conftest.py and import them from nightshift tests",
+            "Block on a design review before proceeding"
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "After 4.0.0-rc4, how should the version field in packages/nightshift/pyproject.toml be kept in sync with other packages?",
+          "context": "The PRD specifies version 4.0.0-rc4 but does not address the versioning strategy going forward. This affects release tooling and whether a release script needs to be updated.",
+          "options": [
+            "Kept in sync manually alongside the other packages",
+            "Driven by a single version file or release script that already handles other packages (extend it to include nightshift)",
+            "Independently versioned \u2014 nightshift follows its own release cadence",
+            "Not in scope for this PRD; document as a follow-up task"
+          ],
+          "required": false
+        },
+        {
+          "id": "q5",
+          "text": "Is there a required verification step for FR-4 workspace integration beyond adding nightshift to testpaths (e.g., a `uv sync` smoke check or `python -c 'import nightshift'` in CI)?",
+          "context": "FR-4 specifies the pyproject.toml edits but has no acceptance criterion. Without a verification step, a misconfigured workspace member might not be caught until a later stage.",
+          "options": [
+            "No additional check needed \u2014 testpaths inclusion and the NFR-3 integration test are sufficient",
+            "Add a `python -c 'import nightshift'` import smoke check to the CI pipeline",
+            "Add a `uv sync --check` step to verify the workspace dependency graph",
+            "Add a `night-shift --version` invocation to CI as a post-install smoke test"
+          ],
+          "required": false
+        }
+      ]
+    }
+  ],
+  "qa_exchanges": [
+    {
+      "assessment_index": 0,
+      "answers": {
+        "q1": "Michael Kuehl (project maintainer)",
+        "q2": "No formal metrics \u2014 successful extraction and parity with af night-shift is sufficient. All existing night-shift tests must pass in the new package.",
+        "q3": "Already complete \u2014 spec 04 artifacts are available and the interfaces (AgentFoxGroup, OutputManager, common_options) are stable and in use.",
+        "q4": "No deprecation needed \u2014 removal is intentional and aligned with the 4.0.0-rc4 release cycle. This is a pre-release version."
+      },
+      "timestamp": "2026-06-24T13:32:30.269182+00:00"
+    },
+    {
+      "assessment_index": 1,
+      "answers": {
+        "q1": "Yes \u2014 add to all existing pipelines. Adding the package to the uv workspace and the root pyproject.toml testpaths is sufficient since make check already runs lint + test across all workspace packages.",
+        "q2": "Unknown \u2014 needs investigation before implementation. The implementer should examine shared fixtures (conftest.py files) and determine whether tests can be physically moved or need to be copied with refactored fixtures.",
+        "q3": "Use minimal metadata matching the style of other packages in the workspace (af, spec). Description and version are required; license and authors follow the same pattern as the af package.",
+        "q4": "No \u2014 the removal is intentional and clean within the 4.0.0-rc4 pre-release cycle. Users will see the updated README. No runtime warning needed.",
+        "q5": "Yes \u2014 add an integration test that invokes `python -m nightshift --help` or `night-shift --help` to verify the entry point works.",
+        "q6": "nightshift depends only on agentfox (and click/rich/duckdb). No direct dependency on agentspec or afspec."
+      },
+      "timestamp": "2026-06-24T13:33:48.922817+00:00"
+    },
+    {
+      "assessment_index": 2,
+      "answers": {
+        "q1": "Standalone CLI for the AgentFox Night Shift fix daemon",
+        "q2": "Mirror whatever Click's default version_option produces from pyproject.toml metadata",
+        "q3": "Follow whatever the current af package declares \u2014 match af's pyproject.toml pattern for consistency",
+        "q4": "All environment variables currently supported by af night-shift must be preserved. The implementer should audit AgentFoxGroup and common_options for env var handling and replicate it.",
+        "q5": "Yes \u2014 manually add packages/nightshift/tests/ to testpaths in the root pyproject.toml, matching how other packages are listed."
+      },
+      "timestamp": "2026-06-24T13:35:13.219860+00:00"
+    },
+    {
+      "assessment_index": 3,
+      "answers": {
+        "q1": "The implementer should discover them via a full audit of packages/af/tests/. Known night-shift test files include: test_spec04_req3.py (JSONL progress events), test_spec04_smoke.py (smoke tests), test_spec04_properties.py (property tests), and test_code_dry_run.py (daemon guard tests). Some of these may test both af and night-shift behavior and should be split rather than moved entirely.",
+        "q2": "Both rich and duckdb are direct dependencies in af's pyproject.toml. The nightshift package should declare them the same way.",
+        "q3": "Unknown \u2014 the implementer must audit AgentFoxGroup and common_options source. Environment variable support comes from agentfox.io infrastructure which is reused directly, so parity is automatic when using AgentFoxGroup.",
+        "q4": "Unknown \u2014 implementer should audit before deciding. This is explicitly called out in the tasks as a pre-migration step.",
+        "q5": "A grep for 'af night-shift' across the docs/ directory and README.md after implementation is sufficient to verify completeness."
+      },
+      "timestamp": "2026-06-24T13:36:49.602791+00:00"
+    }
+  ],
+  "generated_artifacts": [
+    "requirements",
+    "test_spec",
+    "tasks"
+  ],
+  "mode": "interactive"
+}
