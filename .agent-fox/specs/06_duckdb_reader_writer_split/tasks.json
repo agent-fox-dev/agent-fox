@@ -179,7 +179,7 @@
             "06-REQ-10.1",
             "06-REQ-10.2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],

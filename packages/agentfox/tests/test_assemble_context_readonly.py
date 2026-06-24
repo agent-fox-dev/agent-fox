@@ -253,28 +253,83 @@ class TestAssembleContextWithReadOnlyConn:
         self, knowledge_conn: duckdb.DuckDBPyConnection, tmp_path: Path
     ) -> None:
         """assemble_context must complete successfully when given a
-        read-only connection, returning a populated context string."""
+        read-only connection, returning a populated context string.
+
+        Seeds a minimal v1.2 spec on disk so that afspec.load_spec
+        succeeds, letting assemble_context run to completion without
+        swallowing exceptions."""
         from agentfox.session.context import assemble_context
 
         spec_dir = tmp_path / "test_spec"
         spec_dir.mkdir()
-        (spec_dir / "tasks.json").write_text('{"version":"1.2","tasks":[]}')
 
-        # assemble_context should work with the test connection (no writes)
-        try:
-            ctx = assemble_context(
-                spec_dir=spec_dir,
-                task_group=1,
-                conn=knowledge_conn,
-                project_root=tmp_path,
+        # Seed a valid v1.2 spec so afspec.load_spec succeeds
+        import json
+
+        spec_data = {
+            "$schema": "https://agentfox.dev/schemas/spec-v1.2.json",
+            "spec_id": "99",
+            "spec_name": "test_spec",
+            "schema_version": 1,
+            "test_commands": {"spec_tests": "pytest -q", "all_tests": "make check", "linter": "ruff check"},
+            "dependencies": [],
+            "task_groups": [
+                {
+                    "id": 1,
+                    "kind": "tests",
+                    "title": "Test group",
+                    "subtasks": [
+                        {
+                            "id": "1.1",
+                            "title": "A test subtask",
+                            "details": [],
+                            "test_spec_refs": [],
+                            "requirement_refs": [],
+                            "state": "pending",
+                            "optional": False,
+                        }
+                    ],
+                    "verification": {"id": "1.V", "checks": []},
+                }
+            ],
+            "traceability": [],
+        }
+        (spec_dir / "tasks.json").write_text(json.dumps(spec_data))
+        (spec_dir / "requirements.json").write_text(
+            json.dumps(
+                {
+                    "introduction": "Test",
+                    "glossary": [],
+                    "requirements": [],
+                    "correctness_properties": [],
+                    "execution_paths": [],
+                    "error_handling": [],
+                }
             )
-        except Exception:
-            # Spec loading may fail in minimal test setup, which is fine —
-            # we're testing that no writes are attempted, not spec rendering
-            ctx = ""
+        )
+        (spec_dir / "test_spec.json").write_text(
+            json.dumps(
+                {
+                    "test_cases": [],
+                    "property_tests": [],
+                    "edge_case_tests": [],
+                    "smoke_tests": [],
+                    "coverage": {},
+                }
+            )
+        )
 
-        # The function should return a string (possibly empty if no spec data)
+        # assemble_context must complete without raising — no try/except
+        ctx = assemble_context(
+            spec_dir=spec_dir,
+            task_group=1,
+            conn=knowledge_conn,
+            project_root=tmp_path,
+        )
+
+        # Must return a non-None string
         assert isinstance(ctx, str)
+        assert ctx is not None
 
 
 # -----------------------------------------------------------------------

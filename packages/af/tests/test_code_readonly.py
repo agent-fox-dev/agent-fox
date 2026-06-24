@@ -87,49 +87,43 @@ class TestAfCodeNoWrites:
     """TS-06-5: af code must not perform any write operations on the DB."""
 
     def test_code_dry_run_no_write_operations(self) -> None:
-        """Running af code (dry-run path) against a test DB must not
-        produce any INSERT, UPDATE, or DELETE operations."""
+        """Running af code's read path (load_plan + compute_phases) against
+        a seeded test DB must not produce any INSERT, UPDATE, or DELETE
+        operations — row counts must be identical before and after."""
         import duckdb
+        from agentfox.graph.analyzer import compute_phases
+        from agentfox.graph.persistence import load_plan
+        from agentfox.knowledge.migrations import run_migrations
 
-        # Create in-memory DB with plan data
+        # Create in-memory DB with the real schema (all migrations applied)
         conn = duckdb.connect(":memory:")
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS plan_nodes (
-                id TEXT PRIMARY KEY,
-                spec_name TEXT,
-                group_number INTEGER,
-                title TEXT,
-                optional BOOLEAN DEFAULT FALSE,
-                status TEXT DEFAULT 'pending',
-                archetype TEXT DEFAULT 'coder'
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS plan_edges (
-                source TEXT, target TEXT, kind TEXT
-            )
-        """)
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS plan_meta (
-                key TEXT PRIMARY KEY, value TEXT
-            )
-        """)
+        run_migrations(conn)
+
+        # Seed with sample plan data matching the real schema
+        conn.execute("INSERT INTO plan_meta (id, content_hash, fast_mode, version) VALUES (1, 'abc123', false, '1')")
+        conn.execute(
+            "INSERT INTO plan_nodes (id, spec_name, group_number, title) VALUES ('n1', 'spec_a', 1, 'Task One')"
+        )
+        conn.execute("INSERT INTO plan_edges (from_node, to_node, edge_type) VALUES ('n1', 'n1', 'intra_spec')")
 
         # Snapshot row counts before
         nodes_before = conn.execute("SELECT COUNT(*) FROM plan_nodes").fetchone()[0]
         edges_before = conn.execute("SELECT COUNT(*) FROM plan_edges").fetchone()[0]
         meta_before = conn.execute("SELECT COUNT(*) FROM plan_meta").fetchone()[0]
 
-        # The af code dry-run path reads via load_plan + compute_phases.
-        # After spec 06, it uses a read-only connection, so any write
-        # attempt would raise. For now, verify row counts are unchanged.
+        # Actually invoke the read functions that af code uses
+        graph = load_plan(conn)
+        if graph is not None:
+            compute_phases(graph)
+
+        # Snapshot row counts after — must be identical
         nodes_after = conn.execute("SELECT COUNT(*) FROM plan_nodes").fetchone()[0]
         edges_after = conn.execute("SELECT COUNT(*) FROM plan_edges").fetchone()[0]
         meta_after = conn.execute("SELECT COUNT(*) FROM plan_meta").fetchone()[0]
 
-        assert nodes_before == nodes_after
-        assert edges_before == edges_after
-        assert meta_before == meta_after
+        assert nodes_before == nodes_after, "load_plan must not INSERT/UPDATE/DELETE plan_nodes"
+        assert edges_before == edges_after, "load_plan must not INSERT/UPDATE/DELETE plan_edges"
+        assert meta_before == meta_after, "load_plan must not INSERT/UPDATE/DELETE plan_meta"
         conn.close()
 
 
