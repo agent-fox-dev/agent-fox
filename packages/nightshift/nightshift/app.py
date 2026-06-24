@@ -1,4 +1,5 @@
 """Standalone night-shift CLI — delegates to agentfox.nightshift."""
+
 from __future__ import annotations
 
 import asyncio
@@ -39,8 +40,7 @@ def main(ctx: click.Context, **kwargs) -> None:  # noqa: ARG001
     config = load_config(config_path)
     ctx.obj.update(config=config, verbose=om.verbose, quiet=om.quiet, trace=om.trace)
     if not om.json_mode and not om.quiet:
-        render_banner(create_theme(getattr(config, "theme", None) or ThemeConfig()),
-                      quiet=om.quiet)
+        render_banner(create_theme(getattr(config, "theme", None) or ThemeConfig()), quiet=om.quiet)
     if ctx.invoked_subcommand is None:
         _run_daemon(ctx, om, config)
 
@@ -81,7 +81,8 @@ def _run_daemon(ctx, om, config):  # noqa: C901
     task_cb = wrap_task_callback(progress, om)
 
     engine = NightShiftEngine(
-        config=config, platform=platform,
+        config=config,
+        platform=platform,
         activity_callback=progress.activity_callback,
         task_callback=task_cb,
         status_callback=progress.print_status,
@@ -94,7 +95,8 @@ def _run_daemon(ctx, om, config):  # noqa: C901
         max_cost=getattr(getattr(config, "orchestrator", None), "max_cost", None),
     )
     runner = DaemonRunner(
-        config=config, platform=platform,
+        config=config,
+        platform=platform,
         streams=build_streams(config, engine=engine, budget=budget),
         budget=budget,
         pid_path=root / ".agent-fox" / "daemon.pid",
@@ -124,8 +126,10 @@ def _run_daemon(ctx, om, config):  # noqa: C901
         sys.exit(1)
     finally:
         progress.stop()
-        for fn in [lambda: asyncio.run(platform.close()) if hasattr(platform, "close") else None,
-                   lambda: kdb.close() if kdb else None]:
+        for fn in [
+            lambda: asyncio.run(platform.close()) if hasattr(platform, "close") else None,
+            lambda: kdb.close() if kdb else None,
+        ]:
             try:
                 fn()
             except Exception:  # noqa: BLE001, S110

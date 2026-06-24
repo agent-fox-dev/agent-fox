@@ -81,14 +81,8 @@ class TestProp1StdoutStderrSeparation:
         assert "event" not in stdout_obj, "JSONL event leaked to stdout"
 
         # Validate stderr: only JSONL progress events, no final result
-        stderr_lines = [
-            line
-            for line in stderr_buf.getvalue().strip().splitlines()
-            if line.strip()
-        ]
-        assert len(stderr_lines) >= num_nodes, (
-            f"Expected at least {num_nodes} JSONL events, got {len(stderr_lines)}"
-        )
+        stderr_lines = [line for line in stderr_buf.getvalue().strip().splitlines() if line.strip()]
+        assert len(stderr_lines) >= num_nodes, f"Expected at least {num_nodes} JSONL events, got {len(stderr_lines)}"
         for line in stderr_lines:
             obj = json.loads(line)
             assert "event" in obj, f"stderr line missing 'event' key: {line}"
@@ -116,9 +110,7 @@ class TestPropFormatTableKeyAlignment:
         ),
         num_rows=st.integers(min_value=1, max_value=20),
     )
-    def test_all_dicts_have_header_keys(
-        self, headers: list[str], num_rows: int
-    ) -> None:
+    def test_all_dicts_have_header_keys(self, headers: list[str], num_rows: int) -> None:
         """Every dict in format_table output has exactly the header keys."""
         from agentfox.io import format_table
 

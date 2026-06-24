@@ -209,8 +209,8 @@ class TestProgressDisplayCreated:
 
     def test_81_progress_display_created(self) -> None:
         """ProgressDisplay.start() and stop() are called during CLI command."""
-        from af.nightshift import night_shift_cmd
         from click.testing import CliRunner
+        from nightshift.app import main as night_shift_cmd
 
         runner = CliRunner()
 
@@ -264,8 +264,8 @@ class TestExitSummary:
 
     def test_81_exit_summary(self) -> None:
         """Output contains scans completed, issues fixed, and cost."""
-        from af.nightshift import night_shift_cmd
         from click.testing import CliRunner
+        from nightshift.app import main as night_shift_cmd
 
         runner = CliRunner()
 
@@ -315,8 +315,8 @@ class TestPropDisplayLifecycle:
     @pytest.mark.parametrize("exit_mode", ["clean", "exception"])
     def test_81_prop_display_lifecycle(self, exit_mode: str) -> None:
         """start() and stop() always called regardless of exit mode."""
-        from af.nightshift import night_shift_cmd
         from click.testing import CliRunner
+        from nightshift.app import main as night_shift_cmd
 
         runner = CliRunner()
 

@@ -38,6 +38,7 @@ class TestFullSuitePassesAfterMigration:
     file, so we verify the non-spec04 suite remains green.
     """
 
+    @pytest.mark.timeout(120)
     def test_af_test_suite_passes(self) -> None:
         """Run pytest on the af test suite and assert zero failures.
 
@@ -150,7 +151,6 @@ class TestSmoke2StandupJson:
         assert result.exit_code == 0
         obj = json.loads(result.output)
         assert isinstance(obj, dict)
-
 
 
 class TestSmoke4ShimRemoval:

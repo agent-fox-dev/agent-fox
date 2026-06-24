@@ -9,8 +9,8 @@ from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from af.nightshift import night_shift_cmd
 from click.testing import CliRunner
+from nightshift.app import main as night_shift_cmd
 
 
 def _make_platform_mock() -> MagicMock:

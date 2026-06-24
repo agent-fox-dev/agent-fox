@@ -49,16 +49,12 @@ class TestAppUsesAgentFoxGroup:
     def test_source_references_common_options(self) -> None:
         """app.py source contains 'common_options'."""
         source = _read_app_source()
-        assert "common_options" in source, (
-            "app.py must use common_options from agentfox.io"
-        )
+        assert "common_options" in source, "app.py must use common_options from agentfox.io"
 
     def test_source_references_agentfox_io(self) -> None:
         """app.py imports from agentfox.io."""
         source = _read_app_source()
-        assert "agentfox.io" in source, (
-            "app.py must import from agentfox.io"
-        )
+        assert "agentfox.io" in source, "app.py must import from agentfox.io"
 
     def test_main_is_agentfox_group_runtime(self) -> None:
         """Runtime check: main is an AgentFoxGroup instance.
@@ -115,9 +111,7 @@ class TestNoCopyPastedLogic:
         """app.py does not contain subprocess calls (business logic)."""
         source = _read_app_source()
         for pattern in ["subprocess.run", "Popen", "asyncio.create_subprocess"]:
-            assert pattern not in source, (
-                f"app.py contains {pattern!r}; business logic should stay in agentfox"
-            )
+            assert pattern not in source, f"app.py contains {pattern!r}; business logic should stay in agentfox"
 
     def test_no_daemon_runner_reimplementation(self) -> None:
         """app.py does not reimplement DaemonRunner or NightShiftEngine."""
@@ -129,6 +123,4 @@ class TestNoCopyPastedLogic:
                 class_names.add(node.name)
         banned_classes = {"DaemonRunner", "NightShiftEngine", "SharedBudget"}
         overlap = class_names & banned_classes
-        assert not overlap, (
-            f"app.py redefines business logic classes: {overlap}"
-        )
+        assert not overlap, f"app.py redefines business logic classes: {overlap}"

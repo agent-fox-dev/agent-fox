@@ -77,7 +77,9 @@ class TestEntryPointOutputEquivalence:
         """python -m nightshift --help and night-shift --help produce identical stdout."""
         result_module = subprocess.run(
             [sys.executable, "-m", "nightshift", "--help"],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         assert result_module.returncode == 0
 
@@ -86,12 +88,13 @@ class TestEntryPointOutputEquivalence:
 
         result_entry = subprocess.run(
             ["night-shift", "--help"],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         assert result_entry.returncode == 0
         assert result_module.stdout == result_entry.stdout, (
-            "python -m nightshift --help and night-shift --help must produce "
-            "identical stdout"
+            "python -m nightshift --help and night-shift --help must produce identical stdout"
         )
 
 
@@ -121,6 +124,4 @@ class TestFallbackMechanism:
             timeout=30,
         )
         assert result.returncode == 0
-        assert "--version" in result.stdout, (
-            "python -m nightshift --help must contain --version in output"
-        )
+        assert "--version" in result.stdout, "python -m nightshift --help must contain --version in output"

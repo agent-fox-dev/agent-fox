@@ -1,4 +1,5 @@
 """Daemon startup helpers — knowledge store, migrations, progress bridge."""
+
 from __future__ import annotations
 
 import logging

@@ -402,7 +402,7 @@ class TestCliRejectsAuto:
     """TS-125-E1: --auto is no longer accepted."""
 
     def test_cli_rejects_auto(self) -> None:
-        from af.nightshift import night_shift_cmd
+        from nightshift.app import main as night_shift_cmd
 
         runner = CliRunner()
         result = runner.invoke(
@@ -422,7 +422,7 @@ class TestCliRejectsNoSpecs:
     """TS-125-E2: --no-specs is no longer accepted."""
 
     def test_cli_rejects_no_specs(self) -> None:
-        from af.nightshift import night_shift_cmd
+        from nightshift.app import main as night_shift_cmd
 
         runner = CliRunner()
         result = runner.invoke(
@@ -442,7 +442,7 @@ class TestCliRejectsNoHunts:
     """TS-125-E3: --no-hunts is no longer accepted."""
 
     def test_cli_rejects_no_hunts(self) -> None:
-        from af.nightshift import night_shift_cmd
+        from nightshift.app import main as night_shift_cmd
 
         runner = CliRunner()
         result = runner.invoke(
@@ -462,7 +462,7 @@ class TestCliRejectsSpecsDir:
     """TS-125-E4: --specs-dir is no longer accepted."""
 
     def test_cli_rejects_specs_dir(self) -> None:
-        from af.nightshift import night_shift_cmd
+        from nightshift.app import main as night_shift_cmd
 
         runner = CliRunner()
         result = runner.invoke(

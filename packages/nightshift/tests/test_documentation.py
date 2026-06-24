@@ -62,28 +62,24 @@ class TestGrepAcceptanceMechanism:
     """
 
     def test_grep_catches_stale_reference_in_temp_file(self, tmp_path: object) -> None:
-        """Create a temp file with 'af night-shift' under docs/ and verify grep catches it."""
-        # Create a temporary file in docs/ containing the stale string
-        stale_file = os.path.join("docs", "_test_stale_ref_temp.md")
-        try:
-            with open(stale_file, "w") as f:
-                f.write("Use af night-shift to run the daemon\n")
+        """Create a temp file with 'af night-shift' in tmp_path and verify grep catches it.
 
-            result = subprocess.run(
-                ["grep", "-r", "af night-shift", "docs/"],
-                capture_output=True, text=True,
-            )
-            # grep should find the stale reference (exit code 0 = match found)
-            assert result.returncode == 0, (
-                "grep should detect stale 'af night-shift' in the temp file"
-            )
-            assert "af night-shift" in result.stdout, (
-                "grep output should contain the stale reference"
-            )
-        finally:
-            # Always clean up the temporary file
-            if os.path.exists(stale_file):
-                os.remove(stale_file)
+        Uses tmp_path (not the real docs/ dir) to avoid race conditions with
+        TestGrepAfNightShift which greps the real docs/ directory.
+        """
+        from pathlib import Path
+
+        stale_file = Path(str(tmp_path)) / "stale_ref.md"
+        stale_file.write_text("Use af night-shift to run the daemon\n")
+
+        result = subprocess.run(
+            ["grep", "-r", "af night-shift", str(tmp_path)],
+            capture_output=True,
+            text=True,
+        )
+        # grep should find the stale reference (exit code 0 = match found)
+        assert result.returncode == 0, "grep should detect stale 'af night-shift' in the temp file"
+        assert "af night-shift" in result.stdout, "grep output should contain the stale reference"
 
 
 class TestReadmeContent:
@@ -202,9 +198,7 @@ class TestDependencyDiagramTopology:
             pytest.skip("README.md not found")
         content = open("README.md").read()
         # In the diagram section, nightshift must not have an arrow to afspec
-        assert not re.search(r"nightshift.*afspec", content), (
-            "Diagram must NOT show nightshift depending on afspec"
-        )
+        assert not re.search(r"nightshift.*afspec", content), "Diagram must NOT show nightshift depending on afspec"
 
 
 class TestDocFileWalk:

@@ -40,8 +40,7 @@ class TestSmoke5CIDiscovery:
     def test_pytest_collects_nightshift_tests(self) -> None:
         """pytest --collect-only packages/nightshift/tests/ discovers tests."""
         result = subprocess.run(
-            [sys.executable, "-m", "pytest", "--collect-only", "-q",
-             "packages/nightshift/tests/"],
+            [sys.executable, "-m", "pytest", "--collect-only", "-q", "packages/nightshift/tests/"],
             capture_output=True,
             text=True,
             timeout=30,

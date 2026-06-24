@@ -50,12 +50,22 @@ class TestMigratedTestsPass:
     """
 
     @pytest.mark.slow
+    @pytest.mark.timeout(300)
     def test_nightshift_tests_pass(self) -> None:
         """pytest packages/nightshift/tests/ exits 0 with all tests passing."""
         result = subprocess.run(
-            [sys.executable, "-m", "pytest", "packages/nightshift/tests/",
-             "-q", "--tb=short"],
-            capture_output=True, text=True, timeout=120,
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "packages/nightshift/tests/",
+                "-q",
+                "--tb=short",
+                "--ignore=packages/nightshift/tests/test_migration.py",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
         )
         assert result.returncode == 0, (
             f"Nightshift tests must all pass. Exit code: {result.returncode}\n"
@@ -71,12 +81,28 @@ class TestAfTestsStillPass:
     """
 
     @pytest.mark.slow
+    @pytest.mark.timeout(600)
     def test_af_tests_pass(self) -> None:
-        """pytest packages/af/tests/ exits 0 with no regressions."""
+        """pytest packages/af/tests/ exits 0 with no regressions.
+
+        Excludes integration/test_spec04_smoke.py to avoid recursive
+        subprocess pytest invocations (that test itself runs pytest as a
+        subprocess). The excluded file is tested by the outer test runner.
+        """
         result = subprocess.run(
-            [sys.executable, "-m", "pytest", "packages/af/tests/",
-             "-q", "--tb=short"],
-            capture_output=True, text=True, timeout=120,
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "packages/af/tests/",
+                "-q",
+                "--tb=short",
+                "--timeout=30",
+                "--ignore=packages/af/tests/integration/test_spec04_smoke.py",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=300,
         )
         assert result.returncode == 0, (
             f"af tests must all pass after migration. Exit code: {result.returncode}\n"
@@ -98,9 +124,7 @@ class TestConftestExists:
 
     def test_af_conftest_intact(self) -> None:
         """af conftest.py was not removed during migration."""
-        assert (AF_TESTS_DIR / "conftest.py").exists(), (
-            "packages/af/tests/conftest.py must remain intact"
-        )
+        assert (AF_TESTS_DIR / "conftest.py").exists(), "packages/af/tests/conftest.py must remain intact"
 
 
 class TestRemovalTestInAfSuite:
@@ -154,9 +178,5 @@ class TestAfTestsRetainContent:
         """af tests directory is not empty after migration."""
         all_tests = []
         for root, _dirs, files in os.walk(AF_TESTS_DIR):
-            all_tests.extend(
-                f for f in files if f.startswith("test_") and f.endswith(".py")
-            )
-        assert len(all_tests) > 5, (
-            f"af tests should have many test files, found only {len(all_tests)}"
-        )
+            all_tests.extend(f for f in files if f.startswith("test_") and f.endswith(".py"))
+        assert len(all_tests) > 5, f"af tests should have many test files, found only {len(all_tests)}"
