@@ -76,6 +76,12 @@ def night_shift_cmd(
         logger.error("Credential pre-flight check failed: %s", exc)
         sys.exit(1)
 
+    # Clean up stale merge lock left by a crashed process.
+    from agentfox.workspace.merge_lock import cleanup_stale_merge_lock
+
+    if cleanup_stale_merge_lock(project_root):
+        logger.info("Removed stale merge lock at startup")
+
     # Create DuckDB-backed SinkDispatcher for audit cost tracking (91-REQ-1.2).
     # If DuckDB cannot be opened, proceed without cost tracking (91-REQ-1.E1).
     _knowledge_db = None

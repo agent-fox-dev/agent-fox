@@ -512,3 +512,203 @@ class TestConcurrentHoldersMutualExclusion:
             f"Lock overlap detected: waiter acquired at {waiter_acquired_at[0]:.3f}, "
             f"holder released at {holder_released_at[0]:.3f}"
         )
+
+
+# ---------------------------------------------------------------------------
+# PID liveness check: dead-process locks are broken immediately
+# ---------------------------------------------------------------------------
+
+
+class TestDeadProcessLockBroken:
+    """Lock held by a dead process is broken immediately, not after stale_timeout."""
+
+    @pytest.mark.asyncio
+    async def test_dead_pid_lock_broken_within_poll_interval(self, lock_repo: Path) -> None:
+        """A lock held by a dead PID on the same host is broken on the
+        first poll iteration, not after stale_timeout."""
+        import socket
+
+        lock_repo.mkdir(parents=True)
+        agent_fox_dir = lock_repo / ".agent-fox"
+        agent_fox_dir.mkdir(parents=True, exist_ok=True)
+        lock_file = agent_fox_dir / "merge.lock"
+
+        lock_file.write_text(
+            json.dumps(
+                {
+                    "pid": 99999999,
+                    "hostname": socket.gethostname(),
+                    "acquired_at": "2026-06-24T10:00:00Z",
+                }
+            )
+        )
+        os.utime(lock_file, None)
+
+        lock = MergeLock(lock_repo, timeout=2.0, stale_timeout=9999.0, poll_interval=0.05)
+
+        start = time.time()
+        await lock.acquire()
+        elapsed = time.time() - start
+
+        assert elapsed < 1.0, (
+            f"Lock acquisition took {elapsed:.2f}s — PID liveness check should have broken it immediately"
+        )
+
+        content = json.loads(lock_file.read_text())
+        assert content["pid"] == os.getpid()
+        await lock.release()
+
+
+class TestLiveProcessLockNotBroken:
+    """Lock held by a live process is not broken by PID check."""
+
+    @pytest.mark.asyncio
+    async def test_live_pid_not_broken(self, lock_repo: Path) -> None:
+        """A lock held by a live PID (current process) is not broken."""
+        import socket
+
+        lock_repo.mkdir(parents=True)
+        agent_fox_dir = lock_repo / ".agent-fox"
+        agent_fox_dir.mkdir(parents=True, exist_ok=True)
+        lock_file = agent_fox_dir / "merge.lock"
+
+        lock_file.write_text(
+            json.dumps(
+                {
+                    "pid": os.getpid(),
+                    "hostname": socket.gethostname(),
+                    "acquired_at": "2026-06-24T10:00:00Z",
+                }
+            )
+        )
+        os.utime(lock_file, None)
+
+        lock = MergeLock(lock_repo, timeout=0.3, stale_timeout=9999.0, poll_interval=0.05)
+
+        with pytest.raises(IntegrationError, match="(?i)timeout"):
+            await lock.acquire()
+
+        assert lock_file.exists()
+        content = json.loads(lock_file.read_text())
+        assert content["pid"] == os.getpid()
+
+
+class TestDifferentHostnameFallsToAge:
+    """Lock from a different hostname is not broken by PID check."""
+
+    @pytest.mark.asyncio
+    async def test_different_hostname_skips_pid_check(self, lock_repo: Path) -> None:
+        """A lock from a different host with a dead local PID is NOT
+        broken by the PID check (hostname mismatch)."""
+        lock_repo.mkdir(parents=True)
+        agent_fox_dir = lock_repo / ".agent-fox"
+        agent_fox_dir.mkdir(parents=True, exist_ok=True)
+        lock_file = agent_fox_dir / "merge.lock"
+
+        lock_file.write_text(
+            json.dumps(
+                {
+                    "pid": 99999999,
+                    "hostname": "some-other-host-that-is-not-us",
+                    "acquired_at": "2026-06-24T10:00:00Z",
+                }
+            )
+        )
+        os.utime(lock_file, None)
+
+        lock = MergeLock(lock_repo, timeout=0.3, stale_timeout=9999.0, poll_interval=0.05)
+
+        with pytest.raises(IntegrationError, match="(?i)timeout"):
+            await lock.acquire()
+
+
+# ---------------------------------------------------------------------------
+# Startup cleanup: cleanup_stale_merge_lock()
+# ---------------------------------------------------------------------------
+
+
+class TestCleanupStaleMergeLock:
+    """Tests for startup cleanup_stale_merge_lock()."""
+
+    def test_no_lock_file_returns_false(self, lock_repo: Path) -> None:
+        lock_repo.mkdir(parents=True)
+        (lock_repo / ".agent-fox").mkdir(parents=True, exist_ok=True)
+        from agentfox.workspace.merge_lock import cleanup_stale_merge_lock
+
+        assert cleanup_stale_merge_lock(lock_repo) is False
+
+    def test_dead_pid_removes_lock(self, lock_repo: Path) -> None:
+        import socket
+
+        lock_repo.mkdir(parents=True)
+        agent_fox_dir = lock_repo / ".agent-fox"
+        agent_fox_dir.mkdir(parents=True, exist_ok=True)
+        lock_file = agent_fox_dir / "merge.lock"
+        lock_file.write_text(
+            json.dumps(
+                {
+                    "pid": 99999999,
+                    "hostname": socket.gethostname(),
+                    "acquired_at": "2026-06-24T10:00:00Z",
+                }
+            )
+        )
+
+        from agentfox.workspace.merge_lock import cleanup_stale_merge_lock
+
+        assert cleanup_stale_merge_lock(lock_repo) is True
+        assert not lock_file.exists()
+
+    def test_live_pid_preserves_lock(self, lock_repo: Path) -> None:
+        import socket
+
+        lock_repo.mkdir(parents=True)
+        agent_fox_dir = lock_repo / ".agent-fox"
+        agent_fox_dir.mkdir(parents=True, exist_ok=True)
+        lock_file = agent_fox_dir / "merge.lock"
+        lock_file.write_text(
+            json.dumps(
+                {
+                    "pid": os.getpid(),
+                    "hostname": socket.gethostname(),
+                    "acquired_at": "2026-06-24T10:00:00Z",
+                }
+            )
+        )
+
+        from agentfox.workspace.merge_lock import cleanup_stale_merge_lock
+
+        assert cleanup_stale_merge_lock(lock_repo) is False
+        assert lock_file.exists()
+
+    def test_different_hostname_preserves_lock(self, lock_repo: Path) -> None:
+        lock_repo.mkdir(parents=True)
+        agent_fox_dir = lock_repo / ".agent-fox"
+        agent_fox_dir.mkdir(parents=True, exist_ok=True)
+        lock_file = agent_fox_dir / "merge.lock"
+        lock_file.write_text(
+            json.dumps(
+                {
+                    "pid": 99999999,
+                    "hostname": "other-host",
+                    "acquired_at": "2026-06-24T10:00:00Z",
+                }
+            )
+        )
+
+        from agentfox.workspace.merge_lock import cleanup_stale_merge_lock
+
+        assert cleanup_stale_merge_lock(lock_repo) is False
+        assert lock_file.exists()
+
+    def test_malformed_json_preserves_lock(self, lock_repo: Path) -> None:
+        lock_repo.mkdir(parents=True)
+        agent_fox_dir = lock_repo / ".agent-fox"
+        agent_fox_dir.mkdir(parents=True, exist_ok=True)
+        lock_file = agent_fox_dir / "merge.lock"
+        lock_file.write_text("not json")
+
+        from agentfox.workspace.merge_lock import cleanup_stale_merge_lock
+
+        assert cleanup_stale_merge_lock(lock_repo) is False
+        assert lock_file.exists()

@@ -31,6 +31,28 @@ logger = logging.getLogger(__name__)
 _DEFAULT_STALE_TIMEOUT: float = 3600.0
 
 
+def _is_pid_alive(pid: int) -> bool:
+    """Check whether a process with the given PID is alive."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except (OverflowError, OSError):
+        return False
+    return True
+
+
+def _read_lock_owner(path: Path) -> tuple[int | None, str | None]:
+    """Read PID and hostname from a merge lock file."""
+    try:
+        data = json.loads(path.read_text())
+        return data.get("pid"), data.get("hostname")
+    except (OSError, json.JSONDecodeError, ValueError):
+        return None, None
+
+
 class MergeLock:
     """File-based merge lock for serializing develop-branch operations.
 
@@ -166,11 +188,25 @@ class MergeLock:
             # Rename failed (another process won the race)
             return False
 
-        # We now own the renamed file — check its age
+        # We now own the renamed file — check PID liveness first, then age.
         try:
             stat = tmp_path.stat()
         except FileNotFoundError:
             return True
+
+        # Fast path: if the lock holder is dead, break immediately.
+        # Only check when hostname matches (PID is meaningless on another host).
+        pid, hostname = _read_lock_owner(tmp_path)
+        if pid is not None and hostname == socket.gethostname():
+            if not _is_pid_alive(pid):
+                logger.info(
+                    "Breaking merge lock held by dead process (pid=%d, hostname=%s): %s",
+                    pid,
+                    hostname,
+                    self._lock_file,
+                )
+                tmp_path.unlink(missing_ok=True)
+                return True
 
         age = time.time() - stat.st_mtime
         if age < self._stale_timeout:
@@ -273,6 +309,41 @@ class MergeLock:
 
     async def __aexit__(self, *exc: object) -> None:
         await self.release()
+
+
+def cleanup_stale_merge_lock(repo_root: Path) -> bool:
+    """Remove merge.lock if it was left by a dead process.
+
+    Intended for CLI startup to eagerly clear locks left by crashed
+    processes, without waiting for the stale timeout.
+
+    Returns True if a stale lock was cleaned up.
+    """
+    lock_file = repo_root / ".agent-fox" / "merge.lock"
+    if not lock_file.exists():
+        return False
+
+    pid, hostname = _read_lock_owner(lock_file)
+    if pid is None:
+        return False
+
+    if hostname != socket.gethostname():
+        return False
+
+    if _is_pid_alive(pid):
+        return False
+
+    try:
+        lock_file.unlink()
+    except FileNotFoundError:
+        pass
+
+    logger.info(
+        "Cleaned up stale merge lock left by dead process (pid=%d) at startup: %s",
+        pid,
+        lock_file,
+    )
+    return True
 
 
 # ---------------------------------------------------------------------------
