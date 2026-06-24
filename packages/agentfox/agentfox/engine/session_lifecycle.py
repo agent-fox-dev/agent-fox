@@ -683,7 +683,7 @@ class NodeSessionRunner:
         # budget again.  We use cost ratio alone — not an error-message sentinel
         # — so the check remains correct regardless of what diagnostic string
         # _map_message composes from the SDK ResultMessage.
-        resolved_budget = resolve_max_budget(self._config)
+        resolved_budget = resolve_max_budget(self._config, self._archetype)
         is_budget_exhausted = (
             outcome.status == "failed"
             and resolved_budget is not None

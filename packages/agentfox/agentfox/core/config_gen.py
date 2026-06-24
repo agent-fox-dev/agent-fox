@@ -67,9 +67,7 @@ _PROMOTED_DEFAULTS: set[tuple[str, str]] = {
 # Template-level value overrides for promoted fields.
 # These override the model's default value in the generated template only.
 # Requirements: 68-REQ-2.1, 68-REQ-2.2, 68-REQ-2.4, 68-REQ-2.5
-_PROMOTED_DEFAULTS_OVERRIDES: dict[tuple[str, str], object] = {
-    ("orchestrator", "max_budget_usd"): 8.0,
-}
+_PROMOTED_DEFAULTS_OVERRIDES: dict[tuple[str, str], object] = {}
 
 
 @dataclass

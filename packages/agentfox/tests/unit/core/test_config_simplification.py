@@ -208,12 +208,13 @@ class TestArchetypeTogglesPromoted:
 class TestBudgetAndModelPromoted:
     """TS-68-8: max_budget_usd and models.coding are promoted with correct values."""
 
-    def test_max_budget_usd_promoted_as_8(self):
-        """orchestrator.max_budget_usd == 8.0 in parsed template."""
+    def test_max_budget_usd_promoted_as_20(self):
+        """orchestrator.max_budget_usd >= 20.0 in parsed template (NS-REQ-4.1)."""
         template = generate_default_config()
         parsed = tomllib.loads(template)
         actual = parsed["orchestrator"]["max_budget_usd"]
-        assert actual == 8.0, f"max_budget_usd is {actual}, expected 8.0"
+        assert actual >= 20.0, f"max_budget_usd is {actual}, expected >= 20.0"
+        assert actual != 8.0, "max_budget_usd must not be the old 8.0 value"
 
     def test_models_coding_not_promoted(self):
         """models.coding is NOT an active (uncommented) field in the default template.
@@ -229,13 +230,14 @@ class TestBudgetAndModelPromoted:
         )
 
     def test_max_budget_line_not_commented(self):
-        """max_budget_usd = 8.0 appears as an active line."""
+        """max_budget_usd appears as an active (uncommented) line (NS-REQ-4.1)."""
         template = generate_default_config()
-        assert "max_budget_usd = 8.0" in template, "max_budget_usd = 8.0 not found as active line"
         for line in template.split("\n"):
-            if "max_budget_usd = 8.0" in line:
-                assert not line.strip().startswith("#"), f"max_budget_usd line is commented: {line!r}"
+            if "max_budget_usd" in line and not line.strip().startswith("#"):
+                # Found an active max_budget_usd line; ensure it has the new value
+                assert "8.0" not in line, f"max_budget_usd must not be 8.0: {line!r}"
                 return
+        raise AssertionError("max_budget_usd not found as an active line in the template")
 
 
 # ---------------------------------------------------------------------------
