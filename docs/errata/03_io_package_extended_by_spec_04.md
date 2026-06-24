@@ -46,13 +46,15 @@ of Spec 03's creation. Spec 04 intentionally grew the package as part of
 its requirements (adding agentic CLI features). Reverting to "exactly
 twelve" would break Spec 04 functionality.
 
-The Spec 03 tests were updated to use `issubset` rather than exact equality
-for file checks, and to include the Spec 04 symbols in the public API
-list, ensuring both specs' contracts are satisfied.
-
 ## Test coverage
 
-- TS-03-1 verifies all fourteen public symbols are importable (passes)
-- TS-03-3 verifies the seven original files plus `progress.py` exist (passes)
-- All 127 agentfox/io/ unit tests pass
-- All 5216 tests in the full suite pass
+The Spec 03 tests validate the **original contracts** while accepting
+documented Spec 04 extensions:
+
+- TS-03-1 verifies all twelve original Spec 03 symbols are importable,
+  and asserts that any additional symbols are from the known Spec 04
+  extension set (`format_table`, `ProgressDisplay`) — undocumented extras
+  cause test failure.
+- TS-03-3 verifies all seven original Spec 03 files exist, and asserts
+  that any additional `.py` files are from the known Spec 04 extension
+  set (`group.py`, `progress.py`) — undocumented extras cause test failure.
