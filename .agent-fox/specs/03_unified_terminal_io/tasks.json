@@ -553,7 +553,7 @@
             "03-REQ-8.4",
             "03-REQ-8.E1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false,
           "done": true
         },
@@ -574,7 +574,7 @@
             "03-REQ-8.5",
             "03-REQ-8.6"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false,
           "done": true
         },
@@ -594,7 +594,7 @@
           "requirement_refs": [
             "03-REQ-8"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false,
           "done": true
         }
