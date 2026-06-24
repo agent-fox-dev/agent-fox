@@ -412,6 +412,12 @@ def code_cmd(
             click.echo(msg, err=True)
         sys.exit(1)
 
+    # Clean up stale merge lock left by a crashed process.
+    from agentfox.workspace.merge_lock import cleanup_stale_merge_lock
+
+    if cleanup_stale_merge_lock(Path.cwd()):
+        logger.info("Removed stale merge lock at startup")
+
     # 23-REQ-7.1: read stdin JSON when in JSON mode
     if json_mode:
         read_stdin()
