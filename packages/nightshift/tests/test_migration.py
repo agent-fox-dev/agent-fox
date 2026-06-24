@@ -1,12 +1,14 @@
 """Tests for test migration from af to nightshift package.
 
-Test Spec: TS-07-34, TS-07-35, TS-07-36, TS-07-37, TS-07-38, TS-07-P4
+Test Spec: TS-07-34, TS-07-35, TS-07-36, TS-07-37, TS-07-38, TS-07-E9, TS-07-P4
 Requirements: 07-REQ-8.1, 07-REQ-8.2, 07-REQ-8.3, 07-REQ-8.4, 07-REQ-8.5
 """
 
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
@@ -44,31 +46,45 @@ class TestMigratedTestFilesExist:
 
 
 class TestMigratedTestsPass:
-    """TS-07-35: Migrated tests pass.
+    """TS-07-35: All migrated nightshift tests pass.
 
     Requirements: 07-REQ-8.2
     """
 
-    def test_nightshift_tests_importable(self) -> None:
-        """nightshift test directory has an __init__.py or is discoverable."""
-        assert NIGHTSHIFT_TESTS_DIR.exists(), (
-            f"{NIGHTSHIFT_TESTS_DIR} does not exist"
+    @pytest.mark.slow
+    def test_nightshift_tests_pass(self) -> None:
+        """pytest packages/nightshift/tests/ exits 0 with all tests passing."""
+        result = subprocess.run(
+            [sys.executable, "-m", "pytest", "packages/nightshift/tests/",
+             "-q", "--tb=short"],
+            capture_output=True, text=True, timeout=120,
+        )
+        assert result.returncode == 0, (
+            f"Nightshift tests must all pass. Exit code: {result.returncode}\n"
+            f"stdout:\n{result.stdout}\n"
+            f"stderr:\n{result.stderr}"
         )
 
 
 class TestAfTestsStillPass:
-    """TS-07-36: af tests continue to pass.
+    """TS-07-36: af tests continue to pass after migration.
 
     Requirements: 07-REQ-8.3
     """
 
-    def test_af_tests_directory_exists(self) -> None:
-        """af tests directory still exists after migration."""
-        assert AF_TESTS_DIR.exists()
-
-    def test_af_conftest_exists(self) -> None:
-        """af conftest.py was not removed during migration."""
-        assert (AF_TESTS_DIR / "conftest.py").exists()
+    @pytest.mark.slow
+    def test_af_tests_pass(self) -> None:
+        """pytest packages/af/tests/ exits 0 with no regressions."""
+        result = subprocess.run(
+            [sys.executable, "-m", "pytest", "packages/af/tests/",
+             "-q", "--tb=short"],
+            capture_output=True, text=True, timeout=120,
+        )
+        assert result.returncode == 0, (
+            f"af tests must all pass after migration. Exit code: {result.returncode}\n"
+            f"stdout:\n{result.stdout}\n"
+            f"stderr:\n{result.stderr}"
+        )
 
 
 class TestConftestExists:
@@ -80,6 +96,12 @@ class TestConftestExists:
     def test_nightshift_conftest_exists(self) -> None:
         assert (NIGHTSHIFT_TESTS_DIR / "conftest.py").exists(), (
             "packages/nightshift/tests/conftest.py must exist with shared fixtures"
+        )
+
+    def test_af_conftest_intact(self) -> None:
+        """af conftest.py was not removed during migration."""
+        assert (AF_TESTS_DIR / "conftest.py").exists(), (
+            "packages/af/tests/conftest.py must remain intact"
         )
 
 
@@ -97,25 +119,10 @@ class TestRemovalTestInAfSuite:
         )
 
 
-class TestAfTestsRetainContent:
-    """TS-07-P4: af test files retain their content after migration.
-
-    Requirements: 07-REQ-8.3
-    """
-
-    def test_af_unit_tests_exist(self) -> None:
-        """af unit test directory still has test files."""
-        unit_dir = AF_TESTS_DIR / "unit"
-        if not unit_dir.exists():
-            pytest.skip("af/tests/unit/ not found")
-        test_files = list(unit_dir.glob("test_*.py"))
-        assert len(test_files) > 0, "af unit tests should not be empty"
-
-
 class TestCodeDryRunRemainsInAf:
-    """Reviewer finding: test_code_dry_run.py stays in af, not migrated.
+    """TS-07-E9: test_code_dry_run.py stays in af (not migrated to nightshift).
 
-    Requirements: 07-REQ-8.1
+    Requirements: 07-REQ-8.1, 07-REQ-8.E1
     """
 
     def test_code_dry_run_not_in_nightshift(self) -> None:
@@ -135,17 +142,27 @@ class TestCodeDryRunRemainsInAf:
         assert found, "test_code_dry_run.py should remain in af tests"
 
 
-class TestNonRegression:
-    """Non-regression: no test files accidentally deleted.
+class TestAfTestsRetainContent:
+    """TS-07-P4 / TS-07-E9: af test files retain content after migration.
 
-    Requirements: 07-REQ-8.3
+    Requirements: 07-REQ-8.3, 07-REQ-8.E1
     """
+
+    def test_af_unit_tests_exist(self) -> None:
+        """af unit test directory still has test files."""
+        unit_dir = AF_TESTS_DIR / "unit"
+        if not unit_dir.exists():
+            pytest.skip("af/tests/unit/ not found")
+        test_files = list(unit_dir.glob("test_*.py"))
+        assert len(test_files) > 0, "af unit tests should not be empty"
 
     def test_af_has_test_files(self) -> None:
         """af tests directory is not empty after migration."""
         all_tests = []
         for root, _dirs, files in os.walk(AF_TESTS_DIR):
-            all_tests.extend(f for f in files if f.startswith("test_") and f.endswith(".py"))
+            all_tests.extend(
+                f for f in files if f.startswith("test_") and f.endswith(".py")
+            )
         assert len(all_tests) > 5, (
             f"af tests should have many test files, found only {len(all_tests)}"
         )

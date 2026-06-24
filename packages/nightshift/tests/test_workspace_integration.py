@@ -1,12 +1,14 @@
 """Tests for nightshift workspace integration.
 
-Test Spec: TS-07-21, TS-07-22, TS-07-23, TS-07-24
-Requirements: 07-REQ-4.1, 07-REQ-4.2, 07-REQ-4.3, 07-REQ-4.4
+Test Spec: TS-07-21, TS-07-22, TS-07-23, TS-07-24, TS-07-E6
+Requirements: 07-REQ-4.1, 07-REQ-4.2, 07-REQ-4.3, 07-REQ-4.4, 07-REQ-4.E1
 """
 
 from __future__ import annotations
 
 import fnmatch
+import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
@@ -90,9 +92,13 @@ class TestMakeCheckDiscovery:
 
 
 class TestTestpathsOmissionGuard:
-    """Guard: testpaths must include nightshift tests.
+    """TS-07-E6: Omitting nightshift from testpaths causes zero tests collected.
 
-    Requirements: 07-REQ-4.3
+    Requirements: 07-REQ-4.E1
+
+    Verifies that running pytest against only other testpaths (without
+    nightshift) does NOT discover nightshift tests -- proving the testpaths
+    entry is necessary.
     """
 
     def test_guard_nightshift_in_testpaths(self) -> None:
@@ -101,4 +107,26 @@ class TestTestpathsOmissionGuard:
         testpaths = config["tool"]["pytest"]["ini_options"]["testpaths"]
         assert any("nightshift" in tp for tp in testpaths), (
             "nightshift tests missing from testpaths -- CI would not run them"
+        )
+
+    def test_omission_means_zero_nightshift_tests(self) -> None:
+        """Without nightshift in testpaths, pytest collects no nightshift tests.
+
+        Simulates the omission by running pytest --collect-only on only the
+        non-nightshift testpaths and verifying nightshift tests are absent.
+        """
+        config = _load_root_toml()
+        testpaths = config["tool"]["pytest"]["ini_options"]["testpaths"]
+        other_paths = [tp for tp in testpaths if "nightshift" not in tp]
+        if not other_paths:
+            # All testpaths are nightshift -- cannot simulate omission
+            return
+
+        result = subprocess.run(
+            [sys.executable, "-m", "pytest", "--collect-only", "-q", *other_paths],
+            capture_output=True, text=True, timeout=60,
+        )
+        assert "nightshift" not in result.stdout, (
+            "Nightshift tests should NOT be discovered when nightshift is "
+            "omitted from testpaths"
         )
