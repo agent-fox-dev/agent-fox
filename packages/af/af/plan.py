@@ -15,12 +15,112 @@ from pathlib import Path
 import click
 from agentfox.core.config import load_config
 from agentfox.core.errors import PlanError
-from agentfox.graph.persistence import save_plan
+from agentfox.graph.persistence import load_plan, save_plan
 from agentfox.graph.planner import build_plan, format_plan_summary
 from agentfox.io import emit_error, exit_codes
+from agentfox.knowledge.db import open_knowledge_store
 from agentfox.spec.discovery import discover_specs
 
 from af import get_output_manager
+
+
+def _verify_plan(
+    specs_path: Path,
+    filter_spec: str | None,
+    fast: bool,
+    config: object,
+    om: object,
+) -> None:
+    """Cross-check tasks.json states against DB plan_nodes statuses.
+
+    Builds a fresh plan from spec files and compares node statuses
+    against the persisted plan in DuckDB. Reports mismatches and
+    exits with code 1 if any are found.
+    """
+    from agentfox.core.node_id import DEFAULT_DB_PATH
+
+    json_mode = om.json_mode
+
+    # Build fresh plan from spec files
+    graph = build_plan(specs_path, filter_spec, fast, config)
+
+    # Load persisted plan from DB
+    if not DEFAULT_DB_PATH.exists():
+        msg = "No database found. Run `agent-fox plan` first."
+        if json_mode:
+            emit_error(msg)
+        else:
+            click.echo(f"Error: {msg}", err=True)
+        sys.exit(1)
+
+    db = open_knowledge_store(config.knowledge)
+    try:
+        persisted = load_plan(db.connection)
+    finally:
+        db.close()
+
+    if persisted is None:
+        msg = "No persisted plan found in database. Run `agent-fox plan` first."
+        if json_mode:
+            emit_error(msg)
+        else:
+            click.echo(f"Error: {msg}", err=True)
+        sys.exit(1)
+
+    # Compare statuses
+    mismatches: list[dict[str, str]] = []
+    orphans: list[str] = []
+    new_nodes: list[str] = []
+
+    all_node_ids = set(graph.nodes.keys()) | set(persisted.nodes.keys())
+    for nid in sorted(all_node_ids):
+        in_spec = nid in graph.nodes
+        in_db = nid in persisted.nodes
+
+        if in_spec and not in_db:
+            new_nodes.append(nid)
+            continue
+        if in_db and not in_spec:
+            orphans.append(nid)
+            continue
+
+        spec_status = str(graph.nodes[nid].status)
+        db_status = str(persisted.nodes[nid].status)
+        if spec_status != db_status:
+            mismatches.append(
+                {
+                    "node_id": nid,
+                    "spec_status": spec_status,
+                    "db_status": db_status,
+                }
+            )
+
+    has_issues = bool(mismatches or orphans or new_nodes)
+
+    if json_mode:
+        om.emit(
+            {
+                "verified": not has_issues,
+                "mismatches": mismatches,
+                "orphans": orphans,
+                "new_nodes": new_nodes,
+            }
+        )
+    else:
+        if not has_issues:
+            click.echo("Plan verified: spec files and database are in sync.")
+        else:
+            if mismatches:
+                click.echo("Status mismatches:")
+                for m in mismatches:
+                    click.echo(f"  {m['node_id']} — spec: {m['spec_status']}, db: {m['db_status']}")
+            if orphans:
+                click.echo(f"Orphan nodes (in DB, not in specs): {', '.join(orphans)}")
+            if new_nodes:
+                click.echo(f"New nodes (in specs, not in DB): {', '.join(new_nodes)}")
+
+    if has_issues:
+        sys.exit(1)
 
 
 def _node_to_dict(node: object) -> dict:
@@ -62,6 +162,12 @@ def _metadata_to_dict(meta: object) -> dict:
     default=None,
     help="Path to specs directory (default: from config, or .agent-fox/specs)",
 )
+@click.option(
+    "--verify",
+    is_flag=True,
+    default=False,
+    help="Cross-check spec files against database plan states",
+)
 @click.pass_context
 def plan_cmd(
     ctx: click.Context,
@@ -69,6 +175,7 @@ def plan_cmd(
     fast: bool,
     filter_spec: str | None,
     specs_dir: str | None,
+    verify: bool,
 ) -> None:
     """Build an execution plan from specifications."""
     # 04-REQ-2.1: retrieve OutputManager from context
@@ -98,6 +205,19 @@ def plan_cmd(
     from agentfox.core.config import resolve_spec_root
 
     specs_path: Path = Path(specs_dir) if specs_dir else resolve_spec_root(config, project_root)
+
+    if verify:
+        try:
+            _verify_plan(specs_path, filter_spec, fast, config, om)
+        except PlanError as exc:
+            if json_mode:
+                emit_error(str(exc))
+                ctx.exit(1)
+                return
+            click.echo(f"Error: {exc}", err=True)
+            ctx.exit(1)
+        return
+
     from agentfox.ui.progress import PlanSpinner
 
     spinner = PlanSpinner("Planning...")
@@ -125,9 +245,6 @@ def plan_cmd(
 
         # 122-REQ-1.4: merge persisted statuses and filter completed nodes
         try:
-            from agentfox.graph.persistence import load_plan
-            from agentfox.knowledge.db import open_knowledge_store
-
             _db = open_knowledge_store(config.knowledge)
             try:
                 persisted = load_plan(_db.connection)
@@ -177,8 +294,6 @@ def plan_cmd(
         return
 
     # Persist the plan to DuckDB (105-REQ-5.2)
-    from agentfox.knowledge.db import open_knowledge_store
-
     _knowledge_db = open_knowledge_store(config.knowledge)
     try:
         save_plan(graph, _knowledge_db.connection)

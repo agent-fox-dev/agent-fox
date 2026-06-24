@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
 import sys
 from pathlib import Path
 
@@ -71,6 +72,53 @@ def _extract_workspace_state_errors(state: ExecutionState) -> list[tuple[str, st
         if "workspace-state" in reason:
             results.append((node_id, reason))
     return results
+
+
+def _completed_spec_names(node_states: dict[str, str]) -> set[str]:
+    """Return spec names where all nodes are completed."""
+    spec_nodes: dict[str, list[str]] = {}
+    for node_id in node_states:
+        idx = node_id.find(":")
+        spec = node_id[:idx] if idx != -1 else node_id
+        spec_nodes.setdefault(spec, []).append(node_id)
+    return {spec for spec, nodes in spec_nodes.items() if all(node_states[n] == "completed" for n in nodes)}
+
+
+def _archive_completed_specs(
+    node_states: dict[str, str],
+    specs_dir: Path,
+    *,
+    json_mode: bool = False,
+) -> list[str]:
+    """Move completed spec directories to specs/archive/.
+
+    Returns list of spec names that were archived.
+    """
+    archive_dir = specs_dir / "archive"
+    if not archive_dir.is_dir():
+        logger.warning("Archive directory does not exist: %s", archive_dir)
+        if not json_mode:
+            click.echo(f"Warning: archive directory does not exist: {archive_dir}", err=True)
+        return []
+
+    completed = sorted(_completed_spec_names(node_states))
+    archived: list[str] = []
+    for spec_name in completed:
+        src = specs_dir / spec_name
+        dst = archive_dir / spec_name
+        if not src.is_dir():
+            continue
+        if dst.exists():
+            logger.warning("Spec already archived, skipping: %s", spec_name)
+            continue
+        shutil.move(str(src), str(dst))
+        archived.append(spec_name)
+        logger.info("Archived spec: %s", spec_name)
+
+    if archived and not json_mode:
+        click.echo(f"Archived {len(archived)} spec(s): {', '.join(archived)}")
+
+    return archived
 
 
 def _print_summary(state: ExecutionState) -> None:
@@ -242,6 +290,7 @@ def _check_dry_run_conflicts(
     dry_run: bool,
     watch: bool,
     force_clean: bool,
+    archive: bool = False,
 ) -> list[str]:
     """Return list of flag names incompatible with --dry-run, or empty list.
 
@@ -255,6 +304,8 @@ def _check_dry_run_conflicts(
         conflicts.append("--watch")
     if force_clean:
         conflicts.append("--force-clean")
+    if archive:
+        conflicts.append("--archive")
     return conflicts
 
 
@@ -290,6 +341,12 @@ def _check_dry_run_conflicts(
     default=False,
     help="Show plan analysis without running the orchestrator",
 )
+@click.option(
+    "--archive",
+    is_flag=True,
+    default=False,
+    help="Move completed specs to specs/archive/ after execution",
+)
 @click.pass_context
 def code_cmd(
     ctx: click.Context,
@@ -298,6 +355,7 @@ def code_cmd(
     watch_interval: int | None,
     force_clean: bool,
     dry_run: bool,
+    archive: bool,
 ) -> None:
     """Execute the task plan."""
     # 04-REQ-2.1: retrieve OutputManager from context
@@ -313,6 +371,7 @@ def code_cmd(
         dry_run=dry_run,
         watch=watch,
         force_clean=force_clean,
+        archive=archive,
     )
     if conflicts:
         flag_list = ", ".join(conflicts)
@@ -452,6 +511,18 @@ def code_cmd(
     else:
         # 16-REQ-3.1: print summary
         _print_summary(state)
+
+    # Archive completed specs when --archive is set
+    if archive and state.run_status in ("completed", "stalled", "cost_limit", "session_limit"):
+        from agentfox.core.config import resolve_spec_root
+
+        _specs_path = Path(specs_dir) if specs_dir else resolve_spec_root(config, Path.cwd())
+        try:
+            _archive_completed_specs(state.node_states, _specs_path, json_mode=json_mode)
+        except Exception as exc:
+            logger.warning("Archive failed: %s", exc, exc_info=True)
+            if not json_mode:
+                click.echo(f"Warning: failed to archive specs: {exc}", err=True)
 
     # 16-REQ-4.*: exit with appropriate code
     exit_code = _exit_code_for_status(state.run_status)
