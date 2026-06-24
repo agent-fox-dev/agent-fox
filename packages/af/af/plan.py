@@ -53,6 +53,7 @@ def _verify_plan(
             click.echo(f"Error: {msg}", err=True)
         sys.exit(1)
 
+    # read_only=True: verify path only reads plan_nodes for comparison; see spec 06-REQ-3
     db = open_knowledge_store(config.knowledge, read_only=True)
     try:
         persisted = load_plan(db.connection)
@@ -244,6 +245,7 @@ def plan_cmd(
         from agentfox.graph.types import NodeStatus
 
         # 122-REQ-1.4: merge persisted statuses and filter completed nodes
+        # read_only=True: dry-run only reads persisted plan for comparison
         try:
             _db = open_knowledge_store(config.knowledge, read_only=True)
             try:
@@ -294,6 +296,7 @@ def plan_cmd(
         return
 
     # Persist the plan to DuckDB (105-REQ-5.2)
+    # read_only=False: save path performs DELETE + INSERT on plan tables
     _knowledge_db = open_knowledge_store(config.knowledge, read_only=False)
     try:
         save_plan(graph, _knowledge_db.connection)

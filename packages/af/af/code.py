@@ -200,8 +200,16 @@ def _handle_dry_run(config: object, om: object, specs_dir: str | None) -> None:
         click.echo(f"Error: {_err_msg}", err=True)
         sys.exit(1)
 
-    # Load persisted plan from DuckDB (read-only)
-    _db = open_knowledge_store(config.knowledge, read_only=True)
+    # Load persisted plan from DuckDB (read-only); see spec 06-REQ-2
+    try:
+        _db = open_knowledge_store(config.knowledge, read_only=True)
+    except RuntimeError as exc:
+        _open_err = f"Failed to open knowledge store: {exc}"
+        if json_mode:
+            emit_error(_open_err)
+            sys.exit(1)
+        click.echo(f"Error: {_open_err}", err=True)
+        sys.exit(1)
     try:
         graph = load_plan(_db.connection)
     finally:

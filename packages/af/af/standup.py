@@ -80,6 +80,7 @@ def standup_cmd(ctx: click.Context, hours: int) -> None:
         import duckdb
 
         if DEFAULT_DB_PATH.exists():
+            # read_only=True: standup is read-only; see spec 06-REQ-8
             db_conn = duckdb.connect(str(DEFAULT_DB_PATH), read_only=True)
     except Exception:
         logger.debug("DuckDB unavailable for standup", exc_info=True)
