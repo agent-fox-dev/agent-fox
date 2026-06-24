@@ -43,7 +43,7 @@ This project uses spec-driven development. Specifications live in
 - `prd.md` — product requirements document (source of truth)
 - `requirements.json` — EARS-syntax acceptance criteria
 - `test_spec.json` — language-agnostic test contracts
-- `tasks.json` — implementation task groups with state machine
+- `tasks.json` — implementation plan with state machine
 - `architecture.md` — (optional) architecture overview
 
 ## Quality Commands
