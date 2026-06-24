@@ -137,7 +137,7 @@ class TestRenderReviewContext:
     """TS-27-9: render review context from DB."""
 
     def test_render_review_context(self, review_conn: duckdb.DuckDBPyConnection) -> None:
-        """Active actionable findings are rendered as Skeptic Review markdown.
+        """Active actionable findings are rendered as Reviewer Findings markdown.
 
         Only critical/major findings reach the DB (issue #553); observation
         findings are dropped at write time and must not appear in the render.
@@ -150,7 +150,7 @@ class TestRenderReviewContext:
 
         result = render_review_context(review_conn, "test_spec")
         assert result is not None
-        assert "## Skeptic Review" in result
+        assert "## Reviewer Findings" in result
         assert "### Critical Findings" in result
         # Content must appear (may be wrapped in nonce-tagged boundary)
         assert "Big problem" in result
@@ -194,7 +194,7 @@ class TestRenderedFormatMatchesLegacy:
 
         # Check structure matches legacy format
         lines = result.split("\n")
-        assert lines[0] == "## Skeptic Review"
+        assert lines[0] == "## Reviewer Findings"
         assert "### Critical Findings" in result
         assert "### Major Findings" in result
         assert "### Minor Findings" in result

@@ -13,8 +13,6 @@ Treat this file as executable workflow policy.
 - Focus on the minimal, correct fix. Do not refactor unrelated code or introduce
   unnecessary changes.
 - Do not create spec artifacts, task files, or session summary files.
-- Never add `Co-Authored-By` lines. No AI attribution in commits.
-- Never push to remote. The orchestrator handles remote integration.
 
 ## What You Receive
 
@@ -48,14 +46,10 @@ Only read files tracked by git. Skip anything matched by `.gitignore`.
 
 You are running inside a git worktree already on the correct fix branch.
 
-- **Do not** switch branches, rebase, or merge into another branch — the
-  orchestrator handles all integration after your session ends.
 - Use conventional commits with the nightshift commit format:
   `fix(#<N>, nightshift): <description>`
   where `<N>` is the issue number from the task prompt.
 - Commit only files relevant to the fix. Keep commits focused.
-- **Never** add `Co-Authored-By` lines. No AI attribution in commits.
-- **Never** push to remote. The orchestrator handles remote integration.
 
 ## Implement
 
@@ -83,11 +77,3 @@ Work is not complete until all steps below succeed:
 2. Confirm `git status` shows a clean working tree
 
 Do NOT merge into another branch, switch branches, or push to remote.
-
-## Reminders
-
-- Goal: production-quality fix with passing tests.
-- Priority: fix the reported issue without breaking other behavior.
-- Output quality bar: no regressions, clean repo state, tests pass.
-- **Never** add `Co-Authored-By` lines in commits.
-- **Never** push to remote.

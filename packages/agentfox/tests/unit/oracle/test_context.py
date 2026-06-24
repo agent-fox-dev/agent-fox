@@ -100,7 +100,7 @@ class TestRenderDriftContext:
 
         result = render_drift_context(drift_conn, "test_spec")
         assert result is not None
-        assert "## Oracle Drift Report" in result
+        assert "## Drift Report" in result
         assert "### Critical Findings" in result
         assert "File deleted" in result
         assert "Param renamed" in result

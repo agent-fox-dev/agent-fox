@@ -45,10 +45,10 @@ class PriorFinding:
 # ---------------------------------------------------------------------------
 
 # Archetype-produced files — only present after the corresponding archetype
-# (Skeptic / Verifier) has run.  Included silently when they exist on disk,
+# (Reviewer / Verifier) has run.  Included silently when they exist on disk,
 # skipped silently when they don't.
 _ARCHETYPE_SPEC_FILES: list[tuple[str, str]] = [
-    ("review.md", "## Skeptic Review"),
+    ("review.md", "## Reviewer Findings"),
     ("verification.md", "## Verification Report"),
 ]
 
@@ -123,7 +123,7 @@ def _render_severity_findings(
 
     Args:
         findings: List of finding objects with a ``severity`` attribute.
-        title: Markdown heading for the section (e.g. "## Skeptic Review").
+        title: Markdown heading for the section (e.g. "## Reviewer Findings").
         format_finding: Callable that formats a single finding as a string.
         show_empty_groups: If True, render "(none)" for severity levels
             with no findings.
@@ -188,7 +188,7 @@ def render_drift_context(
             desc += f" ({', '.join(refs)})"
         return f"- {desc}"
 
-    return _render_severity_findings(findings, "## Oracle Drift Report", _format)
+    return _render_severity_findings(findings, "## Drift Report", _format)
 
 
 def render_review_context(
@@ -215,7 +215,7 @@ def render_review_context(
 
     return _render_severity_findings(
         findings,
-        "## Skeptic Review",
+        "## Reviewer Findings",
         _format_review,
         show_empty_groups=True,
     )

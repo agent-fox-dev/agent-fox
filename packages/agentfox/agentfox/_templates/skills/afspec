@@ -159,7 +159,7 @@ existing codebase, analyze code and repository structure before drafting specs.
 Look for existing specifications in `.agent-fox/specs/`. Specification folders use a
 **numbered prefix** indicating creation sequence.
 
-Also check steering and workflow docs (`AGENTS.md`, `.agent-fox/prompts/`) so the
+Also check `.agent-fox/steering.md` for project-level directives so the
 generated tasks fit the required execution workflow.
 
 ### Specification Folder Naming
