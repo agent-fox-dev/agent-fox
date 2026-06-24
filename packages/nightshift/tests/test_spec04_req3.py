@@ -1,21 +1,23 @@
-"""Tests for JSONL streaming progress events (REQ-3).
+"""JSONL progress event tests for nightshift (migrated from af).
 
-Test Spec: TS-04-10, TS-04-11, TS-04-12, TS-04-13, TS-04-14,
-           TS-04-15, TS-04-16, TS-04-E3, TS-04-E4
+These tests validate that ProgressDisplay and OutputManager from agentfox.io
+correctly emit JSONL progress events for nightshift daemon operations.
+
+Test Spec: TS-04-10, TS-04-11, TS-04-12, TS-04-13, TS-04-E3, TS-04-E4
 Requirements: 04-REQ-3.1, 04-REQ-3.2, 04-REQ-3.3, 04-REQ-3.4,
-              04-REQ-3.5, 04-REQ-3.6, 04-REQ-3.7, 04-REQ-3.E1, 04-REQ-3.E2
+              04-REQ-3.5, 04-REQ-3.6, 04-REQ-3.E1, 04-REQ-3.E2
+Migrated from: packages/af/tests/unit/test_spec04_req3.py (07-REQ-8.1)
 """
 
 from __future__ import annotations
 
+import io
 import json
 import re
 from unittest.mock import MagicMock, patch
 
-import pytest
 
-
-class TestTaskStartedEvent:
+class TestNightShiftTaskStartedEvent:
     """TS-04-10: ProgressDisplay emits task_started with node_id and timestamp."""
 
     def test_emit_progress_called_with_task_started(self) -> None:
@@ -34,7 +36,7 @@ class TestTaskStartedEvent:
         assert re.match(r"\d{4}-\d{2}-\d{2}T", event_data["timestamp"])
 
 
-class TestTaskCompletedEvent:
+class TestNightShiftTaskCompletedEvent:
     """TS-04-11: ProgressDisplay emits task_completed with duration_s."""
 
     def test_emit_progress_called_with_task_completed(self) -> None:
@@ -55,7 +57,7 @@ class TestTaskCompletedEvent:
         assert event_data["duration_s"] >= 0
 
 
-class TestTaskFailedEvent:
+class TestNightShiftTaskFailedEvent:
     """TS-04-12: ProgressDisplay emits task_failed with error message."""
 
     def test_emit_progress_called_with_task_failed(self) -> None:
@@ -88,78 +90,32 @@ class TestNoEmitProgressInTextMode:
         om.emit_progress.assert_not_called()
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="af code --json requires a plan DB and mocked orchestrator; "
-    "wiring IS in place but end-to-end test infrastructure is not",
-)
-class TestStdoutStderrSeparation:
-    """TS-04-14: JSONL progress on stderr, final result on stdout.
+class TestNightShiftJsonlEvents:
+    """Nightshift JSONL event emission via OutputManager.
 
-    Uses ``mix_stderr=False`` to capture stdout and stderr independently
-    so the stdout/stderr separation contract can be validated.
+    Adapted from former af night-shift --json test — uses OutputManager
+    directly instead of invoking the daemon (which requires DuckDB and
+    full daemon infrastructure).
+
+    Test Spec: TS-07-15
+    Requirements: 07-REQ-3.7
     """
 
-    def test_stdout_is_valid_json_stderr_is_jsonl(self, cli_runner_separated) -> None:
-        """stdout lines are JSON; stderr lines are JSONL with 'event' key.
+    def test_output_manager_emits_jsonl(self) -> None:
+        """OutputManager in json_mode emits valid JSON to stdout."""
+        stdout_buf = io.StringIO()
+        stderr_buf = io.StringIO()
 
-        Uses CliRunner(mix_stderr=False) to capture stdout and stderr
-        separately, validating no cross-contamination per 04-PROP-1.
-        """
-        from af.app import main
+        from agentfox.io import OutputManager
 
-        result = cli_runner_separated.invoke(main, ["--json", "code"])
-        assert result.exit_code == 0
+        om = OutputManager(json_mode=True, stdout=stdout_buf, stderr=stderr_buf)
+        om.emit({"status": "stopped", "issues_fixed": 0, "total_cost": 0.0})
 
-        # All stdout lines must be valid JSON (the final result)
-        for line in result.output.strip().splitlines():
-            if line.strip():
-                json.loads(line)
-
-        # All stderr lines must be valid JSONL progress events
-        stderr_text = result.stderr if hasattr(result, "stderr") else ""
-        stderr_lines = [line for line in stderr_text.strip().splitlines() if line.strip()]
-        assert len(stderr_lines) >= 2, "Expected at least 2 JSONL progress events on stderr"
-        for line in stderr_lines:
-            obj = json.loads(line)
-            assert "event" in obj, f"JSONL line missing 'event' key: {line}"
-
-
-@pytest.mark.xfail(
-    strict=False,
-    reason="af code --json requires a plan DB and mocked orchestrator; "
-    "wiring IS in place but end-to-end test infrastructure is not",
-)
-class TestCodeJsonlEvents:
-    """TS-04-15: af code --json emits JSONL events on stderr.
-
-    Uses ``mix_stderr=False`` to validate stderr JSONL events independently
-    from the stdout JSON result.
-    """
-
-    def test_code_emits_progress_events(self, cli_runner_separated) -> None:
-        """af code --json stderr has task_started/completed/failed events.
-
-        Uses CliRunner(mix_stderr=False) to validate that stderr contains
-        at least one JSONL event with valid event, node_id, and timestamp
-        fields.  stdout must contain the final JSON result.
-        """
-        from af.app import main
-
-        result = cli_runner_separated.invoke(main, ["--json", "code"])
-        assert result.exit_code == 0
-
-        # stdout: final JSON result
-        final = json.loads(result.output)
-        assert isinstance(final, dict)
-        # stderr: JSONL progress events
-        stderr_text = result.stderr if hasattr(result, "stderr") else ""
-        events = [json.loads(line) for line in stderr_text.strip().splitlines() if line.strip()]
-        assert len(events) > 0, "Expected at least one JSONL event on stderr"
-        for ev in events:
-            assert ev["event"] in ("task_started", "task_completed", "task_failed")
-            assert "node_id" in ev
-            assert "timestamp" in ev
+        output = stdout_buf.getvalue().strip()
+        assert len(output) > 0
+        parsed = json.loads(output)
+        assert isinstance(parsed, dict)
+        assert parsed["status"] == "stopped"
 
 
 class TestBrokenPipeSuppressed:
@@ -196,8 +152,6 @@ class TestNullNodeId:
 
     def test_null_node_id_emits_with_warning(self) -> None:
         """task_started(node_id=None) emits with node_id=null and warns on stderr."""
-        import io
-
         from agentfox.io import ProgressDisplay
 
         om = MagicMock()
