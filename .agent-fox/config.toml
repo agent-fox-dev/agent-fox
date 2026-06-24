@@ -44,7 +44,7 @@ coder = true
 reviewer = true
 ## Enable verifier archetype (default: true)
 verifier = true
-models = {coder = "ADVANCED", reviewer = "ADVANCED"}
+models = {coder = "ADVANCED"}
 ## Per-archetype command allowlists (default: {})
 # allowlists = {}
 ## Per-archetype maximum turn limits (default: {})
