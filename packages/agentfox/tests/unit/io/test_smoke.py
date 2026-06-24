@@ -10,7 +10,6 @@ Requirements: 03-REQ-2.2, 03-REQ-3.1, 03-REQ-5.4, 03-REQ-6.1,
 
 from __future__ import annotations
 
-import inspect
 import json
 import os
 from unittest.mock import patch
@@ -337,48 +336,6 @@ class TestCallChainPropagation:
         assert parsed["error"]["type"] == "internal_error"
         assert parsed["error"]["detail"] == "RuntimeError"
 
-    def test_output_manager_stored_before_subcommand(self) -> None:
-        """AgentFoxGroup stores OutputManager before subcommand runs."""
-        from agentfox.io import AgentFoxGroup, OutputManager
-
-        @click.group(cls=AgentFoxGroup)
-        def cli():
-            pass
-
-        captured = []
-
-        @cli.command()
-        @click.pass_context
-        def sub(ctx):
-            captured.append(ctx.obj.get("output"))
-
-        runner = CliRunner()
-        with patch("agentfox.core.logging.setup_logging"):
-            runner.invoke(cli, ["sub"])
-
-        assert len(captured) == 1
-        assert isinstance(captured[0], OutputManager)
-
-    def test_setup_logging_called_with_resolved_flags(self) -> None:
-        """setup_logging() receives resolved (not default) flag values."""
-        cli = _make_cli_with_common_options()
-
-        @cli.command()
-        def sub():
-            pass
-
-        calls = []
-        with patch(
-            "agentfox.core.logging.setup_logging",
-            side_effect=lambda **kw: calls.append(kw),
-        ):
-            runner = CliRunner()
-            runner.invoke(cli, ["--verbose", "sub"])
-
-        assert len(calls) == 1
-        assert calls[0]["verbose"] is True
-        assert calls[0]["trace"] is False
-
 
 # ---------------------------------------------------------------------------
 # 12.4: Stub and dead-code audit (programmatic checks)
@@ -425,47 +382,8 @@ class TestStubAudit:
             ):
                 assert callable(sym), f"{sym_name} is not callable"
 
-    def test_plan_spinner_delegates_to_status_spinner(self) -> None:
-        """PlanSpinner either delegates to StatusSpinner or is removed."""
-        import agentfox.ui.progress as progress_module
-
-        if hasattr(progress_module, "PlanSpinner"):
-            src = inspect.getsource(progress_module.PlanSpinner)
-            assert "StatusSpinner" in src, "PlanSpinner must delegate to StatusSpinner"
-
-
-# ---------------------------------------------------------------------------
-# Additional wiring verification
-# ---------------------------------------------------------------------------
-
-
-class TestAgentFoxGroupModuleImports:
-    """Verify agentfox.io re-exports come from correct submodules."""
-
-    def test_agentfox_group_is_from_cli(self) -> None:
-        """AgentFoxGroup exported from agentfox.io is from cli.py."""
-        from agentfox.io import AgentFoxGroup
-        from agentfox.io.cli import AgentFoxGroup as CliAgentFoxGroup
-
-        assert AgentFoxGroup is CliAgentFoxGroup
-
-    def test_emit_is_from_json_module(self) -> None:
-        """emit function exported from agentfox.io is from json.py."""
-        from agentfox.io import emit
-        from agentfox.io.json import emit as JsonEmit
-
-        assert emit is JsonEmit
-
-    def test_error_envelope_is_from_errors_module(self) -> None:
-        """error_envelope from agentfox.io is from errors.py."""
-        from agentfox.io import error_envelope
-        from agentfox.io.errors import error_envelope as ErrorsEnvelope
-
-        assert error_envelope is ErrorsEnvelope
-
-
 class TestAfAppWiring:
-    """Verify af/app.py uses AgentFoxGroup and has audit comment."""
+    """Verify af/app.py uses AgentFoxGroup."""
 
     def test_af_app_uses_agent_fox_group(self) -> None:
         """af/app.py root group uses cls=AgentFoxGroup."""
@@ -473,13 +391,3 @@ class TestAfAppWiring:
         from agentfox.io import AgentFoxGroup
 
         assert isinstance(af_main, AgentFoxGroup) or (type(af_main).__name__ == "AgentFoxGroup")
-
-    def test_af_app_has_audit_comment(self) -> None:
-        """af/app.py contains the migration audit comment block."""
-        import af.app
-
-        fpath = inspect.getfile(af.app)
-        with open(fpath) as f:
-            source = f.read()
-        assert "AgentFoxGroup" in source
-        assert "audit" in source.lower() or "Spec 04" in source

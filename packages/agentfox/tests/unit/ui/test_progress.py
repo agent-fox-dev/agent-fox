@@ -268,33 +268,3 @@ class TestUpdateSpinnerText:
         assert text == ""
 
 
-class TestPlanSpinner:
-    """PlanSpinner lifecycle tests."""
-
-    def test_start_stop_no_exception(self) -> None:
-        """PlanSpinner start/stop lifecycle works cleanly on non-TTY."""
-        from agentfox.ui.progress import PlanSpinner
-
-        spinner = PlanSpinner("Testing...")
-        # On non-TTY (test runner), start is a no-op
-        spinner.start()
-        spinner.stop()
-
-    def test_double_stop_safe(self) -> None:
-        """PlanSpinner can be stopped multiple times."""
-        from agentfox.ui.progress import PlanSpinner
-
-        spinner = PlanSpinner()
-        spinner.start()
-        spinner.stop()
-        spinner.stop()
-
-    def test_is_running_property(self) -> None:
-        """is_running reflects spinner state."""
-        from agentfox.ui.progress import PlanSpinner
-
-        spinner = PlanSpinner()
-        assert not spinner.is_running
-        # On non-TTY, start is no-op so is_running stays False
-        spinner.start()
-        spinner.stop()

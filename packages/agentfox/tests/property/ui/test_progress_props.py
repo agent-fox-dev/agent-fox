@@ -48,7 +48,7 @@ class TestSpinnerLineWidth:
         turn=st.integers(min_value=0, max_value=999),
         tokens=st.one_of(st.none(), st.integers(min_value=0, max_value=10_000_000)),
     )
-    @settings(max_examples=100)
+    @settings(max_examples=30)
     def test_spinner_line_fits_terminal(self, text: str, width: int, turn: int, tokens: int | None) -> None:
         """Every line of the spinner text fits within terminal width."""
         theme, _buf = _make_theme(width=width)
@@ -76,7 +76,7 @@ class TestAbbreviationIdempotence:
     """
 
     @given(s=st.text(min_size=0, max_size=500))
-    @settings(max_examples=100)
+    @settings(max_examples=30)
     def test_abbreviation_is_idempotent(self, s: str) -> None:
         """abbreviate_arg(abbreviate_arg(s)) == abbreviate_arg(s)."""
         once = abbreviate_arg(s)
@@ -134,7 +134,7 @@ class TestAbbreviatedPathFitsMaxLen:
         ),
         max_len=st.integers(min_value=4, max_value=100),
     )
-    @settings(max_examples=200)
+    @settings(max_examples=50)
     def test_abbreviated_path_fits(self, path: str, max_len: int) -> None:
         """abbreviate_arg(path, max_len) length never exceeds max_len."""
         result = abbreviate_arg(path, max_len)

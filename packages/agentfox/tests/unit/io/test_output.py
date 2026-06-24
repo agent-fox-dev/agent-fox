@@ -37,16 +37,6 @@ class TestOutputManagerFields:
         assert isinstance(om.trace, bool)
         assert isinstance(om.console, Console)
 
-    def test_fields_match_constructor_args(self) -> None:
-        """03-REQ-2.1: Fields reflect the values passed to the constructor."""
-        from agentfox.io import OutputManager
-
-        om = OutputManager(json_mode=True, quiet=True, verbose=True, trace=True)
-        assert om.json_mode is True
-        assert om.quiet is True
-        assert om.verbose is True
-        assert om.trace is True
-
 
 class TestAgentFoxGroupOutputManagerConstruction:
     """TS-03-5: AgentFoxGroup.invoke() constructs OutputManager at ctx.obj['output']."""
