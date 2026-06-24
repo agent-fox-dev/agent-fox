@@ -14,7 +14,6 @@ from typing import Any
 
 import duckdb
 import pytest
-from agentfox.core.config import OrchestratorConfig
 
 # -- Mock session outcome matching SessionOutcome from spec 03 --------
 
@@ -151,41 +150,9 @@ def write_plan_file(
 
 
 @pytest.fixture
-def tmp_plan_dir(tmp_path: Path) -> Path:
-    """Return a path to a temporary .agent-fox directory for plan.json."""
-    plan_dir = tmp_path / ".agent-fox"
-    plan_dir.mkdir(parents=True, exist_ok=True)
-    return plan_dir
-
-
-@pytest.fixture
 def mock_runner() -> MockSessionRunner:
     """Provide a fresh MockSessionRunner."""
     return MockSessionRunner()
-
-
-@pytest.fixture
-def default_orch_config() -> OrchestratorConfig:
-    """Default orchestrator config for tests."""
-    return OrchestratorConfig()
-
-
-@pytest.fixture
-def serial_config() -> OrchestratorConfig:
-    """Orchestrator config with serial execution (parallelism=1)."""
-    return OrchestratorConfig(parallel=1, inter_session_delay=0)
-
-
-@pytest.fixture
-def parallel_config() -> OrchestratorConfig:
-    """Orchestrator config with parallel execution (parallelism=4)."""
-    return OrchestratorConfig(parallel=4, inter_session_delay=0)
-
-
-@pytest.fixture
-def no_retry_config() -> OrchestratorConfig:
-    """Orchestrator config with no retries."""
-    return OrchestratorConfig(max_retries=0, inter_session_delay=0)
 
 
 # -- DuckDB helpers for plan persistence (post-issue-446) ------------------
@@ -249,14 +216,6 @@ def write_plan_to_db(
     )
     save_plan(graph, conn)
     return conn
-
-
-@pytest.fixture
-def db_conn_with_schema() -> duckdb.DuckDBPyConnection:
-    """Provide a fresh in-memory DuckDB with plan tables."""
-    conn = _create_db_with_schema()
-    yield conn
-    conn.close()
 
 
 @pytest.fixture

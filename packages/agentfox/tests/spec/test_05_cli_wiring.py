@@ -432,21 +432,22 @@ class TestRootGroupAgentFoxGroup:
 # ===========================================================================
 
 
-class TestNoBannerOrConfigLoad:
-    """TS-05-2: Verify absence of manual banner/config-load patterns.
+class TestBannerRendering:
+    """TS-05-2: Verify banner is rendered in the main() callback.
 
-    Requirement: 05-REQ-1.2
+    The AgentFoxGroup in agentfox/io/cli.py does NOT render the banner;
+    each CLI's main() callback is responsible for calling render_banner.
     """
 
-    def test_no_render_banner_call(self) -> None:
-        """spec/cli.py does not call render_banner()."""
+    def test_render_banner_present(self) -> None:
+        """spec/cli.py calls render_banner() in main()."""
         source = _get_cli_source()
-        assert "render_banner" not in source
+        assert "render_banner" in source
 
-    def test_no_manual_load_config(self) -> None:
-        """spec/cli.py does not manually call load_config()."""
+    def test_load_config_present(self) -> None:
+        """spec/cli.py calls load_config() for banner theming."""
         source = _get_cli_source()
-        assert "load_config" not in source
+        assert "load_config" in source
 
 
 # ===========================================================================

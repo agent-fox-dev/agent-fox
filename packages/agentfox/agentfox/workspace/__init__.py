@@ -6,7 +6,7 @@ Re-exports commonly used symbols from:
 - agent_fox.workspace.worktree (worktree lifecycle)
 
 For less commonly used git helpers (create_branch, delete_branch,
-merge_commit, etc.), import directly from ``agent_fox.workspace.git``.
+etc.), import directly from ``agent_fox.workspace.git``.
 """
 
 from agentfox.workspace.develop import (  # noqa: F401

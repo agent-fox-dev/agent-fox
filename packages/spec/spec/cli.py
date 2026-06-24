@@ -503,33 +503,6 @@ _VALIDATE_SCHEMA_MAP: dict[str, str] = {
 }
 
 
-def _get_value_at_path(data: Any, path: str) -> Any:
-    """Navigate a dotted path in a nested dict/list structure.
-
-    Returns the value at the path, or ``None`` when the path is
-    invalid or points nowhere.
-    """
-    if not path:
-        return None
-    parts = path.split(".")
-    current = data
-    for part in parts:
-        if isinstance(current, dict):
-            if part in current:
-                current = current[part]
-            else:
-                return None
-        elif isinstance(current, list):
-            try:
-                idx = int(part)
-                current = current[idx]
-            except (ValueError, IndexError):
-                return None
-        else:
-            return None
-    return current
-
-
 def _extract_requirement_id(message: str) -> str | None:
     """Extract a requirement/criterion ID from a validation error message.
 

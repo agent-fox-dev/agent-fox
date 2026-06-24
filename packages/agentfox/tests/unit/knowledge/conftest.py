@@ -8,13 +8,10 @@ causal graph data for Time Vision (spec 13) tests, and Fox Ball
 
 from __future__ import annotations
 
-import math
-import uuid
 from collections.abc import Generator
 from dataclasses import dataclass
 from dataclasses import field as dc_field
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import duckdb
 import pytest
@@ -41,34 +38,6 @@ class Fact:
     supersedes: str | None = None
     superseded_by: str | None = None
 
-
-@dataclass
-class SearchResult:
-    """Minimal stub for SearchResult dataclass (original module removed in spec 114)."""
-
-    fact_id: str
-    content: str
-    category: str = "decision"
-    spec_name: str = ""
-    session_id: str | None = None
-    commit_sha: str | None = None
-    similarity: float = 0.0
-
-
-class _EmbeddingGeneratorStub:
-    """Stub class for mock spec= usage (replaces EmbeddingGenerator)."""
-
-    embedding_dimensions: int = 384
-
-    def embed_text(self, text: str) -> list[float]:  # noqa: ARG002
-        return []
-
-    def embed_batch(self, texts: list[str]) -> list[list[float]]:  # noqa: ARG002
-        return []
-
-
-# Alias so that MagicMock(spec=EmbeddingGenerator) still works.
-EmbeddingGenerator = _EmbeddingGeneratorStub
 
 # -- Well-known fact UUIDs for Time Vision tests --------------------------------
 # These are full UUIDs used consistently across causal/temporal/pattern tests.
@@ -356,76 +325,12 @@ def create_empty_db() -> duckdb.DuckDBPyConnection:
     return conn
 
 
-@pytest.fixture
-def causal_db() -> Generator[duckdb.DuckDBPyConnection, None, None]:
-    """In-memory DuckDB with schema and seeded causal data.
-
-    Includes: memory_facts (5 facts), fact_causes (3 links),
-    and session_outcomes (6 entries) as defined in test_spec.md.
-    """
-    conn = duckdb.connect(":memory:")
-    create_schema(conn)
-    seed_facts(conn)
-    seed_causal_links(conn)
-    seed_session_outcomes(conn)
-    yield conn
-    try:
-        conn.close()
-    except Exception:
-        pass
-
-
 # -- Fox Ball (spec 12) fixtures and helpers ----------------------------------
 
 # Additional well-known UUIDs for Fox Ball tests
 FACT_FFF = "ffffffff-ffff-ffff-ffff-ffffffffffff"
 FACT_111 = "11111111-aaaa-bbbb-cccc-111111111111"
 FACT_222 = "22222222-aaaa-bbbb-cccc-222222222222"
-
-
-def make_deterministic_embedding(seed: int, dim: int = 384) -> list[float]:
-    """Generate a deterministic, normalized embedding vector.
-
-    Uses a simple deterministic formula based on the seed to create
-    a vector that is unique to each seed but reproducible. The vector
-    is normalized to unit length for proper cosine similarity.
-    """
-    raw = [math.sin(seed * (i + 1) * 0.1) for i in range(dim)]
-    norm = math.sqrt(sum(x * x for x in raw))
-    if norm == 0:
-        return [1.0 / math.sqrt(dim)] * dim
-    return [x / norm for x in raw]
-
-
-MOCK_EMBEDDING_1 = make_deterministic_embedding(1)
-MOCK_EMBEDDING_2 = make_deterministic_embedding(2)
-MOCK_EMBEDDING_3 = make_deterministic_embedding(3)
-MOCK_EMBEDDING_4 = make_deterministic_embedding(4)
-MOCK_EMBEDDING_5 = make_deterministic_embedding(5)
-MOCK_QUERY_EMBEDDING = make_deterministic_embedding(1)  # same as 1 for high similarity
-
-
-def make_sample_fact(
-    *,
-    fact_id: str | None = None,
-    content: str = "A sample fact",
-    category: str = "decision",
-    spec_name: str = "test_spec",
-    session_id: str = "test/1",
-    commit_sha: str = "abc123",
-    confidence: float = 0.9,
-) -> Fact:
-    """Create a sample Fact for testing."""
-    return Fact(
-        id=fact_id or str(uuid.uuid4()),
-        content=content,
-        category=category,
-        spec_name=spec_name,
-        keywords=["test"],
-        confidence=confidence,
-        created_at="2025-11-01T10:00:00Z",
-        supersedes=None,
-    )
 
 
 def insert_fact_with_embedding(
@@ -475,95 +380,6 @@ def insert_fact_without_embedding(
     )
 
 
-@pytest.fixture
-def mock_embedder() -> MagicMock:
-    """Mocked EmbeddingGenerator returning 384-dim vectors."""
-    embedder = MagicMock(spec=EmbeddingGenerator)
-    embedder.embedding_dimensions = 384
-    embedder.embed_text.return_value = MOCK_EMBEDDING_1
-    embedder.embed_batch.return_value = [
-        MOCK_EMBEDDING_1,
-        MOCK_EMBEDDING_2,
-        MOCK_EMBEDDING_3,
-    ]
-    return embedder
-
-
-@pytest.fixture
-def mock_anthropic_client() -> MagicMock:
-    """Mocked Anthropic client for synthesis API calls."""
-    client = MagicMock()
-    # Set up messages.create to return a mock response
-    mock_response = MagicMock()
-    answer_text = '{"answer": "Test answer", "contradictions": []}'
-    mock_response.content = [MagicMock(text=answer_text)]
-    client.messages.create.return_value = mock_response
-    client.messages.stream = MagicMock()
-    return client
-
-
-@pytest.fixture
-def sample_facts() -> list[Fact]:
-    """List of sample Fact objects with provenance for testing."""
-    return [
-        make_sample_fact(
-            fact_id=FACT_AAA,
-            content="DuckDB was chosen for columnar analytics",
-            category="decision",
-            spec_name="11_duckdb",
-            commit_sha="a1b2c3d",
-        ),
-        make_sample_fact(
-            fact_id=FACT_BBB,
-            content="Embeddings use voyage-3 at 1024 dimensions",
-            category="convention",
-            spec_name="12_fox_ball",
-            commit_sha="e4f5g6h",
-        ),
-        make_sample_fact(
-            fact_id=FACT_CCC,
-            content="JSONL is the source of truth for facts",
-            category="decision",
-            spec_name="05_memory",
-            commit_sha="i7j8k9l",
-        ),
-    ]
-
-
-@pytest.fixture
-def sample_search_results() -> list[SearchResult]:
-    """List of sample SearchResult objects for oracle testing."""
-    return [
-        SearchResult(
-            fact_id=FACT_AAA,
-            content="DuckDB was chosen for columnar analytics",
-            category="decision",
-            spec_name="11_duckdb",
-            session_id="11/1",
-            commit_sha="a1b2c3d",
-            similarity=0.85,
-        ),
-        SearchResult(
-            fact_id=FACT_BBB,
-            content="Embeddings use voyage-3 at 1024 dimensions",
-            category="convention",
-            spec_name="12_fox_ball",
-            session_id="12/1",
-            commit_sha="e4f5g6h",
-            similarity=0.78,
-        ),
-        SearchResult(
-            fact_id=FACT_CCC,
-            content="JSONL is the source of truth for facts",
-            category="decision",
-            spec_name="05_memory",
-            session_id="05/1",
-            commit_sha="i7j8k9l",
-            similarity=0.72,
-        ),
-    ]
-
-
 # -- Fixtures merged from tests/unit/memory/conftest.py ----------------------
 
 
@@ -595,43 +411,6 @@ def make_fact(
 def sample_fact() -> Fact:
     """A single sample fact with default values."""
     return make_fact()
-
-
-@pytest.fixture
-def memory_sample_facts() -> list[Fact]:
-    """Three sample facts with different spec names (from memory tests)."""
-    return [
-        make_fact(
-            id="fact-1",
-            content="Fact from spec_01.",
-            category="gotcha",
-            spec_name="spec_01",
-            keywords=["pytest", "config"],
-            created_at="2026-01-01T00:00:00+00:00",
-        ),
-        make_fact(
-            id="fact-2",
-            content="Fact from spec_02.",
-            category="pattern",
-            spec_name="spec_02",
-            keywords=["testing", "mock"],
-            created_at="2026-02-01T00:00:00+00:00",
-        ),
-        make_fact(
-            id="fact-3",
-            content="Fact from spec_03.",
-            category="decision",
-            spec_name="spec_03",
-            keywords=["architecture", "design"],
-            created_at="2026-03-01T00:00:00+00:00",
-        ),
-    ]
-
-
-@pytest.fixture
-def tmp_memory_path(tmp_path: Path) -> Path:
-    """Return a path to a temporary memory.jsonl file (not yet created)."""
-    return tmp_path / "memory.jsonl"
 
 
 # -- Mock LLM responses for extraction tests --------------------------------

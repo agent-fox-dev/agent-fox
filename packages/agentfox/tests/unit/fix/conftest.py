@@ -11,10 +11,9 @@ from pathlib import Path
 
 import pytest
 from agentfox.core.config import AgentFoxConfig
-from agentfox.fix.analyzer import AnalyzerResult, Improvement
+from agentfox.fix.analyzer import Improvement
 from agentfox.fix.checks import CheckCategory, CheckDescriptor, FailureRecord
 from agentfox.fix.clusterer import FailureCluster
-from agentfox.fix.improve import ImproveResult, ImproveTermination
 
 # -- Check descriptor fixtures ------------------------------------------------
 
@@ -36,16 +35,6 @@ def ruff_check_descriptor() -> CheckDescriptor:
         name="ruff",
         command=["uv", "run", "ruff", "check", "."],
         category=CheckCategory.LINT,
-    )
-
-
-@pytest.fixture
-def mypy_check_descriptor() -> CheckDescriptor:
-    """A mypy check descriptor."""
-    return CheckDescriptor(
-        name="mypy",
-        command=["uv", "run", "mypy", "."],
-        category=CheckCategory.TYPE,
     )
 
 
@@ -73,18 +62,6 @@ def sample_failure_record(
 ) -> FailureRecord:
     """A sample failure record from pytest."""
     return make_failure_record(check=check_descriptor_pytest)
-
-
-@pytest.fixture
-def ruff_failure_record(
-    ruff_check_descriptor: CheckDescriptor,
-) -> FailureRecord:
-    """A sample failure record from ruff."""
-    return make_failure_record(
-        check=ruff_check_descriptor,
-        output="error: unused import `os`",
-        exit_code=1,
-    )
 
 
 # -- Failure cluster fixtures -------------------------------------------------
@@ -136,51 +113,6 @@ def make_improvement(
 
 
 @pytest.fixture
-def sample_improvement() -> Improvement:
-    """A sample Improvement dataclass with defaults."""
-    return make_improvement()
-
-
-@pytest.fixture
-def sample_analyzer_result() -> AnalyzerResult:
-    """An AnalyzerResult with 2 improvements."""
-    return AnalyzerResult(
-        improvements=[
-            make_improvement(id="IMP-1", tier="quick_win", confidence=0.9),
-            make_improvement(
-                id="IMP-2",
-                tier="structural",
-                title="Consolidate validators",
-                description="Merge a.py and b.py validators",
-                files=["a.py", "b.py"],
-                impact="medium",
-                confidence=0.6,
-            ),
-        ],
-        summary="Found 2 improvements.",
-        diminishing_returns=False,
-        raw_response="{}",
-    )
-
-
-@pytest.fixture
-def sample_improve_result() -> ImproveResult:
-    """An ImproveResult with defaults for testing."""
-    return ImproveResult(
-        passes_completed=2,
-        max_passes=3,
-        total_improvements=5,
-        improvements_by_tier={"quick_win": 3, "structural": 2},
-        verifier_pass_count=2,
-        verifier_fail_count=0,
-        sessions_consumed=6,
-        total_cost=2.50,
-        termination_reason=ImproveTermination.CONVERGED,
-        pass_results=[],
-    )
-
-
-@pytest.fixture
 def valid_analyzer_json() -> str:
     """Valid JSON string for analyzer response."""
     return json.dumps(
@@ -209,33 +141,6 @@ def valid_analyzer_json() -> str:
             "diminishing_returns": False,
         }
     )
-
-
-@pytest.fixture
-def valid_verifier_json() -> str:
-    """Valid JSON string for verifier verdict (PASS)."""
-    return json.dumps(
-        {
-            "quality_gates": "PASS",
-            "improvement_valid": True,
-            "verdict": "PASS",
-            "evidence": "All tests pass. 3 files simplified.",
-        }
-    )
-
-
-@pytest.fixture
-def mock_improve_session_runner():
-    """Async callable returning (cost, status)."""
-
-    async def _runner(
-        system_prompt: str,
-        task_prompt: str,
-        model_tier: str,
-    ) -> tuple[float, str]:
-        return (0.10, "completed")
-
-    return _runner
 
 
 # -- Temp project helpers ------------------------------------------------------
