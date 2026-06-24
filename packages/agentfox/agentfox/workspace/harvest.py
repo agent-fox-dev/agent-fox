@@ -47,6 +47,7 @@ async def harvest(
     *,
     force_clean: bool = False,
     push: bool = True,
+    push_disabled: bool = False,
     audit_sink: object | None = None,
     run_id: str | None = None,
     node_id: str | None = None,
@@ -101,6 +102,7 @@ async def harvest(
             dev_branch,
             force_clean=force_clean,
             push=push,
+            push_disabled=push_disabled,
             audit_sink=audit_sink,
             run_id=run_id,
             node_id=node_id,
@@ -342,6 +344,7 @@ async def _harvest_under_lock(
     *,
     force_clean: bool = False,
     push: bool = True,
+    push_disabled: bool = False,
     audit_sink: object | None = None,
     run_id: str | None = None,
     node_id: str | None = None,
@@ -447,6 +450,7 @@ async def _harvest_under_lock(
                 audit_sink=audit_sink,
                 run_id=run_id,
                 node_id=node_id,
+                push_disabled=push_disabled,
             )
 
     return changed_files
@@ -467,6 +471,7 @@ _NON_RETRYABLE_PUSH_PATTERNS = (
     "repository not found",
     "no anonymous write access",
     "error while loading shared libraries",
+    "terminal prompts disabled",
 )
 
 
@@ -511,17 +516,27 @@ async def _push_with_retry(
     audit_sink: object | None = None,
     run_id: str | None = None,
     node_id: str | None = None,
+    *,
+    push_disabled: bool = False,
 ) -> bool:
     """Push branch to remote with fetch-rebase retry on non-ff rejection.
 
     Returns True if push succeeded (possibly after retries), False if all
     attempts failed.  Never raises — push failures are best-effort.
 
+    When ``push_disabled`` is True, skips all push attempts and returns
+    False immediately (used when run-level pre-flight detected that git
+    credentials are unavailable).
+
     Requirements: 121-REQ-2.1, 121-REQ-2.2, 121-REQ-2.3, 121-REQ-2.4,
                   121-REQ-2.E1, 121-REQ-2.E2, 121-REQ-2.E3,
                   121-REQ-3.1, 121-REQ-3.2, 121-REQ-3.3, 121-REQ-3.4,
                   121-REQ-3.E1
     """
+    if push_disabled:
+        logger.info("Push disabled for this run (credentials unavailable), skipping push to %s/%s", remote, branch)
+        return False
+
     max_attempts = max_retries + 1
 
     for attempt in range(1, max_attempts + 1):

@@ -1026,6 +1026,28 @@ class NodeSessionRunner:
 
         try:
             workspace = await self._setup_workspace(repo_root, node_id)
+        except Exception as exc:
+            logger.error(
+                "Workspace setup failed for %s (attempt %d): %s",
+                node_id,
+                attempt,
+                exc,
+            )
+            return SessionRecord(
+                node_id=node_id,
+                attempt=attempt,
+                status="failed",
+                input_tokens=0,
+                output_tokens=0,
+                cost=0.0,
+                duration_ms=0,
+                error_message=str(exc),
+                timestamp=datetime.now(UTC).isoformat(),
+                archetype=self._archetype,
+                is_workspace_setup_failure=True,
+            )
+
+        try:
             record = await self._run_session_lifecycle(node_id, attempt, previous_error, repo_root, workspace)
             # AC-3: Preserve the feature branch when harvest failed so the
             # committed coder work can be recovered.

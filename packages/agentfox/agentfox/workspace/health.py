@@ -1,4 +1,4 @@
-"""Workspace health check and force-clean logic.
+"""Workspace health check, force-clean, and run-level pre-flight logic.
 
 Single responsibility: assess and optionally remediate repository working
 tree state before session dispatch.
@@ -11,7 +11,8 @@ Requirements: 118-REQ-1.1, 118-REQ-1.3, 118-REQ-1.E1, 118-REQ-1.E2,
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from agentfox.workspace.git import run_git
@@ -217,3 +218,93 @@ def format_health_diagnostic(
     lines.append("Or re-run with --force-clean to automatically clean the workspace.")
 
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Run-level pre-flight workspace check
+# ---------------------------------------------------------------------------
+
+_STALE_LOCK_AGE_SECONDS = 3600
+_CREDENTIAL_CHECK_TIMEOUT = 10
+
+
+@dataclass
+class WorkspacePreflightResult:
+    """Result of a run-level workspace pre-flight check."""
+
+    push_available: bool = True
+    issues_found: list[str] = field(default_factory=list)
+    worktrees_pruned: bool = False
+    stale_locks_found: list[str] = field(default_factory=list)
+
+
+async def run_preflight_workspace_check(repo_root: Path) -> WorkspacePreflightResult:
+    """Run workspace health checks once at the start of an orchestrator run.
+
+    Validates:
+    1. Prune stale git worktree entries.
+    2. Check for stale .git lock files (age > 1 hour).
+    3. Test git credential availability via ``git ls-remote``.
+
+    All checks are best-effort: failures log warnings but never raise.
+    """
+    result = WorkspacePreflightResult()
+
+    # 1. Prune stale worktree entries
+    try:
+        rc, _stdout, stderr = await run_git(
+            ["worktree", "prune"],
+            cwd=repo_root,
+            check=False,
+        )
+        if rc == 0:
+            result.worktrees_pruned = True
+            logger.info("Run pre-flight: pruned stale worktree entries")
+        else:
+            msg = f"git worktree prune failed (rc={rc}): {stderr.strip()}"
+            result.issues_found.append(msg)
+            logger.warning("Run pre-flight: %s", msg)
+    except Exception:
+        logger.warning("Run pre-flight: git worktree prune raised exception", exc_info=True)
+
+    # 2. Check for stale lock files in .git/
+    git_dir = repo_root / ".git"
+    if git_dir.is_dir():
+        now = time.time()
+        try:
+            for lock_file in git_dir.glob("*.lock"):
+                try:
+                    age = now - lock_file.stat().st_mtime
+                    if age > _STALE_LOCK_AGE_SECONDS:
+                        result.stale_locks_found.append(str(lock_file.name))
+                        msg = f"Stale lock file: {lock_file.name} (age {int(age)}s)"
+                        result.issues_found.append(msg)
+                        logger.warning("Run pre-flight: %s", msg)
+                except OSError:
+                    pass
+        except OSError:
+            logger.debug("Run pre-flight: could not scan .git/ for lock files", exc_info=True)
+
+    # 3. Test git credential availability
+    try:
+        rc, _stdout, stderr = await run_git(
+            ["ls-remote", "--exit-code", "origin", "HEAD"],
+            cwd=repo_root,
+            check=False,
+            timeout=_CREDENTIAL_CHECK_TIMEOUT,
+        )
+        if rc != 0:
+            lower_stderr = stderr.lower()
+            if "terminal prompts disabled" in lower_stderr or "authentication" in lower_stderr:
+                result.push_available = False
+                msg = "Git push credentials unavailable — push will be disabled for this run"
+                result.issues_found.append(msg)
+                logger.warning("Run pre-flight: %s", msg)
+            else:
+                msg = f"git ls-remote failed (rc={rc}): {stderr.strip()}"
+                result.issues_found.append(msg)
+                logger.warning("Run pre-flight: %s", msg)
+    except Exception:
+        logger.warning("Run pre-flight: credential check raised exception", exc_info=True)
+
+    return result
