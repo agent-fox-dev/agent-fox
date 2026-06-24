@@ -574,7 +574,7 @@
             "04-REQ-3.5",
             "04-REQ-3.E1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -600,7 +600,7 @@
             "04-REQ-3.4",
             "04-REQ-3.E2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -620,7 +620,7 @@
             "04-REQ-3.6",
             "04-REQ-3.7"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -638,7 +638,7 @@
           "requirement_refs": [
             "04-REQ-3.5"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],

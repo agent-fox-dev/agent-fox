@@ -45,14 +45,13 @@ _SUBCOMMANDS = [
 class TestProp1StdoutStderrSeparation:
     """TS-04-P1: stdout/stderr separation for JSONL streaming commands.
 
-    Tests the property at the unit level: for any set of 1-20 task nodes
-    with random outcomes, ProgressDisplay writes JSONL events exclusively
-    to stderr (via OutputManager.emit_progress) and the final result is
-    emitted exclusively to stdout (via OutputManager.emit).
+    For any invocation of af code or af night-shift with --json, every
+    stdout line is valid JSON and every stderr line is a valid JSONL
+    progress event; no cross-contamination occurs.
 
-    Uses hypothesis to generate random task node sets as required by the
-    spec, rather than testing via full CLI invocation which needs
-    infrastructure that is not available in the test environment.
+    Uses hypothesis to generate random task node counts (1-20), then
+    validates the stdout/stderr invariant via ProgressDisplay + OutputManager
+    directly (bypassing the CLI, which requires infrastructure).
     """
 
     @settings(max_examples=30)
@@ -64,8 +63,19 @@ class TestProp1StdoutStderrSeparation:
             max_size=20,
         ),
     )
-    def test_stdout_stderr_no_cross_contamination(self, num_nodes: int, outcomes: list[str]) -> None:
-        """JSONL events go to stderr only; final JSON result to stdout only."""
+    def test_stdout_stderr_no_cross_contamination(
+        self,
+        num_nodes: int,
+        outcomes: list[str],
+    ) -> None:
+        """All emit_progress events go to stderr; emit() goes to stdout.
+
+        Generates 1-20 task nodes with random outcomes (completed/failed)
+        and validates that:
+        - Every line on stdout (from emit) is valid JSON
+        - Every line on stderr (from emit_progress) is a valid JSONL event
+        - No cross-contamination between the two streams
+        """
         import io
 
         from agentfox.io import OutputManager, ProgressDisplay
@@ -76,9 +86,12 @@ class TestProp1StdoutStderrSeparation:
         pd = ProgressDisplay(output_manager=om, json_mode=True)
 
         # Simulate task lifecycle for num_nodes tasks
-        for i in range(num_nodes):
-            node_id = f"1.{i + 1}"
-            outcome = outcomes[i % len(outcomes)]
+        effective_outcomes = outcomes[:num_nodes]
+        while len(effective_outcomes) < num_nodes:
+            effective_outcomes.append("completed")
+
+        for i, outcome in enumerate(effective_outcomes):
+            node_id = f"{i + 1}.1"
             pd.task_started(node_id=node_id)
             if outcome == "completed":
                 pd.task_completed(node_id=node_id)

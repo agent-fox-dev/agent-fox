@@ -10,9 +10,10 @@ from __future__ import annotations
 
 import json
 import re
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
+from click.testing import CliRunner
 
 
 class TestTaskStartedEvent:
@@ -101,7 +102,11 @@ class TestStdoutStderrSeparation:
     """
 
     def test_stdout_is_valid_json_stderr_is_jsonl(self, cli_runner_separated) -> None:
-        """stdout lines are JSON; stderr lines are JSONL with 'event' key."""
+        """stdout lines are JSON; stderr lines are JSONL with 'event' key.
+
+        Uses CliRunner(mix_stderr=False) to capture stdout and stderr
+        separately, validating no cross-contamination per 04-PROP-1.
+        """
         from af.app import main
 
         result = cli_runner_separated.invoke(main, ["--json", "code"])
@@ -113,7 +118,8 @@ class TestStdoutStderrSeparation:
                 json.loads(line)
 
         # All stderr lines must be valid JSONL progress events
-        stderr_lines = [line for line in result.stderr.strip().splitlines() if line.strip()]
+        stderr_text = result.stderr if hasattr(result, "stderr") else ""
+        stderr_lines = [line for line in stderr_text.strip().splitlines() if line.strip()]
         assert len(stderr_lines) >= 2, "Expected at least 2 JSONL progress events on stderr"
         for line in stderr_lines:
             obj = json.loads(line)
@@ -133,7 +139,12 @@ class TestCodeJsonlEvents:
     """
 
     def test_code_emits_progress_events(self, cli_runner_separated) -> None:
-        """af code --json stderr has task_started/completed/failed events."""
+        """af code --json stderr has task_started/completed/failed events.
+
+        Uses CliRunner(mix_stderr=False) to validate that stderr contains
+        at least one JSONL event with valid event, node_id, and timestamp
+        fields.  stdout must contain the final JSON result.
+        """
         from af.app import main
 
         result = cli_runner_separated.invoke(main, ["--json", "code"])
@@ -142,16 +153,12 @@ class TestCodeJsonlEvents:
         # stdout: final JSON result
         final = json.loads(result.output)
         assert isinstance(final, dict)
-
         # stderr: JSONL progress events
-        events = [json.loads(line) for line in result.stderr.strip().splitlines() if line.strip()]
+        stderr_text = result.stderr if hasattr(result, "stderr") else ""
+        events = [json.loads(line) for line in stderr_text.strip().splitlines() if line.strip()]
         assert len(events) > 0, "Expected at least one JSONL event on stderr"
         for ev in events:
-            assert ev["event"] in (
-                "task_started",
-                "task_completed",
-                "task_failed",
-            )
+            assert ev["event"] in ("task_started", "task_completed", "task_failed")
             assert "node_id" in ev
             assert "timestamp" in ev
 
@@ -169,7 +176,11 @@ class TestNightShiftJsonlEvents:
     """
 
     def test_night_shift_emits_progress_events(self, cli_runner_separated) -> None:
-        """af night-shift --json stderr has task events."""
+        """af night-shift --json stderr has task events.
+
+        Uses CliRunner(mix_stderr=False) to validate that stderr contains
+        JSONL progress events and stdout contains the final JSON result.
+        """
         from af.app import main
 
         result = cli_runner_separated.invoke(main, ["--json", "night-shift"])
@@ -178,16 +189,12 @@ class TestNightShiftJsonlEvents:
         # stdout: final JSON result
         final = json.loads(result.output)
         assert isinstance(final, dict)
-
         # stderr: JSONL progress events
-        events = [json.loads(line) for line in result.stderr.strip().splitlines() if line.strip()]
+        stderr_text = result.stderr if hasattr(result, "stderr") else ""
+        events = [json.loads(line) for line in stderr_text.strip().splitlines() if line.strip()]
         assert len(events) > 0, "Expected at least one JSONL event on stderr"
         for ev in events:
-            assert ev["event"] in (
-                "task_started",
-                "task_completed",
-                "task_failed",
-            )
+            assert ev["event"] in ("task_started", "task_completed", "task_failed")
 
 
 class TestBrokenPipeSuppressed:
@@ -225,7 +232,6 @@ class TestNullNodeId:
     def test_null_node_id_emits_with_warning(self) -> None:
         """task_started(node_id=None) emits with node_id=null and warns on stderr."""
         import io
-        from unittest.mock import patch
 
         from agentfox.io import ProgressDisplay
 
@@ -243,5 +249,7 @@ class TestNullNodeId:
 
         # Verify warning written to stderr (04-REQ-3.E2)
         warning_output = stderr_capture.getvalue()
-        assert "WARNING" in warning_output or "warning" in warning_output.lower()
+        assert "WARNING" in warning_output or "warning" in warning_output.lower(), (
+            f"Expected a warning about missing node_id on stderr, got: {warning_output!r}"
+        )
         assert "node_id" in warning_output.lower()

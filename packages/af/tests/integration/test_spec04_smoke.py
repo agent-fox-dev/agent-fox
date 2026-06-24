@@ -13,6 +13,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+from click.testing import CliRunner
 
 _AF_PACKAGE_DIR = Path(__file__).resolve().parents[2] / "af"
 
@@ -30,8 +31,8 @@ _SUBCOMMANDS = [
 # --- TS-04-27: Full test suite collectible ---
 
 
-class TestFullSuitePass:
-    """TS-04-27: Full af test suite passes with exit code 0.
+class TestFullSuitePassesAfterMigration:
+    """TS-04-27: Full af test suite passes with exit code 0 after migration.
 
     Runs pytest on the af test directory (excluding spec04 files to
     avoid recursive self-invocation) and verifies zero failures.
@@ -40,8 +41,13 @@ class TestFullSuitePass:
     """
 
     def test_af_test_suite_passes(self) -> None:
-        """pytest on af test suite exits with code 0 (zero failures)."""
-        tests_dir = Path(__file__).resolve().parents[1]
+        """Run pytest on the af test suite and assert zero failures.
+
+        Runs all tests excluding spec04 tests (to avoid recursion) and
+        verifies the pre-existing test suite passes after the migration.
+        Spec04 tests are validated individually in other test classes.
+        """
+        af_pkg_dir = Path(__file__).resolve().parents[1].parent
         result = subprocess.run(
             [
                 "uv",
@@ -49,18 +55,21 @@ class TestFullSuitePass:
                 "pytest",
                 "-q",
                 "--timeout=30",
-                "--ignore=packages/af/tests/integration/test_spec04_smoke.py",
-                "-k",
-                "not spec04",
-                str(tests_dir),
+                "--tb=short",
+                "--ignore=tests/unit/test_spec04_req1.py",
+                "--ignore=tests/unit/test_spec04_req2.py",
+                "--ignore=tests/unit/test_spec04_req3.py",
+                "--ignore=tests/unit/test_spec04_req456.py",
+                "--ignore=tests/property/test_spec04_properties.py",
+                "--ignore=tests/integration/test_spec04_smoke.py",
             ],
             capture_output=True,
             text=True,
-            cwd=str(tests_dir.parents[1]),
+            cwd=str(af_pkg_dir),
             timeout=300,
         )
         assert result.returncode == 0, (
-            f"pytest failed with exit code {result.returncode}:\n{result.stdout[-2000:]}\n{result.stderr[-500:]}"
+            f"pytest failed (exit {result.returncode}):\n{result.stdout[-2000:]}\n{result.stderr[-1000:]}"
         )
 
 
@@ -99,28 +108,33 @@ class TestSmoke1CodeJsonlStreaming:
     """
 
     def test_code_json_streaming_path(self, cli_runner_separated) -> None:
-        """af code --json: stderr has JSONL events, stdout has JSON result."""
+        """af code --json: stderr has JSONL events, stdout has JSON result.
+
+        Uses CliRunner(mix_stderr=False) to validate the expected effects:
+        - stderr contains at least two JSONL lines (task_started + completed/failed)
+        - stdout contains exactly one valid JSON object as the final result
+        - No JSONL event lines appear on stdout
+        - No final JSON result appears on stderr
+        """
         from af.app import main
 
         result = cli_runner_separated.invoke(main, ["--json", "code"])
         assert result.exit_code == 0
-
-        # stdout: single valid JSON object (final result)
+        # stdout: final JSON result
         final = json.loads(result.output)
         assert isinstance(final, dict)
-
-        # stderr: at least two JSONL lines (task_started + task_completed/failed)
-        stderr_lines = [line for line in result.stderr.strip().splitlines() if line.strip()]
-        assert len(stderr_lines) >= 2, "Expected at least 2 JSONL progress events on stderr"
+        # stderr: JSONL progress events
+        stderr_text = result.stderr if hasattr(result, "stderr") else ""
+        stderr_lines = [line for line in stderr_text.strip().splitlines() if line.strip()]
+        assert len(stderr_lines) >= 2, "Expected at least 2 JSONL events on stderr (task_started + completed/failed)"
         for line in stderr_lines:
             obj = json.loads(line)
-            assert "event" in obj
-        # No JSONL event lines on stdout
-        stdout_lines = result.output.strip().splitlines()
-        for line in stdout_lines:
+            assert "event" in obj, f"stderr line missing 'event' key: {line}"
+        # Verify no JSONL events leaked to stdout
+        for line in result.output.strip().splitlines():
             if line.strip():
                 parsed = json.loads(line)
-                assert "event" not in parsed or isinstance(parsed.get("event"), dict), "JSONL event leaked to stdout"
+                assert "event" not in parsed, "JSONL event leaked to stdout"
 
 
 class TestSmoke2StandupJson:
