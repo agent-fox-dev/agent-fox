@@ -596,7 +596,7 @@
           "requirement_refs": [
             "06-REQ-10.2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -630,7 +630,7 @@
             "06-REQ-7.2",
             "06-REQ-8.1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -647,7 +647,7 @@
           "requirement_refs": [
             "06-REQ-9.1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],

@@ -266,5 +266,3 @@ class TestUpdateSpinnerText:
         text = display._get_spinner_text()
         display.stop()
         assert text == ""
-
-

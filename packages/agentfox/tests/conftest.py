@@ -37,6 +37,7 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
         elif any(path.endswith(f) for f in _SLOW_FILES):
             item.add_marker(slow)
 
+
 from agentfox.knowledge.db import KnowledgeDB  # noqa: E402
 from agentfox.knowledge.migrations import apply_pending_migrations  # noqa: E402
 

@@ -156,5 +156,3 @@ class TestFormatTokens:
         """Millions formatted as X.YM."""
         assert format_tokens(1_500_000) == "1.5M"
         assert format_tokens(1_000_000) == "1.0M"
-
-

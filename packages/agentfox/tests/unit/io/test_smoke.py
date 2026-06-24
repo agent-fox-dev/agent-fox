@@ -382,6 +382,7 @@ class TestStubAudit:
             ):
                 assert callable(sym), f"{sym_name} is not callable"
 
+
 class TestAfAppWiring:
     """Verify af/app.py uses AgentFoxGroup."""
 
