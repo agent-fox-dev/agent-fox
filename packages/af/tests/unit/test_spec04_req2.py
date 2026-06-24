@@ -46,8 +46,7 @@ class TestSubcommandsUseOutputManager:
 
     @pytest.mark.xfail(
         strict=False,
-        reason="click.echo() still used for non-data output (error messages, "
-        "text-mode UI); data output uses om.emit()",
+        reason="click.echo() still used for non-data output (error messages, text-mode UI); data output uses om.emit()",
     )
     @pytest.mark.parametrize("filename", _SUBCOMMAND_FILES)
     def test_no_click_echo_data_output(self, filename: str) -> None:

@@ -83,9 +83,7 @@ class TestProp4JsonModeValidOutput:
     """
 
     @pytest.mark.parametrize("command", _SUBCOMMANDS)
-    def test_json_mode_stdout_is_valid_json(
-        self, cli_runner, command: str
-    ) -> None:
+    def test_json_mode_stdout_is_valid_json(self, cli_runner, command: str) -> None:
         """af --json <cmd> produces valid JSON on stdout and exits 0.
 
         Note: --json is a group-level flag, so it must precede the subcommand.

@@ -407,9 +407,7 @@ class TestStubAudit:
             with open(fpath) as f:
                 source = f.read()
             for marker in stub_markers:
-                assert marker not in source, (
-                    f"Stub marker '{marker}' found in {fname}"
-                )
+                assert marker not in source, f"Stub marker '{marker}' found in {fname}"
 
     def test_all_public_symbols_fully_implemented(self) -> None:
         """Every public symbol in __all__ is a real object (not None)."""
@@ -433,9 +431,7 @@ class TestStubAudit:
 
         if hasattr(progress_module, "PlanSpinner"):
             src = inspect.getsource(progress_module.PlanSpinner)
-            assert "StatusSpinner" in src, (
-                "PlanSpinner must delegate to StatusSpinner"
-            )
+            assert "StatusSpinner" in src, "PlanSpinner must delegate to StatusSpinner"
 
 
 # ---------------------------------------------------------------------------
@@ -476,9 +472,7 @@ class TestAfAppWiring:
         from af.app import main as af_main
         from agentfox.io import AgentFoxGroup
 
-        assert isinstance(af_main, AgentFoxGroup) or (
-            type(af_main).__name__ == "AgentFoxGroup"
-        )
+        assert isinstance(af_main, AgentFoxGroup) or (type(af_main).__name__ == "AgentFoxGroup")
 
     def test_af_app_has_audit_comment(self) -> None:
         """af/app.py contains the migration audit comment block."""
