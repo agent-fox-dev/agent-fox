@@ -31,6 +31,7 @@ from agentfox.ui.progress import ActivityCallback, SpinnerCallback, TaskCallback
 if TYPE_CHECKING:
     import duckdb
 
+    from agentfox.knowledge.fox_provider import KnowledgeProvider
     from agentfox.knowledge.sink import SinkDispatcher
 
 logger = logging.getLogger(__name__)
@@ -87,6 +88,7 @@ class NightShiftEngine:
         spinner_callback: SpinnerCallback | None = None,
         sink_dispatcher: SinkDispatcher | None = None,
         conn: duckdb.DuckDBPyConnection | None = None,
+        knowledge_provider: KnowledgeProvider | None = None,
     ) -> None:
         self._config = config
         self._platform = platform
@@ -96,6 +98,7 @@ class NightShiftEngine:
         self._spinner_callback = spinner_callback
         self._sink = sink_dispatcher
         self._conn = conn
+        self._knowledge_provider = knowledge_provider
         self.state = NightShiftState()
         # Track issue numbers processed in this run to guard against
         # re-processing issues that were closed/fixed but still returned
@@ -409,6 +412,7 @@ class NightShiftEngine:
             sink_dispatcher=self._sink,
             spinner_callback=self._spinner_callback,
             conn=self._conn,
+            knowledge_provider=self._knowledge_provider,
         )
 
         effective_body = issue_body if issue_body else getattr(issue, "body", "")

@@ -86,14 +86,17 @@ def night_shift_cmd(
     # If DuckDB cannot be opened, proceed without cost tracking (91-REQ-1.E1).
     _knowledge_db = None
     _sink_dispatcher = None
+    _knowledge_provider = None
     try:
         from agentfox.knowledge.db import open_knowledge_store
         from agentfox.knowledge.duckdb_sink import DuckDBSink
+        from agentfox.knowledge.fox_provider import FoxKnowledgeProvider
         from agentfox.knowledge.sink import SinkDispatcher
 
         _knowledge_db = open_knowledge_store(config.knowledge, read_only=False)
         _db_sink = DuckDBSink(_knowledge_db.connection)
         _sink_dispatcher = SinkDispatcher([_db_sink])
+        _knowledge_provider = FoxKnowledgeProvider(_knowledge_db, config.knowledge.provider)
     except Exception:
         logger.warning(
             "Failed to open knowledge store for night-shift audit — cost tracking will be unavailable for this session",
@@ -186,6 +189,7 @@ def night_shift_cmd(
         spinner_callback=progress.update_spinner_text,
         sink_dispatcher=_sink_dispatcher,
         conn=(_knowledge_db.connection if _knowledge_db is not None else None),
+        knowledge_provider=_knowledge_provider,
     )
 
     # Shared cost budget (85-REQ-5.1, 85-REQ-5.2)

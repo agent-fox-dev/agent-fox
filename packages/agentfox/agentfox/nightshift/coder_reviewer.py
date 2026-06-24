@@ -44,6 +44,7 @@ class CoderReviewerLoop:
         metrics: Any,
         workspace: WorkspaceInfo,
         prior_context: str = "",
+        knowledge_context: str = "",
     ) -> bool:
         """Run the coder-reviewer loop. Returns True on PASS, False on exhaustion."""
         from agentfox.core.escalation import EscalationLadder
@@ -76,6 +77,7 @@ class CoderReviewerLoop:
                 review_feedback,
                 attempt,
                 prior_context=prior_context,
+                knowledge_context=knowledge_context,
             )
 
             review_result = await self._run_reviewer_phase(
@@ -84,6 +86,7 @@ class CoderReviewerLoop:
                 workspace,
                 metrics,
                 attempt,
+                knowledge_context=knowledge_context,
             )
 
             review_comment = p._format_review_comment(review_result) + f"\n(run: `{p._run_id}`)"
@@ -117,6 +120,7 @@ class CoderReviewerLoop:
         review_feedback: FixReviewResult | None,
         attempt: int,
         prior_context: str = "",
+        knowledge_context: str = "",
     ) -> object:
         """Run one coder session, emitting events and tracking metrics."""
         p = self._pipeline
@@ -131,6 +135,7 @@ class CoderReviewerLoop:
             triage,
             review_feedback=feedback_text,
             prior_context=prior_context,
+            knowledge_context=knowledge_context,
         )
         node_id = f"fix-issue-{spec.issue_number}:0:coder"
         attempt_suffix = f" (attempt {attempt + 1})" if attempt > 0 else ""
@@ -183,13 +188,16 @@ class CoderReviewerLoop:
         workspace: WorkspaceInfo,
         metrics: Any,
         attempt: int,
+        knowledge_context: str = "",
     ) -> FixReviewResult:
         """Run reviewer session with parse-fail retry. Returns the review result."""
         from agentfox.session.review_parser import parse_fix_review_output
 
         p = self._pipeline
 
-        reviewer_system, reviewer_task = p._build_reviewer_prompt(spec, triage)
+        reviewer_system, reviewer_task = p._build_reviewer_prompt(
+            spec, triage, knowledge_context=knowledge_context,
+        )
         reviewer_node_id = f"fix-issue-{spec.issue_number}:0:reviewer"
         p._update_spinner(f"Reviewing fix for issue #{spec.issue_number}…")
 
