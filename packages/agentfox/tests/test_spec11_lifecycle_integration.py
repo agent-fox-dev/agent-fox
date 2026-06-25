@@ -85,6 +85,7 @@ class TestEnrichedSummaryStored:
     ) -> None:
         session_id = f"test-enriched-{uuid.uuid4().hex[:8]}"
         context = {
+            "session_status": "completed",
             "summary": "Used a new indexing strategy.",
             "rejected_approaches": [
                 {"approach": "Full table scan", "reason": "Too slow"},
@@ -96,7 +97,7 @@ class TestEnrichedSummaryStored:
             "attempt": 1,
             "run_id": "test-run",
         }
-        lifecycle_provider.ingest(session_id, "test_spec", "completed", context)
+        lifecycle_provider.ingest(session_id, "test_spec", context)
         stored = _get_summary_text(lifecycle_conn, session_id)
         assert stored is not None
         assert "Tried: Full table scan — rejected because: Too slow" in stored
@@ -121,12 +122,13 @@ class TestNoneSummaryNoRow:
         session_id = f"test-nosummary-{uuid.uuid4().hex[:8]}"
         # Ingest with no summary — should not store a row
         context = {
+            "session_status": "completed",
             "archetype": "reviewer",
             "task_group": "0",
             "attempt": 1,
             "run_id": "test-run",
         }
-        lifecycle_provider.ingest(session_id, "test_spec", "completed", context)
+        lifecycle_provider.ingest(session_id, "test_spec", context)
         assert _count_summaries(lifecycle_conn, session_id) == 0
 
 
@@ -145,6 +147,7 @@ class TestSmokeCodderEnrichedSummary:
     ) -> None:
         session_id = f"smoke-coder-{uuid.uuid4().hex[:8]}"
         context = {
+            "session_status": "completed",
             "summary": "Implemented feature X with two-pass approach.",
             "rejected_approaches": [
                 {"approach": "Single-pass", "reason": "Missed edge cases"},
@@ -163,7 +166,7 @@ class TestSmokeCodderEnrichedSummary:
             "attempt": 1,
             "run_id": "test-run",
         }
-        lifecycle_provider.ingest(session_id, "test_spec", "completed", context)
+        lifecycle_provider.ingest(session_id, "test_spec", context)
 
         stored = _get_summary_text(lifecycle_conn, session_id)
         assert stored is not None
@@ -191,12 +194,13 @@ class TestSmokeReviewerNoFindings:
     ) -> None:
         session_id = f"smoke-rev-nf-{uuid.uuid4().hex[:8]}"
         context = {
+            "session_status": "completed",
             "archetype": "reviewer",
             "task_group": "0",
             "attempt": 1,
             "run_id": "test-run",
         }
-        lifecycle_provider.ingest(session_id, "test_spec", "completed", context)
+        lifecycle_provider.ingest(session_id, "test_spec", context)
         assert _count_summaries(lifecycle_conn, session_id) == 0
 
 
@@ -216,13 +220,14 @@ class TestSmokeLegacySummary:
         session_id = f"smoke-legacy-{uuid.uuid4().hex[:8]}"
         original_summary = "Completed task group 3 for spec 9."
         context = {
+            "session_status": "completed",
             "summary": original_summary,
             "archetype": "coder",
             "task_group": "3",
             "attempt": 1,
             "run_id": "test-run",
         }
-        lifecycle_provider.ingest(session_id, "test_spec", "completed", context)
+        lifecycle_provider.ingest(session_id, "test_spec", context)
         stored = _get_summary_text(lifecycle_conn, session_id)
         assert stored == original_summary
 
@@ -233,23 +238,65 @@ class TestSmokeLegacySummary:
 
 
 class TestSmokeReviewerWithFindings:
-    """Smoke: reviewer session with findings → summary row stored."""
+    """Smoke: reviewer session with findings → summary row stored.
+
+    Exercises PATH-4: generate_archetype_summary produces the summary from
+    actual findings, then the summary is ingested and stored.
+    """
 
     def test_smoke_reviewer_with_findings(
         self,
         lifecycle_conn: duckdb.DuckDBPyConnection,
         lifecycle_provider: FoxKnowledgeProvider,
     ) -> None:
+        from agentfox.knowledge.formatting import generate_archetype_summary
+        from agentfox.knowledge.review_store import ReviewFinding, insert_findings
+
         session_id = f"smoke-rev-wf-{uuid.uuid4().hex[:8]}"
+
+        # Insert actual findings into DB for this session
+        findings = [
+            ReviewFinding(
+                id=str(uuid.uuid4()),
+                severity="critical",
+                description="Missing input validation on user ID field",
+                requirement_ref="REQ-1.1",
+                spec_name="test_spec",
+                task_group="1",
+                session_id=session_id,
+            ),
+            ReviewFinding(
+                id=str(uuid.uuid4()),
+                severity="minor",
+                description="Unused import in formatting.py",
+                requirement_ref=None,
+                spec_name="test_spec",
+                task_group="1",
+                session_id=session_id,
+            ),
+        ]
+        insert_findings(lifecycle_conn, findings)
+
+        # Exercise generate_archetype_summary to produce the summary (PATH-4)
+        summary_text = generate_archetype_summary("reviewer", findings=findings)
+        assert summary_text is not None  # Expected effect 1
+        assert len(summary_text) > 0
+
+        # Ingest the generated summary
         context = {
-            "summary": "Found 2 critical issues in auth module.",
+            "session_status": "completed",
+            "summary": summary_text,
             "archetype": "reviewer",
             "task_group": "1",
             "attempt": 1,
             "run_id": "test-run",
         }
-        lifecycle_provider.ingest(session_id, "test_spec", "completed", context)
+        lifecycle_provider.ingest(session_id, "test_spec", context)
+
+        # Verify stored row (expected effects 3, 4, 5)
         assert _count_summaries(lifecycle_conn, session_id) == 1
         stored = _get_summary_text(lifecycle_conn, session_id)
         assert stored is not None
         assert len(stored) > 0
+        # Stored text must contain severity or finding description content
+        assert "critical" in stored.lower() or "finding" in stored.lower()

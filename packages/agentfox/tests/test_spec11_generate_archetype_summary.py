@@ -101,6 +101,8 @@ class TestReviewerWithFindings:
         result = generate_archetype_summary("reviewer", findings=findings)
         assert result is not None
         assert len(result) > 0
+        # TS-11-18: verify content contains severity counts or finding descriptions
+        assert "high" in result.lower() or "finding" in result.lower()
 
 
 # ---------------------------------------------------------------------------
