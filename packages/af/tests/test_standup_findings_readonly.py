@@ -151,6 +151,7 @@ _MODULES_REQUIRING_FACTORY = [
     "packages/af/af/standup.py",
     "packages/af/af/findings.py",
     "packages/af/af/reset.py",
+    "packages/nightshift/nightshift/_startup.py",
     "packages/agentfox/agentfox/fix/analyzer.py",
 ]
 

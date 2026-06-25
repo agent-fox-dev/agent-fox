@@ -270,12 +270,11 @@ class NodeSessionRunner:
         # 06-REQ-7.3: Use the read-only connection for context assembly.
         # Writes (_migrate_legacy_files, index_errata_from_markdown) are
         # performed at orchestrator startup, not during context assembly.
-        _ctx_db = getattr(self, "_context_knowledge_db", self._knowledge_db)
         context = assemble_context(
             spec_dir,
             self._task_group,
             memory_facts=memory_facts,
-            conn=_ctx_db.connection,
+            conn=self._context_knowledge_db.connection,
             project_root=Path.cwd(),
             archetype=self._archetype,
         )
