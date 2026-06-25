@@ -53,7 +53,7 @@ A pipeline or automation script that drives agent-fox in `--json` mode, consumin
 
 1. The user installs agent-fox and navigates to their project root.
 2. The user runs `agent-fox init --skills` to initialize the project.
-3. agent-fox creates the project directory structure, a default configuration file, updates the ignore list, scaffolds an agent instructions document, creates a `develop` branch, and installs bundled skills as slash commands.
+3. agent-fox creates the project directory structure, a default configuration file, updates the ignore list, scaffolds an agent instructions document, creates the integration branch, and installs bundled skills as slash commands.
 4. The user opens the configuration file and adjusts any settings (parallelism, cost limits, model tiers).
 5. The user opens the steering document and adds any project-level directives that agents must always follow.
 
@@ -64,9 +64,9 @@ A pipeline or automation script that drives agent-fox in `--json` mode, consumin
 3. agent-fox scans all specification folders, resolves task dependencies, and saves the plan.
 4. The user runs `agent-fox code` (optionally with `--parallel N`) to start autonomous execution.
 5. agent-fox dispatches agents to each ready task in dependency order. Reviewer agents run before and after coder agents. Coders work in isolated branches.
-6. After each session, agent-fox harvests the result, merges clean commits to `develop`, updates its knowledge store, and dispatches the next ready tasks.
+6. After each session, agent-fox harvests the result, merges clean commits to the integration branch, updates its knowledge store, and dispatches the next ready tasks.
 7. The user runs `agent-fox status` at any time to see progress: task counts, token usage, cost, and any blocked or failed tasks.
-8. When all tasks complete (or a cost/session limit is reached), the user receives a clean `develop` branch with all implemented work.
+8. When all tasks complete (or a cost/session limit is reached), the user receives a clean integration branch with all implemented work.
 
 ### 4.3 Quality Issue Resolution
 
@@ -79,7 +79,7 @@ A pipeline or automation script that drives agent-fox in `--json` mode, consumin
 
 1. The user configures a GitHub platform connection and runs `night-shift`.
 2. The daemon immediately polls GitHub for issues labelled `af:fix` and routes each through a three-stage pipeline (triage → coder → reviewer in fix-review mode).
-3. Completed fixes are merged into `develop` and the originating issue is closed.
+3. Completed fixes are merged into the integration branch and the originating issue is closed.
 4. The daemon continues polling for new `af:fix` issues at the configured interval.
 5. The user stops the daemon with Ctrl-C; it completes any active operation before exiting.
 
@@ -93,7 +93,7 @@ A pipeline or automation script that drives agent-fox in `--json` mode, consumin
 
 1. When tasks fail or become blocked, the user runs `agent-fox reset` to clear failed and blocked tasks and retry them.
 2. For targeted recovery, the user passes a specific task identifier; agent-fox resets that task and unblocks its dependents.
-3. For a full restart, the user runs `agent-fox reset --hard`, which resets all tasks (including completed ones), cleans up branches and isolated working directories, compacts the knowledge store, and rolls back the `develop` branch to its pre-task state.
+3. For a full restart, the user runs `agent-fox reset --hard`, which resets all tasks (including completed ones), cleans up branches and isolated working directories, compacts the knowledge store, and rolls back the integration branch to its pre-task state.
 
 ---
 
@@ -101,7 +101,7 @@ A pipeline or automation script that drives agent-fox in `--json` mode, consumin
 
 ### 5.1 Initialization
 
-- WHEN a user runs `agent-fox init`, the system SHALL create the project directory structure, a configuration file, a steering document placeholder, an agent instructions document, a `develop` branch, and update the project's ignore list.
+- WHEN a user runs `agent-fox init`, the system SHALL create the project directory structure, a configuration file, a steering document placeholder, an agent instructions document, the integration branch, and update the project's ignore list.
 - WHEN `--skills` is provided, the system SHALL install all bundled skills as slash commands and report how many were installed.
 - WHEN `agent-fox init` is run on a project that already has a configuration file, the system SHALL merge the existing file non-destructively: preserving active user values, adding new fields as commented-out entries, marking unrecognized active fields as deprecated, and making no changes if the file is already current.
 - WHEN `agent-fox init` is run outside a git repository, the system SHALL exit with an error.
@@ -154,7 +154,7 @@ A pipeline or automation script that drives agent-fox in `--json` mode, consumin
 
 - WHEN a user runs `agent-fox reset` without arguments, the system SHALL prompt for confirmation and then reset all failed, blocked, and in-progress tasks, cleaning up their working directories and branches.
 - WHEN a task identifier is provided, the system SHALL reset only that task and unblock its dependents, without prompting.
-- WHEN `--hard` is provided, the system SHALL reset all tasks including completed ones, clean up all working directories and branches, compact the knowledge store, and roll back the `develop` branch.
+- WHEN `--hard` is provided, the system SHALL reset all tasks including completed ones, clean up all working directories and branches, compact the knowledge store, and roll back the integration branch.
 
 ### 5.8 Knowledge Export
 
@@ -241,7 +241,7 @@ When `--json` is active:
 
 ### 7.3 Code Artifacts
 
-- Completed coding sessions produce conventional commits merged onto the `develop` branch.
+- Completed coding sessions produce conventional commits merged onto the integration branch.
 - Night Shift fix sessions produce feature branches and open pull requests on GitHub.
 - Knowledge extracted from sessions is stored in a persistent knowledge store and accessible via `agent-fox export`.
 
@@ -281,7 +281,7 @@ When `--json` is active:
 - **Specifications required before planning:** `agent-fox plan` and `agent-fox code` require well-formed specification files in `.specs/`. The product does not create specifications; that is a human or skill-assisted step.
 - **GitHub for Night Shift:** The Night Shift daemon requires a GitHub platform configuration and valid access token. Other issue trackers are not supported.
 - **Parallelism ceiling:** No more than 8 concurrent coding sessions are supported.
-- **Feature branches are local only:** Coding session branches are not pushed to the remote; only `develop` (and `main` for releases) is pushed.
+- **Feature branches are local only:** Coding session branches are not pushed to the remote; only the integration branch is pushed.
 - **Knowledge store is local:** The SQLite-backed knowledge store lives in `.agent-fox/` and is not shared across machines.
 - **Prompt caching minimum size:** Prompt caching is automatically skipped for system prompts below the model's minimum cacheable size.
 

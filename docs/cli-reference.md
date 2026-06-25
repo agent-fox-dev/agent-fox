@@ -6,7 +6,7 @@ Complete reference for all `agent-fox` commands, options, and configuration.
 
 | Command | Description |
 |---------|-------------|
-| `agent-fox init` | Initialize project (creates `.agent-fox/`, develop branch, `.gitignore`, `AGENTS.md`) |
+| `agent-fox init` | Initialize project (creates `.agent-fox/`, integration branch, `.gitignore`, `AGENTS.md`) |
 | `agent-fox plan` | Build execution plan from `.agent-fox/specs/` |
 | `agent-fox code` | Execute the task plan via orchestrator |
 | `agent-fox standup` | Generate daily activity report |
@@ -86,7 +86,7 @@ agent-fox init [OPTIONS]
 | `--profiles` | flag | off | Copy default archetype profiles into `.agent-fox/profiles/` |
 
 Creates the `.agent-fox/` directory structure with a default configuration file,
-sets up the `develop` branch, updates `.gitignore`, creates
+sets up the integration branch (configured via `workspace.integration_branch`, default: `main`), updates `.gitignore`, creates
 `.claude/settings.local.json` with canonical permissions, scaffolds an
 `AGENTS.md` template with project instructions for coding agents, and creates
 `.agent-fox/steering.md` as a placeholder for project-level agent directives. If
@@ -373,14 +373,14 @@ With `--hard`, performs a comprehensive state wipe:
 - Resets **all** tasks to pending (including completed tasks).
 - Cleans up all worktree directories and local feature branches.
 - Compacts the knowledge base (deduplication and supersession).
-- Rolls back the `develop` branch to its pre-task state (if commit
+- Rolls back the integration branch to its pre-task state (if commit
   tracking data is available).
 - Preserves session history, token counters, and cost totals.
 
 With `--hard <TASK_ID>`, performs a partial rollback:
 
-- Rolls back `develop` to the commit immediately before the target task.
-- Resets the target task and any tasks whose code is no longer on develop
+- Rolls back the integration branch to the commit immediately before the target task.
+- Resets the target task and any tasks whose code is no longer on the integration branch
   (cascaded reset).
 - Earlier tasks remain completed.
 

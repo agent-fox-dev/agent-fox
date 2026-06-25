@@ -392,7 +392,7 @@ in an isolated workspace. The session lifecycle has four phases.
 │  SESSION LIFECYCLE                                          │
 │                                                             │
 │  1. PREPARE                                                 │
-│     ensure_develop → create_worktree → build_prompts        │
+│     ensure_integration_branch → create_worktree → build_prompts        │
 │                                                             │
 │  2. EXECUTE                                                 │
 │     run_session(system_prompt, task_prompt)                  │
@@ -401,7 +401,7 @@ in an isolated workspace. The session lifecycle has four phases.
 │  3. HARVEST                                                 │
 │     acquire merge_lock → git merge --squash feature branch  │
 │         → resolve conflicts via merge agent if needed       │
-│         → push develop to origin (best-effort)              │
+│         → push integration branch to origin (best-effort)              │
 │                                                             │
 │  4. ASSESS                                                  │
 │     parse review findings → persist to DuckDB               │
@@ -412,11 +412,11 @@ in an isolated workspace. The session lifecycle has four phases.
 
 ### 5.1 Prepare
 
-**Workspace creation.** The system first ensures the `develop` branch exists and
-is synchronized with the remote. It then creates an isolated git worktree at
+**Workspace creation.** The system first ensures the integration branch exists
+and is synchronized with the remote. It then creates an isolated git worktree at
 `.agent-fox/worktrees/{spec_name}/{task_group}`, on a new feature branch named
 `feature/{spec_name}/{task_group}`. A worktree is a fully checked-out working
-copy of the repository at the current state of `develop`, with its own branch
+copy of the repository at the current state of the integration branch, with its own branch
 that can diverge independently. Multiple sessions can run in parallel in
 separate worktrees without touching each other.
 
@@ -462,10 +462,10 @@ and any error message.
 ### 5.3 Harvest
 
 On successful session completion, the feature branch is integrated into
-`develop`. The harvest process:
+the integration branch. The harvest process:
 
 1. **Check for new commits.** If the feature branch has no new commits relative
-   to `develop`, harvest is skipped — the session produced no code changes.
+   to the integration branch, harvest is skipped — the session produced no code changes.
 
 2. **Acquire the merge lock.** An asyncio lock (intra-process) combined with an
    atomic file lock (`O_CREAT | O_EXCL` with rename-based stale detection)
@@ -478,8 +478,8 @@ On successful session completion, the feature branch is integrated into
    being silently overwritten.
 
 4. **Squash merge.** `git merge --squash feature/{spec}/{group}` collapses the
-   feature branch into a single staged diff on `develop`, regardless of how many
-   commits the feature branch contains. This keeps `develop` history linear.
+   feature branch into a single staged diff on the integration branch, regardless of how many
+   commits the feature branch contains. This keeps the integration branch history linear.
 
 5. **Conflict resolution.** If the squash merge has conflicts, a dedicated merge
    agent session is spawned — a restricted Claude session using the ADVANCED
@@ -487,11 +487,11 @@ On successful session completion, the feature branch is integrated into
    agent also fails, the merge is aborted (`git reset --merge`) and the session
    is marked failed.
 
-6. **Commit.** The squash commit is created on `develop` with a message derived
+6. **Commit.** The squash commit is created on the integration branch with a message derived
    from the tip commit of the feature branch. For multi-commit branches, earlier
    commit subjects are appended as a bullet list.
 
-7. **Push.** `develop` is pushed to origin with up to 3 retry attempts. On
+7. **Push.** The integration branch is pushed to origin with up to 3 retry attempts. On
    non-fast-forward rejection, the system attempts a reconciliation cascade:
    rebase onto origin, then merge commit if rebase conflicts, then AI merge
    agent as a last resort. Non-retryable errors (authentication failure,
@@ -865,15 +865,14 @@ assignable to task groups in coding session plans (`task_assignable: false`).
 
 ## 9. Worktree and Git Architecture
 
-### 9.1 The Develop Branch
+### 9.1 The Integration Branch
 
-`develop` is the sole integration target. All session work merges into
-`develop`; `main` is reserved for releases. Feature branches are local-only —
-they are never pushed to the remote.
+The configured integration branch (default: `main`) is the sole integration
+target. All session work merges into it. Feature branches are local-only — they are never pushed to the remote.
 
-Before the first session, the orchestrator ensures `develop` exists locally. If
-not, it is created from `origin/develop` (if available) or from the default
-branch.
+Before the first session, the orchestrator ensures the integration branch
+exists locally. If not, it is created from the corresponding remote branch
+(if available) or from the default branch.
 
 ### 9.2 Isolation via Worktrees
 
@@ -885,7 +884,7 @@ concurrently — each session operates on its own branch, in its own directory,
 without any shared mutable state.
 
 The feature branch name follows the pattern `feature/{spec_name}/{task_group}`.
-The worktree is created from the current state of `develop`, so each session
+The worktree is created from the current state of the integration branch, so each session
 starts from the latest integrated work.
 
 ### 9.3 The Merge Lock
@@ -917,7 +916,7 @@ orchestrator can retry or escalate.
 without rolling back any code. Session history and attempt counters are
 preserved. Appropriate after transient failures (network issues, API errors).
 
-**Hard reset** resets tasks and rolls back `develop` to the commit before the
+**Hard reset** resets tasks and rolls back the integration branch to the commit before the
 earliest affected task, undoing all code changes since that point. Both reset
 types can target a single spec or the entire plan.
 
@@ -1078,12 +1077,12 @@ dispatch and runs a synchronization sequence:
 
 1. **Worktree verification.** Check for orphaned worktrees and clean them up.
 
-2. **Develop sync.** Pull remote changes into `develop`, reconciling divergence
+2. **Develop sync.** Pull remote changes into the integration branch, reconciling divergence
    using the same merge strategy as harvest.
 
 3. **Hot-load discovery.** Scan `.agent-fox/specs/` for new specs that weren't
    present when the plan was built. Each candidate passes four gates:
-   git-tracked on develop, all required artifacts non-empty, passes static lint,
+   git-tracked on the integration branch, all required artifacts non-empty, passes static lint,
    not fully implemented. Admitted specs are merged into the live graph.
    Current node statuses are persisted back to DuckDB immediately after
    hot-loading so a crash does not lose new specs.
@@ -1110,7 +1109,7 @@ breaker trips, or SIGINT received):
 3. **Post issue summaries** (if a platform is configured) for newly completed
    specs. If a spec's `prd.md` contains a `## Source` section with a GitHub
    issue URL, a summary comment is posted to that issue listing the spec
-   name, develop HEAD commit, and all task group titles. Already-posted
+   name, integration branch HEAD commit, and all task group titles. Already-posted
    specs are tracked to prevent duplicate comments.
 
 4. **Mark the run record complete** in DuckDB with the final status and
@@ -1153,7 +1152,7 @@ Orchestrator  [deterministic dispatch loop, zero LLM]
     │   │      ↓                                                     │
     │   │  Session output (code, tests, commits, JSON findings)      │
     │   │      ↓                                                     │
-    │   │  Harvest: squash merge → develop                           │
+    │   │  Harvest: squash merge → integration branch                           │
     │   │      ↓                                                     │
     │   │  Assess: parse findings → converge (multi-instance)        │
     │   │      → supersede injected findings → store summary         │

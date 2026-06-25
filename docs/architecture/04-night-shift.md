@@ -88,8 +88,8 @@ The coder-reviewer loop starts at the STANDARD model tier and escalates to
 ADVANCED on repeated failures, controlled by `routing.retries_before_escalation`.
 
 All sessions share the same fix branch, which is created from the
-current `develop` HEAD. After the pipeline completes successfully, the fix
-branch is harvested into `develop` using the same squash-merge strategy as
+current integration branch HEAD. After the pipeline completes successfully, the fix
+branch is harvested into the integration branch using the same squash-merge strategy as
 the spec-driven pipeline (squash merge, with merge agent on conflict).
 The originating issue is labelled `af:fixed` and closed with a comment
 pointing to the fix branch. If the coder produces no commits, the issue
@@ -162,7 +162,7 @@ two-stage shutdown behavior of the spec-driven orchestrator.
 The engine maintains runtime state: cumulative cost, session count, and
 issues fixed. This state is transient — it exists only for the lifetime of
 the daemon process. Persistent state lives in the platform (GitHub issues
-with labels) and the repository (code changes on `develop`).
+with labels) and the repository (code changes on the integration branch).
 
 ---
 
@@ -184,7 +184,7 @@ Night-shift uses GitHub labels to manage its fix workflow lifecycle:
 | Label | Applied by | Meaning |
 |-------|-----------|---------|
 | `af:fix` | User | Issue eligible for automatic fixing |
-| `af:fixed` | Fix pipeline | Fix successfully merged into develop |
+| `af:fixed` | Fix pipeline | Fix successfully merged into integration branch |
 | `af:no-change` | Fix pipeline | Coder produced no commits; needs human review |
 
 All labels are automatically created on the GitHub repository by
@@ -195,8 +195,8 @@ All labels are automatically created on the GitHub repository by
 ## Interaction with the Spec Pipeline
 
 Night-shift and the spec pipeline are designed to coexist but not to run
-simultaneously. Night-shift operates on `develop` and creates fix branches
-that merge back into `develop`. The spec pipeline also targets `develop`.
+simultaneously. Night-shift operates on the integration branch and creates fix branches
+that merge back into it. The spec pipeline also targets the integration branch.
 Running both concurrently would create merge contention.
 
 The intended workflow is:

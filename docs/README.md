@@ -5,8 +5,8 @@
 You write a spec, run `agent-fox code`, and walk away. The fox reads your
 specs, plans the work, spins up isolated git worktrees, runs each coding
 session with the right context, handles merge conflicts, retries failures,
-extracts learnings into structured memory, and merges clean commits to
-`develop`. You come back to a finished feature branch and a standup report.
+extracts learnings into structured memory, and merges clean commits to the
+integration branch (default: `main`). You come back to a finished feature branch and a standup report.
 
 ### The Workflow
 
@@ -41,7 +41,7 @@ The typical workflow has four stages:
    Reviewer agents (pre-review, drift-review modes) check specs before
    coding starts; audit-review and Verifier agents check the result after. Failed
    tasks are retried with escalation to stronger models. Completed work is
-   merged into `develop` under a serializing lock via squash merge (with
+   merged into the integration branch under a serializing lock via squash merge (with
    AI-assisted conflict resolution when needed). When all tasks for a spec
    complete, a summary comment is automatically posted to the originating
    GitHub issue (if `prd.md` contains a `## Source` section with a URL).
@@ -91,7 +91,7 @@ For ongoing codebase health, the standalone `night-shift` CLI runs as a continuo
 running fix-only daemon. It polls GitHub for issues labelled `af:fix` and
 processes them through a three-stage pipeline (Triage, Coder, Reviewer in
 fix-review mode). Each fix is implemented on an isolated branch and merged
-back into `develop`.
+back into the integration branch.
 
 ### Knowledge System
 
@@ -124,7 +124,7 @@ resolve a drift detected against the codebase), dismiss it with
 `--dismiss ID REASON`, then run `agent-fox reset` to restart the affected
 task. For targeted recovery, pass a specific task ID. For a full restart,
 use `--hard` to reset all tasks, clean up worktrees and branches, compact
-the knowledge store, and roll back `develop`.
+the knowledge store, and roll back the integration branch.
 
 ## Architecture
 

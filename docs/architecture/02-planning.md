@@ -191,7 +191,7 @@ produces a predicted set of affected files per node.
 Conflict detection compares these sets pairwise. If two nodes predict
 overlapping file modifications, they are considered conflicting and should not
 run in parallel — doing so risks merge conflicts when their worktree branches
-are integrated back into `develop`.
+are integrated back into the integration branch.
 
 This analysis is predictive, not authoritative. A node might modify files not
 mentioned in the spec, or might not modify a file that the spec references.
@@ -249,7 +249,7 @@ the injected nodes survive a restart.
 **Hot-load discovery**: During sync barriers (periodic pauses in execution),
 the engine checks for new specs that have appeared in `.agent-fox/specs/` since the plan
 was built. A new spec must pass four gates before admission: it is git-tracked
-on develop, it contains all required artifacts (non-empty), it
+on the integration branch, it contains all required artifacts (non-empty), it
 passes lint validation with no error-severity findings, and it is not already
 fully implemented (all task groups complete). Specs that pass are added to the
 live graph. This enables long-running sessions to pick up new work without a

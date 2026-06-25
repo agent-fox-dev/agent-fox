@@ -103,7 +103,7 @@ Claude agent in an isolated workspace. The session lifecycle has four phases.
 
 **Workspace creation.** An isolated git worktree is created on a feature branch
 named `feature/{spec_name}/{task_group}`. The worktree is a full working copy
-of the repository at the current state of `develop`, with its own branch that
+of the repository at the current state of the integration branch, with its own branch that
 can diverge independently. This isolation means multiple sessions can run in
 parallel without stepping on each other's working trees.
 
@@ -145,22 +145,22 @@ blocks) which are logged for audit and used for knowledge extraction.
 ### Harvest
 
 On session completion, if the session produced commits on its feature branch,
-those commits are integrated into `develop`. The harvest process:
+those commits are integrated into the integration branch. The harvest process:
 
 1. Acquires the merge lock (an intra-process asyncio lock combined with an
    inter-process file lock) to serialize merge operations.
-2. Checks for new commits on the feature branch relative to `develop`.
+2. Checks for new commits on the feature branch relative to the integration branch.
 3. Performs a squash merge (`git merge --squash`) to collapse the feature
-   branch into a single commit on `develop`, regardless of how many commits
-   the feature branch contains. This keeps the `develop` history linear and
+   branch into a single commit on the integration branch, regardless of how many commits
+   the feature branch contains. This keeps the integration branch history linear and
    readable.
 4. If the squash merge has conflicts, spawns a merge agent — a dedicated
    Claude session with a restricted prompt that only resolves conflicts,
    without making any other changes.
-5. After merging, optionally pushes `develop` to the remote.
+5. After merging, optionally pushes the integration branch to the remote.
 
 The merge lock prevents two sessions from merging simultaneously, which would
-risk corrupting the `develop` branch. The lock has stale detection: if a lock
+risk corrupting the integration branch. The lock has stale detection: if a lock
 file is older than a configurable timeout (default five minutes), it is
 considered abandoned and broken atomically using a rename-to-temp pattern that
 is safe against TOCTOU races.
@@ -565,11 +565,11 @@ data provides observability into routing effectiveness and cost distribution.
 At configurable intervals during execution, the orchestrator pauses dispatch
 and performs synchronization work:
 
-- **Develop sync**: Pull remote changes into `develop`, reconciling divergence
+- **Integration branch sync**: Pull remote changes into the integration branch, reconciling divergence
   with the same merge strategy used during harvest.
 - **Worktree verification**: Check for orphaned worktrees and clean them up.
 - **Hot-load discovery**: Check for new specs in `.agent-fox/specs/` that were not present
-  when the plan was built. New specs pass four gates (git-tracked on develop,
+  when the plan was built. New specs pass four gates (git-tracked on the integration branch,
   all required artifacts for their format present and non-empty, passes static
   lint, not fully implemented) before being added to the live graph.
 - **Config reload**: Re-read `config.toml` and apply changes (new cost limits,
@@ -587,17 +587,18 @@ would add overhead without proportional benefit.
 
 ### The Develop Branch
 
-`develop` is the integration branch. All session work merges into `develop`,
+The configured integration branch (default: `main`) is the sole merge target. All session work merges into it,
 never into `main`. Feature branches are local-only — they are never pushed to
-the remote. Only `develop` (and `main` for releases) is pushed.
+the remote. Only the integration branch is pushed.
 
-Before the first session, the orchestrator ensures `develop` exists and is
-synchronized with the remote. If `develop` does not exist locally, it is
-created from `origin/develop` (if present) or from the default branch.
+Before the first session, the orchestrator ensures the integration branch
+exists and is synchronized with the remote. If it does not exist locally, it
+is created from the corresponding remote branch (if present) or from the
+default branch.
 
 ### Merge Lock
 
-The merge lock serializes all operations that modify `develop`. It combines
+The merge lock serializes all operations that modify the integration branch. It combines
 an asyncio lock (for intra-process serialization across concurrent sessions)
 with an atomic file lock (for inter-process serialization if multiple agent-fox
 instances target the same repository). The file lock uses `O_CREAT | O_EXCL`
@@ -611,7 +612,7 @@ When execution produces bad results, the operator can reset tasks:
 rolling back code. Session history and counters are preserved. This is
 appropriate after transient failures (network issues, API errors).
 
-**Hard reset** resets tasks and rolls back `develop` to the commit before the
+**Hard reset** resets tasks and rolls back the integration branch to the commit before the
 earliest affected task. This undoes the code changes and allows a clean
 re-execution.
 
