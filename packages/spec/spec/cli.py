@@ -669,13 +669,41 @@ def validate_cmd(ctx: click.Context, spec: str) -> None:
     # Cross-file integrity validation -----------------------------------------
     integrity_errors = _build_integrity_errors(spec_obj)
 
+    # Collect validation warnings (non-blocking sizing diagnostics) -----------
+    from afspec.validation import (
+        _check_group_subtask_count,
+        _check_group_test_spec_refs,
+        _check_subtask_overload,
+    )
+
+    warning_dicts: list[dict[str, Any]] = []
+    for group in spec_obj.tasks.task_groups:
+        for w in _check_group_test_spec_refs(group):
+            warning_dicts.append(
+                {"category": "warning", "message": w.message, "entity_id": w.entity_id}
+            )
+        for w in _check_group_subtask_count(group):
+            warning_dicts.append(
+                {"category": "warning", "message": w.message, "entity_id": w.entity_id}
+            )
+        for w in _check_subtask_overload(group):
+            warning_dicts.append(
+                {"category": "warning", "message": w.message, "entity_id": w.entity_id}
+            )
+
     # Emit results ------------------------------------------------------------
     all_errors = schema_errors + integrity_errors
     if not all_errors:
-        emit_ok(valid=True, errors=[])
+        result_data: dict[str, Any] = {"valid": True, "errors": []}
+        if warning_dicts:
+            result_data["warnings"] = warning_dicts
+        emit_ok(**result_data)
         return
 
-    emit({"valid": False, "errors": all_errors})
+    result_data = {"valid": False, "errors": all_errors}
+    if warning_dicts:
+        result_data["warnings"] = warning_dicts
+    emit(result_data)
     ctx.exit(1)
 
 
