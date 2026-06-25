@@ -480,6 +480,7 @@ class TestAC7PreviousErrorSanitized:
         handler._mode = None  # 97-REQ-5.3: mode for per-mode configuration
         handler._config = mock_config
         handler._knowledge_db = mock_knowledge_db
+        handler._context_knowledge_db = mock_knowledge_db
         handler._hook_config = None
         handler._no_hooks = True
         handler._timeout_override = None

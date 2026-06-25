@@ -223,6 +223,7 @@ def _make_runner_with_conn(conn: duckdb.DuckDBPyConnection):
     runner._run_id = "test-run"
     runner._config = config
     runner._knowledge_db = db
+    runner._context_knowledge_db = db
     runner._sink_dispatcher = None
     from agentfox.knowledge.fox_provider import NoOpKnowledgeProvider
 
