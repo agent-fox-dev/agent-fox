@@ -77,7 +77,7 @@ class TestLockReleaseOnSuccess:
         ):
             from agentfox.workspace.harvest import harvest
 
-            await harvest(repo_root, fake_workspace)
+            await harvest(repo_root, fake_workspace, dev_branch="develop")
 
         assert not lock_file.exists()
 
@@ -124,7 +124,7 @@ class TestLockReleaseOnFailure:
             from agentfox.workspace.harvest import harvest
 
             with pytest.raises(IntegrationError):
-                await harvest(repo_root, fake_workspace)
+                await harvest(repo_root, fake_workspace, dev_branch="develop")
 
         assert not lock_file.exists()
 
@@ -176,7 +176,7 @@ class TestLockCoversPostHarvest:
         ):
             from agentfox.workspace.harvest import harvest
 
-            await harvest(repo_root, fake_workspace)
+            await harvest(repo_root, fake_workspace, dev_branch="develop")
 
 
 # ---------------------------------------------------------------------------
@@ -185,7 +185,7 @@ class TestLockCoversPostHarvest:
 
 
 class TestDevelopSyncUsesLock:
-    """TS-45-8: _sync_develop_with_remote acquires the merge lock when sync is needed.
+    """TS-45-8: _sync_integration_with_remote acquires the merge lock when sync is needed.
 
     Issue #458: rev-list checks are lockless; the lock is only acquired
     when remote_ahead > 0.
@@ -193,7 +193,7 @@ class TestDevelopSyncUsesLock:
 
     @pytest.mark.asyncio
     async def test_sync_acquires_lock_when_behind(self, repo_root: Path) -> None:
-        """_sync_develop_with_remote acquires the lock when local is behind remote.
+        """_sync_integration_with_remote acquires the lock when local is behind remote.
 
         The lock must be held during actual sync operations (not during the
         read-only rev-list divergence checks).
@@ -214,19 +214,19 @@ class TestDevelopSyncUsesLock:
             return (0, "", "")
 
         with patch(
-            "agentfox.workspace.develop.run_git",
+            "agentfox.workspace.integration.run_git",
             side_effect=tracking_run_git,
         ):
-            from agentfox.workspace import _sync_develop_with_remote
+            from agentfox.workspace import _sync_integration_with_remote
 
-            await _sync_develop_with_remote(repo_root)
+            await _sync_integration_with_remote(repo_root, "develop")
 
         # Lock must have been held during sync operations (not just rev-list reads)
         assert any(lock_was_held), "Lock was not held during sync operations"
 
     @pytest.mark.asyncio
     async def test_sync_no_lock_when_in_sync(self, repo_root: Path) -> None:
-        """_sync_develop_with_remote does NOT acquire the lock when already in sync.
+        """_sync_integration_with_remote does NOT acquire the lock when already in sync.
 
         Issue #458 fix: lockless readiness check avoids chatty acquire/release.
         """
@@ -237,12 +237,12 @@ class TestDevelopSyncUsesLock:
             return (0, "0\n", "")
 
         with patch(
-            "agentfox.workspace.develop.run_git",
+            "agentfox.workspace.integration.run_git",
             side_effect=tracking_run_git,
         ):
-            from agentfox.workspace import _sync_develop_with_remote
+            from agentfox.workspace import _sync_integration_with_remote
 
-            await _sync_develop_with_remote(repo_root)
+            await _sync_integration_with_remote(repo_root, "develop")
 
         # Lock file must NOT have been created (no lock acquisition)
         assert not lock_file.exists(), "Lock was acquired unnecessarily when in sync"
@@ -288,7 +288,7 @@ class TestAgentFailureAbortsHarvest:
             from agentfox.workspace.harvest import harvest
 
             with pytest.raises(IntegrationError, match="(?i)agent"):
-                await harvest(repo_root, fake_workspace)
+                await harvest(repo_root, fake_workspace, dev_branch="develop")
 
 
 # ---------------------------------------------------------------------------
@@ -329,20 +329,20 @@ class TestDevelopSyncAgentFailureWarns:
 
         with (
             patch(
-                "agentfox.workspace.develop.run_git",
+                "agentfox.workspace.integration.run_git",
                 side_effect=mock_run_git,
             ),
             patch(
-                "agentfox.workspace.develop.run_merge_agent",
+                "agentfox.workspace.integration.run_merge_agent",
                 new_callable=AsyncMock,
                 return_value=False,
             ),
             caplog.at_level(logging.WARNING),
         ):
-            from agentfox.workspace import _sync_develop_with_remote
+            from agentfox.workspace import _sync_integration_with_remote
 
             # Should not raise, just warn
-            await _sync_develop_with_remote(repo_root)
+            await _sync_integration_with_remote(repo_root, "develop")
 
         assert any("warn" in r.levelname.lower() for r in caplog.records), (
             "No warning logged when merge agent failed during develop sync"
@@ -379,7 +379,7 @@ class TestNoXOursInDevelopSync:
 
     def test_develop_source_no_x_ours(self) -> None:
         """develop.py source code does not contain -X ours merge calls."""
-        import agentfox.workspace.develop as develop_mod
+        import agentfox.workspace.integration as develop_mod
 
         source = inspect.getsource(develop_mod)
         assert '"-X", "ours"' not in source

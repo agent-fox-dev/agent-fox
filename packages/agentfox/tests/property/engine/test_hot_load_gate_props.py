@@ -21,7 +21,7 @@ from agentfox.engine.hot_load import (
     _EXPECTED_V12_FILES,
     discover_new_specs_gated,
     is_spec_complete,
-    is_spec_tracked_on_develop,
+    is_spec_tracked_on_branch,
     lint_spec_gate,
 )
 from hypothesis import HealthCheck, given, settings
@@ -91,7 +91,7 @@ class TestGatePipelineMonotonicFiltering:
                     )
                 )
 
-            async def mock_is_tracked(repo_root: Path, spec_name: str, **kwargs: object) -> bool:
+            async def mock_is_tracked(repo_root: Path, spec_name: str, branch: str = "main", **kwargs: object) -> bool:
                 idx = int(spec_name.split("_")[0])
                 return spec_states[idx]["tracked"]
 
@@ -107,7 +107,7 @@ class TestGatePipelineMonotonicFiltering:
                     return_value=specs,
                 ),
                 patch(
-                    "agentfox.engine.hot_load.is_spec_tracked_on_develop",
+                    "agentfox.engine.hot_load.is_spec_tracked_on_branch",
                     side_effect=mock_is_tracked,
                 ),
                 patch(
@@ -115,7 +115,7 @@ class TestGatePipelineMonotonicFiltering:
                     side_effect=mock_lint_gate,
                 ),
             ):
-                result = await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path)
+                result = await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path, integration_branch="main")
 
             # Output is a subset
             assert len(result) <= len(spec_states)
@@ -169,7 +169,7 @@ class TestGitTrackedGateCorrectness:
                 "agentfox.engine.hot_load.run_git",
                 side_effect=mock_run_git,
             ):
-                result = await is_spec_tracked_on_develop(Path(tmp), "test_spec")
+                result = await is_spec_tracked_on_branch(Path(tmp), "test_spec", "main")
 
         if not command_succeeds:
             assert result is True  # permissive fallback
@@ -359,7 +359,7 @@ class TestStatelessReEvaluation:
             )
 
             async def make_is_tracked(state: dict[str, bool]):  # noqa: ANN202
-                async def _fn(repo_root: Path, spec_name: str, **kwargs: object) -> bool:
+                async def _fn(repo_root: Path, spec_name: str, branch: str = "main", **kwargs: object) -> bool:
                     return state["tracked"]
 
                 return _fn
@@ -380,7 +380,7 @@ class TestStatelessReEvaluation:
                     return_value=[mock_spec],
                 ),
                 patch(
-                    "agentfox.engine.hot_load.is_spec_tracked_on_develop",
+                    "agentfox.engine.hot_load.is_spec_tracked_on_branch",
                     side_effect=await make_is_tracked(state_1),
                 ),
                 patch(
@@ -388,7 +388,7 @@ class TestStatelessReEvaluation:
                     side_effect=make_lint_gate(state_1),
                 ),
             ):
-                await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path)
+                await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path, integration_branch="main")
 
             # Eval 2 with state_2
             setup_spec(state_2)
@@ -398,7 +398,7 @@ class TestStatelessReEvaluation:
                     return_value=[mock_spec],
                 ),
                 patch(
-                    "agentfox.engine.hot_load.is_spec_tracked_on_develop",
+                    "agentfox.engine.hot_load.is_spec_tracked_on_branch",
                     side_effect=await make_is_tracked(state_2),
                 ),
                 patch(
@@ -406,7 +406,7 @@ class TestStatelessReEvaluation:
                     side_effect=make_lint_gate(state_2),
                 ),
             ):
-                result_2 = await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path)
+                result_2 = await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path, integration_branch="main")
 
             # Fresh eval with state_2 (verify same result)
             setup_spec(state_2)
@@ -416,7 +416,7 @@ class TestStatelessReEvaluation:
                     return_value=[mock_spec],
                 ),
                 patch(
-                    "agentfox.engine.hot_load.is_spec_tracked_on_develop",
+                    "agentfox.engine.hot_load.is_spec_tracked_on_branch",
                     side_effect=await make_is_tracked(state_2),
                 ),
                 patch(
@@ -424,7 +424,7 @@ class TestStatelessReEvaluation:
                     side_effect=make_lint_gate(state_2),
                 ),
             ):
-                result_fresh = await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path)
+                result_fresh = await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path, integration_branch="main")
 
             # Results from eval_2 and fresh must match
             assert len(result_2) == len(result_fresh)

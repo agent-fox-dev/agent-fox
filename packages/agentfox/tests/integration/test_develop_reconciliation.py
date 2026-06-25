@@ -14,8 +14,8 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from agentfox.workspace import _sync_develop_with_remote
-from agentfox.workspace.harvest import _push_develop_if_pushable
+from agentfox.workspace import _sync_integration_with_remote
+from agentfox.workspace.harvest import _push_integration_branch
 
 # ---- Helpers ----
 
@@ -155,7 +155,7 @@ class TestRebaseFailMergeSucceed:
         # Ensure we're on develop
         _run(["checkout", "develop"], cwd=working)
 
-        await _sync_develop_with_remote(working)
+        await _sync_integration_with_remote(working, "develop")
 
         # After reconciliation, HEAD should have incorporated origin/develop.
         # Check that origin/develop is an ancestor of develop.
@@ -179,14 +179,14 @@ class TestMergeFailOursSucceed:
     """
 
     @pytest.mark.asyncio
-    @patch("agentfox.workspace.develop.run_merge_agent", new_callable=AsyncMock, return_value=False)
+    @patch("agentfox.workspace.integration.run_merge_agent", new_callable=AsyncMock, return_value=False)
     async def test_conflicting_divergence_preserves_local(self, _mock_agent: AsyncMock, tmp_path: Path) -> None:
         """Conflicting divergence -> merge agent fails, local content preserved."""
         working, _origin = _create_diverged_repo(tmp_path, conflicting=True)
 
         _run(["checkout", "develop"], cwd=working)
 
-        await _sync_develop_with_remote(working)
+        await _sync_integration_with_remote(working, "develop")
 
         # Local content should be preserved (agent failed, develop left as-is)
         content = (working / "shared.txt").read_text()
@@ -226,7 +226,7 @@ class TestFastForwardBehindOnly:
         local_head = _get_head(working, "develop")
         assert local_head != origin_head, "Precondition: local should be behind"
 
-        await _sync_develop_with_remote(working)
+        await _sync_integration_with_remote(working, "develop")
 
         # After sync, local develop should match origin/develop
         new_local = _get_head(working, "develop")
@@ -252,7 +252,7 @@ class TestPostHarvestReconcile:
 
         _run(["checkout", "develop"], cwd=working)
 
-        await _push_develop_if_pushable(working)
+        await _push_integration_branch(working, "develop")
 
         # After push, origin/develop should match local develop
         _run(["fetch", "origin"], cwd=working)
@@ -278,7 +278,7 @@ class TestPushAfterReconcile:
         working, origin = _create_diverged_repo(tmp_path, conflicting=False)
         _run(["checkout", "develop"], cwd=working)
 
-        await _push_develop_if_pushable(working)
+        await _push_integration_branch(working, "develop")
 
         _run(["fetch", "origin"], cwd=working)
         assert _get_head(working, "develop") == _get_head(working, "origin/develop")
@@ -305,7 +305,7 @@ class TestPushWhenAhead:
         _run(["checkout", "develop"], cwd=working)
         _add_commit(working, "new_feature.py", "feature\n", "add feature")
 
-        await _push_develop_if_pushable(working)
+        await _push_integration_branch(working, "develop")
 
         # Fetch and verify origin matches
         _run(["fetch", "origin"], cwd=working)

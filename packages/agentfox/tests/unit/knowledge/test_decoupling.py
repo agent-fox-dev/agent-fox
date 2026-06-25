@@ -187,7 +187,7 @@ class TestBarrierRetainedSteps:
                 return_value=[],
             ) as mock_verify,
             patch(
-                "agentfox.engine.barrier.sync_develop_bidirectional",
+                "agentfox.engine.barrier.sync_integration_bidirectional",
                 new_callable=AM,
             ) as mock_sync,
         ):

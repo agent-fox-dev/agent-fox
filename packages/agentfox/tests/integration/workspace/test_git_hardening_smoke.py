@@ -184,7 +184,7 @@ class TestForceCleanEnablesHarvest:
         )
 
         # With force_clean=True, harvest should succeed
-        changed = await harvest(repo, workspace, force_clean=True)
+        changed = await harvest(repo, workspace, dev_branch="develop", force_clean=True)
         assert len(changed) > 0
 
         # File should match the feature branch version (merged)
@@ -301,7 +301,7 @@ class TestNonRetryableErrorSkipsEscalation:
             return_value=False,
         ):
             with pytest.raises(IntegrationError) as exc_info:
-                await harvest(repo, workspace)
+                await harvest(repo, workspace, dev_branch="develop")
 
         # Merge conflict errors default to retryable=True
         assert exc_info.value.retryable is True

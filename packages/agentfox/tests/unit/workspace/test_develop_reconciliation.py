@@ -18,7 +18,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from agentfox.workspace import _sync_develop_with_remote
+from agentfox.workspace import _sync_integration_with_remote
 
 # ---- Helpers ----
 
@@ -131,15 +131,15 @@ class TestAllStrategiesFailWarning:
         mock_run_git, calls = _make_diverged_mock(rebase_fails=True, merge_fails=True, ours_fails=True)
 
         with (
-            patch("agentfox.workspace.develop.run_git", side_effect=mock_run_git),
+            patch("agentfox.workspace.integration.run_git", side_effect=mock_run_git),
             patch(
-                "agentfox.workspace.develop.run_merge_agent",
+                "agentfox.workspace.integration.run_merge_agent",
                 new_callable=AsyncMock,
                 return_value=False,
             ),
         ):
             with caplog.at_level(logging.WARNING):
-                await _sync_develop_with_remote(tmp_path)
+                await _sync_integration_with_remote(tmp_path, "develop")
 
         # Should warn about using local as-is
         assert any("as-is" in r.message.lower() or "using local" in r.message.lower() for r in caplog.records), (
@@ -152,15 +152,15 @@ class TestAllStrategiesFailWarning:
         mock_run_git, _ = _make_diverged_mock(rebase_fails=True, merge_fails=True, ours_fails=True)
 
         with (
-            patch("agentfox.workspace.develop.run_git", side_effect=mock_run_git),
+            patch("agentfox.workspace.integration.run_git", side_effect=mock_run_git),
             patch(
-                "agentfox.workspace.develop.run_merge_agent",
+                "agentfox.workspace.integration.run_merge_agent",
                 new_callable=AsyncMock,
                 return_value=False,
             ),
         ):
             # Should not raise
-            await _sync_develop_with_remote(tmp_path)
+            await _sync_integration_with_remote(tmp_path, "develop")
 
 
 # ---------------------------------------------------------------------------
@@ -180,8 +180,8 @@ class TestInSyncNoOp:
         """No merge/rebase called when branches are in sync."""
         mock_run_git, calls = _make_synced_mock(local_ahead=0, remote_ahead=0)
 
-        with patch("agentfox.workspace.develop.run_git", side_effect=mock_run_git):
-            await _sync_develop_with_remote(tmp_path)
+        with patch("agentfox.workspace.integration.run_git", side_effect=mock_run_git):
+            await _sync_integration_with_remote(tmp_path, "develop")
 
         all_cmds = [" ".join(c) for c in calls]
         assert not any("merge" in cmd for cmd in all_cmds), f"merge should not be called when in sync, got: {all_cmds}"
@@ -207,8 +207,8 @@ class TestLocalAheadUnchanged:
         """Local ahead -> no merge/rebase/branch-force calls."""
         mock_run_git, calls = _make_synced_mock(local_ahead=2, remote_ahead=0)
 
-        with patch("agentfox.workspace.develop.run_git", side_effect=mock_run_git):
-            await _sync_develop_with_remote(tmp_path)
+        with patch("agentfox.workspace.integration.run_git", side_effect=mock_run_git):
+            await _sync_integration_with_remote(tmp_path, "develop")
 
         all_cmds = [" ".join(c) for c in calls]
         assert not any("merge" in cmd for cmd in all_cmds)
@@ -232,9 +232,9 @@ class TestCheckoutDevelopFails:
         """Checkout failure -> warning logged, no merge/rebase attempted."""
         mock_run_git, calls = _make_diverged_mock(checkout_fails=True)
 
-        with patch("agentfox.workspace.develop.run_git", side_effect=mock_run_git):
+        with patch("agentfox.workspace.integration.run_git", side_effect=mock_run_git):
             with caplog.at_level(logging.WARNING):
-                await _sync_develop_with_remote(tmp_path)
+                await _sync_integration_with_remote(tmp_path, "develop")
 
         # Warning should mention checkout failure
         assert any("checkout" in r.message.lower() or "could not" in r.message.lower() for r in caplog.records), (
@@ -290,12 +290,12 @@ class TestFetchFailsPostHarvest:
 
         with (
             patch("agentfox.workspace.harvest.run_git", side_effect=mock_run_git),
-            patch("agentfox.workspace.develop.run_git", side_effect=mock_run_git),
+            patch("agentfox.workspace.integration.run_git", side_effect=mock_run_git),
             patch("agentfox.workspace.git.run_git", side_effect=mock_run_git),
         ):
-            from agentfox.workspace.harvest import _push_develop_if_pushable
+            from agentfox.workspace.harvest import _push_integration_branch
 
-            await _push_develop_if_pushable(tmp_path)
+            await _push_integration_branch(tmp_path, "develop")
 
         all_cmds = [" ".join(c) for c in calls]
         assert any("push" in cmd for cmd in all_cmds), (
@@ -356,14 +356,14 @@ class TestPushFailsAfterReconciliation:
 
         with (
             patch("agentfox.workspace.harvest.run_git", side_effect=mock_run_git),
-            patch("agentfox.workspace.develop.run_git", side_effect=mock_run_git),
+            patch("agentfox.workspace.integration.run_git", side_effect=mock_run_git),
             patch("agentfox.workspace.git.run_git", side_effect=mock_run_git),
         ):
-            from agentfox.workspace.harvest import _push_develop_if_pushable
+            from agentfox.workspace.harvest import _push_integration_branch
 
             with caplog.at_level(logging.WARNING):
                 # Should not raise
-                await _push_develop_if_pushable(tmp_path)
+                await _push_integration_branch(tmp_path, "develop")
 
         # Should warn about push failure
         assert any("push" in r.message.lower() and "fail" in r.message.lower() for r in caplog.records), (
@@ -389,8 +389,8 @@ class TestFallbackChainOrdering:
         """When rebase succeeds, no merge is attempted."""
         mock_run_git, calls = _make_diverged_mock(rebase_fails=False, merge_fails=False, ours_fails=False)
 
-        with patch("agentfox.workspace.develop.run_git", side_effect=mock_run_git):
-            await _sync_develop_with_remote(tmp_path)
+        with patch("agentfox.workspace.integration.run_git", side_effect=mock_run_git):
+            await _sync_integration_with_remote(tmp_path, "develop")
 
         all_cmds = [" ".join(c) for c in calls]
         assert any("rebase" in cmd and "origin/develop" in cmd for cmd in all_cmds)
@@ -401,8 +401,8 @@ class TestFallbackChainOrdering:
         """When rebase fails but merge succeeds, merge is called after rebase."""
         mock_run_git, calls = _make_diverged_mock(rebase_fails=True, merge_fails=False, ours_fails=False)
 
-        with patch("agentfox.workspace.develop.run_git", side_effect=mock_run_git):
-            await _sync_develop_with_remote(tmp_path)
+        with patch("agentfox.workspace.integration.run_git", side_effect=mock_run_git):
+            await _sync_integration_with_remote(tmp_path, "develop")
 
         all_cmds = [" ".join(c) for c in calls]
         # Both rebase and merge attempted
@@ -421,14 +421,14 @@ class TestFallbackChainOrdering:
         mock_run_git, calls = _make_diverged_mock(rebase_fails=True, merge_fails=True, ours_fails=True)
 
         with (
-            patch("agentfox.workspace.develop.run_git", side_effect=mock_run_git),
+            patch("agentfox.workspace.integration.run_git", side_effect=mock_run_git),
             patch(
-                "agentfox.workspace.develop.run_merge_agent",
+                "agentfox.workspace.integration.run_merge_agent",
                 new_callable=AsyncMock,
                 return_value=True,
             ) as mock_agent,
         ):
-            await _sync_develop_with_remote(tmp_path)
+            await _sync_integration_with_remote(tmp_path, "develop")
 
         all_cmds = [" ".join(c) for c in calls]
         assert any("rebase" in cmd and "origin/develop" in cmd for cmd in all_cmds)
@@ -447,15 +447,15 @@ class TestFallbackChainOrdering:
         mock_run_git, calls = _make_diverged_mock(rebase_fails=True, merge_fails=True, ours_fails=True)
 
         with (
-            patch("agentfox.workspace.develop.run_git", side_effect=mock_run_git),
+            patch("agentfox.workspace.integration.run_git", side_effect=mock_run_git),
             patch(
-                "agentfox.workspace.develop.run_merge_agent",
+                "agentfox.workspace.integration.run_merge_agent",
                 new_callable=AsyncMock,
                 return_value=False,
             ),
             caplog.at_level(logging.WARNING),
         ):
-            await _sync_develop_with_remote(tmp_path)
+            await _sync_integration_with_remote(tmp_path, "develop")
 
         all_cmds = [" ".join(c) for c in calls]
         assert any("rebase" in cmd and "origin/develop" in cmd for cmd in all_cmds)
@@ -496,8 +496,8 @@ class TestNoOpIdempotency:
         """No merge/rebase/branch-force when remote is not ahead."""
         mock_run_git, calls = _make_synced_mock(local_ahead=local_ahead, remote_ahead=remote_ahead)
 
-        with patch("agentfox.workspace.develop.run_git", side_effect=mock_run_git):
-            await _sync_develop_with_remote(tmp_path)
+        with patch("agentfox.workspace.integration.run_git", side_effect=mock_run_git):
+            await _sync_integration_with_remote(tmp_path, "develop")
 
         all_cmds = [" ".join(c) for c in calls]
         assert not any("merge" in cmd for cmd in all_cmds)
@@ -526,10 +526,10 @@ class TestLocklessReadinessCheck:
         mock_run_git, _ = _make_synced_mock(local_ahead=0, remote_ahead=0)
 
         with (
-            patch("agentfox.workspace.develop.run_git", side_effect=mock_run_git),
-            patch("agentfox.workspace.develop.MergeLock") as mock_lock_cls,
+            patch("agentfox.workspace.integration.run_git", side_effect=mock_run_git),
+            patch("agentfox.workspace.integration.MergeLock") as mock_lock_cls,
         ):
-            await _sync_develop_with_remote(tmp_path)
+            await _sync_integration_with_remote(tmp_path, "develop")
 
         # MergeLock should never have been instantiated when in sync
         mock_lock_cls.assert_not_called()
@@ -540,10 +540,10 @@ class TestLocklessReadinessCheck:
         mock_run_git, _ = _make_synced_mock(local_ahead=3, remote_ahead=0)
 
         with (
-            patch("agentfox.workspace.develop.run_git", side_effect=mock_run_git),
-            patch("agentfox.workspace.develop.MergeLock") as mock_lock_cls,
+            patch("agentfox.workspace.integration.run_git", side_effect=mock_run_git),
+            patch("agentfox.workspace.integration.MergeLock") as mock_lock_cls,
         ):
-            await _sync_develop_with_remote(tmp_path)
+            await _sync_integration_with_remote(tmp_path, "develop")
 
         mock_lock_cls.assert_not_called()
 
@@ -557,10 +557,10 @@ class TestLocklessReadinessCheck:
         mock_lock_instance.__aexit__ = AsyncMock(return_value=False)
 
         with (
-            patch("agentfox.workspace.develop.run_git", side_effect=mock_run_git),
-            patch("agentfox.workspace.develop.MergeLock", return_value=mock_lock_instance) as mock_lock_cls,
+            patch("agentfox.workspace.integration.run_git", side_effect=mock_run_git),
+            patch("agentfox.workspace.integration.MergeLock", return_value=mock_lock_instance) as mock_lock_cls,
         ):
-            await _sync_develop_with_remote(tmp_path)
+            await _sync_integration_with_remote(tmp_path, "develop")
 
         mock_lock_cls.assert_called_once_with(tmp_path)
         mock_lock_instance.__aenter__.assert_awaited_once()
@@ -575,10 +575,10 @@ class TestLocklessReadinessCheck:
         mock_lock_instance.__aexit__ = AsyncMock(return_value=False)
 
         with (
-            patch("agentfox.workspace.develop.run_git", side_effect=mock_run_git),
-            patch("agentfox.workspace.develop.MergeLock", return_value=mock_lock_instance) as mock_lock_cls,
+            patch("agentfox.workspace.integration.run_git", side_effect=mock_run_git),
+            patch("agentfox.workspace.integration.MergeLock", return_value=mock_lock_instance) as mock_lock_cls,
         ):
-            await _sync_develop_with_remote(tmp_path)
+            await _sync_integration_with_remote(tmp_path, "develop")
 
         mock_lock_cls.assert_called_once_with(tmp_path)
         mock_lock_instance.__aenter__.assert_awaited_once()

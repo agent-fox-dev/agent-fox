@@ -20,7 +20,7 @@ from agentfox.engine.hot_load import (
     are_all_tasks_done,
     discover_new_specs_gated,
     is_spec_complete,
-    is_spec_tracked_on_develop,
+    is_spec_tracked_on_branch,
     lint_spec_gate,
 )
 
@@ -69,7 +69,7 @@ class TestGitTrackedGateAccepts:
             "agentfox.engine.hot_load.run_git",
             side_effect=mock_run_git,
         ):
-            result = await is_spec_tracked_on_develop(tmp_path, "42_feature")
+            result = await is_spec_tracked_on_branch(tmp_path, "42_feature", "main")
 
         assert result is True
 
@@ -98,7 +98,7 @@ class TestGitTrackedGateRejects:
             "agentfox.engine.hot_load.run_git",
             side_effect=mock_run_git,
         ):
-            result = await is_spec_tracked_on_develop(tmp_path, "42_feature")
+            result = await is_spec_tracked_on_branch(tmp_path, "42_feature", "main")
 
         assert result is False
 
@@ -130,7 +130,7 @@ class TestGitTrackedGateFallback:
             ),
             caplog.at_level(logging.WARNING, logger="agentfox.engine.hot_load"),
         ):
-            result = await is_spec_tracked_on_develop(tmp_path, "42_feature")
+            result = await is_spec_tracked_on_branch(tmp_path, "42_feature", "main")
 
         assert result is True
         assert len(caplog.records) > 0
@@ -342,7 +342,7 @@ class TestFullGatePipeline:
         # Create spec_c (untracked)
         _create_spec_files(specs_dir / "44_spec_c")
 
-        async def mock_is_tracked(repo_root: Path, spec_name: str, **kwargs: object) -> bool:
+        async def mock_is_tracked(repo_root: Path, spec_name: str, branch: str = "main", **kwargs: object) -> bool:
             return spec_name != "44_spec_c"
 
         def mock_is_complete(spec_path: Path) -> tuple[bool, list[str]]:
@@ -385,7 +385,7 @@ class TestFullGatePipeline:
                 return_value=mock_new_specs,
             ),
             patch(
-                "agentfox.engine.hot_load.is_spec_tracked_on_develop",
+                "agentfox.engine.hot_load.is_spec_tracked_on_branch",
                 side_effect=mock_is_tracked,
             ),
             patch(
@@ -397,7 +397,7 @@ class TestFullGatePipeline:
                 side_effect=mock_lint_gate,
             ),
         ):
-            result = await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path)
+            result = await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path, integration_branch="main")
 
         assert len(result) == 1
         assert result[0].name == "42_spec_a"
@@ -433,7 +433,7 @@ class TestSkippedSpecReEvaluation:
             has_prd=True,
         )
 
-        async def mock_is_tracked(repo_root: Path, spec_name: str, **kwargs: object) -> bool:
+        async def mock_is_tracked(repo_root: Path, spec_name: str, branch: str = "main", **kwargs: object) -> bool:
             return True
 
         def mock_lint_gate(spec_name: str, spec_path: Path) -> tuple[bool, list[str]]:
@@ -445,7 +445,7 @@ class TestSkippedSpecReEvaluation:
                 return_value=[mock_spec],
             ),
             patch(
-                "agentfox.engine.hot_load.is_spec_tracked_on_develop",
+                "agentfox.engine.hot_load.is_spec_tracked_on_branch",
                 side_effect=mock_is_tracked,
             ),
             patch(
@@ -454,14 +454,14 @@ class TestSkippedSpecReEvaluation:
             ),
         ):
             # Barrier N: spec is incomplete
-            result_1 = await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path)
+            result_1 = await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path, integration_branch="main")
             assert result_1 == []
 
             # Fix spec: add test_spec.json
             (spec_path / "test_spec.json").write_text('{"test_cases": []}\n')
 
             # Barrier N+1: spec now passes
-            result_2 = await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path)
+            result_2 = await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path, integration_branch="main")
             assert len(result_2) == 1
             assert result_2[0].name == "42_feature"
 
@@ -703,7 +703,7 @@ class TestTasksCompleteGatePipeline:
             has_prd=True,
         )
 
-        async def mock_is_tracked(repo_root: Path, spec_name: str, **kwargs: object) -> bool:
+        async def mock_is_tracked(repo_root: Path, spec_name: str, branch: str = "main", **kwargs: object) -> bool:
             return True
 
         def mock_lint_gate(spec_name: str, spec_path: Path) -> tuple[bool, list[str]]:
@@ -711,13 +711,13 @@ class TestTasksCompleteGatePipeline:
 
         with (
             patch("agentfox.engine.hot_load.discover_new_specs", return_value=[mock_spec]),
-            patch("agentfox.engine.hot_load.is_spec_tracked_on_develop", side_effect=mock_is_tracked),
+            patch("agentfox.engine.hot_load.is_spec_tracked_on_branch", side_effect=mock_is_tracked),
             patch("agentfox.engine.hot_load.is_spec_complete", return_value=(True, [])),
             patch("agentfox.engine.hot_load.lint_spec_gate", side_effect=mock_lint_gate),
             patch("agentfox.engine.hot_load.are_all_tasks_done", return_value=True),
             caplog.at_level(logging.INFO, logger="agentfox.engine.hot_load"),
         ):
-            result = await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path, db_conn=conn)
+            result = await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path, integration_branch="main", db_conn=conn)
 
         assert result == []
         assert any("fully implemented" in r.message for r in caplog.records)
@@ -745,7 +745,7 @@ class TestTasksCompleteGatePipeline:
             has_prd=True,
         )
 
-        async def mock_is_tracked(repo_root: Path, spec_name: str, **kwargs: object) -> bool:
+        async def mock_is_tracked(repo_root: Path, spec_name: str, branch: str = "main", **kwargs: object) -> bool:
             return True
 
         def mock_lint_gate(spec_name: str, spec_path: Path) -> tuple[bool, list[str]]:
@@ -753,12 +753,12 @@ class TestTasksCompleteGatePipeline:
 
         with (
             patch("agentfox.engine.hot_load.discover_new_specs", return_value=[mock_spec]),
-            patch("agentfox.engine.hot_load.is_spec_tracked_on_develop", side_effect=mock_is_tracked),
+            patch("agentfox.engine.hot_load.is_spec_tracked_on_branch", side_effect=mock_is_tracked),
             patch("agentfox.engine.hot_load.is_spec_complete", return_value=(True, [])),
             patch("agentfox.engine.hot_load.lint_spec_gate", side_effect=mock_lint_gate),
             patch("agentfox.engine.hot_load.are_all_tasks_done", return_value=True),
         ):
-            result = await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path, db_conn=conn)
+            result = await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path, integration_branch="main", db_conn=conn)
 
         assert len(result) == 1
         assert result[0].name == "42_feature"
@@ -786,7 +786,7 @@ class TestTasksCompleteGatePipeline:
             has_prd=True,
         )
 
-        async def mock_is_tracked(repo_root: Path, spec_name: str, **kwargs: object) -> bool:
+        async def mock_is_tracked(repo_root: Path, spec_name: str, branch: str = "main", **kwargs: object) -> bool:
             return True
 
         def mock_lint_gate(spec_name: str, spec_path: Path) -> tuple[bool, list[str]]:
@@ -794,12 +794,12 @@ class TestTasksCompleteGatePipeline:
 
         with (
             patch("agentfox.engine.hot_load.discover_new_specs", return_value=[mock_spec]),
-            patch("agentfox.engine.hot_load.is_spec_tracked_on_develop", side_effect=mock_is_tracked),
+            patch("agentfox.engine.hot_load.is_spec_tracked_on_branch", side_effect=mock_is_tracked),
             patch("agentfox.engine.hot_load.is_spec_complete", return_value=(True, [])),
             patch("agentfox.engine.hot_load.lint_spec_gate", side_effect=mock_lint_gate),
             patch("agentfox.engine.hot_load.are_all_tasks_done", return_value=False),
         ):
-            result = await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path, db_conn=conn)
+            result = await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path, integration_branch="main", db_conn=conn)
 
         assert len(result) == 1
         conn.close()
@@ -821,7 +821,7 @@ class TestTasksCompleteGatePipeline:
             has_prd=True,
         )
 
-        async def mock_is_tracked(repo_root: Path, spec_name: str, **kwargs: object) -> bool:
+        async def mock_is_tracked(repo_root: Path, spec_name: str, branch: str = "main", **kwargs: object) -> bool:
             return True
 
         def mock_lint_gate(spec_name: str, spec_path: Path) -> tuple[bool, list[str]]:
@@ -829,12 +829,12 @@ class TestTasksCompleteGatePipeline:
 
         with (
             patch("agentfox.engine.hot_load.discover_new_specs", return_value=[mock_spec]),
-            patch("agentfox.engine.hot_load.is_spec_tracked_on_develop", side_effect=mock_is_tracked),
+            patch("agentfox.engine.hot_load.is_spec_tracked_on_branch", side_effect=mock_is_tracked),
             patch("agentfox.engine.hot_load.is_spec_complete", return_value=(True, [])),
             patch("agentfox.engine.hot_load.lint_spec_gate", side_effect=mock_lint_gate),
             patch("agentfox.engine.hot_load.are_all_tasks_done", return_value=True),
         ):
             # No db_conn argument — backward compatible
-            result = await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path)
+            result = await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path, integration_branch="main")
 
         assert len(result) == 1

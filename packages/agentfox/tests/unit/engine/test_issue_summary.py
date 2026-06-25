@@ -216,7 +216,7 @@ class TestBuildSummaryComment:
         ]
 
         with patch("agentfox.spec.parser.parse_tasks", return_value=mock_groups):
-            comment = build_summary_comment(spec_name, commit_sha, tasks_path)
+            comment = build_summary_comment(spec_name, commit_sha, tasks_path, "main")
 
         assert spec_name in comment, "Comment must contain spec name"
         assert commit_sha in comment, "Comment must contain commit SHA"
@@ -236,7 +236,7 @@ class TestBuildSummaryComment:
         tasks_path = tmp_path / "nonexistent_tasks.md"  # does not exist
 
         # Must not raise
-        comment = build_summary_comment(spec_name, commit_sha, tasks_path)
+        comment = build_summary_comment(spec_name, commit_sha, tasks_path, "main")
 
         assert spec_name in comment, "Comment must still contain spec name"
         assert commit_sha in comment, "Comment must still contain commit SHA"
@@ -448,36 +448,36 @@ class TestPostIssueSummariesForgeMismatch:
 
 
 class TestGetDevelopHead:
-    """Tests for _get_develop_head() function."""
+    """Tests for _get_integration_head() function."""
 
     def test_returns_sha_on_success(self, tmp_path: Path) -> None:
-        """TS-108-15: _get_develop_head returns SHA on successful git call.
+        """TS-108-15: _get_integration_head returns SHA on successful git call.
 
         Requirements: 108-REQ-6.1
         """
-        from agentfox.engine.engine import _get_develop_head
+        from agentfox.engine.engine import _get_integration_head
 
         mock_result = MagicMock()
         mock_result.returncode = 0
         mock_result.stdout = "abc123def456\n"
 
         with patch("subprocess.run", return_value=mock_result):
-            sha = _get_develop_head(tmp_path)
+            sha = _get_integration_head(tmp_path, "main")
 
         assert sha == "abc123def456"
 
     def test_returns_unknown_on_failure(self, tmp_path: Path) -> None:
-        """TS-108-16: _get_develop_head returns 'unknown' when git fails.
+        """TS-108-16: _get_integration_head returns 'unknown' when git fails.
 
         Requirements: 108-REQ-6.E1
         """
-        from agentfox.engine.engine import _get_develop_head
+        from agentfox.engine.engine import _get_integration_head
 
         mock_result = MagicMock()
         mock_result.returncode = 1
         mock_result.stdout = ""
 
         with patch("subprocess.run", return_value=mock_result):
-            sha = _get_develop_head(tmp_path)
+            sha = _get_integration_head(tmp_path, "main")
 
         assert sha == "unknown"

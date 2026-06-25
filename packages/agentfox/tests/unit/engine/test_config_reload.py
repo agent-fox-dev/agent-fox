@@ -86,7 +86,7 @@ class TestReloadTriggeredAtBarrier:
         with (
             patch("agentfox.engine.barrier.verify_worktrees", return_value=[]),
             patch(
-                "agentfox.engine.barrier.sync_develop_bidirectional",
+                "agentfox.engine.barrier.sync_integration_bidirectional",
                 new_callable=AsyncMock,
             ),
         ):
@@ -94,6 +94,7 @@ class TestReloadTriggeredAtBarrier:
                 state=state,
                 sync_interval=5,
                 repo_root=tmp_path,
+                integration_branch="main",
                 emit_audit=MagicMock(),
                 specs_dir=None,
                 hot_load_enabled=False,

@@ -31,7 +31,7 @@ class TestWorktreeCreation:
         tmp_worktree_repo: Path,
     ) -> None:
         """Creating a worktree produces the expected directory."""
-        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1)
+        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
         expected_path = tmp_worktree_repo / ".agent-fox" / "worktrees" / "test_spec" / "1"
         assert ws.path == expected_path
         assert ws.path.is_dir()
@@ -42,7 +42,7 @@ class TestWorktreeCreation:
         tmp_worktree_repo: Path,
     ) -> None:
         """Creating a worktree creates the feature branch in the repo."""
-        _ws = await create_worktree(tmp_worktree_repo, "test_spec", 1)
+        _ws = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
         branches = list_branches(tmp_worktree_repo)
         assert "feature/test_spec/1" in branches
 
@@ -52,7 +52,7 @@ class TestWorktreeCreation:
         tmp_worktree_repo: Path,
     ) -> None:
         """WorkspaceInfo has correct branch, spec_name, and task_group."""
-        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1)
+        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
         assert ws.branch == "feature/test_spec/1"
         assert ws.spec_name == "test_spec"
         assert ws.task_group == 1
@@ -63,7 +63,7 @@ class TestWorktreeCreation:
         tmp_worktree_repo: Path,
     ) -> None:
         """The worktree has the feature branch checked out."""
-        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1)
+        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
         # Verify the worktree is on the feature branch by checking HEAD
         import subprocess
 
@@ -86,7 +86,7 @@ class TestWorktreeDestruction:
         tmp_worktree_repo: Path,
     ) -> None:
         """Destroying a worktree removes its directory."""
-        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1)
+        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
         await destroy_worktree(tmp_worktree_repo, ws)
         assert not ws.path.exists()
 
@@ -96,7 +96,7 @@ class TestWorktreeDestruction:
         tmp_worktree_repo: Path,
     ) -> None:
         """Destroying a worktree removes its feature branch."""
-        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1)
+        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
         await destroy_worktree(tmp_worktree_repo, ws)
         branches = list_branches(tmp_worktree_repo)
         assert "feature/test_spec/1" not in branches
@@ -107,7 +107,7 @@ class TestWorktreeDestruction:
         tmp_worktree_repo: Path,
     ) -> None:
         """Destroying the only worktree in a spec removes the spec dir."""
-        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1)
+        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
         await destroy_worktree(tmp_worktree_repo, ws)
         spec_dir = tmp_worktree_repo / ".agent-fox" / "worktrees" / "test_spec"
         assert not spec_dir.exists()
@@ -122,7 +122,7 @@ class TestStaleWorktreeRemoval:
         tmp_worktree_repo: Path,
     ) -> None:
         """Re-creating an existing worktree does not raise."""
-        _ws1 = await create_worktree(tmp_worktree_repo, "test_spec", 1)
+        _ws1 = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
         # Add a commit to develop to prove the branch point moves
         import subprocess
 
@@ -137,7 +137,7 @@ class TestStaleWorktreeRemoval:
             "new_file.txt",
             "new content\n",
         )
-        ws2 = await create_worktree(tmp_worktree_repo, "test_spec", 1)
+        ws2 = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
         assert ws2.path.is_dir()
 
     @pytest.mark.asyncio
@@ -146,7 +146,7 @@ class TestStaleWorktreeRemoval:
         tmp_worktree_repo: Path,
     ) -> None:
         """Re-created worktree points to the current develop tip."""
-        _ws1 = await create_worktree(tmp_worktree_repo, "test_spec", 1)
+        _ws1 = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
         # Add a commit to develop
         import subprocess
 
@@ -162,7 +162,7 @@ class TestStaleWorktreeRemoval:
             "new content\n",
         )
         develop_tip = get_branch_tip(tmp_worktree_repo, "develop")
-        ws2 = await create_worktree(tmp_worktree_repo, "test_spec", 1)
+        ws2 = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
         branch_tip = get_branch_tip(tmp_worktree_repo, ws2.branch)
         assert branch_tip == develop_tip
 
@@ -182,7 +182,7 @@ class TestWorktreeCreationGitError:
             side_effect=WorkspaceError("git worktree add failed: fatal error"),
         ):
             with pytest.raises(WorkspaceError):
-                await create_worktree(tmp_worktree_repo, "test_spec", 1)
+                await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
 
 
 class TestSpecNameValidation:
@@ -195,7 +195,7 @@ class TestSpecNameValidation:
     ) -> None:
         """Spec name containing '..' is rejected."""
         with pytest.raises(WorkspaceError, match="Invalid spec name"):
-            await create_worktree(tmp_worktree_repo, "99_../../../tmp/evil", 1)
+            await create_worktree(tmp_worktree_repo, "99_../../../tmp/evil", 1, base_branch="develop")
 
     @pytest.mark.asyncio
     async def test_rejects_slash(
@@ -204,7 +204,7 @@ class TestSpecNameValidation:
     ) -> None:
         """Spec name containing '/' is rejected."""
         with pytest.raises(WorkspaceError, match="Invalid spec name"):
-            await create_worktree(tmp_worktree_repo, "99_foo/bar", 1)
+            await create_worktree(tmp_worktree_repo, "99_foo/bar", 1, base_branch="develop")
 
     @pytest.mark.asyncio
     async def test_accepts_valid_spec_name(
@@ -212,7 +212,7 @@ class TestSpecNameValidation:
         tmp_worktree_repo: Path,
     ) -> None:
         """A valid spec name with alphanumerics and underscores passes."""
-        ws = await create_worktree(tmp_worktree_repo, "01_core_foundation", 1)
+        ws = await create_worktree(tmp_worktree_repo, "01_core_foundation", 1, base_branch="develop")
         assert ws.spec_name == "01_core_foundation"
 
 
@@ -244,7 +244,7 @@ class TestCustomBranchName:
         tmp_worktree_repo: Path,
     ) -> None:
         """When branch_name is provided, the worktree uses it instead of the default."""
-        ws = await create_worktree(tmp_worktree_repo, "fix-issue-42", 0, branch_name="fix/issue-42-linter")
+        ws = await create_worktree(tmp_worktree_repo, "fix-issue-42", 0, base_branch="develop", branch_name="fix/issue-42-linter")
         assert ws.branch == "fix/issue-42-linter"
         branches = list_branches(tmp_worktree_repo)
         assert "fix/issue-42-linter" in branches
@@ -258,7 +258,7 @@ class TestCustomBranchName:
         """The worktree has the custom branch checked out."""
         import subprocess
 
-        ws = await create_worktree(tmp_worktree_repo, "fix-issue-99", 0, branch_name="fix/issue-99-bug")
+        ws = await create_worktree(tmp_worktree_repo, "fix-issue-99", 0, base_branch="develop", branch_name="fix/issue-99-bug")
         result = subprocess.run(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
             cwd=ws.path,
@@ -278,7 +278,7 @@ class TestHyphenatedSpecName:
         tmp_worktree_repo: Path,
     ) -> None:
         """A spec name with hyphens passes validation."""
-        ws = await create_worktree(tmp_worktree_repo, "fix-issue-42", 0)
+        ws = await create_worktree(tmp_worktree_repo, "fix-issue-42", 0, base_branch="develop")
         assert ws.spec_name == "fix-issue-42"
         assert ws.path.is_dir()
 
@@ -324,7 +324,7 @@ class TestWorktreeCleanupOnFailure:
         tmp_worktree_repo: Path,
     ) -> None:
         """destroy_worktree removes workspace even after simulated failure."""
-        ws = await create_worktree(tmp_worktree_repo, "fix-issue-77", 0)
+        ws = await create_worktree(tmp_worktree_repo, "fix-issue-77", 0, base_branch="develop")
         assert ws.path.is_dir()
 
         # Simulate a session failure, then cleanup
@@ -359,7 +359,7 @@ class TestPreserveBranchOnHarvestFailure:
         Asserts (a) worktree directory no longer exists, (b) original branch
         name no longer exists, (c) stalled/<original> branch exists.
         """
-        ws = await create_worktree(tmp_worktree_repo, "spec_b", 1)
+        ws = await create_worktree(tmp_worktree_repo, "spec_b", 1, base_branch="develop")
         # Add a commit on the feature branch so stalled/ has real content
         add_commit_to_branch(ws.path, "some_work.py", "work in progress\n")
 
@@ -389,7 +389,7 @@ class TestPreserveBranchOnHarvestFailure:
         tmp_worktree_repo: Path,
     ) -> None:
         """With preserve_branch=False (default), branch is deleted as normal."""
-        ws = await create_worktree(tmp_worktree_repo, "spec_normal", 1)
+        ws = await create_worktree(tmp_worktree_repo, "spec_normal", 1, base_branch="develop")
         add_commit_to_branch(ws.path, "work.py", "content\n")
 
         await destroy_worktree(tmp_worktree_repo, ws, preserve_branch=False)

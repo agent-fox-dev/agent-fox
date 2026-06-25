@@ -53,17 +53,17 @@ class TestPostHarvestDoesNotPushFeature:
                 new_callable=AsyncMock,
             ) as mock_push,
             patch(
-                "agentfox.workspace.harvest._push_develop_if_pushable",
+                "agentfox.workspace.harvest._push_integration_branch",
                 new_callable=AsyncMock,
             ),
         ):
             await post_harvest_integrate(
                 repo_root=tmp_path,
-                workspace=workspace,
+                workspace=workspace, branch="main",
             )
 
         # push_to_remote must NOT be called directly
-        # (only via _push_develop_if_pushable)
+        # (only via _push_integration_branch)
         mock_push.assert_not_called()
 
 
@@ -79,21 +79,21 @@ class TestPostHarvestPushesDevelop:
     """
 
     async def test_pushes_develop(self, tmp_path: Path) -> None:
-        """post_harvest_integrate calls _push_develop_if_pushable."""
+        """post_harvest_integrate calls _push_integration_branch."""
         workspace = _make_workspace()
 
         with (
             patch(
-                "agentfox.workspace.harvest._push_develop_if_pushable",
+                "agentfox.workspace.harvest._push_integration_branch",
                 new_callable=AsyncMock,
             ) as mock_push_develop,
         ):
             await post_harvest_integrate(
                 repo_root=tmp_path,
-                workspace=workspace,
+                workspace=workspace, branch="main",
             )
 
-        mock_push_develop.assert_called_once_with(tmp_path)
+        mock_push_develop.assert_called_once_with(tmp_path, "main")
 
 
 # ---------------------------------------------------------------------------
@@ -143,25 +143,25 @@ class TestPostHarvestPushFailureBestEffort:
     """
 
     async def test_develop_push_failure_no_exception(self, tmp_path: Path, caplog) -> None:
-        """_push_develop_if_pushable failure does not raise an exception."""
+        """_push_integration_branch failure does not raise an exception."""
         workspace = _make_workspace()
 
-        async def mock_push_develop_fail(repo_root):
+        async def mock_push_develop_fail(repo_root, branch="main"):
             # Simulate push failure by calling through to real logic would be
             # complex; instead we verify the function itself handles exceptions
-            # gracefully. The _push_develop_if_pushable tests cover the warning.
+            # gracefully. The _push_integration_branch tests cover the warning.
             pass  # no exception — this is the expected behavior
 
         with (
             patch(
-                "agentfox.workspace.harvest._push_develop_if_pushable",
+                "agentfox.workspace.harvest._push_integration_branch",
                 side_effect=mock_push_develop_fail,
             ),
         ):
             # Must not raise even if develop push encounters an issue
             await post_harvest_integrate(
                 repo_root=tmp_path,
-                workspace=workspace,
+                workspace=workspace, branch="main",
             )
 
 
@@ -184,14 +184,14 @@ class TestPostHarvestFeatureBranchDeleted:
 
         with (
             patch(
-                "agentfox.workspace.harvest._push_develop_if_pushable",
+                "agentfox.workspace.harvest._push_integration_branch",
                 new_callable=AsyncMock,
             ) as mock_push_develop,
         ):
             # Must not raise
             await post_harvest_integrate(
                 repo_root=tmp_path,
-                workspace=workspace,
+                workspace=workspace, branch="main",
             )
 
-        mock_push_develop.assert_called_once_with(tmp_path)
+        mock_push_develop.assert_called_once_with(tmp_path, "main")

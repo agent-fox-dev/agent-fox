@@ -1,4 +1,4 @@
-"""Fixtures for workspace tests: git repos with develop branch."""
+"""Fixtures for workspace tests: git repos with integration branch."""
 
 from __future__ import annotations
 

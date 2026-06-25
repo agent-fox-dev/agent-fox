@@ -13,7 +13,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from agentfox.workspace.develop import _sync_develop_under_lock, ensure_develop
+from agentfox.workspace.integration import _sync_integration_under_lock, ensure_integration_branch
 
 
 class TestDevelopSyncAuditOnSuccess:
@@ -62,8 +62,8 @@ class TestDevelopSyncAuditOnSuccess:
 
         # Simulate local behind remote: _sync_develop_under_lock with
         # remote_ahead=2, local_ahead=0 should fast-forward.
-        result = await _sync_develop_under_lock(
-            tmp_worktree_repo,
+        result = await _sync_integration_under_lock(
+            tmp_worktree_repo, "develop",
             remote_ahead=2,
             local_ahead=0,
         )
@@ -93,22 +93,22 @@ class TestDevelopSyncAuditOnFailure:
         # Mock run_git to simulate rebase failure + merge failure + agent failure
         with (
             patch(
-                "agentfox.workspace.develop.run_git",
+                "agentfox.workspace.integration.run_git",
                 new_callable=AsyncMock,
                 return_value=(1, "", "merge conflict"),
             ),
             patch(
-                "agentfox.workspace.develop.run_merge_agent",
+                "agentfox.workspace.integration.run_merge_agent",
                 new_callable=AsyncMock,
                 return_value=False,
             ),
             patch(
-                "agentfox.workspace.develop.emit_audit_event",
+                "agentfox.workspace.integration.emit_audit_event",
                 create=True,
             ) as mock_emit,
         ):
-            await _sync_develop_under_lock(
-                tmp_worktree_repo,
+            await _sync_integration_under_lock(
+                tmp_worktree_repo, "develop",
                 remote_ahead=2,
                 local_ahead=1,
             )
@@ -150,25 +150,25 @@ class TestDevelopFetchFailedAudit:
 
         with (
             patch(
-                "agentfox.workspace.develop.run_git",
+                "agentfox.workspace.integration.run_git",
                 side_effect=failing_fetch,
             ),
             patch(
-                "agentfox.workspace.develop.local_branch_exists",
+                "agentfox.workspace.integration.local_branch_exists",
                 new_callable=AsyncMock,
                 return_value=True,
             ),
             patch(
-                "agentfox.workspace.develop.remote_branch_exists",
+                "agentfox.workspace.integration.remote_branch_exists",
                 new_callable=AsyncMock,
                 return_value=False,
             ),
             patch(
-                "agentfox.workspace.develop.emit_audit_event",
+                "agentfox.workspace.integration.emit_audit_event",
                 create=True,
             ) as mock_emit,
         ):
-            await ensure_develop(tmp_worktree_repo)
+            await ensure_integration_branch(tmp_worktree_repo, "develop")
 
             # 118-REQ-5.E1: SHALL emit develop.fetch_failed audit event
             mock_emit.assert_called()

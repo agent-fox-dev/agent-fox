@@ -166,7 +166,7 @@ class TestExecuteErrorHandling:
 
         with (
             patch(
-                "agentfox.engine.session_lifecycle.ensure_develop",
+                "agentfox.engine.session_lifecycle.ensure_integration_branch",
                 new_callable=AsyncMock,
             ),
             patch(
@@ -216,7 +216,7 @@ class TestExecuteErrorHandling:
 
         with (
             patch(
-                "agentfox.engine.session_lifecycle.ensure_develop",
+                "agentfox.engine.session_lifecycle.ensure_integration_branch",
                 new_callable=AsyncMock,
             ),
             patch(
@@ -298,7 +298,7 @@ class TestNoDuplicateSessionOutcomeWrite:
                 return_value=("completed", None, [], False),
             ),
             patch(
-                "agentfox.engine.session_lifecycle._capture_develop_head",
+                "agentfox.engine.session_lifecycle._capture_integration_head",
                 new_callable=AsyncMock,
                 return_value="abc123",
             ),
@@ -389,7 +389,7 @@ class TestNoDuplicateHarvestCompleteEvent:
                 return_value=("completed", None, ["some_file.py"], False),
             ),
             patch(
-                "agentfox.engine.session_lifecycle._capture_develop_head",
+                "agentfox.engine.session_lifecycle._capture_integration_head",
                 new_callable=AsyncMock,
                 return_value="abc123",
             ),
@@ -539,7 +539,7 @@ class TestBudgetExhaustionDetection:
                 return_value=9.5,  # >= 10.0 * 0.9 = 9.0
             ),
             patch(
-                "agentfox.engine.session_lifecycle._capture_develop_head",
+                "agentfox.engine.session_lifecycle._capture_integration_head",
                 new_callable=AsyncMock,
                 return_value="",
             ),
@@ -622,7 +622,7 @@ class TestBudgetExhaustionDetection:
                 return_value=0.5,  # < 10.0 * 0.9 = 9.0
             ),
             patch(
-                "agentfox.engine.session_lifecycle._capture_develop_head",
+                "agentfox.engine.session_lifecycle._capture_integration_head",
                 new_callable=AsyncMock,
                 return_value="",
             ),

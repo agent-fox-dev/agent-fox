@@ -16,7 +16,7 @@ import pytest
 from agentfox.engine.barrier import (
     _format_progress_line,
     run_sync_barrier_sequence,
-    sync_develop_bidirectional,
+    sync_integration_bidirectional,
     verify_worktrees,
 )
 from agentfox.engine.state import ExecutionState
@@ -116,7 +116,7 @@ class TestSyncDevelopBidirectionalSuccess:
         mock_lock_instance.__aenter__ = mock_aenter
         mock_lock_instance.__aexit__ = mock_aexit
 
-        async def mock_sync(repo_root: Path) -> None:
+        async def mock_sync(repo_root: Path, branch: str = "develop") -> None:
             call_order.append("sync")
 
         async def mock_run_git(
@@ -133,12 +133,12 @@ class TestSyncDevelopBidirectionalSuccess:
         with (
             patch("agentfox.engine.barrier.MergeLock", return_value=mock_lock_instance),
             patch(
-                "agentfox.engine.barrier._sync_develop_with_remote",
+                "agentfox.engine.barrier._sync_integration_with_remote",
                 side_effect=mock_sync,
             ),
             patch("agentfox.engine.barrier.run_git", side_effect=mock_run_git),
         ):
-            await sync_develop_bidirectional(tmp_path)
+            await sync_integration_bidirectional(tmp_path, "develop")
 
         # Verify lock context manager wraps operations
         assert call_order.index("lock.__aenter__") < call_order.index("sync")
@@ -161,7 +161,7 @@ class TestSyncDevelopPullFailSkipsPush:
         mock_lock_instance.__aenter__ = AsyncMock(return_value=mock_lock_instance)
         mock_lock_instance.__aexit__ = AsyncMock(return_value=False)
 
-        async def mock_sync(repo_root: Path) -> None:
+        async def mock_sync(repo_root: Path, branch: str = "develop") -> None:
             raise Exception("fetch failed")
 
         async def mock_run_git(
@@ -178,13 +178,13 @@ class TestSyncDevelopPullFailSkipsPush:
         with (
             patch("agentfox.engine.barrier.MergeLock", return_value=mock_lock_instance),
             patch(
-                "agentfox.engine.barrier._sync_develop_with_remote",
+                "agentfox.engine.barrier._sync_integration_with_remote",
                 side_effect=mock_sync,
             ),
             patch("agentfox.engine.barrier.run_git", side_effect=mock_run_git),
             caplog.at_level(logging.WARNING, logger="agentfox.engine.barrier"),
         ):
-            await sync_develop_bidirectional(tmp_path)
+            await sync_integration_bidirectional(tmp_path, "develop")
 
         assert not push_called
         assert "WARNING" in caplog.text or len(caplog.records) > 0
@@ -203,7 +203,7 @@ class TestSyncDevelopPushFailNonBlocking:
         mock_lock_instance.__aenter__ = AsyncMock(return_value=mock_lock_instance)
         mock_lock_instance.__aexit__ = AsyncMock(return_value=False)
 
-        async def mock_sync(repo_root: Path) -> None:
+        async def mock_sync(repo_root: Path, branch: str = "develop") -> None:
             pass  # success
 
         async def mock_run_git(
@@ -218,14 +218,14 @@ class TestSyncDevelopPushFailNonBlocking:
         with (
             patch("agentfox.engine.barrier.MergeLock", return_value=mock_lock_instance),
             patch(
-                "agentfox.engine.barrier._sync_develop_with_remote",
+                "agentfox.engine.barrier._sync_integration_with_remote",
                 side_effect=mock_sync,
             ),
             patch("agentfox.engine.barrier.run_git", side_effect=mock_run_git),
             caplog.at_level(logging.WARNING, logger="agentfox.engine.barrier"),
         ):
             # Should not raise
-            await sync_develop_bidirectional(tmp_path)
+            await sync_integration_bidirectional(tmp_path, "develop")
 
         assert len(caplog.records) > 0
 
@@ -246,7 +246,7 @@ class TestSyncDevelopNoOrigin:
         mock_lock_instance.__aenter__ = AsyncMock(return_value=mock_lock_instance)
         mock_lock_instance.__aexit__ = AsyncMock(return_value=False)
 
-        async def mock_sync(repo_root: Path) -> None:
+        async def mock_sync(repo_root: Path, branch: str = "develop") -> None:
             nonlocal sync_called
             sync_called = True
 
@@ -264,12 +264,12 @@ class TestSyncDevelopNoOrigin:
         with (
             patch("agentfox.engine.barrier.MergeLock", return_value=mock_lock_instance),
             patch(
-                "agentfox.engine.barrier._sync_develop_with_remote",
+                "agentfox.engine.barrier._sync_integration_with_remote",
                 side_effect=mock_sync,
             ),
             patch("agentfox.engine.barrier.run_git", side_effect=mock_run_git),
         ):
-            await sync_develop_bidirectional(tmp_path)
+            await sync_integration_bidirectional(tmp_path, "develop")
 
         assert not sync_called
         assert not push_called
@@ -307,7 +307,7 @@ class TestCompactionCalledDuringBarrier:
         with (
             patch("agentfox.engine.barrier.verify_worktrees", return_value=[]),
             patch(
-                "agentfox.engine.barrier.sync_develop_bidirectional",
+                "agentfox.engine.barrier.sync_integration_bidirectional",
                 new_callable=AsyncMock,
             ),
         ):
@@ -315,6 +315,7 @@ class TestCompactionCalledDuringBarrier:
                 state=_make_barrier_state(),
                 sync_interval=5,
                 repo_root=tmp_path,
+                integration_branch="main",
                 emit_audit=MagicMock(),
                 specs_dir=None,
                 hot_load_enabled=False,
@@ -330,7 +331,7 @@ class TestCompactionCalledDuringBarrier:
         with (
             patch("agentfox.engine.barrier.verify_worktrees", return_value=[]),
             patch(
-                "agentfox.engine.barrier.sync_develop_bidirectional",
+                "agentfox.engine.barrier.sync_integration_bidirectional",
                 new_callable=AsyncMock,
             ),
         ):
@@ -338,6 +339,7 @@ class TestCompactionCalledDuringBarrier:
                 state=_make_barrier_state(),
                 sync_interval=5,
                 repo_root=tmp_path,
+                integration_branch="main",
                 emit_audit=MagicMock(),
                 specs_dir=None,
                 hot_load_enabled=False,
@@ -353,7 +355,7 @@ class TestCompactionCalledDuringBarrier:
         with (
             patch("agentfox.engine.barrier.verify_worktrees", return_value=[]),
             patch(
-                "agentfox.engine.barrier.sync_develop_bidirectional",
+                "agentfox.engine.barrier.sync_integration_bidirectional",
                 new_callable=AsyncMock,
             ),
         ):
@@ -362,6 +364,7 @@ class TestCompactionCalledDuringBarrier:
                 state=_make_barrier_state(),
                 sync_interval=5,
                 repo_root=tmp_path,
+                integration_branch="main",
                 emit_audit=MagicMock(),
                 specs_dir=None,
                 hot_load_enabled=False,
@@ -419,6 +422,7 @@ class TestBarrierProgressPrint:
             "state": state,
             "sync_interval": 5,
             "repo_root": tmp_path,
+            "integration_branch": "main",
             "emit_audit": MagicMock(),
             "specs_dir": None,
             "hot_load_enabled": False,
@@ -447,7 +451,7 @@ class TestBarrierProgressPrint:
         with (
             patch("agentfox.engine.barrier.verify_worktrees", return_value=[]),
             patch(
-                "agentfox.engine.barrier.sync_develop_bidirectional",
+                "agentfox.engine.barrier.sync_integration_bidirectional",
                 new_callable=AsyncMock,
             ),
         ):
@@ -472,7 +476,7 @@ class TestBarrierProgressPrint:
         with (
             patch("agentfox.engine.barrier.verify_worktrees", return_value=[]),
             patch(
-                "agentfox.engine.barrier.sync_develop_bidirectional",
+                "agentfox.engine.barrier.sync_integration_bidirectional",
                 new_callable=AsyncMock,
             ),
         ):
@@ -504,7 +508,7 @@ class TestBarrierProgressPrint:
         with (
             patch("agentfox.engine.barrier.verify_worktrees", return_value=[]),
             patch(
-                "agentfox.engine.barrier.sync_develop_bidirectional",
+                "agentfox.engine.barrier.sync_integration_bidirectional",
                 new_callable=AsyncMock,
             ),
         ):
@@ -520,7 +524,7 @@ class TestBarrierProgressPrint:
         """AC-5: OSError from print is suppressed; sync_develop_bidirectional still called."""
         sync_called = False
 
-        async def _mock_sync(repo_root: Path) -> None:
+        async def _mock_sync(repo_root: Path, branch: str = "develop") -> None:
             nonlocal sync_called
             sync_called = True
 
@@ -528,7 +532,7 @@ class TestBarrierProgressPrint:
         with (
             patch("agentfox.engine.barrier.verify_worktrees", return_value=[]),
             patch(
-                "agentfox.engine.barrier.sync_develop_bidirectional",
+                "agentfox.engine.barrier.sync_integration_bidirectional",
                 side_effect=_mock_sync,
             ),
             patch("builtins.print", side_effect=OSError("broken pipe")),
@@ -538,6 +542,7 @@ class TestBarrierProgressPrint:
                 state=state,
                 sync_interval=5,
                 repo_root=tmp_path,
+                integration_branch="main",
                 emit_audit=MagicMock(),
                 specs_dir=None,
                 hot_load_enabled=False,

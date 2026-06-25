@@ -17,7 +17,7 @@ import pytest
 from agentfox.core.errors import WorkspaceError
 from agentfox.workspace import (
     detect_default_branch,
-    ensure_develop,
+    ensure_integration_branch,
 )
 
 # ---- Helpers ----
@@ -79,10 +79,10 @@ class TestEnsureDevelopCreatesFromRemote:
             return 0, "", ""
 
         with (
-            patch("agentfox.workspace.develop.run_git", side_effect=mock_run_git),
+            patch("agentfox.workspace.integration.run_git", side_effect=mock_run_git),
             patch("agentfox.workspace.git.run_git", side_effect=mock_run_git),
         ):
-            await ensure_develop(tmp_path)
+            await ensure_integration_branch(tmp_path, "develop")
 
         # Verify fetch was called
         fetch_calls = [c for c in calls if "fetch" in c]
@@ -126,7 +126,7 @@ class TestEnsureDevelopCreatesFromDefault:
                 if check:
                     raise WorkspaceError("no symbolic-ref")
                 return 1, "", "not a symbolic ref"
-            # local main -> exists
+            # local main -> exists (this is the default branch, used as source)
             if "branch" in key and "--list" in key and "main" in key:
                 return 0, "  main\n", ""
             # branch creation
@@ -135,10 +135,10 @@ class TestEnsureDevelopCreatesFromDefault:
             return 0, "", ""
 
         with (
-            patch("agentfox.workspace.develop.run_git", side_effect=mock_run_git),
+            patch("agentfox.workspace.integration.run_git", side_effect=mock_run_git),
             patch("agentfox.workspace.git.run_git", side_effect=mock_run_git),
         ):
-            await ensure_develop(tmp_path)
+            await ensure_integration_branch(tmp_path, "develop")
 
         branch_create = [c for c in calls if len(c) >= 3 and c[0] == "branch" and c[1] == "develop"]
         assert len(branch_create) >= 1
@@ -190,10 +190,10 @@ class TestEnsureDevelopFastForwards:
             return 0, "", ""
 
         with (
-            patch("agentfox.workspace.develop.run_git", side_effect=mock_run_git),
+            patch("agentfox.workspace.integration.run_git", side_effect=mock_run_git),
             patch("agentfox.workspace.git.run_git", side_effect=mock_run_git),
         ):
-            await ensure_develop(tmp_path)
+            await ensure_integration_branch(tmp_path, "develop")
 
         # Verify some form of fast-forward was done
         ff_calls = [c for c in calls if "merge" in c and "--ff-only" in c]
@@ -248,7 +248,7 @@ class TestDetectDefaultBranchFallback:
                     raise WorkspaceError("no symbolic-ref")
                 return 1, "", "not a symbolic ref"
             # main doesn't exist
-            if "branch" in key and "--list" in key and "main" in key:
+            if "branch" in key and "--list" in key and "develop" in key:
                 return 0, "", ""
             # master exists
             if "branch" in key and "--list" in key and "master" in key:
@@ -296,10 +296,10 @@ class TestEnsureDevelopAlreadyExists:
             return 0, "", ""
 
         with (
-            patch("agentfox.workspace.develop.run_git", side_effect=mock_run_git),
+            patch("agentfox.workspace.integration.run_git", side_effect=mock_run_git),
             patch("agentfox.workspace.git.run_git", side_effect=mock_run_git),
         ):
-            await ensure_develop(tmp_path)
+            await ensure_integration_branch(tmp_path, "develop")
 
         # No branch creation calls
         branch_create = [c for c in calls if len(c) >= 3 and c[0] == "branch" and c[1] == "develop"]
@@ -336,7 +336,7 @@ class TestEnsureDevelopNoDefaultBranch:
                     raise WorkspaceError("no symbolic-ref")
                 return 1, "", "error"
             # No main
-            if "branch" in key and "--list" in key and "main" in key:
+            if "branch" in key and "--list" in key and "develop" in key:
                 return 0, "", ""
             # No master
             if "branch" in key and "--list" in key and "master" in key:
@@ -344,11 +344,11 @@ class TestEnsureDevelopNoDefaultBranch:
             return 0, "", ""
 
         with (
-            patch("agentfox.workspace.develop.run_git", side_effect=mock_run_git),
+            patch("agentfox.workspace.integration.run_git", side_effect=mock_run_git),
             patch("agentfox.workspace.git.run_git", side_effect=mock_run_git),
         ):
             with pytest.raises(WorkspaceError):
-                await ensure_develop(tmp_path)
+                await ensure_integration_branch(tmp_path, "develop")
 
 
 # ---------------------------------------------------------------------------
@@ -390,13 +390,13 @@ class TestEnsureDevelopFetchFails:
             return 0, "", ""
 
         with (
-            patch("agentfox.workspace.develop.run_git", side_effect=mock_run_git),
+            patch("agentfox.workspace.integration.run_git", side_effect=mock_run_git),
             patch("agentfox.workspace.git.run_git", side_effect=mock_run_git),
         ):
             import logging
 
             with caplog.at_level(logging.WARNING):
-                await ensure_develop(tmp_path)
+                await ensure_integration_branch(tmp_path, "develop")
 
         # Verify warning was logged
         assert any("fetch" in r.message.lower() for r in caplog.records)
@@ -442,18 +442,18 @@ class TestEnsureDevelopDiverged:
                 return 0, "", ""
             if "rebase" in key and "origin/develop" in key:
                 return 0, "", ""  # rebase succeeds
-            if key == "checkout main":
+            if key == "checkout develop":
                 return 0, "", ""
             return 0, "", ""
 
         with (
-            patch("agentfox.workspace.develop.run_git", side_effect=mock_run_git),
+            patch("agentfox.workspace.integration.run_git", side_effect=mock_run_git),
             patch("agentfox.workspace.git.run_git", side_effect=mock_run_git),
         ):
             import logging
 
-            with caplog.at_level(logging.INFO, logger="agentfox.workspace.develop"):
-                await ensure_develop(tmp_path)
+            with caplog.at_level(logging.INFO, logger="agentfox.workspace.integration"):
+                await ensure_integration_branch(tmp_path, "develop")
 
         # Verify rebase was attempted and succeeded
         rebase_calls = [c for c in calls if "rebase" in c]
@@ -487,18 +487,18 @@ class TestEnsureDevelopDiverged:
                 return 0, "", ""
             if "merge" in key and "--no-edit" in key and "-X" not in key:
                 return 0, "", ""  # merge succeeds
-            if key == "checkout main":
+            if key == "checkout develop":
                 return 0, "", ""
             return 0, "", ""
 
         with (
-            patch("agentfox.workspace.develop.run_git", side_effect=mock_run_git),
+            patch("agentfox.workspace.integration.run_git", side_effect=mock_run_git),
             patch("agentfox.workspace.git.run_git", side_effect=mock_run_git),
         ):
             import logging
 
             with caplog.at_level(logging.INFO):
-                await ensure_develop(tmp_path)
+                await ensure_integration_branch(tmp_path, "develop")
 
         # Verify rebase was attempted and aborted
         rebase_calls = [c for c in calls if "rebase" in c]

@@ -31,10 +31,10 @@ class TestHarvesterSquashMerge:
         tmp_worktree_repo: Path,
     ) -> None:
         """Harvesting a feature branch with commits squash-merges into develop."""
-        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1)
+        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
         add_commit_to_branch(ws.path, "new_file.py", "print('hello')\n")
 
-        files = await harvest(tmp_worktree_repo, ws)
+        files = await harvest(tmp_worktree_repo, ws, dev_branch="develop")
         assert "new_file.py" in files
 
     @pytest.mark.asyncio
@@ -51,11 +51,11 @@ class TestHarvesterSquashMerge:
             check=True,
         ).stdout.strip()
 
-        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1)
+        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
         add_commit_to_branch(ws.path, "file_a.py", "a\n")
         add_commit_to_branch(ws.path, "file_b.py", "b\n")
 
-        await harvest(tmp_worktree_repo, ws)
+        await harvest(tmp_worktree_repo, ws, dev_branch="develop")
 
         # Count commits on develop since the tip before harvest
         result = subprocess.run(
@@ -78,7 +78,7 @@ class TestSquashCommitMessage:
     ) -> None:
         """The squash commit title should be the feature branch tip's subject,
         not 'Squashed commit of the following:'."""
-        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1)
+        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
         add_commit_to_branch(
             ws.path,
             "new_file.py",
@@ -86,7 +86,7 @@ class TestSquashCommitMessage:
             message="feat: add greeting module",
         )
 
-        await harvest(tmp_worktree_repo, ws)
+        await harvest(tmp_worktree_repo, ws, dev_branch="develop")
 
         result = subprocess.run(
             ["git", "log", "-1", "--format=%s", "develop"],
@@ -106,7 +106,7 @@ class TestSquashCommitMessage:
     ) -> None:
         """Multi-commit branch uses the tip commit's subject as the title
         and includes earlier commit subjects in the body."""
-        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1)
+        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
         add_commit_to_branch(
             ws.path,
             "file_a.py",
@@ -120,7 +120,7 @@ class TestSquashCommitMessage:
             message="feat: add module B",
         )
 
-        await harvest(tmp_worktree_repo, ws)
+        await harvest(tmp_worktree_repo, ws, dev_branch="develop")
 
         result = subprocess.run(
             ["git", "log", "-1", "--format=%s", "develop"],
@@ -149,7 +149,7 @@ class TestSquashCommitMessage:
         tmp_worktree_repo: Path,
     ) -> None:
         """Squash commit message must not contain Author: or Date: metadata."""
-        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1)
+        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
         add_commit_to_branch(
             ws.path,
             "new_file.py",
@@ -157,7 +157,7 @@ class TestSquashCommitMessage:
             message="fix: resolve edge case",
         )
 
-        await harvest(tmp_worktree_repo, ws)
+        await harvest(tmp_worktree_repo, ws, dev_branch="develop")
 
         result = subprocess.run(
             ["git", "log", "-1", "--format=%B", "develop"],
@@ -180,7 +180,7 @@ class TestHarvesterDivergedSquashMerge:
         tmp_worktree_repo: Path,
     ) -> None:
         """When develop has diverged, harvester squash-merges successfully."""
-        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1)
+        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
 
         # Add a commit on the feature branch (different file)
         add_commit_to_branch(
@@ -202,7 +202,7 @@ class TestHarvesterDivergedSquashMerge:
             "develop content\n",
         )
 
-        files = await harvest(tmp_worktree_repo, ws)
+        files = await harvest(tmp_worktree_repo, ws, dev_branch="develop")
         assert "feature_file.py" in files
 
 
@@ -216,7 +216,7 @@ class TestHarvesterMergeFallback:
     ) -> None:
         """When both branches have the same file with the same content,
         squash merge produces no new changes (no-op commit)."""
-        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1)
+        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
 
         # Add a file on the feature branch
         add_commit_to_branch(
@@ -240,7 +240,7 @@ class TestHarvesterMergeFallback:
         )
 
         # Harvest should succeed — no IntegrationError raised
-        files = await harvest(tmp_worktree_repo, ws)
+        files = await harvest(tmp_worktree_repo, ws, dev_branch="develop")
         assert isinstance(files, list)
 
 
@@ -253,9 +253,9 @@ class TestHarvesterNoCommits:
         tmp_worktree_repo: Path,
     ) -> None:
         """Harvesting a branch with no new commits returns an empty list."""
-        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1)
+        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
         # Don't add any commits
-        files = await harvest(tmp_worktree_repo, ws)
+        files = await harvest(tmp_worktree_repo, ws, dev_branch="develop")
         assert files == []
 
     @pytest.mark.asyncio
@@ -271,9 +271,9 @@ class TestHarvesterNoCommits:
             text=True,
             check=True,
         ).stdout.strip()
-        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1)
+        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
 
-        await harvest(tmp_worktree_repo, ws)
+        await harvest(tmp_worktree_repo, ws, dev_branch="develop")
 
         develop_tip_after = subprocess.run(
             ["git", "rev-parse", "develop"],
@@ -302,7 +302,7 @@ class TestHarvesterConflictAutoResolve:
         """When both branches add the same file with different content,
         the harvester delegates to the merge agent. When the agent fails,
         this raises IntegrationError (45-REQ-4.E1)."""
-        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1)
+        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
 
         # Add a file on the feature branch
         add_commit_to_branch(
@@ -331,7 +331,7 @@ class TestHarvesterConflictAutoResolve:
             return_value=False,
         ):
             with pytest.raises(IntegrationError, match="(?i)agent"):
-                await harvest(tmp_worktree_repo, ws)
+                await harvest(tmp_worktree_repo, ws, dev_branch="develop")
 
     @pytest.mark.asyncio
     async def test_parallel_add_add_multiple_files(
@@ -341,7 +341,7 @@ class TestHarvesterConflictAutoResolve:
         """Simulates parallel sessions creating overlapping files —
         the exact scenario from issue #84. When the merge agent fails,
         raises IntegrationError."""
-        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1)
+        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
 
         # Feature branch creates several files (simulating a task group)
         add_commit_to_branch(ws.path, "Makefile", "feature-makefile\n")
@@ -364,7 +364,7 @@ class TestHarvesterConflictAutoResolve:
             return_value=False,
         ):
             with pytest.raises(IntegrationError, match="(?i)agent"):
-                await harvest(tmp_worktree_repo, ws)
+                await harvest(tmp_worktree_repo, ws, dev_branch="develop")
 
     @pytest.mark.asyncio
     async def test_auto_resolve_preserves_non_conflicting_develop_changes(
@@ -374,7 +374,7 @@ class TestHarvesterConflictAutoResolve:
         """Non-conflicting changes from develop are preserved only when merge
         succeeds. With conflicting files, the merge agent is needed.
         When the agent fails, raises IntegrationError."""
-        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1)
+        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
 
         # Feature branch creates one file
         add_commit_to_branch(ws.path, "shared.py", "feature content\n")
@@ -396,7 +396,7 @@ class TestHarvesterConflictAutoResolve:
             return_value=False,
         ):
             with pytest.raises(IntegrationError, match="(?i)agent"):
-                await harvest(tmp_worktree_repo, ws)
+                await harvest(tmp_worktree_repo, ws, dev_branch="develop")
 
 
 class TestCleanConflictingUntracked:
@@ -417,7 +417,7 @@ class TestCleanConflictingUntracked:
     ) -> None:
         """AC-1: Untracked file whose content matches the branch is deleted
         (with a WARNING), and the file is restored after the squash merge."""
-        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1)
+        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
         file_content = "print('hello')\n"
         add_commit_to_branch(ws.path, "new_file.py", file_content)
 
@@ -426,7 +426,7 @@ class TestCleanConflictingUntracked:
         untracked.write_text(file_content)
 
         with caplog.at_level(logging.WARNING, logger="agentfox.workspace.harvest"):
-            files = await harvest(tmp_worktree_repo, ws)
+            files = await harvest(tmp_worktree_repo, ws, dev_branch="develop")
 
         # File should appear in the changed-files list.
         assert "new_file.py" in files
@@ -447,7 +447,7 @@ class TestCleanConflictingUntracked:
     ) -> None:
         """AC-2: Untracked file with different content raises IntegrationError
         and is left on disk untouched."""
-        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1)
+        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
         add_commit_to_branch(ws.path, "new_file.py", "branch content\n")
 
         # Place a *different* file as untracked on develop.
@@ -456,7 +456,7 @@ class TestCleanConflictingUntracked:
         untracked.write_text(original_content)
 
         with pytest.raises(IntegrationError, match="new_file.py"):
-            await harvest(tmp_worktree_repo, ws)
+            await harvest(tmp_worktree_repo, ws, dev_branch="develop")
 
         # File must still exist with its original content.
         assert untracked.exists()
@@ -470,7 +470,7 @@ class TestCleanConflictingUntracked:
     ) -> None:
         """AC-3: When git show returns non-zero, the untracked file is
         preserved and a WARNING is logged."""
-        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1)
+        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
         add_commit_to_branch(ws.path, "new_file.py", "branch content\n")
 
         untracked = tmp_worktree_repo / "new_file.py"
@@ -507,7 +507,7 @@ class TestCleanConflictingUntracked:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """AC-4: WARNING message contains every removed file, not just the first 5."""
-        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1)
+        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
 
         filenames = [f"file_{i}.py" for i in range(7)]
         content = "matching content\n"
@@ -516,7 +516,7 @@ class TestCleanConflictingUntracked:
             (tmp_worktree_repo / name).write_text(content)
 
         with caplog.at_level(logging.WARNING, logger="agentfox.workspace.harvest"):
-            await harvest(tmp_worktree_repo, ws)
+            await harvest(tmp_worktree_repo, ws, dev_branch="develop")
 
         warning_messages = [r.message for r in caplog.records if r.levelno == logging.WARNING]
         # Every filename must appear in at least one WARNING message.
@@ -548,7 +548,7 @@ class TestForceCleanDuringHarvest:
     ) -> None:
         """Harvest with force_clean=True removes divergent untracked files
         and proceeds with the merge without raising IntegrationError."""
-        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1)
+        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
         add_commit_to_branch(ws.path, "new_file.py", "branch content\n")
 
         # Place a *different* file as untracked on develop (divergent).
@@ -556,7 +556,7 @@ class TestForceCleanDuringHarvest:
         untracked.write_text("local divergent content\n")
 
         # With force_clean=True, harvest should succeed (no IntegrationError)
-        files = await harvest(tmp_worktree_repo, ws, force_clean=True)
+        files = await harvest(tmp_worktree_repo, ws, dev_branch="develop", force_clean=True)
         assert len(files) > 0
 
     @pytest.mark.asyncio
@@ -572,7 +572,7 @@ class TestForceCleanDuringHarvest:
         (b) a backup file exists under .agent-fox/conflicts/,
         (c) a WARNING log referencing the backup path is emitted.
         """
-        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1)
+        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
         add_commit_to_branch(ws.path, "new_file.py", "branch content\n")
 
         # Place divergent content as untracked on develop
@@ -581,7 +581,7 @@ class TestForceCleanDuringHarvest:
         untracked.write_text(divergent_content)
 
         with caplog.at_level(logging.WARNING, logger="agentfox.workspace.harvest"):
-            files = await harvest(tmp_worktree_repo, ws, force_clean=True)
+            files = await harvest(tmp_worktree_repo, ws, dev_branch="develop", force_clean=True)
 
         # (a) A backup file exists under .agent-fox/conflicts/ — this is the key
         # check: the divergent content was preserved before the file was overwritten.
@@ -621,7 +621,7 @@ class TestNonRetryableErrorOnDivergent:
         """When divergent untracked files are found, _clean_conflicting_untracked
         raises IntegrationError with retryable=True (AC-1: must be retryable so the
         engine can retry instead of permanently blocking)."""
-        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1)
+        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
         add_commit_to_branch(ws.path, "new_file.py", "branch content\n")
 
         # Place divergent content as untracked on develop
@@ -648,7 +648,7 @@ class TestMergeConflictRemainsRetryable:
     ) -> None:
         """Harvest failures from merge conflicts (not untracked files) produce
         retryable errors — retryable defaults to True."""
-        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1)
+        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
 
         # Add a file on the feature branch
         add_commit_to_branch(ws.path, "shared.py", "feature content\n")
@@ -669,7 +669,7 @@ class TestMergeConflictRemainsRetryable:
             return_value=False,
         ):
             with pytest.raises(IntegrationError) as exc_info:
-                await harvest(tmp_worktree_repo, ws)
+                await harvest(tmp_worktree_repo, ws, dev_branch="develop")
             assert exc_info.value.retryable is True
 
 
@@ -686,7 +686,7 @@ class TestHarvestErrorDiagnostics:
     ) -> None:
         """Error message from divergent untracked file IntegrationError contains
         file path, 'git clean', and '--force-clean'."""
-        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1)
+        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
         add_commit_to_branch(ws.path, "src/foo.py", "branch content\n")
 
         # Create a directory and divergent file
@@ -817,7 +817,7 @@ class TestSharedDirectoryCampaign:
         is not in the incoming set, so it is not a conflict.
         """
         # Create feature branch that only touches test_beta.py
-        ws = await create_worktree(tmp_worktree_repo, "spec_b", 1)
+        ws = await create_worktree(tmp_worktree_repo, "spec_b", 1, base_branch="develop")
         add_commit_to_branch(ws.path, "packages/foo/tests/test_beta.py", "def test_beta(): pass\n")
 
         # Place an orphan untracked copy of test_alpha.py in main repo
@@ -827,7 +827,7 @@ class TestSharedDirectoryCampaign:
         orphan.write_text("orphan divergent content from spec A CWD leak\n")
 
         # Harvest should succeed: test_alpha.py is not in the incoming set
-        files = await harvest(tmp_worktree_repo, ws)
+        files = await harvest(tmp_worktree_repo, ws, dev_branch="develop")
         assert "packages/foo/tests/test_beta.py" in files
 
     @pytest.mark.asyncio
@@ -843,7 +843,7 @@ class TestSharedDirectoryCampaign:
         """
         # Create feature branch that touches BOTH test_alpha.py (divergent)
         # and test_beta.py
-        ws = await create_worktree(tmp_worktree_repo, "spec_b", 1)
+        ws = await create_worktree(tmp_worktree_repo, "spec_b", 1, base_branch="develop")
         add_commit_to_branch(
             ws.path,
             "packages/foo/tests/test_alpha.py",
@@ -863,6 +863,6 @@ class TestSharedDirectoryCampaign:
         # Harvest should raise a retryable IntegrationError so the orchestrator
         # can retry (AC-1: retryable=True) rather than cascade-blocking.
         with pytest.raises(IntegrationError) as exc_info:
-            await harvest(tmp_worktree_repo, ws)
+            await harvest(tmp_worktree_repo, ws, dev_branch="develop")
 
         assert exc_info.value.retryable is True, "Divergent untracked file error must be retryable=True (AC-1/AC-5)"

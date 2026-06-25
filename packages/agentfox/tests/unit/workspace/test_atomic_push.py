@@ -161,7 +161,7 @@ class TestPushExecutesInsideMergeLock:
                 side_effect=tracking_push,
             ),
         ):
-            result = await harvest(repo_root, fake_workspace, push=True)
+            result = await harvest(repo_root, fake_workspace, dev_branch="develop", push=True)
 
         assert len(lock_held_during_push) > 0, "push_to_remote was never called"
         assert lock_held_during_push[0] is True, "Lock was not held during push"
@@ -245,8 +245,8 @@ class TestNoConcurrentMergeWhilePushing:
             ),
         ):
             await asyncio.gather(
-                harvest(repo_root, ws1, push=True),
-                harvest(repo_root, ws2, push=True),
+                harvest(repo_root, ws1, dev_branch="develop", push=True),
+                harvest(repo_root, ws2, dev_branch="develop", push=True),
             )
 
         # Verify strict serialization: merge-push_start-push_end-merge-push_start-push_end
@@ -293,7 +293,7 @@ class TestLockReleasedAfterSuccessfulPush:
                 return_value=True,
             ),
         ):
-            result = await harvest(repo_root, fake_workspace, push=True)
+            result = await harvest(repo_root, fake_workspace, dev_branch="develop", push=True)
 
         assert len(result) > 0
         assert not lock_file.exists()
@@ -347,7 +347,7 @@ class TestPushFailureTriggersRetry:
                 create=True,
             ) as mock_rebase,
         ):
-            result = await harvest(repo_root, fake_workspace, push=True)
+            result = await harvest(repo_root, fake_workspace, dev_branch="develop", push=True)
 
         assert push_count == 2
         mock_fetch.assert_called_once()
@@ -606,7 +606,7 @@ class TestRetriesHappenUnderMergeLock:
                 create=True,
             ),
         ):
-            await harvest(repo_root, fake_workspace, push=True)
+            await harvest(repo_root, fake_workspace, dev_branch="develop", push=True)
 
         assert lock_states == [True, True]
 
@@ -853,8 +853,8 @@ class TestSyncUnderHeldLockNoDeadlock:
         self,
         repo_root: Path,
     ) -> None:
-        """_sync_develop_with_remote(_lock_held=True) completes without deadlock."""
-        from agentfox.workspace.develop import _sync_develop_with_remote
+        """_sync_integration_with_remote(_lock_held=True, "develop") completes without deadlock."""
+        from agentfox.workspace.integration import _sync_integration_with_remote
 
         lock = MergeLock(repo_root)
 
@@ -868,12 +868,12 @@ class TestSyncUnderHeldLockNoDeadlock:
             return (0, "", "")
 
         with patch(
-            "agentfox.workspace.develop.run_git",
+            "agentfox.workspace.integration.run_git",
             side_effect=mock_run_git,
         ):
             async with lock:
                 # If this completes, no deadlock occurred
-                result = await _sync_develop_with_remote(repo_root, _lock_held=True)
+                result = await _sync_integration_with_remote(repo_root, "develop", _lock_held=True)
                 assert result in (None, "fast-forward", "rebase", "merge", "merge-agent")
 
 
@@ -914,19 +914,20 @@ class TestHarvestPushTrueThenPostHarvestSkips:
                 side_effect=counting_push,
             ),
             patch(
-                "agentfox.workspace.harvest._push_develop_if_pushable",
+                "agentfox.workspace.harvest._push_integration_branch",
                 new_callable=AsyncMock,
             ) as mock_push_dev,
         ):
-            await harvest(repo_root, fake_workspace, push=True)
+            await harvest(repo_root, fake_workspace, dev_branch="develop", push=True)
             await post_harvest_integrate(
                 repo_root,
                 fake_workspace,
+                branch="main",
                 push_already_done=True,
             )
 
         assert push_count == 1
-        # _push_develop_if_pushable should not be called when push_already_done=True
+        # _push_integration_branch should not be called when push_already_done=True
         mock_push_dev.assert_not_called()
 
 
@@ -964,7 +965,7 @@ class TestHarvestPushFalseSkipsPush:
                 side_effect=should_not_push,
             ),
         ):
-            result = await harvest(repo_root, fake_workspace, push=False)
+            result = await harvest(repo_root, fake_workspace, dev_branch="develop", push=False)
 
         assert len(result) > 0
 
@@ -1012,7 +1013,7 @@ class TestNoRemoteConfiguredSkipsPush:
                 return_value=None,
             ),
         ):
-            result = await harvest(repo_root, fake_workspace, push=True)
+            result = await harvest(repo_root, fake_workspace, dev_branch="develop", push=True)
 
         assert len(result) > 0
 
@@ -1325,7 +1326,7 @@ class TestAuditSinkUnavailable:
 
 
 class TestExternalCallerSyncAcquiresLock:
-    """TS-121-E6: _sync_develop_with_remote acquires lock by default.
+    """TS-121-E6: _sync_integration_with_remote acquires lock by default.
 
     Requirement: 121-REQ-4.E1
     """
@@ -1336,7 +1337,7 @@ class TestExternalCallerSyncAcquiresLock:
         repo_root: Path,
     ) -> None:
         """Lock file is created and released during the call."""
-        from agentfox.workspace.develop import _sync_develop_with_remote
+        from agentfox.workspace.integration import _sync_integration_with_remote
 
         lock_file = repo_root / ".agent-fox" / "merge.lock"
         lock_observed = False
@@ -1354,12 +1355,12 @@ class TestExternalCallerSyncAcquiresLock:
             return (0, "", "")
 
         with patch(
-            "agentfox.workspace.develop.run_git",
+            "agentfox.workspace.integration.run_git",
             side_effect=tracking_run_git,
         ):
             # Explicitly pass _lock_held=False to verify the new parameter
             # preserves existing lock-acquisition behavior.
-            await _sync_develop_with_remote(repo_root, _lock_held=False)
+            await _sync_integration_with_remote(repo_root, "develop", _lock_held=False)
 
         assert lock_observed is True, "Lock was not held during sync"
         assert not lock_file.exists(), "Lock was not released"
@@ -1579,11 +1580,11 @@ class TestPropertyNoDoublePush:
                     side_effect=counting_push,
                 ),
                 patch(
-                    "agentfox.workspace.harvest._push_develop_if_pushable",
+                    "agentfox.workspace.harvest._push_integration_branch",
                     new_callable=AsyncMock,
                 ),
             ):
-                await harvest(repo_root, ws, push=push_flag)
+                await harvest(repo_root, ws, dev_branch="develop", push=push_flag)
                 await post_harvest_integrate(
                     repo_root,
                     ws,
@@ -1657,8 +1658,7 @@ class TestSmokeHarvestPushRetry:
         ):
             result = await harvest(
                 repo_root,
-                fake_workspace,
-                push=True,
+                fake_workspace, dev_branch="develop", push=True,
                 audit_sink=sink,
                 run_id="test-run",
             )
@@ -1715,8 +1715,7 @@ class TestSmokeHarvestPushSuccessFirstTry:
         ):
             result = await harvest(
                 repo_root,
-                fake_workspace,
-                push=True,
+                fake_workspace, dev_branch="develop", push=True,
                 audit_sink=sink,
                 run_id="test-run",
             )

@@ -77,7 +77,7 @@ class TestDestroyWorktreeVerifiesBeforeDeletion:
     async def test_destroy_deletes_branch_successfully(self, tmp_path: Path) -> None:
         """TS-80-3: Branch is deleted after destroy_worktree completes."""
         repo = _make_repo(tmp_path)
-        ws = await create_worktree(repo, "spec", 0)
+        ws = await create_worktree(repo, "spec", 0, base_branch="develop")
 
         await destroy_worktree(repo, ws)
 
@@ -87,7 +87,7 @@ class TestDestroyWorktreeVerifiesBeforeDeletion:
     async def test_destroy_raises_no_workspace_error(self, tmp_path: Path) -> None:
         """TS-80-3: No WorkspaceError raised during normal destroy."""
         repo = _make_repo(tmp_path)
-        ws = await create_worktree(repo, "spec", 0)
+        ws = await create_worktree(repo, "spec", 0, base_branch="develop")
 
         # Should not raise
         await destroy_worktree(repo, ws)
@@ -106,7 +106,7 @@ class TestCreateWorktreeHandlesStaleState:
     async def test_creates_worktree_despite_stale_registry(self, tmp_path: Path) -> None:
         """TS-80-4: New worktree created when stale registry entry exists."""
         repo = _make_repo(tmp_path)
-        ws = await create_worktree(repo, "spec", 0)
+        ws = await create_worktree(repo, "spec", 0, base_branch="develop")
 
         # Simulate stale state: remove directory but leave git registry entry
         shutil.rmtree(ws.path)
@@ -114,7 +114,7 @@ class TestCreateWorktreeHandlesStaleState:
         ws.path.mkdir(parents=True)
 
         # Should succeed despite stale state
-        ws2 = await create_worktree(repo, "spec", 0)
+        ws2 = await create_worktree(repo, "spec", 0, base_branch="develop")
 
         assert ws2.path.exists(), "New worktree directory must exist"
 
@@ -122,11 +122,11 @@ class TestCreateWorktreeHandlesStaleState:
     async def test_stale_worktree_replaced_with_valid_worktree(self, tmp_path: Path) -> None:
         """TS-80-4: Resulting worktree is a valid git worktree."""
         repo = _make_repo(tmp_path)
-        ws = await create_worktree(repo, "spec", 0)
+        ws = await create_worktree(repo, "spec", 0, base_branch="develop")
         shutil.rmtree(ws.path)
         ws.path.mkdir(parents=True)
 
-        ws2 = await create_worktree(repo, "spec", 0)
+        ws2 = await create_worktree(repo, "spec", 0, base_branch="develop")
 
         # A valid worktree has a .git file (not directory)
         git_file = ws2.path / ".git"
@@ -151,7 +151,7 @@ class TestCreateWorktreeCleansOrphans:
         stale_dir.mkdir(parents=True)
 
         # Create a worktree for group 0 under the same spec
-        ws = await create_worktree(repo, "spec", 0)
+        ws = await create_worktree(repo, "spec", 0, base_branch="develop")
 
         assert ws.path.exists(), "New worktree must be created"
 
@@ -162,7 +162,7 @@ class TestCreateWorktreeCleansOrphans:
         stale_dir = repo / ".agent-fox" / "worktrees" / "spec" / "99"
         stale_dir.mkdir(parents=True)
 
-        ws = await create_worktree(repo, "spec", 0)
+        ws = await create_worktree(repo, "spec", 0, base_branch="develop")
         assert ws.path.exists()
 
         # The stale directory should have been cleaned up
@@ -184,7 +184,7 @@ class TestDeleteBranchLiveWorktreeRaises:
     async def test_raises_when_worktree_directory_exists(self, tmp_path: Path) -> None:
         """TS-80-E1: Legitimate in-use worktree causes WorkspaceError."""
         repo = _make_repo(tmp_path)
-        ws = await create_worktree(repo, "spec", 0)
+        ws = await create_worktree(repo, "spec", 0, base_branch="develop")
 
         assert ws.path.exists(), "Test precondition: worktree must exist"
 
@@ -205,7 +205,7 @@ class TestSmokeDestroyWorktreeWithStaleState:
     async def test_destroy_succeeds_with_stale_registry(self, tmp_path: Path) -> None:
         """TS-80-SMOKE-1: destroy_worktree succeeds when registry is stale."""
         repo = _make_repo(tmp_path)
-        ws = await create_worktree(repo, "spec", 0)
+        ws = await create_worktree(repo, "spec", 0, base_branch="develop")
 
         # Simulate crash: remove directory but do NOT prune registry
         shutil.rmtree(ws.path)
@@ -217,7 +217,7 @@ class TestSmokeDestroyWorktreeWithStaleState:
     async def test_no_empty_dirs_left_after_destroy_stale(self, tmp_path: Path) -> None:
         """TS-80-SMOKE-1: No empty worktree dirs remain after destroy_worktree."""
         repo = _make_repo(tmp_path)
-        ws = await create_worktree(repo, "spec", 0)
+        ws = await create_worktree(repo, "spec", 0, base_branch="develop")
         shutil.rmtree(ws.path)
 
         await destroy_worktree(repo, ws)
@@ -241,14 +241,14 @@ class TestSmokeCreateWorktreeWithStalePredecessor:
     async def test_create_succeeds_after_simulated_crash(self, tmp_path: Path) -> None:
         """TS-80-SMOKE-2: create_worktree recovers from stale predecessor."""
         repo = _make_repo(tmp_path)
-        ws = await create_worktree(repo, "spec", 0)
+        ws = await create_worktree(repo, "spec", 0, base_branch="develop")
 
         # Simulate crash: remove directory, leave registry, recreate empty dir
         shutil.rmtree(ws.path)
         ws.path.mkdir(parents=True)  # Stale empty dir
 
         # Should succeed
-        ws2 = await create_worktree(repo, "spec", 0)
+        ws2 = await create_worktree(repo, "spec", 0, base_branch="develop")
 
         assert ws2.path.exists(), "Worktree must be created"
 
@@ -256,11 +256,11 @@ class TestSmokeCreateWorktreeWithStalePredecessor:
     async def test_new_worktree_is_valid_after_stale_recovery(self, tmp_path: Path) -> None:
         """TS-80-SMOKE-2: WorkspaceInfo has correct path and branch after recovery."""
         repo = _make_repo(tmp_path)
-        ws = await create_worktree(repo, "spec", 0)
+        ws = await create_worktree(repo, "spec", 0, base_branch="develop")
         shutil.rmtree(ws.path)
         ws.path.mkdir(parents=True)
 
-        ws2 = await create_worktree(repo, "spec", 0)
+        ws2 = await create_worktree(repo, "spec", 0, base_branch="develop")
 
         assert ws2.path.exists()
         assert (ws2.path / ".git").exists(), "Must be a valid git worktree"

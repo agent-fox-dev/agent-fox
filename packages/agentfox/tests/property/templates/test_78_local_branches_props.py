@@ -82,6 +82,7 @@ def test_never_pushes_feature(branch: str) -> None:
             post_harvest_integrate(
                 repo_root=Path("/tmp/repo"),
                 workspace=workspace,
+                branch="develop",
             )
         )
 
@@ -121,6 +122,7 @@ def test_always_pushes_develop(branch: str) -> None:
             post_harvest_integrate(
                 repo_root=repo_root,
                 workspace=workspace,
+                branch="develop",
             )
         )
 

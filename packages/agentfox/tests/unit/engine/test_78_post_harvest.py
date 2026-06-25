@@ -46,47 +46,49 @@ class TestPostHarvestDoesNotPushFeatureBranch:
                 mock_push_remote,
             ),
             patch(
-                "agentfox.workspace.harvest._push_develop_if_pushable",
+                "agentfox.workspace.harvest._push_integration_branch",
                 new_callable=AsyncMock,
             ),
         ):
             await post_harvest_integrate(
                 repo_root=tmp_path,
                 workspace=workspace,
+                branch="main",
             )
 
-        # push_to_remote must NOT be called directly — _push_develop_if_pushable
+        # push_to_remote must NOT be called directly — _push_integration_branch
         # is separately mocked, so any direct call is a violation.
         assert mock_push_remote.call_count == 0
 
 
 # ---------------------------------------------------------------------------
-# TS-78-2: Post-harvest calls _push_develop_if_pushable
+# TS-78-2: Post-harvest calls _push_integration_branch
 # ---------------------------------------------------------------------------
 
 
 class TestPostHarvestPushesDevelop:
-    """TS-78-2: post_harvest_integrate calls _push_develop_if_pushable.
+    """TS-78-2: post_harvest_integrate calls _push_integration_branch.
 
     Requirement: 78-REQ-1.2
     """
 
     async def test_pushes_develop(self, tmp_path: Path) -> None:
-        """post_harvest_integrate calls _push_develop_if_pushable exactly once."""
+        """post_harvest_integrate calls _push_integration_branch exactly once."""
         workspace = _make_workspace()
 
         with (
             patch(
-                "agentfox.workspace.harvest._push_develop_if_pushable",
+                "agentfox.workspace.harvest._push_integration_branch",
                 new_callable=AsyncMock,
             ) as mock_push_develop,
         ):
             await post_harvest_integrate(
                 repo_root=tmp_path,
                 workspace=workspace,
+                branch="main",
             )
 
-        mock_push_develop.assert_called_once_with(tmp_path)
+        mock_push_develop.assert_called_once_with(tmp_path, "main")
 
 
 # ---------------------------------------------------------------------------
@@ -122,12 +124,12 @@ class TestPostHarvestDeletedBranchStillPushesDevelop:
     """
 
     async def test_deleted_branch_still_pushes_develop(self, tmp_path: Path) -> None:
-        """No exception raised; _push_develop_if_pushable still called."""
+        """No exception raised; _push_integration_branch still called."""
         workspace = _make_workspace(branch="feature/deleted/1")
 
         with (
             patch(
-                "agentfox.workspace.harvest._push_develop_if_pushable",
+                "agentfox.workspace.harvest._push_integration_branch",
                 new_callable=AsyncMock,
             ) as mock_push_develop,
         ):
@@ -135,6 +137,7 @@ class TestPostHarvestDeletedBranchStillPushesDevelop:
             await post_harvest_integrate(
                 repo_root=tmp_path,
                 workspace=workspace,
+                branch="main",
             )
 
-        mock_push_develop.assert_called_once_with(tmp_path)
+        mock_push_develop.assert_called_once_with(tmp_path, "main")

@@ -16,7 +16,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from agentfox.engine.barrier import sync_develop_bidirectional, verify_worktrees
+from agentfox.engine.barrier import sync_integration_bidirectional, verify_worktrees
 from agentfox.engine.state import SessionRecord
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
@@ -166,7 +166,7 @@ class TestDevelopSyncNeverRaises:
                     return_value=mock_lock,
                 ),
                 patch(
-                    "agentfox.engine.barrier._sync_develop_with_remote",
+                    "agentfox.engine.barrier._sync_integration_with_remote",
                     side_effect=mock_sync,
                 ),
                 patch(
@@ -175,4 +175,4 @@ class TestDevelopSyncNeverRaises:
                 ),
             ):
                 # Must not raise
-                await sync_develop_bidirectional(Path(tmp))
+                await sync_integration_bidirectional(Path(tmp), "develop")
