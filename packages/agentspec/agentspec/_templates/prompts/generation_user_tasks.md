@@ -9,6 +9,22 @@ Every task group and subtask MUST have a non-empty `title`. Empty titles fail va
 - Groups in between use `kind: "standard"` or `kind: "checkpoint"` (for intermediate verification gates).
 - Exactly one wiring_verification group, always last.
 
+### Task Group Splitting Rules
+
+These rules apply to all task group kinds (tests, standard, checkpoint). When any of the following thresholds is exceeded, the group MUST be split into smaller groups.
+
+**Rule 1 — test_spec_refs ceiling:** If the total count of `test_spec_refs` across all subtasks in a proposed task group exceeds 15, split the group into smaller groups each containing 15 or fewer `test_spec_refs`. This rule applies to all task group kinds (tests, standard, checkpoint), not only `kind: tests` groups.
+
+**Rule 2 — subtask count ceiling:** If a task group would exceed 6 subtasks (excluding the verification subtask), split it into smaller groups each containing 6 or fewer non-verification subtasks. This applies to all task group kinds (tests, standard, checkpoint).
+
+**Rule 3 — complexity weighting:** A subtask is complex if it involves multiple file changes, cross-module coordination, or intricate assertion patterns. If a proposed group contains 4 or more complex subtasks, split it even if the numeric thresholds (15 test_spec_refs, 6 subtasks) have not been reached. This rule applies regardless of whether other splitting thresholds are exceeded.
+
+**Splitting strategy — group by requirement:** When splitting, group subtasks by the requirement they trace to. Each resulting group should cover a distinct set of requirements. If all subtasks trace to a single requirement but still exceed a threshold, further subdivide that requirement's subtasks across multiple groups.
+
+**Kind preservation:** When a `kind: tests` group is split, all resulting groups retain `kind: tests`. The first split group retains group_id 1, and subsequent groups receive sequential IDs (2, 3, …).
+
+**ID renumbering:** Non-test groups shift their IDs to follow the last test group. Subtask IDs within each group use the `{group_id}.{N}` format.
+
 ### Subtask IDs and verification
 - Subtask IDs use format `{group_id}.{N}` (e.g. `2.1`, `2.2`). Sequential within each group. Target 3-6 subtasks per group.
 - Every group MUST have exactly one verification subtask with ID `{group_id}.V` (e.g. `2.V`). The verification subtask MUST have a non-empty `checks` array with concrete criteria. Use the project's actual test runner and linter — for example:
