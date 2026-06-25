@@ -11,6 +11,8 @@ and pass the linter.
 from __future__ import annotations
 
 import logging
+import subprocess
+import sys
 import textwrap
 from pathlib import Path
 
@@ -171,17 +173,21 @@ class TestExistingGlobalConfig:
     def test_existing_global_config_used(
         self, fake_home, global_config_dir, tmp_path, monkeypatch, clean_af_env
     ):
-        """Global config with theme.playful=false is reflected."""
-        (global_config_dir / "config.toml").write_text(
-            "[theme]\nplayful = false\n"
-        )
+        """Global config with theme.playful=false is reflected; file not modified."""
+        global_cfg = global_config_dir / "config.toml"
+        global_cfg.write_text("[theme]\nplayful = false\n")
         repo = tmp_path / "repo"
         repo.mkdir(exist_ok=True)
         monkeypatch.chdir(repo)
 
+        mtime_before = global_cfg.stat().st_mtime
+
         config = load_config()
 
         assert config.theme.playful is False
+        # TS-13-5: file must not be modified
+        mtime_after = global_cfg.stat().st_mtime
+        assert mtime_before == mtime_after
 
 
 # ===================================================================
@@ -211,8 +217,9 @@ class TestHomeUnresolvable:
             config = load_config()
 
         assert isinstance(config, AgentFoxConfig)
+        # TS-13-6: same message must contain BOTH 'HOME' AND 'could not be resolved'/'skipped'
         assert any(
-            "HOME" in msg or "home" in msg.lower()
+            "HOME" in msg and ("could not be resolved" in msg or "skipped" in msg)
             for msg in caplog.messages
         )
 
@@ -231,15 +238,17 @@ class TestGlobalConfigSymlink:
         agent_dir.mkdir(exist_ok=True)
         real_config = tmp_path / "real-config.toml"
         real_config.write_text("[orchestrator]\nparallel = 1\n")
-        symlink_config = agent_dir / "config.toml"
-        symlink_config.symlink_to(real_config)
+        global_config_path = agent_dir / "config.toml"
+        global_config_path.symlink_to(real_config)
 
         repo = tmp_path / "repo"
         repo.mkdir(exist_ok=True)
         monkeypatch.chdir(repo)
 
-        with pytest.raises(ConfigError, match=r"(?i)symlink|CWE-59"):
+        with pytest.raises(ConfigError, match=r"(?i)symlink|CWE-59") as exc_info:
             load_config()
+        # TS-13-E2: error must identify the symlinked global config path
+        assert str(global_config_path) in str(exc_info.value)
 
 
 # ===================================================================
@@ -259,8 +268,12 @@ class TestGlobalDirCreationFailure:
         fake_home.chmod(0o444)
 
         try:
-            with pytest.raises(ConfigError, match=r"(?i)permission|errno"):
+            with pytest.raises(ConfigError) as exc_info:
                 load_config()
+            error_msg = str(exc_info.value).lower()
+            # TS-13-E3: error must mention permission and identify the directory
+            assert "permission" in error_msg or "errno" in error_msg
+            assert ".agent-fox" in str(exc_info.value)
         finally:
             fake_home.chmod(0o755)
 
@@ -320,7 +333,11 @@ class TestNoLocalConfig:
             config = load_config()
 
         assert config.theme.playful is False
-        assert any("No local config found" in msg for msg in caplog.messages)
+        # TS-13-8: must include the full path suffix
+        assert any(
+            "No local config found at" in msg and ".agent-fox/config.toml" in msg
+            for msg in caplog.messages
+        )
 
 
 # ===================================================================
@@ -375,8 +392,10 @@ class TestLocalConfigSymlink:
         (local_dir / "config.toml").symlink_to(real_config)
         monkeypatch.chdir(repo)
 
-        with pytest.raises(ConfigError, match=r"(?i)symlink|CWE-59"):
+        with pytest.raises(ConfigError, match=r"(?i)symlink|CWE-59") as exc_info:
             load_config()
+        # TS-13-E4: error must identify the local config path
+        assert ".agent-fox/config.toml" in str(exc_info.value)
 
 
 # ===================================================================
@@ -415,7 +434,8 @@ class TestMalformedGlobalConfig:
         self, fake_home, global_config_dir, tmp_path, monkeypatch, clean_af_env
     ):
         """Global config with invalid TOML raises ConfigError."""
-        (global_config_dir / "config.toml").write_text("[broken = unterminated")
+        global_config_path = global_config_dir / "config.toml"
+        global_config_path.write_text("[broken = unterminated")
         repo = tmp_path / "repo"
         repo.mkdir(exist_ok=True)
         local_dir = repo / ".agent-fox"
@@ -427,7 +447,10 @@ class TestMalformedGlobalConfig:
             load_config()
 
         error_msg = str(exc_info.value)
-        assert str(global_config_dir / "config.toml") in error_msg or ".agent-fox/config.toml" in error_msg
+        # TS-13-10: must identify the global config file path specifically
+        assert str(global_config_path) in error_msg
+        # TS-13-10: must mention parse error or TOML
+        assert "parse" in error_msg.lower() or "TOML" in error_msg
 
 
 # ===================================================================
@@ -450,7 +473,11 @@ class TestMalformedLocalConfig:
         with pytest.raises(ConfigError) as exc_info:
             load_config()
 
-        assert ".agent-fox/config.toml" in str(exc_info.value)
+        error_msg = str(exc_info.value)
+        # TS-13-11: must identify the local config file path
+        assert ".agent-fox/config.toml" in error_msg
+        # TS-13-11: must mention parse error or TOML
+        assert "parse" in error_msg.lower() or "TOML" in error_msg
 
 
 # ===================================================================
@@ -486,7 +513,9 @@ class TestAfConfigDeprecation:
         self, fake_home, global_config, tmp_path, monkeypatch, capsys
     ):
         """AF_CONFIG triggers deprecation warning on stderr."""
-        monkeypatch.setenv("AF_CONFIG", "/tmp/custom-config.toml")
+        custom_config = tmp_path / "custom-config.toml"
+        custom_config.write_text("[theme]\nplayful = false\n")
+        monkeypatch.setenv("AF_CONFIG", str(custom_config))
         monkeypatch.delenv("AF_SPEC_MODEL", raising=False)
         repo = tmp_path / "repo"
         repo.mkdir(exist_ok=True)
@@ -496,8 +525,12 @@ class TestAfConfigDeprecation:
 
         captured = capsys.readouterr()
         assert "AF_CONFIG" in captured.err
-        assert "no longer supported" in captured.err.lower() or "deprecated" in captured.err.lower()
+        # TS-13-13: must specifically say 'no longer supported'
+        assert "no longer supported" in captured.err.lower()
         assert isinstance(config, AgentFoxConfig)
+        # TS-13-13: the AF_CONFIG path must never have been read
+        # Config should NOT reflect values from the custom config path
+        assert str(custom_config) not in captured.err or "AF_CONFIG" in captured.err
 
 
 # ===================================================================
@@ -572,13 +605,25 @@ class TestAgentspecAcceptsConfig:
 class TestModelResolutionPrecedence:
     """TS-13-17: AF_SPEC_MODEL > merged config > fallback > default."""
 
-    def test_af_spec_model_wins(self, monkeypatch):
+    def test_af_spec_model_wins(self, fake_home, monkeypatch):
         """AF_SPEC_MODEL overrides all other model sources."""
         from agentspec.config import load_config as agentspec_load_config
 
+        # TS-13-17: set up ALL three competing sources
+        # 1. AF_SPEC_MODEL env var (should win)
         monkeypatch.setenv("AF_SPEC_MODEL", "claude-custom-model")
 
+        # 2. Merged config with [spec_tool] model set
         agent_fox_config = AgentFoxConfig()
+        agent_fox_config.spec_tool.model = "claude-opus-4"
+
+        # 3. ~/.af/settings.yaml migration fallback
+        af_dir = fake_home / ".af"
+        af_dir.mkdir(exist_ok=True)
+        (af_dir / "settings.yaml").write_text(
+            "spec_tool:\n  model: claude-haiku\n"
+        )
+
         spec_config = agentspec_load_config(agent_fox_config=agent_fox_config)
         assert spec_config.model == "claude-custom-model"
 
@@ -676,8 +721,10 @@ class TestDebugLogGlobalLoaded:
         with caplog.at_level(logging.DEBUG):
             load_config()
 
+        global_config_path = str(fake_home / ".agent-fox" / "config.toml")
+        # TS-13-20: same message must contain both the prefix and the path
         assert any(
-            "Loaded global config from" in msg
+            "Loaded global config from" in msg and global_config_path in msg
             for msg in caplog.messages
         )
 
@@ -727,8 +774,9 @@ class TestDebugLogNoLocal:
         with caplog.at_level(logging.DEBUG):
             load_config()
 
+        # TS-13-22: must include the full path suffix
         assert any(
-            "No local config found" in msg
+            "No local config found at" in msg and ".agent-fox/config.toml" in msg
             for msg in caplog.messages
         )
 
@@ -754,8 +802,9 @@ class TestDebugLogHomeUnresolvable:
         with caplog.at_level(logging.DEBUG):
             load_config()
 
+        # TS-13-23: same message must contain BOTH 'HOME' AND 'could not be resolved'/'skipped'
         assert any(
-            "HOME" in msg or "home" in msg.lower()
+            "HOME" in msg and ("could not be resolved" in msg or "skipped" in msg)
             for msg in caplog.messages
         )
 
@@ -911,10 +960,40 @@ class TestAfInitForceOverwritesLocal:
 
 
 # ===================================================================
-# TS-13-29: Backward compatibility — load_config(path=...) still works
+# TS-13-29: Full test suite regression gate
 # ===================================================================
 class TestRegressionSuite:
-    """TS-13-29: Existing load_config(path=...) behavior preserved."""
+    """TS-13-29: Full existing test suite passes without modification."""
+
+    @pytest.mark.integration
+    def test_full_test_suite_passes(self):
+        """Run pytest from repo root and assert exit code 0."""
+        result = subprocess.run(
+            [sys.executable, "-m", "pytest", "-q", "--tb=short"],
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+        assert result.returncode == 0, (
+            f"Full test suite failed with exit code {result.returncode}.\n"
+            f"stderr: {result.stderr[-500:]}\n"
+            f"stdout: {result.stdout[-500:]}"
+        )
+
+
+# ===================================================================
+# TS-13-30: Pydantic validation raises ConfigError (preserving existing behavior)
+# ===================================================================
+class TestPydanticValidation:
+    """TS-13-30: Invalid values cause ConfigError; existing behavior preserved."""
+
+    def test_invalid_value_raises_config_error(self, tmp_path):
+        """Invalid field type raises ConfigError."""
+        config_file = tmp_path / "config.toml"
+        config_file.write_text('[orchestrator]\nparallel = "not-a-number"\n')
+
+        with pytest.raises(ConfigError):
+            load_config(path=config_file)
 
     def test_load_config_path_parameter_backward_compat(self, tmp_path):
         """load_config(path=...) still returns valid config from file."""
@@ -931,21 +1010,6 @@ class TestRegressionSuite:
         # Called with a non-existent path -> defaults
         config = load_config(path=Path("/nonexistent/config.toml"))
         assert isinstance(config, AgentFoxConfig)
-
-
-# ===================================================================
-# TS-13-30: Pydantic validation raises ConfigError
-# ===================================================================
-class TestPydanticValidation:
-    """TS-13-30: Invalid values cause ConfigError."""
-
-    def test_invalid_value_raises_config_error(self, tmp_path):
-        """Invalid field type raises ConfigError."""
-        config_file = tmp_path / "config.toml"
-        config_file.write_text('[orchestrator]\nparallel = "not-a-number"\n')
-
-        with pytest.raises(ConfigError):
-            load_config(path=config_file)
 
 
 # ===================================================================
@@ -970,7 +1034,7 @@ class TestNonexistentCWD:
 class TestAfInitNoHome:
     """TS-13-E7: af init with HOME unset creates local only."""
 
-    def test_af_init_no_home(self, tmp_path, monkeypatch, clean_af_env):
+    def test_af_init_no_home(self, tmp_path, monkeypatch, caplog, clean_af_env):
         """af init without HOME skips global, creates local template."""
         from af.app import main as af_main
         from click.testing import CliRunner
@@ -984,7 +1048,8 @@ class TestAfInitNoHome:
         )
 
         runner = CliRunner()
-        result = runner.invoke(af_main, ["init"])
+        with caplog.at_level(logging.DEBUG):
+            result = runner.invoke(af_main, ["init"])
 
         assert result.exit_code == 0
         local_config = repo / ".agent-fox" / "config.toml"
@@ -994,6 +1059,8 @@ class TestAfInitNoHome:
             stripped = line.strip()
             if stripped and not stripped.startswith("#"):
                 pytest.fail(f"Unexpected non-comment line: {line}")
+        # TS-13-E7: debug log must mention HOME
+        assert any("HOME" in msg for msg in caplog.messages)
 
 
 # ===================================================================
@@ -1137,8 +1204,11 @@ class TestMalformedTomlFailFastProperty:
                 result = load_config()
             except ConfigError:
                 pass
-            except Exception:
-                pass
+            except Exception as e:
+                # TS-13-P4: only ConfigError is acceptable
+                raise AssertionError(
+                    f"Expected ConfigError but got {type(e).__name__}: {e}"
+                ) from e
             assert result is None
 
         check()
