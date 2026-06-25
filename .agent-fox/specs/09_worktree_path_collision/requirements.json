@@ -1,0 +1,564 @@
+{
+  "$schema": null,
+  "spec_id": "09",
+  "spec_name": "worktree_path_collision",
+  "schema_version": 1,
+  "introduction": "This spec covers the fix for worktree path collisions in the agent-fox system, where concurrent multi-mode reviewer nodes sharing the same `(spec_name, task_group)` but differing in role or mode attempt to create worktrees at identical filesystem paths, causing `git worktree add` failures.",
+  "glossary": {
+    "2-level path": "The legacy worktree path structure `{worktrees_root}/{spec_name}/{task_group}` used for nodes without a mode.",
+    "4-level path": "The extended worktree path structure `{worktrees_root}/{spec_name}/{task_group}/{role}/{mode}` used for nodes with a mode.",
+    "NodeSessionRunner": "The class in `session_lifecycle.py` responsible for orchestrating a single node's execution session, including workspace setup.",
+    "WorkspaceInfo": "An immutable frozen dataclass in `worktree.py` that stores metadata about a created worktree, including its path, branch, spec_name, task_group, role, and mode.",
+    "_cleanup_empty_ancestors": "A helper that walks upward from a removed worktree leaf path to the worktrees root, deleting any directories that become empty after the worktree is destroyed.",
+    "_setup_workspace": "The method on `NodeSessionRunner` that calls `create_worktree()` to provision the node's dedicated worktree before work begins.",
+    "create_worktree": "The async function in `worktree.py` that creates a git worktree at a deterministic path derived from the node's identity.",
+    "destroy_worktree": "The function in `worktree.py` that removes a git worktree using the path stored in a `WorkspaceInfo` instance.",
+    "drift-review": "A mode value for reviewer nodes that check for semantic drift after the main coding pass.",
+    "effective_mode": "The normalised mode value produced by `mode or None`, collapsing empty strings to `None`.",
+    "effective_role": "The normalised role value produced by `role or None`, collapsing empty strings to `None`.",
+    "empty-string sentinel": "The use of `\"\"` (empty string) in place of `None` to signal 'not set' for `self._mode` and related fields on `NodeSessionRunner`.",
+    "exit-code-128": "The non-zero exit code returned by `git worktree add` when it fails because the target directory already exists.",
+    "mode": "A sub-mode of a node's role (e.g. `pre-review`, `drift-review`), stored as `self._mode` on `NodeSessionRunner`; may be `None` or an empty string to indicate 'no mode'.",
+    "parallel dispatcher": "The component (introduced in spec 04) that dispatches multiple nodes concurrently within the same task group.",
+    "pre-review": "A mode value for reviewer nodes that run before the main coding pass.",
+    "role": "The archetype or role of a node (e.g. `reviewer`, `coder`), stored as `self._archetype` on `NodeSessionRunner`.",
+    "spec_name": "A unique string identifier for a specification (e.g. `08_spec_generation_improvement`), validated against the pattern `[a-zA-Z0-9_-]+`.",
+    "task_group": "An integer identifying a logical group of tasks within a spec, used as a path segment in worktree and branch names.",
+    "worktree": "A git worktree — a linked working tree that allows a repository to have multiple working directories checked out simultaneously, providing filesystem isolation per coding session.",
+    "worktrees_root": "The root directory under which all per-node worktrees are created, located at `.agent-fox/worktrees/` within the repository.",
+    "repo_root": "The absolute path to the root of the git repository, passed as the first argument to `create_worktree()`.",
+    "base_branch": "The git branch from which the feature branch is forked (e.g. the integration branch).",
+    "branch_name": "An optional explicit git branch name; when omitted, `create_worktree()` derives it from `spec_name`, `task_group`, and optionally `role`/`mode`.",
+    "None": "Python's `None` singleton, used as the default/absent sentinel for optional parameters.",
+    "\"\"": "An empty string literal, used interchangeably with `None` as a sentinel for 'not set' on `NodeSessionRunner` fields.",
+    "\"unknown\"": "The fallback role string substituted when `effective_mode` is set but `effective_role` is `None`.",
+    "role: str | None = None": "The optional keyword argument on `create_worktree()` that accepts the node's role (archetype).",
+    "mode: str | None = None": "The optional keyword argument on `create_worktree()` that accepts the node's mode.",
+    "effective_mode = mode or None": "The normalisation expression that converts an empty-string mode to `None`.",
+    "effective_role = role or None": "The normalisation expression that converts an empty-string role to `None`.",
+    "{worktrees_root}/{spec_name}/{task_group}": "The 2-level worktree path template for nodes without a mode.",
+    "feature/{spec_name}/{task_group}": "The 2-level branch name template for nodes without a mode.",
+    "{worktrees_root}/{spec_name}/{task_group}/{role}/{mode}": "The 4-level worktree path template for nodes with a mode.",
+    "feature/{spec_name}/{task_group}/{role}/{mode}": "The 4-level branch name template for nodes with a mode.",
+    "git worktree add": "The git command that creates a new linked worktree at a given path.",
+    "git worktree remove --force": "The git command that forcibly removes an existing linked worktree.",
+    "(\"reviewer\", \"pre-review\")": "A (role, mode) tuple representing a pre-review reviewer node.",
+    "(\"reviewer\", \"drift-review\")": "A (role, mode) tuple representing a drift-review reviewer node.",
+    "(role, mode)": "A tuple of role and mode values that together uniquely identify a node's worktree path when mode is present.",
+    "re.fullmatch(r'[a-zA-Z0-9_-]+', spec_name)": "The existing regex validation applied to `spec_name` inside `create_worktree()` to prevent invalid path segments.",
+    "workspace.path": "The `path` attribute on a `WorkspaceInfo` instance, storing the full computed worktree filesystem path.",
+    "self._archetype": "The archetype (role) attribute on `NodeSessionRunner`, e.g. `'coder'` or `'reviewer'`.",
+    "self._mode": "The mode attribute on `NodeSessionRunner`, e.g. `'pre-review'`, `'drift-review'`, `None`, or `''`.",
+    "WorkspaceInfo.path": "The `path` field on the `WorkspaceInfo` frozen dataclass.",
+    "WorkspaceInfo.branch": "The `branch` field on the `WorkspaceInfo` frozen dataclass.",
+    "WorkspaceInfo.role": "The new optional `role` field on the `WorkspaceInfo` frozen dataclass.",
+    "WorkspaceInfo.mode": "The new optional `mode` field on the `WorkspaceInfo` frozen dataclass.",
+    "create_worktree()": "The async function in `worktree.py` that creates a git worktree (with parentheses indicating a function call).",
+    "role=self._archetype": "The keyword argument passing the node's archetype as the role to `create_worktree()`.",
+    "mode=self._mode": "The keyword argument passing the node's mode to `create_worktree()`.",
+    "git worktree remove --force <worktree_path>": "The git command that forcibly removes an existing linked worktree at the given path.",
+    "worktree_path": "The computed filesystem path variable inside `create_worktree()` pointing to the target worktree directory.",
+    "{worktrees_root}/{spec_name}/{task_group}/reviewer/drift-review": "A concrete 4-level path example for a drift-review reviewer node.",
+    "role=\"reviewer\"": "A keyword argument example passing the string `'reviewer'` as the role.",
+    "mode=\"drift-review\"": "A keyword argument example passing the string `'drift-review'` as the mode.",
+    "feature/{spec_name}/{task_group}/reviewer/drift-review": "A concrete 4-level branch name example for a drift-review reviewer node.",
+    "mode=\"\"": "A keyword argument example passing an empty string as the mode.",
+    "role=\"\"": "A keyword argument example passing an empty string as the role.",
+    "mode=None": "A keyword argument example passing `None` as the mode.",
+    "role=None": "A keyword argument example passing `None` as the role."
+  },
+  "requirements": [
+    {
+      "id": "09-REQ-1",
+      "title": "Extended create_worktree() signature with role and mode",
+      "user_story": {
+        "role": "platform engineer",
+        "goal": "pass role and mode into create_worktree() as optional keyword arguments",
+        "benefit": "the worktree path and branch name can be scoped to the full node identity"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "09-REQ-1.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`create_worktree()`",
+          "action": "accepts `role: str | None = None` and `mode: str | None = None` as optional keyword arguments in addition to the existing parameters `repo_root`, `spec_name`, `task_group`, `base_branch`, and `branch_name`",
+          "return_contract": null
+        },
+        {
+          "id": "09-REQ-1.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`create_worktree()`",
+          "action": "normalises `role` and `mode` by applying `effective_mode = mode or None` and `effective_role = role or None`, converting empty strings to `None` before any path or branch derivation",
+          "return_contract": null
+        },
+        {
+          "id": "09-REQ-1.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`create_worktree()`",
+          "action": "returns a `WorkspaceInfo` instance whose `role` field is set to `effective_role` and whose `mode` field is set to `effective_mode` after normalisation",
+          "return_contract": "WorkspaceInfo with `role` and `mode` fields matching the normalised input values"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "09-REQ-1.E1",
+          "ears_pattern": "unwanted",
+          "system": "`create_worktree()`",
+          "action": "treats the value as `None` after normalisation, identical to explicit `None` input",
+          "return_contract": "WorkspaceInfo with `role=None` and/or `mode=None` for the empty-string argument(s)",
+          "error_condition": "`role` or `mode` is an empty string `\"\"`"
+        }
+      ]
+    },
+    {
+      "id": "09-REQ-2",
+      "title": "Worktree path and branch name derivation rules",
+      "user_story": {
+        "role": "platform engineer",
+        "goal": "have worktree paths and branch names include role and mode when mode is present",
+        "benefit": "concurrent nodes with different roles or modes never collide on the same filesystem path or git branch"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "09-REQ-2.1",
+          "ears_pattern": "state_driven",
+          "system": "`create_worktree()`",
+          "action": "derives the worktree path as `{worktrees_root}/{spec_name}/{task_group}` and the branch name as `feature/{spec_name}/{task_group}`, identical to pre-fix behaviour",
+          "return_contract": "WorkspaceInfo with `path = {worktrees_root}/{spec_name}/{task_group}` and `branch = feature/{spec_name}/{task_group}`",
+          "state": "`effective_mode` is `None` (regardless of `effective_role`)"
+        },
+        {
+          "id": "09-REQ-2.2",
+          "ears_pattern": "state_driven",
+          "system": "`create_worktree()`",
+          "action": "derives the worktree path as `{worktrees_root}/{spec_name}/{task_group}/{role}/{mode}` and the branch name as `feature/{spec_name}/{task_group}/{role}/{mode}`",
+          "return_contract": "WorkspaceInfo with `path = {worktrees_root}/{spec_name}/{task_group}/{effective_role}/{effective_mode}` and `branch = feature/{spec_name}/{task_group}/{effective_role}/{effective_mode}`",
+          "state": "`effective_mode` is a non-empty string and `effective_role` is a non-empty string"
+        },
+        {
+          "id": "09-REQ-2.3",
+          "ears_pattern": "state_driven",
+          "system": "`create_worktree()`",
+          "action": "silently ignores `effective_role` and falls back to the `2-level path` and `feature/{spec_name}/{task_group}` branch name without emitting any log message",
+          "return_contract": "WorkspaceInfo with `path = {worktrees_root}/{spec_name}/{task_group}` and `branch = feature/{spec_name}/{task_group}`",
+          "state": "`effective_role` is set but `effective_mode` is `None`"
+        },
+        {
+          "id": "09-REQ-2.4",
+          "ears_pattern": "state_driven",
+          "system": "`create_worktree()`",
+          "action": "emits a WARNING-level log message containing `mode`, `spec_name`, and `task_group` context, substitutes `effective_role` with `\"unknown\"`, then derives the `4-level path` using `\"unknown\"` as the role segment",
+          "return_contract": "WorkspaceInfo with `path = {worktrees_root}/{spec_name}/{task_group}/unknown/{effective_mode}` and `branch = feature/{spec_name}/{task_group}/unknown/{effective_mode}`",
+          "state": "`effective_mode` is set but `effective_role` is `None`"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "09-REQ-2.E1",
+          "ears_pattern": "unwanted",
+          "system": "`create_worktree()`",
+          "action": "normalises both to `None` and uses the `2-level path` identically to the all-`None` case",
+          "return_contract": "WorkspaceInfo with `path = {worktrees_root}/{spec_name}/{task_group}` and `branch = feature/{spec_name}/{task_group}`",
+          "error_condition": "both `role` and `mode` are empty strings `\"\"`"
+        },
+        {
+          "id": "09-REQ-2.E2",
+          "ears_pattern": "unwanted",
+          "system": "`create_worktree()`",
+          "action": "produces distinct, non-overlapping `4-level path` values for each call so that `git worktree add` succeeds for both without `exit-code-128`",
+          "return_contract": "Two distinct WorkspaceInfo instances with non-equal `path` and `branch` values",
+          "error_condition": "two concurrent calls share the same `spec_name` and `task_group` but have different `(role, mode)` pairs — specifically `(\"reviewer\", \"pre-review\")` and `(\"reviewer\", \"drift-review\")`"
+        }
+      ]
+    },
+    {
+      "id": "09-REQ-3",
+      "title": "WorkspaceInfo dataclass extended with role and mode fields",
+      "user_story": {
+        "role": "platform engineer",
+        "goal": "have WorkspaceInfo carry the normalised role and mode of the node that created the worktree",
+        "benefit": "callers can inspect the full node identity from the returned workspace metadata without re-deriving it"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "09-REQ-3.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`WorkspaceInfo`",
+          "action": "declares two new optional fields `role: str | None = None` and `mode: str | None = None` after the existing required fields, preserving the frozen dataclass contract",
+          "return_contract": null
+        },
+        {
+          "id": "09-REQ-3.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`WorkspaceInfo`",
+          "action": "defaults `role` and `mode` to `None` so that all existing callers that construct `WorkspaceInfo` without providing the new fields continue to work without modification",
+          "return_contract": null
+        },
+        {
+          "id": "09-REQ-3.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`WorkspaceInfo`",
+          "action": "remains an in-memory-only object and is not serialized to disk, passed over a message queue, or logged as structured data, requiring no migration or schema compatibility work",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "09-REQ-4",
+      "title": "NodeSessionRunner passes role and mode to create_worktree()",
+      "user_story": {
+        "role": "platform engineer",
+        "goal": "have _setup_workspace() forward self._archetype and self._mode to create_worktree()",
+        "benefit": "the worktree path is automatically scoped to the node's full identity without manual intervention"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "09-REQ-4.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`NodeSessionRunner._setup_workspace()`",
+          "action": "calls `create_worktree()` with `role=self._archetype` and `mode=self._mode` in addition to the existing arguments",
+          "return_contract": null
+        },
+        {
+          "id": "09-REQ-4.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`NodeSessionRunner._setup_workspace()`",
+          "action": "passes `self._mode` as-is (whether `None` or empty string) to `create_worktree()`, relying on `create_worktree()`'s internal normalisation via `effective_mode = mode or None` to handle both values uniformly",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "09-REQ-4.E1",
+          "ears_pattern": "state_driven",
+          "system": "`NodeSessionRunner._setup_workspace()`",
+          "action": "passes the empty string directly to `create_worktree()`, which normalises it to `None`, resulting in a `2-level path` identical to when `self._mode` is `None`",
+          "return_contract": null,
+          "state": "`self._mode` is an `empty-string sentinel` (`\"\"`)"
+        }
+      ]
+    },
+    {
+      "id": "09-REQ-5",
+      "title": "Coder node path backward compatibility",
+      "user_story": {
+        "role": "platform engineer",
+        "goal": "ensure nodes without a mode continue to receive 2-level worktree paths after the fix",
+        "benefit": "existing coder node behaviour is not regressed by the path collision fix"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "09-REQ-5.1",
+          "ears_pattern": "state_driven",
+          "system": "`create_worktree()`",
+          "action": "produces the identical `2-level path` `{worktrees_root}/{spec_name}/{task_group}` and branch `feature/{spec_name}/{task_group}` as before the fix",
+          "return_contract": "WorkspaceInfo with path and branch matching pre-fix output exactly",
+          "state": "called without `role` or `mode` arguments (both defaulting to `None`)"
+        },
+        {
+          "id": "09-REQ-5.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`create_worktree()`",
+          "action": "applies no additional branch-name sanitization beyond the existing `re.fullmatch(r'[a-zA-Z0-9_-]+', spec_name)` validation that is already in place",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "09-REQ-6",
+      "title": "destroy_worktree() handles deeper paths transparently",
+      "user_story": {
+        "role": "platform engineer",
+        "goal": "have destroy_worktree() correctly remove 4-level worktree paths without code changes",
+        "benefit": "worktree teardown works uniformly for both 2-level and 4-level paths with no additional logic"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "09-REQ-6.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`destroy_worktree()`",
+          "action": "uses `workspace.path` directly to remove the worktree without re-deriving the path from `spec_name`, `task_group`, `role`, or `mode`, making it correct for both `2-level path` and `4-level path` structures",
+          "return_contract": null
+        },
+        {
+          "id": "09-REQ-6.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`_cleanup_empty_ancestors`",
+          "action": "walks upward from the worktree leaf path to `worktrees_root`, removing any directories that become empty, correctly handling both `2-level path` and `4-level path` structures without modification",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "09-REQ-7",
+      "title": "Stale worktree pre-creation cleanup handles deeper paths",
+      "user_story": {
+        "role": "platform engineer",
+        "goal": "have the stale-worktree pre-creation check operate correctly on 4-level paths",
+        "benefit": "interrupted sessions do not leave colliding stale directories that block subsequent node dispatches"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "09-REQ-7.1",
+          "ears_pattern": "event_driven",
+          "system": "`create_worktree()`",
+          "action": "runs `git worktree remove --force <worktree_path>` to remove the stale worktree before proceeding, regardless of whether the path is a `2-level path` or `4-level path`",
+          "return_contract": null,
+          "trigger": "`worktree_path` already exists on disk before the new worktree is created"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "09-REQ-8",
+      "title": "Test coverage for worktree path derivation and concurrency",
+      "user_story": {
+        "role": "platform engineer",
+        "goal": "have a comprehensive pytest suite covering all path derivation rules and the concurrent-dispatch scenario",
+        "benefit": "future regressions in worktree path logic are caught automatically before merging"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "09-REQ-8.1",
+          "ears_pattern": "ubiquitous",
+          "system": "pytest suite",
+          "action": "includes a unit test (test 1) that calls `create_worktree()` without `role` or `mode` and asserts the path equals `{worktrees_root}/{spec_name}/{task_group}` and branch equals `feature/{spec_name}/{task_group}`",
+          "return_contract": "test passes with zero assertion errors"
+        },
+        {
+          "id": "09-REQ-8.2",
+          "ears_pattern": "ubiquitous",
+          "system": "pytest suite",
+          "action": "includes a unit test (test 2) that calls `create_worktree()` with `role=\"reviewer\"` and `mode=\"drift-review\"` and asserts the path equals `{worktrees_root}/{spec_name}/{task_group}/reviewer/drift-review` and branch equals `feature/{spec_name}/{task_group}/reviewer/drift-review`",
+          "return_contract": "test passes with zero assertion errors"
+        },
+        {
+          "id": "09-REQ-8.3",
+          "ears_pattern": "ubiquitous",
+          "system": "pytest suite",
+          "action": "includes a coder-node regression test (test 3) that confirms a node called without `mode` produces a path identical to the pre-fix `2-level path` output",
+          "return_contract": "test passes with zero assertion errors"
+        },
+        {
+          "id": "09-REQ-8.4",
+          "ears_pattern": "ubiquitous",
+          "system": "pytest suite",
+          "action": "includes a concurrent-dispatch test (test 4) registered as a blocking required check in the PR pytest pipeline that asserts two concurrent `create_worktree()` calls with `(\"reviewer\", \"pre-review\")` and `(\"reviewer\", \"drift-review\")` produce non-equal, non-colliding paths",
+          "return_contract": "test passes with zero assertion errors; PR merge is blocked if this test fails"
+        },
+        {
+          "id": "09-REQ-8.5",
+          "ears_pattern": "ubiquitous",
+          "system": "pytest suite",
+          "action": "includes a unit test (test 5) that calls `create_worktree()` with `mode=\"\"` and `role=\"\"` and asserts the resulting path equals the `2-level path`, identical to the all-`None` case",
+          "return_contract": "test passes with zero assertion errors"
+        },
+        {
+          "id": "09-REQ-8.6",
+          "ears_pattern": "ubiquitous",
+          "system": "pytest suite",
+          "action": "includes a unit test (test 6) that calls `create_worktree()` with `role=\"reviewer\"` and `mode=None` and asserts the resulting path is the `2-level path` (role is ignored, no WARNING logged)",
+          "return_contract": "test passes with zero assertion errors"
+        },
+        {
+          "id": "09-REQ-8.7",
+          "ears_pattern": "ubiquitous",
+          "system": "pytest suite",
+          "action": "includes a unit test (test 7) that calls `create_worktree()` with `role=None` and `mode=\"drift-review\"` and asserts: (a) the path contains `\"unknown\"` as the role segment, and (b) a WARNING-level log message is emitted containing the mode, spec_name, and task_group",
+          "return_contract": "test passes with zero assertion errors"
+        }
+      ],
+      "edge_cases": []
+    }
+  ],
+  "correctness_properties": [
+    {
+      "id": "09-PROP-1",
+      "title": "Distinct (role, mode) pairs always produce distinct paths",
+      "for_any": "two calls to `create_worktree()` with the same `spec_name` and `task_group` but differing `(role, mode)` pairs where `effective_mode` is non-`None` for both",
+      "invariant": "the resulting `WorkspaceInfo.path` values are not equal and the resulting `WorkspaceInfo.branch` values are not equal",
+      "validates": [
+        "09-REQ-2.2",
+        "09-REQ-2.E2"
+      ]
+    },
+    {
+      "id": "09-PROP-2",
+      "title": "Empty-string inputs are indistinguishable from None after normalisation",
+      "for_any": "any combination of `role` and `mode` arguments where each is either `None` or `\"\"`",
+      "invariant": "`create_worktree()` produces the same `2-level path` and branch name as when both arguments are explicitly `None`",
+      "validates": [
+        "09-REQ-1.2",
+        "09-REQ-1.E1",
+        "09-REQ-2.E1"
+      ]
+    },
+    {
+      "id": "09-PROP-3",
+      "title": "Mode-absent calls are path-identical to pre-fix behaviour",
+      "for_any": "any call to `create_worktree()` where `effective_mode` resolves to `None`",
+      "invariant": "the resulting `WorkspaceInfo.path` equals `{worktrees_root}/{spec_name}/{task_group}` and `WorkspaceInfo.branch` equals `feature/{spec_name}/{task_group}`, regardless of the value of `effective_role`",
+      "validates": [
+        "09-REQ-2.1",
+        "09-REQ-2.3",
+        "09-REQ-5.1"
+      ]
+    },
+    {
+      "id": "09-PROP-4",
+      "title": "WorkspaceInfo role and mode reflect normalised inputs",
+      "for_any": "any successful call to `create_worktree()` with any combination of `role` and `mode` inputs",
+      "invariant": "`WorkspaceInfo.role` equals `effective_role` (which is `None` when mode is absent, or `\"unknown\"` when mode is present and role was absent) and `WorkspaceInfo.mode` equals `effective_mode`",
+      "validates": [
+        "09-REQ-1.3",
+        "09-REQ-3.1"
+      ]
+    },
+    {
+      "id": "09-PROP-5",
+      "title": "Existing callers of WorkspaceInfo are unaffected by new fields",
+      "for_any": "any existing call site that constructs `WorkspaceInfo` without providing `role` or `mode` arguments",
+      "invariant": "the construction succeeds and `WorkspaceInfo.role` and `WorkspaceInfo.mode` both default to `None` without raising any error",
+      "validates": [
+        "09-REQ-3.2"
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "09-PATH-1",
+      "title": "Concurrent reviewer node dispatch — distinct mode-bearing paths",
+      "steps": [
+        {
+          "actor": "parallel dispatcher",
+          "action": "dispatches two reviewer nodes concurrently for the same `spec_name` and `task_group`, one with `mode=\"pre-review\"` and one with `mode=\"drift-review\"`"
+        },
+        {
+          "actor": "`NodeSessionRunner` (pre-review node)",
+          "action": "calls `_setup_workspace()` which invokes `create_worktree()` with `role=\"reviewer\"` and `mode=\"pre-review\"`"
+        },
+        {
+          "actor": "`NodeSessionRunner` (drift-review node)",
+          "action": "calls `_setup_workspace()` which invokes `create_worktree()` with `role=\"reviewer\"` and `mode=\"drift-review\"`"
+        },
+        {
+          "actor": "`create_worktree()`",
+          "action": "derives `4-level path` `{worktrees_root}/{spec_name}/{task_group}/reviewer/pre-review` for the first node and `{worktrees_root}/{spec_name}/{task_group}/reviewer/drift-review` for the second node"
+        },
+        {
+          "actor": "git CLI",
+          "action": "executes `git worktree add` for each node at its distinct path — both succeed with exit code 0 and no `exit-code-128` error is raised"
+        },
+        {
+          "actor": "`create_worktree()`",
+          "action": "returns a `WorkspaceInfo` instance per node with the correct `path`, `branch`, `role`, and `mode` fields set"
+        }
+      ]
+    },
+    {
+      "id": "09-PATH-2",
+      "title": "Coder node workspace setup — unchanged 2-level path",
+      "steps": [
+        {
+          "actor": "parallel dispatcher",
+          "action": "dispatches a coder node for a given `spec_name` and `task_group` with no `mode` set (`self._mode` is `None` or `\"\"`)"
+        },
+        {
+          "actor": "`NodeSessionRunner`",
+          "action": "calls `_setup_workspace()` which invokes `create_worktree()` with `role=self._archetype` and `mode=self._mode`"
+        },
+        {
+          "actor": "`create_worktree()`",
+          "action": "normalises `mode` via `effective_mode = mode or None`, resolving to `None`, then derives the `2-level path` `{worktrees_root}/{spec_name}/{task_group}`"
+        },
+        {
+          "actor": "git CLI",
+          "action": "executes `git worktree add` at the `2-level path` and succeeds"
+        },
+        {
+          "actor": "`create_worktree()`",
+          "action": "returns a `WorkspaceInfo` with `path={worktrees_root}/{spec_name}/{task_group}`, `role=None`, and `mode=None`, identical to pre-fix behaviour"
+        }
+      ]
+    },
+    {
+      "id": "09-PATH-3",
+      "title": "Mode-set, role-absent fallback — WARNING emitted and unknown role used",
+      "steps": [
+        {
+          "actor": "parallel dispatcher",
+          "action": "dispatches a node where `mode` is set to `\"drift-review\"` but `role` is `None` due to a graph misconfiguration"
+        },
+        {
+          "actor": "`NodeSessionRunner`",
+          "action": "calls `_setup_workspace()` which passes `role=None` and `mode=\"drift-review\"` to `create_worktree()`"
+        },
+        {
+          "actor": "`create_worktree()`",
+          "action": "detects that `effective_mode` is set but `effective_role` is `None`, emits a WARNING-level log message containing mode, `spec_name`, and `task_group`, and substitutes `effective_role` with `\"unknown\"`"
+        },
+        {
+          "actor": "`create_worktree()`",
+          "action": "derives the `4-level path` `{worktrees_root}/{spec_name}/{task_group}/unknown/drift-review` and proceeds with worktree creation"
+        },
+        {
+          "actor": "git CLI",
+          "action": "executes `git worktree add` at the path containing `unknown` and returns exit code 0"
+        },
+        {
+          "actor": "`create_worktree()`",
+          "action": "returns a `WorkspaceInfo` with `role=\"unknown\"` and `mode=\"drift-review\"` so the caller can observe the substitution"
+        }
+      ]
+    },
+    {
+      "id": "09-PATH-4",
+      "title": "Stale worktree cleanup before creation of 4-level path",
+      "steps": [
+        {
+          "actor": "parallel dispatcher",
+          "action": "re-dispatches a reviewer node whose previous session was interrupted, leaving a stale worktree at the `4-level path`"
+        },
+        {
+          "actor": "`create_worktree()`",
+          "action": "computes the `4-level path` for the node and checks whether the directory already exists on disk"
+        },
+        {
+          "actor": "`create_worktree()`",
+          "action": "finds the stale directory and runs `git worktree remove --force <4-level path>` to remove it"
+        },
+        {
+          "actor": "`_cleanup_empty_ancestors`",
+          "action": "walks upward from the removed leaf directory to `worktrees_root`, deleting any intermediate directories that are now empty"
+        },
+        {
+          "actor": "git CLI",
+          "action": "executes `git worktree add` at the now-vacant `4-level path` and succeeds with exit code 0"
+        }
+      ]
+    }
+  ],
+  "error_handling": [
+    {
+      "id": "09-ERR-1",
+      "condition": "`git worktree add` returns `exit-code-128` because the target directory already exists (stale worktree)",
+      "behavior": "`create_worktree()` detects the existing path before invoking `git worktree add`, runs `git worktree remove --force <worktree_path>`, then retries the creation at the now-vacant path",
+      "requirement_id": "09-REQ-7.1"
+    },
+    {
+      "id": "09-ERR-2",
+      "condition": "`effective_mode` is set but `effective_role` is `None` or empty after normalisation",
+      "behavior": "`create_worktree()` emits a WARNING-level log message containing `mode`, `spec_name`, and `task_group`, substitutes `effective_role` with `\"unknown\"`, and proceeds to create the worktree at the `4-level path` using `\"unknown\"` as the role segment",
+      "requirement_id": "09-REQ-2.4"
+    },
+    {
+      "id": "09-ERR-3",
+      "condition": "`spec_name` fails the `re.fullmatch(r'[a-zA-Z0-9_-]+', spec_name)` validation check inside `create_worktree()`",
+      "behavior": "`create_worktree()` raises a validation error and does not attempt to create the worktree",
+      "requirement_id": "09-REQ-5.2"
+    }
+  ]
+}

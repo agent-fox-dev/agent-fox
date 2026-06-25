@@ -1,0 +1,357 @@
+{
+  "state": "generated",
+  "prd_path": "prd.md",
+  "assessment_history": [
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD for \"worktree_path_collision\" is well-structured and technically detailed. It clearly identifies the problem, root cause, impact, and proposed solution with concrete code examples. The Non-Goals and Design Decisions sections are thorough. However, the document is missing a formal **Intent** section (as a concise statement of purpose), a **Goals** section with measurable outcomes, and a **Background** section providing broader context. The owner field is also blank. These gaps prevent a full quality assessment and should be addressed before artifact generation.",
+      "gaps": [
+        "Missing formal 'Intent' section \u2014 there is no concise, standalone statement of what this fix aims to achieve. The problem description partially covers this but does not serve as an intent statement.",
+        "Missing 'Goals' section \u2014 no measurable success criteria are defined (e.g., zero path collision failures, retry count reduction, latency improvement targets).",
+        "Missing 'Background' section \u2014 there is no broader context about the worktree model, why concurrent dispatch was designed this way, or any prior fix attempts.",
+        "Owner field is blank \u2014 accountability for the spec is unassigned.",
+        "No explicit acceptance criteria or test strategy \u2014 while pytest is mentioned in the tech stack, there are no details on how correctness will be validated (e.g., specific test scenarios for concurrent reviewer nodes).",
+        "No rollback or migration plan \u2014 it is unclear whether existing worktrees or branches created under the old naming scheme need to be cleaned up or migrated."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "Can you provide a concise Intent statement \u2014 one or two sentences summarizing what this fix is meant to achieve at a product/feature level?",
+          "context": "The 'Intent' section is required by the spec format. A clear intent statement distinguishes the purpose of the change from its implementation details and helps reviewers evaluate scope alignment.",
+          "options": [
+            "Eliminate worktree path and branch name collisions for concurrent nodes that share the same spec_name and task_group but differ in role or mode.",
+            "Ensure reliable concurrent execution of multi-mode reviewer nodes by scoping worktree paths and branch names to the full node identity.",
+            "Other (please describe)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "What are the measurable goals of this fix? What does success look like in concrete, observable terms?",
+          "context": "The 'Goals' section requires measurable outcomes. Without them, it is impossible to verify that the fix has achieved its intended effect.",
+          "options": [
+            "Zero exit-code-128 failures during concurrent reviewer node dispatch after the fix is deployed.",
+            "Elimination of retry-loop overhead for reviewer nodes (reduce average latency by X seconds).",
+            "All existing unit and integration tests pass with no regressions in coder node path structure.",
+            "Other (please describe)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "Can you provide background context on the worktree model? For example: why are worktrees used per node, when was concurrent dispatch introduced, and have there been prior attempts to fix this collision?",
+          "context": "The 'Background' section helps future maintainers understand the history and constraints that shaped this design, and avoids re-litigating resolved decisions.",
+          "options": [],
+          "required": false
+        },
+        {
+          "id": "q4",
+          "text": "Who is the owner of this spec? Who is responsible for driving it to completion?",
+          "context": "The owner field is blank in the spec metadata. Accountability is important for tracking and review purposes.",
+          "options": [],
+          "required": false
+        },
+        {
+          "id": "q5",
+          "text": "What is the test strategy for validating this fix? Are there specific test scenarios planned (e.g., simulating two concurrent reviewer nodes with the same spec_name/task_group)?",
+          "context": "The spec mentions pytest but provides no detail on how correctness will be verified. Explicit test scenarios reduce the risk of incomplete coverage.",
+          "options": [
+            "Unit test create_worktree() with and without mode to verify path/branch derivation.",
+            "Integration test simulating concurrent dispatch of two reviewer nodes with identical spec_name and task_group but different modes.",
+            "Regression test confirming coder node paths are unchanged.",
+            "Other (please describe)"
+          ],
+          "required": false
+        },
+        {
+          "id": "q6",
+          "text": "Is there a need to handle existing worktrees or branches created under the old (colliding) naming scheme? If so, what is the migration or cleanup plan?",
+          "context": "If this fix is deployed against a running system that already has worktrees or branches using the old path structure, stale artifacts could cause confusion or conflicts.",
+          "options": [
+            "No migration needed \u2014 old worktrees are ephemeral and will naturally expire.",
+            "A one-time cleanup script will be provided to remove stale worktrees.",
+            "The fix is applied only to new dispatches; existing worktrees are unaffected.",
+            "Other (please describe)"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD is well-structured and largely complete. It clearly identifies the root cause, affected files, solution design, and test strategy. However, several areas would benefit from clarification before implementation begins: the exact signature changes to `create_worktree()` and `WorkspaceInfo`, the handling of edge cases (e.g., stale worktrees with the new path scheme, branch name character sanitization), and whether `destroy_worktree()` requires any changes beyond path derivation. Answering these questions will make the spec unambiguous for an engineer picking it up cold.",
+      "gaps": [
+        "The updated function signature for `create_worktree()` is not specified \u2014 it is unclear whether `role` and `mode` are new keyword arguments, optional parameters, or passed as a single node-identity object.",
+        "`WorkspaceInfo` dataclass changes are mentioned but not specified \u2014 new fields, their types, and default values are absent.",
+        "No explicit mention of how `destroy_worktree()` will receive role/mode \u2014 it likely reads from `WorkspaceInfo`, but this is implicit rather than stated.",
+        "Branch name sanitization is not addressed \u2014 spec names or modes containing characters invalid in git branch names (e.g., spaces, dots) could cause `git worktree add` to fail.",
+        "The stale-worktree cleanup path is described only at a high level \u2014 it is not clear whether the existing `create_worktree()` stale-cleanup logic correctly handles the new deeper path structure without modification.",
+        "Acceptance criteria are described as goals but there is no explicit pass/fail definition for the concurrent-dispatch scenario in CI.",
+        "No mention of whether the `__init__.py` re-export surface changes (e.g., updated `WorkspaceInfo` import) are backward-compatible with other callers."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What is the updated signature for `create_worktree()`? Should `role` and `mode` be added as separate optional keyword arguments, or should they be bundled into an existing/new identity object?",
+          "context": "Without a concrete signature, implementors may make incompatible choices that break other callers. Specifying the signature here prevents drift.",
+          "options": [
+            "Add `role: str | None = None` and `mode: str | None = None` as separate keyword arguments",
+            "Add a single `node_identity: NodeIdentity | None = None` dataclass argument",
+            "Extend the existing positional arguments"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "What new fields should be added to `WorkspaceInfo`, and what are their types and defaults?",
+          "context": "`destroy_worktree()` needs to reconstruct the correct path; storing role and mode on `WorkspaceInfo` is the implied mechanism, but the field names, types (str vs Optional[str]), and defaults must be explicit.",
+          "options": [
+            "Add `role: str | None = None` and `mode: str | None = None` fields",
+            "Add a single `node_mode: str | None = None` field (role already stored elsewhere)",
+            "Store the full computed worktree path directly to avoid re-derivation"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "Does `destroy_worktree()` need any logic changes beyond receiving role/mode via `WorkspaceInfo`, or does it already derive the path correctly from the stored worktree path?",
+          "context": "If `WorkspaceInfo` stores the computed path directly, `destroy_worktree()` may need no logic change. If it re-derives the path, it needs role/mode. Clarifying this scopes the implementation precisely.",
+          "options": [
+            "No changes needed \u2014 `WorkspaceInfo` will store the full computed path",
+            "Minor change needed \u2014 `destroy_worktree()` must read the new role/mode fields from `WorkspaceInfo`",
+            "Significant change needed \u2014 `destroy_worktree()` currently re-derives the path and must be updated"
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "Should branch names be sanitized to replace characters that are invalid in git ref names (e.g., spaces, dots at the end, consecutive dots)?",
+          "context": "Spec names or mode strings sourced from external input could contain characters that cause `git worktree add` to fail. Specifying a sanitization rule now prevents a class of runtime errors.",
+          "options": [
+            "Yes \u2014 replace any non-alphanumeric, non-hyphen, non-underscore, non-slash character with a hyphen",
+            "Yes \u2014 apply git's own ref-name validation and raise a clear error on invalid input",
+            "No \u2014 inputs are controlled and guaranteed safe; no sanitization needed"
+          ],
+          "required": false
+        },
+        {
+          "id": "q5",
+          "text": "Does the existing stale-worktree cleanup logic in `create_worktree()` handle the new deeper path structure correctly without modification?",
+          "context": "The PRD states `_cleanup_empty_ancestors` is unchanged, but the stale-worktree removal (before re-creating a worktree) may rely on the path depth. Confirming this avoids a silent regression.",
+          "options": [
+            "Yes \u2014 stale cleanup operates on the leaf path and is depth-agnostic",
+            "No \u2014 stale cleanup needs a small update to handle the deeper path",
+            "Unsure \u2014 needs investigation before implementation"
+          ],
+          "required": true
+        },
+        {
+          "id": "q6",
+          "text": "Should the concurrent-dispatch test scenario (test 4) be added to the CI pipeline as a required check, or is it sufficient as a local pytest test?",
+          "context": "Defining where this test lives affects whether a future regression would block a PR automatically or only be caught manually.",
+          "options": [
+            "Add to CI as a required check in the existing test suite",
+            "Local pytest only \u2014 the scenario is too environment-specific for CI",
+            "Add to CI but mark as non-blocking initially"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD is well-structured, technically precise, and covers the core fix thoroughly. Root cause, solution, file changes, and rollback strategy are clearly articulated. However, several gaps remain that could cause ambiguity during implementation or review: the behavior when `role` is provided but `mode` is absent is unspecified, error-handling strategy for `git worktree add` failures beyond retries is not documented, the CI integration details for test 4 are vague, and there is no explicit acceptance criteria or definition-of-done section.",
+      "gaps": [
+        "No explicit handling defined for the case where `role` is provided but `mode` is None \u2014 should it fall back to the 2-level path or raise an error?",
+        "The fallback value of `role='unknown'` when mode is set but role is None is mentioned but its rationale and whether it should raise a warning/log is not specified.",
+        "No explicit error handling or observability strategy described for the `git worktree add` failure scenario beyond the existing retry loop (e.g., logging, metrics, alerting).",
+        "Test 4 is described as a 'CI required check' but no details are given about which CI pipeline configuration file, job, or stage it should be added to.",
+        "No explicit acceptance criteria / definition-of-done section to allow a reviewer or QA engineer to confirm when the fix is complete.",
+        "No mention of whether `WorkspaceInfo` serialization (e.g., to disk, logs, or inter-process communication) is affected by the new `role` and `mode` fields.",
+        "The PRD does not specify how `self._mode` is currently set on `NodeSessionRunner` \u2014 whether it can ever be an empty string vs. `None`, which would affect path derivation logic.",
+        "No mention of maximum path length constraints \u2014 deeper paths could theoretically exceed OS limits on some systems or CI environments."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What should happen when `role` is provided but `mode` is `None`? Should the function fall back to the 2-level path (ignoring role), raise a ValueError, or produce a 3-level path using only role?",
+          "context": "The PRD defines behavior for both-None and both-set cases but leaves the asymmetric case (role set, mode None) unspecified, which could lead to inconsistent implementations.",
+          "options": [
+            "Fall back to 2-level path (ignore role, treat as if both are None)",
+            "Raise a ValueError at runtime",
+            "Produce a 3-level path: {spec_name}/{task_group}/{role}"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "When `mode` is set but `role` is `None`, the PRD says role defaults to `'unknown'`. Should this also emit a log warning to surface the misconfiguration, or should it be silently tolerated?",
+          "context": "Silent fallback to 'unknown' could mask graph configuration bugs. A warning would aid debugging but might add noise.",
+          "options": [
+            "Silently default to 'unknown' with no warning",
+            "Log a WARNING-level message and default to 'unknown'",
+            "Raise a ValueError \u2014 this should never happen and is a hard error"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "Which CI pipeline file/job/stage should test 4 (concurrent distinct paths) be added to, and should it be a blocking gate on PRs or only on main-branch merges?",
+          "context": "The PRD states test 4 must be 'added to CI as a required check' but gives no specifics, which makes the task incomplete for whoever sets up the pipeline.",
+          "options": [
+            "Add to the existing pytest job in the PR pipeline as a blocking check",
+            "Add to a separate integration test job that runs on main-branch merges only",
+            "Add to both PR and main-branch pipelines as a blocking check"
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "Can `self._mode` on `NodeSessionRunner` ever be an empty string (`''`) rather than `None` to indicate 'no mode'? If so, should an empty string be treated the same as `None` (2-level path)?",
+          "context": "If the codebase uses empty string as a sentinel instead of None, the path derivation condition (`if mode:`) would behave correctly, but this should be explicitly documented to prevent future bugs.",
+          "options": [
+            "No \u2014 mode is always None when absent, never an empty string",
+            "Yes \u2014 empty string is possible and should be treated identically to None",
+            "Unsure \u2014 needs a code audit before implementation"
+          ],
+          "required": true
+        },
+        {
+          "id": "q5",
+          "text": "Is `WorkspaceInfo` serialized anywhere (e.g., written to a file, passed over a message queue, or logged as structured data)? If so, do the new `role` and `mode` fields need to be included in or excluded from that serialization?",
+          "context": "If WorkspaceInfo is serialized, adding new fields could break deserialization of older records or require a schema migration.",
+          "options": [
+            "Not serialized \u2014 in-memory only within a session",
+            "Serialized to disk/logs but backward-compatible (new fields can be ignored by older readers)",
+            "Serialized and schema migration is required"
+          ],
+          "required": false
+        },
+        {
+          "id": "q6",
+          "text": "Are there any known OS path length constraints in your CI or deployment environments that the deeper 4-level worktree paths could approach or exceed?",
+          "context": "On Linux the limit is 4096 characters, but Windows (if ever used) caps at 260 without long-path support. Very long spec names or modes could theoretically approach limits.",
+          "options": [
+            "No constraints \u2014 Linux only, long-path support not a concern",
+            "Windows environments are used and path length should be validated",
+            "Unknown \u2014 a path length check should be added as a guard"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "ready",
+      "summary": "This is a high-quality, well-structured PRD that clearly identifies a specific, reproducible bug and prescribes a minimal, precise fix. The document covers root cause analysis, solution design, asymmetric argument-handling rules, backward compatibility, test strategy (including CI pipeline integration), acceptance criteria, and rollback/migration considerations with exceptional thoroughness. It is largely ready for implementation with only minor clarifications that could strengthen it further.",
+      "gaps": [
+        "The PRD does not specify whether `_cleanup_empty_ancestors` has a depth guard (e.g., it won't walk above `worktrees_root`), which could matter if a poorly formed path is passed \u2014 a brief note on this invariant would close the gap.",
+        "Test 4 is described as a unit test simulating concurrent calls, but it does not specify whether true OS-level concurrency (e.g., threads or asyncio tasks) is required or whether sequential calls with the same arguments are sufficient to validate path distinctness \u2014 the intent is clear but the test mechanism is ambiguous.",
+        "The PRD does not explicitly state what happens if `spec_name` validation fails when `role`/`mode` are provided \u2014 it implies the existing regex guard handles this, but there is no equivalent validation statement for `role` and `mode` values (even though they are described as safe upstream).",
+        "There is no mention of whether the CI pipeline step for test 4 requires a specific pytest marker (e.g., `@pytest.mark.concurrent`) or test file location, which could affect discoverability and pipeline configuration.",
+        "The PRD does not address observability beyond the WARNING log \u2014 e.g., whether the new `role` and `mode` fields on `WorkspaceInfo` are included in any existing structured log output emitted during workspace setup."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "Does `_cleanup_empty_ancestors` have an explicit guard to prevent walking above `worktrees_root`, and should that invariant be documented in the PRD?",
+          "context": "With 4-level paths, the cleanup function walks more directory levels upward. Documenting the upper-bound guard (or confirming it exists) closes a potential edge-case concern for reviewers.",
+          "options": [
+            "Yes, it has an explicit guard \u2014 add a note to the PRD",
+            "No guard exists \u2014 it relies on the worktrees_root always being non-empty; this is acceptable",
+            "Unknown \u2014 needs code verification before the PRD is finalised"
+          ],
+          "required": false
+        },
+        {
+          "id": "q2",
+          "text": "For Test 4 (concurrent distinct paths), should the test use true OS-level concurrency (e.g., `threading.Thread` or `asyncio.gather`) or is sequential invocation with different `(role, mode)` arguments sufficient to prove path non-collision?",
+          "context": "The description says 'concurrent `create_worktree()` calls', but path distinctness is a deterministic property of the derivation logic \u2014 sequential calls would suffice for path correctness. True concurrency testing would instead validate the absence of race conditions in filesystem operations. Clarifying the intent prevents over- or under-engineering the test.",
+          "options": [
+            "Sequential calls are sufficient \u2014 the test validates path derivation only",
+            "True concurrency (threads/asyncio) is required to catch filesystem race conditions",
+            "Both: a unit test for path derivation AND a concurrent integration test"
+          ],
+          "required": false
+        },
+        {
+          "id": "q3",
+          "text": "Should `role` and `mode` values sourced from graph config have any runtime assertion (even a debug-mode check) that they contain only safe characters, or is the upstream guarantee considered sufficient documentation?",
+          "context": "The PRD explicitly states no sanitization is needed because inputs are controlled upstream. However, a lightweight `assert re.fullmatch(r'[a-zA-Z0-9_-]+', role)` in debug/test mode could catch future graph config mistakes early. This is a design choice worth making explicit.",
+          "options": [
+            "Upstream guarantee is sufficient \u2014 no runtime check needed",
+            "Add a debug-mode assertion for role and mode",
+            "Add the same `re.fullmatch` validation used for spec_name"
+          ],
+          "required": false
+        },
+        {
+          "id": "q4",
+          "text": "Should Test 4 use a specific pytest marker (e.g., `@pytest.mark.concurrent` or `@pytest.mark.integration`) and/or reside in a specific test file or directory to simplify CI pipeline targeting?",
+          "context": "The PRD requires Test 4 to be a blocking check in the PR pytest pipeline. Specifying a marker or file location makes it straightforward to configure the pipeline step without ambiguity.",
+          "options": [
+            "Use an existing marker (specify which)",
+            "Create a new `@pytest.mark.concurrent` marker",
+            "No marker needed \u2014 place it in a specific file (specify path)",
+            "No constraint \u2014 the CI job runs all tests anyway"
+          ],
+          "required": false
+        },
+        {
+          "id": "q5",
+          "text": "Should the new `role` and `mode` fields on `WorkspaceInfo` be included in any existing structured log output emitted during workspace setup (e.g., a 'workspace created' INFO log line)?",
+          "context": "Including role and mode in the workspace-setup log would improve observability and make it easier to diagnose future path issues in logs, but it is a minor scope addition. Clarifying this prevents the implementer from making an ad-hoc decision.",
+          "options": [
+            "Yes \u2014 add role and mode to the existing workspace-setup INFO log",
+            "No \u2014 the WARNING log for misconfiguration is sufficient; no other log changes needed",
+            "Out of scope for this fix \u2014 a separate observability task should handle it"
+          ],
+          "required": false
+        }
+      ]
+    }
+  ],
+  "qa_exchanges": [
+    {
+      "assessment_index": 0,
+      "answers": {
+        "q1": "Ensure reliable concurrent execution of multi-mode reviewer nodes by scoping worktree paths and branch names to the full node identity.",
+        "q2": "Zero exit-code-128 failures during concurrent reviewer node dispatch. All existing unit and integration tests pass with no regressions in coder node path structure.",
+        "q3": "Worktrees provide filesystem isolation per coding session so that concurrent nodes can edit files without interfering with each other. The worktree-per-node model was introduced alongside the parallel dispatcher (spec 04). No prior attempts have been made to fix this collision \u2014 it was discovered when multi-mode reviewer nodes (pre-review and drift-review) were first dispatched concurrently at the same task group.",
+        "q4": "candlekeep",
+        "q5": "Unit test create_worktree() with and without mode to verify path/branch derivation. Regression test confirming coder node paths are unchanged. Unit test that two concurrent create_worktree() calls with different role/mode produce distinct paths.",
+        "q6": "No migration needed \u2014 old worktrees are ephemeral and will naturally expire. Worktrees are created and destroyed within a single session lifecycle. Stale worktrees are cleaned up on the next create_worktree() call."
+      },
+      "timestamp": "2026-06-25T08:57:16.055363+00:00"
+    },
+    {
+      "assessment_index": 1,
+      "answers": {
+        "q1": "Add `role: str | None = None` and `mode: str | None = None` as separate keyword arguments",
+        "q2": "Add `role: str | None = None` and `mode: str | None = None` fields",
+        "q3": "No changes needed \u2014 `WorkspaceInfo` already stores the full computed path in its `path` field. `destroy_worktree()` uses `workspace.path` directly, so it does not re-derive the path.",
+        "q4": "No \u2014 inputs are controlled and guaranteed safe; no sanitization needed. Spec names are already validated with `re.fullmatch(r'[a-zA-Z0-9_-]+', spec_name)` in create_worktree(). Role and mode values are defined in the graph config, not user input.",
+        "q5": "Yes \u2014 stale cleanup operates on the leaf path and is depth-agnostic. The stale cleanup checks `if worktree_path.exists()` and calls `git worktree remove --force` on that specific path. `_cleanup_empty_ancestors` walks upward from the leaf. Both are depth-agnostic.",
+        "q6": "Add to CI as a required check in the existing test suite"
+      },
+      "timestamp": "2026-06-25T08:58:34.639538+00:00"
+    },
+    {
+      "assessment_index": 2,
+      "answers": {
+        "q1": "Fall back to 2-level path (ignore role, treat as if both are None)",
+        "q2": "Log a WARNING-level message and default to 'unknown'",
+        "q3": "Add to the existing pytest job in the PR pipeline as a blocking check",
+        "q4": "Yes \u2014 empty string is possible and should be treated identically to None",
+        "q5": "Not serialized \u2014 in-memory only within a session",
+        "q6": "No constraints \u2014 Linux only, long-path support not a concern"
+      },
+      "timestamp": "2026-06-25T09:00:06.117560+00:00"
+    }
+  ],
+  "generated_artifacts": [
+    "requirements",
+    "test_spec",
+    "tasks"
+  ],
+  "mode": "interactive"
+}

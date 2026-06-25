@@ -1,0 +1,721 @@
+{
+  "$schema": null,
+  "spec_id": "09",
+  "spec_name": "worktree_path_collision",
+  "schema_version": 1,
+  "test_cases": [
+    {
+      "id": "TS-09-1",
+      "requirement_id": "09-REQ-1.1",
+      "kind": "unit",
+      "description": "Verifies that create_worktree() accepts role and mode as optional keyword arguments without raising any TypeError or signature error.",
+      "preconditions": [
+        "packages/agentfox/agentfox/workspace/worktree.py is updated with the new create_worktree() signature",
+        "A fake/stub git CLI is available (e.g. via monkeypatching or pytest fixtures) so no real git command is executed",
+        "A temporary directory exists to serve as repo_root and worktrees_root"
+      ],
+      "input": {
+        "base_branch": "main",
+        "branch_name": null,
+        "mode": "pre-review",
+        "repo_root": "/tmp/repo",
+        "role": "reviewer",
+        "spec_name": "test_spec",
+        "task_group": 0
+      },
+      "expected": "create_worktree() is callable with role and mode kwargs and returns a WorkspaceInfo without raising TypeError or any signature-related error",
+      "assertion_pseudocode": "result = await create_worktree(repo_root='/tmp/repo', spec_name='test_spec', task_group=0, base_branch='main', role='reviewer', mode='pre-review')\nassert result is not None\nassert isinstance(result, WorkspaceInfo)"
+    },
+    {
+      "id": "TS-09-2",
+      "requirement_id": "09-REQ-1.2",
+      "kind": "unit",
+      "description": "Verifies that create_worktree() normalises empty-string role and mode to None via the effective_mode/effective_role pattern before any path derivation.",
+      "preconditions": [
+        "packages/agentfox/agentfox/workspace/worktree.py has empty-string normalisation logic (mode or None, role or None)",
+        "A stub git CLI is available so no real git command is executed",
+        "A temporary directory exists to serve as repo_root"
+      ],
+      "input": {
+        "base_branch": "main",
+        "mode": "",
+        "repo_root": "/tmp/repo",
+        "role": "",
+        "spec_name": "test_spec",
+        "task_group": 1
+      },
+      "expected": "The returned WorkspaceInfo has role=None and mode=None, and the path is the 2-level path {worktrees_root}/test_spec/1",
+      "assertion_pseudocode": "result = await create_worktree(repo_root='/tmp/repo', spec_name='test_spec', task_group=1, base_branch='main', role='', mode='')\nassert result.role is None\nassert result.mode is None\nassert result.path == Path('/tmp/repo/.agent-fox/worktrees/test_spec/1')"
+    },
+    {
+      "id": "TS-09-3",
+      "requirement_id": "09-REQ-1.3",
+      "kind": "unit",
+      "description": "Verifies that create_worktree() sets WorkspaceInfo.role and WorkspaceInfo.mode to the normalised effective_role and effective_mode values respectively.",
+      "preconditions": [
+        "packages/agentfox/agentfox/workspace/worktree.py populates WorkspaceInfo with normalised role and mode",
+        "A stub git CLI is available so no real git command is executed",
+        "A temporary directory exists to serve as repo_root"
+      ],
+      "input": {
+        "base_branch": "main",
+        "mode": "drift-review",
+        "repo_root": "/tmp/repo",
+        "role": "reviewer",
+        "spec_name": "test_spec",
+        "task_group": 2
+      },
+      "expected": "WorkspaceInfo.role equals 'reviewer' and WorkspaceInfo.mode equals 'drift-review'",
+      "assertion_pseudocode": "result = await create_worktree(repo_root='/tmp/repo', spec_name='test_spec', task_group=2, base_branch='main', role='reviewer', mode='drift-review')\nassert result.role == 'reviewer'\nassert result.mode == 'drift-review'"
+    },
+    {
+      "id": "TS-09-4",
+      "requirement_id": "09-REQ-2.1",
+      "kind": "unit",
+      "description": "Verifies that when effective_mode is None, create_worktree() produces the 2-level path and the feature/{spec_name}/{task_group} branch name.",
+      "preconditions": [
+        "packages/agentfox/agentfox/workspace/worktree.py implements the path derivation rules",
+        "A stub git CLI is available so no real git command is executed",
+        "A temporary directory exists to serve as repo_root"
+      ],
+      "input": {
+        "base_branch": "main",
+        "mode": null,
+        "repo_root": "/tmp/repo",
+        "role": null,
+        "spec_name": "my_spec",
+        "task_group": 3
+      },
+      "expected": "WorkspaceInfo.path == {worktrees_root}/my_spec/3 and WorkspaceInfo.branch == 'feature/my_spec/3'",
+      "assertion_pseudocode": "result = await create_worktree(repo_root='/tmp/repo', spec_name='my_spec', task_group=3, base_branch='main', role=None, mode=None)\nassert result.path == Path('/tmp/repo/.agent-fox/worktrees/my_spec/3')\nassert result.branch == 'feature/my_spec/3'"
+    },
+    {
+      "id": "TS-09-5",
+      "requirement_id": "09-REQ-2.2",
+      "kind": "unit",
+      "description": "Verifies that when both effective_role and effective_mode are non-empty, create_worktree() produces the 4-level path and the 4-segment branch name.",
+      "preconditions": [
+        "packages/agentfox/agentfox/workspace/worktree.py implements the 4-level path derivation",
+        "A stub git CLI is available so no real git command is executed",
+        "A temporary directory exists to serve as repo_root"
+      ],
+      "input": {
+        "base_branch": "main",
+        "mode": "drift-review",
+        "repo_root": "/tmp/repo",
+        "role": "reviewer",
+        "spec_name": "08_spec_generation_improvement",
+        "task_group": 0
+      },
+      "expected": "WorkspaceInfo.path == {worktrees_root}/08_spec_generation_improvement/0/reviewer/drift-review and WorkspaceInfo.branch == 'feature/08_spec_generation_improvement/0/reviewer/drift-review'",
+      "assertion_pseudocode": "result = await create_worktree(repo_root='/tmp/repo', spec_name='08_spec_generation_improvement', task_group=0, base_branch='main', role='reviewer', mode='drift-review')\nassert result.path == Path('/tmp/repo/.agent-fox/worktrees/08_spec_generation_improvement/0/reviewer/drift-review')\nassert result.branch == 'feature/08_spec_generation_improvement/0/reviewer/drift-review'"
+    },
+    {
+      "id": "TS-09-6",
+      "requirement_id": "09-REQ-2.3",
+      "kind": "unit",
+      "description": "Verifies that when effective_role is set but effective_mode is None, create_worktree() silently falls back to the 2-level path without emitting any WARNING log.",
+      "preconditions": [
+        "packages/agentfox/agentfox/workspace/worktree.py implements the silent fallback for role-present, mode-absent case",
+        "A stub git CLI is available so no real git command is executed",
+        "A log capture fixture (e.g. pytest caplog) is available to assert no WARNING is emitted",
+        "A temporary directory exists to serve as repo_root"
+      ],
+      "input": {
+        "base_branch": "main",
+        "mode": null,
+        "repo_root": "/tmp/repo",
+        "role": "reviewer",
+        "spec_name": "test_spec",
+        "task_group": 0
+      },
+      "expected": "WorkspaceInfo.path == {worktrees_root}/test_spec/0, WorkspaceInfo.branch == 'feature/test_spec/0', and no WARNING-level log is emitted",
+      "assertion_pseudocode": "with capture_logs() as logs:\n    result = await create_worktree(repo_root='/tmp/repo', spec_name='test_spec', task_group=0, base_branch='main', role='reviewer', mode=None)\nassert result.path == Path('/tmp/repo/.agent-fox/worktrees/test_spec/0')\nassert result.branch == 'feature/test_spec/0'\nassert no WARNING-level message in logs"
+    },
+    {
+      "id": "TS-09-7",
+      "requirement_id": "09-REQ-2.4",
+      "kind": "unit",
+      "description": "Verifies that when effective_mode is set but effective_role is None, create_worktree() emits a WARNING log and substitutes role with 'unknown' in the 4-level path.",
+      "preconditions": [
+        "packages/agentfox/agentfox/workspace/worktree.py implements the WARNING + unknown-role fallback",
+        "A stub git CLI is available so no real git command is executed",
+        "A log capture fixture is available (e.g. pytest caplog)",
+        "A temporary directory exists to serve as repo_root"
+      ],
+      "input": {
+        "base_branch": "main",
+        "mode": "drift-review",
+        "repo_root": "/tmp/repo",
+        "role": null,
+        "spec_name": "08_spec_generation_improvement",
+        "task_group": 0
+      },
+      "expected": "WorkspaceInfo.path contains 'unknown' as the role segment, WorkspaceInfo.branch contains 'unknown', and a WARNING-level log containing mode='drift-review', spec_name, and task_group is emitted",
+      "assertion_pseudocode": "with capture_logs(level='WARNING') as logs:\n    result = await create_worktree(repo_root='/tmp/repo', spec_name='08_spec_generation_improvement', task_group=0, base_branch='main', role=None, mode='drift-review')\nassert result.path == Path('/tmp/repo/.agent-fox/worktrees/08_spec_generation_improvement/0/unknown/drift-review')\nassert result.branch == 'feature/08_spec_generation_improvement/0/unknown/drift-review'\nassert result.role == 'unknown'\nassert any('WARNING' in log.levelname and 'drift-review' in log.message and '08_spec_generation_improvement' in log.message and '0' in log.message for log in logs)"
+    },
+    {
+      "id": "TS-09-8",
+      "requirement_id": "09-REQ-3.1",
+      "kind": "unit",
+      "description": "Verifies that WorkspaceInfo declares role and mode as optional fields after the existing required fields, maintaining the frozen dataclass contract.",
+      "preconditions": [
+        "packages/agentfox/agentfox/workspace/worktree.py has the updated WorkspaceInfo dataclass with role and mode fields",
+        "Python 3.12+ runtime is available"
+      ],
+      "input": {
+        "branch": "feature/spec/0",
+        "mode": "pre-review",
+        "path": "/tmp/worktrees/spec/0",
+        "role": "reviewer",
+        "spec_name": "spec",
+        "task_group": 0
+      },
+      "expected": "WorkspaceInfo can be constructed with role and mode fields; it is frozen (attempts to set attributes raise FrozenInstanceError); role and mode fields are accessible",
+      "assertion_pseudocode": "info = WorkspaceInfo(path=Path('/tmp/worktrees/spec/0'), branch='feature/spec/0', spec_name='spec', task_group=0, role='reviewer', mode='pre-review')\nassert info.role == 'reviewer'\nassert info.mode == 'pre-review'\ntry:\n    info.role = 'other'  # should raise\n    assert False, 'Expected FrozenInstanceError'\nexcept FrozenInstanceError:\n    pass"
+    },
+    {
+      "id": "TS-09-9",
+      "requirement_id": "09-REQ-3.2",
+      "kind": "unit",
+      "description": "Verifies that WorkspaceInfo can be constructed without role and mode arguments and both default to None, ensuring backward compatibility with existing callers.",
+      "preconditions": [
+        "packages/agentfox/agentfox/workspace/worktree.py has the updated WorkspaceInfo dataclass",
+        "Python 3.12+ runtime is available"
+      ],
+      "input": {
+        "branch": "feature/spec/0",
+        "path": "/tmp/worktrees/spec/0",
+        "spec_name": "spec",
+        "task_group": 0
+      },
+      "expected": "WorkspaceInfo is constructed successfully with role=None and mode=None when these arguments are omitted",
+      "assertion_pseudocode": "info = WorkspaceInfo(path=Path('/tmp/worktrees/spec/0'), branch='feature/spec/0', spec_name='spec', task_group=0)\nassert info.role is None\nassert info.mode is None"
+    },
+    {
+      "id": "TS-09-10",
+      "requirement_id": "09-REQ-3.3",
+      "kind": "unit",
+      "description": "Verifies that WorkspaceInfo is an in-memory-only object with no serialization methods or persistence hooks, requiring no migration.",
+      "preconditions": [
+        "packages/agentfox/agentfox/workspace/worktree.py has the updated WorkspaceInfo dataclass",
+        "Python 3.12+ runtime is available"
+      ],
+      "input": {},
+      "expected": "WorkspaceInfo has no to_json(), to_dict() persistence methods and is not registered with any message queue or serializer; the dataclass is importable and inspectable without side effects",
+      "assertion_pseudocode": "from agentfox.workspace.worktree import WorkspaceInfo\nimport dataclasses\nassert dataclasses.is_dataclass(WorkspaceInfo)\nassert not hasattr(WorkspaceInfo, 'to_json')\nassert not hasattr(WorkspaceInfo, 'serialize')\nassert not hasattr(WorkspaceInfo, 'to_dict')"
+    },
+    {
+      "id": "TS-09-11",
+      "requirement_id": "09-REQ-4.1",
+      "kind": "unit",
+      "description": "Verifies that NodeSessionRunner._setup_workspace() invokes create_worktree() with role=self._archetype and mode=self._mode.",
+      "preconditions": [
+        "packages/agentfox/agentfox/engine/session_lifecycle.py is updated to pass role and mode to create_worktree()",
+        "create_worktree() is mocked/patched to capture its call arguments",
+        "A NodeSessionRunner instance is configured with _archetype='reviewer' and _mode='pre-review'"
+      ],
+      "input": {
+        "_archetype": "reviewer",
+        "_mode": "pre-review"
+      },
+      "expected": "create_worktree() is called with keyword arguments role='reviewer' and mode='pre-review'",
+      "assertion_pseudocode": "mock_create = Mock(return_value=fake_workspace_info)\nwith patch('agentfox.workspace.worktree.create_worktree', mock_create):\n    runner = NodeSessionRunner(..., archetype='reviewer', mode='pre-review')\n    await runner._setup_workspace()\ncall_kwargs = mock_create.call_args.kwargs\nassert call_kwargs['role'] == 'reviewer'\nassert call_kwargs['mode'] == 'pre-review'"
+    },
+    {
+      "id": "TS-09-12",
+      "requirement_id": "09-REQ-4.2",
+      "kind": "unit",
+      "description": "Verifies that _setup_workspace() passes self._mode as-is (even if it is an empty string) to create_worktree(), delegating normalisation to create_worktree() internally.",
+      "preconditions": [
+        "packages/agentfox/agentfox/engine/session_lifecycle.py is updated to pass mode=self._mode without pre-normalisation",
+        "create_worktree() is mocked/patched to capture its call arguments",
+        "A NodeSessionRunner instance is configured with _mode='' (empty string)"
+      ],
+      "input": {
+        "_archetype": "coder",
+        "_mode": ""
+      },
+      "expected": "create_worktree() receives mode='' exactly as set on the runner; it does NOT receive mode=None at the call site in _setup_workspace()",
+      "assertion_pseudocode": "mock_create = Mock(return_value=fake_workspace_info)\nwith patch('agentfox.workspace.worktree.create_worktree', mock_create):\n    runner = NodeSessionRunner(..., archetype='coder', mode='')\n    await runner._setup_workspace()\ncall_kwargs = mock_create.call_args.kwargs\nassert call_kwargs['mode'] == ''  # passed as-is; normalisation happens inside create_worktree"
+    },
+    {
+      "id": "TS-09-13",
+      "requirement_id": "09-REQ-5.1",
+      "kind": "unit",
+      "description": "Confirms that calling create_worktree() without role or mode (both defaulting to None) produces a path and branch name identical to the pre-fix 2-level behaviour.",
+      "preconditions": [
+        "packages/agentfox/agentfox/workspace/worktree.py is updated with the new signature",
+        "A stub git CLI is available so no real git command is executed",
+        "A temporary directory exists to serve as repo_root"
+      ],
+      "input": {
+        "base_branch": "main",
+        "repo_root": "/tmp/repo",
+        "spec_name": "coder_spec",
+        "task_group": 5
+      },
+      "expected": "WorkspaceInfo.path == {worktrees_root}/coder_spec/5 and WorkspaceInfo.branch == 'feature/coder_spec/5', identical to pre-fix output",
+      "assertion_pseudocode": "result = await create_worktree(repo_root='/tmp/repo', spec_name='coder_spec', task_group=5, base_branch='main')\nassert result.path == Path('/tmp/repo/.agent-fox/worktrees/coder_spec/5')\nassert result.branch == 'feature/coder_spec/5'\nassert result.role is None\nassert result.mode is None"
+    },
+    {
+      "id": "TS-09-14",
+      "requirement_id": "09-REQ-5.2",
+      "kind": "unit",
+      "description": "Verifies that create_worktree() applies no additional branch-name sanitization beyond the existing spec_name fullmatch validation.",
+      "preconditions": [
+        "packages/agentfox/agentfox/workspace/worktree.py has the spec_name validation via re.fullmatch(r'[a-zA-Z0-9_-]+', spec_name)",
+        "A stub git CLI is available so no real git command is executed",
+        "A temporary directory exists to serve as repo_root"
+      ],
+      "input": {
+        "base_branch": "main",
+        "mode": "drift-review",
+        "repo_root": "/tmp/repo",
+        "role": "reviewer",
+        "spec_name": "valid-spec_name",
+        "task_group": 0
+      },
+      "expected": "create_worktree() succeeds with a valid spec_name and role/mode values; no additional sanitization step alters the role or mode segments in the branch name",
+      "assertion_pseudocode": "result = await create_worktree(repo_root='/tmp/repo', spec_name='valid-spec_name', task_group=0, base_branch='main', role='reviewer', mode='drift-review')\nassert result.branch == 'feature/valid-spec_name/0/reviewer/drift-review'\n# Confirm invalid spec_name still raises:\ntry:\n    await create_worktree(repo_root='/tmp/repo', spec_name='invalid spec!', task_group=0, base_branch='main')\n    assert False, 'Expected validation error'\nexcept (ValueError, Exception):\n    pass"
+    },
+    {
+      "id": "TS-09-15",
+      "requirement_id": "09-REQ-6.1",
+      "kind": "unit",
+      "description": "Verifies that destroy_worktree() uses workspace.path directly without re-deriving the path from role or mode, correctly handling 4-level paths.",
+      "preconditions": [
+        "packages/agentfox/agentfox/workspace/worktree.py has destroy_worktree() using workspace.path directly",
+        "A stub git CLI is available to capture git worktree remove calls",
+        "A WorkspaceInfo instance with a 4-level path is constructed"
+      ],
+      "input": {
+        "workspace": {
+          "branch": "feature/spec/0/reviewer/drift-review",
+          "mode": "drift-review",
+          "path": "/tmp/repo/.agent-fox/worktrees/spec/0/reviewer/drift-review",
+          "role": "reviewer",
+          "spec_name": "spec",
+          "task_group": 0
+        }
+      },
+      "expected": "git worktree remove is called with the exact 4-level path from workspace.path, not a re-derived shorter path",
+      "assertion_pseudocode": "mock_git = Mock()\nworkspace = WorkspaceInfo(path=Path('/tmp/repo/.agent-fox/worktrees/spec/0/reviewer/drift-review'), branch='feature/spec/0/reviewer/drift-review', spec_name='spec', task_group=0, role='reviewer', mode='drift-review')\nawait destroy_worktree(workspace, git=mock_git)\ncall_args = mock_git.call_args_list\nassert any('/tmp/repo/.agent-fox/worktrees/spec/0/reviewer/drift-review' in str(call) for call in call_args)"
+    },
+    {
+      "id": "TS-09-16",
+      "requirement_id": "09-REQ-6.2",
+      "kind": "unit",
+      "description": "Verifies that _cleanup_empty_ancestors walks upward from a 4-level leaf path to worktrees_root, removing empty intermediate directories.",
+      "preconditions": [
+        "packages/agentfox/agentfox/workspace/worktree.py has _cleanup_empty_ancestors that handles arbitrary depth",
+        "A real temporary filesystem structure is created: {tmp}/.agent-fox/worktrees/spec/0/reviewer/drift-review (empty leaf dir)",
+        "worktrees_root = {tmp}/.agent-fox/worktrees"
+      ],
+      "input": {
+        "leaf_path": "{tmp}/.agent-fox/worktrees/spec/0/reviewer/drift-review",
+        "worktrees_root": "{tmp}/.agent-fox/worktrees"
+      },
+      "expected": "After calling _cleanup_empty_ancestors, the directories drift-review, reviewer, 0, spec are all removed (since they are empty); worktrees_root itself remains",
+      "assertion_pseudocode": "import tempfile, os\nwith tempfile.TemporaryDirectory() as tmp:\n    leaf = Path(tmp) / '.agent-fox/worktrees/spec/0/reviewer/drift-review'\n    leaf.mkdir(parents=True)\n    worktrees_root = Path(tmp) / '.agent-fox/worktrees'\n    _cleanup_empty_ancestors(leaf, worktrees_root)\n    assert not leaf.exists()\n    assert not (Path(tmp) / '.agent-fox/worktrees/spec/0/reviewer').exists()\n    assert not (Path(tmp) / '.agent-fox/worktrees/spec/0').exists()\n    assert not (Path(tmp) / '.agent-fox/worktrees/spec').exists()\n    assert worktrees_root.exists()"
+    },
+    {
+      "id": "TS-09-17",
+      "requirement_id": "09-REQ-7.1",
+      "kind": "unit",
+      "description": "Verifies that create_worktree() detects a pre-existing 4-level path and runs 'git worktree remove --force' before proceeding with creation.",
+      "preconditions": [
+        "packages/agentfox/agentfox/workspace/worktree.py has stale-worktree pre-creation cleanup logic",
+        "A temporary filesystem with a pre-existing directory at the 4-level path is set up",
+        "A stub git CLI is available to capture git commands issued"
+      ],
+      "input": {
+        "base_branch": "main",
+        "mode": "drift-review",
+        "pre_existing_path": "/tmp/repo/.agent-fox/worktrees/spec/0/reviewer/drift-review",
+        "repo_root": "/tmp/repo",
+        "role": "reviewer",
+        "spec_name": "spec",
+        "task_group": 0
+      },
+      "expected": "'git worktree remove --force {4-level-path}' is issued before 'git worktree add' for the same path",
+      "assertion_pseudocode": "stale_path = Path('/tmp/repo/.agent-fox/worktrees/spec/0/reviewer/drift-review')\nstale_path.mkdir(parents=True)\ngit_commands = []\nwith mock_git_cli(capture=git_commands):\n    await create_worktree(repo_root='/tmp/repo', spec_name='spec', task_group=0, base_branch='main', role='reviewer', mode='drift-review')\nworktree_remove_calls = [c for c in git_commands if 'worktree remove' in c and '--force' in c]\nassert len(worktree_remove_calls) >= 1\nworktree_add_calls = [c for c in git_commands if 'worktree add' in c]\nassert len(worktree_add_calls) >= 1\nassert git_commands.index(worktree_remove_calls[0]) < git_commands.index(worktree_add_calls[0])"
+    },
+    {
+      "id": "TS-09-18",
+      "requirement_id": "09-REQ-8.1",
+      "kind": "unit",
+      "description": "Test 1 from the PRD Test Strategy: calls create_worktree() without role or mode and asserts the 2-level path and branch name.",
+      "preconditions": [
+        "packages/agentfox/agentfox/workspace/worktree.py is updated",
+        "A stub git CLI is available so no real git command is executed",
+        "worktrees_root is known (e.g. {repo_root}/.agent-fox/worktrees)"
+      ],
+      "input": {
+        "base_branch": "main",
+        "repo_root": "/tmp/repo",
+        "spec_name": "my_spec",
+        "task_group": 7
+      },
+      "expected": "WorkspaceInfo.path == {worktrees_root}/my_spec/7 and WorkspaceInfo.branch == 'feature/my_spec/7'",
+      "assertion_pseudocode": "result = await create_worktree(repo_root='/tmp/repo', spec_name='my_spec', task_group=7, base_branch='main')\nexpected_path = Path('/tmp/repo/.agent-fox/worktrees/my_spec/7')\nassert result.path == expected_path\nassert result.branch == 'feature/my_spec/7'"
+    },
+    {
+      "id": "TS-09-19",
+      "requirement_id": "09-REQ-8.2",
+      "kind": "unit",
+      "description": "Test 2 from the PRD Test Strategy: calls create_worktree() with role='reviewer' and mode='drift-review' and asserts the 4-level path and branch name.",
+      "preconditions": [
+        "packages/agentfox/agentfox/workspace/worktree.py is updated with 4-level path derivation",
+        "A stub git CLI is available so no real git command is executed",
+        "worktrees_root is known"
+      ],
+      "input": {
+        "base_branch": "main",
+        "mode": "drift-review",
+        "repo_root": "/tmp/repo",
+        "role": "reviewer",
+        "spec_name": "08_spec_generation_improvement",
+        "task_group": 0
+      },
+      "expected": "WorkspaceInfo.path == {worktrees_root}/08_spec_generation_improvement/0/reviewer/drift-review and WorkspaceInfo.branch == 'feature/08_spec_generation_improvement/0/reviewer/drift-review'",
+      "assertion_pseudocode": "result = await create_worktree(repo_root='/tmp/repo', spec_name='08_spec_generation_improvement', task_group=0, base_branch='main', role='reviewer', mode='drift-review')\nassert result.path == Path('/tmp/repo/.agent-fox/worktrees/08_spec_generation_improvement/0/reviewer/drift-review')\nassert result.branch == 'feature/08_spec_generation_improvement/0/reviewer/drift-review'"
+    },
+    {
+      "id": "TS-09-20",
+      "requirement_id": "09-REQ-8.3",
+      "kind": "unit",
+      "description": "Test 3 from the PRD Test Strategy: coder node regression test confirming nodes without mode produce the pre-fix 2-level path.",
+      "preconditions": [
+        "packages/agentfox/agentfox/workspace/worktree.py is updated",
+        "A stub git CLI is available so no real git command is executed",
+        "The pre-fix expected path structure is documented: {worktrees_root}/{spec_name}/{task_group}"
+      ],
+      "input": {
+        "base_branch": "main",
+        "mode": null,
+        "repo_root": "/tmp/repo",
+        "role": "coder",
+        "spec_name": "coder_spec",
+        "task_group": 2
+      },
+      "expected": "WorkspaceInfo.path matches the pre-fix 2-level path {worktrees_root}/coder_spec/2 exactly; no extra segments are appended",
+      "assertion_pseudocode": "result = await create_worktree(repo_root='/tmp/repo', spec_name='coder_spec', task_group=2, base_branch='main', role='coder', mode=None)\nexpected_path = Path('/tmp/repo/.agent-fox/worktrees/coder_spec/2')\nassert result.path == expected_path\nassert result.branch == 'feature/coder_spec/2'\n# Confirm it does NOT have extra role/mode segments\nassert 'coder' not in str(result.path)"
+    },
+    {
+      "id": "TS-09-21",
+      "requirement_id": "09-REQ-8.4",
+      "kind": "unit",
+      "description": "Test 4 from the PRD Test Strategy (CI blocking): concurrent create_worktree() calls with (reviewer, pre-review) and (reviewer, drift-review) produce non-equal, non-colliding paths.",
+      "preconditions": [
+        "packages/agentfox/agentfox/workspace/worktree.py is updated with 4-level path derivation",
+        "A stub git CLI is available so no real git commands are executed",
+        "This test is registered as a blocking required check in the PR pytest pipeline (e.g. via pytest markers and CI config)",
+        "asyncio event loop is available for concurrent execution"
+      ],
+      "input": {
+        "base_branch": "main",
+        "pair_1": {
+          "mode": "pre-review",
+          "role": "reviewer"
+        },
+        "pair_2": {
+          "mode": "drift-review",
+          "role": "reviewer"
+        },
+        "repo_root": "/tmp/repo",
+        "spec_name": "08_spec_generation_improvement",
+        "task_group": 0
+      },
+      "expected": "Both calls complete without error; result1.path != result2.path and result1.branch != result2.branch",
+      "assertion_pseudocode": "result1, result2 = await asyncio.gather(\n    create_worktree(repo_root='/tmp/repo', spec_name='08_spec_generation_improvement', task_group=0, base_branch='main', role='reviewer', mode='pre-review'),\n    create_worktree(repo_root='/tmp/repo', spec_name='08_spec_generation_improvement', task_group=0, base_branch='main', role='reviewer', mode='drift-review')\n)\nassert result1.path != result2.path\nassert result1.branch != result2.branch\nassert 'pre-review' in str(result1.path)\nassert 'drift-review' in str(result2.path)"
+    },
+    {
+      "id": "TS-09-22",
+      "requirement_id": "09-REQ-8.5",
+      "kind": "unit",
+      "description": "Test 5 from the PRD Test Strategy: create_worktree() called with mode='' and role='' produces the 2-level path, identical to the all-None case.",
+      "preconditions": [
+        "packages/agentfox/agentfox/workspace/worktree.py applies empty-string normalisation",
+        "A stub git CLI is available so no real git command is executed",
+        "A temporary directory exists to serve as repo_root"
+      ],
+      "input": {
+        "base_branch": "main",
+        "mode": "",
+        "repo_root": "/tmp/repo",
+        "role": "",
+        "spec_name": "test_spec",
+        "task_group": 0
+      },
+      "expected": "WorkspaceInfo.path == {worktrees_root}/test_spec/0 and WorkspaceInfo.branch == 'feature/test_spec/0', identical to the result when role=None and mode=None",
+      "assertion_pseudocode": "result_empty = await create_worktree(repo_root='/tmp/repo', spec_name='test_spec', task_group=0, base_branch='main', role='', mode='')\nresult_none = await create_worktree(repo_root='/tmp/repo', spec_name='test_spec', task_group=0, base_branch='main', role=None, mode=None)\nassert result_empty.path == result_none.path\nassert result_empty.branch == result_none.branch\nassert result_empty.path == Path('/tmp/repo/.agent-fox/worktrees/test_spec/0')"
+    },
+    {
+      "id": "TS-09-23",
+      "requirement_id": "09-REQ-8.6",
+      "kind": "unit",
+      "description": "Test 6 from the PRD Test Strategy: create_worktree() called with role='reviewer' and mode=None produces the 2-level path with no WARNING emitted.",
+      "preconditions": [
+        "packages/agentfox/agentfox/workspace/worktree.py implements silent role-present, mode-absent fallback",
+        "A stub git CLI is available so no real git command is executed",
+        "A log capture fixture is available (e.g. pytest caplog)"
+      ],
+      "input": {
+        "base_branch": "main",
+        "mode": null,
+        "repo_root": "/tmp/repo",
+        "role": "reviewer",
+        "spec_name": "test_spec",
+        "task_group": 0
+      },
+      "expected": "WorkspaceInfo.path == {worktrees_root}/test_spec/0, branch == 'feature/test_spec/0', and no WARNING-level log message is emitted",
+      "assertion_pseudocode": "with capture_logs(level='WARNING') as logs:\n    result = await create_worktree(repo_root='/tmp/repo', spec_name='test_spec', task_group=0, base_branch='main', role='reviewer', mode=None)\nassert result.path == Path('/tmp/repo/.agent-fox/worktrees/test_spec/0')\nassert result.branch == 'feature/test_spec/0'\nassert len([l for l in logs if l.levelname == 'WARNING']) == 0"
+    },
+    {
+      "id": "TS-09-24",
+      "requirement_id": "09-REQ-8.7",
+      "kind": "unit",
+      "description": "Test 7 from the PRD Test Strategy: create_worktree() called with role=None and mode='drift-review' produces 'unknown' as the role segment in the path and emits a WARNING containing mode, spec_name, and task_group.",
+      "preconditions": [
+        "packages/agentfox/agentfox/workspace/worktree.py implements WARNING + unknown-role fallback",
+        "A stub git CLI is available so no real git command is executed",
+        "A log capture fixture is available (e.g. pytest caplog)"
+      ],
+      "input": {
+        "base_branch": "main",
+        "mode": "drift-review",
+        "repo_root": "/tmp/repo",
+        "role": null,
+        "spec_name": "08_spec_generation_improvement",
+        "task_group": 0
+      },
+      "expected": "Path contains 'unknown' as role segment; branch contains 'unknown'; a WARNING log is emitted containing 'drift-review', '08_spec_generation_improvement', and '0'",
+      "assertion_pseudocode": "with capture_logs(level='WARNING') as logs:\n    result = await create_worktree(repo_root='/tmp/repo', spec_name='08_spec_generation_improvement', task_group=0, base_branch='main', role=None, mode='drift-review')\nassert result.path == Path('/tmp/repo/.agent-fox/worktrees/08_spec_generation_improvement/0/unknown/drift-review')\nassert 'unknown' in result.branch\nwarning_logs = [l for l in logs if l.levelname == 'WARNING']\nassert len(warning_logs) >= 1\nassert 'drift-review' in warning_logs[0].message\nassert '08_spec_generation_improvement' in warning_logs[0].message\nassert '0' in warning_logs[0].message"
+    }
+  ],
+  "property_tests": [
+    {
+      "id": "TS-09-P1",
+      "property_id": "09-PROP-1",
+      "validates": [
+        "09-REQ-2.2",
+        "09-REQ-2.E2"
+      ],
+      "description": "For any two create_worktree() calls with the same spec_name and task_group but different (role, mode) pairs where effective_mode is non-None for both, the resulting paths and branches must be distinct.",
+      "for_any_strategy": "Generate pairs of (role1, mode1) and (role2, mode2) where mode1 and mode2 are non-empty strings and (role1, mode1) != (role2, mode2). Use hypothesis or pytest-randomly to vary spec_name (matching [a-zA-Z0-9_-]+) and task_group (non-negative int).",
+      "invariant_check": "result1 = await create_worktree(..., role=role1, mode=mode1)\nresult2 = await create_worktree(..., role=role2, mode=mode2)\nassert result1.path != result2.path\nassert result1.branch != result2.branch"
+    },
+    {
+      "id": "TS-09-P2",
+      "property_id": "09-PROP-2",
+      "validates": [
+        "09-REQ-1.2",
+        "09-REQ-1.E1",
+        "09-REQ-2.E1"
+      ],
+      "description": "For any combination of role and mode where each is None or empty string, create_worktree() always produces the 2-level path and branch, indistinguishable from the all-None call.",
+      "for_any_strategy": "Enumerate all four combinations: (None, None), ('', None), (None, ''), ('', ''). For each, call create_worktree() with fixed spec_name and task_group.",
+      "invariant_check": "for role, mode in [(None,None),('',None),(None,''),('','')]:\n    result = await create_worktree(repo_root='/tmp/repo', spec_name='spec', task_group=0, base_branch='main', role=role, mode=mode)\n    assert result.path == Path('/tmp/repo/.agent-fox/worktrees/spec/0')\n    assert result.branch == 'feature/spec/0'\n    assert result.role is None\n    assert result.mode is None"
+    },
+    {
+      "id": "TS-09-P3",
+      "property_id": "09-PROP-3",
+      "validates": [
+        "09-REQ-2.1",
+        "09-REQ-2.3",
+        "09-REQ-5.1"
+      ],
+      "description": "For any call to create_worktree() where effective_mode resolves to None, the path equals the 2-level path and the branch equals feature/{spec_name}/{task_group}, regardless of the effective_role value.",
+      "for_any_strategy": "Generate arbitrary role values (None, '', 'coder', 'reviewer', random strings) combined with mode values that resolve to None (None or ''). Use hypothesis with text() strategies for role and spec_name, integers for task_group.",
+      "invariant_check": "for role in [None, '', 'coder', 'reviewer', 'some-random-role']:\n    for mode in [None, '']:\n        result = await create_worktree(repo_root='/tmp/repo', spec_name='spec', task_group=1, base_branch='main', role=role, mode=mode)\n        assert result.path == Path('/tmp/repo/.agent-fox/worktrees/spec/1')\n        assert result.branch == 'feature/spec/1'"
+    },
+    {
+      "id": "TS-09-P4",
+      "property_id": "09-PROP-4",
+      "validates": [
+        "09-REQ-1.3",
+        "09-REQ-3.1"
+      ],
+      "description": "For any successful call to create_worktree(), WorkspaceInfo.role reflects the normalised effective_role (None when mode is absent, 'unknown' when mode is present but role was absent) and WorkspaceInfo.mode reflects effective_mode.",
+      "for_any_strategy": "Enumerate representative combinations: (None, None), ('', ''), ('reviewer', 'drift-review'), (None, 'drift-review'), ('reviewer', None), ('', 'drift-review'). Use stub git CLI.",
+      "invariant_check": "cases = [\n    (None, None, None, None),\n    ('', '', None, None),\n    ('reviewer', 'drift-review', 'reviewer', 'drift-review'),\n    (None, 'drift-review', 'unknown', 'drift-review'),\n    ('reviewer', None, None, None),\n    ('', 'drift-review', 'unknown', 'drift-review'),\n]\nfor role, mode, expected_role, expected_mode in cases:\n    result = await create_worktree(repo_root='/tmp/repo', spec_name='spec', task_group=0, base_branch='main', role=role, mode=mode)\n    assert result.role == expected_role\n    assert result.mode == expected_mode"
+    },
+    {
+      "id": "TS-09-P5",
+      "property_id": "09-PROP-5",
+      "validates": [
+        "09-REQ-3.2"
+      ],
+      "description": "WorkspaceInfo constructed without role or mode arguments always succeeds and defaults both fields to None, preserving backward compatibility.",
+      "for_any_strategy": "Generate arbitrary valid path, branch, spec_name, and task_group values. Construct WorkspaceInfo omitting the role and mode keyword arguments each time.",
+      "invariant_check": "for spec_name, task_group in [('spec_a', 0), ('spec_b', 1), ('spec-c', 99)]:\n    info = WorkspaceInfo(\n        path=Path(f'/tmp/worktrees/{spec_name}/{task_group}'),\n        branch=f'feature/{spec_name}/{task_group}',\n        spec_name=spec_name,\n        task_group=task_group\n    )\n    assert info.role is None\n    assert info.mode is None"
+    }
+  ],
+  "edge_case_tests": [
+    {
+      "id": "TS-09-E1",
+      "requirement_id": "09-REQ-1.E1",
+      "kind": "unit",
+      "description": "Verifies that passing an empty string for either role or mode is treated as None after normalisation, not as a literal empty-string segment.",
+      "preconditions": [
+        "packages/agentfox/agentfox/workspace/worktree.py applies mode or None / role or None normalisation",
+        "A stub git CLI is available so no real git command is executed"
+      ],
+      "input": {
+        "mode": "",
+        "role": ""
+      },
+      "expected": "WorkspaceInfo.role is None and WorkspaceInfo.mode is None; the path is the 2-level path with no empty segment",
+      "assertion_pseudocode": "result = await create_worktree(repo_root='/tmp/repo', spec_name='test_spec', task_group=0, base_branch='main', role='', mode='')\nassert result.role is None\nassert result.mode is None\nassert '' not in result.path.parts  # no empty path segment\nassert result.path == Path('/tmp/repo/.agent-fox/worktrees/test_spec/0')"
+    },
+    {
+      "id": "TS-09-E2",
+      "requirement_id": "09-REQ-2.E1",
+      "kind": "unit",
+      "description": "Verifies that when both role and mode are empty strings, the resulting path and branch are identical to the all-None case (2-level path).",
+      "preconditions": [
+        "packages/agentfox/agentfox/workspace/worktree.py applies empty-string normalisation before path derivation",
+        "A stub git CLI is available so no real git command is executed"
+      ],
+      "input": {
+        "mode": "",
+        "role": ""
+      },
+      "expected": "Path == {worktrees_root}/test_spec/0 and branch == 'feature/test_spec/0', identical to role=None, mode=None",
+      "assertion_pseudocode": "r_empty = await create_worktree(repo_root='/tmp/repo', spec_name='test_spec', task_group=0, base_branch='main', role='', mode='')\nr_none = await create_worktree(repo_root='/tmp/repo', spec_name='test_spec', task_group=0, base_branch='main', role=None, mode=None)\nassert r_empty.path == r_none.path\nassert r_empty.branch == r_none.branch"
+    },
+    {
+      "id": "TS-09-E3",
+      "requirement_id": "09-REQ-2.E2",
+      "kind": "unit",
+      "description": "Verifies that two concurrent create_worktree() calls with identical spec_name/task_group but different (role, mode) pairs produce distinct, non-colliding paths — the real-world failure scenario.",
+      "preconditions": [
+        "packages/agentfox/agentfox/workspace/worktree.py derives 4-level paths for mode-bearing nodes",
+        "A stub git CLI is available so no real git commands are executed",
+        "asyncio event loop is available for concurrent execution"
+      ],
+      "input": {
+        "pair_1": {
+          "mode": "pre-review",
+          "role": "reviewer"
+        },
+        "pair_2": {
+          "mode": "drift-review",
+          "role": "reviewer"
+        },
+        "spec_name": "08_spec_generation_improvement",
+        "task_group": 0
+      },
+      "expected": "result1.path != result2.path; result1.branch != result2.branch; both paths contain the respective mode segments",
+      "assertion_pseudocode": "r1, r2 = await asyncio.gather(\n    create_worktree(repo_root='/tmp/repo', spec_name='08_spec_generation_improvement', task_group=0, base_branch='main', role='reviewer', mode='pre-review'),\n    create_worktree(repo_root='/tmp/repo', spec_name='08_spec_generation_improvement', task_group=0, base_branch='main', role='reviewer', mode='drift-review')\n)\nassert r1.path != r2.path\nassert r1.branch != r2.branch\nassert 'pre-review' in str(r1.path)\nassert 'drift-review' in str(r2.path)"
+    },
+    {
+      "id": "TS-09-E4",
+      "requirement_id": "09-REQ-4.E1",
+      "kind": "unit",
+      "description": "Verifies that when NodeSessionRunner._mode is an empty-string sentinel, _setup_workspace() passes it as-is and create_worktree() normalises it to None, resulting in a 2-level path.",
+      "preconditions": [
+        "packages/agentfox/agentfox/engine/session_lifecycle.py passes self._mode as-is to create_worktree()",
+        "packages/agentfox/agentfox/workspace/worktree.py normalises empty string mode to None",
+        "create_worktree() is partially mocked to capture the mode argument while still executing path derivation logic",
+        "A stub git CLI is available"
+      ],
+      "input": {
+        "_archetype": "coder",
+        "_mode": ""
+      },
+      "expected": "create_worktree() receives mode='' from the call site; after normalisation WorkspaceInfo has mode=None and path equals the 2-level path",
+      "assertion_pseudocode": "captured_args = {}\noriginal_create = create_worktree\nasync def capturing_create(*args, **kwargs):\n    captured_args.update(kwargs)\n    return await original_create(*args, **kwargs)\n\nwith patch('agentfox.workspace.worktree.create_worktree', capturing_create):\n    runner = NodeSessionRunner(..., archetype='coder', mode='')\n    result = await runner._setup_workspace()\n\nassert captured_args.get('mode') == ''\nassert result.mode is None\nassert result.path == Path('/tmp/repo/.agent-fox/worktrees/{spec_name}/{task_group}')"
+    }
+  ],
+  "smoke_tests": [
+    {
+      "id": "TS-09-SMOKE-1",
+      "execution_path_id": "09-PATH-1",
+      "description": "Smoke test for the concurrent reviewer node dispatch path: two reviewer nodes with different modes are dispatched concurrently and both create worktrees at distinct 4-level paths without exit-code-128 failures.",
+      "trigger": "Concurrently invoke create_worktree() twice with the same spec_name and task_group but modes='pre-review' and 'drift-review' respectively, using asyncio.gather()",
+      "real_components": [
+        "packages/agentfox/agentfox/workspace/worktree.py (create_worktree)",
+        "packages/agentfox/agentfox/workspace/worktree.py (WorkspaceInfo)"
+      ],
+      "mockable": [
+        "git CLI subprocess calls (mock to prevent real git commands; assert 'git worktree add' is called twice with distinct paths)"
+      ],
+      "expected_effects": [
+        "Two WorkspaceInfo instances are returned with distinct path and branch values",
+        "result1.path contains 'reviewer/pre-review' segment",
+        "result2.path contains 'reviewer/drift-review' segment",
+        "No exit-code-128 exception is raised",
+        "'git worktree add' is called twice with different target paths"
+      ]
+    },
+    {
+      "id": "TS-09-SMOKE-2",
+      "execution_path_id": "09-PATH-2",
+      "description": "Smoke test for the coder node workspace setup path: a coder node with no mode receives a 2-level worktree path identical to the pre-fix behaviour.",
+      "trigger": "Call create_worktree() with role='coder' and mode=None (or mode='') to simulate a NodeSessionRunner with _archetype='coder' and _mode=None",
+      "real_components": [
+        "packages/agentfox/agentfox/workspace/worktree.py (create_worktree)",
+        "packages/agentfox/agentfox/workspace/worktree.py (WorkspaceInfo)"
+      ],
+      "mockable": [
+        "git CLI subprocess calls (mock to prevent real git commands)"
+      ],
+      "expected_effects": [
+        "WorkspaceInfo.path equals {worktrees_root}/{spec_name}/{task_group} (2-level only)",
+        "WorkspaceInfo.branch equals 'feature/{spec_name}/{task_group}'",
+        "WorkspaceInfo.role is None",
+        "WorkspaceInfo.mode is None",
+        "No 'reviewer' or 'coder' segment appears in the path"
+      ]
+    },
+    {
+      "id": "TS-09-SMOKE-3",
+      "execution_path_id": "09-PATH-3",
+      "description": "Smoke test for the mode-set, role-absent fallback path: a node with mode='drift-review' but no role causes a WARNING log and proceeds with 'unknown' as the role segment.",
+      "trigger": "Call create_worktree() with role=None and mode='drift-review' using a log capture fixture to observe the WARNING",
+      "real_components": [
+        "packages/agentfox/agentfox/workspace/worktree.py (create_worktree)",
+        "packages/agentfox/agentfox/workspace/worktree.py (WorkspaceInfo)",
+        "Python logging system"
+      ],
+      "mockable": [
+        "git CLI subprocess calls (mock to prevent real git commands)"
+      ],
+      "expected_effects": [
+        "A WARNING-level log message is emitted containing 'drift-review', the spec_name, and task_group",
+        "WorkspaceInfo.path contains 'unknown/drift-review' as the last two segments",
+        "WorkspaceInfo.role equals 'unknown'",
+        "WorkspaceInfo.mode equals 'drift-review'",
+        "No exception is raised; the worktree creation proceeds"
+      ]
+    },
+    {
+      "id": "TS-09-SMOKE-4",
+      "execution_path_id": "09-PATH-4",
+      "description": "Smoke test for the stale-worktree pre-creation cleanup path: a pre-existing directory at the 4-level path is detected and forcibly removed before the new worktree is created.",
+      "trigger": "Pre-create the 4-level directory at {worktrees_root}/{spec_name}/{task_group}/reviewer/drift-review on disk, then call create_worktree() with the same parameters",
+      "real_components": [
+        "packages/agentfox/agentfox/workspace/worktree.py (create_worktree)",
+        "packages/agentfox/agentfox/workspace/worktree.py (_cleanup_empty_ancestors)",
+        "Filesystem (temporary directory)"
+      ],
+      "mockable": [
+        "git CLI subprocess calls (mock to capture 'git worktree remove --force' and 'git worktree add' commands)"
+      ],
+      "expected_effects": [
+        "'git worktree remove --force {4-level-path}' is issued before 'git worktree add'",
+        "'git worktree add' is subsequently called at the same 4-level path",
+        "The final WorkspaceInfo.path equals the 4-level path",
+        "No exit-code-128 error is raised"
+      ]
+    }
+  ],
+  "coverage": {
+    "requirements_covered": [],
+    "properties_covered": [],
+    "paths_covered": [],
+    "gaps": []
+  }
+}

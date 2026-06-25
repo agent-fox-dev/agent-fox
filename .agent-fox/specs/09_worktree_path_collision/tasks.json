@@ -1,0 +1,850 @@
+{
+  "$schema": null,
+  "spec_id": "09",
+  "spec_name": "worktree_path_collision",
+  "schema_version": 1,
+  "test_commands": {
+    "spec_tests": "pytest packages/agentfox/tests/test_worktree_path_collision.py -v",
+    "all_tests": "pytest packages/agentfox -q",
+    "linter": "ruff check packages/agentfox/agentfox/"
+  },
+  "dependencies": [
+    {
+      "depends_on_spec": "04",
+      "from_group": 7,
+      "to_group": 5,
+      "relationship": "The parallel dispatcher introduced in spec 04 is the entry point that dispatches concurrent NodeSessionRunner instances; wiring verification for this spec must confirm the dispatcher passes mode to NodeSessionRunner.",
+      "sentinel": false
+    }
+  ],
+  "task_groups": [
+    {
+      "id": 1,
+      "kind": "tests",
+      "title": "Write pytest test suite for worktree path collision fix",
+      "subtasks": [
+        {
+          "id": "1.1",
+          "title": "Create test file and fixture scaffolding for create_worktree() tests",
+          "details": [
+            "Create packages/agentfox/tests/test_worktree_path_collision.py",
+            "Add a pytest fixture that stubs git CLI subprocess calls (monkeypatch or AsyncMock) so no real git commands execute",
+            "Add a fixture providing a tmp_path-based repo_root with .agent-fox/worktrees/ structure",
+            "Add a caplog fixture alias for WARNING-level log capture",
+            "Import create_worktree, WorkspaceInfo, destroy_worktree, _cleanup_empty_ancestors from agentfox.workspace.worktree"
+          ],
+          "test_spec_refs": [
+            "TS-09-18",
+            "TS-09-19",
+            "TS-09-20",
+            "TS-09-21"
+          ],
+          "requirement_refs": [
+            "09-REQ-8.1",
+            "09-REQ-8.2",
+            "09-REQ-8.3",
+            "09-REQ-8.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.2",
+          "title": "Implement PRD tests 1–3: 2-level path, 4-level path, and coder regression",
+          "details": [
+            "test_path_without_mode: call create_worktree() with role=None, mode=None; assert path=={worktrees_root}/my_spec/7 and branch=='feature/my_spec/7' (TS-09-18)",
+            "test_path_with_role_and_mode: call with role='reviewer', mode='drift-review'; assert 4-level path and branch (TS-09-19)",
+            "test_coder_regression: call with role='coder', mode=None; assert path equals 2-level, 'coder' not in path parts (TS-09-20)"
+          ],
+          "test_spec_refs": [
+            "TS-09-18",
+            "TS-09-19",
+            "TS-09-20",
+            "TS-09-4",
+            "TS-09-5",
+            "TS-09-13"
+          ],
+          "requirement_refs": [
+            "09-REQ-8.1",
+            "09-REQ-8.2",
+            "09-REQ-8.3",
+            "09-REQ-5.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.3",
+          "title": "Implement PRD test 4 (CI blocking): concurrent distinct-path test",
+          "details": [
+            "Mark the test with @pytest.mark.asyncio and @pytest.mark.ci_required (or equivalent CI blocking marker)",
+            "Use asyncio.gather() to concurrently call create_worktree() with (reviewer, pre-review) and (reviewer, drift-review) for the same spec_name/task_group",
+            "Assert result1.path != result2.path and result1.branch != result2.branch",
+            "Assert 'pre-review' in str(result1.path) and 'drift-review' in str(result2.path)",
+            "Document in a comment that this test must be a blocking PR pipeline check per 09-REQ-8.4"
+          ],
+          "test_spec_refs": [
+            "TS-09-21",
+            "TS-09-E3"
+          ],
+          "requirement_refs": [
+            "09-REQ-8.4",
+            "09-REQ-2.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.4",
+          "title": "Implement PRD tests 5–7: empty-string, role-only fallback, and mode-only WARNING",
+          "details": [
+            "test_empty_string_treated_as_none: call with role='', mode=''; assert path==2-level, role==None, mode==None (TS-09-22)",
+            "test_role_present_mode_absent_silent: call with role='reviewer', mode=None; assert 2-level path; use caplog to assert no WARNING emitted (TS-09-23)",
+            "test_mode_present_role_absent_warning: call with role=None, mode='drift-review'; assert path contains 'unknown', branch contains 'unknown', caplog has WARNING containing 'drift-review', spec_name, and task_group (TS-09-24)"
+          ],
+          "test_spec_refs": [
+            "TS-09-22",
+            "TS-09-23",
+            "TS-09-24",
+            "TS-09-E1",
+            "TS-09-E2"
+          ],
+          "requirement_refs": [
+            "09-REQ-8.5",
+            "09-REQ-8.6",
+            "09-REQ-8.7"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.5",
+          "title": "Implement WorkspaceInfo, destroy_worktree, _cleanup_empty_ancestors, and NodeSessionRunner tests",
+          "details": [
+            "test_workspace_info_new_fields: construct WorkspaceInfo with role and mode; assert frozen (FrozenInstanceError on mutation) (TS-09-8)",
+            "test_workspace_info_backward_compat: construct without role/mode; assert both default to None (TS-09-9)",
+            "test_workspace_info_no_serialization: assert no to_json/serialize/to_dict attributes (TS-09-10)",
+            "test_setup_workspace_passes_role_mode: mock create_worktree, assert called with role=self._archetype, mode=self._mode (TS-09-11)",
+            "test_setup_workspace_passes_empty_string_mode_as_is: mock with _mode=''; assert mock receives mode='' not None (TS-09-12)",
+            "test_destroy_worktree_uses_full_path: create WorkspaceInfo with 4-level path; assert git rm --force is called with that exact path (TS-09-15)",
+            "test_cleanup_empty_ancestors_4level: build real tmp dir tree at 4-level depth; call _cleanup_empty_ancestors; assert all intermediate dirs removed, worktrees_root remains (TS-09-16)",
+            "test_stale_worktree_cleanup_before_add: pre-create 4-level dir; assert git worktree remove --force precedes git worktree add (TS-09-17)"
+          ],
+          "test_spec_refs": [
+            "TS-09-8",
+            "TS-09-9",
+            "TS-09-10",
+            "TS-09-11",
+            "TS-09-12",
+            "TS-09-15",
+            "TS-09-16",
+            "TS-09-17"
+          ],
+          "requirement_refs": [
+            "09-REQ-3.1",
+            "09-REQ-3.2",
+            "09-REQ-3.3",
+            "09-REQ-4.1",
+            "09-REQ-4.2",
+            "09-REQ-6.1",
+            "09-REQ-6.2",
+            "09-REQ-7.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.6",
+          "title": "Implement property tests and smoke tests",
+          "details": [
+            "TS-09-P1: parametrize distinct (role, mode) pairs; assert paths differ for same spec_name/task_group",
+            "TS-09-P2: enumerate (None,None),('',None),(None,''),('',''); assert all yield 2-level path",
+            "TS-09-P3: matrix of role variants × {None,''} modes; assert all yield 2-level path",
+            "TS-09-P4: enumerate representative (role, mode) → (expected_role, expected_mode) tuples; assert WorkspaceInfo fields",
+            "TS-09-P5: construct WorkspaceInfo without role/mode for several spec/task_group combos; assert defaults None",
+            "TS-09-SMOKE-1 through SMOKE-4: implement smoke tests exercising execution paths PATH-1..PATH-4 with stubbed git CLI"
+          ],
+          "test_spec_refs": [
+            "TS-09-P1",
+            "TS-09-P2",
+            "TS-09-P3",
+            "TS-09-P4",
+            "TS-09-P5",
+            "TS-09-SMOKE-1",
+            "TS-09-SMOKE-2",
+            "TS-09-SMOKE-3",
+            "TS-09-SMOKE-4"
+          ],
+          "requirement_refs": [
+            "09-REQ-2.2",
+            "09-REQ-2.E2",
+            "09-REQ-1.2",
+            "09-REQ-5.1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "1.V",
+        "checks": [
+          "All newly written tests are collected by pytest with zero import errors: pytest packages/agentfox/tests/test_worktree_path_collision.py --collect-only",
+          "Tests fail (red) because the implementation does not yet include role/mode arguments — confirming tests are correctly exercising the not-yet-implemented code",
+          "No linter errors in the new test file: ruff check packages/agentfox/tests/test_worktree_path_collision.py",
+          "Test 4 (concurrent-dispatch) is marked with the CI blocking marker and appears in the marker list"
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "kind": "standard",
+      "title": "Update WorkspaceInfo dataclass with role and mode fields",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Add role and mode optional fields to WorkspaceInfo frozen dataclass",
+          "details": [
+            "In packages/agentfox/agentfox/workspace/worktree.py, locate the WorkspaceInfo @dataclass(frozen=True) definition",
+            "Add `role: str | None = None` after the existing required fields (path, branch, spec_name, task_group)",
+            "Add `mode: str | None = None` immediately after role",
+            "Ensure both fields have default=None so existing constructors with positional or keyword args for the four existing fields continue to work",
+            "Do not add any serialization methods — WorkspaceInfo remains in-memory only"
+          ],
+          "test_spec_refs": [
+            "TS-09-8",
+            "TS-09-9",
+            "TS-09-10"
+          ],
+          "requirement_refs": [
+            "09-REQ-3.1",
+            "09-REQ-3.2",
+            "09-REQ-3.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.2",
+          "title": "Verify WorkspaceInfo re-export in workspace __init__.py is unchanged",
+          "details": [
+            "Open packages/agentfox/agentfox/workspace/__init__.py",
+            "Confirm WorkspaceInfo is re-exported (e.g. `from .worktree import WorkspaceInfo`)",
+            "No changes required — new fields with defaults are backward-compatible; document this as a no-op change with a comment if helpful"
+          ],
+          "test_spec_refs": [
+            "TS-09-9"
+          ],
+          "requirement_refs": [
+            "09-REQ-3.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "2.V",
+        "checks": [
+          "TS-09-8 (WorkspaceInfo frozen with role/mode) passes: pytest packages/agentfox/tests/test_worktree_path_collision.py::test_workspace_info_new_fields -v",
+          "TS-09-9 (backward compat default None) passes: pytest packages/agentfox/tests/test_worktree_path_collision.py::test_workspace_info_backward_compat -v",
+          "TS-09-10 (no serialization attributes) passes: pytest packages/agentfox/tests/test_worktree_path_collision.py::test_workspace_info_no_serialization -v",
+          "All existing tests continue to pass: pytest packages/agentfox -q",
+          "Requirements 09-REQ-3.1, 09-REQ-3.2, 09-REQ-3.3 acceptance criteria met",
+          "No linter warnings: ruff check packages/agentfox/agentfox/workspace/worktree.py"
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "kind": "standard",
+      "title": "Update create_worktree() signature, normalisation logic, and path/branch derivation",
+      "subtasks": [
+        {
+          "id": "3.1",
+          "title": "Add role and mode keyword arguments to create_worktree() signature",
+          "details": [
+            "In packages/agentfox/agentfox/workspace/worktree.py, update create_worktree() to match the new signature:",
+            "  async def create_worktree(repo_root: Path, spec_name: str, task_group: int, base_branch: str, branch_name: str | None = None, role: str | None = None, mode: str | None = None) -> WorkspaceInfo:",
+            "Ensure all existing call sites (that do not pass role/mode) remain valid because both new args have defaults"
+          ],
+          "test_spec_refs": [
+            "TS-09-1"
+          ],
+          "requirement_refs": [
+            "09-REQ-1.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.2",
+          "title": "Implement empty-string normalisation for role and mode inside create_worktree()",
+          "details": [
+            "At the top of create_worktree(), immediately after argument receipt, add:",
+            "  effective_mode = mode or None   # normalises '' → None",
+            "  effective_role = role or None   # normalises '' → None",
+            "All downstream path and branch derivation logic MUST reference effective_mode/effective_role, not the raw role/mode parameters"
+          ],
+          "test_spec_refs": [
+            "TS-09-2",
+            "TS-09-E1"
+          ],
+          "requirement_refs": [
+            "09-REQ-1.2",
+            "09-REQ-1.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.3",
+          "title": "Implement path and branch derivation rules for 2-level and 4-level paths",
+          "details": [
+            "Replace the existing two-line path/branch derivation with the following logic:",
+            "  if effective_mode is None:",
+            "      worktree_path = worktrees_root / spec_name / str(task_group)  # 2-level (role silently ignored)",
+            "      computed_branch = branch_name or f'feature/{spec_name}/{task_group}'",
+            "  else:",
+            "      if effective_role is None:",
+            "          import logging; logging.getLogger('worktree').warning(",
+            "              f\"worktree: mode={effective_mode!r} was provided but role is None/empty for spec={spec_name!r} task_group={task_group} — defaulting role to 'unknown'. Check graph config.\"",
+            "          )",
+            "          effective_role = 'unknown'",
+            "      worktree_path = worktrees_root / spec_name / str(task_group) / effective_role / effective_mode  # 4-level",
+            "      computed_branch = branch_name or f'feature/{spec_name}/{task_group}/{effective_role}/{effective_mode}'"
+          ],
+          "test_spec_refs": [
+            "TS-09-4",
+            "TS-09-5",
+            "TS-09-6",
+            "TS-09-7"
+          ],
+          "requirement_refs": [
+            "09-REQ-2.1",
+            "09-REQ-2.2",
+            "09-REQ-2.3",
+            "09-REQ-2.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.4",
+          "title": "Populate role and mode fields on the returned WorkspaceInfo",
+          "details": [
+            "When constructing the WorkspaceInfo return value, pass role=effective_role and mode=effective_mode",
+            "Note: effective_role is 'unknown' (not None) when mode was set but original role was absent — WorkspaceInfo.role will reflect 'unknown' in that case",
+            "When effective_mode is None, effective_role is also normalised to None (even if it was originally set), so WorkspaceInfo.role=None and WorkspaceInfo.mode=None for all 2-level cases"
+          ],
+          "test_spec_refs": [
+            "TS-09-3",
+            "TS-09-P4"
+          ],
+          "requirement_refs": [
+            "09-REQ-1.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.5",
+          "title": "Confirm stale-worktree pre-creation check operates on the computed worktree_path",
+          "details": [
+            "Verify that the existing stale check (`if worktree_path.exists(): git worktree remove --force <path>`) references the variable worktree_path which now points to the 4-level path when mode is set",
+            "No logic change is required — only confirm the variable reference is correct after refactoring path derivation in 3.3",
+            "If the stale check uses a different variable name, rename or redirect it to the unified worktree_path variable"
+          ],
+          "test_spec_refs": [
+            "TS-09-17",
+            "TS-09-SMOKE-4"
+          ],
+          "requirement_refs": [
+            "09-REQ-7.1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "3.V",
+        "checks": [
+          "PRD test 1 (TS-09-18) passes: pytest packages/agentfox/tests/test_worktree_path_collision.py::test_path_without_mode -v",
+          "PRD test 2 (TS-09-19) passes: pytest packages/agentfox/tests/test_worktree_path_collision.py::test_path_with_role_and_mode -v",
+          "PRD test 5 (TS-09-22) passes: pytest packages/agentfox/tests/test_worktree_path_collision.py::test_empty_string_treated_as_none -v",
+          "PRD test 6 (TS-09-23) passes: pytest packages/agentfox/tests/test_worktree_path_collision.py::test_role_present_mode_absent_silent -v",
+          "PRD test 7 (TS-09-24) passes: pytest packages/agentfox/tests/test_worktree_path_collision.py::test_mode_present_role_absent_warning -v",
+          "TS-09-17 (stale cleanup before add) passes: pytest packages/agentfox/tests/test_worktree_path_collision.py::test_stale_worktree_cleanup_before_add -v",
+          "Requirements 09-REQ-1.1, 09-REQ-1.2, 09-REQ-1.3, 09-REQ-2.1, 09-REQ-2.2, 09-REQ-2.3, 09-REQ-2.4, 09-REQ-7.1 acceptance criteria met",
+          "No linter warnings: ruff check packages/agentfox/agentfox/workspace/worktree.py"
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "kind": "standard",
+      "title": "Update NodeSessionRunner._setup_workspace() to pass role and mode",
+      "subtasks": [
+        {
+          "id": "4.1",
+          "title": "Pass role=self._archetype and mode=self._mode to create_worktree() in _setup_workspace()",
+          "details": [
+            "In packages/agentfox/agentfox/engine/session_lifecycle.py, locate NodeSessionRunner._setup_workspace()",
+            "Find the existing create_worktree() call and add keyword arguments: role=self._archetype, mode=self._mode",
+            "Pass self._mode as-is without pre-normalisation — normalisation happens inside create_worktree() via effective_mode = mode or None",
+            "Do not add any conditional logic in _setup_workspace() for empty-string handling"
+          ],
+          "test_spec_refs": [
+            "TS-09-11",
+            "TS-09-12",
+            "TS-09-E4"
+          ],
+          "requirement_refs": [
+            "09-REQ-4.1",
+            "09-REQ-4.2",
+            "09-REQ-4.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.2",
+          "title": "Confirm no other call sites of create_worktree() require role/mode arguments",
+          "details": [
+            "Search codebase for all calls to create_worktree(): grep -rn 'create_worktree' packages/agentfox/",
+            "Verify each existing call site does not need role/mode — existing callers without these kwargs continue to work because both default to None",
+            "Document any call sites found outside session_lifecycle.py and confirm they receive 2-level paths as expected"
+          ],
+          "test_spec_refs": [
+            "TS-09-9",
+            "TS-09-13"
+          ],
+          "requirement_refs": [
+            "09-REQ-3.2",
+            "09-REQ-5.1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "4.V",
+        "checks": [
+          "TS-09-11 (role and mode forwarded) passes: pytest packages/agentfox/tests/test_worktree_path_collision.py::test_setup_workspace_passes_role_mode -v",
+          "TS-09-12 (empty string mode passed as-is) passes: pytest packages/agentfox/tests/test_worktree_path_collision.py::test_setup_workspace_passes_empty_string_mode_as_is -v",
+          "TS-09-E4 (empty-string sentinel produces 2-level path) passes: pytest packages/agentfox/tests/test_worktree_path_collision.py::test_empty_string_mode_sentinel -v",
+          "Requirements 09-REQ-4.1, 09-REQ-4.2, 09-REQ-4.E1 acceptance criteria met",
+          "All existing tests still pass: pytest packages/agentfox -q",
+          "No linter warnings: ruff check packages/agentfox/agentfox/engine/session_lifecycle.py"
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "kind": "standard",
+      "title": "Verify destroy_worktree() and _cleanup_empty_ancestors handle deeper paths",
+      "subtasks": [
+        {
+          "id": "5.1",
+          "title": "Audit destroy_worktree() to confirm it uses workspace.path directly",
+          "details": [
+            "Open packages/agentfox/agentfox/workspace/worktree.py and locate destroy_worktree()",
+            "Confirm it calls git worktree remove using workspace.path and does NOT re-derive path from spec_name/task_group/role/mode",
+            "No code change expected — this is a verification-only step; annotate with a comment confirming 4-level path transparency"
+          ],
+          "test_spec_refs": [
+            "TS-09-15"
+          ],
+          "requirement_refs": [
+            "09-REQ-6.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.2",
+          "title": "Audit _cleanup_empty_ancestors to confirm depth-agnostic upward traversal",
+          "details": [
+            "Locate _cleanup_empty_ancestors in worktree.py",
+            "Confirm it walks upward from the leaf path to worktrees_root using a while-loop or parent iteration, removing empty dirs",
+            "Verify it stops at or before worktrees_root — does not delete worktrees_root itself",
+            "No code change expected for correct implementations; if the traversal is depth-limited (e.g. hardcoded 2 levels), update it to be fully depth-agnostic"
+          ],
+          "test_spec_refs": [
+            "TS-09-16"
+          ],
+          "requirement_refs": [
+            "09-REQ-6.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "5.V",
+        "checks": [
+          "TS-09-15 (destroy_worktree uses full path) passes: pytest packages/agentfox/tests/test_worktree_path_collision.py::test_destroy_worktree_uses_full_path -v",
+          "TS-09-16 (_cleanup_empty_ancestors 4-level) passes: pytest packages/agentfox/tests/test_worktree_path_collision.py::test_cleanup_empty_ancestors_4level -v",
+          "Requirements 09-REQ-6.1, 09-REQ-6.2 acceptance criteria met",
+          "All existing tests still pass: pytest packages/agentfox -q",
+          "No linter warnings: ruff check packages/agentfox/agentfox/workspace/worktree.py"
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "kind": "checkpoint",
+      "title": "Full test suite green and PRD test 4 registered as CI blocking check",
+      "subtasks": [
+        {
+          "id": "6.1",
+          "title": "Run all seven PRD tests and confirm they pass",
+          "details": [
+            "Run: pytest packages/agentfox/tests/test_worktree_path_collision.py -v and confirm all 7 PRD tests (test_1 through test_7) pass",
+            "Confirm PRD test 4 (concurrent dispatch) is present and passing",
+            "Record any failures and route back to the appropriate implementation group"
+          ],
+          "test_spec_refs": [
+            "TS-09-18",
+            "TS-09-19",
+            "TS-09-20",
+            "TS-09-21",
+            "TS-09-22",
+            "TS-09-23",
+            "TS-09-24"
+          ],
+          "requirement_refs": [
+            "09-REQ-8.1",
+            "09-REQ-8.2",
+            "09-REQ-8.3",
+            "09-REQ-8.4",
+            "09-REQ-8.5",
+            "09-REQ-8.6",
+            "09-REQ-8.7"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.2",
+          "title": "Register test 4 as a blocking required check in the PR pytest pipeline",
+          "details": [
+            "Identify the CI configuration file for the existing pytest PR pipeline (e.g. .github/workflows/pr.yml or equivalent)",
+            "Add or confirm a step that runs the concurrent-dispatch test (TS-09-21) as a required check",
+            "Ensure the CI step is configured as a required status check so a failure blocks PR merge",
+            "If a pytest marker (e.g. @pytest.mark.ci_required) is used, confirm the CI step includes -m ci_required or equivalent filter"
+          ],
+          "test_spec_refs": [
+            "TS-09-21"
+          ],
+          "requirement_refs": [
+            "09-REQ-8.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.3",
+          "title": "Run full package test suite and confirm zero regressions",
+          "details": [
+            "Run: pytest packages/agentfox -q and confirm all pre-existing tests pass",
+            "Run property tests and edge-case tests: pytest packages/agentfox/tests/test_worktree_path_collision.py -v -k 'property or edge'",
+            "Run smoke tests: pytest packages/agentfox/tests/test_worktree_path_collision.py -v -k 'smoke'",
+            "Zero failures, zero unexpected warnings"
+          ],
+          "test_spec_refs": [
+            "TS-09-13",
+            "TS-09-14"
+          ],
+          "requirement_refs": [
+            "09-REQ-5.1",
+            "09-REQ-5.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "6.V",
+        "checks": [
+          "All 7 PRD tests pass: pytest packages/agentfox/tests/test_worktree_path_collision.py -v returns 0 failures",
+          "Property tests TS-09-P1 through TS-09-P5 all pass",
+          "Edge-case tests TS-09-E1 through TS-09-E4 all pass",
+          "Smoke tests TS-09-SMOKE-1 through TS-09-SMOKE-4 all pass",
+          "Full package suite passes with zero regressions: pytest packages/agentfox -q",
+          "PRD test 4 is confirmed as a blocking required check in CI config (verified by reviewing CI YAML)",
+          "No linter warnings across all changed files: ruff check packages/agentfox/agentfox/"
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "kind": "wiring_verification",
+      "title": "End-to-end wiring verification: execution paths, return value propagation, and stub audit",
+      "subtasks": [
+        {
+          "id": "7.1",
+          "title": "Trace execution paths PATH-1 through PATH-4: verify call chain has no stubs",
+          "details": [
+            "PATH-1 (concurrent reviewer): confirm parallel dispatcher → NodeSessionRunner._setup_workspace() → create_worktree(role='reviewer', mode='pre-review'/'drift-review') chain is fully wired with no NotImplementedError or pass stubs",
+            "PATH-2 (coder node): confirm _setup_workspace() → create_worktree(role=self._archetype, mode=None) → 2-level path is complete",
+            "PATH-3 (mode-set role-absent): confirm create_worktree() logs WARNING and uses 'unknown' — not a stub, not a pass",
+            "PATH-4 (stale cleanup): confirm pre-creation stale check → git worktree remove --force → git worktree add chain is intact for 4-level paths"
+          ],
+          "test_spec_refs": [
+            "TS-09-SMOKE-1",
+            "TS-09-SMOKE-2",
+            "TS-09-SMOKE-3",
+            "TS-09-SMOKE-4"
+          ],
+          "requirement_refs": [
+            "09-REQ-2.2",
+            "09-REQ-2.4",
+            "09-REQ-5.1",
+            "09-REQ-7.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.2",
+          "title": "Verify return value propagation: WorkspaceInfo fields consumed correctly",
+          "details": [
+            "Confirm _setup_workspace() stores the returned WorkspaceInfo and passes it to downstream consumers (e.g. stored on self or passed to the node's work method)",
+            "Confirm destroy_worktree() receives the WorkspaceInfo returned by create_worktree() and uses workspace.path — not a re-derived value",
+            "Confirm WorkspaceInfo.role and WorkspaceInfo.mode are accessible from the returned object (not silently dropped)"
+          ],
+          "test_spec_refs": [
+            "TS-09-3",
+            "TS-09-15"
+          ],
+          "requirement_refs": [
+            "09-REQ-1.3",
+            "09-REQ-3.1",
+            "09-REQ-6.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.3",
+          "title": "Run all smoke tests with real components (stubbed git CLI only)",
+          "details": [
+            "Run: pytest packages/agentfox/tests/test_worktree_path_collision.py -v -k 'smoke'",
+            "SMOKE-1: two concurrent create_worktree() calls succeed with distinct paths",
+            "SMOKE-2: coder node call produces 2-level path with no role/mode segments",
+            "SMOKE-3: mode-present role-absent produces WARNING log and 'unknown' path segment",
+            "SMOKE-4: pre-existing stale directory triggers git worktree remove --force before git worktree add",
+            "All four smoke tests must pass with zero failures"
+          ],
+          "test_spec_refs": [
+            "TS-09-SMOKE-1",
+            "TS-09-SMOKE-2",
+            "TS-09-SMOKE-3",
+            "TS-09-SMOKE-4"
+          ],
+          "requirement_refs": [
+            "09-REQ-2.E2",
+            "09-REQ-6.2",
+            "09-REQ-7.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.4",
+          "title": "Stub and dead-code audit across all changed files",
+          "details": [
+            "Search for Python stub markers in changed files: grep -n 'raise NotImplementedError\\|pass$\\|return None$\\|# TODO\\|# FIXME' packages/agentfox/agentfox/workspace/worktree.py packages/agentfox/agentfox/engine/session_lifecycle.py",
+            "Investigate any hits — confirm they are either pre-existing (unrelated to this spec) or intentional abstract methods",
+            "Confirm create_worktree() has no early `return None` or bare `pass` in the role/mode branch logic",
+            "Confirm _setup_workspace() does not have a TODO placeholder where role/mode forwarding should be"
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [
+            "09-REQ-1.1",
+            "09-REQ-2.1",
+            "09-REQ-4.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.5",
+          "title": "Cross-spec entry point verification: confirm parallel dispatcher (spec 04) calls NodeSessionRunner correctly",
+          "details": [
+            "Locate the parallel dispatcher introduced in spec 04 (search for dispatch or NodeSessionRunner instantiation in the engine package)",
+            "Confirm the dispatcher passes archetype and mode to NodeSessionRunner.__init__() so that self._archetype and self._mode are populated before _setup_workspace() is called",
+            "If mode is not passed by the dispatcher, flag this as a wiring gap — the fix in session_lifecycle.py would be silent no-op",
+            "Document the call site and confirm it is production code, not a test stub"
+          ],
+          "test_spec_refs": [
+            "TS-09-SMOKE-1"
+          ],
+          "requirement_refs": [
+            "09-REQ-4.1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "7.V",
+        "checks": [
+          "All four smoke tests pass: pytest packages/agentfox/tests/test_worktree_path_collision.py -v -k 'smoke'",
+          "Full test suite passes with zero failures: pytest packages/agentfox -q",
+          "No stub markers found in changed files: grep -rn 'raise NotImplementedError' packages/agentfox/agentfox/workspace/worktree.py packages/agentfox/agentfox/engine/session_lifecycle.py returns no results for spec-related code",
+          "Execution paths PATH-1 through PATH-4 confirmed wired end-to-end with no intermediate stubs",
+          "WorkspaceInfo.role and WorkspaceInfo.mode are populated and consumed by real callers (not silently unused)",
+          "Parallel dispatcher (spec 04) confirmed to pass mode to NodeSessionRunner, completing the cross-spec wiring",
+          "No linter warnings across the entire package: ruff check packages/agentfox/agentfox/",
+          "PRD acceptance criteria checklist fully satisfied: all 11 items in the Definition of Done confirmed green"
+        ]
+      }
+    }
+  ],
+  "traceability": [
+    {
+      "requirement_id": "09-REQ-1.1",
+      "test_spec_id": "TS-09-1",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "09-REQ-1.2",
+      "test_spec_id": "TS-09-2",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "09-REQ-1.3",
+      "test_spec_id": "TS-09-3",
+      "task_id": "3.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "09-REQ-2.1",
+      "test_spec_id": "TS-09-4",
+      "task_id": "3.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "09-REQ-2.2",
+      "test_spec_id": "TS-09-5",
+      "task_id": "3.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "09-REQ-2.3",
+      "test_spec_id": "TS-09-6",
+      "task_id": "3.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "09-REQ-2.4",
+      "test_spec_id": "TS-09-7",
+      "task_id": "3.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "09-REQ-3.1",
+      "test_spec_id": "TS-09-8",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "09-REQ-3.2",
+      "test_spec_id": "TS-09-9",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "09-REQ-3.3",
+      "test_spec_id": "TS-09-10",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "09-REQ-4.1",
+      "test_spec_id": "TS-09-11",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "09-REQ-4.2",
+      "test_spec_id": "TS-09-12",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "09-REQ-5.1",
+      "test_spec_id": "TS-09-13",
+      "task_id": "3.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "09-REQ-5.2",
+      "test_spec_id": "TS-09-14",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "09-REQ-6.1",
+      "test_spec_id": "TS-09-15",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "09-REQ-6.2",
+      "test_spec_id": "TS-09-16",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "09-REQ-7.1",
+      "test_spec_id": "TS-09-17",
+      "task_id": "3.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "09-REQ-8.1",
+      "test_spec_id": "TS-09-18",
+      "task_id": "1.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "09-REQ-8.2",
+      "test_spec_id": "TS-09-19",
+      "task_id": "1.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "09-REQ-8.3",
+      "test_spec_id": "TS-09-20",
+      "task_id": "1.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "09-REQ-8.4",
+      "test_spec_id": "TS-09-21",
+      "task_id": "1.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "09-REQ-8.5",
+      "test_spec_id": "TS-09-22",
+      "task_id": "1.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "09-REQ-8.6",
+      "test_spec_id": "TS-09-23",
+      "task_id": "1.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "09-REQ-8.7",
+      "test_spec_id": "TS-09-24",
+      "task_id": "1.4",
+      "test_path": null
+    }
+  ]
+}
