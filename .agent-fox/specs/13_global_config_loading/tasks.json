@@ -35,7 +35,7 @@
             "13-REQ-1.2",
             "13-REQ-1.3"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -62,7 +62,7 @@
             "13-REQ-2.E1",
             "13-REQ-2.E2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -89,7 +89,7 @@
             "13-REQ-3.E1",
             "13-REQ-3.E2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -116,7 +116,7 @@
             "13-REQ-5.1",
             "13-REQ-5.2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -155,7 +155,7 @@
             "13-REQ-7.3",
             "13-REQ-7.4"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -191,7 +191,7 @@
             "13-REQ-9.1",
             "13-REQ-9.2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -221,7 +221,7 @@
             "13-PROP-5",
             "13-PROP-6"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -230,7 +230,7 @@
           "details": [],
           "test_spec_refs": [],
           "requirement_refs": [],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],
