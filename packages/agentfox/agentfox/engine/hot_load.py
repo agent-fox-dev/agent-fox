@@ -150,9 +150,9 @@ def lint_spec_gate(spec_name: str, spec_path: Path) -> tuple[bool, list[str]]:
         import afspec
 
         loaded = afspec.load_spec(spec_path)
-        errors = afspec.validate(loaded)
-        if errors:
-            error_messages = [f"{e.rule}: {e.message}" for e in errors]
+        result = afspec.validate(loaded)
+        if not result.valid:
+            error_messages = [f"{e.rule}: {e.message}" for e in result.errors]
             return (False, error_messages)
         return (True, [])
     except Exception as exc:

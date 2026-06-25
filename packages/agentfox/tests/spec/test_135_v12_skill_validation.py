@@ -280,7 +280,8 @@ class TestV12RoutedToAfspec:
 
     def test_v12_routed_to_afspec(self, v12_specs_root: Path) -> None:
         """A V1_2_JSON spec should be validated via afspec.validate()."""
-        with patch("afspec.validate", return_value=[]) as mock_validate:
+        mock_result = type("MockResult", (), {"errors": [], "valid": True})()
+        with patch("afspec.validate", return_value=mock_result) as mock_validate:
             result = run_lint_specs(v12_specs_root)
             assert mock_validate.called, "afspec.validate() should be called for v1.2 specs"
             assert isinstance(result, LintResult)
@@ -294,7 +295,8 @@ class TestV12RoutedToAfspec:
             rule="test-rule",
             message="test message",
         )
-        with patch("afspec.validate", return_value=[mock_error]):
+        mock_result = type("MockResult", (), {"errors": [mock_error], "valid": False})()
+        with patch("afspec.validate", return_value=mock_result):
             # The implementation must map ValidationError to Finding
             result = run_lint_specs(v12_specs_root)
             v12_findings = [f for f in result.findings if f.spec_name == "02_modern"]
@@ -512,7 +514,8 @@ class TestEmptyValidationResult:
 
     def test_empty_result_produces_zero_findings(self, v12_specs_root: Path) -> None:
         """Empty ValidationError list should produce zero findings."""
-        with patch("afspec.validate", return_value=[]):
+        mock_result = type("MockResult", (), {"errors": [], "valid": True})()
+        with patch("afspec.validate", return_value=mock_result):
             result = run_lint_specs(v12_specs_root)
             v12_findings = [f for f in result.findings if f.spec_name == "02_modern"]
             assert len(v12_findings) == 0
@@ -628,12 +631,13 @@ class TestLintSmoke:
         """Linting v1.2 specs should invoke afspec validation."""
         v12_spec = _make_spec_info(v12_specs_root, "02_modern", 2)
 
+        mock_result = type("MockResult", (), {"errors": [], "valid": True})()
         with (
             patch(
                 "agentfox.spec.lint.discover_specs",
                 return_value=[v12_spec],
             ),
-            patch("afspec.validate", return_value=[]) as mock_v12,
+            patch("afspec.validate", return_value=mock_result) as mock_v12,
             patch("afspec.load_spec"),
         ):
             result = run_lint_specs(v12_specs_root, lint_all=True)

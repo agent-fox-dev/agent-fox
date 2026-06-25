@@ -238,10 +238,11 @@ class TestLintGateAcceptsClean:
         spec_path.mkdir(parents=True)
 
         mock_spec = type("MockSpec", (), {})()
+        mock_result = type("MockResult", (), {"valid": True, "errors": []})()
 
         with (
             patch("afspec.load_spec", return_value=mock_spec),
-            patch("afspec.validate", return_value=[]),
+            patch("afspec.validate", return_value=mock_result),
         ):
             passed, errors = lint_spec_gate("42_feature", spec_path)
 
@@ -273,12 +274,13 @@ class TestLintGateRejectsErrors:
         )()
 
         mock_spec = type("MockSpec", (), {})()
+        mock_result = type("MockResult", (), {"valid": False, "errors": [mock_error]})()
         spec_path = tmp_path / "42_feature"
         spec_path.mkdir(parents=True)
 
         with (
             patch("afspec.load_spec", return_value=mock_spec),
-            patch("afspec.validate", return_value=[mock_error]),
+            patch("afspec.validate", return_value=mock_result),
         ):
             passed, errors = lint_spec_gate("42_feature", spec_path)
 

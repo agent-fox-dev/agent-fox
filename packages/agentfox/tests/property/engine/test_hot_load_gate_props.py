@@ -293,13 +293,16 @@ class TestLintGateCorrectness:
                 assert passed is False
             else:
                 mock_loaded = MagicMock()
+                has_errors = any(s == "error" for s in severities)
+                mock_result = type(
+                    "MockResult", (), {"errors": mock_errors, "valid": not has_errors}
+                )()
                 with (
                     patch("afspec.load_spec", return_value=mock_loaded),
-                    patch("afspec.validate", return_value=mock_errors),
+                    patch("afspec.validate", return_value=mock_result),
                 ):
                     passed, errors = lint_spec_gate("test_spec", spec_path)
 
-                has_errors = any(s == "error" for s in severities)
                 assert passed == (not has_errors)
 
 

@@ -88,8 +88,8 @@ def _validate_spec(spec: SpecInfo) -> list[Finding]:
     """
     try:
         loaded = afspec.load_spec(spec.path)
-        errors = afspec.validate(loaded)
-        return _map_afspec_findings(spec.name, errors)
+        result = afspec.validate(loaded)
+        return _map_afspec_findings(spec.name, result.errors)
     except Exception as exc:
         return [
             Finding(
