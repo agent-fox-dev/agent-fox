@@ -252,6 +252,8 @@ class TestPersistErratumMarkdown:
 
 class TestMigrationV19:
     def test_migration_creates_errata_table(self) -> None:
+        """v19 creates errata table, but v26 drops it. After all migrations,
+        errata should be absent."""
         from agentfox.knowledge.migrations import run_migrations
 
         conn = duckdb.connect(":memory:")
@@ -263,25 +265,8 @@ class TestMigrationV19:
                 "SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'"
             ).fetchall()
         }
-        assert "errata" in tables
-
-        # Verify columns
-        cols = {
-            r[0]
-            for r in conn.execute(
-                "SELECT column_name FROM information_schema.columns WHERE table_name = 'errata'"
-            ).fetchall()
-        }
-        expected_cols = {
-            "id",
-            "spec_name",
-            "task_group",
-            "finding_summary",
-            "requirement_ref",
-            "fix_summary",
-            "created_at",
-        }
-        assert expected_cols == cols
+        # errata table is dropped by v26 migration
+        assert "errata" not in tables
 
         conn.close()
 

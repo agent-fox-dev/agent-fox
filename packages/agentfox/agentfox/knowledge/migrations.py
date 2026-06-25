@@ -874,6 +874,21 @@ def _migrate_v25(conn: duckdb.DuckDBPyConnection) -> bool | None:
     conn.execute("ALTER TABLE drift_findings ALTER COLUMN superseded_by TYPE TEXT USING superseded_by::TEXT")
 
 
+def _migrate_v26(conn: duckdb.DuckDBPyConnection) -> None:
+    """Drop unused knowledge tables: errata, adr_entries, verification_results.
+
+    These tables were created by earlier migrations (v2, v19, v22) but the
+    corresponding retrieval channels have been removed.  Uses ``DROP TABLE IF
+    EXISTS`` so the migration is safe on fresh databases where some tables may
+    never have been created.
+
+    Requirements: 10-REQ-1.1, 10-REQ-1.2, 10-REQ-1.3, 10-REQ-1.E1
+    """
+    conn.execute("DROP TABLE IF EXISTS errata")
+    conn.execute("DROP TABLE IF EXISTS adr_entries")
+    conn.execute("DROP TABLE IF EXISTS verification_results")
+
+
 def _migrate_v21(conn: duckdb.DuckDBPyConnection) -> None:
     """Drop dead columns retrieval_summary and coverage_data from session_outcomes.
 
@@ -1021,6 +1036,11 @@ MIGRATIONS: list[Migration] = [
         version=25,
         description="fix drift_findings.superseded_by column type from UUID to TEXT",
         apply=_migrate_v25,
+    ),
+    Migration(
+        version=26,
+        description="drop unused knowledge tables: errata, adr_entries, verification_results",
+        apply=_migrate_v26,
     ),
 ]
 

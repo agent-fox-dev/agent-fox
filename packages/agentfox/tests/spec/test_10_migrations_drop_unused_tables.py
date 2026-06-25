@@ -9,6 +9,8 @@ Requirements: 10-REQ-1.1, 10-REQ-1.2, 10-REQ-1.3, 10-REQ-1.E1
 
 from __future__ import annotations
 
+import uuid
+
 import duckdb
 from agentfox.knowledge.migrations import (
     MIGRATIONS,
@@ -107,12 +109,12 @@ class TestSessionSummariesSurvivesMigration:
         conn = duckdb.connect(":memory:")
         run_migrations(conn)
 
-        # Insert a test row
+        # Insert a test row (id is UUID type)
         conn.execute(
             "INSERT INTO session_summaries "
             "(id, node_id, run_id, spec_name, task_group, archetype, attempt, summary, created_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
-            ["test-id", "node-1", "run-1", "spec-a", "1", "coder", 1, "test summary"],
+            [str(uuid.uuid4()), "node-1", "run-1", "spec-a", "1", "coder", 1, "test summary"],
         )
 
         rows = conn.execute("SELECT * FROM session_summaries").fetchall()
