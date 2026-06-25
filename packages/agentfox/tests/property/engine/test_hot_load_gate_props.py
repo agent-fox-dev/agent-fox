@@ -115,7 +115,9 @@ class TestGatePipelineMonotonicFiltering:
                     side_effect=mock_lint_gate,
                 ),
             ):
-                result = await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path, integration_branch="main")
+                result = await discover_new_specs_gated(
+                    specs_dir, known_specs=set(), repo_root=tmp_path, integration_branch="main",
+                )
 
             # Output is a subset
             assert len(result) <= len(spec_states)
@@ -388,7 +390,9 @@ class TestStatelessReEvaluation:
                     side_effect=make_lint_gate(state_1),
                 ),
             ):
-                await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path, integration_branch="main")
+                await discover_new_specs_gated(
+                    specs_dir, known_specs=set(), repo_root=tmp_path, integration_branch="main",
+                )
 
             # Eval 2 with state_2
             setup_spec(state_2)
@@ -406,7 +410,9 @@ class TestStatelessReEvaluation:
                     side_effect=make_lint_gate(state_2),
                 ),
             ):
-                result_2 = await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path, integration_branch="main")
+                result_2 = await discover_new_specs_gated(
+                    specs_dir, known_specs=set(), repo_root=tmp_path, integration_branch="main",
+                )
 
             # Fresh eval with state_2 (verify same result)
             setup_spec(state_2)
@@ -424,7 +430,9 @@ class TestStatelessReEvaluation:
                     side_effect=make_lint_gate(state_2),
                 ),
             ):
-                result_fresh = await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path, integration_branch="main")
+                result_fresh = await discover_new_specs_gated(
+                    specs_dir, known_specs=set(), repo_root=tmp_path, integration_branch="main",
+                )
 
             # Results from eval_2 and fresh must match
             assert len(result_2) == len(result_fresh)

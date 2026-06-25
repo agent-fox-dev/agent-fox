@@ -397,7 +397,9 @@ class TestFullGatePipeline:
                 side_effect=mock_lint_gate,
             ),
         ):
-            result = await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path, integration_branch="main")
+            result = await discover_new_specs_gated(
+                specs_dir, known_specs=set(), repo_root=tmp_path, integration_branch="main",
+            )
 
         assert len(result) == 1
         assert result[0].name == "42_spec_a"
@@ -454,14 +456,18 @@ class TestSkippedSpecReEvaluation:
             ),
         ):
             # Barrier N: spec is incomplete
-            result_1 = await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path, integration_branch="main")
+            result_1 = await discover_new_specs_gated(
+                specs_dir, known_specs=set(), repo_root=tmp_path, integration_branch="main",
+            )
             assert result_1 == []
 
             # Fix spec: add test_spec.json
             (spec_path / "test_spec.json").write_text('{"test_cases": []}\n')
 
             # Barrier N+1: spec now passes
-            result_2 = await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path, integration_branch="main")
+            result_2 = await discover_new_specs_gated(
+                specs_dir, known_specs=set(), repo_root=tmp_path, integration_branch="main",
+            )
             assert len(result_2) == 1
             assert result_2[0].name == "42_feature"
 
@@ -717,7 +723,10 @@ class TestTasksCompleteGatePipeline:
             patch("agentfox.engine.hot_load.are_all_tasks_done", return_value=True),
             caplog.at_level(logging.INFO, logger="agentfox.engine.hot_load"),
         ):
-            result = await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path, integration_branch="main", db_conn=conn)
+            result = await discover_new_specs_gated(
+                specs_dir, known_specs=set(), repo_root=tmp_path,
+                integration_branch="main", db_conn=conn,
+            )
 
         assert result == []
         assert any("fully implemented" in r.message for r in caplog.records)
@@ -758,7 +767,10 @@ class TestTasksCompleteGatePipeline:
             patch("agentfox.engine.hot_load.lint_spec_gate", side_effect=mock_lint_gate),
             patch("agentfox.engine.hot_load.are_all_tasks_done", return_value=True),
         ):
-            result = await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path, integration_branch="main", db_conn=conn)
+            result = await discover_new_specs_gated(
+                specs_dir, known_specs=set(), repo_root=tmp_path,
+                integration_branch="main", db_conn=conn,
+            )
 
         assert len(result) == 1
         assert result[0].name == "42_feature"
@@ -799,7 +811,10 @@ class TestTasksCompleteGatePipeline:
             patch("agentfox.engine.hot_load.lint_spec_gate", side_effect=mock_lint_gate),
             patch("agentfox.engine.hot_load.are_all_tasks_done", return_value=False),
         ):
-            result = await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path, integration_branch="main", db_conn=conn)
+            result = await discover_new_specs_gated(
+                specs_dir, known_specs=set(), repo_root=tmp_path,
+                integration_branch="main", db_conn=conn,
+            )
 
         assert len(result) == 1
         conn.close()
@@ -835,6 +850,8 @@ class TestTasksCompleteGatePipeline:
             patch("agentfox.engine.hot_load.are_all_tasks_done", return_value=True),
         ):
             # No db_conn argument — backward compatible
-            result = await discover_new_specs_gated(specs_dir, known_specs=set(), repo_root=tmp_path, integration_branch="main")
+            result = await discover_new_specs_gated(
+                specs_dir, known_specs=set(), repo_root=tmp_path, integration_branch="main",
+            )
 
         assert len(result) == 1
