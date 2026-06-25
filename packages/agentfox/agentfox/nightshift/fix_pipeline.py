@@ -1029,7 +1029,7 @@ class FixPipeline:
                 prior = query_prior_attempts(self._conn, spec_name, self._run_id)
                 prior_context = format_prior_attempts(prior)
 
-            # Retrieve knowledge context (review findings, errata, ADRs, etc.)
+            # Retrieve knowledge context (review findings, cross-group reviews, summaries)
             if self._knowledge_provider is not None:
                 self._knowledge_provider.set_run_id(self._run_id)
             coder_node_id = f"fix-issue-{spec.issue_number}:0:coder"
