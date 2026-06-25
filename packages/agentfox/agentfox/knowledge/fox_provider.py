@@ -28,6 +28,10 @@ from agentfox.knowledge.formatting import (
     sort_findings,
     sort_verdicts,
 )
+from agentfox.knowledge.review_store import (
+    supersede_drift_findings_by_files,
+    supersede_injected_findings,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -325,8 +329,6 @@ class FoxKnowledgeProvider:
         # so retry sessions still see them (558-AC-3).
         if session_status == "completed":
             try:
-                from agentfox.knowledge.review_store import supersede_injected_findings
-
                 supersede_injected_findings(conn, session_id)
             except Exception:
                 logger.warning(
@@ -334,6 +336,25 @@ class FoxKnowledgeProvider:
                     session_id,
                     exc_info=True,
                 )
+
+            # 12-REQ-3.1, 12-REQ-3.2: File-based drift finding supersession
+            # for coder sessions only.  Reviewer and verifier sessions must
+            # not trigger drift finding supersession.
+            archetype = context.get("archetype", "coder")
+            if archetype == "coder":
+                try:
+                    supersede_drift_findings_by_files(
+                        conn,
+                        spec_name,
+                        context.get("touched_files"),
+                        session_id,
+                    )
+                except Exception:
+                    logger.warning(
+                        "Failed to supersede drift findings for session %s",
+                        session_id,
+                        exc_info=True,
+                    )
 
         # Session summary storage (119-REQ-5.2).
         # Only store for completed sessions with a non-empty summary.

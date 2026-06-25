@@ -366,7 +366,6 @@ def test_ts12_11_private_helper_not_public() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(reason="supersede_drift_findings_by_files not yet wired in fox_provider", strict=True)
 def test_ts12_12_fox_provider_calls_drift_supersession_after_injected(
     conn: duckdb.DuckDBPyConnection,
 ) -> None:
@@ -422,7 +421,6 @@ def test_ts12_12_fox_provider_calls_drift_supersession_after_injected(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(reason="supersede_drift_findings_by_files not yet wired in fox_provider", strict=True)
 def test_ts12_13_no_drift_supersession_for_reviewer_verifier(
     conn: duckdb.DuckDBPyConnection,
 ) -> None:
@@ -463,7 +461,6 @@ def test_ts12_13_no_drift_supersession_for_reviewer_verifier(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(reason="supersede_drift_findings_by_files not yet wired in fox_provider", strict=True)
 def test_ts12_14_exception_swallowed_with_warning(
     conn: duckdb.DuckDBPyConnection,
     caplog: pytest.LogCaptureFixture,
@@ -929,7 +926,6 @@ def test_ts12_e2_multiple_findings_same_ref(conn: duckdb.DuckDBPyConnection) -> 
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(reason="supersede_drift_findings_by_files not yet wired in fox_provider", strict=True)
 def test_ts12_e3_null_touched_files_passthrough(
     conn: duckdb.DuckDBPyConnection,
 ) -> None:
@@ -1221,13 +1217,11 @@ def test_ts12_p5_marker_consistency(
         conn.close()
 
 
-@pytest.mark.xfail(reason="supersede_drift_findings_by_files not yet wired in fox_provider", strict=True)
 @settings(max_examples=50, deadline=None)
 @given(
     exc_type=st.sampled_from([Exception, RuntimeError, IOError]),
 )
 def test_ts12_p6_session_outcome_isolation(
-    conn: duckdb.DuckDBPyConnection,
     exc_type: type,
 ) -> None:
     """PROP-6: Exception in supersession does not affect session outcome."""
@@ -1237,28 +1231,33 @@ def test_ts12_p6_session_outcome_isolation(
     from agentfox.knowledge.db import KnowledgeDB
     from agentfox.knowledge.fox_provider import FoxKnowledgeProvider
 
-    db = KnowledgeDB.__new__(KnowledgeDB)
-    db._conn = conn
-    provider = FoxKnowledgeProvider(db, KnowledgeProviderConfig())
+    conn = duckdb.connect(":memory:")
+    run_migrations(conn)
+    try:
+        db = KnowledgeDB.__new__(KnowledgeDB)
+        db._conn = conn
+        provider = FoxKnowledgeProvider(db, KnowledgeProviderConfig())
 
-    with (
-        patch("agentfox.knowledge.fox_provider.supersede_injected_findings"),
-        patch(
-            "agentfox.knowledge.fox_provider.supersede_drift_findings_by_files",
-            side_effect=exc_type("test failure"),
-        ),
-    ):
-        # Must not raise — session outcome isolation
-        provider.ingest(
-            session_id="test_spec:1",
-            spec_name="test_spec",
-            context={
-                "session_status": "completed",
-                "touched_files": ["src/foo.py"],
-                "project_root": "",
-                "archetype": "coder",
-            },
-        )
+        with (
+            patch("agentfox.knowledge.fox_provider.supersede_injected_findings"),
+            patch(
+                "agentfox.knowledge.fox_provider.supersede_drift_findings_by_files",
+                side_effect=exc_type("test failure"),
+            ),
+        ):
+            # Must not raise — session outcome isolation
+            provider.ingest(
+                session_id="test_spec:1",
+                spec_name="test_spec",
+                context={
+                    "session_status": "completed",
+                    "touched_files": ["src/foo.py"],
+                    "project_root": "",
+                    "archetype": "coder",
+                },
+            )
+    finally:
+        conn.close()
 
 
 # ---------------------------------------------------------------------------

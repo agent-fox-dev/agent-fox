@@ -163,9 +163,6 @@ def test_ts12_31_to_34_end_to_end_supersession(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    reason="supersede_drift_findings_by_files not yet wired in fox_provider", strict=True
-)
 def test_ts12_smoke1_full_coder_merge_path(
     integration_conn: duckdb.DuckDBPyConnection,
 ) -> None:
@@ -235,9 +232,6 @@ def test_ts12_smoke1_full_coder_merge_path(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    reason="supersede_drift_findings_by_files not yet wired in fox_provider", strict=True
-)
 def test_ts12_smoke2_null_touched_files_short_circuit(
     integration_conn: duckdb.DuckDBPyConnection,
     caplog: pytest.LogCaptureFixture,
@@ -304,9 +298,6 @@ def test_ts12_smoke2_null_touched_files_short_circuit(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    reason="supersede_drift_findings_by_files not yet wired in fox_provider", strict=True
-)
 def test_ts12_smoke3_exception_swallowed(
     integration_conn: duckdb.DuckDBPyConnection,
     caplog: pytest.LogCaptureFixture,
@@ -351,9 +342,6 @@ def test_ts12_smoke3_exception_swallowed(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    reason="supersede_drift_findings_by_files not yet wired in fox_provider", strict=True
-)
 def test_ts12_smoke4_reviewer_verifier_skip_supersession(
     integration_conn: duckdb.DuckDBPyConnection,
 ) -> None:
