@@ -51,4 +51,5 @@ asyncio_mode = "auto"
 markers = [
     "slow: tests that take >1s (property, integration, orchestrator, knowledge DB)",
     "smoke: end-to-end smoke tests (excluded from default test runs)",
+    "ci_required: tests that MUST pass in the PR pipeline and block merge on failure (09-REQ-8.4)",
 ]
