@@ -1,0 +1,1201 @@
+{
+  "$schema": null,
+  "spec_id": "08",
+  "spec_name": "spec_generation_improvement",
+  "schema_version": 1,
+  "test_commands": {
+    "spec_tests": "pytest -q packages/afspec/tests/ packages/agentspec/tests/ -v",
+    "all_tests": "pytest -q",
+    "linter": "ruff check packages/afspec/ packages/agentspec/"
+  },
+  "dependencies": [],
+  "task_groups": [
+    {
+      "id": 1,
+      "kind": "tests",
+      "title": "Write tests for ValidationWarning model and updated validate() contract",
+      "subtasks": [
+        {
+          "id": "1.1",
+          "title": "Write unit tests for ValidationWarning Pydantic model definition",
+          "details": [
+            "Create test file `packages/afspec/tests/test_validation_warning_model.py`.",
+            "Test that `ValidationWarning` can be imported from `afspec.validation`.",
+            "Assert it is a Pydantic `BaseModel` subclass.",
+            "Assert it has at least a `message` field (str) and an entity identifier field (e.g. `entity_id` or `location`).",
+            "Instantiate a `ValidationWarning` and verify field assignment works correctly."
+          ],
+          "test_spec_refs": [
+            "TS-08-20"
+          ],
+          "requirement_refs": [
+            "08-REQ-8.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.2",
+          "title": "Write unit tests for updated validate() return contract (errors + warnings)",
+          "details": [
+            "Add tests to `packages/afspec/tests/test_validate_contract.py`.",
+            "Build a spec fixture with one oversized group (16 total `test_spec_refs`) and no structural errors.",
+            "Call `validate(spec)` and assert the result has both `.errors` and `.warnings` attributes that are lists.",
+            "Assert `result.valid == True` when only warnings are present.",
+            "Assert `result.errors == []` in the warnings-only scenario.",
+            "Assert `len(result.warnings) >= 1` when the oversized group is present."
+          ],
+          "test_spec_refs": [
+            "TS-08-21",
+            "TS-08-22"
+          ],
+          "requirement_refs": [
+            "08-REQ-8.2",
+            "08-REQ-8.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.3",
+          "title": "Write unit tests for mixed ValidationError + ValidationWarning scenario",
+          "details": [
+            "Build a spec fixture where the first group has `kind: standard` (triggers existing ValidationError) AND has 16 total `test_spec_refs` (triggers new ValidationWarning).",
+            "Call `validate(spec)` and assert `result.valid == False`.",
+            "Assert `len(result.errors) >= 1`.",
+            "Assert `len(result.warnings) >= 1`."
+          ],
+          "test_spec_refs": [
+            "TS-08-E8"
+          ],
+          "requirement_refs": [
+            "08-REQ-8.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.4",
+          "title": "Write property-based tests for warnings-never-block-validity invariant",
+          "details": [
+            "Create `packages/afspec/tests/test_properties.py` using `hypothesis`.",
+            "Define a hypothesis strategy that generates arbitrary spec structures: 0–10 groups, each with 0–10 subtasks, `test_spec_refs` lists of 0–25 items, random `kind` values.",
+            "For each generated spec with zero structural errors: assert `result.valid == True` regardless of how many warnings are present.",
+            "Use `@given` decorator and `assume()` to filter out specs that would trigger structural errors."
+          ],
+          "test_spec_refs": [
+            "TS-08-P1"
+          ],
+          "requirement_refs": [
+            "08-REQ-8.3",
+            "08-REQ-5.1",
+            "08-REQ-6.1",
+            "08-REQ-7.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.V",
+          "title": "Verify tests for ValidationWarning model and validate() contract",
+          "details": [],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "1.V",
+        "checks": [
+          "All new test files in `packages/afspec/tests/` are collected by pytest: `pytest -q packages/afspec/tests/test_validation_warning_model.py packages/afspec/tests/test_validate_contract.py packages/afspec/tests/test_properties.py --collect-only`",
+          "Tests fail with ImportError or AttributeError (red phase — implementation not yet written): `pytest -q packages/afspec/tests/test_validation_warning_model.py packages/afspec/tests/test_validate_contract.py` should report failures, not errors in test code itself",
+          "No linter issues in new test files: `ruff check packages/afspec/tests/`",
+          "Requirements 08-REQ-8.1, 08-REQ-8.2, 08-REQ-8.3, 08-REQ-8.E1 acceptance criteria are fully covered by the written tests"
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "kind": "tests",
+      "title": "Write tests for group-level and subtask-level validation warning rules",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Write unit tests for oversized test_spec_refs warning (group-level, all kinds)",
+          "details": [
+            "Create `packages/afspec/tests/test_validation_warnings_refs.py`.",
+            "TS-08-12: build spec with group 1 having subtasks with 9 + 8 = 17 total `test_spec_refs`; assert `result.valid == True`, `len(result.errors) == 0`, at least one warning referencing group 1.",
+            "TS-08-13: parametrize over `kind` in `['standard', 'checkpoint']`, build spec with 16 total refs, assert warning emitted for each kind.",
+            "TS-08-14: build spec with exactly 15 total refs across subtasks; assert no warning for `test_spec_refs` rule for group 1.",
+            "TS-08-E5: build spec with a group containing only a verification subtask (no `test_spec_refs`); assert no warning emitted."
+          ],
+          "test_spec_refs": [
+            "TS-08-12",
+            "TS-08-13",
+            "TS-08-14"
+          ],
+          "requirement_refs": [
+            "08-REQ-5.1",
+            "08-REQ-5.2",
+            "08-REQ-5.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.2",
+          "title": "Write unit tests for too-many-subtasks warning (group-level)",
+          "details": [
+            "Create `packages/afspec/tests/test_validation_warnings_subtasks.py`.",
+            "TS-08-15: build spec with 7 non-verification subtasks + 1 verification subtask; assert `result.valid == True`, at least one warning about subtask count.",
+            "TS-08-16: build spec with exactly 6 non-verification subtasks + 1 verification subtask; assert NO warning for subtask count rule.",
+            "TS-08-17: build spec with 5 non-verification subtasks; assert no warning.",
+            "TS-08-E6: build spec with exactly 7 non-verification subtasks; assert exactly one warning about too-many-subtasks for group 1."
+          ],
+          "test_spec_refs": [
+            "TS-08-15",
+            "TS-08-16",
+            "TS-08-17",
+            "TS-08-E6"
+          ],
+          "requirement_refs": [
+            "08-REQ-6.1",
+            "08-REQ-6.2",
+            "08-REQ-6.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.3",
+          "title": "Write unit tests for single-subtask overload warning",
+          "details": [
+            "Create `packages/afspec/tests/test_validation_warnings_subtask_overload.py`.",
+            "TS-08-18: build spec with subtask `1.1` having 9 `test_spec_refs`; assert `result.valid == True`, at least one warning referencing `'1.1'`.",
+            "TS-08-19: build spec with subtask `1.1` having exactly 8 `test_spec_refs`; assert no warning about single-subtask overload for `1.1`.",
+            "TS-08-E7: build spec with subtask `1.1` having no `test_spec_refs` field and subtask `1.2` having an empty list; assert no overload warnings for either."
+          ],
+          "test_spec_refs": [
+            "TS-08-18",
+            "TS-08-19",
+            "TS-08-E7"
+          ],
+          "requirement_refs": [
+            "08-REQ-7.1",
+            "08-REQ-7.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.4",
+          "title": "Write property-based tests for oversized-group and subtask-overload invariants",
+          "details": [
+            "Extend `packages/afspec/tests/test_properties.py` with three additional `@given` tests.",
+            "TS-08-P2: for any group with total refs > 15, assert at least one warning references that group (use hypothesis `st.lists` for refs 16–100).",
+            "TS-08-P3: for any group with more than 6 non-verification subtasks, assert at least one warning references that group.",
+            "TS-08-P4: for any non-verification subtask with > 8 `test_spec_refs`, assert at least one warning contains that subtask's ID."
+          ],
+          "test_spec_refs": [
+            "TS-08-P2",
+            "TS-08-P3",
+            "TS-08-P4"
+          ],
+          "requirement_refs": [
+            "08-REQ-5.1",
+            "08-REQ-5.2",
+            "08-REQ-6.1",
+            "08-REQ-6.2",
+            "08-REQ-7.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.V",
+          "title": "Verify tests for group-level and subtask-level validation warning rules",
+          "details": [],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "2.V",
+        "checks": [
+          "All test files collected: `pytest -q packages/afspec/tests/test_validation_warnings_refs.py packages/afspec/tests/test_validation_warnings_subtasks.py packages/afspec/tests/test_validation_warnings_subtask_overload.py --collect-only`",
+          "Tests are in red phase (fail due to missing implementation, not test errors): `pytest -q packages/afspec/tests/test_validation_warnings_refs.py` should show failures",
+          "No linter issues: `ruff check packages/afspec/tests/`",
+          "Requirements 08-REQ-5.1–08-REQ-5.3, 08-REQ-6.1–08-REQ-6.3, 08-REQ-7.1–08-REQ-7.2 acceptance criteria all have corresponding test cases"
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "kind": "tests",
+      "title": "Write tests for CLI display of warnings and backward-compatibility of existing rules",
+      "subtasks": [
+        {
+          "id": "3.1",
+          "title": "Write integration tests for CLI warnings-only output (valid: true)",
+          "details": [
+            "Create `packages/afspec/tests/test_cli_validate.py` using `subprocess` or a click `CliRunner`.",
+            "TS-08-23: write a fixture spec YAML with an oversized group (20 total `test_spec_refs`, no structural errors); invoke `spec validate <file>`; assert exit code 0, `'valid: true'` in stdout, at least one warning line in stdout.",
+            "TS-08-24: write a fixture clean spec YAML with all groups within thresholds; invoke `spec validate <file>`; assert exit code 0, `'valid: true'` in stdout, no warning lines."
+          ],
+          "test_spec_refs": [
+            "TS-08-23",
+            "TS-08-24"
+          ],
+          "requirement_refs": [
+            "08-REQ-9.1",
+            "08-REQ-9.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.2",
+          "title": "Write integration tests for CLI errors+warnings output (valid: false) and parse error",
+          "details": [
+            "TS-08-25: write a fixture spec YAML with a structural error (first group `kind: standard`) AND 20 total `test_spec_refs`; invoke `spec validate`; assert non-zero exit code, `'valid: false'` in output, at least one error line, at least one warning line.",
+            "TS-08-E9: write a malformed YAML fixture; invoke `spec validate`; assert non-zero exit code, parse/error message in stderr or stdout, no warning lines."
+          ],
+          "test_spec_refs": [
+            "TS-08-25",
+            "TS-08-E9"
+          ],
+          "requirement_refs": [
+            "08-REQ-9.3",
+            "08-REQ-9.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.3",
+          "title": "Write unit tests for backward-compatibility of existing validation rules",
+          "details": [
+            "TS-08-26: build spec where `groups[0].kind == 'standard'`; call `validate(spec)`; assert `result.valid == False` and at least one error mentioning `kind` or `tests`.",
+            "TS-08-27: build spec with two consecutive `kind: tests` groups followed by a `kind: standard` group; call `validate(spec)`; assert no ValidationError about multiple/consecutive test groups."
+          ],
+          "test_spec_refs": [
+            "TS-08-26",
+            "TS-08-27"
+          ],
+          "requirement_refs": [
+            "08-REQ-10.1",
+            "08-REQ-10.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.V",
+          "title": "Verify tests for CLI display and backward-compatibility",
+          "details": [],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "3.V",
+        "checks": [
+          "All CLI and backward-compat tests collected: `pytest -q packages/afspec/tests/test_cli_validate.py --collect-only`",
+          "Tests are in red phase before implementation (integration tests may error on missing behaviour): `pytest -q packages/afspec/tests/test_cli_validate.py` shows failures or missing output assertions",
+          "No linter issues: `ruff check packages/afspec/tests/test_cli_validate.py`",
+          "Requirements 08-REQ-9.1–08-REQ-9.3, 08-REQ-9.E1, 08-REQ-10.1, 08-REQ-10.2 acceptance criteria all have corresponding test cases"
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "kind": "standard",
+      "title": "Implement ValidationWarning model and update validate() return contract",
+      "subtasks": [
+        {
+          "id": "4.1",
+          "title": "Define ValidationWarning Pydantic model in afspec/validation.py",
+          "details": [
+            "Open `packages/afspec/afspec/validation.py`.",
+            "Add `class ValidationWarning(BaseModel):` with at least `message: str` and `entity_id: str` fields.",
+            "Ensure `ValidationWarning` is exported from the module's public API (add to `__all__` if present).",
+            "Do not modify the existing `ValidationError` model."
+          ],
+          "test_spec_refs": [
+            "TS-08-20"
+          ],
+          "requirement_refs": [
+            "08-REQ-8.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.2",
+          "title": "Define a ValidationResult model encapsulating valid, errors, and warnings",
+          "details": [
+            "Add `class ValidationResult(BaseModel):` with fields `valid: bool`, `errors: list[ValidationError]`, `warnings: list[ValidationWarning]`.",
+            "Update the `validate()` function signature to return `ValidationResult` instead of any prior return type.",
+            "Ensure `valid` is computed as `len(errors) == 0`.",
+            "Preserve all existing error-producing logic in `validate()`; this task only restructures the return value."
+          ],
+          "test_spec_refs": [
+            "TS-08-21",
+            "TS-08-22"
+          ],
+          "requirement_refs": [
+            "08-REQ-8.2",
+            "08-REQ-8.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.3",
+          "title": "Ensure mixed errors+warnings result returns valid: false",
+          "details": [
+            "Verify that the `ValidationResult.valid` field is `False` whenever `errors` is non-empty, regardless of whether `warnings` is also non-empty.",
+            "Add or adjust a validator/property in `ValidationResult` to enforce this: `valid: bool = Field(default_factory=lambda: ...)` or use a `model_validator`.",
+            "Run `pytest -q packages/afspec/tests/test_validate_contract.py` to confirm the mixed scenario test passes."
+          ],
+          "test_spec_refs": [
+            "TS-08-E8"
+          ],
+          "requirement_refs": [
+            "08-REQ-8.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.V",
+          "title": "Verify ValidationWarning model and updated validate() return contract",
+          "details": [],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "4.V",
+        "checks": [
+          "Unit tests for the model and contract pass: `pytest -q packages/afspec/tests/test_validation_warning_model.py packages/afspec/tests/test_validate_contract.py`",
+          "All existing validation tests still pass: `pytest -q packages/afspec/tests/`",
+          "No linter warnings introduced: `ruff check packages/afspec/afspec/validation.py`",
+          "Requirements 08-REQ-8.1, 08-REQ-8.2, 08-REQ-8.3, 08-REQ-8.E1 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "kind": "standard",
+      "title": "Implement group-level and subtask-level validation warning checks",
+      "subtasks": [
+        {
+          "id": "5.1",
+          "title": "Implement oversized test_spec_refs warning check (group-level)",
+          "details": [
+            "In `packages/afspec/afspec/validation.py`, add a helper `_check_group_test_spec_refs(group) -> list[ValidationWarning]`.",
+            "Sum `len(subtask.test_spec_refs or [])` for all non-verification subtasks (subtask IDs not ending in `.V`).",
+            "If sum > 15, emit a `ValidationWarning(message=f\"Group {group.id} has {total} test_spec_refs (limit 15)\", entity_id=str(group.id))`.",
+            "Apply to all `kind` values — do not filter by `kind`.",
+            "If the group has no subtasks or no `test_spec_refs`, the sum is 0 and no warning is emitted.",
+            "Call this helper from `validate()` and append results to the warnings list."
+          ],
+          "test_spec_refs": [
+            "TS-08-12",
+            "TS-08-13",
+            "TS-08-14",
+            "TS-08-E5",
+            "TS-08-P2"
+          ],
+          "requirement_refs": [
+            "08-REQ-5.1",
+            "08-REQ-5.2",
+            "08-REQ-5.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.2",
+          "title": "Implement too-many-subtasks warning check (group-level)",
+          "details": [
+            "Add a helper `_check_group_subtask_count(group) -> list[ValidationWarning]`.",
+            "Count non-verification subtasks: those whose `id` does NOT end with `.V`.",
+            "If count > 6, emit `ValidationWarning(message=f\"Group {group.id} has {count} subtasks (limit 6, excluding verification)\", entity_id=str(group.id))`.",
+            "Exactly one warning per group that exceeds the limit.",
+            "Call from `validate()` and append results to the warnings list."
+          ],
+          "test_spec_refs": [
+            "TS-08-15",
+            "TS-08-16",
+            "TS-08-17",
+            "TS-08-E6",
+            "TS-08-P3"
+          ],
+          "requirement_refs": [
+            "08-REQ-6.1",
+            "08-REQ-6.2",
+            "08-REQ-6.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.3",
+          "title": "Implement single-subtask overload warning check",
+          "details": [
+            "Add a helper `_check_subtask_overload(group) -> list[ValidationWarning]`.",
+            "For each non-verification subtask, count `len(subtask.test_spec_refs or [])`.",
+            "If count > 8, emit `ValidationWarning(message=f\"Subtask {subtask.id} references {count} test_spec_refs (limit 8)\", entity_id=subtask.id)`.",
+            "Subtasks with missing or empty `test_spec_refs` count as 0 — no warning.",
+            "Call from `validate()` and append results to the warnings list."
+          ],
+          "test_spec_refs": [
+            "TS-08-18",
+            "TS-08-19",
+            "TS-08-E7",
+            "TS-08-P4"
+          ],
+          "requirement_refs": [
+            "08-REQ-7.1",
+            "08-REQ-7.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.V",
+          "title": "Verify group-level and subtask-level validation warning checks",
+          "details": [],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "5.V",
+        "checks": [
+          "All warning rule tests pass: `pytest -q packages/afspec/tests/test_validation_warnings_refs.py packages/afspec/tests/test_validation_warnings_subtasks.py packages/afspec/tests/test_validation_warnings_subtask_overload.py`",
+          "Property-based tests pass (including hypothesis shrinking): `pytest -q packages/afspec/tests/test_properties.py`",
+          "All existing tests still pass: `pytest -q packages/afspec/tests/`",
+          "No linter warnings: `ruff check packages/afspec/afspec/validation.py`",
+          "Requirements 08-REQ-5.1–08-REQ-5.3, 08-REQ-6.1–08-REQ-6.3, 08-REQ-7.1–08-REQ-7.2 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "kind": "standard",
+      "title": "Update CLI to display warnings and preserve existing validation rules",
+      "subtasks": [
+        {
+          "id": "6.1",
+          "title": "Update spec validate CLI to display ValidationWarning messages",
+          "details": [
+            "Locate the CLI entry point for `spec validate` in `packages/afspec/` (likely `afspec/cli.py` or similar).",
+            "After calling `validate(spec)`, iterate over `result.warnings` and print each `warning.message` prefixed with `'WARNING: '` to stdout.",
+            "Print `'valid: true'` when `result.valid == True` (even if warnings are present); exit with code 0.",
+            "Print `'valid: false'` when `result.valid == False`; print all errors and warnings; exit with non-zero code (e.g. `sys.exit(1)`).",
+            "When there are no warnings, print nothing extra — only `'valid: true'`."
+          ],
+          "test_spec_refs": [
+            "TS-08-23",
+            "TS-08-24",
+            "TS-08-25"
+          ],
+          "requirement_refs": [
+            "08-REQ-9.1",
+            "08-REQ-9.2",
+            "08-REQ-9.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.2",
+          "title": "Handle parse errors as ValidationErrors in the CLI",
+          "details": [
+            "Ensure that when the spec file cannot be parsed (malformed YAML/JSON), the CLI catches the exception and wraps it in a `ValidationError` — not a `ValidationWarning`.",
+            "The resulting `ValidationResult` must have `valid=False`, a non-empty `errors` list containing the parse failure message, and an empty `warnings` list.",
+            "Exit with a non-zero code; print the error message to stderr or stdout."
+          ],
+          "test_spec_refs": [
+            "TS-08-E9"
+          ],
+          "requirement_refs": [
+            "08-REQ-9.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.3",
+          "title": "Confirm backward-compatibility of first-group-kind and multiple-test-groups rules",
+          "details": [
+            "Review `validate()` to confirm the rule `groups[0].kind == 'tests'` still produces a `ValidationError` when violated.",
+            "Confirm that multiple consecutive `kind: tests` groups do NOT produce a `ValidationError`.",
+            "No code changes should be required here — this task is a verification that the refactor did not accidentally remove or break these rules.",
+            "Run `pytest -q packages/afspec/tests/` to confirm backward-compat tests pass."
+          ],
+          "test_spec_refs": [
+            "TS-08-26",
+            "TS-08-27"
+          ],
+          "requirement_refs": [
+            "08-REQ-10.1",
+            "08-REQ-10.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.V",
+          "title": "Verify CLI warning display and backward-compatibility",
+          "details": [],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "6.V",
+        "checks": [
+          "CLI integration tests pass: `pytest -q packages/afspec/tests/test_cli_validate.py`",
+          "Backward-compat tests pass: `pytest -q packages/afspec/tests/` (no regressions on existing rules)",
+          "No linter warnings in CLI module: `ruff check packages/afspec/afspec/`",
+          "Requirements 08-REQ-9.1–08-REQ-9.3, 08-REQ-9.E1, 08-REQ-10.1, 08-REQ-10.2 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "kind": "checkpoint",
+      "title": "afspec implementation checkpoint — all validation warning tests green",
+      "subtasks": [
+        {
+          "id": "7.1",
+          "title": "Run full afspec test suite and confirm all tests pass",
+          "details": [
+            "Run `pytest -q packages/afspec/tests/` and confirm zero failures.",
+            "Run `ruff check packages/afspec/` and confirm zero linter issues.",
+            "Check that `validate()` returns `ValidationResult` in all call sites.",
+            "Confirm no `raise NotImplementedError` or `pass` stubs remain in `afspec/validation.py`."
+          ],
+          "test_spec_refs": [
+            "TS-08-12",
+            "TS-08-15",
+            "TS-08-18",
+            "TS-08-20",
+            "TS-08-21",
+            "TS-08-22",
+            "TS-08-23",
+            "TS-08-26"
+          ],
+          "requirement_refs": [
+            "08-REQ-5.1",
+            "08-REQ-6.1",
+            "08-REQ-7.1",
+            "08-REQ-8.1",
+            "08-REQ-8.2",
+            "08-REQ-8.3",
+            "08-REQ-9.1",
+            "08-REQ-10.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.V",
+          "title": "Verify afspec implementation checkpoint",
+          "details": [],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "7.V",
+        "checks": [
+          "Full afspec test suite passes with zero failures: `pytest -q packages/afspec/tests/`",
+          "Zero linter issues: `ruff check packages/afspec/`",
+          "No stub markers (`raise NotImplementedError`, bare `pass` in non-abstract methods) in `packages/afspec/afspec/validation.py`: `grep -rn 'NotImplementedError\\|raise NotImplementedError' packages/afspec/afspec/`",
+          "All requirements 08-REQ-5 through 08-REQ-10 are implemented and their acceptance criteria verified by passing tests"
+        ]
+      }
+    },
+    {
+      "id": 8,
+      "kind": "tests",
+      "title": "Write tests for prompt template content (generation_user_tasks.md splitting rules)",
+      "subtasks": [
+        {
+          "id": "8.1",
+          "title": "Write unit tests for test_spec_refs ceiling and universal kind applicability in prompt",
+          "details": [
+            "Create `packages/agentspec/tests/test_prompt_splitting_rules.py`.",
+            "TS-08-1: read `packages/agentspec/agentspec/_templates/prompts/generation_user_tasks.md`; assert `'15'` and `'test_spec_refs'` and `'split'` all appear in the file, in the same rule block.",
+            "TS-08-2: assert the 15-refs rule is not scoped to `kind: tests` only; the rule text applies to all kinds (check that `'all'` or both `'standard'` and `'checkpoint'` appear in the splitting rule context, or that the rule contains no restriction to tests-only)."
+          ],
+          "test_spec_refs": [
+            "TS-08-1",
+            "TS-08-2"
+          ],
+          "requirement_refs": [
+            "08-REQ-1.1",
+            "08-REQ-1.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.2",
+          "title": "Write unit tests for subtask count ceiling and complexity weighting rules in prompt",
+          "details": [
+            "TS-08-4: assert `'6'` and `'subtask'` and `'split'` and `'verification'` appear in the file's rules section.",
+            "TS-08-5: assert the 6-subtask ceiling is not restricted to `kind: tests` only.",
+            "TS-08-7: assert `'complex'` and `'4'` and (`'multiple file'` OR `'cross-module'`) and `'split'` all appear in the complexity-weighting rule.",
+            "TS-08-8: assert the complexity rule contains language like `'even if'` or `'regardless'` indicating it applies independently of numeric thresholds."
+          ],
+          "test_spec_refs": [
+            "TS-08-4",
+            "TS-08-5",
+            "TS-08-7",
+            "TS-08-8"
+          ],
+          "requirement_refs": [
+            "08-REQ-2.1",
+            "08-REQ-2.2",
+            "08-REQ-3.1",
+            "08-REQ-3.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.3",
+          "title": "Write unit tests for grouping strategy and ID renumbering rules in prompt",
+          "details": [
+            "TS-08-9: assert `'requirement'` and `'distinct'` (or equivalent) appear in the splitting strategy section.",
+            "TS-08-10: assert `'kind: tests'` and `'retain'` (or equivalent) and sequential ID references (`'2, 3'` or `'sequential'`) appear in splitting instructions.",
+            "TS-08-11: assert `'{group_id}.{N}'` (or equivalent format notation) and language about non-test groups shifting IDs appear.",
+            "TS-08-E3: assert the complexity threshold stated in the prompt is `'4'` (not `'3'`).",
+            "TS-08-E4: assert the prompt does not say `'never split'` a single requirement; instead contains language about further subdivision."
+          ],
+          "test_spec_refs": [
+            "TS-08-9",
+            "TS-08-10",
+            "TS-08-11",
+            "TS-08-E3",
+            "TS-08-E4"
+          ],
+          "requirement_refs": [
+            "08-REQ-4.1",
+            "08-REQ-4.2",
+            "08-REQ-4.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.V",
+          "title": "Verify tests for prompt template splitting rules",
+          "details": [],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "8.V",
+        "checks": [
+          "Prompt tests collected: `pytest -q packages/agentspec/tests/test_prompt_splitting_rules.py --collect-only`",
+          "Tests are in red phase (prompt not yet updated — tests should fail): `pytest -q packages/agentspec/tests/test_prompt_splitting_rules.py` shows assertion failures",
+          "No linter issues: `ruff check packages/agentspec/tests/test_prompt_splitting_rules.py`",
+          "Requirements 08-REQ-1.1, 08-REQ-1.2, 08-REQ-2.1, 08-REQ-2.2, 08-REQ-3.1, 08-REQ-3.2, 08-REQ-4.1, 08-REQ-4.2, 08-REQ-4.3 acceptance criteria all have corresponding test assertions"
+        ]
+      }
+    },
+    {
+      "id": 9,
+      "kind": "standard",
+      "title": "Update generation_user_tasks.md with splitting heuristics",
+      "subtasks": [
+        {
+          "id": "9.1",
+          "title": "Add test_spec_refs ceiling rule and subtask count ceiling rule to prompt",
+          "details": [
+            "Open `packages/agentspec/agentspec/_templates/prompts/generation_user_tasks.md`.",
+            "Add a clearly delineated 'Task Group Splitting Rules' section.",
+            "Rule 1 — test_spec_refs ceiling: 'If the total count of `test_spec_refs` across all subtasks in a proposed task group exceeds 15, split the group into smaller groups each containing 15 or fewer `test_spec_refs`. This rule applies to all task group kinds (tests, standard, checkpoint).'",
+            "Rule 2 — subtask count ceiling: 'If a task group would exceed 6 subtasks (excluding the verification subtask), split it. This applies to all task group kinds.'"
+          ],
+          "test_spec_refs": [
+            "TS-08-1",
+            "TS-08-2",
+            "TS-08-4",
+            "TS-08-5"
+          ],
+          "requirement_refs": [
+            "08-REQ-1.1",
+            "08-REQ-1.2",
+            "08-REQ-1.3",
+            "08-REQ-2.1",
+            "08-REQ-2.2",
+            "08-REQ-2.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "9.2",
+          "title": "Add complexity weighting rule to prompt",
+          "details": [
+            "Add Rule 3 — complexity weighting: 'A subtask is complex if it involves multiple file changes, cross-module coordination, or intricate assertion patterns. If a proposed group contains 4 or more complex subtasks, split it even if the numeric thresholds (15 test_spec_refs, 6 subtasks) have not been reached. This rule applies regardless of whether other splitting thresholds are exceeded.'",
+            "Ensure the threshold stated is explicitly '4 or more', not '3'."
+          ],
+          "test_spec_refs": [
+            "TS-08-7",
+            "TS-08-8",
+            "TS-08-E3"
+          ],
+          "requirement_refs": [
+            "08-REQ-3.1",
+            "08-REQ-3.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "9.3",
+          "title": "Add grouping strategy and ID renumbering rules to prompt",
+          "details": [
+            "Add Rule 4 — grouping by requirement: 'When splitting, group subtasks by the requirement they trace to. Each resulting group covers a distinct set of requirements. If all subtasks trace to a single requirement but still exceed a threshold, further subdivide that requirement's subtasks across multiple groups.'",
+            "Add Rule 5 — kind preservation: 'When a `kind: tests` group is split, all resulting groups retain `kind: tests`. The first split group remains group 1; subsequent groups receive sequential IDs (2, 3, …).'",
+            "Add Rule 6 — ID renumbering: 'Non-test groups shift their IDs to follow the last test group. Subtask IDs within each group use the `{group_id}.{N}` format.'"
+          ],
+          "test_spec_refs": [
+            "TS-08-9",
+            "TS-08-10",
+            "TS-08-11",
+            "TS-08-E4"
+          ],
+          "requirement_refs": [
+            "08-REQ-4.1",
+            "08-REQ-4.2",
+            "08-REQ-4.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "9.V",
+          "title": "Verify generation_user_tasks.md splitting heuristics",
+          "details": [],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "9.V",
+        "checks": [
+          "All prompt unit tests pass: `pytest -q packages/agentspec/tests/test_prompt_splitting_rules.py`",
+          "No linter issues in agentspec package: `ruff check packages/agentspec/`",
+          "The file `packages/agentspec/agentspec/_templates/prompts/generation_user_tasks.md` is valid Markdown and readable",
+          "Requirements 08-REQ-1.1, 08-REQ-1.2, 08-REQ-2.1, 08-REQ-2.2, 08-REQ-3.1, 08-REQ-3.2, 08-REQ-4.1, 08-REQ-4.2, 08-REQ-4.3 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 10,
+      "kind": "wiring_verification",
+      "title": "End-to-end wiring verification and smoke tests",
+      "subtasks": [
+        {
+          "id": "10.1",
+          "title": "Trace execution paths — verify validate() calls all new warning check helpers",
+          "details": [
+            "Review `packages/afspec/afspec/validation.py` and confirm `validate()` calls `_check_group_test_spec_refs`, `_check_group_subtask_count`, and `_check_subtask_overload` for every group in the spec.",
+            "Confirm that return values from all three helpers are collected into the `warnings` list of the returned `ValidationResult`.",
+            "Confirm the CLI entry point reads `result.warnings` and prints each warning — no silent dropping of warnings."
+          ],
+          "test_spec_refs": [
+            "TS-08-SMOKE-2",
+            "TS-08-SMOKE-3",
+            "TS-08-SMOKE-4"
+          ],
+          "requirement_refs": [
+            "08-REQ-5.1",
+            "08-REQ-6.1",
+            "08-REQ-7.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "10.2",
+          "title": "Verify return value propagation — CLI uses ValidationResult correctly",
+          "details": [
+            "Read the CLI source and confirm `result.valid` is used (not `len(result.errors) == 0` recalculated inline) to determine exit code and status text.",
+            "Confirm that the CLI does not swallow the `warnings` list — every element is printed.",
+            "Confirm exit code is `0` when `result.valid == True` and non-zero (e.g. `sys.exit(1)`) when `result.valid == False`."
+          ],
+          "test_spec_refs": [
+            "TS-08-23",
+            "TS-08-24",
+            "TS-08-25"
+          ],
+          "requirement_refs": [
+            "08-REQ-9.1",
+            "08-REQ-9.2",
+            "08-REQ-9.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "10.3",
+          "title": "Run all smoke tests with real components",
+          "details": [
+            "TS-08-SMOKE-1: invoke agentspec task generation with a large test spec fixture (30+ test entries) using a deterministic LLM stub; assert resulting `tasks.json` has all groups with ≤15 total refs and ≤6 subtasks.",
+            "TS-08-SMOKE-2: run `spec validate` CLI on a YAML spec fixture with 20 total `test_spec_refs` and no structural errors; assert exit code 0, `valid: true` in stdout, warning in stdout.",
+            "TS-08-SMOKE-3: run `spec validate` CLI on a YAML spec fixture with both a structural error and 20 total `test_spec_refs`; assert non-zero exit code, `valid: false`, both error and warning in output.",
+            "TS-08-SMOKE-4: run `spec validate` CLI on a clean YAML spec fixture; assert exit code 0, `valid: true`, no warnings in output."
+          ],
+          "test_spec_refs": [
+            "TS-08-SMOKE-1",
+            "TS-08-SMOKE-2",
+            "TS-08-SMOKE-3",
+            "TS-08-SMOKE-4"
+          ],
+          "requirement_refs": [
+            "08-REQ-5.1",
+            "08-REQ-8.2",
+            "08-REQ-9.1",
+            "08-REQ-9.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "10.4",
+          "title": "Stub and dead-code audit across both packages",
+          "details": [
+            "Search for stub markers in `packages/afspec/afspec/`: `grep -rn 'raise NotImplementedError\\|pass$\\|return None$' packages/afspec/afspec/` and review each hit to confirm it is not a non-trivial stub.",
+            "Search for stub markers in `packages/agentspec/agentspec/`: `grep -rn 'raise NotImplementedError\\|pass$' packages/agentspec/agentspec/`.",
+            "Confirm `_check_group_test_spec_refs`, `_check_group_subtask_count`, and `_check_subtask_overload` are fully implemented (no `pass` bodies).",
+            "Confirm `ValidationWarning` and `ValidationResult` Pydantic models have all required fields populated with real logic, not placeholders."
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [
+            "08-REQ-8.1",
+            "08-REQ-8.2",
+            "08-REQ-9.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "10.5",
+          "title": "Run full test suite and confirm zero regressions",
+          "details": [
+            "Run the full test suite across both packages: `pytest -q packages/afspec/tests/ packages/agentspec/tests/`.",
+            "Confirm zero failures and zero errors.",
+            "Run linter across both packages: `ruff check packages/afspec/ packages/agentspec/`.",
+            "Confirm zero linter issues."
+          ],
+          "test_spec_refs": [
+            "TS-08-26",
+            "TS-08-27",
+            "TS-08-P1",
+            "TS-08-P2",
+            "TS-08-P3",
+            "TS-08-P4"
+          ],
+          "requirement_refs": [
+            "08-REQ-10.1",
+            "08-REQ-10.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "10.V",
+          "title": "Verify complete end-to-end wiring",
+          "details": [],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "10.V",
+        "checks": [
+          "All smoke tests pass with real components (no mocks in afspec smoke tests): `pytest -q packages/afspec/tests/test_cli_validate.py -k smoke`",
+          "Full test suite passes with zero failures and zero errors: `pytest -q packages/afspec/tests/ packages/agentspec/tests/`",
+          "Zero linter issues across both packages: `ruff check packages/afspec/ packages/agentspec/`",
+          "No stub markers remain: `grep -rn 'raise NotImplementedError' packages/afspec/afspec/ packages/agentspec/agentspec/` returns no results",
+          "Execution paths 08-PATH-1, 08-PATH-2, 08-PATH-3, 08-PATH-4 are all exercised by passing tests",
+          "validate() callers in the CLI receive and use the ValidationResult — no return value is silently discarded",
+          "All requirements 08-REQ-1 through 08-REQ-10 have passing test coverage as confirmed by the full test run"
+        ]
+      }
+    }
+  ],
+  "traceability": [
+    {
+      "requirement_id": "08-REQ-1.1",
+      "test_spec_id": "TS-08-1",
+      "task_id": "9.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-1.2",
+      "test_spec_id": "TS-08-2",
+      "task_id": "9.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-1.3",
+      "test_spec_id": "TS-08-3",
+      "task_id": "9.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-2.1",
+      "test_spec_id": "TS-08-4",
+      "task_id": "9.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-2.2",
+      "test_spec_id": "TS-08-5",
+      "task_id": "9.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-2.3",
+      "test_spec_id": "TS-08-6",
+      "task_id": "9.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-3.1",
+      "test_spec_id": "TS-08-7",
+      "task_id": "9.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-3.2",
+      "test_spec_id": "TS-08-8",
+      "task_id": "9.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-4.1",
+      "test_spec_id": "TS-08-9",
+      "task_id": "9.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-4.2",
+      "test_spec_id": "TS-08-10",
+      "task_id": "9.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-4.3",
+      "test_spec_id": "TS-08-11",
+      "task_id": "9.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-5.1",
+      "test_spec_id": "TS-08-12",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-5.2",
+      "test_spec_id": "TS-08-13",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-5.3",
+      "test_spec_id": "TS-08-14",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-6.1",
+      "test_spec_id": "TS-08-15",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-6.2",
+      "test_spec_id": "TS-08-16",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-6.3",
+      "test_spec_id": "TS-08-17",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-7.1",
+      "test_spec_id": "TS-08-18",
+      "task_id": "5.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-7.2",
+      "test_spec_id": "TS-08-19",
+      "task_id": "5.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-8.1",
+      "test_spec_id": "TS-08-20",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-8.2",
+      "test_spec_id": "TS-08-21",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-8.3",
+      "test_spec_id": "TS-08-22",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-9.1",
+      "test_spec_id": "TS-08-23",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-9.2",
+      "test_spec_id": "TS-08-24",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-9.3",
+      "test_spec_id": "TS-08-25",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-10.1",
+      "test_spec_id": "TS-08-26",
+      "task_id": "6.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-10.2",
+      "test_spec_id": "TS-08-27",
+      "task_id": "6.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-8.E1",
+      "test_spec_id": "TS-08-E8",
+      "task_id": "4.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-9.E1",
+      "test_spec_id": "TS-08-E9",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-5.1",
+      "test_spec_id": "TS-08-P2",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-6.1",
+      "test_spec_id": "TS-08-P3",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-7.1",
+      "test_spec_id": "TS-08-P4",
+      "task_id": "5.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-8.3",
+      "test_spec_id": "TS-08-P1",
+      "task_id": "1.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-1.E1",
+      "test_spec_id": "TS-08-E1",
+      "task_id": "9.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-2.E1",
+      "test_spec_id": "TS-08-E2",
+      "task_id": "9.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-3.E1",
+      "test_spec_id": "TS-08-E3",
+      "task_id": "9.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-4.E1",
+      "test_spec_id": "TS-08-E4",
+      "task_id": "9.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-5.E1",
+      "test_spec_id": "TS-08-E5",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-6.E1",
+      "test_spec_id": "TS-08-E6",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "08-REQ-7.E1",
+      "test_spec_id": "TS-08-E7",
+      "task_id": "5.3",
+      "test_path": null
+    }
+  ]
+}

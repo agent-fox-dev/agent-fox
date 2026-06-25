@@ -1,0 +1,607 @@
+{
+  "$schema": null,
+  "spec_id": "08",
+  "spec_name": "spec_generation_improvement",
+  "schema_version": 1,
+  "introduction": "The Spec Generation Improvement system adds splitting heuristics to the LLM task-generation prompt and validation warnings to the `afspec` validator, preventing oversized task groups that inflate session cost and degrade first-attempt quality.",
+  "glossary": {
+    "ValidationError": "An existing Pydantic model in `afspec/validation.py` representing a blocking diagnostic that causes validation to fail.",
+    "ValidationWarning": "A Pydantic model in `afspec/validation.py` representing a non-blocking diagnostic produced during spec validation.",
+    "afspec": "The Python package (`packages/afspec`) that provides spec validation logic, including the `validate()` function and the CLI command `spec validate`.",
+    "agentspec": "The Python package (`packages/agentspec`) that contains prompt templates and spec generation utilities.",
+    "complexity weighting": "A heuristic that assigns extra weight to subtasks involving multiple file changes, cross-module coordination, or intricate assertion patterns when deciding whether to split a group.",
+    "generation_user_tasks.md": "The Markdown prompt template in `packages/agentspec/agentspec/_templates/prompts/` that instructs the LLM how to generate tasks.json for a spec.",
+    "group_id": "The integer identifier of a task group within tasks.json, used as a prefix in subtask IDs (e.g. group 1 → subtask 1.2).",
+    "kind": "The category of a task group; valid values are `tests`, `standard`, and `checkpoint`.",
+    "spec 07": "The `nightshift_standalone_cli` spec, the motivating example of an oversized task group that required three costly coder→audit cycles.",
+    "spec validate": "The CLI command provided by `afspec` that validates a spec file and reports errors and warnings.",
+    "splitting": "The process of dividing an oversized task group into two or more smaller groups during spec generation, each staying within defined thresholds.",
+    "subtask": "A numbered unit of work within a task group, identified by `{group_id}.{N}` (e.g. 1.2), excluding the verification subtask.",
+    "task group": "A logical unit of work in a spec's tasks.json that maps 1:1 to a single coder session; contains subtasks and a verification subtask.",
+    "tasks.json": "The JSON artifact produced by the LLM (via `agentspec`) that describes the task groups and subtasks for a spec.",
+    "test spec entries": "Individual test-case identifiers (e.g. `TS-08-1`) listed in a subtask's `test_spec_refs` array.",
+    "test_spec_refs": "The list of test-spec entry IDs referenced by a subtask, used to measure the test coverage scope a subtask imposes on a session.",
+    "verification subtask": "The final subtask in a task group, identified by `{group_id}.V`, containing checks that verify all other subtasks in the group."
+  },
+  "requirements": [
+    {
+      "id": "08-REQ-1",
+      "title": "Prompt splitting rule — test spec ref ceiling",
+      "user_story": {
+        "role": "spec author",
+        "goal": "have the LLM automatically split any task group that would reference more than 15 test spec entries across its subtasks",
+        "benefit": "each resulting coder session stays within a manageable scope and produces higher-quality output on the first attempt"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "08-REQ-1.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`generation_user_tasks.md`",
+          "action": "instructs the LLM that if the total count of `test_spec_refs` across all subtasks in a proposed task group exceeds 15, the group must be split into smaller groups each containing 15 or fewer `test_spec_refs`",
+          "return_contract": null
+        },
+        {
+          "id": "08-REQ-1.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`generation_user_tasks.md`",
+          "action": "applies the 15 `test_spec_refs` ceiling rule to all `kind` values (`tests`, `standard`, `checkpoint`), not only `kind: tests` groups",
+          "return_contract": null
+        },
+        {
+          "id": "08-REQ-1.3",
+          "ears_pattern": "event_driven",
+          "system": "`generation_user_tasks.md`",
+          "action": "produces task groups where no single group's total `test_spec_refs` count across all subtasks exceeds 15",
+          "return_contract": "tasks.json where every group satisfies the ceiling constraint",
+          "trigger": "the LLM generates `tasks.json` for any spec"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "08-REQ-1.E1",
+          "ears_pattern": "unwanted",
+          "system": "`generation_user_tasks.md`",
+          "action": "does not split the group solely based on this rule; other rules may still apply",
+          "return_contract": null,
+          "error_condition": "a spec has so few test spec entries that all subtasks collectively reference ≤ 15 entries"
+        }
+      ]
+    },
+    {
+      "id": "08-REQ-2",
+      "title": "Prompt splitting rule — subtask count ceiling",
+      "user_story": {
+        "role": "spec author",
+        "goal": "have the LLM keep each task group to at most 6 subtasks (excluding the verification subtask)",
+        "benefit": "sessions remain focused and reviewable within a single cycle"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "08-REQ-2.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`generation_user_tasks.md`",
+          "action": "instructs the LLM that if a task group would exceed 6 subtasks (excluding the `verification subtask`), it must be split into smaller groups",
+          "return_contract": null
+        },
+        {
+          "id": "08-REQ-2.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`generation_user_tasks.md`",
+          "action": "applies the 6-subtask ceiling to all `kind` values (`tests`, `standard`, `checkpoint`)",
+          "return_contract": null
+        },
+        {
+          "id": "08-REQ-2.3",
+          "ears_pattern": "event_driven",
+          "system": "`generation_user_tasks.md`",
+          "action": "produces task groups where no single group contains more than 6 subtasks (the `verification subtask` is excluded from this count)",
+          "return_contract": "tasks.json where every group's subtask count (excluding `verification subtask`) is ≤ 6",
+          "trigger": "the LLM generates `tasks.json` for any spec"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "08-REQ-2.E1",
+          "ears_pattern": "unwanted",
+          "system": "`generation_user_tasks.md`",
+          "action": "does not split the group based on subtask count alone",
+          "return_contract": null,
+          "error_condition": "a group has exactly 6 subtasks and no other threshold is exceeded"
+        }
+      ]
+    },
+    {
+      "id": "08-REQ-3",
+      "title": "Prompt splitting rule — complexity weighting",
+      "user_story": {
+        "role": "spec author",
+        "goal": "have the LLM recognize that subtasks with complex logic impose heavier session load even if numeric counts are low",
+        "benefit": "groups containing high-complexity work are split proactively, avoiding expensive retry cycles"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "08-REQ-3.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`generation_user_tasks.md`",
+          "action": "defines `complexity weighting` as: a subtask is complex if it involves multiple file changes, cross-module coordination, or intricate assertion patterns, and instructs the LLM to split a group with 4 or more complex subtasks even when numeric thresholds are not exceeded",
+          "return_contract": null
+        },
+        {
+          "id": "08-REQ-3.2",
+          "ears_pattern": "event_driven",
+          "system": "`generation_user_tasks.md`",
+          "action": "splits the group regardless of whether the `test_spec_refs` count or subtask count ceiling has been reached",
+          "return_contract": null,
+          "trigger": "the LLM identifies 4 or more complex subtasks in a proposed task group"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "08-REQ-3.E1",
+          "ears_pattern": "unwanted",
+          "system": "`generation_user_tasks.md`",
+          "action": "does not split based on `complexity weighting` alone; the group is retained as-is",
+          "return_contract": null,
+          "error_condition": "a group has 3 complex subtasks and no numeric threshold is exceeded"
+        }
+      ]
+    },
+    {
+      "id": "08-REQ-4",
+      "title": "Prompt splitting strategy — group by requirement",
+      "user_story": {
+        "role": "spec author",
+        "goal": "have the LLM group related subtasks together when splitting",
+        "benefit": "each resulting task group covers a cohesive functional area, making sessions easier to review and audit"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "08-REQ-4.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`generation_user_tasks.md`",
+          "action": "instructs the LLM that when splitting a task group, subtasks must be grouped by the requirement they trace to, so that each resulting group covers a distinct set of requirements",
+          "return_contract": null
+        },
+        {
+          "id": "08-REQ-4.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`generation_user_tasks.md`",
+          "action": "instructs the LLM that when a `kind: tests` group is split, all resulting groups retain `kind: tests`, the first split group retains `group_id` 1, and subsequent groups receive sequential IDs (2, 3, …)",
+          "return_contract": null
+        },
+        {
+          "id": "08-REQ-4.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`generation_user_tasks.md`",
+          "action": "instructs the LLM that non-test groups shift their IDs to follow the last test group, and that subtask IDs within each group use the `{group_id}.{N}` format",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "08-REQ-4.E1",
+          "ears_pattern": "unwanted",
+          "system": "`generation_user_tasks.md`",
+          "action": "splits the group by further subdividing that requirement's subtasks across multiple groups, each staying within thresholds",
+          "return_contract": null,
+          "error_condition": "subtasks in a group all trace to the same single requirement but still exceed a numeric threshold"
+        }
+      ]
+    },
+    {
+      "id": "08-REQ-5",
+      "title": "Validation warning — oversized test spec refs per group",
+      "user_story": {
+        "role": "spec author",
+        "goal": "receive a warning when I run `spec validate` on a spec whose task group totals more than 15 `test_spec_refs`",
+        "benefit": "I can catch oversized groups before they are executed and incur high session costs"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "08-REQ-5.1",
+          "ears_pattern": "event_driven",
+          "system": "`afspec`",
+          "action": "emits a `ValidationWarning` identifying the offending group and the actual count",
+          "return_contract": "validation result with `valid: true` and at least one `ValidationWarning` entry",
+          "trigger": "`spec validate` is run on a spec where a task group's total `test_spec_refs` count across all its subtasks exceeds 15"
+        },
+        {
+          "id": "08-REQ-5.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`afspec`",
+          "action": "applies the oversized `test_spec_refs` check to all task groups regardless of `kind`",
+          "return_contract": null
+        },
+        {
+          "id": "08-REQ-5.3",
+          "ears_pattern": "state_driven",
+          "system": "`afspec`",
+          "action": "does not emit a `ValidationWarning` for that group based on this rule",
+          "return_contract": null,
+          "state": "a task group's total `test_spec_refs` count is exactly 15 or fewer"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "08-REQ-5.E1",
+          "ears_pattern": "unwanted",
+          "system": "`afspec`",
+          "action": "treats the count as zero and does not emit a `ValidationWarning` for the `test_spec_refs` rule",
+          "return_contract": null,
+          "error_condition": "a task group has no subtasks or no `test_spec_refs` defined"
+        }
+      ]
+    },
+    {
+      "id": "08-REQ-6",
+      "title": "Validation warning — too many subtasks per group",
+      "user_story": {
+        "role": "spec author",
+        "goal": "receive a warning when a task group contains more than 6 subtasks",
+        "benefit": "I can identify groups that will produce oversized sessions before they run"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "08-REQ-6.1",
+          "ears_pattern": "event_driven",
+          "system": "`afspec`",
+          "action": "emits a `ValidationWarning` identifying the offending group and the actual subtask count",
+          "return_contract": "validation result with `valid: true` and at least one `ValidationWarning` entry",
+          "trigger": "`spec validate` is run on a spec where a task group contains more than 6 subtasks (excluding the `verification subtask`)"
+        },
+        {
+          "id": "08-REQ-6.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`afspec`",
+          "action": "excludes the `verification subtask` from the subtask count when evaluating this rule",
+          "return_contract": null
+        },
+        {
+          "id": "08-REQ-6.3",
+          "ears_pattern": "state_driven",
+          "system": "`afspec`",
+          "action": "does not emit a `ValidationWarning` for that group based on this rule",
+          "return_contract": null,
+          "state": "a task group has exactly 6 or fewer subtasks (excluding the `verification subtask`)"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "08-REQ-6.E1",
+          "ears_pattern": "unwanted",
+          "system": "`afspec`",
+          "action": "emits exactly one `ValidationWarning` for the too-many-subtasks rule for that group",
+          "return_contract": "validation result with `valid: true` and one `ValidationWarning` for the group",
+          "error_condition": "a task group has exactly 7 subtasks excluding the `verification subtask`"
+        }
+      ]
+    },
+    {
+      "id": "08-REQ-7",
+      "title": "Validation warning — single subtask overload",
+      "user_story": {
+        "role": "spec author",
+        "goal": "receive a warning when a single subtask references more than 8 test spec entries",
+        "benefit": "I can spot individual subtasks that are over-scoped and may dominate a session"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "08-REQ-7.1",
+          "ears_pattern": "event_driven",
+          "system": "`afspec`",
+          "action": "emits a `ValidationWarning` identifying the offending subtask ID and the actual count",
+          "return_contract": "validation result with `valid: true` and at least one `ValidationWarning` entry",
+          "trigger": "`spec validate` is run on a spec where any subtask references more than 8 `test_spec_refs`"
+        },
+        {
+          "id": "08-REQ-7.2",
+          "ears_pattern": "state_driven",
+          "system": "`afspec`",
+          "action": "does not emit a `ValidationWarning` for that subtask based on this rule",
+          "return_contract": null,
+          "state": "a subtask references exactly 8 or fewer `test_spec_refs`"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "08-REQ-7.E1",
+          "ears_pattern": "unwanted",
+          "system": "`afspec`",
+          "action": "treats the count as zero and does not emit a `ValidationWarning` for that subtask",
+          "return_contract": null,
+          "error_condition": "a subtask has no `test_spec_refs` field or an empty list"
+        }
+      ]
+    },
+    {
+      "id": "08-REQ-8",
+      "title": "ValidationWarning model and updated validate() return contract",
+      "user_story": {
+        "role": "developer integrating with afspec",
+        "goal": "have a distinct `ValidationWarning` model returned alongside errors from `validate()`",
+        "benefit": "I can programmatically distinguish non-blocking diagnostics from blocking errors"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "08-REQ-8.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`afspec`",
+          "action": "defines a `ValidationWarning` Pydantic model in `afspec/validation.py` with at minimum fields for the warning message and the offending entity identifier",
+          "return_contract": null
+        },
+        {
+          "id": "08-REQ-8.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`afspec`",
+          "action": "updates `validate()` to return both a list of `ValidationError` objects and a list of `ValidationWarning` objects",
+          "return_contract": "tuple or structured result containing `errors: list[ValidationError]` and `warnings: list[ValidationWarning]`"
+        },
+        {
+          "id": "08-REQ-8.3",
+          "ears_pattern": "state_driven",
+          "system": "`afspec`",
+          "action": "reports `valid: true` in its return value",
+          "return_contract": "result with `valid: true`, empty `errors` list, and non-empty `warnings` list",
+          "state": "the `validate()` function produces only `ValidationWarning` objects and no `ValidationError` objects"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "08-REQ-8.E1",
+          "ears_pattern": "complex_event",
+          "system": "`afspec`",
+          "action": "returns `valid: false` with both the errors and warnings lists populated",
+          "return_contract": "result with `valid: false`, non-empty `errors` list, and non-empty `warnings` list",
+          "trigger": "`validate()` is called",
+          "condition": "when a spec triggers both `ValidationError` and `ValidationWarning` conditions"
+        }
+      ]
+    },
+    {
+      "id": "08-REQ-9",
+      "title": "CLI display of validation warnings",
+      "user_story": {
+        "role": "spec author",
+        "goal": "see validation warnings printed in the `spec validate` CLI output",
+        "benefit": "I am informed of potential sizing issues without being blocked from continuing"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "08-REQ-9.1",
+          "ears_pattern": "event_driven",
+          "system": "`spec validate`",
+          "action": "displays each warning message to the user and prints a final `valid: true` status",
+          "return_contract": "exit code 0, stdout contains warning messages and 'valid: true'",
+          "trigger": "`spec validate` completes with one or more `ValidationWarning` objects and no errors"
+        },
+        {
+          "id": "08-REQ-9.2",
+          "ears_pattern": "event_driven",
+          "system": "`spec validate`",
+          "action": "displays no warning messages and prints a final `valid: true` status",
+          "return_contract": "exit code 0, stdout contains 'valid: true' with no warning lines",
+          "trigger": "`spec validate` completes with no errors and no warnings"
+        },
+        {
+          "id": "08-REQ-9.3",
+          "ears_pattern": "event_driven",
+          "system": "`spec validate`",
+          "action": "displays all errors and warnings and prints `valid: false`",
+          "return_contract": "non-zero exit code, stdout/stderr contains error and warning messages and 'valid: false'",
+          "trigger": "`spec validate` completes with one or more `ValidationError` objects alongside any number of `ValidationWarning` objects"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "08-REQ-9.E1",
+          "ears_pattern": "unwanted",
+          "system": "`spec validate`",
+          "action": "reports a parse error as a `ValidationError` (not a `ValidationWarning`) and exits with a non-zero code",
+          "return_contract": "non-zero exit code, error message indicating parse failure",
+          "error_condition": "the spec file cannot be parsed at all"
+        }
+      ]
+    },
+    {
+      "id": "08-REQ-10",
+      "title": "Existing validation rules remain unchanged",
+      "user_story": {
+        "role": "spec author",
+        "goal": "have all pre-existing validation rules continue to work after this change",
+        "benefit": "I do not need to update existing valid specs when the new warnings are introduced"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "08-REQ-10.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`afspec`",
+          "action": "continues to enforce the rule that `groups[0].kind` must equal `tests`, unchanged by the addition of `ValidationWarning` logic",
+          "return_contract": null
+        },
+        {
+          "id": "08-REQ-10.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`afspec`",
+          "action": "allows multiple consecutive task groups with `kind: tests` without emitting a `ValidationError`, as this was already permitted",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    }
+  ],
+  "correctness_properties": [
+    {
+      "id": "08-PROP-1",
+      "title": "Warnings never block validity",
+      "for_any": "spec input processed by `afspec`",
+      "invariant": "if `validate()` returns zero `ValidationError` objects, the result's `valid` field is `true` regardless of how many `ValidationWarning` objects are present",
+      "validates": [
+        "08-REQ-8.3",
+        "08-REQ-5.1",
+        "08-REQ-6.1",
+        "08-REQ-7.1"
+      ]
+    },
+    {
+      "id": "08-PROP-2",
+      "title": "Oversized group always warned",
+      "for_any": "task group where total `test_spec_refs` count across all subtasks exceeds 15",
+      "invariant": "`afspec` emits at least one `ValidationWarning` referencing that group when `spec validate` is run",
+      "validates": [
+        "08-REQ-5.1",
+        "08-REQ-5.2"
+      ]
+    },
+    {
+      "id": "08-PROP-3",
+      "title": "Subtask overload always warned",
+      "for_any": "task group where the number of subtasks excluding the `verification subtask` exceeds 6",
+      "invariant": "`afspec` emits at least one `ValidationWarning` referencing that group when `spec validate` is run",
+      "validates": [
+        "08-REQ-6.1",
+        "08-REQ-6.2"
+      ]
+    },
+    {
+      "id": "08-PROP-4",
+      "title": "Single subtask overload always warned",
+      "for_any": "subtask whose `test_spec_refs` list length exceeds 8",
+      "invariant": "`afspec` emits at least one `ValidationWarning` referencing that subtask when `spec validate` is run",
+      "validates": [
+        "08-REQ-7.1"
+      ]
+    },
+    {
+      "id": "08-PROP-5",
+      "title": "LLM-generated groups respect thresholds",
+      "for_any": "task group in a `tasks.json` produced by the LLM using the updated `generation_user_tasks.md`",
+      "invariant": "the group's total `test_spec_refs` count across all subtasks is ≤ 15 and the group's subtask count (excluding the `verification subtask`) is ≤ 6",
+      "validates": [
+        "08-REQ-1.3",
+        "08-REQ-2.3"
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "08-PATH-1",
+      "title": "LLM generates tasks.json with oversized group — splitting applied",
+      "steps": [
+        {
+          "actor": "Spec author",
+          "action": "triggers spec generation for a large spec with many requirements and test spec entries"
+        },
+        {
+          "actor": "`agentspec`",
+          "action": "loads `generation_user_tasks.md` and includes it in the LLM prompt"
+        },
+        {
+          "actor": "LLM",
+          "action": "detects that a proposed task group would exceed 15 `test_spec_refs` or 6 subtasks and applies `splitting` guided by the prompt rules"
+        },
+        {
+          "actor": "LLM",
+          "action": "groups subtasks by the requirement they trace to, assigns sequential `group_id` values, and formats subtask IDs using `{group_id}.{N}`"
+        },
+        {
+          "actor": "`agentspec`",
+          "action": "writes the resulting `tasks.json` where all groups satisfy the size thresholds"
+        }
+      ]
+    },
+    {
+      "id": "08-PATH-2",
+      "title": "spec validate — warnings only, valid result",
+      "steps": [
+        {
+          "actor": "Spec author",
+          "action": "runs `spec validate` on a spec whose `tasks.json` contains a task group with 20 total `test_spec_refs`"
+        },
+        {
+          "actor": "`afspec`",
+          "action": "parses the spec and evaluates all validation rules including the new size-threshold checks"
+        },
+        {
+          "actor": "`afspec`",
+          "action": "finds no `ValidationError` conditions but detects the oversized group and constructs one or more `ValidationWarning` objects"
+        },
+        {
+          "actor": "`spec validate`",
+          "action": "prints each `ValidationWarning` message to stdout and reports `valid: true` with exit code 0"
+        }
+      ]
+    },
+    {
+      "id": "08-PATH-3",
+      "title": "spec validate — errors and warnings, invalid result",
+      "steps": [
+        {
+          "actor": "Spec author",
+          "action": "runs `spec validate` on a spec with a structural error (e.g. missing required field) and an oversized task group"
+        },
+        {
+          "actor": "`afspec`",
+          "action": "parses the spec and evaluates all validation rules"
+        },
+        {
+          "actor": "`afspec`",
+          "action": "produces both a `ValidationError` for the structural issue and a `ValidationWarning` for the oversized group"
+        },
+        {
+          "actor": "`spec validate`",
+          "action": "prints all errors and warnings, reports `valid: false`, and exits with a non-zero code"
+        }
+      ]
+    },
+    {
+      "id": "08-PATH-4",
+      "title": "spec validate — clean spec, no warnings",
+      "steps": [
+        {
+          "actor": "Spec author",
+          "action": "runs `spec validate` on a spec where all task groups are within size thresholds and no structural errors exist"
+        },
+        {
+          "actor": "`afspec`",
+          "action": "evaluates all validation rules and finds neither errors nor warnings"
+        },
+        {
+          "actor": "`spec validate`",
+          "action": "prints `valid: true` with exit code 0 and no warning output"
+        }
+      ]
+    }
+  ],
+  "error_handling": [
+    {
+      "id": "08-ERR-1",
+      "condition": "A task group's total `test_spec_refs` count across all subtasks exceeds 15 in a spec passed to `spec validate`",
+      "behavior": "afspec emits a `ValidationWarning` (not a `ValidationError`); validation continues and returns `valid: true` if no errors are present",
+      "requirement_id": "08-REQ-5.1"
+    },
+    {
+      "id": "08-ERR-2",
+      "condition": "A task group contains more than 6 subtasks (excluding the `verification subtask`) in a spec passed to `spec validate`",
+      "behavior": "afspec emits a `ValidationWarning`; validation continues and returns `valid: true` if no errors are present",
+      "requirement_id": "08-REQ-6.1"
+    },
+    {
+      "id": "08-ERR-3",
+      "condition": "A subtask references more than 8 `test_spec_refs` in a spec passed to `spec validate`",
+      "behavior": "afspec emits a `ValidationWarning` identifying the subtask; validation continues and returns `valid: true` if no errors are present",
+      "requirement_id": "08-REQ-7.1"
+    },
+    {
+      "id": "08-ERR-4",
+      "condition": "Both `ValidationError` and `ValidationWarning` conditions are present in the same spec",
+      "behavior": "afspec returns `valid: false` with all errors and warnings populated; the CLI displays both and exits with a non-zero code",
+      "requirement_id": "08-REQ-8.E1"
+    },
+    {
+      "id": "08-ERR-5",
+      "condition": "The spec file cannot be parsed (e.g. malformed YAML/JSON)",
+      "behavior": "afspec raises or returns a `ValidationError` for the parse failure; no warnings are emitted; CLI exits with a non-zero code",
+      "requirement_id": "08-REQ-9.E1"
+    }
+  ]
+}
