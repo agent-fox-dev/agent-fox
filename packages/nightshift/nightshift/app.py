@@ -1,4 +1,4 @@
-"""Standalone night-shift CLI — delegates to agentfox.nightshift."""
+"""Standalone nightshift CLI — delegates to agentfox.nightshift."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 @common_options
 @click.pass_context
 def main(ctx: click.Context, **kwargs) -> None:  # noqa: ARG001
-    """Run the night-shift autonomous fix daemon.
+    """Run the nightshift autonomous fix daemon.
 
     Polls for issues labelled ``af:fix`` and processes them through the
     archetype pipeline until interrupted (Ctrl-C) or the cost limit is hit.
@@ -115,14 +115,14 @@ def _run_daemon(ctx, om, config):  # noqa: C901
 
     signal.signal(signal.SIGINT, _sig)
     signal.signal(signal.SIGTERM, _sig)
-    click.echo("Night-shift daemon starting. Press Ctrl-C to stop gracefully.")
+    click.echo("Nightshift daemon starting. Press Ctrl-C to stop gracefully.")
     try:
         ds = asyncio.run(runner.run())
     except SystemExit:
         raise
     except Exception as exc:
         logger.error("Night-shift daemon failed: %s", exc, exc_info=True)
-        click.echo(f"Error: night-shift daemon failed: {exc}", err=True)
+        click.echo(f"Error: nightshift daemon failed: {exc}", err=True)
         sys.exit(1)
     finally:
         progress.stop()
@@ -138,4 +138,4 @@ def _run_daemon(ctx, om, config):  # noqa: C901
     if om.json_mode:
         om.emit({"status": "stopped", "issues_fixed": fixed, "total_cost": cost})
     else:
-        click.echo(f"Night-shift stopped. Issues fixed: {fixed}, Total cost: ${cost:.4f}")
+        click.echo(f"Nightshift stopped. Issues fixed: {fixed}, Total cost: ${cost:.4f}")

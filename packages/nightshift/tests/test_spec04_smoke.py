@@ -17,10 +17,10 @@ import pytest
 
 
 class TestSmoke4VersionOutput:
-    """TS-07-SMOKE-4: night-shift --version prints 4.0.0-rc5 and exits 0."""
+    """TS-07-SMOKE-4: nightshift --version prints 4.0.0-rc5 and exits 0."""
 
     def test_version_output(self) -> None:
-        """night-shift --version outputs version string and exits 0."""
+        """nightshift --version outputs version string and exits 0."""
         result = subprocess.run(
             [sys.executable, "-m", "nightshift", "--version"],
             capture_output=True,
@@ -50,13 +50,13 @@ class TestSmoke5CIDiscovery:
 
 
 class TestSubcommandContracts:
-    """TS-07-11: night-shift --help shows all expected global options.
+    """TS-07-11: nightshift --help shows all expected global options.
 
     Requirements: 07-REQ-3.3
     """
 
     def test_help_shows_global_options(self, cli_runner) -> None:
-        """night-shift --help contains --json, --verbose, --quiet, --trace, --version."""
+        """nightshift --help contains --json, --verbose, --quiet, --trace, --version."""
         from nightshift.app import main
 
         result = cli_runner.invoke(main, ["--help"])
@@ -95,7 +95,7 @@ class TestHelpOutputSubprocess:
         ["--json", "--no-json", "--verbose", "--quiet", "--trace", "--version"],
     )
     def test_help_lists_flag(self, flag: str) -> None:
-        """night-shift --help output contains expected flag."""
+        """nightshift --help output contains expected flag."""
         result = subprocess.run(
             [sys.executable, "-m", "nightshift", "--help"],
             capture_output=True,

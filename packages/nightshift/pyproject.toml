@@ -11,7 +11,7 @@ dependencies = [
 ]
 
 [project.scripts]
-night-shift = "nightshift.app:main"
+nightshift = "nightshift.app:main"
 
 [build-system]
 requires = ["hatchling"]

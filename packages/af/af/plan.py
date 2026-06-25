@@ -190,7 +190,7 @@ def plan_cmd(
     pid_status, _pid = check_pid_file(daemon_pid_path)
     if pid_status == PidStatus.ALIVE:
         click.echo(
-            f"Error: night-shift daemon is running (PID {_pid}). Stop the daemon before running `plan`.",
+            f"Error: nightshift daemon is running (PID {_pid}). Stop the daemon before running `plan`.",
             err=True,
         )
         sys.exit(1)

@@ -52,7 +52,7 @@ processes them through a three-stage pipeline (triage → coder → reviewer).
 
 ```bash
 # Start the fix daemon (Ctrl-C to stop gracefully)
-night-shift
+nightshift
 ```
 
 ## Installation
@@ -69,7 +69,7 @@ with five packages:
 | Package | Description |
 |---------|-------------|
 | `packages/af/` | CLI for the agent-fox orchestrator (`af` command) |
-| `packages/nightshift/` | Standalone CLI for the night-shift fix daemon (`night-shift` command) |
+| `packages/nightshift/` | Standalone CLI for the night-shift fix daemon (`nightshift` command) |
 | `packages/agentfox/` | Core library — spec engine, graph planner, session runtime, workspace tools |
 | `packages/afspec/` | Standalone library for the agent-fox specification format (v1.2) |
 | `packages/agentspec/` | AI-powered spec creation library |
@@ -115,7 +115,7 @@ Full documentation lives in [`docs/`](docs/README.md):
 
 For a deeper understanding of the system's internals — how specs become task
 graphs, how agents are dispatched in parallel, how the knowledge store works,
-and how night-shift processes fix issues — see the
+and how nightshift processes fix issues — see the
 [Architecture Guide](docs/architecture/README.md).
 
 ## References

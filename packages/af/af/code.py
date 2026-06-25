@@ -405,7 +405,7 @@ def code_cmd(
     daemon_pid_path = Path.cwd() / ".agent-fox" / "daemon.pid"
     pid_status, _pid = check_pid_file(daemon_pid_path)
     if pid_status == PidStatus.ALIVE:
-        msg = f"Error: night-shift daemon is running (PID {_pid}). Stop the daemon before running `code`."
+        msg = f"Error: nightshift daemon is running (PID {_pid}). Stop the daemon before running `code`."
         if json_mode:
             emit_error(msg)
         else:

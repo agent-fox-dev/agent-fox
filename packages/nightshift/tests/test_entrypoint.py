@@ -39,16 +39,16 @@ class TestPythonModuleEntryPoint:
 
 
 class TestNightShiftScriptEntryPoint:
-    """TS-07-39: night-shift --help works when installed.
+    """TS-07-39: nightshift --help works when installed.
 
     Requirements: 07-REQ-9.1
     """
 
     def test_night_shift_help_exits_zero(self) -> None:
-        if shutil.which("night-shift") is None:
-            pytest.skip("night-shift not installed as a script entry point")
+        if shutil.which("nightshift") is None:
+            pytest.skip("nightshift not installed as a script entry point")
         result = subprocess.run(
-            ["night-shift", "--help"],
+            ["nightshift", "--help"],
             capture_output=True,
             text=True,
             timeout=30,
@@ -56,10 +56,10 @@ class TestNightShiftScriptEntryPoint:
         assert result.returncode == 0
 
     def test_night_shift_help_contains_version(self) -> None:
-        if shutil.which("night-shift") is None:
-            pytest.skip("night-shift not installed as a script entry point")
+        if shutil.which("nightshift") is None:
+            pytest.skip("nightshift not installed as a script entry point")
         result = subprocess.run(
-            ["night-shift", "--help"],
+            ["nightshift", "--help"],
             capture_output=True,
             text=True,
             timeout=30,
@@ -68,13 +68,13 @@ class TestNightShiftScriptEntryPoint:
 
 
 class TestEntryPointOutputEquivalence:
-    """TS-07-8: python -m nightshift and night-shift produce identical output.
+    """TS-07-8: python -m nightshift and nightshift produce identical output.
 
     Requirements: 07-REQ-2.5
     """
 
     def test_help_output_identical(self) -> None:
-        """python -m nightshift --help and night-shift --help produce identical stdout."""
+        """python -m nightshift --help and nightshift --help produce identical stdout."""
         result_module = subprocess.run(
             [sys.executable, "-m", "nightshift", "--help"],
             capture_output=True,
@@ -83,18 +83,18 @@ class TestEntryPointOutputEquivalence:
         )
         assert result_module.returncode == 0
 
-        if shutil.which("night-shift") is None:
-            pytest.skip("night-shift entry point not installed on PATH")
+        if shutil.which("nightshift") is None:
+            pytest.skip("nightshift entry point not installed on PATH")
 
         result_entry = subprocess.run(
-            ["night-shift", "--help"],
+            ["nightshift", "--help"],
             capture_output=True,
             text=True,
             timeout=30,
         )
         assert result_entry.returncode == 0
         assert result_module.stdout == result_entry.stdout, (
-            "python -m nightshift --help and night-shift --help must produce identical stdout"
+            "python -m nightshift --help and nightshift --help must produce identical stdout"
         )
 
 
@@ -110,7 +110,7 @@ class TestEntryPointDiscoverability:
 
 
 class TestFallbackMechanism:
-    """TS-07-E10: python -m fallback when night-shift script not on PATH.
+    """TS-07-E10: python -m fallback when nightshift script not on PATH.
 
     Requirements: 07-REQ-9.E1
     """

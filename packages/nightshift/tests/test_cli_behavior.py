@@ -23,7 +23,7 @@ FOX_BANNER_PATTERN = "/\\_/\\"
 
 
 class TestPythonMInvocation:
-    """TS-07-8: python -m nightshift produces equivalent output to night-shift.
+    """TS-07-8: python -m nightshift produces equivalent output to nightshift.
 
     Requirements: 07-REQ-2.5
     """
@@ -39,7 +39,7 @@ class TestPythonMInvocation:
         assert result.returncode == 0
 
     def test_python_m_and_entry_point_output_identical(self) -> None:
-        """python -m nightshift --help and night-shift --help produce identical stdout.
+        """python -m nightshift --help and nightshift --help produce identical stdout.
 
         TS-07-8: Core invariant of output equivalence.
         """
@@ -53,18 +53,18 @@ class TestPythonMInvocation:
         )
         assert result_module.returncode == 0
 
-        if shutil.which("night-shift") is None:
-            pytest.skip("night-shift entry point not installed on PATH")
+        if shutil.which("nightshift") is None:
+            pytest.skip("nightshift entry point not installed on PATH")
 
         result_entry = subprocess.run(
-            ["night-shift", "--help"],
+            ["nightshift", "--help"],
             capture_output=True,
             text=True,
             timeout=30,
         )
         assert result_entry.returncode == 0
         assert result_module.stdout == result_entry.stdout, (
-            "python -m nightshift --help and night-shift --help must produce identical stdout"
+            "python -m nightshift --help and nightshift --help must produce identical stdout"
         )
 
 
@@ -75,14 +75,14 @@ class TestBannerDisplay:
     """
 
     def test_banner_present_without_flags(self, cli_runner: CliRunner) -> None:
-        """Invoking night-shift without --quiet or --json shows the fox banner."""
+        """Invoking nightshift without --quiet or --json shows the fox banner."""
         from nightshift.app import main
 
         result = cli_runner.invoke(main, [])
         assert FOX_BANNER_PATTERN in result.output, f"Expected fox ASCII art banner in output, got:\n{result.output}"
 
     def test_banner_appears_before_startup_message(self, cli_runner: CliRunner) -> None:
-        """Fox banner must appear before 'Night-shift daemon starting' message.
+        """Fox banner must appear before 'Nightshift daemon starting' message.
 
         TS-07-9 Expected: banner printed to stdout before the daemon start message.
         """
@@ -90,9 +90,9 @@ class TestBannerDisplay:
 
         result = cli_runner.invoke(main, [])
         assert FOX_BANNER_PATTERN in result.output, "Fox banner must be present in output"
-        assert "Night-shift daemon starting" in result.output, "Startup message must be present in output"
+        assert "Nightshift daemon starting" in result.output, "Startup message must be present in output"
         banner_pos = result.output.index(FOX_BANNER_PATTERN)
-        startup_pos = result.output.index("Night-shift daemon starting")
+        startup_pos = result.output.index("Nightshift daemon starting")
         assert banner_pos < startup_pos, "Fox ASCII art banner must appear before the daemon start message"
 
 
@@ -235,12 +235,12 @@ class TestStartupMessage:
     """
 
     def test_startup_message_present(self, cli_runner: CliRunner) -> None:
-        """Daemon startup emits 'Night-shift daemon starting' to stdout."""
+        """Daemon startup emits 'Nightshift daemon starting' to stdout."""
         from nightshift.app import main
 
         result = cli_runner.invoke(main, [])
-        assert "Night-shift daemon starting" in result.output, (
-            f"Expected 'Night-shift daemon starting' in output, got:\n{result.output}"
+        assert "Nightshift daemon starting" in result.output, (
+            f"Expected 'Nightshift daemon starting' in output, got:\n{result.output}"
         )
 
     def test_summary_stats_present_at_exit(self, cli_runner: CliRunner) -> None:
@@ -248,16 +248,16 @@ class TestStartupMessage:
 
         TS-07-14 Expected: 'summary stats on stdout at exit'.
         After a graceful shutdown the daemon prints a summary line
-        containing at least 'Night-shift stopped' (normal mode) or
+        containing at least 'Nightshift stopped' (normal mode) or
         a JSON summary event (--json mode).
         """
         from nightshift.app import main
 
         result = cli_runner.invoke(main, [])
-        # The daemon's normal-mode summary contains 'Night-shift stopped'
+        # The daemon's normal-mode summary contains 'Nightshift stopped'
         # and statistics such as 'Issues fixed' and 'Total cost'.
-        assert "Night-shift stopped" in result.output, (
-            f"Expected 'Night-shift stopped' summary stats in output, got:\n{result.output}"
+        assert "Nightshift stopped" in result.output, (
+            f"Expected 'Nightshift stopped' summary stats in output, got:\n{result.output}"
         )
 
 
@@ -292,7 +292,7 @@ from unittest.mock import MagicMock, patch
 import click
 
 def _fake_daemon(ctx, om, config):
-    click.echo("Night-shift daemon starting. Press Ctrl-C to stop gracefully.")
+    click.echo("Nightshift daemon starting. Press Ctrl-C to stop gracefully.")
     # Signal handling is wired by nightshift.app._run_daemon, so we
     # replicate the wiring here to test the signal contract.
     _n = {"c": 0}
@@ -315,7 +315,7 @@ def _fake_daemon(ctx, om, config):
         time.sleep(0.1)
         if _n["c"] > 1:
             break
-    click.echo("Night-shift stopped. Issues fixed: 0, Total cost: $0.0000")
+    click.echo("Nightshift stopped. Issues fixed: 0, Total cost: $0.0000")
     sys.exit(0)
 
 _mock_config = MagicMock()
@@ -464,7 +464,7 @@ class TestEnvironmentVariables:
     """
 
     def test_af_agent_env_accepted(self) -> None:
-        """night-shift --help works with AF_AGENT=1."""
+        """nightshift --help works with AF_AGENT=1."""
         env = os.environ.copy()
         env["AF_AGENT"] = "1"
         result = subprocess.run(
@@ -477,7 +477,7 @@ class TestEnvironmentVariables:
         assert result.returncode == 0
 
     def test_af_log_level_env_accepted(self) -> None:
-        """night-shift --help works with AF_LOG_LEVEL=DEBUG."""
+        """nightshift --help works with AF_LOG_LEVEL=DEBUG."""
         env = os.environ.copy()
         env["AF_LOG_LEVEL"] = "DEBUG"
         result = subprocess.run(
@@ -535,12 +535,12 @@ class TestAfAgentMode:
 
 
 class TestBehavioralParity:
-    """TS-07-P1: Behavioral parity with former af night-shift.
+    """TS-07-P1: Behavioral parity with former af nightshift.
 
     Requirements: 07-REQ-3.1 through 07-REQ-3.10
 
-    For each flag combination, the standalone night-shift must produce the same
-    output and exit code as the former af night-shift. Since af night-shift is
+    For each flag combination, the standalone nightshift must produce the same
+    output and exit code as the former af nightshift. Since af nightshift is
     removed, we test against expected behavior from the spec.
     """
 
@@ -574,7 +574,7 @@ class TestBehavioralParity:
         )
 
     def test_version_output_matches_spec(self) -> None:
-        """--version outputs '4.0.0-rc5' matching the former af night-shift."""
+        """--version outputs '4.0.0-rc5' matching the former af nightshift."""
         result = subprocess.run(
             [sys.executable, "-m", "nightshift", "--version"],
             capture_output=True,
@@ -584,7 +584,7 @@ class TestBehavioralParity:
         assert "4.0.0" in result.stdout, f"Version output does not contain '4.0.0': {result.stdout}"
 
     def test_help_output_contains_daemon_description(self) -> None:
-        """--help contains descriptive text about the night-shift daemon."""
+        """--help contains descriptive text about the nightshift daemon."""
         result = subprocess.run(
             [sys.executable, "-m", "nightshift", "--help"],
             capture_output=True,
@@ -592,8 +592,8 @@ class TestBehavioralParity:
             timeout=30,
         )
         # Help text should describe the daemon (not just show Click boilerplate)
-        assert "night-shift" in result.stdout.lower() or "daemon" in result.stdout.lower(), (
-            f"Help text should mention night-shift or daemon:\n{result.stdout}"
+        assert "nightshift" in result.stdout.lower() or "daemon" in result.stdout.lower(), (
+            f"Help text should mention nightshift or daemon:\n{result.stdout}"
         )
 
 

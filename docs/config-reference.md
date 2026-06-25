@@ -438,7 +438,7 @@ file_conflict_detection = true
 ## night_shift
 
 Daemon configuration for the night-shift fix-only daemon
-(`night-shift`). Night-shift polls for `af:fix`-labelled issues
+(`nightshift`). Night-shift polls for `af:fix`-labelled issues
 and processes them through a three-stage fix pipeline.
 
 > **Note:** This is a hidden section.

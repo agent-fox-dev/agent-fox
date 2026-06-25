@@ -18,13 +18,13 @@ subcommand files by names that differ from the actual codebase filenames:
 The Click commands are still registered under the names the spec expects:
 
 - `af/findings.py` registers the `insights` command.
-- `af/nightshift.py` registers the `night-shift` command.
+- `af/nightshift.py` registers the `nightshift` command.
 
 ## Impact
 
 - Tests reference the correct actual filenames (`af/findings.py`,
   `af/nightshift.py`).
-- No functional impact: the CLI surface (`af insights`, `night-shift`)
-  matches the spec. Note: `night-shift` was extracted from `af` into its
+- No functional impact: the CLI surface (`af insights`, `nightshift`)
+  matches the spec. Note: `nightshift` was extracted from `af` into its
   own standalone CLI package (`nightshift`).
 - Only the Python module filenames differ from what the spec text says.

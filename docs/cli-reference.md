@@ -244,7 +244,7 @@ remaining work is displayed.
 incompatible flags.
 
 **Daemon guard bypass:** Because `--dry-run` is a read-only operation, it
-bypasses the night-shift daemon PID guard. You can run `code --dry-run` even
+bypasses the nightshift daemon PID guard. You can run `code --dry-run` even
 while the daemon is active.
 
 **JSON output:** `--dry-run` composes with the global `--json` flag. When both
@@ -534,15 +534,15 @@ spec validate <spec>
 
 ---
 
-## `night-shift` CLI
+## `nightshift` CLI
 
-The `night-shift` command is a standalone CLI for the AgentFox Night Shift
+The `nightshift` command is a standalone CLI for the AgentFox Night Shift
 fix daemon. It is provided by the `nightshift` package and runs independently
 of the `af` CLI.
 
 | Command | Description |
 |---------|-------------|
-| `night-shift` | Run autonomous fix-only maintenance daemon |
+| `nightshift` | Run autonomous fix-only maintenance daemon |
 
 ### Global Options
 
@@ -554,12 +554,12 @@ of the `af` CLI.
 | `--trace` | | Enable trace logging (includes bulk AI prompt/response payloads; implies `--verbose`) |
 | `--json` / `--no-json` | | Switch to structured JSON I/O mode |
 
-### night-shift
+### nightshift
 
 Run the fix-only maintenance daemon.
 
 ```
-night-shift [OPTIONS]
+nightshift [OPTIONS]
 ```
 
 Night Shift is a continuously-running fix-only maintenance daemon that

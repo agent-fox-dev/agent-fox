@@ -125,7 +125,7 @@ class TestCliEntryPoint:
     def test_night_shift_entry_point(self) -> None:
         config = _load_nightshift_toml()
         scripts = config["project"]["scripts"]
-        assert scripts.get("night-shift") == "nightshift.app:main"
+        assert scripts.get("nightshift") == "nightshift.app:main"
 
 
 class TestNoDependencyOnAgentspecAfspec:

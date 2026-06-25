@@ -24,7 +24,7 @@ All test invocations were updated to place `--json` before the subcommand:
 - `['--json', 'standup']` instead of `['standup', '--json']`
 - `['--json', 'init']` instead of `['init', '--json']`
 - `['--json', 'code']` instead of `['code', '--json']`
-- `['--json', 'night-shift']` instead of `['night-shift', '--json']`
+- `['--json', 'nightshift']` instead of `['nightshift', '--json']`
 
 The `--json --help` case is special: `AgentFoxGroup.invoke()` intercepts
 `--json` in the remaining args alongside `--help`, so both

@@ -381,7 +381,7 @@ class TestDaemonGuardEnforced:
 
         assert result.exit_code == 1
         output_lower = result.output.lower()
-        assert "daemon" in output_lower or "night-shift" in output_lower
+        assert "daemon" in output_lower or "nightshift" in output_lower
 
 
 # ---------------------------------------------------------------------------

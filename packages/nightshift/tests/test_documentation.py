@@ -92,7 +92,7 @@ class TestReadmeContent:
         if not os.path.exists("README.md"):
             pytest.skip("README.md not found")
         content = open("README.md").read()
-        assert "night-shift" in content, "README.md should reference the standalone night-shift CLI"
+        assert "nightshift" in content, "README.md should reference the standalone nightshift CLI"
 
     def test_readme_contains_nightshift_package(self) -> None:
         if not os.path.exists("README.md"):
@@ -119,7 +119,7 @@ class TestCliReferenceDoc:
         if not os.path.exists(path):
             pytest.skip(f"{path} not found")
         content = open(path).read()
-        assert "night-shift" in content, "docs/cli-reference.md should document night-shift"
+        assert "nightshift" in content, "docs/cli-reference.md should document nightshift"
 
 
 class TestConfigReferenceDoc:

@@ -67,12 +67,12 @@ def _mock_daemon():
     """
 
     def _fake_run_daemon(ctx, om, config):  # noqa: ARG001
-        click.echo("Night-shift daemon starting. Press Ctrl-C to stop gracefully.")
+        click.echo("Nightshift daemon starting. Press Ctrl-C to stop gracefully.")
         if om.json_mode:
             # Emit JSONL: one JSON object per line (not pretty-printed).
             click.echo(json_mod.dumps({"status": "stopped", "issues_fixed": 0, "total_cost": 0.0}))
         else:
-            click.echo("Night-shift stopped. Issues fixed: 0, Total cost: $0.0000")
+            click.echo("Nightshift stopped. Issues fixed: 0, Total cost: $0.0000")
 
     with patch("nightshift.app._run_daemon", side_effect=_fake_run_daemon):
         yield

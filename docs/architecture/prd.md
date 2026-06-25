@@ -77,7 +77,7 @@ A pipeline or automation script that drives agent-fox in `--json` mode, consumin
 
 ### 4.4 Night Shift Maintenance
 
-1. The user configures a GitHub platform connection and runs `night-shift`.
+1. The user configures a GitHub platform connection and runs `nightshift`.
 2. The daemon immediately polls GitHub for issues labelled `af:fix` and routes each through a three-stage pipeline (triage → coder → reviewer in fix-review mode).
 3. Completed fixes are merged into the integration branch and the originating issue is closed.
 4. The daemon continues polling for new `af:fix` issues at the configured interval.
@@ -164,7 +164,7 @@ A pipeline or automation script that drives agent-fox in `--json` mode, consumin
 
 ### 5.9 Night Shift Daemon
 
-- WHEN a user runs `night-shift`, the system SHALL immediately begin polling for `af:fix`-labelled GitHub issues, repeating on the configured interval.
+- WHEN a user runs `nightshift`, the system SHALL immediately begin polling for `af:fix`-labelled GitHub issues, repeating on the configured interval.
 - WHEN an `af:fix`-labelled issue is detected, the system SHALL route it through a three-stage pipeline (triage → coder → reviewer in fix-review mode).
 - WHEN the platform is not configured or the required access token is absent, the system SHALL exit with code 1 at startup.
 - WHEN the accumulated cost reaches the configured maximum, the system SHALL stop dispatching new fix sessions and exit with code 0.
@@ -227,7 +227,7 @@ All commands accept `--verbose` for debug logging and `--quiet` to suppress info
 - **`agent-fox fix`:** Per-iteration pass/fail results and a final summary.
 - **`agent-fox reset`:** Confirmation of which tasks were reset and which working directories were cleaned up.
 - **`agent-fox export`:** The destination path of the written file.
-- **`night-shift`:** Live log of fix session activity.
+- **`nightshift`:** Live log of fix session activity.
 
 ### 7.2 JSON Mode Output
 
@@ -268,7 +268,7 @@ When `--json` is active:
 | Invalid JSON piped to `--json` mode | Error envelope `{"error": "..."}` on stdout; exits with code 1 |
 | Configuration file contains invalid TOML | Warning logged; file left untouched; user must fix manually |
 | `export` called without `--memory` or `--db` | Error message explaining mutual exclusivity; exits with code 1 |
-| SIGINT during `code` or `night-shift` | Graceful shutdown after current operation; clean exit (code 0 or 130 on second SIGINT) |
+| SIGINT during `code` or `nightshift` | Graceful shutdown after current operation; clean exit (code 0 or 130 on second SIGINT) |
 
 ---
 
