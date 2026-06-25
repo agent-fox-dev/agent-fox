@@ -10,6 +10,7 @@ Requirements: 27-REQ-1.1, 27-REQ-2.1, 27-REQ-4.1, 27-REQ-4.2, 27-REQ-4.3,
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -878,3 +879,139 @@ def supersede_injected_findings(
         len(finding_ids),
         session_id,
     )
+
+
+# ---------------------------------------------------------------------------
+# File-based drift finding supersession (spec 12)
+# ---------------------------------------------------------------------------
+
+
+def _query_active_drift_findings_for_spec(
+    conn: duckdb.DuckDBPyConnection,
+    spec_name: str,
+) -> list[tuple]:
+    """Return ``(id, artifact_ref)`` for all active drift findings for a spec.
+
+    Queries across **all** task groups (no task_group filter) so that
+    file-based supersession evaluates every finding regardless of which
+    orchestrator group created it.  Only rows with ``superseded_by IS NULL``
+    are returned.
+
+    This is a module-private helper — it is NOT part of the public
+    review_store API.
+
+    Requirements: 12-REQ-2.1, 12-REQ-2.2
+    """
+    return conn.execute(
+        "SELECT id, artifact_ref FROM drift_findings "
+        "WHERE spec_name = ? AND superseded_by IS NULL",
+        [spec_name],
+    ).fetchall()
+
+
+# Regex to strip trailing line-number suffixes such as ':42' or ':42:10'.
+_LINE_NUMBER_SUFFIX_RE = re.compile(r"(:\d+)+$")
+
+
+def _normalize_artifact_ref(ref: str) -> str:
+    """Normalize an artifact_ref value for matching.
+
+    Strips trailing line-number suffixes (e.g. ``':42'``, ``':42:10'``)
+    and leading/trailing whitespace.
+
+    Requirements: 12-REQ-1.5, 12-REQ-4.E1
+    """
+    normalized = ref.strip()
+    normalized = _LINE_NUMBER_SUFFIX_RE.sub("", normalized)
+    return normalized
+
+
+def supersede_drift_findings_by_files(
+    conn: duckdb.DuckDBPyConnection,
+    spec_name: str,
+    touched_files: list[str] | None,
+    node_id: str,
+) -> int:
+    """Supersede drift findings whose artifact_ref matches a touched file.
+
+    Evaluates all active drift findings for *spec_name* across every task
+    group.  Each finding's ``artifact_ref`` is normalized (line-number
+    suffixes stripped, whitespace trimmed) and matched against
+    *touched_files* using either:
+
+    - **exact matching** — when the normalized ref does not end with ``/``
+    - **prefix matching** — when it ends with ``/``; any touched file
+      starting with the prefix triggers supersession
+
+    Findings with a ``NULL`` artifact_ref are always skipped.
+
+    Args:
+        conn: DuckDB connection.
+        spec_name: Spec owning the drift findings.
+        touched_files: File paths modified by the completing session.
+            ``None`` or empty list causes an immediate short-circuit
+            (return 0, no DB access).
+        node_id: Session identifier written to ``superseded_by``.
+
+    Returns:
+        Count of findings superseded in this invocation.
+
+    Requirements: 12-REQ-1.1, 12-REQ-1.2, 12-REQ-1.3, 12-REQ-1.4,
+                  12-REQ-1.5, 12-REQ-1.6, 12-REQ-1.7, 12-REQ-1.8,
+                  12-REQ-1.9, 12-REQ-6.1
+    """
+    # 12-REQ-1.2: short-circuit on None or empty touched_files.
+    if not touched_files:
+        logger.debug(
+            "No touched files for drift supersession in spec %s — skipping",
+            spec_name,
+        )
+        return 0
+
+    touched_files_set = set(touched_files)
+
+    # 12-REQ-1.3: query across ALL task groups via private helper.
+    active_findings = _query_active_drift_findings_for_spec(conn, spec_name)
+
+    matched_ids: list[tuple[str, str]] = []  # (id, artifact_ref) for logging
+
+    for row in active_findings:
+        finding_id = row[0]
+        artifact_ref = row[1]
+
+        # 12-REQ-1.4: skip null artifact_ref.
+        if artifact_ref is None:
+            continue
+
+        # 12-REQ-1.5: normalize.
+        normalized = _normalize_artifact_ref(artifact_ref)
+
+        # 12-REQ-1.6 / 12-REQ-1.7: prefix vs. exact matching.
+        if normalized.endswith("/"):
+            if any(f.startswith(normalized) for f in touched_files):
+                matched_ids.append((str(finding_id), artifact_ref))
+        else:
+            if normalized in touched_files_set:
+                matched_ids.append((str(finding_id), artifact_ref))
+
+    if not matched_ids:
+        return 0
+
+    # 12-REQ-1.8: batch-update superseded_by for all matched findings.
+    for finding_id, _ in matched_ids:
+        conn.execute(
+            "UPDATE drift_findings SET superseded_by = ? "
+            "WHERE id::VARCHAR = ? AND superseded_by IS NULL",
+            [node_id, finding_id],
+        )
+
+    # 12-REQ-1.9: log each superseded finding for observability.
+    for finding_id, artifact_ref in matched_ids:
+        logger.info(
+            "Superseded drift finding %s (artifact_ref=%s) via session %s",
+            finding_id,
+            artifact_ref,
+            node_id,
+        )
+
+    return len(matched_ids)

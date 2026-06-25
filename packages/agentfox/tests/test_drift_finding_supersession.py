@@ -85,7 +85,6 @@ def _insert_finding(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(reason="supersede_drift_findings_by_files not yet implemented", strict=True)
 def test_ts12_01_signature_and_return_type(conn: duckdb.DuckDBPyConnection) -> None:
     """supersede_drift_findings_by_files accepts four params and returns int."""
     from agentfox.knowledge.review_store import supersede_drift_findings_by_files
@@ -101,7 +100,6 @@ def test_ts12_01_signature_and_return_type(conn: duckdb.DuckDBPyConnection) -> N
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(reason="supersede_drift_findings_by_files not yet implemented", strict=True)
 def test_ts12_02_empty_touched_files_short_circuit(
     conn: duckdb.DuckDBPyConnection,
     caplog: pytest.LogCaptureFixture,
@@ -126,7 +124,6 @@ def test_ts12_02_empty_touched_files_short_circuit(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(reason="supersede_drift_findings_by_files not yet implemented", strict=True)
 def test_ts12_03_cross_task_group_supersession(conn: duckdb.DuckDBPyConnection) -> None:
     """Findings from both task group 0 and 2 are superseded when matching."""
     from agentfox.knowledge.review_store import supersede_drift_findings_by_files
@@ -154,7 +151,7 @@ def test_ts12_03_cross_task_group_supersession(conn: duckdb.DuckDBPyConnection) 
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(reason="supersede_drift_findings_by_files not yet implemented", strict=True)
+
 def test_ts12_04_null_artifact_ref_skipped(conn: duckdb.DuckDBPyConnection) -> None:
     """Findings with null artifact_ref are never superseded."""
     from agentfox.knowledge.review_store import supersede_drift_findings_by_files
@@ -176,7 +173,7 @@ def test_ts12_04_null_artifact_ref_skipped(conn: duckdb.DuckDBPyConnection) -> N
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(reason="supersede_drift_findings_by_files not yet implemented", strict=True)
+
 def test_ts12_05_line_number_stripping(conn: duckdb.DuckDBPyConnection) -> None:
     """artifact_ref 'src/foo.py:42' normalizes to 'src/foo.py' and matches."""
     from agentfox.knowledge.review_store import supersede_drift_findings_by_files
@@ -198,7 +195,7 @@ def test_ts12_05_line_number_stripping(conn: duckdb.DuckDBPyConnection) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(reason="supersede_drift_findings_by_files not yet implemented", strict=True)
+
 def test_ts12_06_prefix_matching(conn: duckdb.DuckDBPyConnection) -> None:
     """Trailing-slash artifact_ref uses prefix matching."""
     from agentfox.knowledge.review_store import supersede_drift_findings_by_files
@@ -225,7 +222,7 @@ def test_ts12_06_prefix_matching(conn: duckdb.DuckDBPyConnection) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(reason="supersede_drift_findings_by_files not yet implemented", strict=True)
+
 def test_ts12_07_exact_matching(conn: duckdb.DuckDBPyConnection) -> None:
     """Non-trailing-slash artifact_ref uses exact matching."""
     from agentfox.knowledge.review_store import supersede_drift_findings_by_files
@@ -249,7 +246,7 @@ def test_ts12_07_exact_matching(conn: duckdb.DuckDBPyConnection) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(reason="supersede_drift_findings_by_files not yet implemented", strict=True)
+
 def test_ts12_08_superseded_by_marker_and_count(conn: duckdb.DuckDBPyConnection) -> None:
     """superseded_by set to node_id for matching; non-matching left null."""
     from agentfox.knowledge.review_store import supersede_drift_findings_by_files
@@ -281,7 +278,7 @@ def test_ts12_08_superseded_by_marker_and_count(conn: duckdb.DuckDBPyConnection)
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(reason="supersede_drift_findings_by_files not yet implemented", strict=True)
+
 def test_ts12_09_observability_logging(
     conn: duckdb.DuckDBPyConnection,
     caplog: pytest.LogCaptureFixture,
@@ -305,7 +302,7 @@ def test_ts12_09_observability_logging(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(reason="_query_active_drift_findings_for_spec not yet implemented", strict=True)
+
 def test_ts12_10_private_helper_query(conn: duckdb.DuckDBPyConnection) -> None:
     """Private helper returns active findings across all task groups."""
     from agentfox.knowledge.review_store import (
@@ -347,7 +344,7 @@ def test_ts12_10_private_helper_query(conn: duckdb.DuckDBPyConnection) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(reason="_query_active_drift_findings_for_spec not yet implemented", strict=True)
+
 def test_ts12_11_private_helper_not_public() -> None:
     """The private helper exists but is not part of the public review_store API."""
     import agentfox.knowledge.review_store as review_store
@@ -512,7 +509,7 @@ def test_ts12_14_exception_swallowed_with_warning(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(reason="supersede_drift_findings_by_files not yet implemented", strict=True)
+
 def test_ts12_15_exact_match_hit(conn: duckdb.DuckDBPyConnection) -> None:
     """Finding with exact matching artifact_ref is superseded."""
     from agentfox.knowledge.review_store import supersede_drift_findings_by_files
@@ -534,7 +531,7 @@ def test_ts12_15_exact_match_hit(conn: duckdb.DuckDBPyConnection) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(reason="supersede_drift_findings_by_files not yet implemented", strict=True)
+
 def test_ts12_16_exact_match_miss(conn: duckdb.DuckDBPyConnection) -> None:
     """Finding whose artifact_ref does not match remains active."""
     from agentfox.knowledge.review_store import supersede_drift_findings_by_files
@@ -559,7 +556,7 @@ def test_ts12_16_exact_match_miss(conn: duckdb.DuckDBPyConnection) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(reason="supersede_drift_findings_by_files not yet implemented", strict=True)
+
 def test_ts12_17_prefix_match_hit(conn: duckdb.DuckDBPyConnection) -> None:
     """Trailing-slash artifact_ref superseded when touched file matches prefix."""
     from agentfox.knowledge.review_store import supersede_drift_findings_by_files
@@ -586,7 +583,7 @@ def test_ts12_17_prefix_match_hit(conn: duckdb.DuckDBPyConnection) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(reason="supersede_drift_findings_by_files not yet implemented", strict=True)
+
 def test_ts12_18_prefix_match_miss(conn: duckdb.DuckDBPyConnection) -> None:
     """Trailing-slash artifact_ref remains active when no file matches prefix."""
     from agentfox.knowledge.review_store import supersede_drift_findings_by_files
@@ -613,7 +610,7 @@ def test_ts12_18_prefix_match_miss(conn: duckdb.DuckDBPyConnection) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(reason="supersede_drift_findings_by_files not yet implemented", strict=True)
+
 def test_ts12_19_supersession_marker_exact_string(conn: duckdb.DuckDBPyConnection) -> None:
     """superseded_by is set to exactly the node_id string."""
     from agentfox.knowledge.review_store import supersede_drift_findings_by_files
@@ -623,9 +620,10 @@ def test_ts12_19_supersession_marker_exact_string(conn: duckdb.DuckDBPyConnectio
     supersede_drift_findings_by_files(
         conn, "my_spec", ["src/a.py", "src/b.py"], "my_spec:3"
     )
-    for fid in ["id-a", "id-b"]:
+    for alias in ["id-a", "id-b"]:
         row = conn.execute(
-            "SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]
+            "SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?",
+            [_stable_uuid(alias)],
         ).fetchone()
         assert row is not None
         assert row[0] == "my_spec:3"
@@ -636,7 +634,7 @@ def test_ts12_19_supersession_marker_exact_string(conn: duckdb.DuckDBPyConnectio
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(reason="supersede_drift_findings_by_files not yet implemented", strict=True)
+
 def test_ts12_20_null_artifact_ref_persists(conn: duckdb.DuckDBPyConnection) -> None:
     """Findings with null artifact_ref remain active."""
     from agentfox.knowledge.review_store import supersede_drift_findings_by_files
@@ -657,7 +655,7 @@ def test_ts12_20_null_artifact_ref_persists(conn: duckdb.DuckDBPyConnection) -> 
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(reason="supersede_drift_findings_by_files not yet implemented", strict=True)
+
 def test_ts12_21_non_matching_persists(conn: duckdb.DuckDBPyConnection) -> None:
     """Findings whose artifact_ref doesn't match remain active."""
     from agentfox.knowledge.review_store import supersede_drift_findings_by_files
@@ -711,7 +709,7 @@ def test_ts12_22_query_excludes_superseded(conn: duckdb.DuckDBPyConnection) -> N
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(reason="supersede_drift_findings_by_files not yet implemented", strict=True)
+
 def test_ts12_23_req8_exact_match(conn: duckdb.DuckDBPyConnection) -> None:
     """REQ-8.1: Exact path match supersedes finding."""
     from agentfox.knowledge.review_store import supersede_drift_findings_by_files
@@ -726,7 +724,7 @@ def test_ts12_23_req8_exact_match(conn: duckdb.DuckDBPyConnection) -> None:
     assert row[0] == "spec:1"
 
 
-@pytest.mark.xfail(reason="supersede_drift_findings_by_files not yet implemented", strict=True)
+
 def test_ts12_24_req8_exact_non_match(conn: duckdb.DuckDBPyConnection) -> None:
     """REQ-8.2: Exact path non-match leaves finding active."""
     from agentfox.knowledge.review_store import supersede_drift_findings_by_files
@@ -741,7 +739,7 @@ def test_ts12_24_req8_exact_non_match(conn: duckdb.DuckDBPyConnection) -> None:
     assert row[0] is None
 
 
-@pytest.mark.xfail(reason="supersede_drift_findings_by_files not yet implemented", strict=True)
+
 def test_ts12_25_req8_directory_prefix(conn: duckdb.DuckDBPyConnection) -> None:
     """REQ-8.3: Directory prefix match supersedes finding."""
     from agentfox.knowledge.review_store import supersede_drift_findings_by_files
@@ -760,7 +758,7 @@ def test_ts12_25_req8_directory_prefix(conn: duckdb.DuckDBPyConnection) -> None:
     assert row[0] == "spec:1"
 
 
-@pytest.mark.xfail(reason="supersede_drift_findings_by_files not yet implemented", strict=True)
+
 def test_ts12_26_req8_line_number_strip(conn: duckdb.DuckDBPyConnection) -> None:
     """REQ-8.4: Line number suffix is stripped before matching."""
     from agentfox.knowledge.review_store import supersede_drift_findings_by_files
@@ -777,7 +775,7 @@ def test_ts12_26_req8_line_number_strip(conn: duckdb.DuckDBPyConnection) -> None
     assert row[0] == "spec:1"
 
 
-@pytest.mark.xfail(reason="supersede_drift_findings_by_files not yet implemented", strict=True)
+
 def test_ts12_27_req8_null_ref(conn: duckdb.DuckDBPyConnection) -> None:
     """REQ-8.5: Null artifact_ref is never superseded."""
     from agentfox.knowledge.review_store import supersede_drift_findings_by_files
@@ -792,7 +790,7 @@ def test_ts12_27_req8_null_ref(conn: duckdb.DuckDBPyConnection) -> None:
     assert row[0] is None
 
 
-@pytest.mark.xfail(reason="supersede_drift_findings_by_files not yet implemented", strict=True)
+
 def test_ts12_28_req8_empty_list(
     conn: duckdb.DuckDBPyConnection,
     caplog: pytest.LogCaptureFixture,
@@ -812,7 +810,7 @@ def test_ts12_28_req8_empty_list(
     assert row[0] is None
 
 
-@pytest.mark.xfail(reason="supersede_drift_findings_by_files not yet implemented", strict=True)
+
 def test_ts12_29_req8_null_list(
     conn: duckdb.DuckDBPyConnection,
     caplog: pytest.LogCaptureFixture,
@@ -832,7 +830,7 @@ def test_ts12_29_req8_null_list(
     assert row[0] is None
 
 
-@pytest.mark.xfail(reason="supersede_drift_findings_by_files not yet implemented", strict=True)
+
 def test_ts12_30_req8_multiple_matches(conn: duckdb.DuckDBPyConnection) -> None:
     """REQ-8.8: Multiple findings matching same file all superseded."""
     from agentfox.knowledge.review_store import supersede_drift_findings_by_files
@@ -859,7 +857,7 @@ def test_ts12_30_req8_multiple_matches(conn: duckdb.DuckDBPyConnection) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(reason="supersede_drift_findings_by_files not yet implemented", strict=True)
+
 def test_ts12_e1_all_null_artifact_refs(conn: duckdb.DuckDBPyConnection) -> None:
     """All findings with null artifact_ref: returns 0, no DB writes."""
     from agentfox.knowledge.review_store import supersede_drift_findings_by_files
@@ -884,7 +882,7 @@ def test_ts12_e1_all_null_artifact_refs(conn: duckdb.DuckDBPyConnection) -> None
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(reason="supersede_drift_findings_by_files not yet implemented", strict=True)
+
 def test_ts12_e2_multiple_findings_same_ref(conn: duckdb.DuckDBPyConnection) -> None:
     """Multiple findings with same artifact_ref all superseded; count correct."""
     from agentfox.knowledge.review_store import supersede_drift_findings_by_files
@@ -979,7 +977,7 @@ def test_ts12_e3_null_touched_files_passthrough(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(reason="supersede_drift_findings_by_files not yet implemented", strict=True)
+
 def test_ts12_e4_line_number_suffix_stripped(conn: duckdb.DuckDBPyConnection) -> None:
     """artifact_ref with ':42' suffix matches touched file without suffix."""
     from agentfox.knowledge.review_store import supersede_drift_findings_by_files
@@ -1047,7 +1045,7 @@ def _normalize_ref(ref: str) -> str:
     return normalized
 
 
-@pytest.mark.xfail(reason="supersede_drift_findings_by_files not yet implemented", strict=True)
+
 @settings(max_examples=200, deadline=None)
 @given(
     artifact_refs=st.lists(_artifact_ref, min_size=1, max_size=5),
@@ -1096,7 +1094,7 @@ def test_ts12_p1_zero_false_positive(
         conn.close()
 
 
-@pytest.mark.xfail(reason="supersede_drift_findings_by_files not yet implemented", strict=True)
+
 @settings(max_examples=200, deadline=None)
 @given(
     touched_files=st.lists(_file_path, min_size=1, max_size=5),
@@ -1123,7 +1121,7 @@ def test_ts12_p2_null_ref_never_superseded(
         conn.close()
 
 
-@pytest.mark.xfail(reason="supersede_drift_findings_by_files not yet implemented", strict=True)
+
 @settings(max_examples=100, deadline=None)
 @given(
     artifact_refs=st.lists(_artifact_ref, min_size=1, max_size=3),
@@ -1193,7 +1191,7 @@ def test_ts12_p4_superseded_excluded_from_query(
         conn.close()
 
 
-@pytest.mark.xfail(reason="supersede_drift_findings_by_files not yet implemented", strict=True)
+
 @settings(max_examples=100, deadline=None)
 @given(
     node_id=_node_id,

@@ -81,9 +81,6 @@ def _insert_finding(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(
-    reason="supersede_drift_findings_by_files not yet implemented/wired", strict=True
-)
 def test_ts12_31_to_34_end_to_end_supersession(
     integration_conn: duckdb.DuckDBPyConnection,
 ) -> None:
