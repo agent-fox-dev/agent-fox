@@ -426,7 +426,7 @@ class TestOrchestratorPassesReadOnlyConn:
             from agentfox.engine.run import _setup_infrastructure
 
             mock_config = MagicMock()
-            _setup_infrastructure(mock_config)
+            infra = _setup_infrastructure(mock_config)
 
         # Must have called open_knowledge_store at least twice:
         # first with read_only=False (main), then read_only=True (context)
@@ -434,6 +434,16 @@ class TestOrchestratorPassesReadOnlyConn:
         assert call_log[0] is False, "First open_knowledge_store call must be read_only=False (main write connection)"
         assert call_log[1] is True, (
             "Second open_knowledge_store call must be read_only=True (context read-only connection)"
+        )
+
+        # 06-REQ-7.3: Verify that the read-only connection (not the
+        # read-write one) is actually propagated via context_knowledge_db.
+        # This guards against a silent fallback to the write connection.
+        assert infra["context_knowledge_db"] is mock_db_ro, (
+            "context_knowledge_db must be the read-only DB instance, not the read-write main connection"
+        )
+        assert infra["context_knowledge_db"] is not mock_db_rw, (
+            "context_knowledge_db must NOT fall back to the read-write main connection"
         )
 
 

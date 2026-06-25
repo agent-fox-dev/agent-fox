@@ -192,7 +192,8 @@ class TestOrchestratorStartupSmoke:
         assert errata_calls[0] == tmp_path
 
     def test_session_receives_read_only_conn(self) -> None:
-        """Verify _setup_infrastructure opens a second read-only conn."""
+        """Verify _setup_infrastructure opens a second read-only conn
+        and propagates it as context_knowledge_db (06-REQ-7.3)."""
         call_log: list[bool] = []
         mock_db_rw = MagicMock()
         mock_db_rw.connection = MagicMock()
@@ -213,11 +214,13 @@ class TestOrchestratorStartupSmoke:
         ):
             from agentfox.engine.run import _setup_infrastructure
 
-            _setup_infrastructure(MagicMock())
+            infra = _setup_infrastructure(MagicMock())
 
         assert len(call_log) >= 2
         assert call_log[0] is False
         assert call_log[1] is True
+        # Verify the read-only connection is propagated, not the write conn
+        assert infra["context_knowledge_db"] is mock_db_ro
 
 
 @pytest.mark.smoke

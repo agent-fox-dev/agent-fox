@@ -113,14 +113,7 @@ def _setup_infrastructure(
     # assembly.  This ensures assemble_context never holds a write lock and
     # can run concurrently with the orchestrator's write operations.
     # read-only conn for session context assembly; writes done at startup
-    context_knowledge_db = None
-    try:
-        context_knowledge_db = open_knowledge_store(config.knowledge, read_only=True)
-    except Exception:
-        logger.warning(
-            "Failed to open read-only knowledge store for context assembly; falling back to main connection",
-            exc_info=True,
-        )
+    context_knowledge_db = open_knowledge_store(config.knowledge, read_only=True)
 
     # Attach agent trace sink unconditionally so that trace-based transcript
     # reconstruction is available for knowledge extraction (113-REQ-1.1).
@@ -130,11 +123,6 @@ def _setup_infrastructure(
 
     # 115-REQ-10.1: Construct FoxKnowledgeProvider with config
     knowledge_provider = FoxKnowledgeProvider(knowledge_db, config.knowledge.provider)
-
-    # Determine the read-only connection for context assembly (06-REQ-7.3).
-    # Falls back to the main knowledge_db when a separate read-only
-    # connection is unavailable (e.g. in-memory databases in tests).
-    _context_db = context_knowledge_db if context_knowledge_db is not None else knowledge_db
 
     def session_runner_factory(
         node_id: str,
@@ -156,7 +144,7 @@ def _setup_infrastructure(
             instances=instances,
             sink_dispatcher=sink_dispatcher,
             knowledge_db=knowledge_db,
-            context_knowledge_db=_context_db,
+            context_knowledge_db=context_knowledge_db,
             knowledge_provider=knowledge_provider,
             activity_callback=activity_callback,
             assessed_tier=assessed_tier,
