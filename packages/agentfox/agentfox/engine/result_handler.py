@@ -281,7 +281,6 @@ class SessionResultHandler:
             return self._retry_on_review_block(record, decision, state, mode=node_mode)
 
         self._block_task(decision.coder_node_id, state, decision.reason)
-        self._generate_errata(record)
         return True
 
     def _retry_on_review_block(
@@ -331,7 +330,6 @@ class SessionResultHandler:
                 coder_node_id,
             )
             self._block_task(coder_node_id, state, decision.reason)
-            self._generate_errata(record)
             return True
 
         logger.info(
@@ -367,7 +365,6 @@ class SessionResultHandler:
                 )
             )
 
-        self._generate_errata(record)
         return False
 
     def _get_audit_max_retries(self) -> int:
@@ -403,7 +400,6 @@ class SessionResultHandler:
                 max_retries,
             )
             self._block_task(coder_node_id, state, decision.reason)
-            self._generate_errata(record)
             return True
 
         ns.audit_retry_count = count + 1
@@ -445,12 +441,7 @@ class SessionResultHandler:
                 )
             )
 
-        self._generate_errata(record)
         return False
-
-    def _generate_errata(self, record: SessionRecord) -> None:
-        """Errata generation removed in spec 10 (unused channel)."""
-        return
 
     def process(
         self,

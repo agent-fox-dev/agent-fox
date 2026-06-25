@@ -177,7 +177,7 @@ def _run_startup_migrations(
     specs_path: Path,
     project_root: Path,
 ) -> None:
-    """Run legacy file migrations and errata indexing at orchestrator startup.
+    """Run legacy file migrations at orchestrator startup.
 
     Migrates legacy review.md/verification.md files into DuckDB using the
     read-write connection, before any sessions are dispatched.
@@ -207,7 +207,6 @@ def _run_startup_migrations(
                     exc_info=True,
                 )
 
-    # Errata indexing removed in spec 10 (unused channel).
 
 
 async def run_code(
@@ -267,9 +266,8 @@ async def run_code(
     except Exception:
         logger.warning("Infrastructure setup failed", exc_info=True)
 
-    # 06-REQ-5.2, 06-REQ-6.2: Run legacy migrations and errata indexing
-    # at startup with the read-write connection, before any sessions are
-    # dispatched.
+    # 06-REQ-5.2, 06-REQ-6.2: Run legacy migrations at startup with the
+    # read-write connection, before any sessions are dispatched.
     if infra is not None:
         try:
             _run_startup_migrations(
