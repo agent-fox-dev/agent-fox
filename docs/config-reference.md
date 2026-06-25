@@ -36,6 +36,7 @@ the most commonly changed settings. Add any section below manually to
 - [planning](#planning)
 - [night_shift](#night_shift)
 - [caching](#caching)
+- [spec_tool](#spec_tool)
 
 ---
 
@@ -488,6 +489,33 @@ cache_policy = "DEFAULT"   # NONE | DEFAULT | EXTENDED
 
 **Rollback:** Set `cache_policy = "NONE"` to fully disable caching with no
 code changes required.
+
+---
+
+## spec_tool
+
+Configuration for the agentspec tool. Controls the model and authentication
+settings used for AI-assisted specification generation.
+
+> **Note:** This is a hidden section. Settings previously lived in
+> `~/.af/settings.yaml`; they are now consolidated here.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `model` | str | `"claude-sonnet-4-6"` | Anthropic model used for spec generation. Can be overridden by the `AF_SPEC_MODEL` environment variable. |
+| `auth_method` | str | `""` | Authentication method (empty string = default API key) |
+| `vertex_project` | str | `""` | Google Cloud Vertex AI project ID |
+| `vertex_region` | str | `""` | Google Cloud Vertex AI region |
+
+**Example:**
+
+```toml
+[spec_tool]
+model = "claude-sonnet-4-6"
+auth_method = ""
+vertex_project = ""
+vertex_region = ""
+```
 
 ---
 

@@ -287,6 +287,7 @@ class TestSchemaExtraction:
             "night_shift",
             "paths",
             "workspace",
+            "spec_tool",
         }
         assert section_paths == expected
 

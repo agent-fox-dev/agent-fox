@@ -667,6 +667,35 @@ class WorkspaceConfig(BaseModel):
 _LEGACY_SPEC_ROOT = ".specs"
 
 
+class SpecToolConfig(BaseModel):
+    """Configuration for the agentspec tool.
+
+    Holds model and authentication settings previously stored in
+    ``~/.af/settings.yaml``.
+
+    Requirements: 13-REQ-6.1
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    model: str = Field(
+        default="claude-sonnet-4-6",
+        description="Anthropic model used for spec generation",
+    )
+    auth_method: str = Field(
+        default="",
+        description="Authentication method (empty string = default API key)",
+    )
+    vertex_project: str = Field(
+        default="",
+        description="Google Cloud Vertex AI project ID",
+    )
+    vertex_region: str = Field(
+        default="",
+        description="Google Cloud Vertex AI region",
+    )
+
+
 class AgentFoxConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -683,6 +712,42 @@ class AgentFoxConfig(BaseModel):
     planning: PlanningConfig = Field(default_factory=PlanningConfig)
     caching: CachingConfig = Field(default_factory=CachingConfig)
     night_shift: NightShiftConfig = Field(default_factory=NightShiftConfig)
+    spec_tool: SpecToolConfig = Field(default_factory=SpecToolConfig)
+
+
+def shallow_merge(global_dict: dict, local_dict: dict) -> dict:
+    """Merge two config dicts using shallow section replacement.
+
+    For each key in *local_dict*:
+    - If the value is a ``dict`` (i.e. a TOML section), the entire
+      corresponding section in *global_dict* is replaced wholesale.
+    - If the value is a scalar, it overrides the matching global key.
+
+    Keys present in *global_dict* but absent from *local_dict* are
+    inherited unchanged.  Nested keys within a section are **never**
+    deep-merged — a section present in the local config replaces
+    the entire global section including all nested keys.
+
+    Requirements: 13-REQ-3.1, 13-REQ-3.3
+    """
+    merged: dict = {}
+    # Start with a shallow copy of all global keys
+    for key, value in global_dict.items():
+        if isinstance(value, dict):
+            merged[key] = dict(value)  # copy so mutations don't leak
+        else:
+            merged[key] = value
+
+    # Apply local overrides
+    for key, value in local_dict.items():
+        if isinstance(value, dict):
+            # Section replacement: wholesale, not deep-merged
+            merged[key] = dict(value)
+        else:
+            # Scalar override
+            merged[key] = value
+
+    return merged
 
 
 def load_config(path: Path | None = None) -> AgentFoxConfig:
