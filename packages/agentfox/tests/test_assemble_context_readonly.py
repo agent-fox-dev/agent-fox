@@ -486,6 +486,57 @@ class TestOrchestratorPassesReadOnlyConn:
             with pytest.raises(RuntimeError, match="simulated read-only open failure"):
                 _setup_infrastructure(mock_config)
 
+    def test_read_only_conn_propagated_to_session_runner(self) -> None:
+        """Verify the read-only connection is actually passed to
+        session_runner_factory as context_knowledge_db, not the rw one.
+        This catches the former fallback bug where a failed read-only
+        open silently fell back to the rw connection (06-REQ-7.3)."""
+        from unittest.mock import MagicMock
+
+        mock_db_rw = MagicMock(name="rw_db")
+        mock_db_rw.connection = MagicMock()
+        mock_db_ro = MagicMock(name="ro_db")
+        mock_db_ro.connection = MagicMock()
+
+        def _track_open(config, *, read_only):
+            return mock_db_ro if read_only else mock_db_rw
+
+        with (
+            patch(
+                "agentfox.engine.run.open_knowledge_store",
+                side_effect=_track_open,
+            ),
+            patch("agentfox.engine.run.DuckDBSink"),
+            patch("agentfox.engine.run.SinkDispatcher"),
+            patch("agentfox.engine.run.FoxKnowledgeProvider"),
+            patch("agentfox.knowledge.agent_trace.AgentTraceSink"),
+            patch(
+                "agentfox.nightshift.platform_factory.create_platform_safe",
+                return_value=None,
+            ),
+            # Patch NodeSessionRunner at its source module so the
+            # deferred import inside _setup_infrastructure picks it up.
+            patch(
+                "agentfox.engine.session_lifecycle.NodeSessionRunner",
+            ) as mock_nsr,
+        ):
+            from agentfox.engine.run import _setup_infrastructure
+
+            mock_config = MagicMock()
+            infra = _setup_infrastructure(mock_config)
+
+            # Call session_runner_factory and capture what it passes through
+            infra["session_runner_factory"]("test_node")
+            mock_nsr.assert_called_once()
+            _, kwargs = mock_nsr.call_args
+
+        # The context_knowledge_db passed to NodeSessionRunner must be
+        # the read-only connection, not the read-write one.
+        assert kwargs.get("context_knowledge_db") is mock_db_ro, (
+            "session_runner_factory must pass the read-only connection as "
+            "context_knowledge_db, not the read-write main connection"
+        )
+
 
 # -----------------------------------------------------------------------
 # TS-06-E5: _migrate_legacy_files failure for one spec doesn't abort
