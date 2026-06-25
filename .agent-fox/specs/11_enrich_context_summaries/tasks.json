@@ -40,7 +40,7 @@
             "11-REQ-3.4",
             "11-REQ-3.6"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -61,7 +61,7 @@
             "11-REQ-3.E1",
             "11-REQ-3.E2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -88,7 +88,7 @@
             "11-REQ-4.3",
             "11-REQ-4.4"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -115,7 +115,7 @@
             "11-REQ-3.5",
             "11-REQ-4.5"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -145,7 +145,7 @@
             "11-REQ-3.4",
             "11-REQ-4.3"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -154,7 +154,7 @@
           "details": [],
           "test_spec_refs": [],
           "requirement_refs": [],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],
