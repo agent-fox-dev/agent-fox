@@ -32,6 +32,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    PrivateAttr,
     ValidationError,
     field_validator,
     model_validator,
@@ -726,6 +727,13 @@ class AgentFoxConfig(BaseModel):
     night_shift: NightShiftConfig = Field(default_factory=NightShiftConfig)
     spec_tool: SpecToolConfig = Field(default_factory=SpecToolConfig)
 
+    # Private attribute to track whether [spec_tool] was explicitly present
+    # in the raw merged config dict before Pydantic validation.  Set by
+    # _load_config_global_local().  Used by agentspec to decide whether
+    # to fall back to ~/.af/settings.yaml migration path.
+    # Requirements: 13-REQ-6.3
+    _spec_tool_explicit: bool = PrivateAttr(default=False)
+
 
 def shallow_merge(global_dict: dict, local_dict: dict) -> dict:
     """Merge two config dicts using shallow section replacement.
@@ -986,7 +994,15 @@ def _load_config_global_local() -> AgentFoxConfig:
         )
 
     # 13-REQ-1.3: validate and apply defaults via Pydantic
-    return _validate_config_dict(merged_dict, source="merged config")
+    config = _validate_config_dict(merged_dict, source="merged config")
+
+    # 13-REQ-6.3: track whether [spec_tool] was explicitly present in the
+    # raw merged dict (before Pydantic filled in defaults).  Used by
+    # agentspec to decide whether to fall back to ~/.af/settings.yaml.
+    if "spec_tool" in merged_dict:
+        config._spec_tool_explicit = True
+
+    return config
 
 
 def resolve_spec_root(config: AgentFoxConfig, project_root: Path) -> Path:
