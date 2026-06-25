@@ -124,6 +124,31 @@ Completed sessions that produced a non-empty summary are stored in the
 - An auto-generated summary from persisted findings and verdicts (for
   reviewer and verifier sessions that don't produce artifact files).
 
+The `session-summary.json` schema supports three optional structured fields
+beyond the narrative `summary` text:
+
+- `rejected_approaches` — an array of objects, each with an `approach` key
+  (what was tried) and a `reason` key (why it was rejected).
+- `gotchas` — an array of strings warning the next coder about edge cases,
+  fragile patterns, or counter-intuitive behavior.
+- `assumptions` — an array of strings recording assumptions made during the
+  session that might not hold for later task groups.
+
+When these structured fields are present, the `compose_enriched_summary()`
+function merges them with the narrative summary into a single composed text
+before database storage. Each rejected approach is formatted as
+`Tried: {approach} — rejected because: {reason}`, each gotcha as
+`Watch out: {gotcha}`, and each assumption as `Assumes: {assumption}`.
+Sections are separated by newlines with no trailing newline. When none of
+the structured fields are present, the raw summary text is stored unchanged
+— preserving backward compatibility with older session-summary.json files.
+
+Reviewer and verifier sessions that produced no findings or verdicts are
+suppressed: `generate_archetype_summary()` returns `None` for these trivial
+sessions, and the existing `if summary_text:` guard prevents database
+insertion. This avoids accumulating completion-status noise in the
+`session_summaries` table.
+
 Each summary record carries the spec name, task group, archetype, attempt
 number, run ID, and creation timestamp. These summaries are later retrieved by
 future sessions to provide cross-session context.
@@ -192,10 +217,16 @@ here — they are not subject to automatic supersession.
 
 ### 5.5 `session_summaries`
 
-Append-only log of natural-language session summaries. Each record carries the
-spec name, task group, archetype, attempt number, run ID, and summary text.
-Used for two retrieval categories: same-spec context (what earlier groups did)
-and cross-spec context (what related specs accomplished in the current run).
+Append-only log of enriched session summaries containing non-obvious learnings
+rather than completion-status pings. Coder session summaries capture rejected
+approaches (techniques tried and abandoned), gotchas (edge cases and fragile
+patterns), and assumptions that may not hold for later task groups — composed
+into a single text via `compose_enriched_summary()` before storage. Reviewer
+and verifier sessions with no findings or verdicts are suppressed entirely
+(no row is written). Each record carries the spec name, task group, archetype,
+attempt number, run ID, and summary text. Used for two retrieval categories:
+same-spec context (what earlier groups learned) and cross-spec context (what
+related specs accomplished in the current run).
 
 ### 5.6 `adr_entries`
 
@@ -245,7 +276,7 @@ with keyword-based relevance scoring — no embeddings, no vector search:
 | Errata | `errata` | `[ERRATA]` | All errata for this spec |
 | ADR summaries | `adr_entries` | `[ADR]` | ADRs matching spec or task keywords |
 | Cross-group findings | `review_findings` | `[CROSS-GROUP]` | Critical/major from other groups in the same spec |
-| Same-spec summaries | `session_summaries` | `[CONTEXT]` | Summaries from earlier sessions on this spec |
+| Same-spec summaries | `session_summaries` | `[CONTEXT]` | Enriched summaries from earlier sessions on this spec, containing non-obvious learnings such as rejected approaches, gotchas, and assumptions from structured session-summary fields |
 | Cross-spec summaries | `session_summaries` | `[CROSS-SPEC]` | Summaries from sessions on other specs (current run) |
 | Prior-run findings | `review_findings` + `verification_results` | `[PRIOR-RUN]` | Unresolved findings from previous orchestrator runs |
 
@@ -451,9 +482,11 @@ history through supersession references.
 
 **Cross-session continuity.** Session summaries bridge the context gap between
 sessions. Same-spec summaries give later groups visibility into what earlier
-groups accomplished. Cross-spec summaries connect related work across specs.
-Prior-run findings surface issues that survived previous runs. Together, these
-mechanisms provide continuity of purpose across the session boundary.
+groups learned — including rejected approaches, gotchas, and assumptions —
+rather than generic completion status. Cross-spec summaries connect related
+work across specs. Prior-run findings surface issues that survived previous
+runs. Together, these mechanisms provide continuity of purpose across the
+session boundary.
 
 **Graceful degradation everywhere.** If knowledge retrieval fails, the session
 proceeds without context. If ingestion fails, the session outcome is
