@@ -3,6 +3,14 @@
 TS-08-P1: For any spec input processed by afspec, if validate() returns
 zero ValidationError objects, the result's valid field is True regardless
 of how many ValidationWarning objects are present.
+TS-08-P2: For any task group whose total test_spec_refs count across all
+subtasks exceeds 15, afspec must emit at least one ValidationWarning
+referencing that group.
+TS-08-P3: For any task group where the number of non-verification
+subtasks exceeds 6, afspec must emit at least one ValidationWarning
+referencing that group.
+TS-08-P4: For any subtask whose test_spec_refs list length exceeds 8,
+afspec must emit at least one ValidationWarning referencing that subtask.
 
 These tests are in RED PHASE — they will fail with AttributeError because
 validate() currently returns a plain list, not a structured result with
@@ -323,3 +331,278 @@ class TestWarningsNeverBlockValidity:
                 f"Spec with many warning triggers but zero errors: "
                 f"valid should be True, got {result.valid}"
             )
+
+
+# ---------------------------------------------------------------------------
+# TS-08-P2: Oversized group always warned
+# ---------------------------------------------------------------------------
+
+
+def _warning_references_group(warning: object, group_id: int) -> bool:
+    """Check whether a warning references a specific group ID."""
+    text = str(warning)
+    # Check for group ID in the warning text — various formats accepted:
+    # "Group 1 has ...", entity_id="1", etc.
+    return str(group_id) in text
+
+
+class TestOversizedGroupAlwaysWarned:
+    """TS-08-P2: any group with total refs > 15 always gets a warning.
+
+    For any task group whose total test_spec_refs count across all
+    subtasks exceeds 15, afspec must emit at least one ValidationWarning
+    referencing that group.
+    """
+
+    @given(
+        total_refs=st.integers(min_value=16, max_value=50),
+        num_subtasks=st.integers(min_value=1, max_value=6),
+        data=st.data(),
+    )
+    @settings(max_examples=30, deadline=None)
+    def test_oversized_refs_always_warned(
+        self,
+        total_refs: int,
+        num_subtasks: int,
+        data: st.DataObject,
+    ) -> None:
+        """Groups with >15 total refs always trigger a warning."""
+        # Distribute refs across subtasks
+        refs_distribution: list[int] = []
+        remaining = total_refs
+        for i in range(num_subtasks):
+            if i == num_subtasks - 1:
+                refs_distribution.append(remaining)
+            else:
+                portion = data.draw(
+                    st.integers(min_value=0, max_value=remaining),
+                    label=f"refs_s{i}",
+                )
+                refs_distribution.append(portion)
+                remaining -= portion
+
+        spec = _build_structurally_valid_spec(
+            num_groups=1,
+            subtask_counts=[num_subtasks],
+            refs_per_subtask=[refs_distribution],
+        )
+        result = validate(spec)
+
+        # Group 1 has >15 total refs — must have a warning
+        assert any(
+            _warning_references_group(w, 1) for w in result.warnings
+        ), (
+            f"Group 1 has {total_refs} total refs (>15) but no warning "
+            f"was emitted. Warnings: {result.warnings}"
+        )
+
+    @given(
+        kind_idx=st.integers(min_value=0, max_value=2),
+    )
+    @settings(max_examples=10, deadline=None)
+    def test_oversized_refs_all_kinds(self, kind_idx: int) -> None:
+        """Oversized refs warning applies to all kinds."""
+        kinds = [TaskGroupKind.TESTS, TaskGroupKind.STANDARD, TaskGroupKind.CHECKPOINT]
+        kind = kinds[kind_idx]
+
+        if kind == TaskGroupKind.TESTS:
+            # First group is tests — target group is group 1
+            spec = _build_structurally_valid_spec(
+                num_groups=1,
+                subtask_counts=[2],
+                refs_per_subtask=[[10, 8]],  # 18 total > 15
+            )
+            target_group_id = 1
+        else:
+            # Need tests group first, then target group with the kind
+            spec = _build_structurally_valid_spec(
+                num_groups=2,
+                subtask_counts=[1, 2],
+                refs_per_subtask=[[1], [10, 8]],  # group 2 has 18 refs
+            )
+            # Override the kind of the second group
+            spec.tasks.task_groups[1].kind = kind
+            target_group_id = 2
+
+        result = validate(spec)
+        assert any(
+            _warning_references_group(w, target_group_id)
+            for w in result.warnings
+        ), (
+            f"Group {target_group_id} (kind={kind.value}) has >15 refs "
+            f"but no warning. Warnings: {result.warnings}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# TS-08-P3: Too many subtasks always warned
+# ---------------------------------------------------------------------------
+
+
+class TestTooManySubtasksAlwaysWarned:
+    """TS-08-P3: any group with >6 non-verification subtasks gets a warning.
+
+    For any task group where the number of non-verification subtasks
+    exceeds 6, afspec must emit at least one ValidationWarning referencing
+    that group.
+    """
+
+    @given(
+        num_subtasks=st.integers(min_value=7, max_value=15),
+        data=st.data(),
+    )
+    @settings(max_examples=30, deadline=None)
+    def test_too_many_subtasks_always_warned(
+        self,
+        num_subtasks: int,
+        data: st.DataObject,
+    ) -> None:
+        """Groups with >6 non-verification subtasks always trigger a warning."""
+        # Each subtask gets 0-2 refs to stay below the per-subtask threshold
+        refs_per = [
+            data.draw(
+                st.integers(min_value=0, max_value=2),
+                label=f"refs_s{i}",
+            )
+            for i in range(num_subtasks)
+        ]
+
+        spec = _build_structurally_valid_spec(
+            num_groups=1,
+            subtask_counts=[num_subtasks],
+            refs_per_subtask=[refs_per],
+        )
+        result = validate(spec)
+
+        assert any(
+            _warning_references_group(w, 1) for w in result.warnings
+        ), (
+            f"Group 1 has {num_subtasks} subtasks (>6) but no warning "
+            f"was emitted. Warnings: {result.warnings}"
+        )
+
+    @given(
+        kind_idx=st.integers(min_value=0, max_value=2),
+    )
+    @settings(max_examples=10, deadline=None)
+    def test_too_many_subtasks_all_kinds(self, kind_idx: int) -> None:
+        """Too-many-subtasks warning applies to all kinds."""
+        kinds = [TaskGroupKind.TESTS, TaskGroupKind.STANDARD, TaskGroupKind.CHECKPOINT]
+        kind = kinds[kind_idx]
+
+        if kind == TaskGroupKind.TESTS:
+            spec = _build_structurally_valid_spec(
+                num_groups=1,
+                subtask_counts=[8],
+                refs_per_subtask=[[1] * 8],
+            )
+            target_group_id = 1
+        else:
+            spec = _build_structurally_valid_spec(
+                num_groups=2,
+                subtask_counts=[1, 8],
+                refs_per_subtask=[[1], [1] * 8],
+            )
+            spec.tasks.task_groups[1].kind = kind
+            target_group_id = 2
+
+        result = validate(spec)
+        assert any(
+            _warning_references_group(w, target_group_id)
+            for w in result.warnings
+        ), (
+            f"Group {target_group_id} (kind={kind.value}) has 8 subtasks "
+            f"but no warning. Warnings: {result.warnings}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# TS-08-P4: Single subtask overload always warned
+# ---------------------------------------------------------------------------
+
+
+class TestSubtaskOverloadAlwaysWarned:
+    """TS-08-P4: any subtask with >8 test_spec_refs gets a warning.
+
+    For any subtask whose test_spec_refs list length exceeds 8, afspec
+    must emit at least one ValidationWarning referencing that subtask.
+    """
+
+    @given(
+        num_refs=st.integers(min_value=9, max_value=30),
+    )
+    @settings(max_examples=30, deadline=None)
+    def test_overloaded_subtask_always_warned(self, num_refs: int) -> None:
+        """Subtasks with >8 refs always trigger a warning."""
+        spec = _build_structurally_valid_spec(
+            num_groups=1,
+            subtask_counts=[1],
+            refs_per_subtask=[[num_refs]],
+        )
+        result = validate(spec)
+
+        # Subtask 1.1 should be referenced in a warning
+        assert any(
+            "1.1" in str(w) for w in result.warnings
+        ), (
+            f"Subtask 1.1 has {num_refs} refs (>8) but no warning "
+            f"referencing it. Warnings: {result.warnings}"
+        )
+
+    @given(
+        data=st.data(),
+    )
+    @settings(max_examples=20, deadline=None)
+    def test_multiple_overloaded_subtasks_all_warned(
+        self,
+        data: st.DataObject,
+    ) -> None:
+        """When multiple subtasks exceed 8 refs, each gets a warning."""
+        num_subtasks = data.draw(
+            st.integers(min_value=2, max_value=4),
+            label="num_subtasks",
+        )
+        refs = [
+            data.draw(
+                st.integers(min_value=9, max_value=20),
+                label=f"refs_s{i}",
+            )
+            for i in range(num_subtasks)
+        ]
+
+        spec = _build_structurally_valid_spec(
+            num_groups=1,
+            subtask_counts=[num_subtasks],
+            refs_per_subtask=[refs],
+        )
+        result = validate(spec)
+
+        for s_idx in range(num_subtasks):
+            subtask_id = f"1.{s_idx + 1}"
+            assert any(
+                subtask_id in str(w) for w in result.warnings
+            ), (
+                f"Subtask {subtask_id} has {refs[s_idx]} refs (>8) but "
+                f"no warning referencing it. Warnings: {result.warnings}"
+            )
+
+    @given(
+        num_refs=st.integers(min_value=0, max_value=8),
+    )
+    @settings(max_examples=20, deadline=None)
+    def test_subtask_at_or_below_threshold_no_warning(self, num_refs: int) -> None:
+        """Subtasks with <= 8 refs should NOT trigger an overload warning."""
+        spec = _build_structurally_valid_spec(
+            num_groups=1,
+            subtask_counts=[1],
+            refs_per_subtask=[[num_refs]],
+        )
+        result = validate(spec)
+
+        overload_warnings = [
+            w for w in result.warnings if "1.1" in str(w)
+        ]
+        assert len(overload_warnings) == 0, (
+            f"Subtask 1.1 has {num_refs} refs (<=8) but got a warning: "
+            f"{overload_warnings}"
+        )
