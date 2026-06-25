@@ -394,13 +394,13 @@ class TestOrchestratorPassesReadOnlyConn:
         """The orchestrator _setup_infrastructure must call
         open_knowledge_store twice: once with read_only=False for the
         main DB, and once with read_only=True for context assembly.
-        This verifies at runtime that the factory function is invoked
-        with the correct read_only values (06-REQ-7.3)."""
+        The returned infrastructure dict must contain the read-only
+        connection as context_knowledge_db (06-REQ-7.3)."""
         from unittest.mock import MagicMock
 
-        mock_db_rw = MagicMock()
+        mock_db_rw = MagicMock(name="rw_db")
         mock_db_rw.connection = MagicMock()
-        mock_db_ro = MagicMock()
+        mock_db_ro = MagicMock(name="ro_db")
         mock_db_ro.connection = MagicMock()
 
         call_log: list[bool] = []
@@ -426,7 +426,7 @@ class TestOrchestratorPassesReadOnlyConn:
             from agentfox.engine.run import _setup_infrastructure
 
             mock_config = MagicMock()
-            infra = _setup_infrastructure(mock_config)
+            result = _setup_infrastructure(mock_config)
 
         # Must have called open_knowledge_store at least twice:
         # first with read_only=False (main), then read_only=True (context)
@@ -436,15 +436,49 @@ class TestOrchestratorPassesReadOnlyConn:
             "Second open_knowledge_store call must be read_only=True (context read-only connection)"
         )
 
-        # 06-REQ-7.3: Verify that the read-only connection (not the
-        # read-write one) is actually propagated via context_knowledge_db.
-        # This guards against a silent fallback to the write connection.
-        assert infra["context_knowledge_db"] is mock_db_ro, (
-            "context_knowledge_db must be the read-only DB instance, not the read-write main connection"
+        # 06-REQ-7.3: The returned context_knowledge_db must be the
+        # read-only connection object — not None and not the rw connection.
+        assert result["context_knowledge_db"] is mock_db_ro, (
+            "context_knowledge_db must be the read-only connection object, "
+            f"got {result['context_knowledge_db']!r}"
         )
-        assert infra["context_knowledge_db"] is not mock_db_rw, (
-            "context_knowledge_db must NOT fall back to the read-write main connection"
+        assert result["context_knowledge_db"] is not result["knowledge_db"], (
+            "context_knowledge_db must not be the same as knowledge_db (read-write)"
         )
+
+    def test_read_only_connection_failure_propagates(self) -> None:
+        """When open_knowledge_store(read_only=True) raises, the exception
+        must propagate instead of silently falling back to a read-write
+        connection (06-REQ-7.3 unconditional SHALL)."""
+        from unittest.mock import MagicMock
+
+        mock_db_rw = MagicMock(name="rw_db")
+        mock_db_rw.connection = MagicMock()
+
+        def _fail_on_readonly(config, *, read_only):
+            if read_only:
+                raise OSError("simulated read-only open failure")
+            return mock_db_rw
+
+        with (
+            patch(
+                "agentfox.engine.run.open_knowledge_store",
+                side_effect=_fail_on_readonly,
+            ),
+            patch("agentfox.engine.run.DuckDBSink"),
+            patch("agentfox.engine.run.SinkDispatcher"),
+            patch("agentfox.engine.run.FoxKnowledgeProvider"),
+            patch("agentfox.knowledge.agent_trace.AgentTraceSink"),
+            patch(
+                "agentfox.nightshift.platform_factory.create_platform_safe",
+                return_value=None,
+            ),
+        ):
+            from agentfox.engine.run import _setup_infrastructure
+
+            mock_config = MagicMock()
+            with pytest.raises(OSError, match="simulated read-only open failure"):
+                _setup_infrastructure(mock_config)
 
 
 # -----------------------------------------------------------------------
