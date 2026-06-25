@@ -209,24 +209,21 @@ def _persist_standard_findings(
     retry_attempted: bool,
     transcript: str,
 ) -> None:
-    """Parse and persist skeptic, verifier, or oracle findings.
+    """Parse and persist skeptic or oracle findings.
 
-    Requirements: 53-REQ-1.1, 53-REQ-2.1, 53-REQ-3.1
+    Requirements: 53-REQ-1.1, 53-REQ-3.1
     """
     from agentfox.knowledge.review_store import (
         insert_drift_findings,
         insert_findings,
-        insert_verdicts,
     )
     from agentfox.session.review_parser import (
         parse_drift_findings,
         parse_review_findings,
-        parse_verification_results,
     )
 
     _review_dispatch: dict[str, tuple[Any, Any, str]] = {
         "skeptic": (parse_review_findings, insert_findings, "review findings"),
-        "verifier": (parse_verification_results, insert_verdicts, "verifier verdicts"),
         "oracle": (parse_drift_findings, insert_drift_findings, "drift findings"),
     }
     parser, inserter, label = _review_dispatch[dispatch_key]
@@ -318,7 +315,7 @@ def persist_review_findings(
                   74-REQ-5.1, 74-REQ-5.2, 74-REQ-5.3,
                   98-REQ-5.1, 98-REQ-5.2
     """
-    if archetype not in ("skeptic", "verifier", "oracle", "auditor", "reviewer"):
+    if archetype not in ("skeptic", "oracle", "auditor", "reviewer"):
         return
 
     if archetype == "reviewer":

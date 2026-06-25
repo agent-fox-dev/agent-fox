@@ -1,10 +1,10 @@
-"""CRUD operations for review_findings and verification_results tables.
+"""CRUD operations for review_findings and drift_findings tables.
 
 Provides insert-with-supersession, active-record queries, and
 session-scoped queries for convergence.
 
-Requirements: 27-REQ-1.1, 27-REQ-2.1, 27-REQ-4.1, 27-REQ-4.2, 27-REQ-4.3,
-              27-REQ-4.E1, 27-REQ-5.1, 27-REQ-5.2, 27-REQ-6.1, 27-REQ-6.2
+Requirements: 27-REQ-1.1, 27-REQ-2.1, 27-REQ-4.1, 27-REQ-4.3,
+              27-REQ-4.E1, 27-REQ-5.1, 27-REQ-6.1
 """
 
 from __future__ import annotations
@@ -55,25 +55,6 @@ def normalize_severity(severity: str) -> str:
         return normalized
     logger.warning("Unknown severity '%s', normalizing to 'observation'", severity)
     return "observation"
-
-
-def validate_verdict(verdict: str) -> str:
-    """Normalize and validate a verdict value.
-
-    Upper-cases and strips the input. Returns the normalised value if
-    valid (``PASS`` or ``FAIL``). Non-standard values (e.g. ``PARTIAL``,
-    ``CONDITIONAL``) are mapped to ``"FAIL"`` and a warning is logged,
-    so that partial compliance is treated as non-compliance rather than
-    silently dropped.
-    """
-    normalized = verdict.upper().strip()
-    if normalized in VALID_VERDICTS:
-        return normalized
-    logger.warning(
-        "Invalid verdict '%s' normalized to 'FAIL' (must be PASS or FAIL)",
-        verdict,
-    )
-    return "FAIL"
 
 
 @dataclass(frozen=True)
@@ -168,9 +149,9 @@ def _insert_with_supersession(
 ) -> int:
     """Insert records with supersession.
 
-    Shared logic for insert_findings, insert_verdicts, and
-    insert_drift_findings.  Old records are marked via the
-    ``superseded_by`` column; no causal links are written.
+    Shared logic for insert_findings and insert_drift_findings.  Old
+    records are marked via the ``superseded_by`` column; no causal
+    links are written.
 
     Requirements: 116-REQ-5.1, 116-REQ-5.2
     """
@@ -252,33 +233,6 @@ def insert_findings(
             f.category,
         ],
         record_type_label="review findings",
-    )
-
-
-def insert_verdicts(
-    conn: duckdb.DuckDBPyConnection,
-    verdicts: list[VerificationResult],
-) -> int:
-    """Insert verdicts, superseding existing active records for the same
-    (spec_name, task_group). Returns count of inserted records.
-
-    Requirements: 27-REQ-4.2, 27-REQ-4.3, 27-REQ-4.E1
-    """
-    return _insert_with_supersession(
-        conn,
-        table="verification_results",
-        columns=("id, requirement_id, verdict, evidence, spec_name, task_group, session_id"),
-        records=verdicts,
-        value_extractor=lambda v: [
-            v.id,
-            v.requirement_id,
-            v.verdict,
-            v.evidence,
-            v.spec_name,
-            v.task_group,
-            v.session_id,
-        ],
-        record_type_label="verification results",
     )
 
 
@@ -394,24 +348,6 @@ def query_cross_group_findings(
     return findings
 
 
-def query_cross_group_verdicts(
-    conn: duckdb.DuckDBPyConnection,
-    spec_name: str,
-    task_group: str,
-) -> list[VerificationResult]:
-    """Query non-superseded verdicts from *other* task groups.
-
-    Returns verdicts where ``task_group != ?``.
-    """
-    rows = conn.execute(
-        f"SELECT {_VERDICT_COLS} FROM verification_results "  # noqa: S608
-        "WHERE spec_name = ? AND task_group != ? AND superseded_by IS NULL "
-        "ORDER BY requirement_id",
-        [spec_name, task_group],
-    ).fetchall()
-    return [_row_to_verdict(r) for r in rows]
-
-
 def query_active_findings(
     conn: duckdb.DuckDBPyConnection,
     spec_name: str,
@@ -452,26 +388,6 @@ def query_active_findings(
     findings = [_row_to_finding(r) for r in rows if r[1] in ACTIONABLE_SEVERITIES]
     findings.sort(key=lambda f: (_SEVERITY_ORDER.get(f.severity, 99), f.description))
     return findings
-
-
-def query_active_verdicts(
-    conn: duckdb.DuckDBPyConnection,
-    spec_name: str,
-    task_group: str | None = None,
-) -> list[VerificationResult]:
-    """Query non-superseded verdicts for a spec.
-
-    Requirements: 27-REQ-5.2
-    """
-    rows = _query_active(
-        conn,
-        "verification_results",
-        _VERDICT_COLS,
-        spec_name,
-        task_group,
-        "requirement_id",
-    )
-    return [_row_to_verdict(r) for r in rows]
 
 
 def query_findings_by_session(
@@ -640,135 +556,6 @@ def record_finding_injections(
         len(finding_ids),
         session_id,
     )
-
-
-def _get_run_start_local(
-    conn: duckdb.DuckDBPyConnection,
-    run_id: str,
-) -> datetime | None:
-    """Return the ``started_at`` of *run_id* converted to DuckDB-local time.
-
-    ``runs.started_at`` is stored as a Python-UTC ISO string (via
-    ``datetime.now(UTC).isoformat()``).  ``review_findings.created_at``
-    uses DuckDB's ``CURRENT_TIMESTAMP`` which resolves to the server's
-    local time (issue #480).  To compare the two correctly we must
-    convert the UTC value to local time in Python.
-
-    Returns ``None`` when *run_id* is not found.
-    """
-    row = conn.execute(
-        "SELECT started_at FROM runs WHERE id = ?",
-        [run_id],
-    ).fetchone()
-    if row is None:
-        return None
-
-    started_at = row[0]
-    # DuckDB returns a naive datetime (TIMESTAMP column).  The value was
-    # written by ``datetime.now(UTC).isoformat()`` so it *is* UTC, but
-    # DuckDB stripped the +00:00 on CAST.  Re-attach UTC then convert to
-    # local time and strip tzinfo so it's comparable to CURRENT_TIMESTAMP.
-    if isinstance(started_at, datetime):
-        utc_dt = started_at.replace(tzinfo=UTC)
-        local_dt = utc_dt.astimezone()  # system local timezone
-        return local_dt.replace(tzinfo=None)
-    # Fallback: if it's a string, parse it
-    dt = datetime.fromisoformat(str(started_at))
-    if dt.tzinfo is None:
-        dt = dt.replace(tzinfo=UTC)
-    local_dt = dt.astimezone()
-    return local_dt.replace(tzinfo=None)
-
-
-def query_prior_run_findings(
-    conn: duckdb.DuckDBPyConnection,
-    spec_name: str,
-    current_run_id: str,
-    max_items: int = 5,
-) -> list[ReviewFinding]:
-    """Query active critical/major findings from prior runs.
-
-    Returns findings that:
-    - belong to the specified spec
-    - are not superseded (``superseded_by IS NULL``)
-    - have severity ``critical`` or ``major``
-    - were created before the current run's ``started_at`` timestamp
-
-    Results are sorted by severity (critical first), then description,
-    and capped at *max_items*.
-
-    Handles missing ``review_findings`` or ``runs`` tables gracefully
-    by returning an empty list (120-REQ-4.E3).
-
-    Requirements: 120-REQ-4.1, 120-REQ-4.3, 120-REQ-4.E1, 120-REQ-4.E2, 120-REQ-4.E3
-    """
-    try:
-        cutoff = _get_run_start_local(conn, current_run_id)
-        if cutoff is None:
-            return []
-
-        rows = conn.execute(
-            f"SELECT {_FINDING_COLS} FROM review_findings "  # noqa: S608
-            "WHERE spec_name = ? "
-            "AND superseded_by IS NULL "
-            "AND severity IN ('critical', 'major') "
-            "AND created_at < ? "
-            "ORDER BY CASE severity WHEN 'critical' THEN 0 ELSE 1 END, description "
-            "LIMIT ?",
-            [spec_name, cutoff, max_items],
-        ).fetchall()
-        return [_row_to_finding(r) for r in rows]
-    except Exception:
-        logger.debug(
-            "Could not query prior-run findings for %s (table may not exist)",
-            spec_name,
-        )
-        return []
-
-
-def query_prior_run_verdicts(
-    conn: duckdb.DuckDBPyConnection,
-    spec_name: str,
-    current_run_id: str,
-    max_items: int = 5,
-) -> list[VerificationResult]:
-    """Query active FAIL verdicts from prior runs.
-
-    Returns verdicts that:
-    - belong to the specified spec
-    - are not superseded (``superseded_by IS NULL``)
-    - have verdict ``FAIL``
-    - were created before the current run's ``started_at`` timestamp
-
-    Results are sorted by requirement_id and capped at *max_items*.
-
-    Handles missing tables gracefully by returning an empty list
-    (120-REQ-4.E3).
-
-    Requirements: 120-REQ-4.5, 120-REQ-4.E1, 120-REQ-4.E3
-    """
-    try:
-        cutoff = _get_run_start_local(conn, current_run_id)
-        if cutoff is None:
-            return []
-
-        rows = conn.execute(
-            f"SELECT {_VERDICT_COLS} FROM verification_results "  # noqa: S608
-            "WHERE spec_name = ? "
-            "AND superseded_by IS NULL "
-            "AND verdict = 'FAIL' "
-            "AND created_at < ? "
-            "ORDER BY requirement_id "
-            "LIMIT ?",
-            [spec_name, cutoff, max_items],
-        ).fetchall()
-        return [_row_to_verdict(r) for r in rows]
-    except Exception:
-        logger.debug(
-            "Could not query prior-run verdicts for %s (table may not exist)",
-            spec_name,
-        )
-        return []
 
 
 def dismiss_finding_by_id(

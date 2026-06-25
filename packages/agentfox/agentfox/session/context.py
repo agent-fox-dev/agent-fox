@@ -227,38 +227,11 @@ def render_verification_context(
 ) -> str | None:
     """Render active verdicts as a markdown section.
 
-    Returns None if no verdicts exist (27-REQ-5.E2).
-
-    Requirements: 27-REQ-5.2, 27-REQ-5.3
+    Returns None — the verification_results table has been removed and
+    verdicts are no longer persisted.  Retained as a no-op stub so
+    callers do not need updating.
     """
-    from agentfox.knowledge.review_store import (
-        query_active_verdicts,
-    )
-
-    verdicts = query_active_verdicts(conn, spec_name)
-    if not verdicts:
-        return None
-
-    lines = [
-        "## Verification Report",
-        "",
-        "| Requirement | Status | Notes |",
-        "|-------------|--------|-------|",
-    ]
-
-    has_fail = False
-    for v in verdicts:
-        raw_notes = v.evidence or ""
-        notes = sanitize_prompt_content(raw_notes, label="verification-evidence") if raw_notes else ""
-        lines.append(f"| {v.requirement_id} | {v.verdict} | {notes} |")
-        if v.verdict == "FAIL":
-            has_fail = True
-
-    lines.append("")
-    overall = "FAIL" if has_fail else "PASS"
-    lines.append(f"Verdict: {overall}")
-
-    return "\n".join(lines)
+    return None
 
 
 def _migrate_legacy_files(
@@ -266,7 +239,7 @@ def _migrate_legacy_files(
     spec_dir: Path,
     spec_name: str,
 ) -> None:
-    """Migrate legacy review.md/verification.md files to DB records.
+    """Migrate legacy review.md files to DB records.
 
     Idempotent: for each legacy file, the function queries existing active
     records (``superseded_by IS NULL``) before attempting migration.  If
@@ -281,13 +254,10 @@ def _migrate_legacy_files(
     """
     from agentfox.knowledge.review_store import (
         insert_findings,
-        insert_verdicts,
         query_active_findings,
-        query_active_verdicts,
     )
     from agentfox.session.review_parser import (
         parse_legacy_review_md,
-        parse_legacy_verification_md,
     )
 
     # Table-driven legacy migration: (filename, query_fn, parse_fn, insert_fn, label)
@@ -298,13 +268,6 @@ def _migrate_legacy_files(
             parse_legacy_review_md,
             insert_findings,
             "findings",
-        ),
-        (
-            "verification.md",
-            query_active_verdicts,
-            parse_legacy_verification_md,
-            insert_verdicts,
-            "verdicts",
         ),
     ]
     for filename, query_fn, parse_fn, insert_fn, label in _migrations:

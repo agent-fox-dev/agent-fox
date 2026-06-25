@@ -36,7 +36,6 @@ from agentfox.knowledge.review_store import (
     ReviewFinding,
     VerificationResult,
     normalize_severity,
-    validate_verdict,
 )
 
 # Re-export for backward compatibility with consumers
@@ -329,9 +328,14 @@ def parse_verification_results(
     results: list[VerificationResult] = []
     for obj in _iter_valid_items(json_objects, ("requirement_id", "verdict"), "verification result"):
         raw_verdict = str(obj["verdict"])
-        verdict_val = validate_verdict(raw_verdict)
         original_upper = raw_verdict.upper().strip()
         verdict_was_coerced = original_upper not in VALID_VERDICTS
+        if verdict_was_coerced:
+            logger.warning(
+                "Invalid verdict '%s' normalized to 'FAIL' (must be PASS or FAIL)",
+                raw_verdict,
+            )
+        verdict_val = original_upper if not verdict_was_coerced else "FAIL"
 
         req_id = truncate_field(
             str(obj["requirement_id"]),
