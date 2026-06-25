@@ -1,0 +1,794 @@
+{
+  "$schema": null,
+  "spec_id": "13",
+  "spec_name": "global_config_loading",
+  "schema_version": 1,
+  "introduction": "The Global Config Loading system provides a unified configuration loading scheme for the agent-fox CLI suite (`af`, `nightshift`, and `spec`), introducing a shared user-wide baseline config at `$HOME/.agent-fox/config.toml` that is merged with per-repo local configs using shallow section replacement semantics.",
+  "glossary": {
+    "$HOME": "User's home directory, resolved via Python's `Path.home()`",
+    "$HOME/.agent-fox/": "Directory for user-wide agent-fox configuration",
+    "$HOME/.agent-fox/config.toml": "Path to the global config file",
+    ".agent-fox/config.toml": "Path to the local (per-repo) config file",
+    "0o700": "Unix directory permission mode granting read, write, and execute access to the owner only",
+    "--force": "CLI flag that forces overwrite of existing local config during `af init`",
+    "AF_CONFIG": "Legacy environment variable previously used by `nightshift` to override the config file path; now deprecated and ignored",
+    "AF_SPEC_MODEL": "Environment variable that overrides the Anthropic model used for spec generation, taking highest precedence in the model resolution chain",
+    "AgentFoxConfig": "The Pydantic v2 model representing the fully merged and validated configuration for the agent-fox suite",
+    "CWE-59": "Common Weakness Enumeration entry for improper link resolution (symlink following); the system rejects symlinks on final config file paths to prevent this vulnerability",
+    "ConfigError": "Exception raised by `load_config()` when a config file contains malformed TOML or fails Pydantic validation",
+    "[spec_tool]": "TOML section in config.toml for agentspec settings",
+    "af": "Main CLI entry point for agent-fox",
+    "af init": "The `af` CLI subcommand that scaffolds a new project, creating global and local config files",
+    "agentspec": "The agent-fox sub-package responsible for AI-assisted specification generation, formerly reading settings from `~/.af/settings.yaml`",
+    "generate_default_config": "Internal function that renders a minimal set of promoted defaults as active TOML values for the global config file",
+    "global config": "`$HOME/.agent-fox/config.toml` — the user-wide baseline configuration file shared across all repositories",
+    "load_config": "The shared configuration loading function used by all three CLIs to resolve, merge, validate, and return the effective configuration",
+    "local config": "`.agent-fox/config.toml` — a per-repository configuration file whose sections override corresponding sections in the global config",
+    "migration fallback": "Temporary mechanism that reads `~/.af/settings.yaml` for `[spec_tool]` values when no `[spec_tool]` section is present in the global config",
+    "nightshift": "Autonomous fix daemon CLI for agent-fox",
+    "pytest": "Python testing framework used for the agent-fox test suite",
+    "settings.yaml": "`~/.af/settings.yaml` — legacy YAML file previously used by the `agentspec` package to store model and authentication settings",
+    "shallow section replacement": "Merge strategy where a TOML section in the local config entirely replaces the same-named section in the global config; top-level scalar keys in the local config override matching keys in the global config; absent sections and keys are inherited unchanged",
+    "spec": "Spec tool CLI for generating and managing specifications",
+    "spec_tool": "TOML section `[spec_tool]` within `AgentFoxConfig` that holds agentspec model and authentication settings",
+    "tomlkit": "Third-party Python library used for generating and writing TOML files with comment preservation",
+    "tomllib": "Python 3.11+ standard-library module for reading TOML files",
+    "~/.af/settings.yaml": "Legacy YAML config file for agentspec (see also `settings.yaml` already in glossary)"
+  },
+  "requirements": [
+    {
+      "id": "13-REQ-1",
+      "title": "Unified config loading across all CLIs",
+      "user_story": {
+        "role": "developer maintaining agent-fox",
+        "goal": "have all three CLIs use the same load_config function with the same global+local merge logic",
+        "benefit": "so that configuration behaviour is consistent and predictable regardless of which CLI is invoked"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "13-REQ-1.1",
+          "ears_pattern": "ubiquitous",
+          "system": "load_config",
+          "action": "is the single shared function called by `af`, `nightshift`, and `spec` at startup to resolve, merge, validate, and return an `AgentFoxConfig`",
+          "return_contract": "Returns a fully validated `AgentFoxConfig` instance or raises `ConfigError`"
+        },
+        {
+          "id": "13-REQ-1.2",
+          "ears_pattern": "event_driven",
+          "system": "load_config",
+          "action": "first attempts to load the global config from `$HOME/.agent-fox/config.toml`, then attempts to load the local config from `.agent-fox/config.toml` relative to the current working directory, and merges them using `shallow section replacement` semantics",
+          "return_contract": "Returns a merged `AgentFoxConfig` with local sections overriding global sections and absent local sections inherited from the global config",
+          "trigger": "invoked by any of the three CLIs"
+        },
+        {
+          "id": "13-REQ-1.3",
+          "ears_pattern": "ubiquitous",
+          "system": "load_config",
+          "action": "applies validation and in-memory defaults to the merged result via the `AgentFoxConfig` Pydantic model, matching existing post-merge behaviour",
+          "return_contract": "Returns a validated `AgentFoxConfig` with all defaults applied"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "13-REQ-1.E1",
+          "ears_pattern": "unwanted",
+          "system": "load_config",
+          "action": "raises `ConfigError` with a descriptive message if validation fails; otherwise returns the best available `AgentFoxConfig`",
+          "return_contract": "Returns `AgentFoxConfig` or raises `ConfigError`",
+          "error_condition": "invoked outside of the `af`, `nightshift`, or `spec` entry points (e.g. imported as a library without a proper working directory)"
+        }
+      ]
+    },
+    {
+      "id": "13-REQ-2",
+      "title": "Global config resolution and auto-creation",
+      "user_story": {
+        "role": "new user running af for the first time",
+        "goal": "have a sensible default global config created automatically at `$HOME/.agent-fox/config.toml`",
+        "benefit": "so I don't need to set up anything manually before using the CLI"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "13-REQ-2.1",
+          "ears_pattern": "event_driven",
+          "system": "load_config",
+          "action": "creates the `$HOME/.agent-fox/` directory with permissions `0o700` if it does not exist, writes a default global config using `generate_default_config`, and uses it as the baseline for the current invocation",
+          "return_contract": "Newly created `$HOME/.agent-fox/config.toml` is present on disk; `load_config` returns a valid `AgentFoxConfig` with defaults applied",
+          "trigger": "$HOME is resolvable and `$HOME/.agent-fox/config.toml` does not exist"
+        },
+        {
+          "id": "13-REQ-2.2",
+          "ears_pattern": "event_driven",
+          "system": "load_config",
+          "action": "parses the global config and uses it as the baseline configuration",
+          "return_contract": "Returns `AgentFoxConfig` reflecting the global config values",
+          "trigger": "$HOME is resolvable and `$HOME/.agent-fox/config.toml` exists and is valid TOML"
+        },
+        {
+          "id": "13-REQ-2.3",
+          "ears_pattern": "event_driven",
+          "system": "load_config",
+          "action": "skips global config loading entirely, emits a debug-level warning that `$HOME` could not be resolved, and continues using the local config if present or in-memory defaults",
+          "return_contract": "Returns `AgentFoxConfig` based on local config or defaults; does not raise an exception",
+          "trigger": "$HOME cannot be resolved"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "13-REQ-2.E1",
+          "ears_pattern": "unwanted",
+          "system": "load_config",
+          "action": "rejects the file and raises `ConfigError` identifying the path and the `CWE-59` symlink violation",
+          "return_contract": "Raises `ConfigError` with a message identifying the symlinked global config path",
+          "error_condition": "`$HOME/.agent-fox/config.toml` is a symlink"
+        },
+        {
+          "id": "13-REQ-2.E2",
+          "ears_pattern": "unwanted",
+          "system": "load_config",
+          "action": "raises `ConfigError` with a message identifying the directory and the underlying OS error",
+          "return_contract": "Raises `ConfigError`",
+          "error_condition": "directory creation for `$HOME/.agent-fox/` fails due to a filesystem permission error"
+        }
+      ]
+    },
+    {
+      "id": "13-REQ-3",
+      "title": "Local config loading and shallow section replacement merge",
+      "user_story": {
+        "role": "user working in a repository",
+        "goal": "have a per-repo `.agent-fox/config.toml` whose sections override specific global config sections",
+        "benefit": "so each project can customize behaviour without affecting my global baseline or other repositories"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "13-REQ-3.1",
+          "ears_pattern": "event_driven",
+          "system": "load_config",
+          "action": "parses the local config and merges it with the global config using `shallow section replacement`: each TOML section present in the local config entirely replaces the corresponding global section, top-level scalar keys present in the local config override matching global keys, and sections or keys absent from the local config are inherited unchanged from the global config",
+          "return_contract": "Returns a merged `AgentFoxConfig` where local-defined sections fully replace global sections and absent local sections are inherited",
+          "trigger": "`.agent-fox/config.toml` exists in the current working directory and is valid TOML"
+        },
+        {
+          "id": "13-REQ-3.2",
+          "ears_pattern": "event_driven",
+          "system": "load_config",
+          "action": "uses the global config (or defaults) without modification and emits a debug-level log line indicating no local config was found",
+          "return_contract": "Returns `AgentFoxConfig` based solely on the global config or defaults",
+          "trigger": "no local config exists at `.agent-fox/config.toml`"
+        },
+        {
+          "id": "13-REQ-3.3",
+          "ears_pattern": "ubiquitous",
+          "system": "load_config",
+          "action": "does NOT deep-merge nested keys within a section — a section present in the local config replaces the entire corresponding global section, including all nested keys",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "13-REQ-3.E1",
+          "ears_pattern": "unwanted",
+          "system": "load_config",
+          "action": "rejects the file and raises `ConfigError` identifying the path and the `CWE-59` symlink violation",
+          "return_contract": "Raises `ConfigError` with a message identifying the symlinked local config path",
+          "error_condition": "`.agent-fox/config.toml` is a symlink"
+        },
+        {
+          "id": "13-REQ-3.E2",
+          "ears_pattern": "ubiquitous",
+          "system": "load_config",
+          "action": "does NOT apply symlink rejection to intermediate directories in the global or local config paths — symlink checks apply only to the final config file path",
+          "return_contract": null
+        }
+      ]
+    },
+    {
+      "id": "13-REQ-4",
+      "title": "Malformed TOML fail-fast error handling",
+      "user_story": {
+        "role": "user",
+        "goal": "receive a clear error message when any config file contains invalid TOML",
+        "benefit": "so I can quickly identify and fix the offending file without guessing which config is causing the problem"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "13-REQ-4.1",
+          "ears_pattern": "unwanted",
+          "system": "load_config",
+          "action": "raises `ConfigError` immediately, before reading the local config, with a message that identifies the global config file path and the TOML parse error",
+          "return_contract": "Raises `ConfigError` with file path and parse error detail; CLI exits with a non-zero status code",
+          "error_condition": "`$HOME/.agent-fox/config.toml` exists but contains malformed TOML"
+        },
+        {
+          "id": "13-REQ-4.2",
+          "ears_pattern": "unwanted",
+          "system": "load_config",
+          "action": "raises `ConfigError` with a message that identifies the local config file path and the TOML parse error",
+          "return_contract": "Raises `ConfigError` with file path and parse error detail; CLI exits with a non-zero status code",
+          "error_condition": "`.agent-fox/config.toml` exists but contains malformed TOML (after global config has been successfully loaded)"
+        },
+        {
+          "id": "13-REQ-4.3",
+          "ears_pattern": "ubiquitous",
+          "system": "load_config",
+          "action": "never attempts a partial load or fallback when a config file that exists contains malformed TOML — it always fails fast with `ConfigError`",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "13-REQ-5",
+      "title": "AF_CONFIG deprecation and removal",
+      "user_story": {
+        "role": "nightshift user who previously set AF_CONFIG",
+        "goal": "receive a clear deprecation warning when AF_CONFIG is set so I know to migrate my settings",
+        "benefit": "so I am not silently broken and can transition to the new global+local loading scheme at my own pace"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "13-REQ-5.1",
+          "ears_pattern": "event_driven",
+          "system": "load_config",
+          "action": "prints a deprecation warning to stderr stating that `AF_CONFIG` is no longer supported and directing the user to move settings to `$HOME/.agent-fox/config.toml` or `.agent-fox/config.toml`, then ignores the variable and proceeds with the global+local loading scheme",
+          "return_contract": "Warning written to stderr; `AF_CONFIG` value is not used for any config path resolution",
+          "trigger": "`AF_CONFIG` environment variable is set in the environment at startup"
+        },
+        {
+          "id": "13-REQ-5.2",
+          "ears_pattern": "ubiquitous",
+          "system": "load_config",
+          "action": "never uses the value of `AF_CONFIG` to determine any config file path, regardless of what value it contains",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "13-REQ-6",
+      "title": "agentspec settings consolidation into [spec_tool] section",
+      "user_story": {
+        "role": "user managing agentspec model and auth settings",
+        "goal": "configure agentspec from a single `[spec_tool]` section inside `$HOME/.agent-fox/config.toml`",
+        "benefit": "so I no longer need to maintain a separate `~/.af/settings.yaml` file in a different format"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "13-REQ-6.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`AgentFoxConfig`",
+          "action": "includes a `spec_tool` sub-config with fields: model (str, default \"claude-sonnet-4-6\"), auth_method (str, default \"\"), vertex_project (str, default \"\"), and vertex_region (str, default \"\")",
+          "return_contract": null
+        },
+        {
+          "id": "13-REQ-6.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`agentspec` package",
+          "action": "accepts an `AgentFoxConfig` (or its `spec_tool` sub-config) as input to its own `load_config` instead of reading `~/.af/settings.yaml` directly",
+          "return_contract": null
+        },
+        {
+          "id": "13-REQ-6.3",
+          "ears_pattern": "ubiquitous",
+          "system": "model resolution in `agentspec`",
+          "action": "follows the precedence order from highest to lowest: (1) `AF_SPEC_MODEL` environment variable, (2) `[spec_tool]` model from the merged config, (3) `migration fallback` from `~/.af/settings.yaml`, (4) hardcoded default \"claude-sonnet-4-6\"",
+          "return_contract": "Returns the resolved model string"
+        },
+        {
+          "id": "13-REQ-6.4",
+          "ears_pattern": "event_driven",
+          "system": "`agentspec`",
+          "action": "reads model and auth values from `~/.af/settings.yaml` as a `migration fallback` and emits a deprecation warning to stderr instructing the user to migrate settings to `$HOME/.agent-fox/config.toml` under the `[spec_tool]` section",
+          "return_contract": "Deprecation warning written to stderr; `agentspec` proceeds with values from `settings.yaml`",
+          "trigger": "the merged `AgentFoxConfig` has no `[spec_tool]` section configured and `~/.af/settings.yaml` exists"
+        },
+        {
+          "id": "13-REQ-6.5",
+          "ears_pattern": "state_driven",
+          "system": "model resolution in `agentspec`",
+          "action": "uses the value of `AF_SPEC_MODEL` as the model, overriding all file-based and default values",
+          "return_contract": "Returns the `AF_SPEC_MODEL` value as the resolved model string",
+          "state": "`AF_SPEC_MODEL` environment variable is set"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "13-REQ-6.E1",
+          "ears_pattern": "event_driven",
+          "system": "`agentspec`",
+          "action": "uses the hardcoded default model \"claude-sonnet-4-6\" with no warning",
+          "return_contract": "Returns \"claude-sonnet-4-6\" as the resolved model string",
+          "trigger": "neither `[spec_tool]` section nor `~/.af/settings.yaml` exists and `AF_SPEC_MODEL` is unset"
+        }
+      ]
+    },
+    {
+      "id": "13-REQ-7",
+      "title": "Debug-level observability for config loading",
+      "user_story": {
+        "role": "user or operator diagnosing a configuration issue",
+        "goal": "see debug-level log lines identifying each config file found, skipped, or merged",
+        "benefit": "so I can understand exactly which files contributed to the effective configuration without enabling verbose output in normal operation"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "13-REQ-7.1",
+          "ears_pattern": "event_driven",
+          "system": "load_config",
+          "action": "emits a debug-level log line containing 'Loaded global config from' followed by the file path",
+          "return_contract": "Log line written at DEBUG level",
+          "trigger": "a global config file is successfully loaded"
+        },
+        {
+          "id": "13-REQ-7.2",
+          "ears_pattern": "event_driven",
+          "system": "load_config",
+          "action": "emits a debug-level log line containing 'Merging local config from' followed by the file path and the list of overridden section names",
+          "return_contract": "Log line written at DEBUG level including the list of overridden section names",
+          "trigger": "a local config is found and merged"
+        },
+        {
+          "id": "13-REQ-7.3",
+          "ears_pattern": "event_driven",
+          "system": "load_config",
+          "action": "emits a debug-level log line containing 'No local config found at' followed by the expected local config path",
+          "return_contract": "Log line written at DEBUG level",
+          "trigger": "no local config is found at `.agent-fox/config.toml`"
+        },
+        {
+          "id": "13-REQ-7.4",
+          "ears_pattern": "event_driven",
+          "system": "load_config",
+          "action": "emits a debug-level warning that `$HOME` could not be resolved and global config loading was skipped",
+          "return_contract": "Warning written at DEBUG level",
+          "trigger": "$HOME cannot be resolved"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "13-REQ-8",
+      "title": "af init scaffolding behaviour",
+      "user_story": {
+        "role": "user running af init in a new repository",
+        "goal": "have af init create both a global default config and a local commented-out config template",
+        "benefit": "so I can immediately see all available settings and selectively override them without repeating global defaults"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "13-REQ-8.1",
+          "ears_pattern": "event_driven",
+          "system": "`af init`",
+          "action": "creates the `$HOME/.agent-fox/` directory with `0o700` permissions if needed, then writes a default global config using `generate_default_config` to `$HOME/.agent-fox/config.toml`",
+          "return_contract": "`$HOME/.agent-fox/config.toml` is created with active defaults; exit code 0",
+          "trigger": "no global config exists at `$HOME/.agent-fox/config.toml`"
+        },
+        {
+          "id": "13-REQ-8.2",
+          "ears_pattern": "event_driven",
+          "system": "`af init`",
+          "action": "leaves the existing global config unmodified, even when `--force` is passed",
+          "return_contract": "Existing `$HOME/.agent-fox/config.toml` is unchanged; exit code 0",
+          "trigger": "a global config already exists at `$HOME/.agent-fox/config.toml`"
+        },
+        {
+          "id": "13-REQ-8.3",
+          "ears_pattern": "event_driven",
+          "system": "`af init`",
+          "action": "creates `.agent-fox/config.toml` with all possible config values commented out",
+          "return_contract": "`.agent-fox/config.toml` is created with all values commented out; exit code 0",
+          "trigger": "no local config exists at `.agent-fox/config.toml`"
+        },
+        {
+          "id": "13-REQ-8.4",
+          "ears_pattern": "event_driven",
+          "system": "`af init`",
+          "action": "leaves the existing local config unmodified",
+          "return_contract": "Existing `.agent-fox/config.toml` is unchanged; exit code 0",
+          "trigger": "a local config already exists at `.agent-fox/config.toml` and `--force` is NOT passed"
+        },
+        {
+          "id": "13-REQ-8.5",
+          "ears_pattern": "event_driven",
+          "system": "`af init --force`",
+          "action": "overwrites `.agent-fox/config.toml` with a freshly generated template where all values are commented out, without modifying the global config",
+          "return_contract": "`.agent-fox/config.toml` is overwritten with all values commented out; `$HOME/.agent-fox/config.toml` is unchanged; exit code 0",
+          "trigger": "a local config already exists at `.agent-fox/config.toml` and `--force` IS passed"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "13-REQ-8.E1",
+          "ears_pattern": "unwanted",
+          "system": "`af init`",
+          "action": "skips global config creation, emits a debug-level warning, and proceeds to create the local config template only",
+          "return_contract": "Only local config template is created; no error raised for missing `$HOME`; exit code 0",
+          "error_condition": "`$HOME` is not resolvable when `af init` is run"
+        }
+      ]
+    },
+    {
+      "id": "13-REQ-9",
+      "title": "No regressions — existing test suite compatibility",
+      "user_story": {
+        "role": "developer merging this change",
+        "goal": "have the full existing test suite pass without modification after implementing global config loading",
+        "benefit": "so that all current CLI behaviours are preserved and no existing workflows are broken"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "13-REQ-9.1",
+          "ears_pattern": "ubiquitous",
+          "system": "the agent-fox test suite",
+          "action": "passes in its entirety without requiring any test file modifications after the global config loading feature is implemented",
+          "return_contract": "All tests pass with exit code 0 when run via `pytest`"
+        },
+        {
+          "id": "13-REQ-9.2",
+          "ears_pattern": "ubiquitous",
+          "system": "load_config",
+          "action": "preserves all existing post-load validation and default-application behaviours defined by `AgentFoxConfig`, so callers relying on those behaviours see no change",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    }
+  ],
+  "correctness_properties": [
+    {
+      "id": "13-PROP-1",
+      "title": "Shallow section replacement idempotency",
+      "for_any": "pair of valid global config G and local config L",
+      "invariant": "Merging G and L using `shallow section replacement` produces a result where every section present in L exactly equals the corresponding section in the output, every section present in G but absent from L exactly equals the corresponding section in the output, and no section from G that is also in L appears in the output",
+      "validates": [
+        "13-REQ-3.1",
+        "13-REQ-3.3"
+      ]
+    },
+    {
+      "id": "13-PROP-2",
+      "title": "Global config auto-creation occurs at most once",
+      "for_any": "sequence of CLI invocations in a `$HOME`-resolvable environment",
+      "invariant": "After the first invocation creates `$HOME/.agent-fox/config.toml`, all subsequent invocations load the existing file without overwriting it",
+      "validates": [
+        "13-REQ-2.1",
+        "13-REQ-2.2"
+      ]
+    },
+    {
+      "id": "13-PROP-3",
+      "title": "AF_SPEC_MODEL always wins model resolution",
+      "for_any": "any configuration of `[spec_tool]` in the merged config and any state of `~/.af/settings.yaml`",
+      "invariant": "When `AF_SPEC_MODEL` is set, the resolved model string always equals the value of `AF_SPEC_MODEL`, regardless of any file-based configuration or defaults",
+      "validates": [
+        "13-REQ-6.3",
+        "13-REQ-6.5"
+      ]
+    },
+    {
+      "id": "13-PROP-4",
+      "title": "Fail-fast on malformed TOML: no partial load",
+      "for_any": "any config file path that exists and contains malformed TOML",
+      "invariant": "`load_config` raises `ConfigError` and the returned `AgentFoxConfig` is never used; no partial configuration derived from the malformed file is observable by the caller",
+      "validates": [
+        "13-REQ-4.1",
+        "13-REQ-4.2",
+        "13-REQ-4.3"
+      ]
+    },
+    {
+      "id": "13-PROP-5",
+      "title": "Symlink rejection is limited to the final file path",
+      "for_any": "any global or local config file path",
+      "invariant": "Symlink detection is applied only to the final config file inode; intermediate directories in the path are never checked for symlink status",
+      "validates": [
+        "13-REQ-2.E1",
+        "13-REQ-3.E1",
+        "13-REQ-3.E2"
+      ]
+    },
+    {
+      "id": "13-PROP-6",
+      "title": "af init never overwrites global config",
+      "for_any": "any invocation of `af init`, with or without `--force`, regardless of the current state of `$HOME/.agent-fox/config.toml`",
+      "invariant": "If `$HOME/.agent-fox/config.toml` exists before `af init` is called, it has identical content after `af init` completes",
+      "validates": [
+        "13-REQ-8.2",
+        "13-REQ-8.5"
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "13-PATH-1",
+      "title": "Zero-config first run: auto-create global config and succeed",
+      "steps": [
+        {
+          "actor": "User",
+          "action": "runs `af` (or `nightshift` or `spec`) in a directory with no local or global config"
+        },
+        {
+          "actor": "load_config",
+          "action": "resolves `$HOME` successfully"
+        },
+        {
+          "actor": "load_config",
+          "action": "detects that `$HOME/.agent-fox/config.toml` does not exist"
+        },
+        {
+          "actor": "load_config",
+          "action": "creates the `$HOME/.agent-fox/` directory with `0o700` permissions"
+        },
+        {
+          "actor": "load_config",
+          "action": "writes default global config via `generate_default_config` to `$HOME/.agent-fox/config.toml`"
+        },
+        {
+          "actor": "load_config",
+          "action": "emits DEBUG log: Loaded global config from `$HOME/.agent-fox/config.toml`"
+        },
+        {
+          "actor": "load_config",
+          "action": "detects no local config at `.agent-fox/config.toml` and emits DEBUG log"
+        },
+        {
+          "actor": "load_config",
+          "action": "validates the config via `AgentFoxConfig` and returns it"
+        },
+        {
+          "actor": "CLI",
+          "action": "continues execution with the default `AgentFoxConfig`"
+        }
+      ]
+    },
+    {
+      "id": "13-PATH-2",
+      "title": "Global + local config merge with section override",
+      "steps": [
+        {
+          "actor": "User",
+          "action": "runs `af` in a repository that has `.agent-fox/config.toml` defining an `[orchestrator]` section"
+        },
+        {
+          "actor": "load_config",
+          "action": "resolves `$HOME` and loads `$HOME/.agent-fox/config.toml` as the baseline"
+        },
+        {
+          "actor": "load_config",
+          "action": "emits DEBUG log: Loaded global config from `$HOME/.agent-fox/config.toml`"
+        },
+        {
+          "actor": "load_config",
+          "action": "detects and parses `.agent-fox/config.toml`"
+        },
+        {
+          "actor": "load_config",
+          "action": "applies `shallow section replacement`: replaces global `[orchestrator]` section entirely with local `[orchestrator]` section; inherits all other global sections unchanged"
+        },
+        {
+          "actor": "load_config",
+          "action": "emits DEBUG log: Merging local config from `.agent-fox/config.toml` (sections overridden: [orchestrator])"
+        },
+        {
+          "actor": "load_config",
+          "action": "validates the merged result via `AgentFoxConfig` and returns it"
+        },
+        {
+          "actor": "CLI",
+          "action": "continues execution with the merged `AgentFoxConfig`"
+        }
+      ]
+    },
+    {
+      "id": "13-PATH-3",
+      "title": "Malformed global config causes fail-fast",
+      "steps": [
+        {
+          "actor": "User",
+          "action": "runs `af` with `$HOME/.agent-fox/config.toml` containing invalid TOML syntax"
+        },
+        {
+          "actor": "load_config",
+          "action": "resolves `$HOME` and attempts to parse `$HOME/.agent-fox/config.toml`"
+        },
+        {
+          "actor": "load_config",
+          "action": "detects TOML parse error and raises `ConfigError` identifying the file path and parse error detail"
+        },
+        {
+          "actor": "CLI",
+          "action": "catches `ConfigError` and exits with a non-zero status code, printing the error message to stderr"
+        }
+      ]
+    },
+    {
+      "id": "13-PATH-4",
+      "title": "AF_CONFIG set — deprecation warning then ignored",
+      "steps": [
+        {
+          "actor": "User",
+          "action": "runs `nightshift` with `AF_CONFIG` environment variable set to a custom path"
+        },
+        {
+          "actor": "load_config",
+          "action": "detects `AF_CONFIG` is present in the environment"
+        },
+        {
+          "actor": "load_config",
+          "action": "prints deprecation warning to stderr: `AF_CONFIG` is no longer supported; directs user to `$HOME/.agent-fox/config.toml` or `.agent-fox/config.toml`"
+        },
+        {
+          "actor": "load_config",
+          "action": "ignores the `AF_CONFIG` value and proceeds with the global+local loading scheme"
+        },
+        {
+          "actor": "load_config",
+          "action": "loads global config from `$HOME/.agent-fox/config.toml` and merges local config if present"
+        },
+        {
+          "actor": "CLI",
+          "action": "continues execution with the resolved `AgentFoxConfig`"
+        }
+      ]
+    },
+    {
+      "id": "13-PATH-5",
+      "title": "agentspec model resolution with migration fallback",
+      "steps": [
+        {
+          "actor": "User",
+          "action": "runs `spec` in a repo where `$HOME/.agent-fox/config.toml` exists but has no `[spec_tool]` section, and `~/.af/settings.yaml` exists"
+        },
+        {
+          "actor": "load_config",
+          "action": "loads and merges global and local configs; `AgentFoxConfig` has `spec_tool` fields at default values"
+        },
+        {
+          "actor": "agentspec",
+          "action": "detects no `[spec_tool]` section was explicitly configured in the merged config"
+        },
+        {
+          "actor": "agentspec",
+          "action": "detects `~/.af/settings.yaml` exists and reads model/auth values from it as `migration fallback`"
+        },
+        {
+          "actor": "agentspec",
+          "action": "emits deprecation warning to stderr instructing user to migrate settings to `$HOME/.agent-fox/config.toml` under `[spec_tool]`"
+        },
+        {
+          "actor": "agentspec",
+          "action": "uses the model resolved from `settings.yaml` for the spec generation request"
+        }
+      ]
+    },
+    {
+      "id": "13-PATH-6",
+      "title": "af init with no existing configs",
+      "steps": [
+        {
+          "actor": "User",
+          "action": "runs `af init` in a new repository with no existing global or local config"
+        },
+        {
+          "actor": "af init",
+          "action": "resolves `$HOME` and detects no global config at `$HOME/.agent-fox/config.toml`"
+        },
+        {
+          "actor": "af init",
+          "action": "creates `$HOME/.agent-fox/` directory with `0o700` permissions and writes default global config"
+        },
+        {
+          "actor": "af init",
+          "action": "detects no local config at `.agent-fox/config.toml`"
+        },
+        {
+          "actor": "af init",
+          "action": "creates `.agent-fox/config.toml` with all config values commented out"
+        },
+        {
+          "actor": "CLI",
+          "action": "exits with code 0"
+        }
+      ]
+    },
+    {
+      "id": "13-PATH-7",
+      "title": "af init --force regenerates local config only",
+      "steps": [
+        {
+          "actor": "User",
+          "action": "runs `af init --force` in a repository with both global and local configs already present"
+        },
+        {
+          "actor": "af init",
+          "action": "detects existing global config at `$HOME/.agent-fox/config.toml` and skips it without modification"
+        },
+        {
+          "actor": "af init",
+          "action": "overwrites `.agent-fox/config.toml` with a freshly generated template where all values are commented out"
+        },
+        {
+          "actor": "CLI",
+          "action": "exits with code 0; global config is unchanged, local config is regenerated"
+        }
+      ]
+    },
+    {
+      "id": "13-PATH-8",
+      "title": "CI environment with unresolvable HOME",
+      "steps": [
+        {
+          "actor": "User",
+          "action": "runs `af` in a restricted CI container where `$HOME` is not set or resolvable"
+        },
+        {
+          "actor": "load_config",
+          "action": "attempts to resolve `$HOME` and fails"
+        },
+        {
+          "actor": "load_config",
+          "action": "emits a debug-level warning that `$HOME` could not be resolved and global config loading is skipped"
+        },
+        {
+          "actor": "load_config",
+          "action": "checks for local config at `.agent-fox/config.toml`; uses it if present, otherwise uses in-memory defaults"
+        },
+        {
+          "actor": "CLI",
+          "action": "continues execution normally without raising an exception"
+        }
+      ]
+    }
+  ],
+  "error_handling": [
+    {
+      "id": "13-ERR-1",
+      "condition": "`$HOME/.agent-fox/config.toml` contains malformed TOML",
+      "behavior": "`load_config` raises `ConfigError` immediately with a message identifying the global config file path and the TOML parse error; the CLI exits with a non-zero status code before reading any local config",
+      "requirement_id": "13-REQ-4.1"
+    },
+    {
+      "id": "13-ERR-2",
+      "condition": "`.agent-fox/config.toml` contains malformed TOML (after global config loaded successfully)",
+      "behavior": "`load_config` raises `ConfigError` with a message identifying the local config file path and the TOML parse error; the CLI exits with a non-zero status code",
+      "requirement_id": "13-REQ-4.2"
+    },
+    {
+      "id": "13-ERR-3",
+      "condition": "`$HOME/.agent-fox/config.toml` is a symlink",
+      "behavior": "`load_config` raises `ConfigError` identifying the path and the `CWE-59` symlink violation; the CLI exits with a non-zero status code",
+      "requirement_id": "13-REQ-2.E1"
+    },
+    {
+      "id": "13-ERR-4",
+      "condition": "`.agent-fox/config.toml` is a symlink",
+      "behavior": "`load_config` raises `ConfigError` identifying the path and the `CWE-59` symlink violation; the CLI exits with a non-zero status code",
+      "requirement_id": "13-REQ-3.E1"
+    },
+    {
+      "id": "13-ERR-5",
+      "condition": "`$HOME` is not resolvable at CLI startup",
+      "behavior": "`load_config` emits a debug-level warning, skips global config loading, and continues using local config or in-memory defaults without raising an exception",
+      "requirement_id": "13-REQ-2.3"
+    },
+    {
+      "id": "13-ERR-6",
+      "condition": "Directory creation for `$HOME/.agent-fox/` fails due to a filesystem permission error",
+      "behavior": "`load_config` raises `ConfigError` with a message identifying the directory and the underlying OS error",
+      "requirement_id": "13-REQ-2.E2"
+    },
+    {
+      "id": "13-ERR-7",
+      "condition": "`AF_CONFIG` environment variable is set",
+      "behavior": "A deprecation warning is printed to stderr explaining that `AF_CONFIG` is no longer supported, directing the user to `$HOME/.agent-fox/config.toml` or `.agent-fox/config.toml`; the variable is then ignored and the global+local loading scheme proceeds",
+      "requirement_id": "13-REQ-5.1"
+    },
+    {
+      "id": "13-ERR-8",
+      "condition": "No `[spec_tool]` section in merged config and `~/.af/settings.yaml` exists",
+      "behavior": "`agentspec` uses `settings.yaml` values as a `migration fallback` and emits a deprecation warning to stderr instructing the user to migrate to `[spec_tool]` in `$HOME/.agent-fox/config.toml`",
+      "requirement_id": "13-REQ-6.4"
+    }
+  ]
+}

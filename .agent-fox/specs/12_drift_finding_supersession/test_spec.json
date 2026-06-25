@@ -1,0 +1,953 @@
+{
+  "$schema": null,
+  "spec_id": "12",
+  "spec_name": "drift_finding_supersession",
+  "schema_version": 1,
+  "test_cases": [
+    {
+      "id": "TS-12-1",
+      "requirement_id": "12-REQ-1.1",
+      "kind": "unit",
+      "description": "Verify that supersede_drift_findings_by_files accepts the correct parameter signature and returns an integer count.",
+      "preconditions": [
+        "An in-memory DuckDB connection is initialised with the drift_findings table",
+        "review_store.py is importable",
+        "At least one active drift finding exists with a non-null artifact_ref matching a touched file"
+      ],
+      "input": {
+        "conn": "<duckdb_connection>",
+        "node_id": "test_spec:1",
+        "spec_name": "test_spec",
+        "touched_files": [
+          "src/foo.py"
+        ]
+      },
+      "expected": "Function accepts all four parameters without error and returns a non-negative integer",
+      "assertion_pseudocode": "result = supersede_drift_findings_by_files(conn, 'test_spec', ['src/foo.py'], 'test_spec:1')\nassert isinstance(result, int)\nassert result >= 0"
+    },
+    {
+      "id": "TS-12-2",
+      "requirement_id": "12-REQ-1.2",
+      "kind": "unit",
+      "description": "Verify that supersede_drift_findings_by_files logs a debug message and returns 0 without querying the database when touched_files is empty.",
+      "preconditions": [
+        "An in-memory DuckDB connection is initialised with the drift_findings table",
+        "Active drift findings exist for the spec",
+        "A debug log capture mechanism is in place (e.g. pytest caplog or unittest.mock)"
+      ],
+      "input": {
+        "conn": "<duckdb_connection>",
+        "node_id": "test_spec:1",
+        "spec_name": "test_spec",
+        "touched_files": []
+      },
+      "expected": "Returns 0, no rows in drift_findings have superseded_by set, and a debug-level log message is emitted",
+      "assertion_pseudocode": "with capture_logs() as logs:\n    result = supersede_drift_findings_by_files(conn, 'test_spec', [], 'test_spec:1')\nassert result == 0\nassert any(log.level == DEBUG for log in logs)\nrows = conn.execute('SELECT superseded_by FROM drift_findings WHERE spec_name = ?', ['test_spec']).fetchall()\nassert all(row[0] is None for row in rows)"
+    },
+    {
+      "id": "TS-12-3",
+      "requirement_id": "12-REQ-1.3",
+      "kind": "unit",
+      "description": "Verify that supersede_drift_findings_by_files queries all active drift findings across all task groups for the spec, not just group 0.",
+      "preconditions": [
+        "An in-memory DuckDB connection is initialised with the drift_findings table",
+        "Active drift findings exist for task_group='0' and task_group='2' with matching artifact_ref values"
+      ],
+      "input": {
+        "conn": "<duckdb_connection>",
+        "node_id": "test_spec:3",
+        "spec_name": "test_spec",
+        "touched_files": [
+          "src/foo.py",
+          "src/bar.py"
+        ]
+      },
+      "expected": "Findings from both task group 0 and task group 2 are superseded when their artifact_ref matches a touched file",
+      "assertion_pseudocode": "insert_finding(conn, id='id-g0', spec_name='test_spec', task_group='0', artifact_ref='src/foo.py')\ninsert_finding(conn, id='id-g2', spec_name='test_spec', task_group='2', artifact_ref='src/bar.py')\nresult = supersede_drift_findings_by_files(conn, 'test_spec', ['src/foo.py', 'src/bar.py'], 'test_spec:3')\nassert result == 2\nrows = conn.execute('SELECT id, superseded_by FROM drift_findings WHERE spec_name = ?', ['test_spec']).fetchall()\nassert all(row[1] == 'test_spec:3' for row in rows)"
+    },
+    {
+      "id": "TS-12-4",
+      "requirement_id": "12-REQ-1.4",
+      "kind": "unit",
+      "description": "Verify that findings with a null artifact_ref are skipped and never superseded.",
+      "preconditions": [
+        "An in-memory DuckDB connection is initialised with the drift_findings table",
+        "One active drift finding exists with artifact_ref = NULL"
+      ],
+      "input": {
+        "conn": "<duckdb_connection>",
+        "node_id": "test_spec:1",
+        "spec_name": "test_spec",
+        "touched_files": [
+          "src/foo.py"
+        ]
+      },
+      "expected": "The finding with null artifact_ref remains active (superseded_by = NULL), return value is 0",
+      "assertion_pseudocode": "insert_finding(conn, id='id-null', spec_name='test_spec', task_group='0', artifact_ref=None)\nresult = supersede_drift_findings_by_files(conn, 'test_spec', ['src/foo.py'], 'test_spec:1')\nassert result == 0\nrow = conn.execute('SELECT superseded_by FROM drift_findings WHERE id = ?', ['id-null']).fetchone()\nassert row[0] is None"
+    },
+    {
+      "id": "TS-12-5",
+      "requirement_id": "12-REQ-1.5",
+      "kind": "unit",
+      "description": "Verify that line-number suffixes are stripped and whitespace is normalized from artifact_ref before matching.",
+      "preconditions": [
+        "An in-memory DuckDB connection is initialised with the drift_findings table",
+        "One active drift finding exists with artifact_ref = 'src/foo.py:42'"
+      ],
+      "input": {
+        "conn": "<duckdb_connection>",
+        "node_id": "test_spec:1",
+        "spec_name": "test_spec",
+        "touched_files": [
+          "src/foo.py"
+        ]
+      },
+      "expected": "The finding is superseded because 'src/foo.py:42' normalizes to 'src/foo.py', return value is 1",
+      "assertion_pseudocode": "insert_finding(conn, id='id-ln', spec_name='test_spec', task_group='0', artifact_ref='src/foo.py:42')\nresult = supersede_drift_findings_by_files(conn, 'test_spec', ['src/foo.py'], 'test_spec:1')\nassert result == 1\nrow = conn.execute('SELECT superseded_by FROM drift_findings WHERE id = ?', ['id-ln']).fetchone()\nassert row[0] == 'test_spec:1'"
+    },
+    {
+      "id": "TS-12-6",
+      "requirement_id": "12-REQ-1.6",
+      "kind": "unit",
+      "description": "Verify that prefix matching is applied when the normalized artifact_ref ends with '/', superseding if any touched file starts with the prefix.",
+      "preconditions": [
+        "An in-memory DuckDB connection is initialised with the drift_findings table",
+        "One active drift finding exists with artifact_ref = 'packages/nightshift/'"
+      ],
+      "input": {
+        "conn": "<duckdb_connection>",
+        "node_id": "test_spec:1",
+        "spec_name": "test_spec",
+        "touched_files": [
+          "packages/nightshift/src/main.py"
+        ]
+      },
+      "expected": "The finding is superseded because the touched file starts with 'packages/nightshift/', return value is 1",
+      "assertion_pseudocode": "insert_finding(conn, id='id-dir', spec_name='test_spec', task_group='0', artifact_ref='packages/nightshift/')\nresult = supersede_drift_findings_by_files(conn, 'test_spec', ['packages/nightshift/src/main.py'], 'test_spec:1')\nassert result == 1\nrow = conn.execute('SELECT superseded_by FROM drift_findings WHERE id = ?', ['id-dir']).fetchone()\nassert row[0] == 'test_spec:1'"
+    },
+    {
+      "id": "TS-12-7",
+      "requirement_id": "12-REQ-1.7",
+      "kind": "unit",
+      "description": "Verify that exact path matching is applied when the normalized artifact_ref does not end with '/'.",
+      "preconditions": [
+        "An in-memory DuckDB connection is initialised with the drift_findings table",
+        "One active drift finding exists with artifact_ref = 'src/foo.py'"
+      ],
+      "input": {
+        "conn": "<duckdb_connection>",
+        "node_id": "test_spec:1",
+        "spec_name": "test_spec",
+        "touched_files": [
+          "src/foo.py"
+        ]
+      },
+      "expected": "The finding is superseded because 'src/foo.py' exactly matches the touched file, return value is 1",
+      "assertion_pseudocode": "insert_finding(conn, id='id-exact', spec_name='test_spec', task_group='0', artifact_ref='src/foo.py')\nresult = supersede_drift_findings_by_files(conn, 'test_spec', ['src/foo.py'], 'test_spec:1')\nassert result == 1\nrow = conn.execute('SELECT superseded_by FROM drift_findings WHERE id = ?', ['id-exact']).fetchone()\nassert row[0] == 'test_spec:1'"
+    },
+    {
+      "id": "TS-12-8",
+      "requirement_id": "12-REQ-1.8",
+      "kind": "unit",
+      "description": "Verify that superseded_by is set to the node_id for each matching finding and the returned count reflects the total number of superseded findings.",
+      "preconditions": [
+        "An in-memory DuckDB connection is initialised with the drift_findings table",
+        "Three active drift findings exist, two with matching artifact_ref and one non-matching"
+      ],
+      "input": {
+        "conn": "<duckdb_connection>",
+        "node_id": "test_spec:2",
+        "spec_name": "test_spec",
+        "touched_files": [
+          "src/a.py",
+          "src/b.py"
+        ]
+      },
+      "expected": "superseded_by = 'test_spec:2' on both matching findings, return value is 2",
+      "assertion_pseudocode": "insert_finding(conn, id='id-a', spec_name='test_spec', task_group='0', artifact_ref='src/a.py')\ninsert_finding(conn, id='id-b', spec_name='test_spec', task_group='0', artifact_ref='src/b.py')\ninsert_finding(conn, id='id-c', spec_name='test_spec', task_group='0', artifact_ref='src/c.py')\nresult = supersede_drift_findings_by_files(conn, 'test_spec', ['src/a.py', 'src/b.py'], 'test_spec:2')\nassert result == 2\nfor fid in ['id-a', 'id-b']:\n    row = conn.execute('SELECT superseded_by FROM drift_findings WHERE id = ?', [fid]).fetchone()\n    assert row[0] == 'test_spec:2'\nrow_c = conn.execute('SELECT superseded_by FROM drift_findings WHERE id = ?', ['id-c']).fetchone()\nassert row_c[0] is None"
+    },
+    {
+      "id": "TS-12-9",
+      "requirement_id": "12-REQ-1.9",
+      "kind": "unit",
+      "description": "Verify that the function logs the finding ID and artifact_ref for each superseded finding.",
+      "preconditions": [
+        "An in-memory DuckDB connection is initialised with the drift_findings table",
+        "One active drift finding with artifact_ref = 'src/foo.py' exists",
+        "Log capture is configured"
+      ],
+      "input": {
+        "conn": "<duckdb_connection>",
+        "node_id": "test_spec:1",
+        "spec_name": "test_spec",
+        "touched_files": [
+          "src/foo.py"
+        ]
+      },
+      "expected": "A log entry at INFO or DEBUG level contains the finding ID and 'src/foo.py'",
+      "assertion_pseudocode": "insert_finding(conn, id='id-log', spec_name='test_spec', task_group='0', artifact_ref='src/foo.py')\nwith capture_logs() as logs:\n    supersede_drift_findings_by_files(conn, 'test_spec', ['src/foo.py'], 'test_spec:1')\nassert any('id-log' in log.message and 'src/foo.py' in log.message for log in logs)"
+    },
+    {
+      "id": "TS-12-10",
+      "requirement_id": "12-REQ-2.1",
+      "kind": "unit",
+      "description": "Verify that the private helper query returns all active drift findings for the spec across all task groups with superseded_by IS NULL.",
+      "preconditions": [
+        "An in-memory DuckDB connection is initialised with the drift_findings table",
+        "Active findings exist for task_group='0' and task_group='3'",
+        "One superseded finding also exists (superseded_by set)"
+      ],
+      "input": {
+        "conn": "<duckdb_connection>",
+        "spec_name": "test_spec"
+      },
+      "expected": "Returns rows for both task groups 0 and 3, excludes the superseded finding; each row contains (id, artifact_ref)",
+      "assertion_pseudocode": "insert_finding(conn, id='id-g0', spec_name='test_spec', task_group='0', artifact_ref='src/a.py', superseded_by=None)\ninsert_finding(conn, id='id-g3', spec_name='test_spec', task_group='3', artifact_ref='src/b.py', superseded_by=None)\ninsert_finding(conn, id='id-sup', spec_name='test_spec', task_group='0', artifact_ref='src/c.py', superseded_by='test_spec:1')\nrows = _query_active_drift_findings_for_spec(conn, 'test_spec')\nassert len(rows) == 2\nids = [r[0] for r in rows]\nassert 'id-g0' in ids\nassert 'id-g3' in ids\nassert 'id-sup' not in ids"
+    },
+    {
+      "id": "TS-12-11",
+      "requirement_id": "12-REQ-2.2",
+      "kind": "unit",
+      "description": "Verify that the private helper function is not exposed as part of the public review_store module API.",
+      "preconditions": [
+        "review_store module is importable"
+      ],
+      "input": {},
+      "expected": "The private helper function name (prefixed with '_') is not present in the public __all__ or the module's public attribute list",
+      "assertion_pseudocode": "import review_store\npublic_api = [name for name in dir(review_store) if not name.startswith('_')]\nassert '_query_active_drift_findings_for_spec' not in public_api\n# or equivalently, verify it is not in __all__ if defined\nif hasattr(review_store, '__all__'):\n    assert '_query_active_drift_findings_for_spec' not in review_store.__all__"
+    },
+    {
+      "id": "TS-12-12",
+      "requirement_id": "12-REQ-3.1",
+      "kind": "unit",
+      "description": "Verify that result_handler calls supersede_drift_findings_by_files immediately after supersede_injected_findings returns during a successful coder session merge.",
+      "preconditions": [
+        "result_handler.py is importable",
+        "supersede_injected_findings is mockable",
+        "supersede_drift_findings_by_files is mockable",
+        "A mock SessionRecord is configured with session_type='coder', touched_files=['src/foo.py'], node_id='test_spec:1', spec_name='test_spec'"
+      ],
+      "input": {
+        "session_record": {
+          "merge_successful": true,
+          "node_id": "test_spec:1",
+          "session_type": "coder",
+          "spec_name": "test_spec",
+          "touched_files": [
+            "src/foo.py"
+          ]
+        }
+      },
+      "expected": "supersede_drift_findings_by_files is called once with spec_name='test_spec', touched_files=['src/foo.py'], node_id='test_spec:1', and called after supersede_injected_findings",
+      "assertion_pseudocode": "call_order = []\nmock_supersede_injected = mock(side_effect=lambda *a: call_order.append('injected'))\nmock_supersede_drift = mock(side_effect=lambda *a, **kw: call_order.append('drift'))\nwith patch('result_handler.supersede_injected_findings', mock_supersede_injected),\n     patch('result_handler.supersede_drift_findings_by_files', mock_supersede_drift):\n    handle_coder_session_success(session_record)\nassert call_order == ['injected', 'drift']\nmock_supersede_drift.assert_called_once_with(conn=ANY, spec_name='test_spec', touched_files=['src/foo.py'], node_id='test_spec:1')"
+    },
+    {
+      "id": "TS-12-13",
+      "requirement_id": "12-REQ-3.2",
+      "kind": "unit",
+      "description": "Verify that result_handler does not call supersede_drift_findings_by_files for reviewer or verifier sessions.",
+      "preconditions": [
+        "result_handler.py is importable",
+        "supersede_drift_findings_by_files is mockable",
+        "Mock SessionRecords for session_type='reviewer' and session_type='verifier' are configured"
+      ],
+      "input": {
+        "session_record_reviewer": {
+          "node_id": "test_spec:1",
+          "session_type": "reviewer",
+          "spec_name": "test_spec"
+        },
+        "session_record_verifier": {
+          "node_id": "test_spec:2",
+          "session_type": "verifier",
+          "spec_name": "test_spec"
+        }
+      },
+      "expected": "supersede_drift_findings_by_files is never called for reviewer or verifier session types",
+      "assertion_pseudocode": "mock_supersede_drift = mock()\nwith patch('result_handler.supersede_drift_findings_by_files', mock_supersede_drift):\n    handle_reviewer_session_success(session_record_reviewer)\n    handle_verifier_session_success(session_record_verifier)\nassert mock_supersede_drift.call_count == 0"
+    },
+    {
+      "id": "TS-12-14",
+      "requirement_id": "12-REQ-3.3",
+      "kind": "unit",
+      "description": "Verify that result_handler catches any exception from supersede_drift_findings_by_files, logs a warning, and does not propagate the exception.",
+      "preconditions": [
+        "result_handler.py is importable",
+        "supersede_drift_findings_by_files is mocked to raise an Exception",
+        "Session outcome recording completes before supersede_drift_findings_by_files is called",
+        "Log capture is configured"
+      ],
+      "input": {
+        "session_record": {
+          "merge_successful": true,
+          "node_id": "test_spec:1",
+          "session_type": "coder",
+          "spec_name": "test_spec",
+          "touched_files": [
+            "src/foo.py"
+          ]
+        }
+      },
+      "expected": "No exception is raised to the caller, a warning-level log message is emitted, session outcome remains recorded",
+      "assertion_pseudocode": "mock_supersede_drift = mock(side_effect=Exception('DuckDB failure'))\nwith patch('result_handler.supersede_drift_findings_by_files', mock_supersede_drift),\n     capture_logs() as logs:\n    # Must not raise\n    handle_coder_session_success(session_record)\nassert any(log.level == WARNING for log in logs)\n# Verify session outcome was recorded (check DB or return value)"
+    },
+    {
+      "id": "TS-12-15",
+      "requirement_id": "12-REQ-4.1",
+      "kind": "unit",
+      "description": "Verify that a finding whose normalized artifact_ref exactly matches a path in touched_files is superseded.",
+      "preconditions": [
+        "An in-memory DuckDB connection is initialised with the drift_findings table",
+        "One active drift finding exists with artifact_ref = 'src/foo.py' (no trailing slash)"
+      ],
+      "input": {
+        "conn": "<duckdb_connection>",
+        "node_id": "test_spec:1",
+        "spec_name": "test_spec",
+        "touched_files": [
+          "src/foo.py"
+        ]
+      },
+      "expected": "Finding is superseded, superseded_by = 'test_spec:1', return value is 1",
+      "assertion_pseudocode": "insert_finding(conn, id='id-exact', spec_name='test_spec', task_group='0', artifact_ref='src/foo.py')\nresult = supersede_drift_findings_by_files(conn, 'test_spec', ['src/foo.py'], 'test_spec:1')\nassert result == 1\nrow = conn.execute('SELECT superseded_by FROM drift_findings WHERE id = ?', ['id-exact']).fetchone()\nassert row[0] == 'test_spec:1'"
+    },
+    {
+      "id": "TS-12-16",
+      "requirement_id": "12-REQ-4.2",
+      "kind": "unit",
+      "description": "Verify that a finding whose normalized artifact_ref does not match any path in touched_files remains active.",
+      "preconditions": [
+        "An in-memory DuckDB connection is initialised with the drift_findings table",
+        "One active drift finding exists with artifact_ref = 'src/foo.py'"
+      ],
+      "input": {
+        "conn": "<duckdb_connection>",
+        "node_id": "test_spec:1",
+        "spec_name": "test_spec",
+        "touched_files": [
+          "src/bar.py"
+        ]
+      },
+      "expected": "Finding is not superseded, superseded_by remains NULL, return value is 0",
+      "assertion_pseudocode": "insert_finding(conn, id='id-no-match', spec_name='test_spec', task_group='0', artifact_ref='src/foo.py')\nresult = supersede_drift_findings_by_files(conn, 'test_spec', ['src/bar.py'], 'test_spec:1')\nassert result == 0\nrow = conn.execute('SELECT superseded_by FROM drift_findings WHERE id = ?', ['id-no-match']).fetchone()\nassert row[0] is None"
+    },
+    {
+      "id": "TS-12-17",
+      "requirement_id": "12-REQ-5.1",
+      "kind": "unit",
+      "description": "Verify that a finding with a trailing-slash artifact_ref is superseded when at least one touched file starts with that prefix.",
+      "preconditions": [
+        "An in-memory DuckDB connection is initialised with the drift_findings table",
+        "One active drift finding exists with artifact_ref = 'packages/nightshift/'"
+      ],
+      "input": {
+        "conn": "<duckdb_connection>",
+        "node_id": "test_spec:1",
+        "spec_name": "test_spec",
+        "touched_files": [
+          "packages/nightshift/cli.py"
+        ]
+      },
+      "expected": "Finding is superseded, superseded_by = 'test_spec:1', return value is 1",
+      "assertion_pseudocode": "insert_finding(conn, id='id-dir', spec_name='test_spec', task_group='0', artifact_ref='packages/nightshift/')\nresult = supersede_drift_findings_by_files(conn, 'test_spec', ['packages/nightshift/cli.py'], 'test_spec:1')\nassert result == 1\nrow = conn.execute('SELECT superseded_by FROM drift_findings WHERE id = ?', ['id-dir']).fetchone()\nassert row[0] == 'test_spec:1'"
+    },
+    {
+      "id": "TS-12-18",
+      "requirement_id": "12-REQ-5.2",
+      "kind": "unit",
+      "description": "Verify that a finding with a trailing-slash artifact_ref is not superseded when no touched file starts with that prefix.",
+      "preconditions": [
+        "An in-memory DuckDB connection is initialised with the drift_findings table",
+        "One active drift finding exists with artifact_ref = 'packages/nightshift/'"
+      ],
+      "input": {
+        "conn": "<duckdb_connection>",
+        "node_id": "test_spec:1",
+        "spec_name": "test_spec",
+        "touched_files": [
+          "packages/other/cli.py"
+        ]
+      },
+      "expected": "Finding remains active, superseded_by = NULL, return value is 0",
+      "assertion_pseudocode": "insert_finding(conn, id='id-dir-miss', spec_name='test_spec', task_group='0', artifact_ref='packages/nightshift/')\nresult = supersede_drift_findings_by_files(conn, 'test_spec', ['packages/other/cli.py'], 'test_spec:1')\nassert result == 0\nrow = conn.execute('SELECT superseded_by FROM drift_findings WHERE id = ?', ['id-dir-miss']).fetchone()\nassert row[0] is None"
+    },
+    {
+      "id": "TS-12-19",
+      "requirement_id": "12-REQ-6.1",
+      "kind": "unit",
+      "description": "Verify that the superseded_by column is set to exactly the node_id string for every superseded finding.",
+      "preconditions": [
+        "An in-memory DuckDB connection is initialised with the drift_findings table",
+        "Two active drift findings exist with artifact_ref = 'src/a.py' and 'src/b.py'"
+      ],
+      "input": {
+        "conn": "<duckdb_connection>",
+        "node_id": "my_spec:3",
+        "spec_name": "my_spec",
+        "touched_files": [
+          "src/a.py",
+          "src/b.py"
+        ]
+      },
+      "expected": "Both findings have superseded_by = 'my_spec:3' exactly",
+      "assertion_pseudocode": "insert_finding(conn, id='id-a', spec_name='my_spec', task_group='0', artifact_ref='src/a.py')\ninsert_finding(conn, id='id-b', spec_name='my_spec', task_group='0', artifact_ref='src/b.py')\nsupersede_drift_findings_by_files(conn, 'my_spec', ['src/a.py', 'src/b.py'], 'my_spec:3')\nfor fid in ['id-a', 'id-b']:\n    row = conn.execute('SELECT superseded_by FROM drift_findings WHERE id = ?', [fid]).fetchone()\n    assert row[0] == 'my_spec:3'"
+    },
+    {
+      "id": "TS-12-20",
+      "requirement_id": "12-REQ-7.1",
+      "kind": "unit",
+      "description": "Verify that findings with null artifact_ref remain active after supersede_drift_findings_by_files completes.",
+      "preconditions": [
+        "An in-memory DuckDB connection is initialised with the drift_findings table",
+        "One active drift finding exists with artifact_ref = NULL"
+      ],
+      "input": {
+        "conn": "<duckdb_connection>",
+        "node_id": "test_spec:1",
+        "spec_name": "test_spec",
+        "touched_files": [
+          "src/any.py"
+        ]
+      },
+      "expected": "superseded_by remains NULL on the null-artifact_ref finding",
+      "assertion_pseudocode": "insert_finding(conn, id='id-null', spec_name='test_spec', task_group='0', artifact_ref=None)\nsupersede_drift_findings_by_files(conn, 'test_spec', ['src/any.py'], 'test_spec:1')\nrow = conn.execute('SELECT superseded_by FROM drift_findings WHERE id = ?', ['id-null']).fetchone()\nassert row[0] is None"
+    },
+    {
+      "id": "TS-12-21",
+      "requirement_id": "12-REQ-7.2",
+      "kind": "unit",
+      "description": "Verify that findings whose artifact_ref does not match any touched file remain active after supersede_drift_findings_by_files completes.",
+      "preconditions": [
+        "An in-memory DuckDB connection is initialised with the drift_findings table",
+        "One active drift finding exists with artifact_ref = 'src/unrelated.py'"
+      ],
+      "input": {
+        "conn": "<duckdb_connection>",
+        "node_id": "test_spec:1",
+        "spec_name": "test_spec",
+        "touched_files": [
+          "src/different.py"
+        ]
+      },
+      "expected": "superseded_by remains NULL on the non-matching finding",
+      "assertion_pseudocode": "insert_finding(conn, id='id-unrel', spec_name='test_spec', task_group='0', artifact_ref='src/unrelated.py')\nsupersede_drift_findings_by_files(conn, 'test_spec', ['src/different.py'], 'test_spec:1')\nrow = conn.execute('SELECT superseded_by FROM drift_findings WHERE id = ?', ['id-unrel']).fetchone()\nassert row[0] is None"
+    },
+    {
+      "id": "TS-12-22",
+      "requirement_id": "12-REQ-7.3",
+      "kind": "unit",
+      "description": "Verify that query_active_drift_findings excludes findings whose superseded_by is non-null from its results.",
+      "preconditions": [
+        "An in-memory DuckDB connection is initialised with the drift_findings table",
+        "One active finding (superseded_by=NULL) and one superseded finding (superseded_by='test_spec:1') exist"
+      ],
+      "input": {
+        "conn": "<duckdb_connection>",
+        "include_prereview": true,
+        "spec_name": "test_spec"
+      },
+      "expected": "query_active_drift_findings returns only the active finding, not the superseded one",
+      "assertion_pseudocode": "insert_finding(conn, id='id-active', spec_name='test_spec', task_group='0', artifact_ref='src/a.py', superseded_by=None)\ninsert_finding(conn, id='id-sup', spec_name='test_spec', task_group='0', artifact_ref='src/b.py', superseded_by='test_spec:1')\nresults = query_active_drift_findings(conn, 'test_spec', include_prereview=True)\nids = [r.id for r in results]\nassert 'id-active' in ids\nassert 'id-sup' not in ids"
+    },
+    {
+      "id": "TS-12-23",
+      "requirement_id": "12-REQ-8.1",
+      "kind": "unit",
+      "description": "Verify the unit test for exact path match: a finding with artifact_ref 'src/foo.py' is superseded when touched_files contains 'src/foo.py'.",
+      "preconditions": [
+        "In-memory DuckDB with drift_findings table",
+        "One active finding with artifact_ref = 'src/foo.py'"
+      ],
+      "input": {
+        "node_id": "spec:1",
+        "touched_files": [
+          "src/foo.py"
+        ]
+      },
+      "expected": "Return value is 1; finding superseded_by = 'spec:1'",
+      "assertion_pseudocode": "insert_finding(conn, id='f1', spec_name='s', task_group='0', artifact_ref='src/foo.py')\ncount = supersede_drift_findings_by_files(conn, 's', ['src/foo.py'], 'spec:1')\nassert count == 1\nassert conn.execute('SELECT superseded_by FROM drift_findings WHERE id=?', ['f1']).fetchone()[0] == 'spec:1'"
+    },
+    {
+      "id": "TS-12-24",
+      "requirement_id": "12-REQ-8.2",
+      "kind": "unit",
+      "description": "Verify the unit test for exact path non-match: a finding with artifact_ref 'src/foo.py' is not superseded when touched_files contains only 'src/bar.py'.",
+      "preconditions": [
+        "In-memory DuckDB with drift_findings table",
+        "One active finding with artifact_ref = 'src/foo.py'"
+      ],
+      "input": {
+        "node_id": "spec:1",
+        "touched_files": [
+          "src/bar.py"
+        ]
+      },
+      "expected": "Return value is 0; finding superseded_by remains NULL",
+      "assertion_pseudocode": "insert_finding(conn, id='f2', spec_name='s', task_group='0', artifact_ref='src/foo.py')\ncount = supersede_drift_findings_by_files(conn, 's', ['src/bar.py'], 'spec:1')\nassert count == 0\nassert conn.execute('SELECT superseded_by FROM drift_findings WHERE id=?', ['f2']).fetchone()[0] is None"
+    },
+    {
+      "id": "TS-12-25",
+      "requirement_id": "12-REQ-8.3",
+      "kind": "unit",
+      "description": "Verify the unit test for prefix/directory match: a finding with artifact_ref 'packages/nightshift/' is superseded when touched_files contains a path starting with that prefix.",
+      "preconditions": [
+        "In-memory DuckDB with drift_findings table",
+        "One active finding with artifact_ref = 'packages/nightshift/'"
+      ],
+      "input": {
+        "node_id": "spec:1",
+        "touched_files": [
+          "packages/nightshift/utils.py"
+        ]
+      },
+      "expected": "Return value is 1; finding superseded_by = 'spec:1'",
+      "assertion_pseudocode": "insert_finding(conn, id='f3', spec_name='s', task_group='0', artifact_ref='packages/nightshift/')\ncount = supersede_drift_findings_by_files(conn, 's', ['packages/nightshift/utils.py'], 'spec:1')\nassert count == 1\nassert conn.execute('SELECT superseded_by FROM drift_findings WHERE id=?', ['f3']).fetchone()[0] == 'spec:1'"
+    },
+    {
+      "id": "TS-12-26",
+      "requirement_id": "12-REQ-8.4",
+      "kind": "unit",
+      "description": "Verify the unit test for line number stripping: a finding with artifact_ref 'src/foo.py:42' normalizes to 'src/foo.py' and correctly matches a touched file 'src/foo.py'.",
+      "preconditions": [
+        "In-memory DuckDB with drift_findings table",
+        "One active finding with artifact_ref = 'src/foo.py:42'"
+      ],
+      "input": {
+        "node_id": "spec:1",
+        "touched_files": [
+          "src/foo.py"
+        ]
+      },
+      "expected": "Return value is 1; finding superseded_by = 'spec:1'",
+      "assertion_pseudocode": "insert_finding(conn, id='f4', spec_name='s', task_group='0', artifact_ref='src/foo.py:42')\ncount = supersede_drift_findings_by_files(conn, 's', ['src/foo.py'], 'spec:1')\nassert count == 1\nassert conn.execute('SELECT superseded_by FROM drift_findings WHERE id=?', ['f4']).fetchone()[0] == 'spec:1'"
+    },
+    {
+      "id": "TS-12-27",
+      "requirement_id": "12-REQ-8.5",
+      "kind": "unit",
+      "description": "Verify the unit test for null artifact_ref passthrough: a finding with null artifact_ref is never superseded and the function returns 0.",
+      "preconditions": [
+        "In-memory DuckDB with drift_findings table",
+        "One active finding with artifact_ref = NULL"
+      ],
+      "input": {
+        "node_id": "spec:1",
+        "touched_files": [
+          "src/foo.py"
+        ]
+      },
+      "expected": "Return value is 0; finding superseded_by remains NULL",
+      "assertion_pseudocode": "insert_finding(conn, id='f5', spec_name='s', task_group='0', artifact_ref=None)\ncount = supersede_drift_findings_by_files(conn, 's', ['src/foo.py'], 'spec:1')\nassert count == 0\nassert conn.execute('SELECT superseded_by FROM drift_findings WHERE id=?', ['f5']).fetchone()[0] is None"
+    },
+    {
+      "id": "TS-12-28",
+      "requirement_id": "12-REQ-8.6",
+      "kind": "unit",
+      "description": "Verify the unit test for empty touched_files: passing an empty list returns 0, makes no database writes, and logs a debug message.",
+      "preconditions": [
+        "In-memory DuckDB with drift_findings table",
+        "Active drift findings exist for the spec",
+        "Log capture configured"
+      ],
+      "input": {
+        "node_id": "spec:1",
+        "touched_files": []
+      },
+      "expected": "Return value is 0, no superseded_by values written, debug log emitted",
+      "assertion_pseudocode": "insert_finding(conn, id='f6', spec_name='s', task_group='0', artifact_ref='src/foo.py')\nwith capture_logs() as logs:\n    count = supersede_drift_findings_by_files(conn, 's', [], 'spec:1')\nassert count == 0\nassert any(log.level == DEBUG for log in logs)\nassert conn.execute('SELECT superseded_by FROM drift_findings WHERE id=?', ['f6']).fetchone()[0] is None"
+    },
+    {
+      "id": "TS-12-29",
+      "requirement_id": "12-REQ-8.7",
+      "kind": "unit",
+      "description": "Verify the unit test for null touched_files: passing None is treated identically to an empty list (returns 0, no DB writes, debug log emitted).",
+      "preconditions": [
+        "In-memory DuckDB with drift_findings table",
+        "Active drift findings exist for the spec",
+        "Log capture configured"
+      ],
+      "input": {
+        "node_id": "spec:1",
+        "touched_files": null
+      },
+      "expected": "Return value is 0, no superseded_by values written, debug log emitted",
+      "assertion_pseudocode": "insert_finding(conn, id='f7', spec_name='s', task_group='0', artifact_ref='src/foo.py')\nwith capture_logs() as logs:\n    count = supersede_drift_findings_by_files(conn, 's', None, 'spec:1')\nassert count == 0\nassert any(log.level == DEBUG for log in logs)\nassert conn.execute('SELECT superseded_by FROM drift_findings WHERE id=?', ['f7']).fetchone()[0] is None"
+    },
+    {
+      "id": "TS-12-30",
+      "requirement_id": "12-REQ-8.8",
+      "kind": "unit",
+      "description": "Verify the unit test for multiple matches: when multiple findings match the same touched file, all are superseded and the returned count equals the number of matched findings.",
+      "preconditions": [
+        "In-memory DuckDB with drift_findings table",
+        "Three active findings all with artifact_ref = 'src/foo.py'"
+      ],
+      "input": {
+        "node_id": "spec:1",
+        "touched_files": [
+          "src/foo.py"
+        ]
+      },
+      "expected": "Return value is 3; all three findings have superseded_by = 'spec:1'",
+      "assertion_pseudocode": "for i in range(3):\n    insert_finding(conn, id=f'f8-{i}', spec_name='s', task_group='0', artifact_ref='src/foo.py')\ncount = supersede_drift_findings_by_files(conn, 's', ['src/foo.py'], 'spec:1')\nassert count == 3\nfor i in range(3):\n    row = conn.execute('SELECT superseded_by FROM drift_findings WHERE id=?', [f'f8-{i}']).fetchone()\n    assert row[0] == 'spec:1'"
+    },
+    {
+      "id": "TS-12-31",
+      "requirement_id": "12-REQ-9.1",
+      "kind": "integration",
+      "description": "Verify the integration test seeds 12 drift findings: 10 with matching artifact_ref values and 2 with non-matching or null artifact_ref values.",
+      "preconditions": [
+        "A test DuckDB database is initialised with all required tables via migrations up to v25",
+        "result_handler.py and review_store.py are importable in integration test mode"
+      ],
+      "input": {
+        "drift_findings_to_seed": 12,
+        "matching_count": 10,
+        "non_matching_count": 2,
+        "spec_name": "nightshift_standalone_cli",
+        "task_group": "0"
+      },
+      "expected": "drift_findings table contains exactly 12 rows for the spec, 10 with artifact_ref matching the simulated touched_files and 2 with non-matching or null artifact_ref",
+      "assertion_pseudocode": "for i in range(10):\n    insert_finding(conn, id=f'match-{i}', spec_name='nightshift_standalone_cli', task_group='0', artifact_ref=f'src/file_{i}.py')\ninsert_finding(conn, id='nomatch-0', spec_name='nightshift_standalone_cli', task_group='0', artifact_ref='src/unrelated.py')\ninsert_finding(conn, id='null-ref', spec_name='nightshift_standalone_cli', task_group='0', artifact_ref=None)\ncount = conn.execute('SELECT COUNT(*) FROM drift_findings WHERE spec_name=?', ['nightshift_standalone_cli']).fetchone()[0]\nassert count == 12"
+    },
+    {
+      "id": "TS-12-32",
+      "requirement_id": "12-REQ-9.2",
+      "kind": "integration",
+      "description": "Verify the integration test asserts that exactly 10 findings have superseded_by set to the session node_id after simulating a successful coder session merge.",
+      "preconditions": [
+        "drift_findings table seeded with 12 findings as per 12-REQ-9.1",
+        "result_handler post-merge hook is callable in test harness",
+        "Session node_id = 'nightshift_standalone_cli:3'"
+      ],
+      "input": {
+        "merge_successful": true,
+        "node_id": "nightshift_standalone_cli:3",
+        "session_type": "coder",
+        "spec_name": "nightshift_standalone_cli",
+        "touched_files": [
+          "src/file_0.py",
+          "src/file_1.py",
+          "src/file_2.py",
+          "src/file_3.py",
+          "src/file_4.py",
+          "src/file_5.py",
+          "src/file_6.py",
+          "src/file_7.py",
+          "src/file_8.py",
+          "src/file_9.py"
+        ]
+      },
+      "expected": "Exactly 10 rows in drift_findings have superseded_by = 'nightshift_standalone_cli:3'",
+      "assertion_pseudocode": "simulate_coder_session_merge(conn, spec_name='nightshift_standalone_cli', node_id='nightshift_standalone_cli:3',\n    touched_files=['src/file_0.py','src/file_1.py','src/file_2.py','src/file_3.py','src/file_4.py',\n                   'src/file_5.py','src/file_6.py','src/file_7.py','src/file_8.py','src/file_9.py'])\ncount = conn.execute('SELECT COUNT(*) FROM drift_findings WHERE spec_name=? AND superseded_by=?',\n    ['nightshift_standalone_cli', 'nightshift_standalone_cli:3']).fetchone()[0]\nassert count == 10"
+    },
+    {
+      "id": "TS-12-33",
+      "requirement_id": "12-REQ-9.3",
+      "kind": "integration",
+      "description": "Verify the integration test asserts that the remaining 2 findings have superseded_by = NULL after the simulated merge.",
+      "preconditions": [
+        "Integration test has completed the simulated merge from 12-REQ-9.2"
+      ],
+      "input": {},
+      "expected": "Exactly 2 rows in drift_findings for the spec have superseded_by = NULL",
+      "assertion_pseudocode": "count = conn.execute('SELECT COUNT(*) FROM drift_findings WHERE spec_name=? AND superseded_by IS NULL',\n    ['nightshift_standalone_cli']).fetchone()[0]\nassert count == 2\nactive_ids = conn.execute('SELECT id FROM drift_findings WHERE spec_name=? AND superseded_by IS NULL',\n    ['nightshift_standalone_cli']).fetchall()\nactive_id_set = {r[0] for r in active_ids}\nassert 'nomatch-0' in active_id_set\nassert 'null-ref' in active_id_set"
+    },
+    {
+      "id": "TS-12-34",
+      "requirement_id": "12-REQ-9.4",
+      "kind": "integration",
+      "description": "Verify the integration test asserts that a subsequent call to query_active_drift_findings returns only the 2 non-superseded findings.",
+      "preconditions": [
+        "Integration test has completed the simulated merge from 12-REQ-9.2",
+        "query_active_drift_findings is importable from review_store"
+      ],
+      "input": {
+        "include_prereview": true,
+        "spec_name": "nightshift_standalone_cli"
+      },
+      "expected": "query_active_drift_findings returns exactly 2 findings, both with superseded_by = NULL",
+      "assertion_pseudocode": "results = query_active_drift_findings(conn, 'nightshift_standalone_cli', include_prereview=True)\nassert len(results) == 2\nfor finding in results:\n    assert finding.superseded_by is None\nids = {f.id for f in results}\nassert 'nomatch-0' in ids\nassert 'null-ref' in ids"
+    },
+    {
+      "id": "TS-12-35",
+      "requirement_id": "12-REQ-10.1",
+      "kind": "unit",
+      "description": "Verify that docs/architecture.md Sections 5.4 and 10.3-10.4 are updated to document file-based drift finding supersession as distinct from blanket review finding supersession.",
+      "preconditions": [
+        "docs/architecture.md exists in the repository"
+      ],
+      "input": {
+        "file": "docs/architecture.md"
+      },
+      "expected": "Sections 5.4 and 10.3-10.4 contain prose describing file-based drift finding supersession, the artifact_ref matching rules, and distinguishing it from injection-based blanket supersession",
+      "assertion_pseudocode": "content = read_file('docs/architecture.md')\nassert 'drift finding' in content.lower() or 'drift_findings' in content\nassert 'file-based' in content.lower() or 'artifact_ref' in content\nassert 'Section 5.4' in content or '5.4' in content\nassert 'Section 10.3' in content or '10.3' in content"
+    },
+    {
+      "id": "TS-12-36",
+      "requirement_id": "12-REQ-10.2",
+      "kind": "unit",
+      "description": "Verify that docs/architecture/05-knowledge-system-architecture.md Sections 4.1, 8, and 9 are updated to document matching rules, fallback behavior, and the two-path supersession lifecycle diagram.",
+      "preconditions": [
+        "docs/architecture/05-knowledge-system-architecture.md exists in the repository"
+      ],
+      "input": {
+        "file": "docs/architecture/05-knowledge-system-architecture.md"
+      },
+      "expected": "Sections 4.1, 8, and 9 reference the matching rules (exact and prefix), null artifact_ref fallback, and updated lifecycle diagram with two supersession paths",
+      "assertion_pseudocode": "content = read_file('docs/architecture/05-knowledge-system-architecture.md')\nassert 'prefix' in content.lower()\nassert 'artifact_ref' in content\nassert 'null' in content.lower() or 'None' in content\nassert '4.1' in content\nassert any(section in content for section in ['Section 8', '## 8', '### 8'])\nassert any(section in content for section in ['Section 9', '## 9', '### 9'])"
+    }
+  ],
+  "property_tests": [
+    {
+      "id": "TS-12-P1",
+      "property_id": "12-PROP-1",
+      "validates": [
+        "12-REQ-4.1",
+        "12-REQ-4.2",
+        "12-REQ-5.1",
+        "12-REQ-5.2",
+        "12-REQ-7.2"
+      ],
+      "description": "For any drift finding with a non-null artifact_ref, it is superseded only if at least one path in touched_files matches via exact or prefix matching.",
+      "for_any_strategy": "Generate random drift findings with non-null artifact_ref values (mix of file paths and directory paths ending with '/'), and random touched_files lists; use hypothesis or similar property-based testing library",
+      "invariant_check": "After calling supersede_drift_findings_by_files(conn, spec, touched_files, node_id), for every finding F: if F.superseded_by is set, then normalize(F.artifact_ref) must be in touched_files (exact) OR any touched file must start_with(normalize(F.artifact_ref)) where artifact_ref ends with '/'. Conversely, if no touched file matches F's normalized artifact_ref, then F.superseded_by must be NULL."
+    },
+    {
+      "id": "TS-12-P2",
+      "property_id": "12-PROP-2",
+      "validates": [
+        "12-REQ-1.4",
+        "12-REQ-7.1"
+      ],
+      "description": "For any drift finding with a null artifact_ref, supersede_drift_findings_by_files never sets superseded_by regardless of touched_files contents.",
+      "for_any_strategy": "Generate any non-empty touched_files list (arbitrary file paths); create one or more findings with artifact_ref=NULL; run supersede_drift_findings_by_files with those inputs",
+      "invariant_check": "After the call, for every finding with artifact_ref=NULL: assert finding.superseded_by IS NULL"
+    },
+    {
+      "id": "TS-12-P3",
+      "property_id": "12-PROP-3",
+      "validates": [
+        "12-REQ-1.2",
+        "12-REQ-8.6",
+        "12-REQ-8.7"
+      ],
+      "description": "For any invocation of supersede_drift_findings_by_files with null or empty touched_files, the function returns 0 and the drift_findings table is not modified.",
+      "for_any_strategy": "Generate arbitrary sets of active drift findings with varied artifact_ref values; call supersede_drift_findings_by_files with touched_files=None or touched_files=[] (both variants); capture table state before and after",
+      "invariant_check": "Return value == 0 AND table_snapshot_before == table_snapshot_after (no rows modified)"
+    },
+    {
+      "id": "TS-12-P4",
+      "property_id": "12-PROP-4",
+      "validates": [
+        "12-REQ-7.3",
+        "12-REQ-9.4"
+      ],
+      "description": "For any drift finding F whose superseded_by is non-null, query_active_drift_findings never includes F in its results.",
+      "for_any_strategy": "Generate any set of drift findings including some with superseded_by set to arbitrary node_id strings; call query_active_drift_findings with include_prereview=True",
+      "invariant_check": "For every finding F returned by query_active_drift_findings: assert F.superseded_by IS NULL"
+    },
+    {
+      "id": "TS-12-P5",
+      "property_id": "12-PROP-5",
+      "validates": [
+        "12-REQ-6.1",
+        "12-REQ-1.8"
+      ],
+      "description": "For any drift finding F superseded by session S, F's superseded_by value equals S's node_id string exactly.",
+      "for_any_strategy": "Generate arbitrary node_id strings and arbitrary matching artifact_ref/touched_files pairs; call supersede_drift_findings_by_files with each combination",
+      "invariant_check": "For each superseded finding F: assert F.superseded_by == node_id (exact string equality, no trimming or transformation)"
+    },
+    {
+      "id": "TS-12-P6",
+      "property_id": "12-PROP-6",
+      "validates": [
+        "12-REQ-3.3"
+      ],
+      "description": "For any invocation of supersede_drift_findings_by_files that raises an exception, the session outcome recorded before the call is never modified or rolled back.",
+      "for_any_strategy": "Mock supersede_drift_findings_by_files to raise an exception with varying exception types (Exception, RuntimeError, IOError); record a session outcome before calling the post-merge hook; verify outcome persistence afterward",
+      "invariant_check": "After catching the exception in result_handler: session_outcome_before == session_outcome_after (outcome row in DB unchanged), no exception propagates to the test caller"
+    }
+  ],
+  "edge_case_tests": [
+    {
+      "id": "TS-12-E1",
+      "requirement_id": "12-REQ-1.E1",
+      "kind": "unit",
+      "description": "Verify that when all active drift findings for the spec have null artifact_ref, the function returns 0 and makes no database writes.",
+      "preconditions": [
+        "In-memory DuckDB with drift_findings table",
+        "Three active findings all with artifact_ref = NULL"
+      ],
+      "input": {
+        "conn": "<duckdb_connection>",
+        "node_id": "test_spec:1",
+        "spec_name": "test_spec",
+        "touched_files": [
+          "src/foo.py",
+          "src/bar.py"
+        ]
+      },
+      "expected": "Return value is 0; all three findings retain superseded_by = NULL",
+      "assertion_pseudocode": "for i in range(3):\n    insert_finding(conn, id=f'null-{i}', spec_name='test_spec', task_group='0', artifact_ref=None)\nresult = supersede_drift_findings_by_files(conn, 'test_spec', ['src/foo.py', 'src/bar.py'], 'test_spec:1')\nassert result == 0\nrows = conn.execute('SELECT superseded_by FROM drift_findings WHERE spec_name=?', ['test_spec']).fetchall()\nassert all(row[0] is None for row in rows)"
+    },
+    {
+      "id": "TS-12-E2",
+      "requirement_id": "12-REQ-1.E2",
+      "kind": "unit",
+      "description": "Verify that when multiple distinct findings match the same touched file, all are superseded and the returned count is correct.",
+      "preconditions": [
+        "In-memory DuckDB with drift_findings table",
+        "Four active findings: three with artifact_ref = 'src/shared.py' and one with artifact_ref = 'src/other.py'"
+      ],
+      "input": {
+        "conn": "<duckdb_connection>",
+        "node_id": "test_spec:2",
+        "spec_name": "test_spec",
+        "touched_files": [
+          "src/shared.py"
+        ]
+      },
+      "expected": "Return value is 3; the three matching findings have superseded_by = 'test_spec:2'; the non-matching finding remains active",
+      "assertion_pseudocode": "for i in range(3):\n    insert_finding(conn, id=f'shared-{i}', spec_name='test_spec', task_group='0', artifact_ref='src/shared.py')\ninsert_finding(conn, id='other', spec_name='test_spec', task_group='0', artifact_ref='src/other.py')\nresult = supersede_drift_findings_by_files(conn, 'test_spec', ['src/shared.py'], 'test_spec:2')\nassert result == 3\nfor i in range(3):\n    row = conn.execute('SELECT superseded_by FROM drift_findings WHERE id=?', [f'shared-{i}']).fetchone()\n    assert row[0] == 'test_spec:2'\nother_row = conn.execute('SELECT superseded_by FROM drift_findings WHERE id=?', ['other']).fetchone()\nassert other_row[0] is None"
+    },
+    {
+      "id": "TS-12-E3",
+      "requirement_id": "12-REQ-3.E1",
+      "kind": "unit",
+      "description": "Verify that when touched_files on the SessionRecord is null, result_handler passes null to supersede_drift_findings_by_files which short-circuits and returns 0.",
+      "preconditions": [
+        "result_handler.py is importable",
+        "supersede_drift_findings_by_files is monkeypatched to record its call arguments",
+        "A mock coder SessionRecord has touched_files = None"
+      ],
+      "input": {
+        "session_record": {
+          "merge_successful": true,
+          "node_id": "test_spec:1",
+          "session_type": "coder",
+          "spec_name": "test_spec",
+          "touched_files": null
+        }
+      },
+      "expected": "supersede_drift_findings_by_files is called with touched_files=None and returns 0 without database access; all drift findings remain active",
+      "assertion_pseudocode": "recorded_args = []\ndef mock_fn(conn, spec_name, touched_files, node_id):\n    recorded_args.append(touched_files)\n    return 0\nwith patch('result_handler.supersede_drift_findings_by_files', mock_fn):\n    handle_coder_session_success(session_record_with_null_touched_files)\nassert len(recorded_args) == 1\nassert recorded_args[0] is None"
+    },
+    {
+      "id": "TS-12-E4",
+      "requirement_id": "12-REQ-4.E1",
+      "kind": "unit",
+      "description": "Verify that artifact_ref containing a line-number suffix (e.g. ':42') is stripped before comparison so that 'src/foo.py:42' matches the touched file 'src/foo.py'.",
+      "preconditions": [
+        "In-memory DuckDB with drift_findings table",
+        "One active finding with artifact_ref = 'src/foo.py:42'"
+      ],
+      "input": {
+        "conn": "<duckdb_connection>",
+        "node_id": "test_spec:1",
+        "spec_name": "test_spec",
+        "touched_files": [
+          "src/foo.py"
+        ]
+      },
+      "expected": "Return value is 1; finding superseded_by = 'test_spec:1'",
+      "assertion_pseudocode": "insert_finding(conn, id='id-lnum', spec_name='test_spec', task_group='0', artifact_ref='src/foo.py:42')\nresult = supersede_drift_findings_by_files(conn, 'test_spec', ['src/foo.py'], 'test_spec:1')\nassert result == 1\nrow = conn.execute('SELECT superseded_by FROM drift_findings WHERE id=?', ['id-lnum']).fetchone()\nassert row[0] == 'test_spec:1'"
+    }
+  ],
+  "smoke_tests": [
+    {
+      "id": "TS-12-SMOKE-1",
+      "execution_path_id": "12-PATH-1",
+      "description": "Smoke test for the full coder session merge triggering drift finding supersession end-to-end path through result_handler into the drift_findings table.",
+      "trigger": "Simulate a successful coder session merge via the result_handler post-merge success path with 5 active drift findings (3 matching, 2 non-matching) and a valid DuckDB connection",
+      "real_components": [
+        "result_handler.py",
+        "review_store.py",
+        "drift_findings DuckDB table",
+        "SessionRecord"
+      ],
+      "mockable": [
+        "supersede_injected_findings (optional, may use real)",
+        "DuckDB connection (use in-memory)"
+      ],
+      "expected_effects": [
+        "supersede_injected_findings is called before supersede_drift_findings_by_files",
+        "supersede_drift_findings_by_files is called with the session's spec_name, touched_files, and node_id",
+        "3 matching drift findings have superseded_by = session node_id in drift_findings table",
+        "2 non-matching findings retain superseded_by = NULL",
+        "No exception propagates to the caller",
+        "Return value from the handler indicates success"
+      ]
+    },
+    {
+      "id": "TS-12-SMOKE-2",
+      "execution_path_id": "12-PATH-2",
+      "description": "Smoke test for the null touched_files short-circuit path where supersede_drift_findings_by_files immediately returns 0 without any database interaction.",
+      "trigger": "Call result_handler post-merge hook with a coder SessionRecord that has touched_files = None and active drift findings seeded in the database",
+      "real_components": [
+        "result_handler.py",
+        "review_store.py",
+        "drift_findings DuckDB table"
+      ],
+      "mockable": [
+        "DuckDB connection (use in-memory)",
+        "supersede_injected_findings"
+      ],
+      "expected_effects": [
+        "supersede_drift_findings_by_files is called with touched_files=None",
+        "Function returns 0 immediately",
+        "A debug-level log message is emitted",
+        "No rows in drift_findings have superseded_by modified",
+        "post-merge processing completes normally"
+      ]
+    },
+    {
+      "id": "TS-12-SMOKE-3",
+      "execution_path_id": "12-PATH-3",
+      "description": "Smoke test for the supersession exception swallowed in result_handler, verifying session outcome is preserved despite DuckDB failure.",
+      "trigger": "Configure supersede_drift_findings_by_files to raise a RuntimeError; trigger the coder session post-merge hook in result_handler",
+      "real_components": [
+        "result_handler.py",
+        "SessionRecord"
+      ],
+      "mockable": [
+        "supersede_drift_findings_by_files (mocked to raise RuntimeError)",
+        "supersede_injected_findings",
+        "DuckDB connection"
+      ],
+      "expected_effects": [
+        "result_handler catches the RuntimeError from supersede_drift_findings_by_files",
+        "A warning-level log message is emitted containing error details",
+        "No exception propagates outside result_handler",
+        "Session outcome recorded prior to supersession remains intact in the database"
+      ]
+    },
+    {
+      "id": "TS-12-SMOKE-4",
+      "execution_path_id": "12-PATH-4",
+      "description": "Smoke test verifying that reviewer and verifier session completions do not trigger drift finding supersession.",
+      "trigger": "Trigger the post-completion hook in result_handler for both a reviewer session and a verifier session with active drift findings in the database",
+      "real_components": [
+        "result_handler.py",
+        "SessionRecord"
+      ],
+      "mockable": [
+        "supersede_drift_findings_by_files (spy/mock to detect calls)",
+        "DuckDB connection (use in-memory)",
+        "drift_findings DuckDB table"
+      ],
+      "expected_effects": [
+        "supersede_drift_findings_by_files is never called for the reviewer session",
+        "supersede_drift_findings_by_files is never called for the verifier session",
+        "All drift findings retain their previous superseded_by state (unchanged)",
+        "Session outcomes are recorded normally for both session types"
+      ]
+    }
+  ],
+  "coverage": {
+    "requirements_covered": [],
+    "properties_covered": [],
+    "paths_covered": [],
+    "gaps": []
+  }
+}

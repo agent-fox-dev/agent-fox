@@ -1,0 +1,738 @@
+{
+  "$schema": null,
+  "spec_id": "13",
+  "spec_name": "global_config_loading",
+  "schema_version": 1,
+  "test_cases": [
+    {
+      "id": "TS-13-1",
+      "requirement_id": "13-REQ-1.1",
+      "kind": "unit",
+      "description": "Verify that `load_config` is the single shared function called by `af`, `nightshift`, and `spec` entry points and returns an `AgentFoxConfig` instance.",
+      "preconditions": [
+        "A valid `$HOME/.agent-fox/config.toml` exists with minimal defaults",
+        "No local `.agent-fox/config.toml` exists in the working directory",
+        "Python test environment with all three CLI entry-point modules importable"
+      ],
+      "input": "Invoke each CLI entry point's config-loading code path in isolation",
+      "expected": "Each of `af`, `nightshift`, and `spec` calls the same `load_config` function; each call returns an `AgentFoxConfig` instance without raising any exception",
+      "assertion_pseudocode": "for each cli_module in [af_module, nightshift_module, spec_module]:\n    config = cli_module.call_load_config()\n    assert isinstance(config, AgentFoxConfig)\nassert af_module.LOAD_CONFIG_FUNCTION is nightshift_module.LOAD_CONFIG_FUNCTION is spec_module.LOAD_CONFIG_FUNCTION"
+    },
+    {
+      "id": "TS-13-2",
+      "requirement_id": "13-REQ-1.2",
+      "kind": "unit",
+      "description": "Verify that `load_config` loads global config first, then local config, and merges them with shallow section replacement.",
+      "preconditions": [
+        "`$HOME/.agent-fox/config.toml` exists with `[orchestrator]` section having `parallelism = 2`",
+        "`.agent-fox/config.toml` exists in CWD with `[orchestrator]` section having `parallelism = 8`"
+      ],
+      "input": "Call `load_config()` from the CWD containing the local config",
+      "expected": "Returned `AgentFoxConfig` has `orchestrator.parallelism == 8` (local overrides global); sections not in local config retain global values",
+      "assertion_pseudocode": "config = load_config()\nassert config.orchestrator.parallelism == 8"
+    },
+    {
+      "id": "TS-13-3",
+      "requirement_id": "13-REQ-1.3",
+      "kind": "unit",
+      "description": "Verify that post-merge result is validated through `AgentFoxConfig` Pydantic model with defaults applied.",
+      "preconditions": [
+        "`$HOME/.agent-fox/config.toml` exists with partial config (some fields omitted)",
+        "No local config exists"
+      ],
+      "input": "Call `load_config()` with a partial global config",
+      "expected": "Returned `AgentFoxConfig` has all fields present; omitted fields have Pydantic default values applied; no `ConfigError` is raised",
+      "assertion_pseudocode": "config = load_config()\nassert isinstance(config, AgentFoxConfig)\nassert config.spec_tool.model == 'claude-sonnet-4-6'  # default value\nassert config.spec_tool.auth_method == ''  # default value"
+    },
+    {
+      "id": "TS-13-4",
+      "requirement_id": "13-REQ-2.1",
+      "kind": "integration",
+      "description": "Verify that `load_config` auto-creates `$HOME/.agent-fox/config.toml` with defaults and `0o700` directory permissions when no global config exists.",
+      "preconditions": [
+        "`$HOME` is resolvable",
+        "`$HOME/.agent-fox/` directory does not exist",
+        "No local `.agent-fox/config.toml` in CWD"
+      ],
+      "input": "Call `load_config()`",
+      "expected": "`$HOME/.agent-fox/` directory is created with `0o700` permissions; `$HOME/.agent-fox/config.toml` is created with default content; `load_config` returns a valid `AgentFoxConfig`",
+      "assertion_pseudocode": "config = load_config()\nglobal_dir = Path(home()) / '.agent-fox'\nglobal_config = global_dir / 'config.toml'\nassert global_dir.exists()\nassert oct(global_dir.stat().st_mode & 0o777) == '0o700'\nassert global_config.exists()\nassert isinstance(config, AgentFoxConfig)"
+    },
+    {
+      "id": "TS-13-5",
+      "requirement_id": "13-REQ-2.2",
+      "kind": "unit",
+      "description": "Verify that `load_config` reads and parses an existing valid global config and uses it as the baseline.",
+      "preconditions": [
+        "`$HOME` is resolvable",
+        "`$HOME/.agent-fox/config.toml` exists with valid TOML content including `theme = \"light\"`",
+        "No local `.agent-fox/config.toml` in CWD"
+      ],
+      "input": "Call `load_config()`",
+      "expected": "Returned `AgentFoxConfig` reflects the global config value `theme = 'light'`; no exception is raised; global config file is not modified",
+      "assertion_pseudocode": "config = load_config()\nassert config.theme == 'light'\nglobal_config_mtime_before == global_config_mtime_after  # file not modified"
+    },
+    {
+      "id": "TS-13-6",
+      "requirement_id": "13-REQ-2.3",
+      "kind": "unit",
+      "description": "Verify that when `$HOME` cannot be resolved, `load_config` skips global config, emits a debug warning, and returns config from local config or defaults without raising.",
+      "preconditions": [
+        "`$HOME` environment variable is unset or resolves to empty string",
+        "`.agent-fox/config.toml` exists in CWD with valid TOML"
+      ],
+      "input": "Call `load_config()` with `HOME` unset",
+      "expected": "No exception is raised; a DEBUG-level log line mentioning `$HOME` could not be resolved is emitted; returned `AgentFoxConfig` reflects local config values",
+      "assertion_pseudocode": "with unset_env('HOME'):\n    with capture_logs(level='DEBUG') as logs:\n        config = load_config()\nassert isinstance(config, AgentFoxConfig)\nassert any('HOME' in msg and 'could not be resolved' in msg for msg in logs.debug_messages)"
+    },
+    {
+      "id": "TS-13-7",
+      "requirement_id": "13-REQ-3.1",
+      "kind": "unit",
+      "description": "Verify shallow section replacement: local TOML sections entirely replace global sections; absent local sections are inherited unchanged.",
+      "preconditions": [
+        "`$HOME/.agent-fox/config.toml` has `[orchestrator]` with `parallelism=2`, `timeout=30` and `[routing]` with `strategy='round-robin'`",
+        "`.agent-fox/config.toml` has `[orchestrator]` with `parallelism=8` only (no `timeout`)"
+      ],
+      "input": "Call `load_config()`",
+      "expected": "Merged config has `orchestrator.parallelism == 8`; `orchestrator.timeout` is absent or uses Pydantic default (not global's `30`); `routing.strategy == 'round-robin'` is inherited from global",
+      "assertion_pseudocode": "config = load_config()\nassert config.orchestrator.parallelism == 8\n# timeout from global section is gone (section replaced wholesale)\nassert config.routing.strategy == 'round-robin'  # inherited from global"
+    },
+    {
+      "id": "TS-13-8",
+      "requirement_id": "13-REQ-3.2",
+      "kind": "unit",
+      "description": "Verify that when no local config exists, `load_config` uses global config unchanged and emits a debug log line.",
+      "preconditions": [
+        "`$HOME/.agent-fox/config.toml` exists with `theme = 'dark'`",
+        "No `.agent-fox/config.toml` exists in CWD"
+      ],
+      "input": "Call `load_config()`",
+      "expected": "Returned config has `theme == 'dark'`; a DEBUG log line stating 'No local config found' is emitted",
+      "assertion_pseudocode": "with capture_logs(level='DEBUG') as logs:\n    config = load_config()\nassert config.theme == 'dark'\nassert any('No local config found' in msg for msg in logs.debug_messages)"
+    },
+    {
+      "id": "TS-13-9",
+      "requirement_id": "13-REQ-3.3",
+      "kind": "unit",
+      "description": "Verify that `load_config` does NOT deep-merge nested keys within a section — a local section replaces the entire global section including nested keys.",
+      "preconditions": [
+        "`$HOME/.agent-fox/config.toml` has `[orchestrator]` with `parallelism=2` and `timeout=60`",
+        "`.agent-fox/config.toml` has `[orchestrator]` with only `parallelism=8`"
+      ],
+      "input": "Call `load_config()`",
+      "expected": "`orchestrator.timeout` is not `60` from global; the entire `[orchestrator]` section from local replaced the global section wholesale",
+      "assertion_pseudocode": "config = load_config()\nassert config.orchestrator.parallelism == 8\n# Deep-merge would preserve timeout=60; shallow replacement removes it\nassert config.orchestrator.timeout != 60  # or uses Pydantic default, not global value"
+    },
+    {
+      "id": "TS-13-10",
+      "requirement_id": "13-REQ-4.1",
+      "kind": "unit",
+      "description": "Verify that `load_config` raises `ConfigError` immediately when the global config contains malformed TOML, before reading any local config.",
+      "preconditions": [
+        "`$HOME/.agent-fox/config.toml` exists with invalid TOML (e.g. `[broken = unterminated`)",
+        "`.agent-fox/config.toml` exists in CWD with valid TOML"
+      ],
+      "input": "Call `load_config()`",
+      "expected": "`ConfigError` is raised; error message identifies the global config file path and the TOML parse error; local config is never read",
+      "assertion_pseudocode": "with assert_raises(ConfigError) as exc_info:\n    load_config()\nassert str(HOME_config_path) in str(exc_info.exception)\nassert 'parse' in str(exc_info.exception).lower() or 'TOML' in str(exc_info.exception)"
+    },
+    {
+      "id": "TS-13-11",
+      "requirement_id": "13-REQ-4.2",
+      "kind": "unit",
+      "description": "Verify that `load_config` raises `ConfigError` with local file path when local config contains malformed TOML after global config loads successfully.",
+      "preconditions": [
+        "`$HOME/.agent-fox/config.toml` exists with valid TOML",
+        "`.agent-fox/config.toml` exists in CWD with invalid TOML (e.g. `key = @invalid`)"
+      ],
+      "input": "Call `load_config()`",
+      "expected": "`ConfigError` is raised; error message identifies the local config file path and the TOML parse error",
+      "assertion_pseudocode": "with assert_raises(ConfigError) as exc_info:\n    load_config()\nassert '.agent-fox/config.toml' in str(exc_info.exception)\nassert 'parse' in str(exc_info.exception).lower() or 'TOML' in str(exc_info.exception)"
+    },
+    {
+      "id": "TS-13-12",
+      "requirement_id": "13-REQ-4.3",
+      "kind": "unit",
+      "description": "Verify that `load_config` never performs a partial load or fallback when a config file that exists contains malformed TOML.",
+      "preconditions": [
+        "`$HOME/.agent-fox/config.toml` exists but contains malformed TOML"
+      ],
+      "input": "Call `load_config()` and attempt to use the return value",
+      "expected": "`ConfigError` is always raised; no `AgentFoxConfig` object is returned; caller cannot access any partial configuration",
+      "assertion_pseudocode": "result = None\ntry:\n    result = load_config()\nexcept ConfigError:\n    pass\nassert result is None  # no partial config returned"
+    },
+    {
+      "id": "TS-13-13",
+      "requirement_id": "13-REQ-5.1",
+      "kind": "unit",
+      "description": "Verify that when `AF_CONFIG` is set, `load_config` prints a deprecation warning to stderr and ignores the variable.",
+      "preconditions": [
+        "`AF_CONFIG` environment variable is set to `/tmp/custom-config.toml`",
+        "`$HOME/.agent-fox/config.toml` exists with valid defaults",
+        "No local `.agent-fox/config.toml` in CWD"
+      ],
+      "input": "Call `load_config()` with `AF_CONFIG=/tmp/custom-config.toml` in environment",
+      "expected": "A deprecation warning mentioning `AF_CONFIG` is no longer supported is printed to stderr; `/tmp/custom-config.toml` is never read; config is loaded from global+local scheme; no exception is raised",
+      "assertion_pseudocode": "with set_env('AF_CONFIG', '/tmp/custom-config.toml'):\n    with capture_stderr() as stderr:\n        config = load_config()\nassert 'AF_CONFIG' in stderr.getvalue()\nassert 'no longer supported' in stderr.getvalue()\nassert isinstance(config, AgentFoxConfig)\nassert '/tmp/custom-config.toml' not in get_loaded_config_paths()"
+    },
+    {
+      "id": "TS-13-14",
+      "requirement_id": "13-REQ-5.2",
+      "kind": "unit",
+      "description": "Verify that the value of `AF_CONFIG` is never used to determine any config file path.",
+      "preconditions": [
+        "`AF_CONFIG` is set to a path containing a config with `theme = 'canary'` which differs from global config",
+        "`$HOME/.agent-fox/config.toml` exists with `theme = 'dark'`"
+      ],
+      "input": "Call `load_config()` with `AF_CONFIG` pointing to a config with distinctive values",
+      "expected": "Returned config does NOT contain `theme = 'canary'`; the `AF_CONFIG` path was completely ignored",
+      "assertion_pseudocode": "with set_env('AF_CONFIG', '/tmp/custom-config.toml'):\n    config = load_config()\nassert config.theme != 'canary'  # value from AF_CONFIG path was ignored"
+    },
+    {
+      "id": "TS-13-15",
+      "requirement_id": "13-REQ-6.1",
+      "kind": "unit",
+      "description": "Verify that `AgentFoxConfig` includes a `spec_tool` sub-config with the correct fields and default values.",
+      "preconditions": [
+        "No `[spec_tool]` section in any config file"
+      ],
+      "input": "Instantiate `AgentFoxConfig` with no `spec_tool` overrides",
+      "expected": "`config.spec_tool.model == 'claude-sonnet-4-6'`, `config.spec_tool.auth_method == ''`, `config.spec_tool.vertex_project == ''`, `config.spec_tool.vertex_region == ''`",
+      "assertion_pseudocode": "config = AgentFoxConfig()\nassert config.spec_tool.model == 'claude-sonnet-4-6'\nassert config.spec_tool.auth_method == ''\nassert config.spec_tool.vertex_project == ''\nassert config.spec_tool.vertex_region == ''"
+    },
+    {
+      "id": "TS-13-16",
+      "requirement_id": "13-REQ-6.2",
+      "kind": "unit",
+      "description": "Verify that the `agentspec` package's `load_config()` accepts an `AgentFoxConfig` (or its `spec_tool` sub-config) instead of reading `~/.af/settings.yaml` directly.",
+      "preconditions": [
+        "An `AgentFoxConfig` instance with `spec_tool.model = 'claude-opus-4'` is prepared",
+        "`~/.af/settings.yaml` does not exist"
+      ],
+      "input": "Call `agentspec.load_config(agent_fox_config=config)` with the prepared `AgentFoxConfig`",
+      "expected": "`agentspec` uses `model = 'claude-opus-4'` from the passed config; `~/.af/settings.yaml` is never accessed",
+      "assertion_pseudocode": "agent_fox_config = AgentFoxConfig(spec_tool=SpecToolConfig(model='claude-opus-4'))\nspec_config = agentspec.load_config(agent_fox_config=agent_fox_config)\nassert spec_config.model == 'claude-opus-4'"
+    },
+    {
+      "id": "TS-13-17",
+      "requirement_id": "13-REQ-6.3",
+      "kind": "unit",
+      "description": "Verify the model resolution precedence: `AF_SPEC_MODEL` > merged config > migration fallback > hardcoded default.",
+      "preconditions": [
+        "`AF_SPEC_MODEL` is set to `claude-custom-model`",
+        "`$HOME/.agent-fox/config.toml` has `[spec_tool]` with `model = 'claude-opus-4'`",
+        "`~/.af/settings.yaml` exists with `model: claude-haiku`"
+      ],
+      "input": "Call agentspec model resolution with all sources populated",
+      "expected": "Resolved model is `claude-custom-model` (from `AF_SPEC_MODEL`)",
+      "assertion_pseudocode": "with set_env('AF_SPEC_MODEL', 'claude-custom-model'):\n    config = load_config()\n    resolved_model = agentspec.resolve_model(config)\nassert resolved_model == 'claude-custom-model'"
+    },
+    {
+      "id": "TS-13-18",
+      "requirement_id": "13-REQ-6.4",
+      "kind": "integration",
+      "description": "Verify that `agentspec` reads from `~/.af/settings.yaml` as a migration fallback and emits a deprecation warning when no `[spec_tool]` section is present in merged config.",
+      "preconditions": [
+        "`$HOME/.agent-fox/config.toml` exists with no `[spec_tool]` section",
+        "`~/.af/settings.yaml` exists with `model: claude-haiku-4`",
+        "`AF_SPEC_MODEL` is not set"
+      ],
+      "input": "Call `agentspec` model resolution via `load_config()` result",
+      "expected": "Resolved model is `claude-haiku-4`; a deprecation warning mentioning migration to `[spec_tool]` in `$HOME/.agent-fox/config.toml` is printed to stderr",
+      "assertion_pseudocode": "with capture_stderr() as stderr:\n    config = load_config()\n    resolved_model = agentspec.resolve_model(config)\nassert resolved_model == 'claude-haiku-4'\nassert '[spec_tool]' in stderr.getvalue()\nassert 'deprecat' in stderr.getvalue().lower()"
+    },
+    {
+      "id": "TS-13-19",
+      "requirement_id": "13-REQ-6.5",
+      "kind": "unit",
+      "description": "Verify that when `AF_SPEC_MODEL` is set, it is used as the resolved model overriding all other sources.",
+      "preconditions": [
+        "`AF_SPEC_MODEL` is set to `my-custom-model`",
+        "`$HOME/.agent-fox/config.toml` has `[spec_tool]` with `model = 'claude-sonnet-4-6'`"
+      ],
+      "input": "Call agentspec model resolution",
+      "expected": "Resolved model equals `my-custom-model`",
+      "assertion_pseudocode": "with set_env('AF_SPEC_MODEL', 'my-custom-model'):\n    config = load_config()\n    model = agentspec.resolve_model(config)\nassert model == 'my-custom-model'"
+    },
+    {
+      "id": "TS-13-20",
+      "requirement_id": "13-REQ-7.1",
+      "kind": "unit",
+      "description": "Verify that `load_config` emits a DEBUG log line in the form `DEBUG: Loaded global config from <path>` when global config is successfully loaded.",
+      "preconditions": [
+        "`$HOME/.agent-fox/config.toml` exists with valid TOML",
+        "No local `.agent-fox/config.toml` in CWD",
+        "Logging configured at DEBUG level"
+      ],
+      "input": "Call `load_config()`",
+      "expected": "A DEBUG-level log message containing 'Loaded global config from' and the path to `$HOME/.agent-fox/config.toml` is emitted",
+      "assertion_pseudocode": "with capture_logs(level='DEBUG') as logs:\n    load_config()\nassert any(\n    'Loaded global config from' in msg and str(global_config_path) in msg\n    for msg in logs.debug_messages\n)"
+    },
+    {
+      "id": "TS-13-21",
+      "requirement_id": "13-REQ-7.2",
+      "kind": "unit",
+      "description": "Verify that `load_config` emits a DEBUG log line listing overridden sections when a local config is merged.",
+      "preconditions": [
+        "`$HOME/.agent-fox/config.toml` exists with valid TOML",
+        "`.agent-fox/config.toml` exists in CWD defining an `[orchestrator]` section",
+        "Logging configured at DEBUG level"
+      ],
+      "input": "Call `load_config()`",
+      "expected": "A DEBUG log line in the form 'Merging local config from .agent-fox/config.toml (sections overridden: [orchestrator])' is emitted",
+      "assertion_pseudocode": "with capture_logs(level='DEBUG') as logs:\n    load_config()\nassert any(\n    'Merging local config from' in msg and 'orchestrator' in msg\n    for msg in logs.debug_messages\n)"
+    },
+    {
+      "id": "TS-13-22",
+      "requirement_id": "13-REQ-7.3",
+      "kind": "unit",
+      "description": "Verify that `load_config` emits a DEBUG log line when no local config is found.",
+      "preconditions": [
+        "`$HOME/.agent-fox/config.toml` exists with valid TOML",
+        "No `.agent-fox/config.toml` exists in CWD",
+        "Logging configured at DEBUG level"
+      ],
+      "input": "Call `load_config()`",
+      "expected": "A DEBUG log line containing 'No local config found at .agent-fox/config.toml' is emitted",
+      "assertion_pseudocode": "with capture_logs(level='DEBUG') as logs:\n    load_config()\nassert any(\n    'No local config found at .agent-fox/config.toml' in msg\n    for msg in logs.debug_messages\n)"
+    },
+    {
+      "id": "TS-13-23",
+      "requirement_id": "13-REQ-7.4",
+      "kind": "unit",
+      "description": "Verify that `load_config` emits a DEBUG-level warning when `$HOME` cannot be resolved.",
+      "preconditions": [
+        "`HOME` environment variable is unset",
+        "Logging configured at DEBUG level"
+      ],
+      "input": "Call `load_config()` with `HOME` unset",
+      "expected": "A DEBUG-level warning message indicating `$HOME` could not be resolved and global config loading was skipped is emitted",
+      "assertion_pseudocode": "with unset_env('HOME'):\n    with capture_logs(level='DEBUG') as logs:\n        load_config()\nassert any(\n    'HOME' in msg and ('could not be resolved' in msg or 'skipped' in msg)\n    for msg in logs.debug_messages\n)"
+    },
+    {
+      "id": "TS-13-24",
+      "requirement_id": "13-REQ-8.1",
+      "kind": "integration",
+      "description": "Verify that `af init` creates the `$HOME/.agent-fox/` directory with `0o700` permissions and writes a default global config when none exists.",
+      "preconditions": [
+        "`$HOME` is resolvable",
+        "`$HOME/.agent-fox/` directory does not exist"
+      ],
+      "input": "Run `af init` in a new directory",
+      "expected": "`$HOME/.agent-fox/` directory is created with `0o700` permissions; `$HOME/.agent-fox/config.toml` is created with active defaults; exit code is 0",
+      "assertion_pseudocode": "result = run_cli('af', 'init')\nassert result.exit_code == 0\nglobal_dir = Path(home()) / '.agent-fox'\nassert global_dir.exists()\nassert oct(global_dir.stat().st_mode & 0o777) == '0o700'\nassert (global_dir / 'config.toml').exists()"
+    },
+    {
+      "id": "TS-13-25",
+      "requirement_id": "13-REQ-8.2",
+      "kind": "integration",
+      "description": "Verify that `af init` leaves the existing global config unmodified even when `--force` is passed.",
+      "preconditions": [
+        "`$HOME/.agent-fox/config.toml` exists with content `theme = 'dark'`"
+      ],
+      "input": "Run `af init --force`",
+      "expected": "`$HOME/.agent-fox/config.toml` still contains `theme = 'dark'` after `af init --force`; file content is byte-for-byte identical to before",
+      "assertion_pseudocode": "original_content = read_file(global_config_path)\nresult = run_cli('af', 'init', '--force')\nassert result.exit_code == 0\nassert read_file(global_config_path) == original_content"
+    },
+    {
+      "id": "TS-13-26",
+      "requirement_id": "13-REQ-8.3",
+      "kind": "integration",
+      "description": "Verify that `af init` creates `.agent-fox/config.toml` with all values commented out when no local config exists.",
+      "preconditions": [
+        "No `.agent-fox/config.toml` exists in CWD",
+        "`$HOME/.agent-fox/config.toml` may or may not exist"
+      ],
+      "input": "Run `af init` in a new directory",
+      "expected": "`.agent-fox/config.toml` is created; all non-comment, non-blank lines are TOML comments (starting with `#`); exit code is 0",
+      "assertion_pseudocode": "result = run_cli('af', 'init')\nassert result.exit_code == 0\nlocal_config_content = read_file('.agent-fox/config.toml')\nfor line in local_config_content.splitlines():\n    stripped = line.strip()\n    if stripped and not stripped.startswith('#'):\n        assert False, f'Unexpected non-comment line: {line}'"
+    },
+    {
+      "id": "TS-13-27",
+      "requirement_id": "13-REQ-8.4",
+      "kind": "integration",
+      "description": "Verify that `af init` without `--force` leaves existing local config unmodified.",
+      "preconditions": [
+        "`.agent-fox/config.toml` exists in CWD with custom content `parallelism = 4`"
+      ],
+      "input": "Run `af init` (without `--force`)",
+      "expected": "`.agent-fox/config.toml` still contains `parallelism = 4`; file is not overwritten; exit code is 0",
+      "assertion_pseudocode": "original_content = read_file('.agent-fox/config.toml')\nresult = run_cli('af', 'init')\nassert result.exit_code == 0\nassert read_file('.agent-fox/config.toml') == original_content"
+    },
+    {
+      "id": "TS-13-28",
+      "requirement_id": "13-REQ-8.5",
+      "kind": "integration",
+      "description": "Verify that `af init --force` overwrites local config with a commented-out template but does not modify the existing global config.",
+      "preconditions": [
+        "`.agent-fox/config.toml` exists in CWD with custom content `parallelism = 4`",
+        "`$HOME/.agent-fox/config.toml` exists with `theme = 'dark'`"
+      ],
+      "input": "Run `af init --force`",
+      "expected": "`.agent-fox/config.toml` is replaced with a fully commented-out template; `$HOME/.agent-fox/config.toml` still contains `theme = 'dark'` unchanged; exit code is 0",
+      "assertion_pseudocode": "global_content_before = read_file(global_config_path)\nresult = run_cli('af', 'init', '--force')\nassert result.exit_code == 0\nlocal_content = read_file('.agent-fox/config.toml')\nfor line in local_content.splitlines():\n    stripped = line.strip()\n    if stripped and not stripped.startswith('#'):\n        assert False, f'Non-comment line found after --force: {line}'\nassert read_file(global_config_path) == global_content_before"
+    },
+    {
+      "id": "TS-13-29",
+      "requirement_id": "13-REQ-9.1",
+      "kind": "integration",
+      "description": "Verify that the full existing agent-fox test suite passes without modification after implementing global config loading.",
+      "preconditions": [
+        "The global config loading feature is fully implemented",
+        "Python 3.12+ environment with all test dependencies installed via `pip install -e '.[dev]'`"
+      ],
+      "input": "Run `pytest` from the repository root",
+      "expected": "All tests pass with exit code 0; no test failures or errors; no test files were modified",
+      "assertion_pseudocode": "result = run_shell('pytest', '--tb=short', '-q')\nassert result.returncode == 0\nassert result.stderr does not contain 'ERROR' or 'FAILED'"
+    },
+    {
+      "id": "TS-13-30",
+      "requirement_id": "13-REQ-9.2",
+      "kind": "unit",
+      "description": "Verify that `load_config` preserves all existing post-merge validation and default-application behaviours from `AgentFoxConfig`.",
+      "preconditions": [
+        "A config with a field set to an invalid type (e.g. `parallelism = 'not-a-number'`) is provided"
+      ],
+      "input": "Call `load_config()` with a config that fails Pydantic validation",
+      "expected": "`ConfigError` is raised as it was before this feature; no change in validation behaviour",
+      "assertion_pseudocode": "with assert_raises(ConfigError):\n    load_config_with_invalid_value(parallelism='not-a-number')"
+    }
+  ],
+  "property_tests": [
+    {
+      "id": "TS-13-P1",
+      "property_id": "13-PROP-1",
+      "validates": [
+        "13-REQ-3.1",
+        "13-REQ-3.3"
+      ],
+      "description": "For any pair of valid global config G and local config L, shallow section replacement produces a result where every section in L exactly equals the output, every section in G absent from L equals the output, and no section from G also in L appears in the output.",
+      "for_any_strategy": "Generate arbitrary valid TOML dicts G and L using hypothesis strategies: G with keys drawn from known section names (e.g. 'orchestrator', 'routing', 'spec_tool') each mapping to a dict of scalar values; L with a random subset of those sections with different values",
+      "invariant_check": "merged = shallow_merge(G, L)\nfor section in L:\n    assert merged[section] == L[section]  # local section exactly preserved\nfor section in G:\n    if section not in L:\n        assert merged[section] == G[section]  # global section inherited\n    else:\n        assert merged[section] != G[section] or G[section] == L[section]  # global section replaced"
+    },
+    {
+      "id": "TS-13-P2",
+      "property_id": "13-PROP-2",
+      "validates": [
+        "13-REQ-2.1",
+        "13-REQ-2.2"
+      ],
+      "description": "For any sequence of CLI invocations, after the first invocation creates `$HOME/.agent-fox/config.toml`, all subsequent invocations load the existing file without overwriting it.",
+      "for_any_strategy": "Generate a random number of sequential `load_config()` calls (between 2 and 10) in an environment where global config initially does not exist; record file content and mtime after first call",
+      "invariant_check": "config_content_after_first_call = read_file(global_config_path)\nfor _ in range(N_calls - 1):\n    load_config()\n    assert read_file(global_config_path) == config_content_after_first_call  # never overwritten"
+    },
+    {
+      "id": "TS-13-P3",
+      "property_id": "13-PROP-3",
+      "validates": [
+        "13-REQ-6.3",
+        "13-REQ-6.5"
+      ],
+      "description": "When `AF_SPEC_MODEL` is set to any non-empty string, the resolved model always equals that string regardless of any file-based config or defaults.",
+      "for_any_strategy": "Generate arbitrary model strings for AF_SPEC_MODEL (non-empty strings), arbitrary [spec_tool].model values in global config, and arbitrary ~/.af/settings.yaml model values using hypothesis",
+      "invariant_check": "with set_env('AF_SPEC_MODEL', arbitrary_model_string):\n    config = load_config()  # has any [spec_tool].model\n    resolved = agentspec.resolve_model(config)\nassert resolved == arbitrary_model_string"
+    },
+    {
+      "id": "TS-13-P4",
+      "property_id": "13-PROP-4",
+      "validates": [
+        "13-REQ-4.1",
+        "13-REQ-4.2",
+        "13-REQ-4.3"
+      ],
+      "description": "For any config file path that exists and contains malformed TOML, `load_config` raises `ConfigError` and never returns a partial `AgentFoxConfig`.",
+      "for_any_strategy": "Generate malformed TOML strings using hypothesis (e.g. truncated TOML, invalid character sequences, unclosed brackets); apply them to either the global or local config path",
+      "invariant_check": "result = None\ntry:\n    result = load_config()\nexcept ConfigError:\n    pass\nexcept Exception as e:\n    assert isinstance(e, ConfigError), f'Wrong exception type: {type(e)}'\nassert result is None  # no partial config ever returned"
+    },
+    {
+      "id": "TS-13-P5",
+      "property_id": "13-PROP-5",
+      "validates": [
+        "13-REQ-2.E1",
+        "13-REQ-3.E1",
+        "13-REQ-3.E2"
+      ],
+      "description": "For any global or local config file path, symlink detection is applied only to the final file inode; intermediate symlinked directories never cause a rejection.",
+      "for_any_strategy": "Generate config path structures with symlinked intermediate directories but real final files; also generate paths where only the final file is a symlink",
+      "invariant_check": "if final_file_is_symlink:\n    with assert_raises(ConfigError) as exc:\n        load_config()\n    assert 'symlink' in str(exc.exception).lower()\nelse:  # only intermediate dirs are symlinks\n    config = load_config()  # must NOT raise ConfigError for symlinked dirs\n    assert isinstance(config, AgentFoxConfig)"
+    },
+    {
+      "id": "TS-13-P6",
+      "property_id": "13-PROP-6",
+      "validates": [
+        "13-REQ-8.2",
+        "13-REQ-8.5"
+      ],
+      "description": "For any invocation of `af init`, with or without `--force`, if the global config exists before the call its content is identical after the call completes.",
+      "for_any_strategy": "Generate arbitrary existing global config content (valid TOML strings); invoke `af init` with and without `--force`; sample from both scenarios",
+      "invariant_check": "write_file(global_config_path, arbitrary_toml_content)\ncontent_before = read_file(global_config_path)\nrun_cli('af', 'init', *optional_force_flag)\nassert read_file(global_config_path) == content_before"
+    }
+  ],
+  "edge_case_tests": [
+    {
+      "id": "TS-13-E1",
+      "requirement_id": "13-REQ-1.E1",
+      "kind": "unit",
+      "description": "Verify that `load_config` raises `ConfigError` when invoked without a proper working directory or outside a CLI entry point.",
+      "preconditions": [
+        "Working directory is set to a path that does not exist or has no permissions",
+        "`$HOME/.agent-fox/config.toml` may exist"
+      ],
+      "input": "Call `load_config()` with a non-existent or inaccessible CWD",
+      "expected": "`ConfigError` is raised with a descriptive message; no partial `AgentFoxConfig` is returned",
+      "assertion_pseudocode": "with set_cwd('/nonexistent/path'):\n    with assert_raises((ConfigError, OSError)):\n        load_config()"
+    },
+    {
+      "id": "TS-13-E2",
+      "requirement_id": "13-REQ-2.E1",
+      "kind": "unit",
+      "description": "Verify that `load_config` raises `ConfigError` identifying the CWE-59 symlink violation when `$HOME/.agent-fox/config.toml` is a symlink.",
+      "preconditions": [
+        "`$HOME/.agent-fox/config.toml` is a symbolic link pointing to a valid TOML file"
+      ],
+      "input": "Call `load_config()`",
+      "expected": "`ConfigError` is raised; the error message identifies the symlinked global config path and mentions `CWE-59` or symlink violation",
+      "assertion_pseudocode": "create_symlink(global_config_path, target='/tmp/real-config.toml')\nwith assert_raises(ConfigError) as exc_info:\n    load_config()\nassert str(global_config_path) in str(exc_info.exception)\nassert 'symlink' in str(exc_info.exception).lower() or 'CWE-59' in str(exc_info.exception)"
+    },
+    {
+      "id": "TS-13-E3",
+      "requirement_id": "13-REQ-2.E2",
+      "kind": "unit",
+      "description": "Verify that `load_config` raises `ConfigError` with an OS error message when `$HOME/.agent-fox/` directory creation fails due to a permission error.",
+      "preconditions": [
+        "`$HOME` is resolvable",
+        "`$HOME/.agent-fox/` does not exist",
+        "`$HOME` directory is read-only (no write permission for the current user)"
+      ],
+      "input": "Call `load_config()` when the parent directory is not writable",
+      "expected": "`ConfigError` is raised; the error message identifies the directory path and includes the underlying OS error (e.g. `PermissionError`)",
+      "assertion_pseudocode": "make_dir_readonly(Path(home()))\nwith assert_raises(ConfigError) as exc_info:\n    load_config()\nassert '.agent-fox' in str(exc_info.exception)\nassert 'permission' in str(exc_info.exception).lower() or 'errno' in str(exc_info.exception).lower()"
+    },
+    {
+      "id": "TS-13-E4",
+      "requirement_id": "13-REQ-3.E1",
+      "kind": "unit",
+      "description": "Verify that `load_config` raises `ConfigError` identifying the CWE-59 symlink violation when `.agent-fox/config.toml` in CWD is a symlink.",
+      "preconditions": [
+        "`$HOME/.agent-fox/config.toml` exists with valid TOML",
+        "`.agent-fox/config.toml` in CWD is a symbolic link pointing to another TOML file"
+      ],
+      "input": "Call `load_config()`",
+      "expected": "`ConfigError` is raised; the error message identifies the local config path as a symlink and references CWE-59 or symlink violation",
+      "assertion_pseudocode": "create_symlink('.agent-fox/config.toml', target='/tmp/other-config.toml')\nwith assert_raises(ConfigError) as exc_info:\n    load_config()\nassert '.agent-fox/config.toml' in str(exc_info.exception)\nassert 'symlink' in str(exc_info.exception).lower() or 'CWE-59' in str(exc_info.exception)"
+    },
+    {
+      "id": "TS-13-E5",
+      "requirement_id": "13-REQ-3.E2",
+      "kind": "unit",
+      "description": "Verify that symlink checks are NOT applied to intermediate directories in the global or local config paths — only the final file is checked.",
+      "preconditions": [
+        "An intermediate directory in the path to `$HOME/.agent-fox/config.toml` is a symlink (e.g. `$HOME` itself is a symlinked directory)",
+        "The final file `$HOME/.agent-fox/config.toml` is a regular file (not a symlink)"
+      ],
+      "input": "Call `load_config()`",
+      "expected": "`load_config` succeeds without raising `ConfigError`; no symlink error for intermediate symlinked directory",
+      "assertion_pseudocode": "# Arrange: symlinked intermediate dir but real final file\ncreate_symlink('/tmp/homealias', target=str(Path(home())))\nconfig_path = Path('/tmp/homealias/.agent-fox/config.toml')\nwrite_valid_toml(config_path)\nconfig = load_config()  # Should NOT raise ConfigError\nassert isinstance(config, AgentFoxConfig)"
+    },
+    {
+      "id": "TS-13-E6",
+      "requirement_id": "13-REQ-6.E1",
+      "kind": "unit",
+      "description": "Verify that agentspec uses the hardcoded default model `claude-sonnet-4-6` when neither `[spec_tool]` section, `~/.af/settings.yaml`, nor `AF_SPEC_MODEL` is present.",
+      "preconditions": [
+        "No `[spec_tool]` section in any config file",
+        "`~/.af/settings.yaml` does not exist",
+        "`AF_SPEC_MODEL` is not set"
+      ],
+      "input": "Call agentspec model resolution",
+      "expected": "Resolved model is `claude-sonnet-4-6`; no deprecation warning is emitted",
+      "assertion_pseudocode": "with unset_env('AF_SPEC_MODEL'):\n    ensure_no_settings_yaml()\n    config = load_config()  # no [spec_tool] section\n    with capture_stderr() as stderr:\n        model = agentspec.resolve_model(config)\nassert model == 'claude-sonnet-4-6'\nassert stderr.getvalue() == ''  # no deprecation warning"
+    },
+    {
+      "id": "TS-13-E7",
+      "requirement_id": "13-REQ-8.E1",
+      "kind": "integration",
+      "description": "Verify that `af init` skips global config creation and emits a debug warning when `$HOME` is not resolvable, but still creates the local config template.",
+      "preconditions": [
+        "`HOME` environment variable is unset",
+        "No `.agent-fox/config.toml` in CWD"
+      ],
+      "input": "Run `af init` with `HOME` unset",
+      "expected": "No error is raised; exit code is 0; `.agent-fox/config.toml` is created with all values commented out; no `$HOME/.agent-fox/config.toml` is created; a debug warning about unresolvable `$HOME` is emitted",
+      "assertion_pseudocode": "with unset_env('HOME'):\n    with capture_logs(level='DEBUG') as logs:\n        result = run_cli('af', 'init')\nassert result.exit_code == 0\nassert Path('.agent-fox/config.toml').exists()\nassert any('HOME' in msg for msg in logs.debug_messages)\n# Verify local config is all comments\nfor line in read_file('.agent-fox/config.toml').splitlines():\n    stripped = line.strip()\n    if stripped:\n        assert stripped.startswith('#')"
+    }
+  ],
+  "smoke_tests": [
+    {
+      "id": "TS-13-SMOKE-1",
+      "execution_path_id": "13-PATH-1",
+      "description": "Smoke test for zero-config first run: auto-create global config and succeed end-to-end.",
+      "trigger": "Run `af` CLI in a clean environment with no existing global or local config and `$HOME` pointing to a temporary directory",
+      "real_components": [
+        "af CLI entry point",
+        "load_config function",
+        "generate_default_config function",
+        "AgentFoxConfig Pydantic model",
+        "filesystem (tmp $HOME directory)"
+      ],
+      "mockable": [
+        "Downstream CLI actions after config loading (to isolate the config loading path)"
+      ],
+      "expected_effects": [
+        "`$HOME/.agent-fox/` directory is created with `0o700` permissions",
+        "`$HOME/.agent-fox/config.toml` is created with valid default TOML content",
+        "A DEBUG log line 'Loaded global config from ...' is emitted",
+        "A DEBUG log line 'No local config found at .agent-fox/config.toml' is emitted",
+        "CLI exits with code 0 or continues execution without raising an exception"
+      ]
+    },
+    {
+      "id": "TS-13-SMOKE-2",
+      "execution_path_id": "13-PATH-2",
+      "description": "Smoke test for global + local config merge with a section override end-to-end.",
+      "trigger": "Run `af` in a repository directory containing `.agent-fox/config.toml` with an `[orchestrator]` section, with a valid global config present at `$HOME/.agent-fox/config.toml`",
+      "real_components": [
+        "af CLI entry point",
+        "load_config function",
+        "AgentFoxConfig Pydantic model",
+        "filesystem (global and local config files)"
+      ],
+      "mockable": [
+        "Downstream CLI actions after config loading"
+      ],
+      "expected_effects": [
+        "DEBUG log 'Loaded global config from ...' is emitted",
+        "DEBUG log 'Merging local config from .agent-fox/config.toml (sections overridden: [orchestrator])' is emitted",
+        "Returned `AgentFoxConfig` has orchestrator values from local config",
+        "Non-overridden sections retain global config values",
+        "CLI exits with code 0"
+      ]
+    },
+    {
+      "id": "TS-13-SMOKE-3",
+      "execution_path_id": "13-PATH-3",
+      "description": "Smoke test for malformed global config causing fail-fast exit.",
+      "trigger": "Run `af` with `$HOME/.agent-fox/config.toml` containing invalid TOML syntax (e.g. `[broken = `)",
+      "real_components": [
+        "af CLI entry point",
+        "load_config function",
+        "tomllib TOML parser"
+      ],
+      "mockable": [
+        "Downstream CLI actions (never reached)"
+      ],
+      "expected_effects": [
+        "`ConfigError` is raised by `load_config`",
+        "CLI catches `ConfigError` and prints an error to stderr identifying the global config path and parse error",
+        "CLI exits with a non-zero status code",
+        "Local config is never read"
+      ]
+    },
+    {
+      "id": "TS-13-SMOKE-4",
+      "execution_path_id": "13-PATH-4",
+      "description": "Smoke test for `AF_CONFIG` deprecation warning end-to-end when `nightshift` is run with `AF_CONFIG` set.",
+      "trigger": "Run `nightshift` with `AF_CONFIG=/tmp/custom.toml` in the environment; valid global config exists at `$HOME/.agent-fox/config.toml`",
+      "real_components": [
+        "nightshift CLI entry point",
+        "load_config function",
+        "AgentFoxConfig Pydantic model"
+      ],
+      "mockable": [
+        "Downstream nightshift actions after config loading"
+      ],
+      "expected_effects": [
+        "Deprecation warning mentioning 'AF_CONFIG' is printed to stderr",
+        "Warning directs user to `$HOME/.agent-fox/config.toml` or `.agent-fox/config.toml`",
+        "`/tmp/custom.toml` is never opened or read",
+        "Config is loaded from global+local scheme",
+        "CLI continues execution with valid `AgentFoxConfig`"
+      ]
+    },
+    {
+      "id": "TS-13-SMOKE-5",
+      "execution_path_id": "13-PATH-5",
+      "description": "Smoke test for agentspec model resolution with `~/.af/settings.yaml` migration fallback end-to-end.",
+      "trigger": "Run `spec` in a repo where `$HOME/.agent-fox/config.toml` has no `[spec_tool]` section and `~/.af/settings.yaml` exists with a custom model",
+      "real_components": [
+        "spec CLI entry point",
+        "load_config function",
+        "agentspec package model resolution",
+        "filesystem (`~/.af/settings.yaml`)"
+      ],
+      "mockable": [
+        "Actual Anthropic API calls (use a mock/stub for the model invocation)"
+      ],
+      "expected_effects": [
+        "agentspec reads model from `~/.af/settings.yaml`",
+        "A deprecation warning mentioning migration to `[spec_tool]` in `$HOME/.agent-fox/config.toml` is printed to stderr",
+        "agentspec proceeds with the model from `settings.yaml`"
+      ]
+    },
+    {
+      "id": "TS-13-SMOKE-6",
+      "execution_path_id": "13-PATH-6",
+      "description": "Smoke test for `af init` creating both global and local config files in a clean environment.",
+      "trigger": "Run `af init` in a new directory with no existing global or local config and `$HOME` set to a temporary directory",
+      "real_components": [
+        "af CLI entry point",
+        "af init subcommand",
+        "generate_default_config function",
+        "filesystem"
+      ],
+      "mockable": [],
+      "expected_effects": [
+        "`$HOME/.agent-fox/` directory is created with `0o700` permissions",
+        "`$HOME/.agent-fox/config.toml` is created with active default values",
+        "`.agent-fox/config.toml` is created with all config values commented out",
+        "CLI exits with code 0"
+      ]
+    },
+    {
+      "id": "TS-13-SMOKE-7",
+      "execution_path_id": "13-PATH-7",
+      "description": "Smoke test for `af init --force` regenerating local config template without modifying the existing global config.",
+      "trigger": "Run `af init --force` in a repository where both `$HOME/.agent-fox/config.toml` and `.agent-fox/config.toml` already exist with custom content",
+      "real_components": [
+        "af CLI entry point",
+        "af init subcommand",
+        "filesystem"
+      ],
+      "mockable": [],
+      "expected_effects": [
+        "`$HOME/.agent-fox/config.toml` is unchanged (byte-for-byte identical to before the run)",
+        "`.agent-fox/config.toml` is overwritten with a freshly generated template where all values are commented out",
+        "CLI exits with code 0"
+      ]
+    },
+    {
+      "id": "TS-13-SMOKE-8",
+      "execution_path_id": "13-PATH-8",
+      "description": "Smoke test for CI environment with unresolvable `$HOME` — CLI continues using local config without failing.",
+      "trigger": "Run `af` in a restricted environment with `HOME` unset; `.agent-fox/config.toml` exists in CWD with valid TOML",
+      "real_components": [
+        "af CLI entry point",
+        "load_config function",
+        "AgentFoxConfig Pydantic model",
+        "filesystem (local config only)"
+      ],
+      "mockable": [
+        "Downstream CLI actions after config loading"
+      ],
+      "expected_effects": [
+        "A DEBUG-level warning about `$HOME` not being resolvable is emitted",
+        "Global config loading is skipped; no `$HOME/.agent-fox/config.toml` is created or read",
+        "Local `.agent-fox/config.toml` is loaded and used",
+        "CLI continues execution without raising an exception",
+        "Exit code is 0 (or CLI completes its intended action)"
+      ]
+    }
+  ],
+  "coverage": {
+    "requirements_covered": [],
+    "properties_covered": [],
+    "paths_covered": [],
+    "gaps": []
+  }
+}

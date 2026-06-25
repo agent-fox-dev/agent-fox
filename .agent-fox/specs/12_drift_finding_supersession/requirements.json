@@ -1,0 +1,638 @@
+{
+  "$schema": null,
+  "spec_id": "12",
+  "spec_name": "drift_finding_supersession",
+  "schema_version": 1,
+  "introduction": "This spec defines file-based supersession of resolved drift findings after each coder task group completes and merges successfully, reducing stale context injected into subsequent coder sessions. The system matches drift findings against touched files from the completed session and marks resolved findings as superseded.",
+  "glossary": {
+    "SessionRecord": "Data object representing a completed agent session, including its outcome, node_id, and touched_files",
+    "artifact_ref": "Column on the drift_findings table holding a structured file or directory path reference for a finding; may be null",
+    "drift_findings": "DuckDB table storing findings from the drift-review agent (group 0) that describe pre-existing codebase issues relative to the spec",
+    "fox_provider": "Module that orchestrates session ingestion and calls supersede_injected_findings inside a try/except guard",
+    "include_prereview": "Flag on query_active_drift_findings that adds task group 0 findings to the query results for injection",
+    "insert_drift_findings": "Existing function that bulk-inserts new drift findings and supersedes all prior active findings for the same (spec_name, task_group) composite key",
+    "node_id": "Session identifier string (e.g. my_spec:3) used as the supersession marker written to superseded_by",
+    "query_active_drift_findings": "Existing public function in review_store.py that returns active drift findings for injection into coder sessions, filtered by task group",
+    "result_handler": "Module (result_handler.py) responsible for recording session outcomes and triggering post-merge hooks",
+    "review_store": "Module (review_store.py) that provides the data access layer for drift_findings, review_findings, and verification_results tables",
+    "spec_name": "Column on drift_findings identifying the spec that owns the finding",
+    "supersede_drift_findings_by_files": "New function in review_store.py that supersedes drift findings whose artifact_ref matches any file in the session's touched_files list",
+    "supersede_injected_findings": "Existing function in review_store.py that performs blanket supersession of injected review_findings and verification_results on session completion",
+    "superseded_by": "Column on the drift_findings table set to a session node_id when a finding is retired; null means the finding is still active",
+    "task_group": "Column on drift_findings identifying which orchestrator group generated the finding (e.g. '0' for the drift-review group)",
+    "touched_files": "List of file paths modified by a session, stored on the SessionRecord and available in the result handler post-merge"
+  },
+  "requirements": [
+    {
+      "id": "12-REQ-1",
+      "title": "supersede_drift_findings_by_files function",
+      "user_story": {
+        "role": "orchestrator",
+        "goal": "call a single function that retires drift findings whose referenced files were touched by a completing coder session",
+        "benefit": "so that subsequent coder sessions receive only still-relevant drift context"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "12-REQ-1.1",
+          "ears_pattern": "ubiquitous",
+          "system": "supersede_drift_findings_by_files",
+          "action": "accept a DuckDB connection, spec_name string, list of touched file paths, and a supersession marker (node_id string) as its parameters",
+          "return_contract": "integer count of findings superseded in this invocation"
+        },
+        {
+          "id": "12-REQ-1.2",
+          "ears_pattern": "event_driven",
+          "system": "supersede_drift_findings_by_files",
+          "action": "log a debug message and return 0 without querying or writing to the database",
+          "return_contract": "0",
+          "trigger": "touched_files is null or empty"
+        },
+        {
+          "id": "12-REQ-1.3",
+          "ears_pattern": "ubiquitous",
+          "system": "supersede_drift_findings_by_files",
+          "action": "query all active `drift_findings` for the given `spec_name` across all `task_group` values using the private helper query (WHERE `spec_name` = ? AND `superseded_by` IS NULL), bypassing `query_active_drift_findings`",
+          "return_contract": null
+        },
+        {
+          "id": "12-REQ-1.4",
+          "ears_pattern": "ubiquitous",
+          "system": "supersede_drift_findings_by_files",
+          "action": "skip any finding whose `artifact_ref` is null without superseding it",
+          "return_contract": null
+        },
+        {
+          "id": "12-REQ-1.5",
+          "ears_pattern": "ubiquitous",
+          "system": "supersede_drift_findings_by_files",
+          "action": "strip line-number suffixes (e.g. ':42') from `artifact_ref` and normalize whitespace before applying matching rules",
+          "return_contract": null
+        },
+        {
+          "id": "12-REQ-1.6",
+          "ears_pattern": "ubiquitous",
+          "system": "supersede_drift_findings_by_files",
+          "action": "apply prefix matching when the normalized `artifact_ref` ends with '/', superseding the finding if any path in `touched_files` starts with that prefix",
+          "return_contract": null
+        },
+        {
+          "id": "12-REQ-1.7",
+          "ears_pattern": "ubiquitous",
+          "system": "supersede_drift_findings_by_files",
+          "action": "apply exact path matching when the normalized `artifact_ref` does not end with '/', superseding the finding if any path in `touched_files` equals the normalized ref",
+          "return_contract": null
+        },
+        {
+          "id": "12-REQ-1.8",
+          "ears_pattern": "ubiquitous",
+          "system": "supersede_drift_findings_by_files",
+          "action": "set `superseded_by` to the provided `node_id` for each matching finding and return the total count of superseded findings",
+          "return_contract": "integer count >= 0"
+        },
+        {
+          "id": "12-REQ-1.9",
+          "ears_pattern": "ubiquitous",
+          "system": "supersede_drift_findings_by_files",
+          "action": "log the finding ID and `artifact_ref` for each superseded finding at INFO or DEBUG level for observability",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "12-REQ-1.E1",
+          "ears_pattern": "unwanted",
+          "system": "supersede_drift_findings_by_files",
+          "action": "return 0 and make no database writes; findings persist until a future drift review's `insert_drift_findings` call retires them",
+          "return_contract": "0",
+          "error_condition": "all active drift findings for the spec have null `artifact_ref`"
+        },
+        {
+          "id": "12-REQ-1.E2",
+          "ears_pattern": "event_driven",
+          "system": "supersede_drift_findings_by_files",
+          "action": "supersede all matching findings and return the correct total count",
+          "return_contract": "integer equal to the number of matched findings",
+          "trigger": "multiple findings match the same touched file"
+        }
+      ]
+    },
+    {
+      "id": "12-REQ-2",
+      "title": "Private helper query for active drift findings",
+      "user_story": {
+        "role": "developer",
+        "goal": "use a private query that fetches all active drift findings for a spec regardless of task group",
+        "benefit": "so that supersession evaluates findings from every task group, not just those scoped for injection"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "12-REQ-2.1",
+          "ears_pattern": "ubiquitous",
+          "system": "private helper in review_store",
+          "action": "execute SELECT id, `artifact_ref` FROM `drift_findings` WHERE `spec_name` = ? AND `superseded_by` IS NULL, returning all active findings for the spec across all `task_group` values",
+          "return_contract": "list of (id, artifact_ref) rows"
+        },
+        {
+          "id": "12-REQ-2.2",
+          "ears_pattern": "ubiquitous",
+          "system": "private helper in review_store",
+          "action": "remain unexported and not part of the public review_store API, accessible only within the module",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "12-REQ-3",
+      "title": "Integration of supersession into the coder session post-merge success path",
+      "user_story": {
+        "role": "orchestrator",
+        "goal": "have drift finding supersession triggered automatically after each coder session merges successfully",
+        "benefit": "so that no manual intervention is required to keep drift context fresh"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "12-REQ-3.1",
+          "ears_pattern": "event_driven",
+          "system": "result_handler",
+          "action": "call `supersede_drift_findings_by_files` immediately after `supersede_injected_findings` returns, passing the session's `touched_files`, `spec_name`, and `node_id`",
+          "return_contract": null,
+          "trigger": "a coder session completes with a successful merge and the session outcome is recorded"
+        },
+        {
+          "id": "12-REQ-3.2",
+          "ears_pattern": "state_driven",
+          "system": "result_handler",
+          "action": "not call `supersede_drift_findings_by_files`; only coder sessions trigger drift finding supersession",
+          "return_contract": null,
+          "state": "the session is a reviewer or verifier session"
+        },
+        {
+          "id": "12-REQ-3.3",
+          "ears_pattern": "unwanted",
+          "system": "result_handler",
+          "action": "catch the exception, log a warning, and allow the session outcome recording to proceed unaffected; the exception must not propagate to the caller",
+          "return_contract": null,
+          "error_condition": "`supersede_drift_findings_by_files` raises any exception"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "12-REQ-3.E1",
+          "ears_pattern": "event_driven",
+          "system": "result_handler",
+          "action": "pass null or an empty list to `supersede_drift_findings_by_files`, which short-circuits and returns 0 without querying the database",
+          "return_contract": null,
+          "trigger": "`touched_files` on the `SessionRecord` is null or was not populated"
+        }
+      ]
+    },
+    {
+      "id": "12-REQ-4",
+      "title": "Exact path matching rule",
+      "user_story": {
+        "role": "orchestrator",
+        "goal": "have file-level drift findings superseded only when the exact file they reference was touched",
+        "benefit": "so that findings for untouched files are never incorrectly retired"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "12-REQ-4.1",
+          "ears_pattern": "event_driven",
+          "system": "supersede_drift_findings_by_files",
+          "action": "supersede the finding by setting `superseded_by` to the session `node_id`",
+          "return_contract": null,
+          "trigger": "a finding's normalized `artifact_ref` does not end with '/' and exactly matches a path in `touched_files`"
+        },
+        {
+          "id": "12-REQ-4.2",
+          "ears_pattern": "event_driven",
+          "system": "supersede_drift_findings_by_files",
+          "action": "leave the finding active with `superseded_by` remaining null",
+          "return_contract": null,
+          "trigger": "a finding's normalized `artifact_ref` does not end with '/' and does not match any path in `touched_files`"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "12-REQ-4.E1",
+          "ears_pattern": "event_driven",
+          "system": "supersede_drift_findings_by_files",
+          "action": "strip the suffix before comparison so that 'src/foo.py:42' matches the touched file 'src/foo.py'",
+          "return_contract": null,
+          "trigger": "`artifact_ref` contains a line-number suffix such as ':42'"
+        }
+      ]
+    },
+    {
+      "id": "12-REQ-5",
+      "title": "Prefix matching rule for directory references",
+      "user_story": {
+        "role": "orchestrator",
+        "goal": "have directory-level drift findings superseded when any file under the referenced directory was touched",
+        "benefit": "so that findings describing entire directory-level drift are retired when the directory is addressed"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "12-REQ-5.1",
+          "ears_pattern": "event_driven",
+          "system": "supersede_drift_findings_by_files",
+          "action": "supersede the finding by setting `superseded_by` to the session `node_id`",
+          "return_contract": null,
+          "trigger": "a finding's normalized `artifact_ref` ends with '/' and at least one path in `touched_files` starts with that prefix"
+        },
+        {
+          "id": "12-REQ-5.2",
+          "ears_pattern": "event_driven",
+          "system": "supersede_drift_findings_by_files",
+          "action": "leave the finding active with `superseded_by` remaining null",
+          "return_contract": null,
+          "trigger": "a finding's normalized `artifact_ref` ends with '/' and no path in `touched_files` starts with that prefix"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "12-REQ-6",
+      "title": "Supersession marker value",
+      "user_story": {
+        "role": "developer",
+        "goal": "identify which session superseded each drift finding by inspecting the superseded_by column",
+        "benefit": "so that the supersession history is auditable and consistent with review finding conventions"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "12-REQ-6.1",
+          "ears_pattern": "ubiquitous",
+          "system": "supersede_drift_findings_by_files",
+          "action": "write the completing session's `node_id` string (e.g. 'my_spec:3') to `superseded_by` for every finding it supersedes, consistent with the supersession convention used for review findings and verification results",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "12-REQ-7",
+      "title": "Non-matching and null-ref findings persist",
+      "user_story": {
+        "role": "orchestrator",
+        "goal": "ensure that drift findings not matched by the current session's touched files remain active",
+        "benefit": "so that unresolved drift findings continue to inform future coder sessions"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "12-REQ-7.1",
+          "ears_pattern": "ubiquitous",
+          "system": "supersede_drift_findings_by_files",
+          "action": "leave any finding with a null `artifact_ref` active (superseded_by remains null) after the function completes",
+          "return_contract": null
+        },
+        {
+          "id": "12-REQ-7.2",
+          "ears_pattern": "ubiquitous",
+          "system": "supersede_drift_findings_by_files",
+          "action": "leave any finding whose `artifact_ref` does not match any touched file active (superseded_by remains null) after the function completes",
+          "return_contract": null
+        },
+        {
+          "id": "12-REQ-7.3",
+          "ears_pattern": "ubiquitous",
+          "system": "query_active_drift_findings",
+          "action": "exclude findings whose `superseded_by` is non-null from results returned for injection into future coder sessions",
+          "return_contract": "list containing only active (non-superseded) drift findings"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "12-REQ-8",
+      "title": "Unit test coverage for supersede_drift_findings_by_files",
+      "user_story": {
+        "role": "developer",
+        "goal": "verify all matching rule branches and edge cases of supersede_drift_findings_by_files in isolation",
+        "benefit": "so that regressions in matching logic are caught without requiring an end-to-end run"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "12-REQ-8.1",
+          "ears_pattern": "ubiquitous",
+          "system": "unit test suite",
+          "action": "include a test confirming that a finding with `artifact_ref` 'src/foo.py' is superseded when `touched_files` contains 'src/foo.py'",
+          "return_contract": "superseded count = 1"
+        },
+        {
+          "id": "12-REQ-8.2",
+          "ears_pattern": "ubiquitous",
+          "system": "unit test suite",
+          "action": "include a test confirming that a finding with `artifact_ref` 'src/foo.py' is NOT superseded when `touched_files` contains only 'src/bar.py'",
+          "return_contract": "superseded count = 0"
+        },
+        {
+          "id": "12-REQ-8.3",
+          "ears_pattern": "ubiquitous",
+          "system": "unit test suite",
+          "action": "include a test confirming that a finding with `artifact_ref` 'packages/nightshift/' is superseded when `touched_files` contains any path starting with 'packages/nightshift/'",
+          "return_contract": "superseded count = 1"
+        },
+        {
+          "id": "12-REQ-8.4",
+          "ears_pattern": "ubiquitous",
+          "system": "unit test suite",
+          "action": "include a test confirming that a finding with `artifact_ref` 'src/foo.py:42' normalizes to 'src/foo.py' and correctly matches a touched file 'src/foo.py'",
+          "return_contract": "superseded count = 1"
+        },
+        {
+          "id": "12-REQ-8.5",
+          "ears_pattern": "ubiquitous",
+          "system": "unit test suite",
+          "action": "include a test confirming that a finding with null `artifact_ref` is never superseded and the function returns 0",
+          "return_contract": "superseded count = 0"
+        },
+        {
+          "id": "12-REQ-8.6",
+          "ears_pattern": "ubiquitous",
+          "system": "unit test suite",
+          "action": "include a test confirming that passing an empty `touched_files` list returns 0, makes no database writes, and logs a debug message",
+          "return_contract": "superseded count = 0, no DB writes"
+        },
+        {
+          "id": "12-REQ-8.7",
+          "ears_pattern": "ubiquitous",
+          "system": "unit test suite",
+          "action": "include a test confirming that passing null for `touched_files` is treated identically to an empty list (returns 0, no DB writes, debug log emitted)",
+          "return_contract": "superseded count = 0, no DB writes"
+        },
+        {
+          "id": "12-REQ-8.8",
+          "ears_pattern": "ubiquitous",
+          "system": "unit test suite",
+          "action": "include a test confirming that when multiple findings match the same touched file, all matching findings are superseded and the returned count equals the number of matched findings",
+          "return_contract": "superseded count = number of matched findings"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "12-REQ-9",
+      "title": "Integration test for end-to-end supersession flow",
+      "user_story": {
+        "role": "developer",
+        "goal": "validate the full supersession flow from coder session merge through result_handler to drift_findings table state",
+        "benefit": "so that all three measurable goals (stale context reduction, resolution coverage, zero false positives) are verified"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "12-REQ-9.1",
+          "ears_pattern": "ubiquitous",
+          "system": "integration test",
+          "action": "seed `drift_findings` with 12 findings: 10 with `artifact_ref` values matching the session's `touched_files` and 2 with non-matching or null `artifact_ref` values",
+          "return_contract": null
+        },
+        {
+          "id": "12-REQ-9.2",
+          "ears_pattern": "event_driven",
+          "system": "integration test",
+          "action": "assert that exactly 10 findings have `superseded_by` set to the session's `node_id`",
+          "return_contract": "10 findings superseded",
+          "trigger": "a successful coder session merge is simulated through the post-merge hook in `result_handler` touching the 10 referenced files"
+        },
+        {
+          "id": "12-REQ-9.3",
+          "ears_pattern": "ubiquitous",
+          "system": "integration test",
+          "action": "assert that the remaining 2 findings have `superseded_by` = NULL (still active)",
+          "return_contract": "2 findings with superseded_by = NULL"
+        },
+        {
+          "id": "12-REQ-9.4",
+          "ears_pattern": "ubiquitous",
+          "system": "integration test",
+          "action": "assert that a subsequent call to `query_active_drift_findings` returns only the 2 non-matching findings, confirming superseded findings are excluded from future coder session injection",
+          "return_contract": "list of exactly 2 active findings"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "12-REQ-10",
+      "title": "Architecture documentation updates",
+      "user_story": {
+        "role": "developer",
+        "goal": "find accurate documentation of the drift finding supersession lifecycle in the architecture docs",
+        "benefit": "so that future contributors understand the two distinct supersession paths"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "12-REQ-10.1",
+          "ears_pattern": "ubiquitous",
+          "system": "architecture documentation",
+          "action": "update docs/architecture.md Sections 5.4 and 10.3-10.4 to document the file-based drift finding supersession lifecycle as distinct from the injection-based blanket supersession for review findings",
+          "return_contract": null
+        },
+        {
+          "id": "12-REQ-10.2",
+          "ears_pattern": "ubiquitous",
+          "system": "architecture documentation",
+          "action": "update docs/architecture/05-knowledge-system-architecture.md Sections 4.1, 8, and 9 to document the matching rules, fallback behavior for findings without `artifact_ref`, and the updated finding lifecycle diagram showing two supersession paths",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    }
+  ],
+  "correctness_properties": [
+    {
+      "id": "12-PROP-1",
+      "title": "Zero false-positive supersession",
+      "for_any": "drift finding F with a non-null `artifact_ref` and a completed coder session S",
+      "invariant": "F is superseded (i.e. `superseded_by` is set) only if at least one path in S's `touched_files` matches F's normalized `artifact_ref` via exact or prefix matching",
+      "validates": [
+        "12-REQ-4.1",
+        "12-REQ-4.2",
+        "12-REQ-5.1",
+        "12-REQ-5.2",
+        "12-REQ-7.2"
+      ]
+    },
+    {
+      "id": "12-PROP-2",
+      "title": "Null artifact_ref findings never superseded by file matching",
+      "for_any": "drift finding F with a null `artifact_ref`",
+      "invariant": "F is never superseded by `supersede_drift_findings_by_files` regardless of the contents of `touched_files`",
+      "validates": [
+        "12-REQ-1.4",
+        "12-REQ-7.1"
+      ]
+    },
+    {
+      "id": "12-PROP-3",
+      "title": "Empty touched_files produces no database side effects",
+      "for_any": "invocation of `supersede_drift_findings_by_files` with null or empty `touched_files`",
+      "invariant": "the function returns 0 and the `drift_findings` table is not modified",
+      "validates": [
+        "12-REQ-1.2",
+        "12-REQ-8.6",
+        "12-REQ-8.7"
+      ]
+    },
+    {
+      "id": "12-PROP-4",
+      "title": "Superseded findings excluded from injection",
+      "for_any": "drift finding F whose `superseded_by` is non-null",
+      "invariant": "`query_active_drift_findings` never includes F in its results, ensuring superseded findings are not injected into future coder sessions",
+      "validates": [
+        "12-REQ-7.3",
+        "12-REQ-9.4"
+      ]
+    },
+    {
+      "id": "12-PROP-5",
+      "title": "Supersession marker consistency",
+      "for_any": "drift finding F superseded by session S",
+      "invariant": "F's `superseded_by` value equals S's `node_id` string exactly, consistent with the convention used for review findings and verification results",
+      "validates": [
+        "12-REQ-6.1",
+        "12-REQ-1.8"
+      ]
+    },
+    {
+      "id": "12-PROP-6",
+      "title": "Session outcome isolation from supersession failure",
+      "for_any": "invocation of `supersede_drift_findings_by_files` that raises any exception",
+      "invariant": "the session outcome recorded before supersession runs is never modified or rolled back as a result of the supersession failure",
+      "validates": [
+        "12-REQ-3.3"
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "12-PATH-1",
+      "title": "Coder session merge triggers drift finding supersession",
+      "steps": [
+        {
+          "actor": "orchestrator",
+          "action": "confirms a coder session has completed with a successful merge and records the session outcome via result_handler"
+        },
+        {
+          "actor": "result_handler",
+          "action": "calls supersede_injected_findings to perform blanket supersession of injected review_findings and verification_results"
+        },
+        {
+          "actor": "result_handler",
+          "action": "calls supersede_drift_findings_by_files with the session's spec_name, touched_files list, and node_id, wrapped in a try/except"
+        },
+        {
+          "actor": "supersede_drift_findings_by_files",
+          "action": "checks whether touched_files is null or empty; if so, logs a debug message and returns 0 immediately"
+        },
+        {
+          "actor": "supersede_drift_findings_by_files",
+          "action": "invokes the private helper query to fetch all active drift_findings rows for the spec (superseded_by IS NULL)"
+        },
+        {
+          "actor": "supersede_drift_findings_by_files",
+          "action": "iterates over findings with non-null artifact_ref, strips line-number suffixes, applies exact or prefix matching against touched_files, and collects matching finding IDs"
+        },
+        {
+          "actor": "supersede_drift_findings_by_files",
+          "action": "updates superseded_by to the session node_id for all matching findings, logs each superseded finding ID and artifact_ref, and returns the count"
+        },
+        {
+          "actor": "result_handler",
+          "action": "receives the superseded count (or catches and logs a warning on exception) and returns control to the orchestrator with the session outcome unaffected"
+        },
+        {
+          "actor": "orchestrator",
+          "action": "subsequently queries query_active_drift_findings for the next coder session, receiving only non-superseded findings"
+        }
+      ]
+    },
+    {
+      "id": "12-PATH-2",
+      "title": "Null touched_files short-circuit path",
+      "steps": [
+        {
+          "actor": "result_handler",
+          "action": "calls supersede_drift_findings_by_files with a null or empty touched_files value after a coder session merge"
+        },
+        {
+          "actor": "supersede_drift_findings_by_files",
+          "action": "detects that touched_files is null or empty, logs a debug message, and returns 0 without issuing any database query or write"
+        },
+        {
+          "actor": "result_handler",
+          "action": "receives the return value of 0 and continues normal post-merge processing; all drift findings remain active"
+        }
+      ]
+    },
+    {
+      "id": "12-PATH-3",
+      "title": "Supersession exception swallowed in result_handler",
+      "steps": [
+        {
+          "actor": "result_handler",
+          "action": "calls supersede_drift_findings_by_files inside a try/except block after recording the session outcome"
+        },
+        {
+          "actor": "supersede_drift_findings_by_files",
+          "action": "raises an exception (e.g. DuckDB query failure)"
+        },
+        {
+          "actor": "result_handler",
+          "action": "catches the exception, logs a warning message, and returns normally; the session outcome already recorded is unaffected"
+        }
+      ]
+    },
+    {
+      "id": "12-PATH-4",
+      "title": "Reviewer or verifier session completes — no drift supersession",
+      "steps": [
+        {
+          "actor": "orchestrator",
+          "action": "confirms a reviewer or verifier session has completed successfully and records the session outcome via result_handler"
+        },
+        {
+          "actor": "result_handler",
+          "action": "identifies the session type as reviewer or verifier and skips the supersede_drift_findings_by_files call entirely"
+        },
+        {
+          "actor": "orchestrator",
+          "action": "proceeds with the next step in the spec run; all drift findings remain in their previous state"
+        }
+      ]
+    }
+  ],
+  "error_handling": [
+    {
+      "id": "12-ERR-1",
+      "condition": "touched_files is null or empty when supersede_drift_findings_by_files is called",
+      "behavior": "log a debug message and return 0 immediately without querying or writing to the database",
+      "requirement_id": "12-REQ-1.2"
+    },
+    {
+      "id": "12-ERR-2",
+      "condition": "DuckDB raises an exception during the active drift findings query or the superseded_by update",
+      "behavior": "result_handler catches the exception from supersede_drift_findings_by_files, logs a warning, and swallows it; the session outcome already recorded is not affected",
+      "requirement_id": "12-REQ-3.3"
+    },
+    {
+      "id": "12-ERR-3",
+      "condition": "all active drift findings for the spec have null artifact_ref",
+      "behavior": "supersede_drift_findings_by_files returns 0 and makes no database writes; findings persist until a future drift review's insert_drift_findings call retires them",
+      "requirement_id": "12-REQ-1.E1"
+    },
+    {
+      "id": "12-ERR-4",
+      "condition": "touched_files is populated but no active drift finding's artifact_ref matches any touched file",
+      "behavior": "supersede_drift_findings_by_files returns 0; all drift findings remain active with superseded_by = NULL",
+      "requirement_id": "12-REQ-7.2"
+    },
+    {
+      "id": "12-ERR-5",
+      "condition": "supersede_drift_findings_by_files is called for a reviewer or verifier session",
+      "behavior": "result_handler does not call the function for non-coder sessions; no drift findings are evaluated or superseded",
+      "requirement_id": "12-REQ-3.2"
+    }
+  ]
+}

@@ -1,0 +1,564 @@
+{
+  "$schema": null,
+  "spec_id": "10",
+  "spec_name": "remove_unused_knowledge_channels",
+  "schema_version": 1,
+  "test_cases": [
+    {
+      "id": "TS-10-1",
+      "requirement_id": "10-REQ-1.1",
+      "kind": "acceptance",
+      "description": "Verifies that applying the new migration version executes DROP TABLE IF EXISTS for errata, adr_entries, and verification_results, and that those tables no longer exist in DuckDB afterward.",
+      "preconditions": [
+        "A DuckDB database is initialised with the previous migration version applied (errata, adr_entries, and verification_results tables exist)",
+        "migrations.py contains the new migration version with DROP TABLE IF EXISTS statements"
+      ],
+      "input": "Apply the new migration version via the migration runner against the populated DuckDB database.",
+      "expected": "All three DROP TABLE IF EXISTS statements complete without error; querying INFORMATION_SCHEMA.TABLES returns no rows for errata, adr_entries, or verification_results.",
+      "assertion_pseudocode": "apply_migration(db, new_version)\nassert table_exists(db, 'errata') == False\nassert table_exists(db, 'adr_entries') == False\nassert table_exists(db, 'verification_results') == False"
+    },
+    {
+      "id": "TS-10-2",
+      "requirement_id": "10-REQ-1.2",
+      "kind": "acceptance",
+      "description": "Verifies that the new migration does not drop the session_summaries table and that it remains queryable after the migration.",
+      "preconditions": [
+        "A DuckDB database is initialised with session_summaries table present and populated with at least one row",
+        "migrations.py new migration version is ready to apply"
+      ],
+      "input": "Apply the new migration version via the migration runner.",
+      "expected": "session_summaries table still exists after migration; a SELECT query against it returns at least the pre-existing row(s) without error.",
+      "assertion_pseudocode": "apply_migration(db, new_version)\nassert table_exists(db, 'session_summaries') == True\nrows = db.execute('SELECT * FROM session_summaries').fetchall()\nassert len(rows) >= 1"
+    },
+    {
+      "id": "TS-10-3",
+      "requirement_id": "10-REQ-1.3",
+      "kind": "acceptance",
+      "description": "Verifies that the new migration is assigned a version number strictly greater than all existing migration versions and is recorded in the migration version table exactly once after application.",
+      "preconditions": [
+        "A DuckDB database is initialised with all prior migration versions applied",
+        "The migration version table records existing version numbers"
+      ],
+      "input": "Apply the new migration version via the migration runner.",
+      "expected": "The new migration version number is greater than all previously recorded versions; the migration version table contains exactly one record for the new version after application.",
+      "assertion_pseudocode": "existing_versions = get_applied_migration_versions(db)\nnew_version = get_new_migration_version()\nassert new_version > max(existing_versions)\napply_migration(db, new_version)\nversions_after = get_applied_migration_versions(db)\nassert versions_after.count(new_version) == 1"
+    },
+    {
+      "id": "TS-10-4",
+      "requirement_id": "10-REQ-2.1",
+      "kind": "acceptance",
+      "description": "Verifies that the file packages/agentfox/agentfox/knowledge/errata.py does not exist in the repository.",
+      "preconditions": [
+        "All code deletions described in the PRD have been applied to the repository"
+      ],
+      "input": "Check for the existence of packages/agentfox/agentfox/knowledge/errata.py in the repository file tree.",
+      "expected": "The file is absent; any attempt to import it raises an ImportError.",
+      "assertion_pseudocode": "assert file_exists('packages/agentfox/agentfox/knowledge/errata.py') == False\nassert import_raises_error('agentfox.knowledge.errata') == ImportError"
+    },
+    {
+      "id": "TS-10-5",
+      "requirement_id": "10-REQ-2.2",
+      "kind": "acceptance",
+      "description": "Verifies that the file packages/agentfox/agentfox/knowledge/adr.py does not exist in the repository.",
+      "preconditions": [
+        "All code deletions described in the PRD have been applied to the repository"
+      ],
+      "input": "Check for the existence of packages/agentfox/agentfox/knowledge/adr.py in the repository file tree.",
+      "expected": "The file is absent; any attempt to import it raises an ImportError.",
+      "assertion_pseudocode": "assert file_exists('packages/agentfox/agentfox/knowledge/adr.py') == False\nassert import_raises_error('agentfox.knowledge.adr') == ImportError"
+    },
+    {
+      "id": "TS-10-6",
+      "requirement_id": "10-REQ-2.3",
+      "kind": "acceptance",
+      "description": "Verifies that no Python file in the codebase contains import statements referencing the deleted errata.py or adr.py modules.",
+      "preconditions": [
+        "All code deletions and updates described in the PRD have been applied"
+      ],
+      "input": "Run static analysis (grep or linter) across all Python files for import references to errata or adr knowledge modules.",
+      "expected": "Zero matches for 'from agentfox.knowledge.errata' or 'from agentfox.knowledge.adr' or 'import errata' or 'import adr' in any Python file.",
+      "assertion_pseudocode": "results = grep_all_python_files(repo_root, patterns=['agentfox.knowledge.errata', 'agentfox.knowledge.adr'])\nassert len(results) == 0"
+    },
+    {
+      "id": "TS-10-7",
+      "requirement_id": "10-REQ-3.1",
+      "kind": "acceptance",
+      "description": "Verifies that fox_provider.py does not define any of the six removed private retrieval methods.",
+      "preconditions": [
+        "All code removals described in the PRD have been applied to fox_provider.py"
+      ],
+      "input": "Run static analysis on fox_provider.py searching for definitions of the six removed method names.",
+      "expected": "Zero definitions found for _query_errata, _query_adrs, _query_verdicts, _query_cross_group_verdicts, _query_cross_spec_summaries, or _query_prior_run_findings.",
+      "assertion_pseudocode": "removed_methods = ['_query_errata', '_query_adrs', '_query_verdicts', '_query_cross_group_verdicts', '_query_cross_spec_summaries', '_query_prior_run_findings']\nfor method in removed_methods:\n    assert grep_file('fox_provider.py', pattern=f'def {method}') == []"
+    },
+    {
+      "id": "TS-10-8",
+      "requirement_id": "10-REQ-3.2",
+      "kind": "acceptance",
+      "description": "Verifies that the retrieve() method in fox_provider.py does not call any of the six removed methods at runtime or as found by static analysis.",
+      "preconditions": [
+        "All code removals have been applied to fox_provider.py",
+        "A minimal DuckDB database with session_summaries and review_findings tables is available for the runtime check"
+      ],
+      "input": "Invoke retrieve() with a valid spec identifier and verify via both static analysis and runtime execution that no removed method is called.",
+      "expected": "Static analysis finds zero call sites; retrieve() completes without AttributeError or NameError related to any removed method.",
+      "assertion_pseudocode": "removed_methods = ['_query_errata', '_query_adrs', '_query_verdicts', '_query_cross_group_verdicts', '_query_cross_spec_summaries', '_query_prior_run_findings']\nfor method in removed_methods:\n    assert grep_file('fox_provider.py', pattern=method) == []\nprovider = FoxProvider(db=test_db)\nresult = provider.retrieve(spec_id='test-spec')\n# No exception raised; result is valid context payload"
+    },
+    {
+      "id": "TS-10-9",
+      "requirement_id": "10-REQ-3.3",
+      "kind": "acceptance",
+      "description": "Verifies that items_with_ids in retrieve() contains only (text, review_id) tuples with no None-padded entries or verdict_id tuples.",
+      "preconditions": [
+        "All code removals have been applied to fox_provider.py",
+        "DuckDB database has at least one review finding record for the test spec"
+      ],
+      "input": "Invoke retrieve() with a spec that has review findings in the database and inspect the items_with_ids list.",
+      "expected": "Every entry in items_with_ids is a 2-tuple of (str, non-None review_id); no entry contains None as the second element.",
+      "assertion_pseudocode": "provider = FoxProvider(db=test_db)\nresult = provider.retrieve(spec_id='test-spec')\nitems = provider.last_items_with_ids  # or capture via test instrumentation\nfor text, review_id in items:\n    assert isinstance(text, str)\n    assert review_id is not None"
+    },
+    {
+      "id": "TS-10-10",
+      "requirement_id": "10-REQ-3.4",
+      "kind": "acceptance",
+      "description": "Verifies that cross_group_items in retrieve() is populated only from cross-group review records (no verdicts) and is capped at max_cross_group_items.",
+      "preconditions": [
+        "All code removals have been applied to fox_provider.py",
+        "DuckDB database has cross-group review findings exceeding max_cross_group_items for the test spec"
+      ],
+      "input": "Invoke retrieve() with a spec that has multiple cross-group review findings and inspect cross_group_items.",
+      "expected": "cross_group_items contains only cross-review records; its length does not exceed max_cross_group_items.",
+      "assertion_pseudocode": "provider = FoxProvider(db=test_db, max_cross_group_items=3)\nresult = provider.retrieve(spec_id='test-spec')\ncross_group = provider.last_cross_group_items\nassert len(cross_group) <= 3\nfor item in cross_group:\n    assert item.source_type == 'cross_review'  # no verdict type"
+    },
+    {
+      "id": "TS-10-11",
+      "requirement_id": "10-REQ-3.5",
+      "kind": "acceptance",
+      "description": "Verifies that retrieve() emits a log message matching the exact format with three item-count fields.",
+      "preconditions": [
+        "All code removals have been applied to fox_provider.py",
+        "Log capture is enabled for the fox_provider logger"
+      ],
+      "input": "Invoke retrieve() with a valid spec and capture log output.",
+      "expected": "Exactly one log line matches the pattern 'Retrieved {N} review + {N} cross-group + {N} context items for {spec}' with three numeric count fields.",
+      "assertion_pseudocode": "import re\nwith capture_logs() as logs:\n    provider.retrieve(spec_id='my-spec')\nlog_lines = [l for l in logs if 'Retrieved' in l and 'items for' in l]\nassert len(log_lines) == 1\npattern = r'Retrieved \\d+ review \\+ \\d+ cross-group \\+ \\d+ context items for my-spec'\nassert re.search(pattern, log_lines[0]) is not None"
+    },
+    {
+      "id": "TS-10-12",
+      "requirement_id": "10-REQ-3.6",
+      "kind": "acceptance",
+      "description": "Verifies that the fox_provider.py __init__ method does not initialise any verdict_ids tracking set or reference verdict state.",
+      "preconditions": [
+        "All code removals have been applied to fox_provider.py"
+      ],
+      "input": "Inspect fox_provider.py __init__ source for any reference to verdict_ids.",
+      "expected": "Zero occurrences of 'verdict_ids' in the __init__ method body and in the class constructor.",
+      "assertion_pseudocode": "source = read_file('fox_provider.py')\ninit_body = extract_method_body(source, '__init__')\nassert 'verdict_ids' not in init_body"
+    },
+    {
+      "id": "TS-10-13",
+      "requirement_id": "10-REQ-4.1",
+      "kind": "acceptance",
+      "description": "Verifies that review_store.py does not define any of the six removed verdict/prior-run functions.",
+      "preconditions": [
+        "All code removals have been applied to review_store.py"
+      ],
+      "input": "Run static analysis on review_store.py searching for definitions of the six removed function names.",
+      "expected": "Zero definitions found for query_active_verdicts, query_cross_group_verdicts, query_prior_run_findings, query_prior_run_verdicts, insert_verdicts, or validate_verdict.",
+      "assertion_pseudocode": "removed_fns = ['query_active_verdicts', 'query_cross_group_verdicts', 'query_prior_run_findings', 'query_prior_run_verdicts', 'insert_verdicts', 'validate_verdict']\nfor fn in removed_fns:\n    assert grep_file('review_store.py', pattern=f'def {fn}') == []"
+    },
+    {
+      "id": "TS-10-14",
+      "requirement_id": "10-REQ-4.2",
+      "kind": "acceptance",
+      "description": "Verifies that no Python file in the codebase calls any of the six functions removed from review_store.py.",
+      "preconditions": [
+        "All code removals and caller updates have been applied to the repository"
+      ],
+      "input": "Run static analysis (grep) across all Python files for call sites of the six removed function names.",
+      "expected": "Zero matches for any of the six removed function names as call expressions in any Python file.",
+      "assertion_pseudocode": "removed_fns = ['query_active_verdicts', 'query_cross_group_verdicts', 'query_prior_run_findings', 'query_prior_run_verdicts', 'insert_verdicts', 'validate_verdict']\nfor fn in removed_fns:\n    results = grep_all_python_files(repo_root, pattern=fn)\n    assert len(results) == 0"
+    },
+    {
+      "id": "TS-10-15",
+      "requirement_id": "10-REQ-5.1",
+      "kind": "acceptance",
+      "description": "Verifies that summary_store.py does not define query_cross_spec_summaries.",
+      "preconditions": [
+        "All code removals have been applied to summary_store.py"
+      ],
+      "input": "Run static analysis on summary_store.py for the definition of query_cross_spec_summaries.",
+      "expected": "Zero definitions of query_cross_spec_summaries found in summary_store.py.",
+      "assertion_pseudocode": "assert grep_file('summary_store.py', pattern='def query_cross_spec_summaries') == []"
+    },
+    {
+      "id": "TS-10-16",
+      "requirement_id": "10-REQ-5.2",
+      "kind": "acceptance",
+      "description": "Verifies that no Python file in the codebase calls query_cross_spec_summaries.",
+      "preconditions": [
+        "All code removals and caller updates have been applied to the repository"
+      ],
+      "input": "Run static analysis (grep) across all Python files for call sites of query_cross_spec_summaries.",
+      "expected": "Zero matches for query_cross_spec_summaries as a call expression in any Python file.",
+      "assertion_pseudocode": "results = grep_all_python_files(repo_root, pattern='query_cross_spec_summaries')\nassert len(results) == 0"
+    },
+    {
+      "id": "TS-10-17",
+      "requirement_id": "10-REQ-5.3",
+      "kind": "acceptance",
+      "description": "Verifies that query_same_spec_summaries remains defined in summary_store.py and successfully queries the session_summaries table.",
+      "preconditions": [
+        "All code removals have been applied to summary_store.py",
+        "DuckDB database has the session_summaries table with at least one row for the test spec"
+      ],
+      "input": "Call query_same_spec_summaries(spec_id='test-spec') against a DuckDB database containing session_summaries rows for that spec.",
+      "expected": "The function is defined in summary_store.py and returns the expected row(s) from session_summaries without error.",
+      "assertion_pseudocode": "assert grep_file('summary_store.py', pattern='def query_same_spec_summaries') != []\nresults = query_same_spec_summaries(db=test_db, spec_id='test-spec')\nassert len(results) >= 1"
+    },
+    {
+      "id": "TS-10-18",
+      "requirement_id": "10-REQ-6.1",
+      "kind": "acceptance",
+      "description": "Verifies that run.py contains no call to index_errata_from_markdown at startup or anywhere else.",
+      "preconditions": [
+        "All code removals have been applied to agentfox/engine/run.py"
+      ],
+      "input": "Run static analysis on agentfox/engine/run.py for any call site of index_errata_from_markdown.",
+      "expected": "Zero occurrences of index_errata_from_markdown found in run.py.",
+      "assertion_pseudocode": "assert grep_file('agentfox/engine/run.py', pattern='index_errata_from_markdown') == []"
+    },
+    {
+      "id": "TS-10-19",
+      "requirement_id": "10-REQ-6.2",
+      "kind": "acceptance",
+      "description": "Verifies that nightshift/_startup.py contains no call to index_errata_from_markdown.",
+      "preconditions": [
+        "All code removals have been applied to nightshift/_startup.py"
+      ],
+      "input": "Run static analysis on nightshift/_startup.py for any call site of index_errata_from_markdown.",
+      "expected": "Zero occurrences of index_errata_from_markdown found in nightshift/_startup.py.",
+      "assertion_pseudocode": "assert grep_file('nightshift/_startup.py', pattern='index_errata_from_markdown') == []"
+    },
+    {
+      "id": "TS-10-20",
+      "requirement_id": "10-REQ-6.3",
+      "kind": "acceptance",
+      "description": "Verifies that result_handler.py neither defines nor calls _generate_errata.",
+      "preconditions": [
+        "All code removals have been applied to agentfox/engine/result_handler.py"
+      ],
+      "input": "Run static analysis on agentfox/engine/result_handler.py for definitions and call sites of _generate_errata.",
+      "expected": "Zero occurrences of _generate_errata in result_handler.py (neither as a def nor as a call).",
+      "assertion_pseudocode": "assert grep_file('agentfox/engine/result_handler.py', pattern='_generate_errata') == []"
+    },
+    {
+      "id": "TS-10-21",
+      "requirement_id": "10-REQ-6.4",
+      "kind": "acceptance",
+      "description": "Verifies that session_lifecycle.py contains no comment or reference to index_errata_from_markdown.",
+      "preconditions": [
+        "All code removals have been applied to agentfox/engine/session_lifecycle.py"
+      ],
+      "input": "Run static analysis on agentfox/engine/session_lifecycle.py for any occurrence of the string 'index_errata_from_markdown'.",
+      "expected": "Zero occurrences of 'index_errata_from_markdown' in session_lifecycle.py (including comments).",
+      "assertion_pseudocode": "assert grep_file('agentfox/engine/session_lifecycle.py', pattern='index_errata_from_markdown') == []"
+    },
+    {
+      "id": "TS-10-22",
+      "requirement_id": "10-REQ-7.1",
+      "kind": "acceptance",
+      "description": "Verifies that the prompt assembly code does not construct or inject any of the six removed channel tags into coder prompts.",
+      "preconditions": [
+        "All prompt assembly code removals have been applied",
+        "A test coder session context is assembled using the updated prompt assembly code"
+      ],
+      "input": "Assemble a coder prompt for a test spec using the updated prompt assembly code.",
+      "expected": "The assembled prompt string contains none of the tags: [ERRATA], [ADR], [VERIFY], [CROSS-GROUP], [CROSS-SPEC], [PRIOR-RUN].",
+      "assertion_pseudocode": "prompt = assemble_coder_prompt(spec_id='test-spec', context=test_context)\nremoved_tags = ['[ERRATA]', '[ADR]', '[VERIFY]', '[CROSS-GROUP]', '[CROSS-SPEC]', '[PRIOR-RUN]']\nfor tag in removed_tags:\n    assert tag not in prompt"
+    },
+    {
+      "id": "TS-10-23",
+      "requirement_id": "10-REQ-7.2",
+      "kind": "acceptance",
+      "description": "Verifies that the prompt assembly code retains formatting for the three kept channels and includes them when data is available.",
+      "preconditions": [
+        "All prompt assembly code removals have been applied",
+        "DuckDB database has review findings, cross-group review findings, and same-spec session summaries for the test spec"
+      ],
+      "input": "Assemble a coder prompt for a test spec with data in all three retained channels.",
+      "expected": "The assembled prompt contains sections for review findings, cross-group reviews, and same-spec context summaries.",
+      "assertion_pseudocode": "prompt = assemble_coder_prompt(spec_id='test-spec', context=test_context_with_all_three_channels)\nassert review_findings_section_present(prompt) == True\nassert cross_group_review_section_present(prompt) == True\nassert same_spec_summary_section_present(prompt) == True"
+    },
+    {
+      "id": "TS-10-24",
+      "requirement_id": "10-REQ-8.1",
+      "kind": "acceptance",
+      "description": "Verifies that the six entirely deleted test files are absent from the repository.",
+      "preconditions": [
+        "All test file deletions described in the PRD have been applied to the repository"
+      ],
+      "input": "Check for the existence of each of the six deleted test files in the repository file tree.",
+      "expected": "All six files are absent: test_errata.py, test_adr.py, test_adr_props.py, test_verdict_normalization.py, test_cross_run_carryforward.py, test_errata_on_blocking.py.",
+      "assertion_pseudocode": "deleted_files = ['test_errata.py', 'test_adr.py', 'test_adr_props.py', 'test_verdict_normalization.py', 'test_cross_run_carryforward.py', 'test_errata_on_blocking.py']\nfor f in deleted_files:\n    assert file_exists_in_repo(f) == False"
+    },
+    {
+      "id": "TS-10-25",
+      "requirement_id": "10-REQ-8.2",
+      "kind": "acceptance",
+      "description": "Verifies that test_fox_provider_summaries.py, test_summary_store.py, and test_summary_lifecycle.py contain no references to query_cross_spec_summaries or [CROSS-SPEC] and that their remaining tests pass.",
+      "preconditions": [
+        "Cross-spec portions have been removed from the three named test files",
+        "The full test suite can be invoked via pytest"
+      ],
+      "input": "Run pytest on test_fox_provider_summaries.py, test_summary_store.py, and test_summary_lifecycle.py; also grep those files for forbidden references.",
+      "expected": "All remaining tests in those files pass; grep finds zero occurrences of 'query_cross_spec_summaries' or '[CROSS-SPEC]' in those files.",
+      "assertion_pseudocode": "for filename in ['test_fox_provider_summaries.py', 'test_summary_store.py', 'test_summary_lifecycle.py']:\n    assert grep_file(filename, 'query_cross_spec_summaries') == []\n    assert grep_file(filename, '[CROSS-SPEC]') == []\npytest_result = run_pytest(['test_fox_provider_summaries.py', 'test_summary_store.py', 'test_summary_lifecycle.py'])\nassert pytest_result.exit_code == 0"
+    },
+    {
+      "id": "TS-10-26",
+      "requirement_id": "10-REQ-8.3",
+      "kind": "acceptance",
+      "description": "Verifies that test_review_store.py and test_review_store_props.py contain no references to removed verdict functions and that their remaining tests pass.",
+      "preconditions": [
+        "Verdict portions have been removed from test_review_store.py and test_review_store_props.py",
+        "The full test suite can be invoked via pytest"
+      ],
+      "input": "Run pytest on test_review_store.py and test_review_store_props.py; also grep those files for forbidden function references.",
+      "expected": "All remaining tests pass; grep finds zero occurrences of insert_verdicts, validate_verdict, query_active_verdicts, or query_cross_group_verdicts in those files.",
+      "assertion_pseudocode": "forbidden = ['insert_verdicts', 'validate_verdict', 'query_active_verdicts', 'query_cross_group_verdicts']\nfor filename in ['test_review_store.py', 'test_review_store_props.py']:\n    for fn in forbidden:\n        assert grep_file(filename, fn) == []\npytest_result = run_pytest(['test_review_store.py', 'test_review_store_props.py'])\nassert pytest_result.exit_code == 0"
+    },
+    {
+      "id": "TS-10-27",
+      "requirement_id": "10-REQ-8.4",
+      "kind": "acceptance",
+      "description": "Verifies that prior-run and ADR/errata portions have been removed from the three named smoke/idempotency test files and that their remaining tests pass.",
+      "preconditions": [
+        "Prior-run and ADR/errata portions have been removed from test_retrieval_fixes_smoke.py, test_duckdb_reader_writer_smoke.py, and test_duckdb_reader_writer_idempotency.py"
+      ],
+      "input": "Run pytest on the three named files; grep those files for references to removed functions or tables.",
+      "expected": "All remaining tests pass; grep finds zero references to removed functions (query_prior_run_findings, ingest_adr, index_errata_from_markdown) or removed tables (errata, adr_entries) in those files.",
+      "assertion_pseudocode": "forbidden = ['query_prior_run_findings', 'ingest_adr', 'index_errata_from_markdown', 'adr_entries']\nfiles = ['test_retrieval_fixes_smoke.py', 'test_duckdb_reader_writer_smoke.py', 'test_duckdb_reader_writer_idempotency.py']\nfor filename in files:\n    for term in forbidden:\n        assert grep_file(filename, term) == []\npytest_result = run_pytest(files)\nassert pytest_result.exit_code == 0"
+    },
+    {
+      "id": "TS-10-28",
+      "requirement_id": "10-REQ-8.5",
+      "kind": "acceptance",
+      "description": "Verifies that errata portions and errata mock references have been removed from the three named test files and that their remaining tests pass.",
+      "preconditions": [
+        "Errata portions have been removed from test_assemble_context_readonly.py, test_audit_review_blocking.py, and test_duckdb_reader_writer_props.py"
+      ],
+      "input": "Run pytest on the three named files; grep those files for references to errata mocks or the errata channel.",
+      "expected": "All remaining tests pass; grep finds zero references to 'errata' in those three files.",
+      "assertion_pseudocode": "files = ['test_assemble_context_readonly.py', 'test_audit_review_blocking.py', 'test_duckdb_reader_writer_props.py']\nfor filename in files:\n    assert grep_file(filename, 'errata') == []\npytest_result = run_pytest(files)\nassert pytest_result.exit_code == 0"
+    },
+    {
+      "id": "TS-10-29",
+      "requirement_id": "10-REQ-8.6",
+      "kind": "acceptance",
+      "description": "Verifies that the full test suite runs to completion with exit code 0 after all removals, with no import errors or failures from deleted code.",
+      "preconditions": [
+        "All code, test, and documentation changes described in the PRD have been applied",
+        "pytest is installed and configured for the project"
+      ],
+      "input": "Execute the full test suite via pytest from the repository root.",
+      "expected": "pytest exits with code 0; no test reports ImportError, ModuleNotFoundError, AttributeError, or any failure attributable to a deleted module, function, or table.",
+      "assertion_pseudocode": "result = run_pytest(['packages/agentfox'])\nassert result.exit_code == 0\nassert 'ImportError' not in result.output\nassert 'ModuleNotFoundError' not in result.output\nassert result.num_failures == 0"
+    },
+    {
+      "id": "TS-10-30",
+      "requirement_id": "10-REQ-9.1",
+      "kind": "acceptance",
+      "description": "Verifies that docs/architecture.md contains no references to errata, ADRs, verdicts, cross-spec summaries, or prior-run items.",
+      "preconditions": [
+        "Documentation updates have been applied to docs/architecture.md"
+      ],
+      "input": "Run grep for 'errata', 'ADR', 'verdict', 'cross-spec', 'prior-run' in docs/architecture.md.",
+      "expected": "All five grep searches return zero matches in docs/architecture.md.",
+      "assertion_pseudocode": "forbidden_terms = ['errata', 'ADR', 'verdict', 'cross-spec', 'prior-run']\nfor term in forbidden_terms:\n    assert grep_file('docs/architecture.md', pattern=term, case_insensitive=True) == []"
+    },
+    {
+      "id": "TS-10-31",
+      "requirement_id": "10-REQ-9.2",
+      "kind": "acceptance",
+      "description": "Verifies that docs/architecture/05-knowledge-system-architecture.md describes exactly three retrieval channels after the update.",
+      "preconditions": [
+        "Documentation updates have been applied to docs/architecture/05-knowledge-system-architecture.md"
+      ],
+      "input": "Read docs/architecture/05-knowledge-system-architecture.md and identify all described retrieval channels.",
+      "expected": "The document describes exactly three retrieval channels: review findings, drift/cross-group reviews, and same-spec context summaries; no sections cover errata, ADRs, verdicts, cross-spec summaries, or prior-run items.",
+      "assertion_pseudocode": "content = read_file('docs/architecture/05-knowledge-system-architecture.md')\nremoved_channel_terms = ['errata', 'adr', 'verdict', 'cross-spec summar', 'prior-run']\nfor term in removed_channel_terms:\n    assert term.lower() not in content.lower()\nretained = ['review findings', 'cross-group review', 'same-spec context']\nfor term in retained:\n    assert term.lower() in content.lower()"
+    },
+    {
+      "id": "TS-10-32",
+      "requirement_id": "10-REQ-9.3",
+      "kind": "acceptance",
+      "description": "Verifies that docs/architecture/03-execution-and-archetypes.md contains no references to verdicts or errata.",
+      "preconditions": [
+        "Documentation updates have been applied to docs/architecture/03-execution-and-archetypes.md"
+      ],
+      "input": "Run grep for 'verdict' and 'errata' in docs/architecture/03-execution-and-archetypes.md.",
+      "expected": "Both grep searches return zero matches.",
+      "assertion_pseudocode": "assert grep_file('docs/architecture/03-execution-and-archetypes.md', pattern='verdict', case_insensitive=True) == []\nassert grep_file('docs/architecture/03-execution-and-archetypes.md', pattern='errata', case_insensitive=True) == []"
+    }
+  ],
+  "property_tests": [
+    {
+      "id": "TS-10-P1",
+      "property_id": "10-PROP-1",
+      "validates": [
+        "10-REQ-1.1",
+        "10-REQ-1.2"
+      ],
+      "description": "For any DuckDB database that has had the new migration applied, errata, adr_entries, and verification_results tables are absent while session_summaries is present.",
+      "for_any_strategy": "Generate DuckDB databases in various states: (a) fresh with no tables, (b) with all legacy tables pre-created, (c) with only some of the three target tables present, (d) with session_summaries but not the three target tables.",
+      "invariant_check": "After applying the new migration to each generated database:\n  assert table_exists(db, 'errata') == False\n  assert table_exists(db, 'adr_entries') == False\n  assert table_exists(db, 'verification_results') == False\n  assert table_exists(db, 'session_summaries') == True"
+    },
+    {
+      "id": "TS-10-P2",
+      "property_id": "10-PROP-2",
+      "validates": [
+        "10-REQ-2.3",
+        "10-REQ-3.1",
+        "10-REQ-4.2",
+        "10-REQ-5.2",
+        "10-REQ-6.1",
+        "10-REQ-6.2",
+        "10-REQ-6.3"
+      ],
+      "description": "No Python file in the repository references any deleted symbol after all removals are applied.",
+      "for_any_strategy": "Enumerate all Python files in the repository tree under packages/agentfox and related directories.",
+      "invariant_check": "deleted_symbols = ['_query_errata', '_query_adrs', '_query_verdicts', '_query_cross_group_verdicts', '_query_cross_spec_summaries', '_query_prior_run_findings', 'query_active_verdicts', 'query_cross_group_verdicts', 'query_prior_run_findings', 'query_prior_run_verdicts', 'insert_verdicts', 'validate_verdict', 'query_cross_spec_summaries', 'index_errata_from_markdown', '_generate_errata']\nfor py_file in enumerate_python_files(repo_root):\n    content = read_file(py_file)\n    for symbol in deleted_symbols:\n        assert symbol not in content, f'{symbol} found in {py_file}'"
+    },
+    {
+      "id": "TS-10-P3",
+      "property_id": "10-PROP-3",
+      "validates": [
+        "10-REQ-3.5"
+      ],
+      "description": "For any invocation of retrieve() in fox_provider.py, the emitted log message always matches the exact three-field format.",
+      "for_any_strategy": "Generate varied retrieve() inputs: empty database (all zero counts), database with only review findings, database with only cross-group reviews, database with only same-spec summaries, database with data in all three retained channels, database with max_cross_group_items exceeded.",
+      "invariant_check": "import re\npattern = re.compile(r'Retrieved \\d+ review \\+ \\d+ cross-group \\+ \\d+ context items for .+')\nfor scenario in generated_scenarios:\n    with capture_logs(logger='fox_provider') as logs:\n        provider.retrieve(spec_id=scenario.spec_id)\n    matching = [l for l in logs if 'Retrieved' in l]\n    assert len(matching) == 1\n    assert pattern.match(matching[0]) is not None"
+    },
+    {
+      "id": "TS-10-P4",
+      "property_id": "10-PROP-4",
+      "validates": [
+        "10-REQ-3.3",
+        "10-REQ-3.6"
+      ],
+      "description": "For any invocation of retrieve() in fox_provider.py, items_with_ids contains only (text, review_id) tuples with no None second elements.",
+      "for_any_strategy": "Generate retrieve() calls with varying numbers of review findings (0, 1, many), varying cross-group review counts, and varying same-spec summary counts.",
+      "invariant_check": "for scenario in generated_scenarios:\n    provider = FoxProvider(db=scenario.db)\n    provider.retrieve(spec_id=scenario.spec_id)\n    items = provider.last_items_with_ids\n    for entry in items:\n        assert len(entry) == 2\n        text, review_id = entry\n        assert isinstance(text, str)\n        assert review_id is not None"
+    },
+    {
+      "id": "TS-10-P5",
+      "property_id": "10-PROP-5",
+      "validates": [
+        "10-REQ-7.1"
+      ],
+      "description": "For any coder prompt assembled after all removals, the prompt string never contains any of the six removed channel tags.",
+      "for_any_strategy": "Generate diverse coder prompt assembly inputs: varying spec IDs, varying numbers of review findings, cross-group reviews, and same-spec summaries; also generate inputs with empty contexts (all zero items).",
+      "invariant_check": "removed_tags = ['[ERRATA]', '[ADR]', '[VERIFY]', '[CROSS-GROUP]', '[CROSS-SPEC]', '[PRIOR-RUN]']\nfor scenario in generated_prompt_scenarios:\n    prompt = assemble_coder_prompt(spec_id=scenario.spec_id, context=scenario.context)\n    for tag in removed_tags:\n        assert tag not in prompt, f'Found removed tag {tag} in assembled prompt'"
+    }
+  ],
+  "edge_case_tests": [
+    {
+      "id": "TS-10-E1",
+      "requirement_id": "10-REQ-1.E1",
+      "kind": "edge_case",
+      "description": "Verifies that the new migration succeeds without error when applied to a fresh DuckDB database where the target tables do not exist.",
+      "preconditions": [
+        "A freshly initialised DuckDB database with no existing errata, adr_entries, or verification_results tables",
+        "migrations.py contains the new migration version using DROP TABLE IF EXISTS"
+      ],
+      "input": "Apply the new migration version to the fresh DuckDB database.",
+      "expected": "The migration completes successfully with no exception raised; the migration version table records the new version.",
+      "assertion_pseudocode": "db = create_fresh_duckdb()\nassert table_exists(db, 'errata') == False\nassert table_exists(db, 'adr_entries') == False\nassert table_exists(db, 'verification_results') == False\n# Must not raise\napply_migration(db, new_version)\nversions = get_applied_migration_versions(db)\nassert new_version in versions"
+    },
+    {
+      "id": "TS-10-E2",
+      "requirement_id": "10-REQ-8.E1",
+      "kind": "edge_case",
+      "description": "Verifies that a retained test file that previously imported from a deleted module (errata.py or adr.py) no longer contains that import after cleanup and can be collected by pytest without ImportError.",
+      "preconditions": [
+        "All import removals have been applied to retained test files",
+        "errata.py and adr.py have been deleted from the repository"
+      ],
+      "input": "Run pytest --collect-only on all retained test files that previously imported from errata.py or adr.py.",
+      "expected": "pytest collects all retained test files without raising ImportError or ModuleNotFoundError; no test file references the deleted modules.",
+      "assertion_pseudocode": "result = run_pytest_collect('packages/agentfox/tests/')\nassert 'ImportError' not in result.output\nassert 'ModuleNotFoundError' not in result.output\nassert 'errata' not in result.errors\nassert 'adr' not in result.errors\nassert result.exit_code == 0"
+    }
+  ],
+  "smoke_tests": [
+    {
+      "id": "TS-10-SMOKE-1",
+      "execution_path_id": "10-PATH-1",
+      "description": "Verifies the full startup path of an agent-fox run completes without errata indexing calls and that the DuckDB migration drops the three unused tables.",
+      "trigger": "Operator starts an agent-fox run via run.py (or nightshift/_startup.py) against a DuckDB database with legacy tables present.",
+      "real_components": [
+        "agentfox/engine/run.py",
+        "nightshift/_startup.py",
+        "migrations.py",
+        "DuckDB database"
+      ],
+      "mockable": [
+        "external filesystem for markdown errata files"
+      ],
+      "expected_effects": [
+        "index_errata_from_markdown() is never called during startup",
+        "The new migration version is applied; errata, adr_entries, and verification_results tables are dropped",
+        "session_summaries table remains intact after migration",
+        "Startup completes with no errata-related log messages or errors",
+        "The migration version table records the new version"
+      ]
+    },
+    {
+      "id": "TS-10-SMOKE-2",
+      "execution_path_id": "10-PATH-2",
+      "description": "Verifies that a coder session knowledge retrieval call uses only the three retained channels, produces a correctly structured context payload, and emits the simplified log line.",
+      "trigger": "A coder session calls retrieve() on a fox_provider instance with a DuckDB database containing review findings, cross-group reviews, and same-spec summaries.",
+      "real_components": [
+        "fox_provider.py",
+        "review_store.py",
+        "summary_store.py",
+        "DuckDB database"
+      ],
+      "mockable": [
+        "logging handler for log line capture"
+      ],
+      "expected_effects": [
+        "retrieve() queries only review findings, cross-group reviews, and same-spec context summaries",
+        "items_with_ids contains only (text, review_id) tuples",
+        "cross_group_items contains only cross-review records, capped at max_cross_group_items",
+        "Log line matches 'Retrieved {N} review + {N} cross-group + {N} context items for {spec}'",
+        "Returned context payload contains no [ERRATA], [ADR], [VERIFY], [CROSS-GROUP] verdict, [CROSS-SPEC], or [PRIOR-RUN] tags"
+      ]
+    },
+    {
+      "id": "TS-10-SMOKE-3",
+      "execution_path_id": "10-PATH-3",
+      "description": "Verifies that after all deletions and updates are applied, running the full pytest suite produces exit code 0 with no import errors or failures from deleted code.",
+      "trigger": "Developer executes pytest from the repository root after all code, test, and documentation changes have been applied.",
+      "real_components": [
+        "packages/agentfox test suite",
+        "pytest",
+        "DuckDB in-memory fixtures"
+      ],
+      "mockable": [],
+      "expected_effects": [
+        "pytest discovers no deleted test files (test_errata.py, test_adr.py, etc.)",
+        "No test file raises ImportError or ModuleNotFoundError at collection time",
+        "All remaining tests for review, cross-group review, and same-spec summary channels pass",
+        "pytest exits with code 0",
+        "No test output references a deleted module, function, or table"
+      ]
+    }
+  ],
+  "coverage": {
+    "requirements_covered": [],
+    "properties_covered": [],
+    "paths_covered": [],
+    "gaps": []
+  }
+}

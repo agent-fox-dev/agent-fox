@@ -1,0 +1,479 @@
+{
+  "$schema": null,
+  "spec_id": "11",
+  "spec_name": "enrich_context_summaries",
+  "schema_version": 1,
+  "introduction": "This spec enriches same-spec context summaries injected into coder prompts by extending the session-summary schema with structured fields for rejected approaches, gotchas, and assumptions, and by suppressing trivial auto-generated summaries from reviewer and verifier sessions.",
+  "glossary": {
+    "05-knowledge-system-architecture.md": "The architecture documentation file at docs/architecture/05-knowledge-system-architecture.md describing the knowledge system design.",
+    "CONTEXT": "The prefix tag applied to same-spec context summary items when they are injected into coder prompts, e.g. [CONTEXT].",
+    "SummaryRecord": "The internal data structure passed to the knowledge store's insert operation, containing the composed summary text and session metadata.",
+    "assumptions": "A structured field in session-summary.json: an array of strings describing assumptions made during the session that might not hold for later task groups.",
+    "coder.md": "The agent profile template at _templates/profiles/coder.md that instructs coder agents how to behave and what to include in their session summaries.",
+    "compose_enriched_summary": "A new function in session_lifecycle.py that merges the narrative summary with structured rejected_approaches, gotchas, and assumptions into a single enriched text string for database storage.",
+    "formatting.py": "The Python module in the agentfox knowledge package containing helper functions including generate_archetype_summary().",
+    "generate_archetype_summary": "An existing function in formatting.py that auto-generates a summary string for reviewer and verifier sessions based on their findings or verdicts.",
+    "gotchas": "A structured field in session-summary.json: an array of strings warning the next coder about edge cases, fragile patterns, or counter-intuitive behavior.",
+    "rejected_approaches": "A structured field in session-summary.json: an array of objects each recording an approach that was tried and the reason it was rejected.",
+    "session-summary.json": "A JSON artifact produced at the end of each agent session capturing what the session accomplished; its fields are read by the session lifecycle to store a summary in the knowledge database.",
+    "session_lifecycle.py": "The Python module in the agentfox engine responsible for orchestrating session start, end, and summary extraction and storage.",
+    "session_summaries": "The DuckDB table that stores one summary row per agent session, keyed by spec and session identifiers.",
+    "summary": "The existing VARCHAR field in session_summaries and in session-summary.json that holds the human-readable description of what a session accomplished.",
+    "approach": "A string key within a rejected_approaches entry identifying the technique or strategy that was attempted.",
+    "reason": "A string key within a rejected_approaches entry explaining why the approach was abandoned.",
+    "tests_added_or_modified": "An existing field in session-summary.json listing test files added or changed during the session.",
+    "compose_enriched_summary()": "Invocation form of compose_enriched_summary — the new function that merges structured fields into a single summary text.",
+    "if summary_text:": "The existing truthiness guard in session_lifecycle.py that prevents database insertion when the summary text is None or empty."
+  },
+  "requirements": [
+    {
+      "id": "11-REQ-1",
+      "title": "Extended Session Summary Schema",
+      "user_story": {
+        "role": "coder agent",
+        "goal": "populate structured fields for rejected approaches, gotchas, and assumptions in session-summary.json",
+        "benefit": "so that non-obvious learnings from the session are captured in a machine-readable format that can be composed into an enriched summary"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "11-REQ-1.1",
+          "ears_pattern": "ubiquitous",
+          "system": "session-summary.json schema",
+          "action": "accepts an optional `rejected_approaches` field containing an array of objects, each with a string `approach` key and a string `reason` key",
+          "return_contract": "the JSON document is valid when `rejected_approaches` is present, absent, or an empty array"
+        },
+        {
+          "id": "11-REQ-1.2",
+          "ears_pattern": "ubiquitous",
+          "system": "session-summary.json schema",
+          "action": "accepts an optional `gotchas` field containing an array of strings",
+          "return_contract": "the JSON document is valid when `gotchas` is present, absent, or an empty array"
+        },
+        {
+          "id": "11-REQ-1.3",
+          "ears_pattern": "ubiquitous",
+          "system": "session-summary.json schema",
+          "action": "accepts an optional `assumptions` field containing an array of strings",
+          "return_contract": "the JSON document is valid when `assumptions` is present, absent, or an empty array"
+        },
+        {
+          "id": "11-REQ-1.4",
+          "ears_pattern": "ubiquitous",
+          "system": "session-summary.json schema",
+          "action": "preserves the existing `summary` and `tests_added_or_modified` fields without modification",
+          "return_contract": "documents that omit the three new fields continue to parse correctly with no errors"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "11-REQ-1.E1",
+          "ears_pattern": "unwanted",
+          "system": "session-summary.json parser",
+          "action": "treats the malformed entry as absent and does not raise an unhandled exception",
+          "return_contract": "the composition step skips the malformed entry and continues processing remaining entries",
+          "error_condition": "a `rejected_approaches` entry is missing the `approach` or `reason` key"
+        }
+      ]
+    },
+    {
+      "id": "11-REQ-2",
+      "title": "Enriched Coder Profile Instructions",
+      "user_story": {
+        "role": "engineering team",
+        "goal": "update the coder agent profile to instruct agents to populate structured summary fields",
+        "benefit": "so that coder agents consistently produce non-obvious learnings rather than completion-status noise in their session summaries"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "11-REQ-2.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`coder.md` profile template",
+          "action": "instructs agents to record what was surprising or non-obvious about the implementation in the `summary` field narrative",
+          "return_contract": null
+        },
+        {
+          "id": "11-REQ-2.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`coder.md` profile template",
+          "action": "instructs agents to populate `rejected_approaches` with each approach tried and why it was rejected",
+          "return_contract": null
+        },
+        {
+          "id": "11-REQ-2.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`coder.md` profile template",
+          "action": "instructs agents to populate `gotchas` with edge cases, fragile patterns, or counter-intuitive behaviors the next coder should watch out for",
+          "return_contract": null
+        },
+        {
+          "id": "11-REQ-2.4",
+          "ears_pattern": "ubiquitous",
+          "system": "`coder.md` profile template",
+          "action": "instructs agents to populate `assumptions` with assumptions made that might not hold for later task groups",
+          "return_contract": null
+        },
+        {
+          "id": "11-REQ-2.5",
+          "ears_pattern": "ubiquitous",
+          "system": "`coder.md` profile template",
+          "action": "updates the `summary` field instructions to focus on non-obvious learnings and targets approximately 500–1000 characters of genuinely useful context per session",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "11-REQ-3",
+      "title": "Summary Composition Function",
+      "user_story": {
+        "role": "session lifecycle module",
+        "goal": "call compose_enriched_summary() to merge structured fields into a single text before database storage",
+        "benefit": "so that the existing retrieval path and session_summaries table schema require no changes while still surfacing richer context to coder agents"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "11-REQ-3.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`compose_enriched_summary` function in `session_lifecycle.py`",
+          "action": "always includes the narrative `summary` field text as the first section of the composed output",
+          "return_contract": "returns a non-empty string beginning with the original summary text"
+        },
+        {
+          "id": "11-REQ-3.2",
+          "ears_pattern": "event_driven",
+          "system": "`compose_enriched_summary` function",
+          "action": "appends each entry formatted as \"Tried: {approach} — rejected because: {reason}\"",
+          "return_contract": "returned string contains one formatted line per entry, separated from the summary by a newline",
+          "trigger": "`rejected_approaches` contains one or more entries"
+        },
+        {
+          "id": "11-REQ-3.3",
+          "ears_pattern": "event_driven",
+          "system": "`compose_enriched_summary` function",
+          "action": "appends each entry formatted as \"Watch out: {gotcha}\"",
+          "return_contract": "returned string contains one formatted line per gotcha entry",
+          "trigger": "`gotchas` contains one or more entries"
+        },
+        {
+          "id": "11-REQ-3.4",
+          "ears_pattern": "event_driven",
+          "system": "`compose_enriched_summary` function",
+          "action": "appends each entry formatted as \"Assumes: {assumption}\"",
+          "return_contract": "returned string contains one formatted line per assumption entry",
+          "trigger": "`assumptions` contains one or more entries"
+        },
+        {
+          "id": "11-REQ-3.5",
+          "ears_pattern": "event_driven",
+          "system": "`session_lifecycle.py` summary extraction flow",
+          "action": "calls `compose_enriched_summary()` and stores the composed text in the `SummaryRecord` instead of the raw `summary` field",
+          "return_contract": "the `session_summaries` table row contains the fully composed enriched text",
+          "trigger": "a session-summary.json is processed for storage"
+        },
+        {
+          "id": "11-REQ-3.6",
+          "ears_pattern": "event_driven",
+          "system": "`compose_enriched_summary` function",
+          "action": "returns the raw `summary` field text unchanged",
+          "return_contract": "returned string equals the original summary text with no additional formatting",
+          "trigger": "none of the three structured fields are present or all are empty"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "11-REQ-3.E1",
+          "ears_pattern": "unwanted",
+          "system": "`compose_enriched_summary` function",
+          "action": "still appends any present structured field lines and returns the composed result",
+          "return_contract": "returns a string containing only the structured field lines, or an empty string if no structured fields exist",
+          "error_condition": "the `summary` field itself is an empty string"
+        },
+        {
+          "id": "11-REQ-3.E2",
+          "ears_pattern": "ubiquitous",
+          "system": "`compose_enriched_summary` function",
+          "action": "separates each section (summary, rejected approaches block, gotchas block, assumptions block) with a newline character",
+          "return_contract": "sections are delimited by newline characters with no trailing newline after the final section"
+        }
+      ]
+    },
+    {
+      "id": "11-REQ-4",
+      "title": "Skip Trivial Auto-Generated Summaries",
+      "user_story": {
+        "role": "knowledge system",
+        "goal": "suppress storage of no-findings reviewer and no-verdicts verifier summaries",
+        "benefit": "so that the session_summaries table no longer accumulates completion-status noise that consumes prompt budget without providing actionable information"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "11-REQ-4.1",
+          "ears_pattern": "event_driven",
+          "system": "`generate_archetype_summary` function in `formatting.py`",
+          "action": "returns None instead of the string \"Reviewer session completed with no findings.\"",
+          "return_contract": "return value is None (Python NoneType)",
+          "trigger": "called for a reviewer session that has no findings"
+        },
+        {
+          "id": "11-REQ-4.2",
+          "ears_pattern": "event_driven",
+          "system": "`generate_archetype_summary` function in `formatting.py`",
+          "action": "returns None instead of the string \"Verifier session completed with no verdicts.\"",
+          "return_contract": "return value is None (Python NoneType)",
+          "trigger": "called for a verifier session that has no verdicts"
+        },
+        {
+          "id": "11-REQ-4.3",
+          "ears_pattern": "event_driven",
+          "system": "`generate_archetype_summary` function in `formatting.py`",
+          "action": "generates and returns a summary string containing severity counts and top finding descriptions as before",
+          "return_contract": "returns a non-empty string; behavior is unchanged from the pre-existing implementation",
+          "trigger": "called for a reviewer session that has one or more findings"
+        },
+        {
+          "id": "11-REQ-4.4",
+          "ears_pattern": "event_driven",
+          "system": "`generate_archetype_summary` function in `formatting.py`",
+          "action": "generates and returns a summary string containing failed requirement IDs and verdict details as before",
+          "return_contract": "returns a non-empty string; behavior is unchanged from the pre-existing implementation",
+          "trigger": "called for a verifier session that has one or more verdicts"
+        },
+        {
+          "id": "11-REQ-4.5",
+          "ears_pattern": "event_driven",
+          "system": "session lifecycle code",
+          "action": "does not insert any row into `session_summaries` for that session, relying on the existing `if summary_text:` guard",
+          "return_contract": "no row is written to the `session_summaries` table for the session",
+          "trigger": "`generate_archetype_summary` returns None"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "11-REQ-4.E1",
+          "ears_pattern": "unwanted",
+          "system": "`generate_archetype_summary` function",
+          "action": "treats the session as having no findings and returns None",
+          "return_contract": "return value is None (Python NoneType)",
+          "error_condition": "a reviewer session has findings data that is structurally present but all counts are zero"
+        }
+      ]
+    },
+    {
+      "id": "11-REQ-5",
+      "title": "Architecture Documentation Update",
+      "user_story": {
+        "role": "engineering team",
+        "goal": "update 05-knowledge-system-architecture.md to reflect enriched summaries and suppression of trivial summaries",
+        "benefit": "so that developers reading the architecture documentation have an accurate picture of what is stored in session_summaries and why"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "11-REQ-5.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`05-knowledge-system-architecture.md` Section 4.2",
+          "action": "describes the enriched `session-summary.json` schema including `rejected_approaches`, `gotchas`, and `assumptions` fields, and the composition step that transforms them into the stored text",
+          "return_contract": null
+        },
+        {
+          "id": "11-REQ-5.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`05-knowledge-system-architecture.md` Section 5.5",
+          "action": "notes that `session_summaries` rows now contain non-obvious learnings (rejected approaches, gotchas, assumptions) rather than completion-status pings",
+          "return_contract": null
+        },
+        {
+          "id": "11-REQ-5.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`05-knowledge-system-architecture.md` Section 6 retrieval table",
+          "action": "updates the Same-spec summaries row description to reflect enriched content sourced from structured session-summary fields",
+          "return_contract": null
+        },
+        {
+          "id": "11-REQ-5.4",
+          "ears_pattern": "ubiquitous",
+          "system": "`05-knowledge-system-architecture.md` Section 11",
+          "action": "updates the Cross-session continuity paragraph to describe that same-spec summaries contain rejected approaches, gotchas, and assumptions rather than generic completion status",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    }
+  ],
+  "correctness_properties": [
+    {
+      "id": "11-PROP-1",
+      "title": "Backward Compatibility of Schema Extension",
+      "for_any": "session-summary.json file that does not contain `rejected_approaches`, `gotchas`, or `assumptions` fields",
+      "invariant": "`compose_enriched_summary` returns a string equal to the original `summary` field value with no additional formatting or content",
+      "validates": [
+        "11-REQ-1.4",
+        "11-REQ-3.6"
+      ]
+    },
+    {
+      "id": "11-PROP-2",
+      "title": "No Trivial Reviewer/Verifier Summaries Stored",
+      "for_any": "reviewer session with zero findings or verifier session with zero verdicts",
+      "invariant": "`generate_archetype_summary` returns None and no row is written to `session_summaries` for that session",
+      "validates": [
+        "11-REQ-4.1",
+        "11-REQ-4.2",
+        "11-REQ-4.5"
+      ]
+    },
+    {
+      "id": "11-PROP-3",
+      "title": "Composition Includes All Present Structured Fields",
+      "for_any": "session-summary.json with at least one non-empty structured field (`rejected_approaches`, `gotchas`, or `assumptions`)",
+      "invariant": "the text stored in `session_summaries` contains a formatted line for every entry in every non-empty structured field, using the prescribed format strings",
+      "validates": [
+        "11-REQ-3.2",
+        "11-REQ-3.3",
+        "11-REQ-3.4",
+        "11-REQ-3.5"
+      ]
+    },
+    {
+      "id": "11-PROP-4",
+      "title": "Findings-Present Reviewer Summaries Are Unaffected",
+      "for_any": "reviewer session with one or more findings",
+      "invariant": "`generate_archetype_summary` returns a non-empty string and a row is written to `session_summaries`",
+      "validates": [
+        "11-REQ-4.3",
+        "11-REQ-4.5"
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "11-PATH-1",
+      "title": "Coder session produces enriched summary and stores it",
+      "steps": [
+        {
+          "actor": "Coder agent",
+          "action": "completes task group work and writes session-summary.json with summary text, rejected_approaches, gotchas, and assumptions fields populated"
+        },
+        {
+          "actor": "Session lifecycle",
+          "action": "reads session-summary.json and extracts all fields including the three new structured fields"
+        },
+        {
+          "actor": "Session lifecycle",
+          "action": "calls compose_enriched_summary() passing the summary text and structured fields"
+        },
+        {
+          "actor": "compose_enriched_summary function",
+          "action": "returns a composed string combining the narrative summary with formatted rejected_approaches, gotchas, and assumptions lines"
+        },
+        {
+          "actor": "Session lifecycle",
+          "action": "stores the composed text in the session_summaries table as the summary for this session"
+        },
+        {
+          "actor": "Knowledge store",
+          "action": "persists the enriched SummaryRecord row; the [CONTEXT] item injected into future coder prompts contains non-obvious learnings"
+        }
+      ]
+    },
+    {
+      "id": "11-PATH-2",
+      "title": "Reviewer session with no findings produces no summary",
+      "steps": [
+        {
+          "actor": "Reviewer agent",
+          "action": "completes a review session and reports zero findings"
+        },
+        {
+          "actor": "Session lifecycle",
+          "action": "calls generate_archetype_summary() for the reviewer session"
+        },
+        {
+          "actor": "generate_archetype_summary function",
+          "action": "detects no findings and returns None instead of the trivial noise string"
+        },
+        {
+          "actor": "Session lifecycle",
+          "action": "evaluates the existing if summary_text: guard, finds None, and skips database insertion"
+        },
+        {
+          "actor": "Knowledge store",
+          "action": "receives no insert call; no session_summaries row is created for this session"
+        }
+      ]
+    },
+    {
+      "id": "11-PATH-3",
+      "title": "Old session-summary.json without structured fields is stored unchanged",
+      "steps": [
+        {
+          "actor": "Session lifecycle",
+          "action": "reads a legacy session-summary.json that contains only the summary field and no rejected_approaches, gotchas, or assumptions fields"
+        },
+        {
+          "actor": "Session lifecycle",
+          "action": "calls compose_enriched_summary() with only the raw summary text and empty/absent structured fields"
+        },
+        {
+          "actor": "compose_enriched_summary function",
+          "action": "detects no structured fields and returns the raw summary text unchanged"
+        },
+        {
+          "actor": "Session lifecycle",
+          "action": "stores the raw summary text in session_summaries with no modification"
+        }
+      ]
+    },
+    {
+      "id": "11-PATH-4",
+      "title": "Reviewer session with findings produces and stores a summary",
+      "steps": [
+        {
+          "actor": "Reviewer agent",
+          "action": "completes a review session and records multiple findings with severity levels"
+        },
+        {
+          "actor": "Session lifecycle",
+          "action": "calls generate_archetype_summary() for the reviewer session"
+        },
+        {
+          "actor": "generate_archetype_summary function",
+          "action": "detects findings present and returns a non-empty summary string with severity counts and top finding descriptions"
+        },
+        {
+          "actor": "Session lifecycle",
+          "action": "evaluates the if summary_text: guard, finds a non-empty string, and proceeds to store"
+        },
+        {
+          "actor": "Knowledge store",
+          "action": "persists the findings-based SummaryRecord row to session_summaries"
+        }
+      ]
+    }
+  ],
+  "error_handling": [
+    {
+      "id": "11-ERR-1",
+      "condition": "A rejected_approaches entry in session-summary.json is missing the approach or reason key",
+      "behavior": "The compose_enriched_summary function skips the malformed entry and continues composing from remaining valid entries; no exception is propagated",
+      "requirement_id": "11-REQ-1.E1"
+    },
+    {
+      "id": "11-ERR-2",
+      "condition": "The summary field in session-summary.json is an empty string",
+      "behavior": "compose_enriched_summary appends any present structured field lines and returns the result; if no structured fields exist it returns an empty string",
+      "requirement_id": "11-REQ-3.E1"
+    },
+    {
+      "id": "11-ERR-3",
+      "condition": "generate_archetype_summary returns None for a no-findings reviewer or no-verdicts verifier session",
+      "behavior": "The session lifecycle if summary_text: guard evaluates to False and no row is inserted into session_summaries",
+      "requirement_id": "11-REQ-4.5"
+    },
+    {
+      "id": "11-ERR-4",
+      "condition": "A reviewer session has findings data present but all severity counts are zero",
+      "behavior": "generate_archetype_summary treats the session as having no findings and returns None, resulting in no summary being stored",
+      "requirement_id": "11-REQ-4.E1"
+    }
+  ]
+}

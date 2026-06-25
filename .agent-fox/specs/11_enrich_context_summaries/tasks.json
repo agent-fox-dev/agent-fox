@@ -1,0 +1,1020 @@
+{
+  "$schema": null,
+  "spec_id": "11",
+  "spec_name": "enrich_context_summaries",
+  "schema_version": 1,
+  "test_commands": {
+    "spec_tests": "uv run pytest packages/agentfox/tests/ -q -k 'spec11 or enrich_context'",
+    "all_tests": "uv run pytest packages/agentfox/tests/ -q",
+    "linter": "uv run ruff check packages/agentfox/agentfox/"
+  },
+  "dependencies": [],
+  "task_groups": [
+    {
+      "id": 1,
+      "kind": "tests",
+      "title": "Write Spec Tests for Enriched Summaries",
+      "subtasks": [
+        {
+          "id": "1.1",
+          "title": "Write unit tests for compose_enriched_summary function",
+          "details": [
+            "Create test file packages/agentfox/tests/test_spec11_compose_enriched_summary.py",
+            "Test that raw summary text always appears first in composed output (TS-11-10)",
+            "Test rejected_approaches formatting as 'Tried: {approach} — rejected because: {reason}' (TS-11-11)",
+            "Test gotchas formatting as 'Watch out: {gotcha}' (TS-11-12)",
+            "Test assumptions formatting as 'Assumes: {assumption}' (TS-11-13)",
+            "Test backward-compat path: None/empty structured fields returns raw summary unchanged (TS-11-15)"
+          ],
+          "test_spec_refs": [
+            "TS-11-10",
+            "TS-11-11",
+            "TS-11-12",
+            "TS-11-13",
+            "TS-11-15"
+          ],
+          "requirement_refs": [
+            "11-REQ-3.1",
+            "11-REQ-3.2",
+            "11-REQ-3.3",
+            "11-REQ-3.4",
+            "11-REQ-3.6"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.2",
+          "title": "Write edge case tests for compose_enriched_summary",
+          "details": [
+            "Test that malformed rejected_approaches entry (missing 'approach' key) is skipped gracefully, no exception raised (TS-11-E1)",
+            "Test empty summary string with structured fields present returns composed result without error (TS-11-E2)",
+            "Test that sections are separated by newlines and output does not end with trailing newline (TS-11-E3)"
+          ],
+          "test_spec_refs": [
+            "TS-11-E1",
+            "TS-11-E2",
+            "TS-11-E3"
+          ],
+          "requirement_refs": [
+            "11-REQ-1.E1",
+            "11-REQ-3.E1",
+            "11-REQ-3.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.3",
+          "title": "Write unit tests for generate_archetype_summary changes in formatting.py",
+          "details": [
+            "Create test file packages/agentfox/tests/test_spec11_generate_archetype_summary.py",
+            "Test returns None for reviewer session with empty findings list (TS-11-16)",
+            "Test returns None for verifier session with empty verdicts list (TS-11-17)",
+            "Test returns non-empty string for reviewer with findings present (TS-11-18)",
+            "Test returns non-empty string for verifier with verdicts present (TS-11-19)",
+            "Test returns None for reviewer with findings data present but all counts zero (TS-11-E4)"
+          ],
+          "test_spec_refs": [
+            "TS-11-16",
+            "TS-11-17",
+            "TS-11-18",
+            "TS-11-19",
+            "TS-11-E4"
+          ],
+          "requirement_refs": [
+            "11-REQ-4.1",
+            "11-REQ-4.2",
+            "11-REQ-4.3",
+            "11-REQ-4.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.4",
+          "title": "Write integration and smoke tests for session lifecycle summary storage",
+          "details": [
+            "Create test file packages/agentfox/tests/test_spec11_lifecycle_integration.py",
+            "Write integration test: enriched session-summary.json is composed and stored in session_summaries DuckDB table (TS-11-14)",
+            "Write integration test: generate_archetype_summary returning None results in zero rows inserted (TS-11-20)",
+            "Write SMOKE-1: full coder session enriched summary end-to-end (TS-11-SMOKE-1)",
+            "Write SMOKE-2: reviewer no-findings produces zero session_summaries rows (TS-11-SMOKE-2)",
+            "Write SMOKE-3: legacy session-summary.json stored unchanged (TS-11-SMOKE-3)",
+            "Write SMOKE-4: reviewer with findings stores non-empty summary row (TS-11-SMOKE-4)"
+          ],
+          "test_spec_refs": [
+            "TS-11-14",
+            "TS-11-20",
+            "TS-11-SMOKE-1",
+            "TS-11-SMOKE-2",
+            "TS-11-SMOKE-3",
+            "TS-11-SMOKE-4"
+          ],
+          "requirement_refs": [
+            "11-REQ-3.5",
+            "11-REQ-4.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.5",
+          "title": "Write property-based tests for backward compatibility and composition invariants",
+          "details": [
+            "Use hypothesis library for property-based tests",
+            "TS-11-P1: For any summary string with no structured fields, compose_enriched_summary returns it unchanged",
+            "TS-11-P2: For any reviewer/verifier with zero findings/verdicts, generate_archetype_summary always returns None and no row is stored",
+            "TS-11-P3: For any non-empty structured fields, every entry appears in stored text using prescribed format strings",
+            "TS-11-P4: For any reviewer session with 1+ findings, returns non-empty string and a row is stored"
+          ],
+          "test_spec_refs": [
+            "TS-11-P1",
+            "TS-11-P2",
+            "TS-11-P3",
+            "TS-11-P4"
+          ],
+          "requirement_refs": [
+            "11-REQ-1.4",
+            "11-REQ-3.6",
+            "11-REQ-4.1",
+            "11-REQ-4.2",
+            "11-REQ-4.5",
+            "11-REQ-3.2",
+            "11-REQ-3.3",
+            "11-REQ-3.4",
+            "11-REQ-4.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.V",
+          "title": "Verify all spec tests are written and collected by pytest",
+          "details": [],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "",
+        "checks": []
+      }
+    },
+    {
+      "id": 2,
+      "kind": "standard",
+      "title": "Extend Session Summary Schema with Structured Fields",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Add rejected_approaches, gotchas, and assumptions to session-summary schema",
+          "details": [
+            "Locate the session-summary.json schema definition in the agentfox package (likely a Pydantic model or JSON schema file)",
+            "Add optional field `rejected_approaches`: list of objects with 'approach' (str) and 'reason' (str) keys, default None or omitted",
+            "Add optional field `gotchas`: list of strings, default None or omitted",
+            "Add optional field `assumptions`: list of strings, default None or omitted",
+            "Ensure existing `summary` and `tests_added_or_modified` fields are unchanged",
+            "Ensure old session-summary.json files that omit the new fields continue to parse without errors (backward compatibility)"
+          ],
+          "test_spec_refs": [
+            "TS-11-1",
+            "TS-11-2",
+            "TS-11-3",
+            "TS-11-4"
+          ],
+          "requirement_refs": [
+            "11-REQ-1.1",
+            "11-REQ-1.2",
+            "11-REQ-1.3",
+            "11-REQ-1.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.2",
+          "title": "Handle malformed rejected_approaches entries gracefully",
+          "details": [
+            "Ensure the schema or parsing layer treats a rejected_approaches entry missing 'approach' or 'reason' as absent rather than raising an unhandled exception",
+            "If using Pydantic, add a validator that filters out malformed entries and logs a warning",
+            "Confirm the rest of the document continues to parse normally after skipping the malformed entry"
+          ],
+          "test_spec_refs": [
+            "TS-11-E1"
+          ],
+          "requirement_refs": [
+            "11-REQ-1.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.V",
+          "title": "Verify schema extension is correct and backward compatible",
+          "details": [],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "",
+        "checks": []
+      }
+    },
+    {
+      "id": 3,
+      "kind": "standard",
+      "title": "Implement compose_enriched_summary Function",
+      "subtasks": [
+        {
+          "id": "3.1",
+          "title": "Add compose_enriched_summary function to session_lifecycle.py",
+          "details": [
+            "Add function compose_enriched_summary(summary: str, rejected_approaches: list | None, gotchas: list | None, assumptions: list | None) -> str to packages/agentfox/agentfox/engine/session_lifecycle.py",
+            "Always start with the narrative summary text as the first section",
+            "If rejected_approaches has entries, append each formatted as 'Tried: {approach} — rejected because: {reason}' on its own line",
+            "If gotchas has entries, append each formatted as 'Watch out: {gotcha}' on its own line",
+            "If assumptions has entries, append each formatted as 'Assumes: {assumption}' on its own line",
+            "Separate sections with newlines; no trailing newline after the final line",
+            "When all structured fields are None or empty, return the raw summary string unchanged"
+          ],
+          "test_spec_refs": [
+            "TS-11-10",
+            "TS-11-11",
+            "TS-11-12",
+            "TS-11-13",
+            "TS-11-15"
+          ],
+          "requirement_refs": [
+            "11-REQ-3.1",
+            "11-REQ-3.2",
+            "11-REQ-3.3",
+            "11-REQ-3.4",
+            "11-REQ-3.6"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.2",
+          "title": "Handle edge cases: empty summary, malformed entries, no trailing newline",
+          "details": [
+            "Skip any rejected_approaches entry missing 'approach' or 'reason' key without raising an exception",
+            "When summary is an empty string and structured fields exist, return only the structured field lines",
+            "When summary is an empty string and no structured fields exist, return an empty string",
+            "Verify output does not end with a trailing newline character"
+          ],
+          "test_spec_refs": [
+            "TS-11-E1",
+            "TS-11-E2",
+            "TS-11-E3"
+          ],
+          "requirement_refs": [
+            "11-REQ-1.E1",
+            "11-REQ-3.E1",
+            "11-REQ-3.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.3",
+          "title": "Integrate compose_enriched_summary into the session lifecycle summary extraction flow",
+          "details": [
+            "Locate the existing summary extraction and SummaryRecord construction code in session_lifecycle.py",
+            "After reading session-summary.json fields, call compose_enriched_summary() with the summary text and the three structured fields (defaulting to None if absent)",
+            "Assign the composed text to the SummaryRecord's summary field instead of the raw summary string",
+            "Confirm the existing 'if summary_text:' guard downstream is not disturbed"
+          ],
+          "test_spec_refs": [
+            "TS-11-14",
+            "TS-11-SMOKE-1",
+            "TS-11-SMOKE-3"
+          ],
+          "requirement_refs": [
+            "11-REQ-3.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.V",
+          "title": "Verify compose_enriched_summary implementation and integration",
+          "details": [],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "",
+        "checks": []
+      }
+    },
+    {
+      "id": 4,
+      "kind": "standard",
+      "title": "Modify generate_archetype_summary to Return None for Trivial Sessions",
+      "subtasks": [
+        {
+          "id": "4.1",
+          "title": "Update generate_archetype_summary to return None for no-findings reviewer sessions",
+          "details": [
+            "Open packages/agentfox/agentfox/knowledge/formatting.py",
+            "Locate generate_archetype_summary() function",
+            "Change the reviewer branch: when findings list is empty OR all severity counts are zero, return None instead of the string 'Reviewer session completed with no findings.'",
+            "Ensure the check handles both an empty list and a list where every entry has count == 0"
+          ],
+          "test_spec_refs": [
+            "TS-11-16",
+            "TS-11-E4"
+          ],
+          "requirement_refs": [
+            "11-REQ-4.1",
+            "11-REQ-4.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.2",
+          "title": "Update generate_archetype_summary to return None for no-verdicts verifier sessions",
+          "details": [
+            "In formatting.py, change the verifier branch: when verdicts list is empty, return None instead of the string 'Verifier session completed with no verdicts.'",
+            "Reviewer and verifier sessions with findings/verdicts present must continue to return non-empty strings as before (behavior unchanged)"
+          ],
+          "test_spec_refs": [
+            "TS-11-17"
+          ],
+          "requirement_refs": [
+            "11-REQ-4.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.3",
+          "title": "Confirm existing if summary_text: guard in session_lifecycle.py handles None correctly",
+          "details": [
+            "Locate the 'if summary_text:' guard in session_lifecycle.py that controls insertion into session_summaries",
+            "Confirm it evaluates to False when generate_archetype_summary returns None — no code change needed, just verify the guard is in place",
+            "If the guard is missing or does not handle None, add it",
+            "Document finding in code comment"
+          ],
+          "test_spec_refs": [
+            "TS-11-20",
+            "TS-11-SMOKE-2"
+          ],
+          "requirement_refs": [
+            "11-REQ-4.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.V",
+          "title": "Verify generate_archetype_summary changes and no-insert behavior",
+          "details": [],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "",
+        "checks": []
+      }
+    },
+    {
+      "id": 5,
+      "kind": "standard",
+      "title": "Update Coder Profile Instructions in coder.md",
+      "subtasks": [
+        {
+          "id": "5.1",
+          "title": "Update summary field instructions to target non-obvious learnings",
+          "details": [
+            "Open packages/agentfox/agentfox/_templates/profiles/coder.md",
+            "Locate the session summary section",
+            "Update the `summary` field instruction to explicitly ask for what was surprising or non-obvious about the implementation",
+            "Add language that the target is ~500–1000 characters of genuinely useful context per session, not completion-status description"
+          ],
+          "test_spec_refs": [
+            "TS-11-5",
+            "TS-11-9"
+          ],
+          "requirement_refs": [
+            "11-REQ-2.1",
+            "11-REQ-2.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.2",
+          "title": "Add instructions for rejected_approaches, gotchas, and assumptions fields",
+          "details": [
+            "In coder.md, add instructions to populate `rejected_approaches` with each approach tried and why it was rejected",
+            "Add instructions to populate `gotchas` with edge cases, fragile patterns, or counter-intuitive behaviors the next coder should watch out for",
+            "Add instructions to populate `assumptions` with assumptions made that might not hold for later task groups",
+            "Include a sample session-summary.json snippet showing all three new fields populated with example values"
+          ],
+          "test_spec_refs": [
+            "TS-11-6",
+            "TS-11-7",
+            "TS-11-8"
+          ],
+          "requirement_refs": [
+            "11-REQ-2.2",
+            "11-REQ-2.3",
+            "11-REQ-2.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.V",
+          "title": "Verify coder.md contains required instructions for all structured fields",
+          "details": [],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "",
+        "checks": []
+      }
+    },
+    {
+      "id": 6,
+      "kind": "standard",
+      "title": "Update Architecture Documentation",
+      "subtasks": [
+        {
+          "id": "6.1",
+          "title": "Update Section 4.2 and Section 5.5 of 05-knowledge-system-architecture.md",
+          "details": [
+            "Open docs/architecture/05-knowledge-system-architecture.md",
+            "In Section 4.2 (Session Summary Storage): describe the enriched session-summary.json schema including rejected_approaches, gotchas, and assumptions fields; describe the compose_enriched_summary composition step that transforms these into the stored text",
+            "In Section 5.5 (session_summaries table): note that rows now contain non-obvious learnings — rejected approaches, gotchas, and assumptions — rather than completion-status pings"
+          ],
+          "test_spec_refs": [
+            "TS-11-21",
+            "TS-11-22"
+          ],
+          "requirement_refs": [
+            "11-REQ-5.1",
+            "11-REQ-5.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.2",
+          "title": "Update Section 6 retrieval table and Section 11 design principles",
+          "details": [
+            "In Section 6 retrieval table: update the 'Same-spec summaries' row description to reflect enriched content sourced from structured session-summary fields (rejected approaches, gotchas, assumptions)",
+            "In Section 11 (Design Principles): update the 'Cross-session continuity' paragraph to describe that same-spec summaries now contain rejected approaches, gotchas, and assumptions rather than generic completion status"
+          ],
+          "test_spec_refs": [
+            "TS-11-23",
+            "TS-11-24"
+          ],
+          "requirement_refs": [
+            "11-REQ-5.3",
+            "11-REQ-5.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.V",
+          "title": "Verify architecture documentation contains all required updates",
+          "details": [],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "",
+        "checks": []
+      }
+    },
+    {
+      "id": 7,
+      "kind": "checkpoint",
+      "title": "Mid-Spec Verification Gate: All Unit and Integration Tests Pass",
+      "subtasks": [
+        {
+          "id": "7.1",
+          "title": "Run full test suite and confirm all spec tests pass",
+          "details": [
+            "Run: uv run pytest packages/agentfox/tests/test_spec11_*.py -q and confirm all tests pass",
+            "Run: uv run pytest packages/agentfox/tests/ -q and confirm no regressions in existing tests",
+            "Address any failures before proceeding to wiring verification"
+          ],
+          "test_spec_refs": [
+            "TS-11-1",
+            "TS-11-2",
+            "TS-11-3",
+            "TS-11-4",
+            "TS-11-10",
+            "TS-11-11",
+            "TS-11-12",
+            "TS-11-13",
+            "TS-11-14",
+            "TS-11-15",
+            "TS-11-16",
+            "TS-11-17",
+            "TS-11-18",
+            "TS-11-19",
+            "TS-11-20"
+          ],
+          "requirement_refs": [
+            "11-REQ-1.1",
+            "11-REQ-1.2",
+            "11-REQ-1.3",
+            "11-REQ-1.4",
+            "11-REQ-3.1",
+            "11-REQ-3.2",
+            "11-REQ-3.3",
+            "11-REQ-3.4",
+            "11-REQ-3.5",
+            "11-REQ-3.6",
+            "11-REQ-4.1",
+            "11-REQ-4.2",
+            "11-REQ-4.3",
+            "11-REQ-4.4",
+            "11-REQ-4.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.2",
+          "title": "Run property-based tests and confirm invariants hold",
+          "details": [
+            "Run: uv run pytest packages/agentfox/tests/test_spec11_*.py -q -k 'property' and confirm all property tests pass",
+            "Confirm backward-compatibility invariant (TS-11-P1): compose_enriched_summary returns raw summary unchanged for any input without structured fields",
+            "Confirm no-trivial-summaries invariant (TS-11-P2): None always returned and no row stored for zero-findings/verdicts sessions",
+            "Confirm composition completeness (TS-11-P3) and findings-present invariant (TS-11-P4)"
+          ],
+          "test_spec_refs": [
+            "TS-11-P1",
+            "TS-11-P2",
+            "TS-11-P3",
+            "TS-11-P4"
+          ],
+          "requirement_refs": [
+            "11-REQ-1.4",
+            "11-REQ-3.6",
+            "11-REQ-4.1",
+            "11-REQ-4.2",
+            "11-REQ-4.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.3",
+          "title": "Run linter and confirm no new warnings",
+          "details": [
+            "Run: uv run ruff check packages/agentfox/agentfox/ and confirm zero new warnings introduced by this spec's changes",
+            "Confirm files changed: session_lifecycle.py, formatting.py, coder.md, 05-knowledge-system-architecture.md"
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.V",
+          "title": "Verify checkpoint: all implementation groups are complete and tests pass",
+          "details": [],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "",
+        "checks": []
+      }
+    },
+    {
+      "id": 8,
+      "kind": "wiring_verification",
+      "title": "Wiring Verification: End-to-End Integration and Smoke Tests",
+      "subtasks": [
+        {
+          "id": "8.1",
+          "title": "Trace execution paths — verify each path's call chain has no stubs",
+          "details": [
+            "PATH-1: Confirm session lifecycle reads session-summary.json → calls compose_enriched_summary() → stores composed text to session_summaries. No stubs remain in this chain.",
+            "PATH-2: Confirm session lifecycle calls generate_archetype_summary() → receives None → if summary_text: guard skips insertion. No stubs remain.",
+            "PATH-3: Confirm legacy session-summary.json (no structured fields) → compose_enriched_summary returns raw summary → stored unchanged.",
+            "PATH-4: Confirm reviewer session with findings → generate_archetype_summary returns non-empty string → row inserted into session_summaries.",
+            "Search for stub markers: grep -r 'raise NotImplementedError\\|pass  # TODO\\|return None  # stub' packages/agentfox/agentfox/engine/session_lifecycle.py packages/agentfox/agentfox/knowledge/formatting.py — must be empty"
+          ],
+          "test_spec_refs": [
+            "TS-11-SMOKE-1",
+            "TS-11-SMOKE-2",
+            "TS-11-SMOKE-3",
+            "TS-11-SMOKE-4"
+          ],
+          "requirement_refs": [
+            "11-REQ-3.5",
+            "11-REQ-4.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.2",
+          "title": "Verify return value propagation across the call chain",
+          "details": [
+            "Confirm compose_enriched_summary return value is assigned to SummaryRecord.summary and not discarded",
+            "Confirm generate_archetype_summary return value of None propagates to the 'if summary_text:' guard and prevents insertion",
+            "Confirm generate_archetype_summary return value for sessions with findings is used as the stored summary text",
+            "Manually inspect session_lifecycle.py call sites to confirm no intermediate variable is overwritten before storage"
+          ],
+          "test_spec_refs": [
+            "TS-11-14",
+            "TS-11-20"
+          ],
+          "requirement_refs": [
+            "11-REQ-3.1",
+            "11-REQ-3.5",
+            "11-REQ-4.1",
+            "11-REQ-4.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.3",
+          "title": "Run all smoke tests with real components",
+          "details": [
+            "Run: uv run pytest packages/agentfox/tests/test_spec11_lifecycle_integration.py -q -k 'smoke' with real DuckDB instance (not mocked)",
+            "SMOKE-1: Verify session_summaries row contains 'Tried: ...', 'Watch out: ...', 'Assumes: ...' lines for enriched coder session",
+            "SMOKE-2: Verify session_summaries row count is 0 for reviewer session with no findings",
+            "SMOKE-3: Verify stored summary equals original summary text exactly for legacy session-summary.json",
+            "SMOKE-4: Verify session_summaries row count is 1 and contains finding content for reviewer session with findings"
+          ],
+          "test_spec_refs": [
+            "TS-11-SMOKE-1",
+            "TS-11-SMOKE-2",
+            "TS-11-SMOKE-3",
+            "TS-11-SMOKE-4"
+          ],
+          "requirement_refs": [
+            "11-REQ-3.5",
+            "11-REQ-4.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.4",
+          "title": "Stub and dead-code audit across all changed files",
+          "details": [
+            "Run: grep -n 'raise NotImplementedError\\|pass$\\|TODO\\|FIXME\\|# stub' packages/agentfox/agentfox/engine/session_lifecycle.py — must find no results related to this spec's additions",
+            "Run: grep -n 'raise NotImplementedError\\|TODO\\|FIXME' packages/agentfox/agentfox/knowledge/formatting.py — must find no results related to this spec's changes",
+            "Confirm compose_enriched_summary has a full implementation body with no placeholder return statements",
+            "Confirm generate_archetype_summary no-findings/no-verdicts branches return None (not a placeholder string)"
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.5",
+          "title": "Run full test suite and confirm no regressions",
+          "details": [
+            "Run: uv run pytest packages/agentfox/tests/ -q and confirm all tests pass including pre-existing tests",
+            "Run: uv run ruff check packages/agentfox/agentfox/ and confirm zero warnings",
+            "Confirm all 24 unit/integration tests, 4 property tests, 4 edge-case tests, and 4 smoke tests pass"
+          ],
+          "test_spec_refs": [
+            "TS-11-1",
+            "TS-11-2",
+            "TS-11-3",
+            "TS-11-4",
+            "TS-11-5",
+            "TS-11-6",
+            "TS-11-7",
+            "TS-11-8",
+            "TS-11-9",
+            "TS-11-10",
+            "TS-11-11",
+            "TS-11-12",
+            "TS-11-13",
+            "TS-11-14",
+            "TS-11-15",
+            "TS-11-16",
+            "TS-11-17",
+            "TS-11-18",
+            "TS-11-19",
+            "TS-11-20",
+            "TS-11-21",
+            "TS-11-22",
+            "TS-11-23",
+            "TS-11-24",
+            "TS-11-P1",
+            "TS-11-P2",
+            "TS-11-P3",
+            "TS-11-P4",
+            "TS-11-E1",
+            "TS-11-E2",
+            "TS-11-E3",
+            "TS-11-E4"
+          ],
+          "requirement_refs": [
+            "11-REQ-1.1",
+            "11-REQ-1.2",
+            "11-REQ-1.3",
+            "11-REQ-1.4",
+            "11-REQ-2.1",
+            "11-REQ-2.2",
+            "11-REQ-2.3",
+            "11-REQ-2.4",
+            "11-REQ-2.5",
+            "11-REQ-3.1",
+            "11-REQ-3.2",
+            "11-REQ-3.3",
+            "11-REQ-3.4",
+            "11-REQ-3.5",
+            "11-REQ-3.6",
+            "11-REQ-4.1",
+            "11-REQ-4.2",
+            "11-REQ-4.3",
+            "11-REQ-4.4",
+            "11-REQ-4.5",
+            "11-REQ-5.1",
+            "11-REQ-5.2",
+            "11-REQ-5.3",
+            "11-REQ-5.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.V",
+          "title": "Final wiring verification: all paths traced, smoke tests pass, no stubs remain",
+          "details": [],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "",
+        "checks": []
+      }
+    }
+  ],
+  "traceability": [
+    {
+      "requirement_id": "11-REQ-1.1",
+      "test_spec_id": "TS-11-1",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "11-REQ-1.2",
+      "test_spec_id": "TS-11-2",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "11-REQ-1.3",
+      "test_spec_id": "TS-11-3",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "11-REQ-1.4",
+      "test_spec_id": "TS-11-4",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "11-REQ-1.4",
+      "test_spec_id": "TS-11-P1",
+      "task_id": "1.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "11-REQ-1.E1",
+      "test_spec_id": "TS-11-E1",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "11-REQ-2.1",
+      "test_spec_id": "TS-11-5",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "11-REQ-2.2",
+      "test_spec_id": "TS-11-6",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "11-REQ-2.3",
+      "test_spec_id": "TS-11-7",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "11-REQ-2.4",
+      "test_spec_id": "TS-11-8",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "11-REQ-2.5",
+      "test_spec_id": "TS-11-9",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "11-REQ-3.1",
+      "test_spec_id": "TS-11-10",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "11-REQ-3.2",
+      "test_spec_id": "TS-11-11",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "11-REQ-3.2",
+      "test_spec_id": "TS-11-P3",
+      "task_id": "1.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "11-REQ-3.3",
+      "test_spec_id": "TS-11-12",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "11-REQ-3.3",
+      "test_spec_id": "TS-11-P3",
+      "task_id": "1.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "11-REQ-3.4",
+      "test_spec_id": "TS-11-13",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "11-REQ-3.4",
+      "test_spec_id": "TS-11-P3",
+      "task_id": "1.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "11-REQ-3.5",
+      "test_spec_id": "TS-11-14",
+      "task_id": "3.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "11-REQ-3.5",
+      "test_spec_id": "TS-11-P3",
+      "task_id": "1.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "11-REQ-3.6",
+      "test_spec_id": "TS-11-15",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "11-REQ-3.6",
+      "test_spec_id": "TS-11-P1",
+      "task_id": "1.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "11-REQ-3.E1",
+      "test_spec_id": "TS-11-E2",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "11-REQ-3.E2",
+      "test_spec_id": "TS-11-E3",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "11-REQ-4.1",
+      "test_spec_id": "TS-11-16",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "11-REQ-4.1",
+      "test_spec_id": "TS-11-P2",
+      "task_id": "1.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "11-REQ-4.2",
+      "test_spec_id": "TS-11-17",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "11-REQ-4.2",
+      "test_spec_id": "TS-11-P2",
+      "task_id": "1.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "11-REQ-4.3",
+      "test_spec_id": "TS-11-18",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "11-REQ-4.3",
+      "test_spec_id": "TS-11-P4",
+      "task_id": "1.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "11-REQ-4.4",
+      "test_spec_id": "TS-11-19",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "11-REQ-4.5",
+      "test_spec_id": "TS-11-20",
+      "task_id": "4.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "11-REQ-4.5",
+      "test_spec_id": "TS-11-P2",
+      "task_id": "1.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "11-REQ-4.E1",
+      "test_spec_id": "TS-11-E4",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "11-REQ-5.1",
+      "test_spec_id": "TS-11-21",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "11-REQ-5.2",
+      "test_spec_id": "TS-11-22",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "11-REQ-5.3",
+      "test_spec_id": "TS-11-23",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "11-REQ-5.4",
+      "test_spec_id": "TS-11-24",
+      "task_id": "6.2",
+      "test_path": null
+    }
+  ]
+}

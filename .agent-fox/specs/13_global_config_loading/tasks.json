@@ -1,0 +1,1153 @@
+{
+  "$schema": null,
+  "spec_id": "13",
+  "spec_name": "global_config_loading",
+  "schema_version": 1,
+  "test_commands": {
+    "spec_tests": "pytest -q -k 'global_config_loading or test_load_config or test_af_init or test_agentspec' --tb=short",
+    "all_tests": "pytest -q",
+    "linter": "ruff check ."
+  },
+  "dependencies": [],
+  "task_groups": [
+    {
+      "id": 1,
+      "kind": "tests",
+      "title": "Write spec tests for global config loading",
+      "subtasks": [
+        {
+          "id": "1.1",
+          "title": "Write unit tests for unified load_config across all CLIs",
+          "details": [
+            "Create test file `tests/test_global_config_loading.py` (or extend existing config test module).",
+            "Implement TS-13-1: assert all three CLI modules import the same `load_config` function object.",
+            "Implement TS-13-2: set up global config with `parallelism=2` and local config with `parallelism=8`; assert merged result has `parallelism=8`.",
+            "Implement TS-13-3: partial global config with omitted fields; assert all fields present with Pydantic defaults (e.g. `spec_tool.model == 'claude-sonnet-4-6'`).",
+            "Use `tmp_path` and `monkeypatch` fixtures to isolate HOME and CWD."
+          ],
+          "test_spec_refs": [
+            "TS-13-1",
+            "TS-13-2",
+            "TS-13-3"
+          ],
+          "requirement_refs": [
+            "13-REQ-1.1",
+            "13-REQ-1.2",
+            "13-REQ-1.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.2",
+          "title": "Write unit tests for global config resolution and auto-creation",
+          "details": [
+            "Implement TS-13-4: assert `$HOME/.agent-fox/` created with `0o700`; config file created; valid `AgentFoxConfig` returned.",
+            "Implement TS-13-5: existing global config with `theme='light'`; assert returned config has `theme='light'` and file mtime unchanged.",
+            "Implement TS-13-6: unset HOME via `monkeypatch.delenv('HOME', raising=False)`; assert no exception, DEBUG log contains 'HOME' and 'could not be resolved'.",
+            "Implement TS-13-E2: global config path is a symlink; assert `ConfigError` raised mentioning path and symlink/CWE-59.",
+            "Implement TS-13-E3: parent directory read-only; assert `ConfigError` raised mentioning directory and permission error."
+          ],
+          "test_spec_refs": [
+            "TS-13-4",
+            "TS-13-5",
+            "TS-13-6",
+            "TS-13-E2",
+            "TS-13-E3"
+          ],
+          "requirement_refs": [
+            "13-REQ-2.1",
+            "13-REQ-2.2",
+            "13-REQ-2.3",
+            "13-REQ-2.E1",
+            "13-REQ-2.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.3",
+          "title": "Write unit tests for local config loading and shallow section replacement",
+          "details": [
+            "Implement TS-13-7: global has `[orchestrator] parallelism=2, timeout=30` and `[routing] strategy='round-robin'`; local has only `[orchestrator] parallelism=8`; assert `parallelism==8`, `routing.strategy=='round-robin'` inherited.",
+            "Implement TS-13-8: no local config; assert `theme=='dark'` from global, DEBUG log contains 'No local config found'.",
+            "Implement TS-13-9: assert `orchestrator.timeout != 60` (global value gone) confirming wholesale section replacement.",
+            "Implement TS-13-E4: local config is a symlink; assert `ConfigError` raised with path and symlink mention.",
+            "Implement TS-13-E5: intermediate directory is a symlink but final file is regular; assert `load_config` succeeds and returns `AgentFoxConfig`."
+          ],
+          "test_spec_refs": [
+            "TS-13-7",
+            "TS-13-8",
+            "TS-13-9",
+            "TS-13-E4",
+            "TS-13-E5"
+          ],
+          "requirement_refs": [
+            "13-REQ-3.1",
+            "13-REQ-3.2",
+            "13-REQ-3.3",
+            "13-REQ-3.E1",
+            "13-REQ-3.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.4",
+          "title": "Write unit tests for malformed TOML fail-fast and AF_CONFIG deprecation",
+          "details": [
+            "Implement TS-13-10: malformed global config; assert `ConfigError` raised with global path and parse error before local config read.",
+            "Implement TS-13-11: valid global, malformed local; assert `ConfigError` raised with local path.",
+            "Implement TS-13-12: assert return value is `None` (no partial config leaked).",
+            "Implement TS-13-13: `AF_CONFIG` set; assert deprecation warning to stderr mentioning 'AF_CONFIG' and 'no longer supported'; assert valid `AgentFoxConfig` returned from global+local scheme.",
+            "Implement TS-13-14: `AF_CONFIG` points to config with `theme='canary'`; assert returned config does not have `theme=='canary'`."
+          ],
+          "test_spec_refs": [
+            "TS-13-10",
+            "TS-13-11",
+            "TS-13-12",
+            "TS-13-13",
+            "TS-13-14"
+          ],
+          "requirement_refs": [
+            "13-REQ-4.1",
+            "13-REQ-4.2",
+            "13-REQ-4.3",
+            "13-REQ-5.1",
+            "13-REQ-5.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.5",
+          "title": "Write unit and integration tests for agentspec consolidation and debug observability",
+          "details": [
+            "Implement TS-13-15: instantiate `AgentFoxConfig()` with no overrides; assert all `spec_tool` fields have correct defaults.",
+            "Implement TS-13-16: pass `AgentFoxConfig` with `spec_tool.model='claude-opus-4'` to `agentspec.load_config()`; assert resolved model is `'claude-opus-4'`.",
+            "Implement TS-13-17: set `AF_SPEC_MODEL='claude-custom-model'`, global config has `[spec_tool] model='claude-opus-4'`, `settings.yaml` has `model: claude-haiku`; assert resolved model is `'claude-custom-model'`.",
+            "Implement TS-13-18: no `[spec_tool]` in config, `~/.af/settings.yaml` exists with `model: claude-haiku-4`; assert resolved model is `'claude-haiku-4'` and deprecation warning emitted.",
+            "Implement TS-13-19: `AF_SPEC_MODEL='my-custom-model'` set; assert resolved model equals env var value.",
+            "Implement TS-13-E6: no spec_tool, no settings.yaml, no AF_SPEC_MODEL; assert model == 'claude-sonnet-4-6' and no deprecation warning.",
+            "Implement TS-13-20 through TS-13-23: debug log line assertions using `caplog` or `capfd` at DEBUG level."
+          ],
+          "test_spec_refs": [
+            "TS-13-15",
+            "TS-13-16",
+            "TS-13-17",
+            "TS-13-18",
+            "TS-13-19",
+            "TS-13-20",
+            "TS-13-21",
+            "TS-13-22",
+            "TS-13-23",
+            "TS-13-E6"
+          ],
+          "requirement_refs": [
+            "13-REQ-6.1",
+            "13-REQ-6.2",
+            "13-REQ-6.3",
+            "13-REQ-6.4",
+            "13-REQ-6.5",
+            "13-REQ-6.E1",
+            "13-REQ-7.1",
+            "13-REQ-7.2",
+            "13-REQ-7.3",
+            "13-REQ-7.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.6",
+          "title": "Write integration tests for af init scaffolding and regression suite",
+          "details": [
+            "Implement TS-13-24: run `af init` via Click test runner; assert dir created with `0o700`, global config created with active defaults.",
+            "Implement TS-13-25: run `af init --force` with existing global config; assert file content byte-for-byte identical afterward.",
+            "Implement TS-13-26: run `af init`; assert all non-blank lines in local config start with `#`.",
+            "Implement TS-13-27: existing local config; run `af init` without `--force`; assert file unchanged.",
+            "Implement TS-13-28: run `af init --force`; assert local config is all-comments template and global config unchanged.",
+            "Implement TS-13-29: run `pytest` subprocess and assert exit code 0 (or keep as a note that CI covers this).",
+            "Implement TS-13-30: pass invalid Pydantic value; assert `ConfigError` raised.",
+            "Implement TS-13-E7: HOME unset; run `af init`; assert exit code 0, local config created as all-comments, debug warning emitted."
+          ],
+          "test_spec_refs": [
+            "TS-13-24",
+            "TS-13-25",
+            "TS-13-26",
+            "TS-13-27",
+            "TS-13-28",
+            "TS-13-29",
+            "TS-13-30",
+            "TS-13-E7"
+          ],
+          "requirement_refs": [
+            "13-REQ-8.1",
+            "13-REQ-8.2",
+            "13-REQ-8.3",
+            "13-REQ-8.4",
+            "13-REQ-8.5",
+            "13-REQ-8.E1",
+            "13-REQ-9.1",
+            "13-REQ-9.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.7",
+          "title": "Write property-based tests using hypothesis",
+          "details": [
+            "Implement TS-13-P1: hypothesis strategy generating arbitrary section dicts G and L; assert shallow merge invariants.",
+            "Implement TS-13-P2: hypothesis generating N in [2,10] sequential load_config calls; assert global config not overwritten after first creation.",
+            "Implement TS-13-P3: hypothesis generating arbitrary AF_SPEC_MODEL strings; assert resolved model always equals env var value.",
+            "Implement TS-13-P4: hypothesis generating malformed TOML strings; assert ConfigError always raised, no partial config returned.",
+            "Implement TS-13-P5: generate paths with symlinked intermediate dirs (real final file) and paths with symlinked final file; assert rejection only for final file symlinks.",
+            "Implement TS-13-P6: generate arbitrary valid TOML content for global config; run af init with/without --force; assert global content unchanged."
+          ],
+          "test_spec_refs": [
+            "TS-13-P1",
+            "TS-13-P2",
+            "TS-13-P3",
+            "TS-13-P4",
+            "TS-13-P5",
+            "TS-13-P6"
+          ],
+          "requirement_refs": [
+            "13-PROP-1",
+            "13-PROP-2",
+            "13-PROP-3",
+            "13-PROP-4",
+            "13-PROP-5",
+            "13-PROP-6"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.V",
+          "title": "Verify all spec tests are written and fail (red) before implementation",
+          "details": [],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "1.V",
+        "checks": [
+          "All test files compile without import errors: `python -m pytest --collect-only -q` exits 0 with all TS-13-* tests collected.",
+          "Tests fail (red) because implementation stubs are not yet in place — at least one test in each test group fails.",
+          "No linter errors introduced: `ruff check .` exits 0.",
+          "Test count for spec-13 tests matches expected coverage: `pytest --collect-only -q -k 'global_config_loading'` shows ≥30 test items."
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "kind": "standard",
+      "title": "Implement AgentFoxConfig spec_tool sub-config and shallow merge logic",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Add SpecToolConfig Pydantic model and spec_tool field to AgentFoxConfig",
+          "details": [
+            "Create a `SpecToolConfig` Pydantic v2 `BaseModel` with fields: `model: str = 'claude-sonnet-4-6'`, `auth_method: str = ''`, `vertex_project: str = ''`, `vertex_region: str = ''`.",
+            "Add `spec_tool: SpecToolConfig = SpecToolConfig()` to `AgentFoxConfig`.",
+            "Ensure the `[spec_tool]` TOML section is correctly parsed into the `SpecToolConfig` sub-model.",
+            "Update `generate_default_config()` template to include a commented-out `[spec_tool]` section with all four fields documented."
+          ],
+          "test_spec_refs": [
+            "TS-13-15"
+          ],
+          "requirement_refs": [
+            "13-REQ-6.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.2",
+          "title": "Implement shallow section replacement merge function",
+          "details": [
+            "Implement a standalone `shallow_merge(global_dict: dict, local_dict: dict) -> dict` function in the config module.",
+            "For each key in `local_dict`: if the value is a dict (i.e. a TOML section), replace the entire corresponding key in `global_dict` wholesale; if the value is a scalar (top-level key), override the global scalar.",
+            "Keys present in `global_dict` but absent from `local_dict` are inherited unchanged.",
+            "Do NOT deep-merge nested keys — a section present in local replaces the entire global section.",
+            "Add unit tests for `shallow_merge` directly (in addition to end-to-end tests)."
+          ],
+          "test_spec_refs": [
+            "TS-13-7",
+            "TS-13-8",
+            "TS-13-9",
+            "TS-13-P1"
+          ],
+          "requirement_refs": [
+            "13-REQ-3.1",
+            "13-REQ-3.2",
+            "13-REQ-3.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.3",
+          "title": "Implement generate_local_config_template producing all-comments TOML",
+          "details": [
+            "Implement `generate_local_config_template() -> str` using `tomlkit` to render all possible `AgentFoxConfig` fields with their defaults, then prefix every non-blank value line with `#`.",
+            "Include the `[spec_tool]` section in the template.",
+            "Ensure the template is valid TOML when comments are uncommented.",
+            "The function must mirror all sections of `AgentFoxConfig` so users can see every available option."
+          ],
+          "test_spec_refs": [
+            "TS-13-26",
+            "TS-13-28"
+          ],
+          "requirement_refs": [
+            "13-REQ-8.3",
+            "13-REQ-8.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.V",
+          "title": "Verify AgentFoxConfig model and merge logic are correct",
+          "details": [],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "2.V",
+        "checks": [
+          "TS-13-15 passes: `pytest -q -k 'TS_13_15 or test_spec_tool_defaults'` exits 0.",
+          "TS-13-7, TS-13-8, TS-13-9 pass confirming shallow merge semantics: `pytest -q -k 'TS_13_7 or TS_13_8 or TS_13_9'` exits 0.",
+          "TS-13-P1 property test passes: `pytest -q -k 'TS_13_P1'` exits 0.",
+          "No linter errors: `ruff check .` exits 0.",
+          "All existing tests still pass: `pytest -q` exits 0."
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "kind": "standard",
+      "title": "Implement core load_config function with global+local loading, symlink rejection, and debug logging",
+      "subtasks": [
+        {
+          "id": "3.1",
+          "title": "Implement HOME resolution, global config auto-creation, and directory setup",
+          "details": [
+            "At the start of `load_config()`, attempt to resolve `$HOME` using `Path.home()` wrapped in a try/except `RuntimeError`.",
+            "If `$HOME` is unresolvable, emit a DEBUG-level warning and skip global config loading entirely (no exception raised).",
+            "If `$HOME` is resolvable, check for `$HOME/.agent-fox/config.toml`.",
+            "If it does not exist: create `$HOME/.agent-fox/` with `os.makedirs(mode=0o700, exist_ok=True)` — wrap in try/except `OSError` and raise `ConfigError` on failure.",
+            "Write default config via `generate_default_config()` to the new path.",
+            "If it exists: check for symlink via `os.path.islink()` on the final file path only; raise `ConfigError` mentioning CWE-59 if symlink detected.",
+            "Parse the global config using `tomllib.loads()` inside a try/except `tomllib.TOMLDecodeError`; raise `ConfigError` on parse failure identifying the file and error."
+          ],
+          "test_spec_refs": [
+            "TS-13-4",
+            "TS-13-5",
+            "TS-13-6",
+            "TS-13-E2",
+            "TS-13-E3"
+          ],
+          "requirement_refs": [
+            "13-REQ-2.1",
+            "13-REQ-2.2",
+            "13-REQ-2.3",
+            "13-REQ-2.E1",
+            "13-REQ-2.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.2",
+          "title": "Implement local config loading, symlink rejection, malformed TOML handling, and merge",
+          "details": [
+            "After global config is loaded (or defaulted), check for `.agent-fox/config.toml` relative to `Path.cwd()`.",
+            "If the local config path exists: apply symlink check on the final file path only; raise `ConfigError` with CWE-59 message if symlink.",
+            "Parse local config with `tomllib.loads()`; raise `ConfigError` with local file path and parse error on failure.",
+            "Call `shallow_merge(global_dict, local_dict)` to produce the merged dict.",
+            "If no local config exists, use global dict as-is.",
+            "Pass the merged dict to `AgentFoxConfig.model_validate()` (Pydantic v2); existing validation errors propagate as `ConfigError`."
+          ],
+          "test_spec_refs": [
+            "TS-13-7",
+            "TS-13-9",
+            "TS-13-10",
+            "TS-13-11",
+            "TS-13-12",
+            "TS-13-E4",
+            "TS-13-E5"
+          ],
+          "requirement_refs": [
+            "13-REQ-3.1",
+            "13-REQ-3.2",
+            "13-REQ-3.3",
+            "13-REQ-3.E1",
+            "13-REQ-3.E2",
+            "13-REQ-4.1",
+            "13-REQ-4.2",
+            "13-REQ-4.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.3",
+          "title": "Implement AF_CONFIG deprecation detection and warning",
+          "details": [
+            "At the very start of `load_config()` (before any file I/O), check `os.environ.get('AF_CONFIG')`.",
+            "If set, print to `sys.stderr`: 'Warning: AF_CONFIG is no longer supported and has been ignored. Move your settings to $HOME/.agent-fox/config.toml (global) or .agent-fox/config.toml (local).'",
+            "Do NOT use the AF_CONFIG value for any path resolution.",
+            "Proceed with the normal global+local loading scheme."
+          ],
+          "test_spec_refs": [
+            "TS-13-13",
+            "TS-13-14"
+          ],
+          "requirement_refs": [
+            "13-REQ-5.1",
+            "13-REQ-5.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.4",
+          "title": "Implement debug-level logging for all config loading events",
+          "details": [
+            "Use Python's `logging` module with `logger = logging.getLogger(__name__)` in the config module.",
+            "After successfully loading global config: `logger.debug('Loaded global config from %s', global_config_path)`.",
+            "After merging local config: `logger.debug('Merging local config from %s (sections overridden: %s)', local_path, overridden_sections)`.",
+            "When no local config found: `logger.debug('No local config found at .agent-fox/config.toml, using global config only')`.",
+            "When HOME unresolvable: `logger.debug('$HOME could not be resolved; global config loading skipped')`.",
+            "Track overridden sections during the merge step by recording which keys in local_dict are dicts (TOML sections)."
+          ],
+          "test_spec_refs": [
+            "TS-13-20",
+            "TS-13-21",
+            "TS-13-22",
+            "TS-13-23"
+          ],
+          "requirement_refs": [
+            "13-REQ-7.1",
+            "13-REQ-7.2",
+            "13-REQ-7.3",
+            "13-REQ-7.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.5",
+          "title": "Wire load_config into af, nightshift, and spec CLI entry points",
+          "details": [
+            "Replace the existing config loading call in `af`'s Click entry point with the new shared `load_config()` function.",
+            "Replace the existing config loading call in `nightshift`'s entry point (which previously used `AF_CONFIG`) with the shared `load_config()` function.",
+            "Replace the existing config loading call in `spec`'s entry point with the shared `load_config()` function.",
+            "All three entry points must import `load_config` from the same module (the same function object).",
+            "Remove any residual `AF_CONFIG`-based path resolution from `nightshift`."
+          ],
+          "test_spec_refs": [
+            "TS-13-1",
+            "TS-13-2",
+            "TS-13-3"
+          ],
+          "requirement_refs": [
+            "13-REQ-1.1",
+            "13-REQ-1.2",
+            "13-REQ-1.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.V",
+          "title": "Verify core load_config implementation is correct",
+          "details": [],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "3.V",
+        "checks": [
+          "TS-13-1 passes confirming all three CLIs share the same load_config function object: `pytest -q -k 'TS_13_1'` exits 0.",
+          "TS-13-4, TS-13-5, TS-13-6 pass confirming global config auto-creation and HOME handling: `pytest -q -k 'TS_13_4 or TS_13_5 or TS_13_6'` exits 0.",
+          "TS-13-10, TS-13-11, TS-13-12 pass confirming malformed TOML fail-fast: `pytest -q -k 'TS_13_10 or TS_13_11 or TS_13_12'` exits 0.",
+          "TS-13-13, TS-13-14 pass confirming AF_CONFIG deprecation: `pytest -q -k 'TS_13_13 or TS_13_14'` exits 0.",
+          "TS-13-20 through TS-13-23 pass confirming debug logging: `pytest -q -k 'TS_13_20 or TS_13_21 or TS_13_22 or TS_13_23'` exits 0.",
+          "No linter errors: `ruff check .` exits 0.",
+          "All existing tests still pass: `pytest -q` exits 0."
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "kind": "standard",
+      "title": "Implement agentspec settings consolidation and model resolution precedence",
+      "subtasks": [
+        {
+          "id": "4.1",
+          "title": "Update agentspec load_config to accept AgentFoxConfig instead of reading settings.yaml directly",
+          "details": [
+            "Modify `agentspec`'s `load_config()` (or equivalent settings loader) to accept an `AgentFoxConfig` instance (or `SpecToolConfig`) as a parameter.",
+            "When called with a config object, read `model`, `auth_method`, `vertex_project`, `vertex_region` from `config.spec_tool` instead of opening `~/.af/settings.yaml`.",
+            "Maintain backward compatibility for internal callers by making the parameter optional with a default of `None` (triggering the migration fallback path).",
+            "Remove the direct `~/.af/settings.yaml` YAML-reading code path from the primary resolution branch."
+          ],
+          "test_spec_refs": [
+            "TS-13-16"
+          ],
+          "requirement_refs": [
+            "13-REQ-6.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.2",
+          "title": "Implement AF_SPEC_MODEL env var precedence and migration fallback from ~/.af/settings.yaml",
+          "details": [
+            "Implement `agentspec.resolve_model(config: AgentFoxConfig) -> str` with the following precedence chain:",
+            "  1. Return `os.environ['AF_SPEC_MODEL']` if set (non-empty).",
+            "  2. If `config.spec_tool` has been explicitly configured (i.e. `[spec_tool]` section was present in merged config), return `config.spec_tool.model`.",
+            "  3. If `~/.af/settings.yaml` exists, read it with PyYAML, extract `model`, emit deprecation warning to `sys.stderr` mentioning migration to `[spec_tool]` in `$HOME/.agent-fox/config.toml`, and return that model value.",
+            "  4. Return hardcoded default `'claude-sonnet-4-6'`.",
+            "Detect whether `[spec_tool]` was explicitly set vs. defaulted by tracking whether the section key was present in the raw merged dict before Pydantic validation."
+          ],
+          "test_spec_refs": [
+            "TS-13-17",
+            "TS-13-18",
+            "TS-13-19",
+            "TS-13-E6",
+            "TS-13-P3"
+          ],
+          "requirement_refs": [
+            "13-REQ-6.3",
+            "13-REQ-6.4",
+            "13-REQ-6.5",
+            "13-REQ-6.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.3",
+          "title": "Emit deprecation warning for settings.yaml migration fallback",
+          "details": [
+            "When the migration fallback is triggered (step 3 in resolve_model), print to `sys.stderr`: 'Deprecation warning: ~/.af/settings.yaml is no longer the preferred config location. Migrate your [spec_tool] settings to $HOME/.agent-fox/config.toml.'",
+            "Ensure the warning is printed exactly once per resolve_model call.",
+            "Do not emit the warning when the hardcoded default is used (step 4)."
+          ],
+          "test_spec_refs": [
+            "TS-13-18"
+          ],
+          "requirement_refs": [
+            "13-REQ-6.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.V",
+          "title": "Verify agentspec consolidation and model resolution are correct",
+          "details": [],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "4.V",
+        "checks": [
+          "TS-13-15, TS-13-16 pass confirming SpecToolConfig and agentspec integration: `pytest -q -k 'TS_13_15 or TS_13_16'` exits 0.",
+          "TS-13-17, TS-13-18, TS-13-19, TS-13-E6 pass confirming full model resolution precedence: `pytest -q -k 'TS_13_17 or TS_13_18 or TS_13_19 or TS_13_E6'` exits 0.",
+          "TS-13-P3 property test passes: `pytest -q -k 'TS_13_P3'` exits 0.",
+          "No linter errors: `ruff check .` exits 0.",
+          "All existing tests still pass: `pytest -q` exits 0."
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "kind": "standard",
+      "title": "Implement af init scaffolding with global and local config creation",
+      "subtasks": [
+        {
+          "id": "5.1",
+          "title": "Update af init to create global config if it does not exist",
+          "details": [
+            "In the `af init` Click command handler, after resolving HOME (with graceful fallback if unresolvable), check if `$HOME/.agent-fox/config.toml` exists.",
+            "If not exists: create `$HOME/.agent-fox/` with `os.makedirs(mode=0o700, exist_ok=True)`, write `generate_default_config()` output to the file.",
+            "If exists: skip without modification — do NOT overwrite even when `--force` is passed.",
+            "If HOME is unresolvable: emit a DEBUG warning and skip global config creation entirely; continue to create local config."
+          ],
+          "test_spec_refs": [
+            "TS-13-24",
+            "TS-13-25",
+            "TS-13-E7"
+          ],
+          "requirement_refs": [
+            "13-REQ-8.1",
+            "13-REQ-8.2",
+            "13-REQ-8.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.2",
+          "title": "Update af init to create local config template and handle --force flag",
+          "details": [
+            "In the `af init` Click command handler, check if `.agent-fox/config.toml` exists in CWD.",
+            "If not exists: write `generate_local_config_template()` output to `.agent-fox/config.toml`.",
+            "If exists and `--force` is NOT passed: skip without modification.",
+            "If exists and `--force` IS passed: overwrite with a fresh `generate_local_config_template()` output (all values commented out).",
+            "Add a `--force` option to the `af init` Click command if not already present.",
+            "Ensure the `.agent-fox/` directory is created if needed before writing the local config template."
+          ],
+          "test_spec_refs": [
+            "TS-13-26",
+            "TS-13-27",
+            "TS-13-28"
+          ],
+          "requirement_refs": [
+            "13-REQ-8.3",
+            "13-REQ-8.4",
+            "13-REQ-8.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.3",
+          "title": "Add user-facing messages for af init actions",
+          "details": [
+            "Print confirmation messages to stdout for each action taken by `af init`: e.g. 'Created global config at $HOME/.agent-fox/config.toml' or 'Skipped existing global config at $HOME/.agent-fox/config.toml'.",
+            "Print 'Created local config at .agent-fox/config.toml' or 'Skipped existing local config (use --force to regenerate)'.",
+            "Exit with code 0 on success."
+          ],
+          "test_spec_refs": [
+            "TS-13-24",
+            "TS-13-26"
+          ],
+          "requirement_refs": [
+            "13-REQ-8.1",
+            "13-REQ-8.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.V",
+          "title": "Verify af init scaffolding behaviour is correct",
+          "details": [],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "5.V",
+        "checks": [
+          "TS-13-24 passes confirming global config creation with 0o700 permissions: `pytest -q -k 'TS_13_24'` exits 0.",
+          "TS-13-25 passes confirming global config is never overwritten by af init --force: `pytest -q -k 'TS_13_25'` exits 0.",
+          "TS-13-26, TS-13-27, TS-13-28 pass confirming local config template creation and --force logic: `pytest -q -k 'TS_13_26 or TS_13_27 or TS_13_28'` exits 0.",
+          "TS-13-P6 property test passes: `pytest -q -k 'TS_13_P6'` exits 0.",
+          "TS-13-E7 passes confirming HOME-less af init: `pytest -q -k 'TS_13_E7'` exits 0.",
+          "No linter errors: `ruff check .` exits 0.",
+          "All existing tests still pass: `pytest -q` exits 0."
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "kind": "checkpoint",
+      "title": "Regression and property test gate",
+      "subtasks": [
+        {
+          "id": "6.1",
+          "title": "Run full existing test suite and confirm no regressions",
+          "details": [
+            "Run the complete pytest suite: `pytest -q --tb=short` from repository root.",
+            "Assert exit code is 0 with no FAILED or ERROR lines in output.",
+            "If any pre-existing tests fail, triage and fix regressions before proceeding.",
+            "TS-13-30: confirm that Pydantic validation still raises ConfigError for invalid field types."
+          ],
+          "test_spec_refs": [
+            "TS-13-29",
+            "TS-13-30"
+          ],
+          "requirement_refs": [
+            "13-REQ-9.1",
+            "13-REQ-9.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.2",
+          "title": "Run all property-based tests and confirm invariants hold",
+          "details": [
+            "Run: `pytest -q -k 'P1 or P2 or P3 or P4 or P5 or P6' --tb=short`.",
+            "Confirm all six property tests pass.",
+            "If any property test discovers a counterexample, fix the implementation and re-run."
+          ],
+          "test_spec_refs": [
+            "TS-13-P1",
+            "TS-13-P2",
+            "TS-13-P3",
+            "TS-13-P4",
+            "TS-13-P5",
+            "TS-13-P6"
+          ],
+          "requirement_refs": [
+            "13-PROP-1",
+            "13-PROP-2",
+            "13-PROP-3",
+            "13-PROP-4",
+            "13-PROP-5",
+            "13-PROP-6"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.3",
+          "title": "Audit for stub/dead-code markers and remove them",
+          "details": [
+            "Search for placeholder markers: `grep -rn 'raise NotImplementedError\\|pass  # TODO\\|return None  # stub' packages/` — all must be removed or replaced with real implementation.",
+            "Search for TODO comments related to this spec: `grep -rn 'TODO.*global_config\\|TODO.*load_config\\|TODO.*spec_tool' .`.",
+            "Confirm `load_config` has no `pass` or bare `return None` in non-abstract code paths.",
+            "Confirm `agentspec.resolve_model` has a complete implementation with all four precedence levels."
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.V",
+          "title": "Verify checkpoint gate is fully passed",
+          "details": [],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "6.V",
+        "checks": [
+          "Full test suite passes with no regressions: `pytest -q --tb=short` exits 0 with zero FAILED/ERROR lines.",
+          "All property tests pass: `pytest -q -k 'TS_13_P' --tb=short` exits 0.",
+          "No stub markers found: `grep -rn 'raise NotImplementedError' packages/` returns no matches in the new code paths.",
+          "All 13-REQ-* acceptance criteria are met as confirmed by corresponding passing tests.",
+          "No linter errors: `ruff check .` exits 0."
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "kind": "wiring_verification",
+      "title": "End-to-end wiring verification and smoke tests",
+      "subtasks": [
+        {
+          "id": "7.1",
+          "title": "Trace execution paths and verify entry points call load_config without stubs",
+          "details": [
+            "Inspect the source of `af`, `nightshift`, and `spec` CLI entry points to confirm each imports and calls the shared `load_config` function (not separate per-CLI loaders).",
+            "Trace 13-PATH-1 (zero-config first run): verify the call chain af_entrypoint → load_config → _resolve_home → generate_default_config → AgentFoxConfig.model_validate has no stub breaks.",
+            "Trace 13-PATH-2 (merge): verify load_config → shallow_merge → AgentFoxConfig.model_validate is wired end-to-end.",
+            "Confirm no CLI entry point still calls the old nightshift AF_CONFIG path or the old agentspec settings.yaml direct reader."
+          ],
+          "test_spec_refs": [
+            "TS-13-1",
+            "TS-13-SMOKE-1",
+            "TS-13-SMOKE-2"
+          ],
+          "requirement_refs": [
+            "13-REQ-1.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.2",
+          "title": "Verify return value propagation from load_config to CLI callers",
+          "details": [
+            "Confirm that each CLI entry point receives the `AgentFoxConfig` returned by `load_config()` and passes it to downstream command handlers (not discarded).",
+            "Confirm `agentspec` receives the `AgentFoxConfig` (or `spec_tool` sub-config) from the `spec` CLI entry point and uses it in `resolve_model`.",
+            "Confirm `ConfigError` raised by `load_config` propagates to the Click error handler and results in a non-zero exit code and stderr message."
+          ],
+          "test_spec_refs": [
+            "TS-13-3",
+            "TS-13-SMOKE-2"
+          ],
+          "requirement_refs": [
+            "13-REQ-1.1",
+            "13-REQ-1.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.3",
+          "title": "Run all SMOKE tests with real components",
+          "details": [
+            "Run TS-13-SMOKE-1: clean tmp HOME, invoke af; assert `$HOME/.agent-fox/config.toml` created with 0o700 dir, DEBUG logs emitted, exit code 0.",
+            "Run TS-13-SMOKE-2: global + local configs present with [orchestrator] section; assert DEBUG merge log with section list, correct merged config values.",
+            "Run TS-13-SMOKE-3: malformed global config; assert non-zero exit code, ConfigError message on stderr, local config not read.",
+            "Run TS-13-SMOKE-4: nightshift with AF_CONFIG set; assert deprecation warning on stderr, config loaded from global+local, AF_CONFIG path never opened.",
+            "Run TS-13-SMOKE-5: spec with no [spec_tool] in global config and settings.yaml present; assert migration fallback deprecation warning on stderr.",
+            "Run TS-13-SMOKE-6: af init in clean environment; assert both global (active defaults) and local (all-comments) configs created.",
+            "Run TS-13-SMOKE-7: af init --force with existing configs; assert global unchanged, local regenerated as all-comments template.",
+            "Run TS-13-SMOKE-8: HOME unset, local config present; assert DEBUG warning emitted, local config used, exit code 0."
+          ],
+          "test_spec_refs": [
+            "TS-13-SMOKE-1",
+            "TS-13-SMOKE-2",
+            "TS-13-SMOKE-3",
+            "TS-13-SMOKE-4",
+            "TS-13-SMOKE-5",
+            "TS-13-SMOKE-6",
+            "TS-13-SMOKE-7",
+            "TS-13-SMOKE-8"
+          ],
+          "requirement_refs": [
+            "13-REQ-1.1",
+            "13-REQ-2.1",
+            "13-REQ-3.1",
+            "13-REQ-4.1",
+            "13-REQ-5.1",
+            "13-REQ-6.4",
+            "13-REQ-8.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.4",
+          "title": "Stub and dead-code final audit",
+          "details": [
+            "Run: `grep -rn 'raise NotImplementedError\\|pass$\\|return None$' packages/` — no matches in the new load_config, shallow_merge, generate_local_config_template, or resolve_model code paths.",
+            "Run: `grep -rn 'TODO\\|FIXME\\|HACK\\|XXX' packages/` — no unresolved markers in spec-13 code paths.",
+            "Confirm `generate_local_config_template` produces output where every non-blank line starts with `#` when parsed as text.",
+            "Confirm `generate_default_config` still produces valid parseable TOML (use `tomllib.loads()` on its output in a quick sanity check)."
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.5",
+          "title": "Verify cross-spec entry point and backward-compatibility",
+          "details": [
+            "Run the complete test suite one final time: `pytest -q --tb=short` — must exit 0 with no failures.",
+            "Verify that no test files were modified as part of this implementation (only new test files and implementation files were added/changed).",
+            "Confirm that the `agentspec` package entry point (called from `spec` CLI) is wired to the new `load_config` result, not the old direct settings.yaml path.",
+            "Verify that `AF_CONFIG` usage is completely absent from production code paths (not just guarded by a deprecation check): `grep -rn 'AF_CONFIG' packages/ | grep -v 'deprecat\\|warning\\|ignore'` returns no matches in logic branches."
+          ],
+          "test_spec_refs": [
+            "TS-13-29",
+            "TS-13-30"
+          ],
+          "requirement_refs": [
+            "13-REQ-9.1",
+            "13-REQ-9.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.V",
+          "title": "Verify all wiring checks pass and spec-13 is complete",
+          "details": [],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "7.V",
+        "checks": [
+          "All 8 SMOKE tests pass with real components (no mocks for core path): `pytest -q -k 'SMOKE' --tb=short` exits 0.",
+          "Full test suite passes with no regressions: `pytest -q --tb=short` exits 0.",
+          "No stub markers in new code: `grep -rn 'raise NotImplementedError' packages/` returns 0 matches in spec-13 modules.",
+          "All three CLIs share the same load_config function object confirmed by TS-13-1 passing.",
+          "AF_CONFIG is fully removed from production logic: `grep -rn 'AF_CONFIG' packages/ | grep -v 'deprecat\\|warning'` returns 0 matches.",
+          "No linter errors: `ruff check .` exits 0.",
+          "13-REQ-1 through 13-REQ-9 acceptance criteria all met as confirmed by corresponding passing tests."
+        ]
+      }
+    }
+  ],
+  "traceability": [
+    {
+      "requirement_id": "13-REQ-1.1",
+      "test_spec_id": "TS-13-1",
+      "task_id": "3.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-1.2",
+      "test_spec_id": "TS-13-2",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-1.3",
+      "test_spec_id": "TS-13-3",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-2.1",
+      "test_spec_id": "TS-13-4",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-2.2",
+      "test_spec_id": "TS-13-5",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-2.3",
+      "test_spec_id": "TS-13-6",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-2.E1",
+      "test_spec_id": "TS-13-E2",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-2.E2",
+      "test_spec_id": "TS-13-E3",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-3.1",
+      "test_spec_id": "TS-13-7",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-3.2",
+      "test_spec_id": "TS-13-8",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-3.3",
+      "test_spec_id": "TS-13-9",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-3.E1",
+      "test_spec_id": "TS-13-E4",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-3.E2",
+      "test_spec_id": "TS-13-E5",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-4.1",
+      "test_spec_id": "TS-13-10",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-4.2",
+      "test_spec_id": "TS-13-11",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-4.3",
+      "test_spec_id": "TS-13-12",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-5.1",
+      "test_spec_id": "TS-13-13",
+      "task_id": "3.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-5.2",
+      "test_spec_id": "TS-13-14",
+      "task_id": "3.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-6.1",
+      "test_spec_id": "TS-13-15",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-6.2",
+      "test_spec_id": "TS-13-16",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-6.3",
+      "test_spec_id": "TS-13-17",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-6.4",
+      "test_spec_id": "TS-13-18",
+      "task_id": "4.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-6.5",
+      "test_spec_id": "TS-13-19",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-6.E1",
+      "test_spec_id": "TS-13-E6",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-7.1",
+      "test_spec_id": "TS-13-20",
+      "task_id": "3.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-7.2",
+      "test_spec_id": "TS-13-21",
+      "task_id": "3.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-7.3",
+      "test_spec_id": "TS-13-22",
+      "task_id": "3.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-7.4",
+      "test_spec_id": "TS-13-23",
+      "task_id": "3.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-8.1",
+      "test_spec_id": "TS-13-24",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-8.2",
+      "test_spec_id": "TS-13-25",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-8.3",
+      "test_spec_id": "TS-13-26",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-8.4",
+      "test_spec_id": "TS-13-27",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-8.5",
+      "test_spec_id": "TS-13-28",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-8.E1",
+      "test_spec_id": "TS-13-E7",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-9.1",
+      "test_spec_id": "TS-13-29",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-9.2",
+      "test_spec_id": "TS-13-30",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-3.1",
+      "test_spec_id": "TS-13-P1",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-2.1",
+      "test_spec_id": "TS-13-P2",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-6.3",
+      "test_spec_id": "TS-13-P3",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-4.1",
+      "test_spec_id": "TS-13-P4",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-2.E1",
+      "test_spec_id": "TS-13-P5",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "13-REQ-8.2",
+      "test_spec_id": "TS-13-P6",
+      "task_id": "5.1",
+      "test_path": null
+    }
+  ]
+}

@@ -1,0 +1,284 @@
+{
+  "state": "generated",
+  "prd_path": "prd.md",
+  "assessment_history": [
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD for \"global_config_loading\" is well-structured and substantive. It clearly articulates the feature's intent, provides detailed behavioral specifications, includes design rationale, and defines explicit non-goals. However, it is missing a formal **Intent** section (the overview partially covers this but is not clearly labeled as such), lacks a **Goals** section with measurable success criteria, and has no **Background** section explaining the prior state and motivation in a structured way. The owner field is also empty. These gaps prevent the PRD from being fully ready for artifact generation without some clarification.",
+      "gaps": [
+        "No formal 'Intent' section \u2014 the Overview approximates it but doesn't explicitly state the product/feature intent as a standalone, concise statement.",
+        "No 'Goals' section with measurable outcomes (e.g., adoption metrics, error reduction, performance targets, migration success criteria).",
+        "No 'Background' section \u2014 there is no structured explanation of the current state, what problems exist today (e.g., pain points with per-repo config duplication, AF_CONFIG usage, ~/.af/settings.yaml fragmentation), or prior art/decisions that led to this design.",
+        "Owner field is empty \u2014 no accountable person is identified for this spec.",
+        "No explicit error-handling or failure mode specification for config parse errors (e.g., malformed TOML in global or local config \u2014 should the CLI fail fast, warn and fall back, etc.).",
+        "The migration path for AF_CONFIG removal is not addressed \u2014 existing users relying on AF_CONFIG will have their workflows broken with no documented migration strategy.",
+        "No acceptance criteria or testable conditions defined to verify the feature is complete and correct.",
+        "The 'af init --force' flag mentioned in Design Decision #5 is not specified in the 'Changes to af init' section, leaving its behavior undefined."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What is the single, concise intent statement for this feature? Why is global config loading being added now, and what is the primary problem it solves?",
+          "context": "A formal Intent section is required. While the Overview hints at the motivation, a crisp one- or two-sentence intent statement (e.g., 'Enable users to maintain a single shared configuration baseline across all repositories, eliminating repetitive per-project setup') is needed to anchor the spec.",
+          "options": [
+            "Eliminate repetitive per-repo configuration by providing a user-wide global config baseline.",
+            "Unify all configuration surfaces (global, local, agentspec) into a single, consistent loading scheme.",
+            "Both of the above."
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "What are the measurable goals or success criteria for this feature?",
+          "context": "A Goals section with quantifiable outcomes is missing. Examples might include: '90% of existing users successfully migrate without manual intervention', 'Zero regressions in existing CLI behavior', or 'Config load time does not exceed Xms'. Without measurable goals, it's impossible to objectively determine if the feature succeeded.",
+          "options": [
+            "No regressions in existing test suite; all three CLIs load config consistently.",
+            "Existing ~/.af/settings.yaml users are automatically migrated with no manual steps required.",
+            "af init creates valid global and local config files in under 1 second.",
+            "Other \u2014 please specify."
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "Can you provide a Background section describing the current state before this feature, including the problems with the existing configuration approach?",
+          "context": "There is no Background section explaining the current pain points (e.g., users duplicating orchestrator/theme/routing config in every repo, the fragmentation between AF_CONFIG, per-repo config, and ~/.af/settings.yaml). This context is important for reviewers and implementers to understand why these design decisions were made.",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "What should happen when a global or local config file contains invalid/malformed TOML?",
+          "context": "The PRD specifies merge semantics and validation but does not define error handling for parse failures. Should the CLI exit with an error message, fall back to defaults and warn the user, or something else? This is important for implementation and user experience.",
+          "options": [
+            "Fail fast with a clear error message identifying the file and line number.",
+            "Warn the user and fall back to defaults, continuing execution.",
+            "Warn the user and ignore the malformed file, using only the other config source.",
+            "Other \u2014 please specify."
+          ],
+          "required": true
+        },
+        {
+          "id": "q5",
+          "text": "What is the migration strategy for existing users who currently rely on the AF_CONFIG environment variable?",
+          "context": "The PRD states AF_CONFIG support is removed, but provides no migration path for users currently using it. A deprecation period, warning message, or documentation pointer should be specified to avoid breaking existing workflows silently.",
+          "options": [
+            "Print a deprecation warning if AF_CONFIG is set, then ignore it.",
+            "Provide a one-time migration script or documentation.",
+            "AF_CONFIG removal is a hard break \u2014 document it in release notes only.",
+            "Other \u2014 please specify."
+          ],
+          "required": false
+        },
+        {
+          "id": "q6",
+          "text": "What is the exact behavior of 'af init --force' mentioned in Design Decision #5?",
+          "context": "Design Decision #5 references 'af init --force' as a way to re-generate an existing local config, but this flag is not described in the 'Changes to af init' section. Its behavior (e.g., does it overwrite the local config? the global config? both?) needs to be specified.",
+          "options": [
+            "Overwrites only the local config template.",
+            "Overwrites both local and global configs.",
+            "Prompts the user before overwriting each file.",
+            "Other \u2014 please specify."
+          ],
+          "required": false
+        },
+        {
+          "id": "q7",
+          "text": "Who is the owner of this spec?",
+          "context": "The 'owner' field in the spec metadata is empty. An owner is needed for accountability, review sign-off, and escalation purposes.",
+          "options": [],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD is well-structured and covers the core feature comprehensively. Goals, user stories, desired behavior, acceptance criteria, and design decisions are all present and clearly written. However, several gaps remain that could create ambiguity during implementation: the merge semantics for top-level scalar keys need clarification, the precedence of `AF_SPEC_MODEL` relative to `[spec_tool]` is underspecified, the migration fallback lifecycle is undefined, symlink rejection behavior is not fully specified for the global config path, and there are no explicit performance, observability, or rollout considerations.",
+      "gaps": [
+        "Merge semantics for top-level scalar keys are mentioned in passing ('local overrides global') but no concrete example or exhaustive rule is provided, leaving implementors to guess edge cases.",
+        "The `AF_SPEC_MODEL` environment variable is said to be 'preserved as a backward-compatible escape hatch' but its precedence relative to `[spec_tool].model` in the merged config is not stated explicitly.",
+        "The migration fallback from `~/.af/settings.yaml` has no defined end-of-life or deprecation path \u2014 it is unclear whether this fallback is temporary (removed in a future release) or permanent.",
+        "Symlink rejection behavior is referenced for 'both paths' but the global config path (`$HOME/.agent-fox/config.toml`) resolution and what happens if intermediate directories are symlinks is not specified.",
+        "No mention of file permission requirements for the global or local config files themselves (only the directory permission `0o700` is called out).",
+        "The `[spec_tool]` section defaults (`model`, `auth_method`, `vertex_project`, `vertex_region`) are listed, but there is no description of what the generated default global config TOML looks like (commented or uncommented fields, example values).",
+        "No observability or logging requirements \u2014 e.g., should the CLI log (debug) which config files were found and merged?",
+        "No explicit rollout or feature-flag strategy is mentioned, which may matter if this is a breaking change for `AF_CONFIG` users in a CI/CD context.",
+        "The behavior when `$HOME` is not set or unresolvable is not addressed.",
+        "Performance implications of auto-creating the global config on every CLI invocation (file-system stat on every run) are not discussed."
+      ],
+      "questions": [
+        {
+          "id": "Q1",
+          "text": "What is the exact precedence order for `spec_tool` model resolution? For example: `AF_SPEC_MODEL` env var > `[spec_tool].model` in merged config > `~/.af/settings.yaml` fallback > hardcoded default?",
+          "context": "The PRD says `AF_SPEC_MODEL` is 'preserved as a backward-compatible escape hatch' but does not state whether it takes precedence over the merged config value or only over the migration fallback. Implementors need a clear, ordered list.",
+          "options": [
+            "AF_SPEC_MODEL > merged [spec_tool].model > ~/.af/settings.yaml fallback > default",
+            "merged [spec_tool].model > AF_SPEC_MODEL > ~/.af/settings.yaml fallback > default",
+            "AF_SPEC_MODEL > ~/.af/settings.yaml fallback > merged [spec_tool].model > default"
+          ],
+          "required": true
+        },
+        {
+          "id": "Q2",
+          "text": "Is the `~/.af/settings.yaml` migration fallback intended to be temporary (with a planned removal milestone) or a permanent compatibility shim?",
+          "context": "If it is temporary, the PRD should document a deprecation warning when the fallback is triggered and a target version for removal. If permanent, that should be stated explicitly to avoid future confusion.",
+          "options": [
+            "Temporary \u2014 emit a deprecation warning when fallback is used, remove in next major version",
+            "Temporary \u2014 emit a deprecation warning, but no fixed removal date yet",
+            "Permanent compatibility shim, no removal planned"
+          ],
+          "required": true
+        },
+        {
+          "id": "Q3",
+          "text": "What should the CLI do if `$HOME` is not set or cannot be resolved (e.g., in certain CI environments)?",
+          "context": "All global config logic is anchored to `$HOME`. If `$HOME` is unset, the auto-create and lookup logic would fail. The error handling section does not cover this case.",
+          "options": [
+            "Fail fast with a clear error message explaining that $HOME must be set",
+            "Fall back to loading only the local config with no global config",
+            "Fall back to in-memory defaults only, no file written"
+          ],
+          "required": true
+        },
+        {
+          "id": "Q4",
+          "text": "Should the CLI emit any debug/info-level log lines indicating which config files were discovered and merged (e.g., 'Loaded global config from ~/.agent-fox/config.toml', 'Merging local config from .agent-fox/config.toml')?",
+          "context": "Observability of the config loading path is important for user debugging. Without it, users cannot easily tell which file a setting came from. This is especially relevant now that two files can contribute to the final config.",
+          "options": [
+            "Yes \u2014 emit debug-level log lines for each file found/skipped/merged",
+            "Yes \u2014 emit info-level log lines (always visible)",
+            "No \u2014 silent loading, rely on a future 'af config show' command to inspect merged result",
+            "No \u2014 out of scope for this issue"
+          ],
+          "required": false
+        },
+        {
+          "id": "Q5",
+          "text": "What does the auto-generated default global config TOML look like? Specifically: are all fields commented out (like the local template), or are defaults written as active values?",
+          "context": "The PRD specifies the local config template has 'all values commented out', but for the global config it only says 'correct defaults'. Clarifying whether global config defaults are active or commented affects both the implementation and user experience.",
+          "options": [
+            "Global config is written with all default values as active (uncommented) TOML",
+            "Global config is written with all values commented out, same as the local template",
+            "Global config contains only a minimal set of active defaults (e.g., model name) with the rest commented"
+          ],
+          "required": true
+        },
+        {
+          "id": "Q6",
+          "text": "Should symlink rejection apply to intermediate directories in the global config path (e.g., if `$HOME/.agent-fox/` itself is a symlink), or only to the config file itself?",
+          "context": "The PRD mentions CWE-59 protection applies to both paths but does not clarify the depth of symlink checking. This is a security-relevant detail implementors need.",
+          "options": [
+            "Reject symlinks only on the final config file path",
+            "Reject symlinks on the final file and all intermediate directories in the path",
+            "Same behavior as the existing local config symlink check (match existing implementation exactly)"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "ready",
+      "summary": "This is a high-quality, well-structured PRD that is largely ready for implementation. It covers intent, background, goals, user stories, detailed behavioral specifications, error handling, acceptance criteria, non-goals, tech stack, glossary, and design decisions. The document is internally consistent, explicitly calls out edge cases (CI environments without $HOME, symlink handling, migration fallback), and provides clear precedence rules for config resolution. A few minor gaps exist around testing expectations, rollback/versioning strategy, and performance/concurrency considerations, but none are blockers for starting implementation.",
+      "gaps": [
+        "No explicit mention of what happens when the global config directory ($HOME/.agent-fox/) exists but is not writable (e.g., permission denied on auto-create of config.toml) \u2014 should this fail fast or degrade gracefully?",
+        "The default global config template content is not specified inline \u2014 it references 'generate_default_config() behavior' and 'config-reference.md' but neither is defined or linked within this PRD.",
+        "No unit or integration test strategy is described beyond 'the existing test suite passes.' New behavior (global loading, merge semantics, migration fallback, AF_CONFIG deprecation) needs new tests, but coverage expectations are unspecified.",
+        "Concurrent access to the global config file (e.g., two CLI processes starting simultaneously in different repos) is not addressed \u2014 no file locking or atomic write strategy is defined for auto-creation.",
+        "The removal/deprecation timeline for the ~/.af/settings.yaml migration fallback is explicitly left open-ended ('no fixed removal date'). This may create long-term maintenance ambiguity and should at minimum reference a tracking issue.",
+        "No versioning or schema evolution strategy for config.toml is described \u2014 how will future additions of new fields/sections be handled without breaking existing configs?",
+        "The behavior when $HOME/.agent-fox/ directory auto-creation fails (e.g., due to a read-only filesystem) is not specified.",
+        "Performance impact of the added config loading steps (two file reads + merge on every CLI invocation) is not assessed or bounded."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What should happen when $HOME/.agent-fox/ exists but config.toml cannot be written (e.g., permission denied)? Should the CLI fail fast with a ConfigError, or degrade gracefully and continue with in-memory defaults (similar to the $HOME-unresolvable case)?",
+          "context": "The PRD specifies graceful degradation when $HOME is unresolvable, but is silent on write-permission failures during auto-creation. This affects both the error-handling spec and the AC-1 acceptance criterion.",
+          "options": [
+            "Fail fast with a clear ConfigError identifying the path and permission issue",
+            "Degrade gracefully, emit a debug/warning-level log, and continue with in-memory defaults",
+            "Degrade gracefully for read-only filesystems but fail fast for unexpected permission errors"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "Should the new global config loading behavior have explicit new test coverage requirements (e.g., unit tests for merge semantics, integration tests for the migration fallback), or is it sufficient to rely on the existing test suite plus whatever tests developers deem necessary?",
+          "context": "AC-10 only requires the existing test suite to pass. New behavior like shallow merge, AF_CONFIG deprecation warning, and ~/.af/settings.yaml fallback introduces code paths not covered by existing tests, and the PRD does not call out new test requirements.",
+          "options": [
+            "Require explicit new unit tests for each new behavioral spec (merge, migration, AF_CONFIG warning, $HOME degradation)",
+            "Leave new test coverage to developer discretion, with AC-10 as the only stated requirement",
+            "Require new integration tests for end-to-end CLI flows only, with unit tests at developer discretion"
+          ],
+          "required": false
+        },
+        {
+          "id": "q3",
+          "text": "How should concurrent CLI invocations that simultaneously attempt to auto-create $HOME/.agent-fox/config.toml be handled? Is a 'last write wins' / race-tolerant approach acceptable, or is atomic creation (e.g., write-to-temp-then-rename) required?",
+          "context": "Users working in multiple terminal sessions or CI pipelines running parallel jobs could hit this race. The PRD does not address file locking or atomic writes for the auto-creation path.",
+          "options": [
+            "Atomic write (write to temp file, then rename) to prevent partial reads",
+            "Best-effort: if file already exists after a failed create, treat it as success (tolerant of TOCTOU race)",
+            "Use a file lock during auto-creation"
+          ],
+          "required": false
+        },
+        {
+          "id": "q4",
+          "text": "Should a tracking issue or milestone be referenced for the eventual removal of the ~/.af/settings.yaml migration fallback, or is 'no fixed removal date, announced when decided' the accepted policy for this PRD?",
+          "context": "The PRD explicitly states the fallback has no fixed removal date. This is pragmatic but may create long-term maintenance debt. Referencing a GitHub issue would give implementors and users a place to follow the deprecation.",
+          "options": [
+            "Reference a specific tracking issue (create one if needed) in the PRD",
+            "Keep the current 'no fixed removal date, announced when decided' language",
+            "Set a provisional removal milestone (e.g., next major version) subject to change"
+          ],
+          "required": false
+        },
+        {
+          "id": "q5",
+          "text": "What are the expected contents of the auto-generated global config template? Specifically, which keys/sections should appear as active (uncommented) defaults, and should the full schema be defined inline in this PRD or remain a reference to generate_default_config()?",
+          "context": "The PRD references 'generate_default_config() behavior' and 'config-reference.md' for the template content, but neither is defined here. Without this, implementors must infer what the generated file looks like, risking inconsistency.",
+          "options": [
+            "Define the full default global config template inline in this PRD",
+            "Reference the existing generate_default_config() implementation as the source of truth (no inline spec needed)",
+            "Add a representative example of the generated global config to the PRD without mandating every field"
+          ],
+          "required": false
+        }
+      ]
+    }
+  ],
+  "qa_exchanges": [
+    {
+      "assessment_index": 0,
+      "answers": {
+        "q1": "Both: eliminate repetitive per-repo configuration by providing a user-wide global config baseline, and unify all configuration surfaces (global, local, agentspec) into a single, consistent loading scheme.",
+        "q2": "No regressions in existing test suite; all three CLIs (af, nightshift, spec) load config consistently using the same function. Existing ~/.af/settings.yaml users are automatically migrated via the fallback mechanism with no manual steps required.",
+        "q3": "Currently, configuration is fragmented across three independent surfaces: (1) per-repo `.agent-fox/config.toml` loaded by `af` and `spec`, (2) `AF_CONFIG` env var used by `nightshift` to override the config path, and (3) `~/.af/settings.yaml` used by `agentspec` for model and auth settings. Users working across multiple repositories must duplicate common settings (orchestrator parallelism, theme, routing, pricing) in every project's config. There is no shared baseline, so each new repo starts from scratch. The `agentspec` settings use a different format (YAML) and a different location (`~/.af/`) from the main config, creating confusion about where settings live.",
+        "q4": "Fail fast with a clear error message identifying the file and the parse error. This matches the existing behavior of load_config which raises ConfigError on malformed TOML. If the global config is malformed, the CLI exits with an error. If the local config is malformed, the CLI exits with an error. Both files must be valid TOML if they exist.",
+        "q5": "Print a deprecation warning to stderr if AF_CONFIG is set, explaining that the variable is no longer supported and suggesting the user move settings to $HOME/.agent-fox/config.toml (global) or .agent-fox/config.toml (local). The variable is then ignored.",
+        "q6": "af init --force overwrites only the local config template at .agent-fox/config.toml. The global config at $HOME/.agent-fox/config.toml is only created if it does not exist, never overwritten by init (even with --force).",
+        "q7": "mkuehl"
+      },
+      "timestamp": "2026-06-25T12:07:13.191566+00:00"
+    },
+    {
+      "assessment_index": 1,
+      "answers": {
+        "Q1": "AF_SPEC_MODEL env var > merged [spec_tool].model from config > ~/.af/settings.yaml fallback > hardcoded default. Environment variables always take highest precedence, followed by the merged config value, then the migration fallback, then the hardcoded default.",
+        "Q2": "Temporary \u2014 emit a deprecation warning when the fallback is triggered, but no fixed removal date yet. The warning tells users to migrate their settings to $HOME/.agent-fox/config.toml under the [spec_tool] section.",
+        "Q3": "Skip global config entirely \u2014 fall back to loading only the local config (if present) or in-memory defaults. Log a debug-level warning that $HOME could not be resolved. Do not fail fast, since CI environments commonly lack $HOME.",
+        "Q4": "Yes \u2014 emit debug-level log lines for each file found/skipped/merged, including which sections were overridden by local config.",
+        "Q5": "Global config uses the same template as current af init: a minimal set of promoted defaults active (uncommented) with the rest documented in config-reference.md. This matches the existing generate_default_config() behavior.",
+        "Q6": "Same behavior as the existing local config symlink check \u2014 reject symlinks only on the final config file path, matching the current implementation exactly."
+      },
+      "timestamp": "2026-06-25T12:11:07.266626+00:00"
+    }
+  ],
+  "generated_artifacts": [
+    "requirements",
+    "test_spec",
+    "tasks"
+  ],
+  "mode": "interactive"
+}

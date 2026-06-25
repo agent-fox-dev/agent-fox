@@ -1,0 +1,667 @@
+{
+  "$schema": null,
+  "spec_id": "11",
+  "spec_name": "enrich_context_summaries",
+  "schema_version": 1,
+  "test_cases": [
+    {
+      "id": "TS-11-1",
+      "requirement_id": "11-REQ-1.1",
+      "kind": "unit",
+      "description": "Verify that session-summary.json schema accepts a valid `rejected_approaches` array with objects containing `approach` and `reason` keys.",
+      "preconditions": [
+        "The session-summary.json schema definition is available in the agentfox package",
+        "A JSON validator or schema parser is importable"
+      ],
+      "input": {
+        "session_summary": {
+          "rejected_approaches": [
+            {
+              "approach": "Used library Y",
+              "reason": "Too slow for large datasets"
+            }
+          ],
+          "summary": "Implemented feature X.",
+          "tests_added_or_modified": []
+        }
+      },
+      "expected": "The document is parsed as valid with no schema validation errors; `rejected_approaches` is accessible as a list with one entry.",
+      "assertion_pseudocode": "data = parse_session_summary(input_json)\nassert data['rejected_approaches'][0]['approach'] == 'Used library Y'\nassert data['rejected_approaches'][0]['reason'] == 'Too slow for large datasets'\nassert is_valid_schema(data) == True"
+    },
+    {
+      "id": "TS-11-2",
+      "requirement_id": "11-REQ-1.2",
+      "kind": "unit",
+      "description": "Verify that session-summary.json schema accepts a valid `gotchas` field as an array of strings.",
+      "preconditions": [
+        "The session-summary.json schema definition is available",
+        "A JSON validator is importable"
+      ],
+      "input": {
+        "session_summary": {
+          "gotchas": [
+            "DuckDB does not support ALTER TABLE ADD COLUMN on wide tables"
+          ],
+          "summary": "Implemented feature X.",
+          "tests_added_or_modified": []
+        }
+      },
+      "expected": "The document is parsed as valid; `gotchas` is accessible as a list of strings with no errors.",
+      "assertion_pseudocode": "data = parse_session_summary(input_json)\nassert isinstance(data['gotchas'], list)\nassert data['gotchas'][0] == 'DuckDB does not support ALTER TABLE ADD COLUMN on wide tables'\nassert is_valid_schema(data) == True"
+    },
+    {
+      "id": "TS-11-3",
+      "requirement_id": "11-REQ-1.3",
+      "kind": "unit",
+      "description": "Verify that session-summary.json schema accepts a valid `assumptions` field as an array of strings.",
+      "preconditions": [
+        "The session-summary.json schema definition is available",
+        "A JSON validator is importable"
+      ],
+      "input": {
+        "session_summary": {
+          "assumptions": [
+            "Spec 10 will not remove the session_summaries table"
+          ],
+          "summary": "Implemented feature X.",
+          "tests_added_or_modified": []
+        }
+      },
+      "expected": "The document is parsed as valid; `assumptions` is accessible as a list of strings with no errors.",
+      "assertion_pseudocode": "data = parse_session_summary(input_json)\nassert isinstance(data['assumptions'], list)\nassert data['assumptions'][0] == 'Spec 10 will not remove the session_summaries table'\nassert is_valid_schema(data) == True"
+    },
+    {
+      "id": "TS-11-4",
+      "requirement_id": "11-REQ-1.4",
+      "kind": "unit",
+      "description": "Verify that old session-summary.json files missing all three new fields continue to parse correctly.",
+      "preconditions": [
+        "The session-summary.json schema definition is available",
+        "A JSON validator is importable"
+      ],
+      "input": {
+        "session_summary": {
+          "summary": "Reviewer session completed with no findings.",
+          "tests_added_or_modified": []
+        }
+      },
+      "expected": "The document is parsed as valid; `summary` and `tests_added_or_modified` are accessible; no KeyError or validation error is raised for the absent new fields.",
+      "assertion_pseudocode": "data = parse_session_summary(input_json)\nassert data['summary'] == 'Reviewer session completed with no findings.'\nassert data.get('rejected_approaches') is None\nassert data.get('gotchas') is None\nassert data.get('assumptions') is None\nassert is_valid_schema(data) == True"
+    },
+    {
+      "id": "TS-11-5",
+      "requirement_id": "11-REQ-2.1",
+      "kind": "static",
+      "description": "Verify that coder.md instructs agents to record non-obvious or surprising implementation details in the `summary` field.",
+      "preconditions": [
+        "File `packages/agentfox/agentfox/_templates/profiles/coder.md` exists and is readable"
+      ],
+      "input": "Content of `packages/agentfox/agentfox/_templates/profiles/coder.md`",
+      "expected": "The file contains text instructing the agent to record what was surprising or non-obvious in the `summary` field (e.g., keywords like 'non-obvious', 'surprising', or 'learnings' appear in the session summary section).",
+      "assertion_pseudocode": "content = read_file('packages/agentfox/agentfox/_templates/profiles/coder.md')\nassert 'non-obvious' in content.lower() or 'surprising' in content.lower()\nassert 'summary' in content"
+    },
+    {
+      "id": "TS-11-6",
+      "requirement_id": "11-REQ-2.2",
+      "kind": "static",
+      "description": "Verify that coder.md instructs agents to populate the `rejected_approaches` field with tried approaches and rejection reasons.",
+      "preconditions": [
+        "File `packages/agentfox/agentfox/_templates/profiles/coder.md` exists and is readable"
+      ],
+      "input": "Content of `packages/agentfox/agentfox/_templates/profiles/coder.md`",
+      "expected": "The file contains text referencing `rejected_approaches` and instructions to record what was tried and why it was rejected.",
+      "assertion_pseudocode": "content = read_file('packages/agentfox/agentfox/_templates/profiles/coder.md')\nassert 'rejected_approaches' in content\nassert 'rejected' in content.lower() or 'tried' in content.lower()"
+    },
+    {
+      "id": "TS-11-7",
+      "requirement_id": "11-REQ-2.3",
+      "kind": "static",
+      "description": "Verify that coder.md instructs agents to populate the `gotchas` field with edge cases and counter-intuitive behaviors.",
+      "preconditions": [
+        "File `packages/agentfox/agentfox/_templates/profiles/coder.md` exists and is readable"
+      ],
+      "input": "Content of `packages/agentfox/agentfox/_templates/profiles/coder.md`",
+      "expected": "The file contains text referencing `gotchas` and instructions to record edge cases, fragile patterns, or counter-intuitive behaviors.",
+      "assertion_pseudocode": "content = read_file('packages/agentfox/agentfox/_templates/profiles/coder.md')\nassert 'gotchas' in content\nassert 'edge case' in content.lower() or 'watch out' in content.lower() or 'counter-intuitive' in content.lower()"
+    },
+    {
+      "id": "TS-11-8",
+      "requirement_id": "11-REQ-2.4",
+      "kind": "static",
+      "description": "Verify that coder.md instructs agents to populate the `assumptions` field with assumptions that might not hold for later groups.",
+      "preconditions": [
+        "File `packages/agentfox/agentfox/_templates/profiles/coder.md` exists and is readable"
+      ],
+      "input": "Content of `packages/agentfox/agentfox/_templates/profiles/coder.md`",
+      "expected": "The file contains text referencing `assumptions` and instructions to record assumptions that might not hold for later task groups.",
+      "assertion_pseudocode": "content = read_file('packages/agentfox/agentfox/_templates/profiles/coder.md')\nassert 'assumptions' in content\nassert 'later' in content.lower() or 'might not hold' in content.lower()"
+    },
+    {
+      "id": "TS-11-9",
+      "requirement_id": "11-REQ-2.5",
+      "kind": "static",
+      "description": "Verify that coder.md references a target of approximately 500–1000 characters for the summary field and focuses on non-obvious learnings.",
+      "preconditions": [
+        "File `packages/agentfox/agentfox/_templates/profiles/coder.md` exists and is readable"
+      ],
+      "input": "Content of `packages/agentfox/agentfox/_templates/profiles/coder.md`",
+      "expected": "The file contains text indicating a ~500–1000 character target and framing the summary around non-obvious learnings rather than completion status.",
+      "assertion_pseudocode": "content = read_file('packages/agentfox/agentfox/_templates/profiles/coder.md')\nassert '500' in content and '1000' in content\nassert 'non-obvious' in content.lower() or 'learnings' in content.lower()"
+    },
+    {
+      "id": "TS-11-10",
+      "requirement_id": "11-REQ-3.1",
+      "kind": "unit",
+      "description": "Verify that `compose_enriched_summary` always returns a string beginning with the original narrative summary text.",
+      "preconditions": [
+        "`session_lifecycle.py` in `packages/agentfox/agentfox/engine/` contains `compose_enriched_summary` function"
+      ],
+      "input": {
+        "assumptions": [],
+        "gotchas": [],
+        "rejected_approaches": [],
+        "summary": "Used a two-pass algorithm for performance."
+      },
+      "expected": "Return value is a non-empty string starting with 'Used a two-pass algorithm for performance.'",
+      "assertion_pseudocode": "result = compose_enriched_summary(summary='Used a two-pass algorithm for performance.', rejected_approaches=[], gotchas=[], assumptions=[])\nassert result.startswith('Used a two-pass algorithm for performance.')\nassert len(result) > 0"
+    },
+    {
+      "id": "TS-11-11",
+      "requirement_id": "11-REQ-3.2",
+      "kind": "unit",
+      "description": "Verify that `compose_enriched_summary` appends rejected approaches formatted as 'Tried: {approach} — rejected because: {reason}' when entries are present.",
+      "preconditions": [
+        "`session_lifecycle.py` contains `compose_enriched_summary` function"
+      ],
+      "input": {
+        "assumptions": [],
+        "gotchas": [],
+        "rejected_approaches": [
+          {
+            "approach": "Redis cache",
+            "reason": "Adds an external dependency"
+          },
+          {
+            "approach": "In-memory dict",
+            "reason": "Not thread-safe"
+          }
+        ],
+        "summary": "Implemented caching layer."
+      },
+      "expected": "Returned string contains 'Tried: Redis cache — rejected because: Adds an external dependency' and 'Tried: In-memory dict — rejected because: Not thread-safe', each on separate lines.",
+      "assertion_pseudocode": "result = compose_enriched_summary(summary='Implemented caching layer.', rejected_approaches=[{'approach': 'Redis cache', 'reason': 'Adds an external dependency'}, {'approach': 'In-memory dict', 'reason': 'Not thread-safe'}], gotchas=[], assumptions=[])\nassert 'Tried: Redis cache — rejected because: Adds an external dependency' in result\nassert 'Tried: In-memory dict — rejected because: Not thread-safe' in result\nlines = result.split('\\n')\nassert any('Tried: Redis cache' in l for l in lines)\nassert any('Tried: In-memory dict' in l for l in lines)"
+    },
+    {
+      "id": "TS-11-12",
+      "requirement_id": "11-REQ-3.3",
+      "kind": "unit",
+      "description": "Verify that `compose_enriched_summary` appends gotchas formatted as 'Watch out: {gotcha}' when entries are present.",
+      "preconditions": [
+        "`session_lifecycle.py` contains `compose_enriched_summary` function"
+      ],
+      "input": {
+        "assumptions": [],
+        "gotchas": [
+          "DuckDB closes connection on fork",
+          "Empty arrays serialize as null in some paths"
+        ],
+        "rejected_approaches": [],
+        "summary": "Refactored the formatter."
+      },
+      "expected": "Returned string contains 'Watch out: DuckDB closes connection on fork' and 'Watch out: Empty arrays serialize as null in some paths', each on separate lines.",
+      "assertion_pseudocode": "result = compose_enriched_summary(summary='Refactored the formatter.', rejected_approaches=[], gotchas=['DuckDB closes connection on fork', 'Empty arrays serialize as null in some paths'], assumptions=[])\nassert 'Watch out: DuckDB closes connection on fork' in result\nassert 'Watch out: Empty arrays serialize as null in some paths' in result"
+    },
+    {
+      "id": "TS-11-13",
+      "requirement_id": "11-REQ-3.4",
+      "kind": "unit",
+      "description": "Verify that `compose_enriched_summary` appends assumptions formatted as 'Assumes: {assumption}' when entries are present.",
+      "preconditions": [
+        "`session_lifecycle.py` contains `compose_enriched_summary` function"
+      ],
+      "input": {
+        "assumptions": [
+          "Spec 10 retains session_summaries table",
+          "DuckDB version >= 0.9"
+        ],
+        "gotchas": [],
+        "rejected_approaches": [],
+        "summary": "Added retry logic."
+      },
+      "expected": "Returned string contains 'Assumes: Spec 10 retains session_summaries table' and 'Assumes: DuckDB version >= 0.9', each on separate lines.",
+      "assertion_pseudocode": "result = compose_enriched_summary(summary='Added retry logic.', rejected_approaches=[], gotchas=[], assumptions=['Spec 10 retains session_summaries table', 'DuckDB version >= 0.9'])\nassert 'Assumes: Spec 10 retains session_summaries table' in result\nassert 'Assumes: DuckDB version >= 0.9' in result"
+    },
+    {
+      "id": "TS-11-14",
+      "requirement_id": "11-REQ-3.5",
+      "kind": "integration",
+      "description": "Verify that the session lifecycle calls `compose_enriched_summary` and stores the composed text in the `session_summaries` DuckDB table.",
+      "preconditions": [
+        "DuckDB knowledge store is initialised with a `session_summaries` table",
+        "A valid session-summary.json with structured fields is available on disk",
+        "`session_lifecycle.py` has been updated with the `compose_enriched_summary` integration"
+      ],
+      "input": {
+        "session_summary_json": {
+          "assumptions": [
+            "Table size stays under 1M rows"
+          ],
+          "gotchas": [
+            "Index does not cover NULL values"
+          ],
+          "rejected_approaches": [
+            {
+              "approach": "Full table scan",
+              "reason": "Too slow"
+            }
+          ],
+          "summary": "Used a new indexing strategy.",
+          "tests_added_or_modified": []
+        }
+      },
+      "expected": "The `session_summaries` table contains exactly one row for this session whose summary column contains 'Tried: Full table scan — rejected because: Too slow', 'Watch out: Index does not cover NULL values', and 'Assumes: Table size stays under 1M rows'.",
+      "assertion_pseudocode": "process_session_summary(session_summary_json)\nrow = db.query('SELECT summary FROM session_summaries WHERE session_id = ?', session_id)\nassert 'Tried: Full table scan — rejected because: Too slow' in row['summary']\nassert 'Watch out: Index does not cover NULL values' in row['summary']\nassert 'Assumes: Table size stays under 1M rows' in row['summary']"
+    },
+    {
+      "id": "TS-11-15",
+      "requirement_id": "11-REQ-3.6",
+      "kind": "unit",
+      "description": "Verify that `compose_enriched_summary` returns the raw summary unchanged when no structured fields are present.",
+      "preconditions": [
+        "`session_lifecycle.py` contains `compose_enriched_summary` function"
+      ],
+      "input": {
+        "assumptions": null,
+        "gotchas": null,
+        "rejected_approaches": null,
+        "summary": "Implemented task group 3 for spec 11."
+      },
+      "expected": "Return value equals exactly 'Implemented task group 3 for spec 11.' with no additional lines or characters.",
+      "assertion_pseudocode": "result = compose_enriched_summary(summary='Implemented task group 3 for spec 11.', rejected_approaches=None, gotchas=None, assumptions=None)\nassert result == 'Implemented task group 3 for spec 11.'"
+    },
+    {
+      "id": "TS-11-16",
+      "requirement_id": "11-REQ-4.1",
+      "kind": "unit",
+      "description": "Verify that `generate_archetype_summary` returns None for a reviewer session with no findings.",
+      "preconditions": [
+        "`formatting.py` in `packages/agentfox/agentfox/knowledge/` contains updated `generate_archetype_summary` function"
+      ],
+      "input": {
+        "findings": [],
+        "session_type": "reviewer"
+      },
+      "expected": "Return value is Python None.",
+      "assertion_pseudocode": "result = generate_archetype_summary(session_type='reviewer', findings=[])\nassert result is None"
+    },
+    {
+      "id": "TS-11-17",
+      "requirement_id": "11-REQ-4.2",
+      "kind": "unit",
+      "description": "Verify that `generate_archetype_summary` returns None for a verifier session with no verdicts.",
+      "preconditions": [
+        "`formatting.py` contains updated `generate_archetype_summary` function"
+      ],
+      "input": {
+        "session_type": "verifier",
+        "verdicts": []
+      },
+      "expected": "Return value is Python None.",
+      "assertion_pseudocode": "result = generate_archetype_summary(session_type='verifier', verdicts=[])\nassert result is None"
+    },
+    {
+      "id": "TS-11-18",
+      "requirement_id": "11-REQ-4.3",
+      "kind": "unit",
+      "description": "Verify that `generate_archetype_summary` returns a non-empty summary string for a reviewer session with findings, unchanged from prior behavior.",
+      "preconditions": [
+        "`formatting.py` contains updated `generate_archetype_summary` function"
+      ],
+      "input": {
+        "findings": [
+          {
+            "description": "Missing input validation on user ID field",
+            "severity": "high"
+          },
+          {
+            "description": "Unused import in formatting.py",
+            "severity": "low"
+          }
+        ],
+        "session_type": "reviewer"
+      },
+      "expected": "Return value is a non-empty string containing severity counts and top finding description text.",
+      "assertion_pseudocode": "result = generate_archetype_summary(session_type='reviewer', findings=[{'severity': 'high', 'description': 'Missing input validation on user ID field'}, {'severity': 'low', 'description': 'Unused import in formatting.py'}])\nassert result is not None\nassert len(result) > 0\nassert 'high' in result.lower() or 'finding' in result.lower()"
+    },
+    {
+      "id": "TS-11-19",
+      "requirement_id": "11-REQ-4.4",
+      "kind": "unit",
+      "description": "Verify that `generate_archetype_summary` returns a non-empty summary string for a verifier session with verdicts, unchanged from prior behavior.",
+      "preconditions": [
+        "`formatting.py` contains updated `generate_archetype_summary` function"
+      ],
+      "input": {
+        "session_type": "verifier",
+        "verdicts": [
+          {
+            "detail": "Function not found",
+            "requirement_id": "11-REQ-3.1",
+            "result": "fail"
+          }
+        ]
+      },
+      "expected": "Return value is a non-empty string containing failed requirement IDs and verdict details.",
+      "assertion_pseudocode": "result = generate_archetype_summary(session_type='verifier', verdicts=[{'requirement_id': '11-REQ-3.1', 'result': 'fail', 'detail': 'Function not found'}])\nassert result is not None\nassert len(result) > 0\nassert '11-REQ-3.1' in result or 'fail' in result.lower()"
+    },
+    {
+      "id": "TS-11-20",
+      "requirement_id": "11-REQ-4.5",
+      "kind": "integration",
+      "description": "Verify that when `generate_archetype_summary` returns None, the session lifecycle does not insert a row into `session_summaries`.",
+      "preconditions": [
+        "DuckDB knowledge store is initialised with a `session_summaries` table",
+        "`formatting.py` returns None for no-findings reviewer sessions",
+        "The `if summary_text:` guard is present in `session_lifecycle.py`"
+      ],
+      "input": {
+        "findings": [],
+        "session_type": "reviewer"
+      },
+      "expected": "The `session_summaries` table contains zero rows for the triggered session ID after processing.",
+      "assertion_pseudocode": "process_reviewer_session(session_id='test-session-no-findings', findings=[])\nrows = db.query('SELECT count(*) FROM session_summaries WHERE session_id = ?', 'test-session-no-findings')\nassert rows[0][0] == 0"
+    },
+    {
+      "id": "TS-11-21",
+      "requirement_id": "11-REQ-5.1",
+      "kind": "static",
+      "description": "Verify that Section 4.2 of `05-knowledge-system-architecture.md` describes the enriched schema fields and composition step.",
+      "preconditions": [
+        "File `docs/architecture/05-knowledge-system-architecture.md` exists and is readable"
+      ],
+      "input": "Content of `docs/architecture/05-knowledge-system-architecture.md`",
+      "expected": "Section 4.2 contains references to `rejected_approaches`, `gotchas`, `assumptions`, and describes the composition step that transforms these into stored text.",
+      "assertion_pseudocode": "content = read_file('docs/architecture/05-knowledge-system-architecture.md')\nsection_42 = extract_section(content, '4.2')\nassert 'rejected_approaches' in section_42\nassert 'gotchas' in section_42\nassert 'assumptions' in section_42\nassert 'compos' in section_42.lower()"
+    },
+    {
+      "id": "TS-11-22",
+      "requirement_id": "11-REQ-5.2",
+      "kind": "static",
+      "description": "Verify that Section 5.5 of `05-knowledge-system-architecture.md` notes that session_summaries rows contain non-obvious learnings.",
+      "preconditions": [
+        "File `docs/architecture/05-knowledge-system-architecture.md` exists and is readable"
+      ],
+      "input": "Content of `docs/architecture/05-knowledge-system-architecture.md`",
+      "expected": "Section 5.5 contains language indicating that stored summaries reflect non-obvious learnings, rejected approaches, gotchas, and assumptions rather than completion-status pings.",
+      "assertion_pseudocode": "content = read_file('docs/architecture/05-knowledge-system-architecture.md')\nsection_55 = extract_section(content, '5.5')\nassert 'non-obvious' in section_55.lower() or 'rejected' in section_55.lower()\nassert 'completion' not in section_55.lower() or 'no longer' in section_55.lower()"
+    },
+    {
+      "id": "TS-11-23",
+      "requirement_id": "11-REQ-5.3",
+      "kind": "static",
+      "description": "Verify that Section 6 retrieval table of `05-knowledge-system-architecture.md` updates the Same-spec summaries row to reflect enriched content.",
+      "preconditions": [
+        "File `docs/architecture/05-knowledge-system-architecture.md` exists and is readable"
+      ],
+      "input": "Content of `docs/architecture/05-knowledge-system-architecture.md`",
+      "expected": "The retrieval table in Section 6 has a 'Same-spec summaries' row whose description references enriched content from structured session-summary fields.",
+      "assertion_pseudocode": "content = read_file('docs/architecture/05-knowledge-system-architecture.md')\nsection_6 = extract_section(content, '6')\nassert 'same-spec' in section_6.lower() or 'same spec' in section_6.lower()\nassert 'enriched' in section_6.lower() or 'rejected' in section_6.lower() or 'gotcha' in section_6.lower()"
+    },
+    {
+      "id": "TS-11-24",
+      "requirement_id": "11-REQ-5.4",
+      "kind": "static",
+      "description": "Verify that Section 11 of `05-knowledge-system-architecture.md` updates the Cross-session continuity paragraph to describe enriched summary content.",
+      "preconditions": [
+        "File `docs/architecture/05-knowledge-system-architecture.md` exists and is readable"
+      ],
+      "input": "Content of `docs/architecture/05-knowledge-system-architecture.md`",
+      "expected": "Section 11's cross-session continuity paragraph references rejected approaches, gotchas, and/or assumptions rather than generic completion status.",
+      "assertion_pseudocode": "content = read_file('docs/architecture/05-knowledge-system-architecture.md')\nsection_11 = extract_section(content, '11')\nassert 'rejected' in section_11.lower() or 'gotcha' in section_11.lower() or 'assumption' in section_11.lower()\nassert 'completion status' not in section_11.lower() or 'no longer' in section_11.lower()"
+    }
+  ],
+  "property_tests": [
+    {
+      "id": "TS-11-P1",
+      "property_id": "11-PROP-1",
+      "validates": [
+        "11-REQ-1.4",
+        "11-REQ-3.6"
+      ],
+      "description": "For any session-summary.json without the three new structured fields, `compose_enriched_summary` returns a string identical to the original `summary` field value.",
+      "for_any_strategy": "Generate random non-empty summary strings (alphanumeric, 1–2000 chars). Call compose_enriched_summary with the summary and all structured fields as None or empty.",
+      "invariant_check": "result = compose_enriched_summary(summary=s, rejected_approaches=None, gotchas=None, assumptions=None)\nassert result == s\n\nresult2 = compose_enriched_summary(summary=s, rejected_approaches=[], gotchas=[], assumptions=[])\nassert result2 == s"
+    },
+    {
+      "id": "TS-11-P2",
+      "property_id": "11-PROP-2",
+      "validates": [
+        "11-REQ-4.1",
+        "11-REQ-4.2",
+        "11-REQ-4.5"
+      ],
+      "description": "For any reviewer session with zero findings or verifier session with zero verdicts, `generate_archetype_summary` always returns None and no row is written to session_summaries.",
+      "for_any_strategy": "Generate reviewer sessions with empty findings lists and verifier sessions with empty verdicts lists. Process each through the session lifecycle with a test DuckDB instance.",
+      "invariant_check": "result = generate_archetype_summary(session_type='reviewer', findings=[])\nassert result is None\n\nresult2 = generate_archetype_summary(session_type='verifier', verdicts=[])\nassert result2 is None\n\nprocess_session(session_type='reviewer', findings=[], session_id=sid)\ncount = db.query('SELECT count(*) FROM session_summaries WHERE session_id = ?', sid)[0][0]\nassert count == 0"
+    },
+    {
+      "id": "TS-11-P3",
+      "property_id": "11-PROP-3",
+      "validates": [
+        "11-REQ-3.2",
+        "11-REQ-3.3",
+        "11-REQ-3.4",
+        "11-REQ-3.5"
+      ],
+      "description": "For any session-summary.json with at least one non-empty structured field, every entry in every populated field appears in the stored session_summaries text using the prescribed format strings.",
+      "for_any_strategy": "Generate session summaries with random combinations of non-empty rejected_approaches (1–5 entries), gotchas (1–5 strings), and assumptions (1–5 strings). Process through compose_enriched_summary and verify all entries appear.",
+      "invariant_check": "result = compose_enriched_summary(summary=s, rejected_approaches=ra, gotchas=g, assumptions=a)\nfor entry in ra:\n    assert f'Tried: {entry[\"approach\"]} — rejected because: {entry[\"reason\"]}' in result\nfor gotcha in g:\n    assert f'Watch out: {gotcha}' in result\nfor assumption in a:\n    assert f'Assumes: {assumption}' in result"
+    },
+    {
+      "id": "TS-11-P4",
+      "property_id": "11-PROP-4",
+      "validates": [
+        "11-REQ-4.3",
+        "11-REQ-4.5"
+      ],
+      "description": "For any reviewer session with one or more findings, `generate_archetype_summary` returns a non-empty string and a row is written to session_summaries.",
+      "for_any_strategy": "Generate reviewer sessions with 1–10 findings (random severities and description strings). Process through generate_archetype_summary and the session lifecycle.",
+      "invariant_check": "result = generate_archetype_summary(session_type='reviewer', findings=findings)\nassert result is not None\nassert len(result) > 0\n\nprocess_session(session_type='reviewer', findings=findings, session_id=sid)\ncount = db.query('SELECT count(*) FROM session_summaries WHERE session_id = ?', sid)[0][0]\nassert count == 1"
+    }
+  ],
+  "edge_case_tests": [
+    {
+      "id": "TS-11-E1",
+      "requirement_id": "11-REQ-1.E1",
+      "kind": "unit",
+      "description": "Verify that `compose_enriched_summary` skips a malformed `rejected_approaches` entry missing the `approach` key without raising an exception.",
+      "preconditions": [
+        "`session_lifecycle.py` contains `compose_enriched_summary` function"
+      ],
+      "input": {
+        "assumptions": [],
+        "gotchas": [],
+        "rejected_approaches": [
+          {
+            "reason": "Too slow"
+          },
+          {
+            "approach": "Valid approach",
+            "reason": "Not compatible"
+          }
+        ],
+        "summary": "Some narrative."
+      },
+      "expected": "No exception is raised; the malformed entry (missing `approach`) is skipped; the valid entry is formatted and present in the returned string.",
+      "assertion_pseudocode": "result = compose_enriched_summary(summary='Some narrative.', rejected_approaches=[{'reason': 'Too slow'}, {'approach': 'Valid approach', 'reason': 'Not compatible'}], gotchas=[], assumptions=[])\nassert 'Tried: Valid approach — rejected because: Not compatible' in result\nassert 'Too slow' not in result or 'Tried:' not in result.split('Too slow')[0].split('\\n')[-1]"
+    },
+    {
+      "id": "TS-11-E2",
+      "requirement_id": "11-REQ-3.E1",
+      "kind": "unit",
+      "description": "Verify that `compose_enriched_summary` handles an empty `summary` field by appending any present structured lines and returning the result.",
+      "preconditions": [
+        "`session_lifecycle.py` contains `compose_enriched_summary` function"
+      ],
+      "input": {
+        "assumptions": [],
+        "gotchas": [],
+        "rejected_approaches": [
+          {
+            "approach": "Approach A",
+            "reason": "Reason A"
+          }
+        ],
+        "summary": ""
+      },
+      "expected": "No exception is raised; returned string contains 'Tried: Approach A — rejected because: Reason A'; if no structured fields existed, the return would be an empty string.",
+      "assertion_pseudocode": "result = compose_enriched_summary(summary='', rejected_approaches=[{'approach': 'Approach A', 'reason': 'Reason A'}], gotchas=[], assumptions=[])\nassert 'Tried: Approach A — rejected because: Reason A' in result\n\nresult_empty = compose_enriched_summary(summary='', rejected_approaches=[], gotchas=[], assumptions=[])\nassert result_empty == ''"
+    },
+    {
+      "id": "TS-11-E3",
+      "requirement_id": "11-REQ-3.E2",
+      "kind": "unit",
+      "description": "Verify that sections in the composed output are separated by newline characters with no trailing newline after the final section.",
+      "preconditions": [
+        "`session_lifecycle.py` contains `compose_enriched_summary` function"
+      ],
+      "input": {
+        "assumptions": [
+          "Assumes Y"
+        ],
+        "gotchas": [
+          "Watch this"
+        ],
+        "rejected_approaches": [
+          {
+            "approach": "Approach X",
+            "reason": "Reason X"
+          }
+        ],
+        "summary": "Core narrative."
+      },
+      "expected": "Sections are separated by newline characters; the string does not end with a trailing newline.",
+      "assertion_pseudocode": "result = compose_enriched_summary(summary='Core narrative.', rejected_approaches=[{'approach': 'Approach X', 'reason': 'Reason X'}], gotchas=['Watch this'], assumptions=['Assumes Y'])\nassert '\\n' in result\nassert not result.endswith('\\n')\nparts = result.split('\\n')\nassert parts[0] == 'Core narrative.' or parts[0].startswith('Core narrative.')"
+    },
+    {
+      "id": "TS-11-E4",
+      "requirement_id": "11-REQ-4.E1",
+      "kind": "unit",
+      "description": "Verify that `generate_archetype_summary` returns None for a reviewer session where findings data is present but all severity counts are zero.",
+      "preconditions": [
+        "`formatting.py` contains updated `generate_archetype_summary` function"
+      ],
+      "input": {
+        "findings": [
+          {
+            "count": 0,
+            "severity": "high"
+          },
+          {
+            "count": 0,
+            "severity": "medium"
+          },
+          {
+            "count": 0,
+            "severity": "low"
+          }
+        ],
+        "session_type": "reviewer"
+      },
+      "expected": "Return value is Python None.",
+      "assertion_pseudocode": "result = generate_archetype_summary(session_type='reviewer', findings=[{'severity': 'high', 'count': 0}, {'severity': 'medium', 'count': 0}, {'severity': 'low', 'count': 0}])\nassert result is None"
+    }
+  ],
+  "smoke_tests": [
+    {
+      "id": "TS-11-SMOKE-1",
+      "execution_path_id": "11-PATH-1",
+      "description": "End-to-end smoke test: a coder session produces a fully enriched summary with all structured fields populated and it is stored in the session_summaries DuckDB table.",
+      "trigger": "Call the session lifecycle's summary extraction and storage flow with a session-summary.json containing summary, rejected_approaches, gotchas, and assumptions.",
+      "real_components": [
+        "packages/agentfox/agentfox/engine/session_lifecycle.py (compose_enriched_summary and extraction flow)",
+        "packages/agentfox/agentfox/knowledge/ (DuckDB knowledge store)",
+        "session_summaries DuckDB table"
+      ],
+      "mockable": [
+        "Coder agent (replaced by fixture session-summary.json on disk)",
+        "File system read (can use temp directory with fixture JSON)"
+      ],
+      "expected_effects": [
+        "compose_enriched_summary is called once with the structured fields from the JSON",
+        "The session_summaries table contains exactly one new row for the session",
+        "The stored summary column starts with the narrative summary text",
+        "The stored summary contains a 'Tried: ...' line for each rejected_approaches entry",
+        "The stored summary contains a 'Watch out: ...' line for each gotchas entry",
+        "The stored summary contains an 'Assumes: ...' line for each assumptions entry"
+      ]
+    },
+    {
+      "id": "TS-11-SMOKE-2",
+      "execution_path_id": "11-PATH-2",
+      "description": "End-to-end smoke test: a reviewer session with zero findings results in no row being inserted into session_summaries.",
+      "trigger": "Call the session lifecycle's summary generation and storage flow for a reviewer session with an empty findings list.",
+      "real_components": [
+        "packages/agentfox/agentfox/knowledge/formatting.py (generate_archetype_summary)",
+        "packages/agentfox/agentfox/engine/session_lifecycle.py (if summary_text: guard)",
+        "session_summaries DuckDB table"
+      ],
+      "mockable": [
+        "Reviewer agent (replaced by fixture session data)",
+        "Session metadata (injected directly into lifecycle call)"
+      ],
+      "expected_effects": [
+        "generate_archetype_summary returns None",
+        "The if summary_text: guard evaluates to False",
+        "No INSERT is issued against session_summaries",
+        "session_summaries table row count for this session_id is 0"
+      ]
+    },
+    {
+      "id": "TS-11-SMOKE-3",
+      "execution_path_id": "11-PATH-3",
+      "description": "End-to-end smoke test: a legacy session-summary.json with only the summary field is stored unchanged without errors.",
+      "trigger": "Call the session lifecycle's summary extraction and storage flow with a legacy session-summary.json containing only the summary field.",
+      "real_components": [
+        "packages/agentfox/agentfox/engine/session_lifecycle.py (compose_enriched_summary and extraction flow)",
+        "session_summaries DuckDB table"
+      ],
+      "mockable": [
+        "File system read (temp directory with legacy fixture JSON)"
+      ],
+      "expected_effects": [
+        "compose_enriched_summary is called and returns the raw summary text unchanged",
+        "The session_summaries table contains one new row for the session",
+        "The stored summary column equals the original summary text with no additional lines"
+      ]
+    },
+    {
+      "id": "TS-11-SMOKE-4",
+      "execution_path_id": "11-PATH-4",
+      "description": "End-to-end smoke test: a reviewer session with findings generates a non-empty summary and stores it in session_summaries.",
+      "trigger": "Call the session lifecycle's summary generation and storage flow for a reviewer session with at least one finding.",
+      "real_components": [
+        "packages/agentfox/agentfox/knowledge/formatting.py (generate_archetype_summary)",
+        "packages/agentfox/agentfox/engine/session_lifecycle.py (if summary_text: guard and storage)",
+        "session_summaries DuckDB table"
+      ],
+      "mockable": [
+        "Reviewer agent (replaced by fixture findings data)",
+        "Session metadata (injected directly into lifecycle call)"
+      ],
+      "expected_effects": [
+        "generate_archetype_summary returns a non-empty string",
+        "The if summary_text: guard evaluates to True",
+        "An INSERT is issued against session_summaries",
+        "session_summaries table row count for this session_id is 1",
+        "Stored summary text contains severity or finding description content"
+      ]
+    }
+  ],
+  "coverage": {
+    "requirements_covered": [],
+    "properties_covered": [],
+    "paths_covered": [],
+    "gaps": []
+  }
+}

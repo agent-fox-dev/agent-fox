@@ -1,0 +1,1241 @@
+{
+  "$schema": null,
+  "spec_id": "10",
+  "spec_name": "remove_unused_knowledge_channels",
+  "schema_version": 1,
+  "test_commands": {
+    "spec_tests": "pytest packages/agentfox -q -k 'errata or adr or verdict or cross_spec or prior_run or migration or fox_provider or review_store or summary_store or prompt_assembly or architecture'",
+    "all_tests": "pytest packages/agentfox -q",
+    "linter": "ruff check packages/agentfox"
+  },
+  "dependencies": [],
+  "task_groups": [
+    {
+      "id": 1,
+      "kind": "tests",
+      "title": "Write tests for all removed-channel cleanup requirements",
+      "subtasks": [
+        {
+          "id": "1.1",
+          "title": "Write migration tests (TS-10-1, TS-10-2, TS-10-3, TS-10-E1)",
+          "details": [
+            "Create or extend a test file (e.g. tests/test_migrations_drop_unused_tables.py) covering TS-10-1, TS-10-2, TS-10-3, and TS-10-E1.",
+            "TS-10-1: apply the new migration to a DB that already has errata, adr_entries, verification_results; assert all three are absent afterwards.",
+            "TS-10-2: assert session_summaries survives the migration and remains queryable.",
+            "TS-10-3: assert the new migration version > all prior versions and appears exactly once in the version table.",
+            "TS-10-E1: apply migration to a fresh DB where target tables never existed; assert no exception and version is recorded.",
+            "All tests use pytest fixtures with DuckDB in-memory databases; tests are expected to FAIL until the migration is implemented."
+          ],
+          "test_spec_refs": [
+            "TS-10-1",
+            "TS-10-2",
+            "TS-10-3",
+            "TS-10-E1"
+          ],
+          "requirement_refs": [
+            "10-REQ-1.1",
+            "10-REQ-1.2",
+            "10-REQ-1.3",
+            "10-REQ-1.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.2",
+          "title": "Write static-analysis tests for deleted files and symbols (TS-10-4 through TS-10-6)",
+          "details": [
+            "Create tests/test_deleted_modules_absent.py with TS-10-4 (errata.py absent), TS-10-5 (adr.py absent), and TS-10-6 (no imports of either module anywhere).",
+            "Use os.path.exists / pathlib for file-existence checks and subprocess grep or ast.parse for import scanning.",
+            "Tests should FAIL until errata.py and adr.py are deleted and all import sites cleaned."
+          ],
+          "test_spec_refs": [
+            "TS-10-4",
+            "TS-10-5",
+            "TS-10-6"
+          ],
+          "requirement_refs": [
+            "10-REQ-2.1",
+            "10-REQ-2.2",
+            "10-REQ-2.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.3",
+          "title": "Write fox_provider.py cleanup tests (TS-10-7 through TS-10-12, TS-10-P2, TS-10-P3, TS-10-P4)",
+          "details": [
+            "Create tests/test_fox_provider_cleanup.py covering all six acceptance tests for REQ-3.",
+            "TS-10-7/TS-10-8: grep fox_provider.py for removed method definitions/calls.",
+            "TS-10-9: instrument FoxProvider.retrieve() to expose items_with_ids; assert all tuples are (str, non-None).",
+            "TS-10-10: assert cross_group_items contains only cross-review records and respects max_cross_group_items cap.",
+            "TS-10-11: capture log output with caplog; assert log line matches 'Retrieved \\d+ review + \\d+ cross-group + \\d+ context items for <spec>'.",
+            "TS-10-12: grep __init__ body for 'verdict_ids'.",
+            "TS-10-P3/TS-10-P4: parametrised property tests with hypothesis or manual scenario lists."
+          ],
+          "test_spec_refs": [
+            "TS-10-7",
+            "TS-10-8",
+            "TS-10-9",
+            "TS-10-10",
+            "TS-10-11",
+            "TS-10-12",
+            "TS-10-P3",
+            "TS-10-P4"
+          ],
+          "requirement_refs": [
+            "10-REQ-3.1",
+            "10-REQ-3.2",
+            "10-REQ-3.3",
+            "10-REQ-3.4",
+            "10-REQ-3.5",
+            "10-REQ-3.6"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.4",
+          "title": "Write review_store.py, summary_store.py, and engine-caller cleanup tests (TS-10-13 through TS-10-21)",
+          "details": [
+            "Create tests/test_store_and_engine_cleanup.py.",
+            "TS-10-13: grep review_store.py for removed function definitions.",
+            "TS-10-14: grep all Python files for call sites of removed review_store functions.",
+            "TS-10-15/TS-10-16: grep summary_store.py and all Python files for query_cross_spec_summaries.",
+            "TS-10-17: assert query_same_spec_summaries is defined and returns rows from session_summaries.",
+            "TS-10-18 to TS-10-21: grep run.py, nightshift/_startup.py, result_handler.py, session_lifecycle.py for removed symbols/strings."
+          ],
+          "test_spec_refs": [
+            "TS-10-13",
+            "TS-10-14",
+            "TS-10-15",
+            "TS-10-16",
+            "TS-10-17",
+            "TS-10-18",
+            "TS-10-19",
+            "TS-10-20",
+            "TS-10-21"
+          ],
+          "requirement_refs": [
+            "10-REQ-4.1",
+            "10-REQ-4.2",
+            "10-REQ-5.1",
+            "10-REQ-5.2",
+            "10-REQ-5.3",
+            "10-REQ-6.1",
+            "10-REQ-6.2",
+            "10-REQ-6.3",
+            "10-REQ-6.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.5",
+          "title": "Write prompt assembly and documentation tests (TS-10-22, TS-10-23, TS-10-30 through TS-10-32)",
+          "details": [
+            "Create tests/test_prompt_assembly_cleanup.py: assemble a coder prompt and assert none of [ERRATA], [ADR], [VERIFY], [CROSS-GROUP], [CROSS-SPEC], [PRIOR-RUN] appear (TS-10-22); assert three kept channels are present when data is available (TS-10-23).",
+            "Create tests/test_architecture_docs_cleanup.py: grep docs/architecture.md for forbidden terms (TS-10-30); read 05-knowledge-system-architecture.md and assert exactly three channels documented and removed channels absent (TS-10-31); grep 03-execution-and-archetypes.md for 'verdict' and 'errata' (TS-10-32).",
+            "Property test TS-10-P5: parametrised prompt scenarios asserting removed tags are always absent."
+          ],
+          "test_spec_refs": [
+            "TS-10-22",
+            "TS-10-23",
+            "TS-10-30",
+            "TS-10-31",
+            "TS-10-32"
+          ],
+          "requirement_refs": [
+            "10-REQ-7.1",
+            "10-REQ-7.2",
+            "10-REQ-9.1",
+            "10-REQ-9.2",
+            "10-REQ-9.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.6",
+          "title": "Write test-suite hygiene tests (TS-10-24 through TS-10-29, TS-10-E2, TS-10-P2)",
+          "details": [
+            "Create tests/test_test_suite_hygiene.py.",
+            "TS-10-24: assert the six deleted test files are absent from the repo tree.",
+            "TS-10-25/TS-10-26/TS-10-27/TS-10-28: grep the named retained test files for forbidden symbols and forbidden table names.",
+            "TS-10-E2: run pytest --collect-only and assert no ImportError or ModuleNotFoundError in output.",
+            "TS-10-P2: enumerate all Python files and assert none reference any deleted symbol from the PRD's removed-symbol list.",
+            "TS-10-29: mark as integration — runs full pytest and checks exit code 0 (can be skipped in unit mode with a pytest mark)."
+          ],
+          "test_spec_refs": [
+            "TS-10-24",
+            "TS-10-25",
+            "TS-10-26",
+            "TS-10-27",
+            "TS-10-28",
+            "TS-10-29",
+            "TS-10-E2",
+            "TS-10-P2"
+          ],
+          "requirement_refs": [
+            "10-REQ-8.1",
+            "10-REQ-8.2",
+            "10-REQ-8.3",
+            "10-REQ-8.4",
+            "10-REQ-8.5",
+            "10-REQ-8.6",
+            "10-REQ-8.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "1.V",
+        "checks": [
+          "All new test files are collected by pytest without import errors: `pytest packages/agentfox --collect-only -q`",
+          "New tests are present and fail (red) because implementation has not been applied yet — confirm at least one failure per test group",
+          "No linter warnings introduced by new test files: `ruff check packages/agentfox`",
+          "Test IDs TS-10-1 through TS-10-32, TS-10-P1 through TS-10-P5, TS-10-E1, TS-10-E2, TS-10-SMOKE-1 through TS-10-SMOKE-3 are all represented in the test files"
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "kind": "standard",
+      "title": "Add DuckDB migration to drop errata, adr_entries, and verification_results",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Add new migration version to migrations.py with DROP TABLE IF EXISTS statements",
+          "details": [
+            "Open migrations.py and determine the current highest migration version number.",
+            "Add a new migration entry with version = max_existing_version + 1.",
+            "The migration body must execute: DROP TABLE IF EXISTS errata; DROP TABLE IF EXISTS adr_entries; DROP TABLE IF EXISTS verification_results;",
+            "Do NOT add a DROP for session_summaries — it is retained.",
+            "Ensure the migration is registered in the migrations list/dict so the runner applies it in order.",
+            "Use IF EXISTS on all three DROP statements to satisfy 10-REQ-1.E1 (fresh DB safety)."
+          ],
+          "test_spec_refs": [
+            "TS-10-1",
+            "TS-10-2",
+            "TS-10-3",
+            "TS-10-E1"
+          ],
+          "requirement_refs": [
+            "10-REQ-1.1",
+            "10-REQ-1.2",
+            "10-REQ-1.3",
+            "10-REQ-1.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.2",
+          "title": "Verify migration runner records the new version and is idempotent",
+          "details": [
+            "Confirm that the migration runner inserts the new version into the migration-version tracking table after successful application.",
+            "Confirm that running the migration runner a second time does not re-execute the DROP statements (idempotent via version check).",
+            "If the runner already handles idempotency by version, document that this is verified by TS-10-3."
+          ],
+          "test_spec_refs": [
+            "TS-10-3",
+            "TS-10-E1"
+          ],
+          "requirement_refs": [
+            "10-REQ-1.3",
+            "10-REQ-1.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.3",
+          "title": "Verify full migration chain works on fresh database",
+          "details": [
+            "Ensure that running the entire migration chain from v1 through the new DROP version against a fresh empty DuckDB produces the correct final schema.",
+            "The old CREATE TABLE migrations for errata, adr_entries, and verification_results still run (preserving migration history), and the new DROP migration removes them.",
+            "Verify session_summaries, review_findings, and other retained tables exist in the final schema.",
+            "This validates the end-to-end upgrade path for new installations."
+          ],
+          "test_spec_refs": [
+            "TS-10-E1",
+            "TS-10-P1"
+          ],
+          "requirement_refs": [
+            "10-REQ-1.1",
+            "10-REQ-1.2",
+            "10-REQ-1.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "2.V",
+        "checks": [
+          "TS-10-1 passes: errata, adr_entries, verification_results absent after migration",
+          "TS-10-2 passes: session_summaries survives migration",
+          "TS-10-3 passes: new version > all prior versions and recorded exactly once",
+          "TS-10-E1 passes: migration succeeds on fresh DB with no pre-existing target tables",
+          "Full migration chain from v1 through new version produces correct final schema on fresh DB",
+          "All existing migration tests still pass: `pytest packages/agentfox -q -k migration`",
+          "No linter warnings: `ruff check packages/agentfox`"
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "kind": "standard",
+      "title": "Delete errata.py and adr.py modules and remove all import references",
+      "subtasks": [
+        {
+          "id": "3.1",
+          "title": "Delete packages/agentfox/agentfox/knowledge/errata.py",
+          "details": [
+            "Remove the file packages/agentfox/agentfox/knowledge/errata.py from the repository (git rm).",
+            "Search all Python files for 'from agentfox.knowledge.errata', 'from .errata', 'import errata' and remove every occurrence.",
+            "Check __init__.py files in the knowledge package for re-exports of errata symbols and remove them.",
+            "Verify: `python -c 'import agentfox.knowledge.errata'` raises ImportError."
+          ],
+          "test_spec_refs": [
+            "TS-10-4",
+            "TS-10-6"
+          ],
+          "requirement_refs": [
+            "10-REQ-2.1",
+            "10-REQ-2.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.2",
+          "title": "Delete packages/agentfox/agentfox/knowledge/adr.py",
+          "details": [
+            "Remove the file packages/agentfox/agentfox/knowledge/adr.py from the repository (git rm).",
+            "Search all Python files for 'from agentfox.knowledge.adr', 'from .adr', 'import adr' and remove every occurrence.",
+            "Check __init__.py files in the knowledge package for re-exports of ADR symbols (ingest_adr, parse_madr, detect_adr_changes) and remove them.",
+            "Verify: `python -c 'import agentfox.knowledge.adr'` raises ImportError."
+          ],
+          "test_spec_refs": [
+            "TS-10-5",
+            "TS-10-6"
+          ],
+          "requirement_refs": [
+            "10-REQ-2.2",
+            "10-REQ-2.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.3",
+          "title": "Scan entire codebase for residual errata/adr module references",
+          "details": [
+            "Run: grep -r 'agentfox.knowledge.errata\\|agentfox.knowledge.adr\\|from .errata\\|from .adr\\|import errata\\|import adr' packages/agentfox",
+            "Resolve any remaining references found — likely in engine modules or test helpers.",
+            "After cleanup, the grep should return zero matches."
+          ],
+          "test_spec_refs": [
+            "TS-10-6",
+            "TS-10-P2"
+          ],
+          "requirement_refs": [
+            "10-REQ-2.3"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "3.V",
+        "checks": [
+          "TS-10-4 passes: errata.py file is absent from repo tree",
+          "TS-10-5 passes: adr.py file is absent from repo tree",
+          "TS-10-6 passes: zero import references to deleted modules found across all Python files",
+          "Full test suite collects without ImportError: `pytest packages/agentfox --collect-only -q`",
+          "No linter warnings: `ruff check packages/agentfox`"
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "kind": "standard",
+      "title": "Remove six unused retrieval methods from fox_provider.py and update retrieve()",
+      "subtasks": [
+        {
+          "id": "4.1",
+          "title": "Delete the six private retrieval methods from fox_provider.py",
+          "details": [
+            "Delete the following method definitions from fox_provider.py: _query_errata(), _query_adrs(), _query_verdicts(), _query_cross_group_verdicts(), _query_cross_spec_summaries(), _query_prior_run_findings().",
+            "Remove any helper imports that were exclusively used by those methods (e.g. imports from errata.py or adr.py).",
+            "Do not touch _query_reviews(), _query_cross_group_reviews(), or _query_same_spec_summaries()."
+          ],
+          "test_spec_refs": [
+            "TS-10-7"
+          ],
+          "requirement_refs": [
+            "10-REQ-3.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.2",
+          "title": "Update retrieve() orchestration in fox_provider.py",
+          "details": [
+            "Remove all six call sites of the deleted methods from the retrieve() body.",
+            "Remove verdict_ids from items_with_ids tracking; items_with_ids must only accumulate (text, review_id) tuples.",
+            "Remove cross_verdicts from cross_group_items; cross_group_items must only contain cross-review records, still subject to max_cross_group_items cap.",
+            "Update the log message to exactly: 'Retrieved {reviews} review + {cross_group} cross-group + {context} context items for {spec}'.",
+            "Remove any verdict-related intermediate variables (e.g. verdict_results, cross_verdict_results) from the method body."
+          ],
+          "test_spec_refs": [
+            "TS-10-8",
+            "TS-10-9",
+            "TS-10-10",
+            "TS-10-11"
+          ],
+          "requirement_refs": [
+            "10-REQ-3.2",
+            "10-REQ-3.3",
+            "10-REQ-3.4",
+            "10-REQ-3.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.3",
+          "title": "Remove verdict_ids initialisation from fox_provider.py __init__",
+          "details": [
+            "Locate the __init__ method of the FoxProvider class.",
+            "Remove any line that initialises self.verdict_ids (e.g. self.verdict_ids = set()).",
+            "Search for any other references to verdict_ids within the class and remove them.",
+            "Ensure no other verdict-related state (e.g. self._verdict_cache) is initialised."
+          ],
+          "test_spec_refs": [
+            "TS-10-12"
+          ],
+          "requirement_refs": [
+            "10-REQ-3.6"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "4.V",
+        "checks": [
+          "TS-10-7 passes: zero definitions of the six removed methods in fox_provider.py",
+          "TS-10-8 passes: retrieve() contains no call sites for removed methods; runtime invocation succeeds",
+          "TS-10-9 passes: items_with_ids contains only (str, non-None) tuples",
+          "TS-10-10 passes: cross_group_items contains only cross-review records, capped at max_cross_group_items",
+          "TS-10-11 passes: log line matches three-field pattern",
+          "TS-10-12 passes: verdict_ids absent from __init__",
+          "All existing fox_provider tests still pass: `pytest packages/agentfox -q -k fox_provider`",
+          "No linter warnings: `ruff check packages/agentfox`"
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "kind": "standard",
+      "title": "Remove unused functions from review_store.py and summary_store.py",
+      "subtasks": [
+        {
+          "id": "5.1",
+          "title": "Delete six verdict/prior-run functions from review_store.py",
+          "details": [
+            "Delete the following function definitions from review_store.py: query_active_verdicts(), query_cross_group_verdicts(), query_prior_run_findings(), query_prior_run_verdicts(), insert_verdicts(), validate_verdict().",
+            "Remove any imports in review_store.py that were exclusively used by these deleted functions.",
+            "Scan the entire codebase for call sites of these functions and remove/replace each one."
+          ],
+          "test_spec_refs": [
+            "TS-10-13",
+            "TS-10-14"
+          ],
+          "requirement_refs": [
+            "10-REQ-4.1",
+            "10-REQ-4.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.2",
+          "title": "Delete query_cross_spec_summaries from summary_store.py",
+          "details": [
+            "Delete the query_cross_spec_summaries() function from summary_store.py.",
+            "Confirm query_same_spec_summaries() remains intact and untouched.",
+            "Scan the entire codebase for call sites of query_cross_spec_summaries() (including in fox_provider.py and any callers) and remove them.",
+            "Remove any imports in summary_store.py exclusively used by query_cross_spec_summaries()."
+          ],
+          "test_spec_refs": [
+            "TS-10-15",
+            "TS-10-16",
+            "TS-10-17"
+          ],
+          "requirement_refs": [
+            "10-REQ-5.1",
+            "10-REQ-5.2",
+            "10-REQ-5.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.3",
+          "title": "Clean up related type definitions, constants, and helper imports",
+          "details": [
+            "Search review_store.py and summary_store.py for any type aliases, dataclass definitions, constants, or named tuples that were exclusively used by the removed functions.",
+            "Remove any orphaned helper imports (e.g. typing imports, dataclass decorators) that are no longer referenced after the deletions.",
+            "Verify no unused variables or dead conditional branches remain in either file.",
+            "Run ruff check on both files to catch any remaining unused-import or unused-variable warnings."
+          ],
+          "test_spec_refs": [
+            "TS-10-P2"
+          ],
+          "requirement_refs": [
+            "10-REQ-4.1",
+            "10-REQ-5.1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "5.V",
+        "checks": [
+          "TS-10-13 passes: zero definitions of the six removed functions in review_store.py",
+          "TS-10-14 passes: zero call sites for removed review_store functions across all Python files",
+          "TS-10-15 passes: query_cross_spec_summaries not defined in summary_store.py",
+          "TS-10-16 passes: zero call sites for query_cross_spec_summaries across all Python files",
+          "TS-10-17 passes: query_same_spec_summaries is defined and queries session_summaries correctly",
+          "All existing review_store and summary_store tests still pass: `pytest packages/agentfox -q -k 'review_store or summary_store'`",
+          "No linter warnings: `ruff check packages/agentfox`"
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "kind": "standard",
+      "title": "Remove errata startup calls and generation logic from engine modules",
+      "subtasks": [
+        {
+          "id": "6.1",
+          "title": "Remove index_errata_from_markdown() call from run.py",
+          "details": [
+            "Open agentfox/engine/run.py and remove the call to index_errata_from_markdown() at startup.",
+            "Remove the import of index_errata_from_markdown if it is no longer used anywhere in run.py.",
+            "Verify no other references to errata indexing remain in the file."
+          ],
+          "test_spec_refs": [
+            "TS-10-18"
+          ],
+          "requirement_refs": [
+            "10-REQ-6.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.2",
+          "title": "Remove index_errata_from_markdown() call from nightshift/_startup.py",
+          "details": [
+            "Open nightshift/_startup.py and remove the call to index_errata_from_markdown().",
+            "Remove the import of index_errata_from_markdown if it is no longer used anywhere in that file.",
+            "Verify no other errata references remain in the file."
+          ],
+          "test_spec_refs": [
+            "TS-10-19"
+          ],
+          "requirement_refs": [
+            "10-REQ-6.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.3",
+          "title": "Remove _generate_errata() from result_handler.py and clean session_lifecycle.py comment",
+          "details": [
+            "Open agentfox/engine/result_handler.py, delete the _generate_errata() method definition, and remove all call sites within that file.",
+            "Remove any imports in result_handler.py exclusively used by _generate_errata().",
+            "Open agentfox/engine/session_lifecycle.py and delete any comment that references index_errata_from_markdown (e.g. a comment describing the startup sequence).",
+            "Verify no other errata references remain in either file."
+          ],
+          "test_spec_refs": [
+            "TS-10-20",
+            "TS-10-21"
+          ],
+          "requirement_refs": [
+            "10-REQ-6.3",
+            "10-REQ-6.4"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "6.V",
+        "checks": [
+          "TS-10-18 passes: zero occurrences of index_errata_from_markdown in run.py",
+          "TS-10-19 passes: zero occurrences of index_errata_from_markdown in nightshift/_startup.py",
+          "TS-10-20 passes: zero occurrences of _generate_errata in result_handler.py",
+          "TS-10-21 passes: zero occurrences of index_errata_from_markdown string in session_lifecycle.py",
+          "All engine-related tests still pass: `pytest packages/agentfox -q -k 'run or result_handler or session_lifecycle or startup'`",
+          "No linter warnings: `ruff check packages/agentfox`"
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "kind": "standard",
+      "title": "Remove removed-channel prompt tags from context assembly code",
+      "subtasks": [
+        {
+          "id": "7.1",
+          "title": "Remove [ERRATA], [ADR], [VERIFY], [CROSS-GROUP] verdict tag construction from prompt assembly",
+          "details": [
+            "Locate the prompt assembly module(s) responsible for building coder prompts.",
+            "Remove all code that constructs or appends [ERRATA] tagged sections.",
+            "Remove all code that constructs or appends [ADR] tagged sections.",
+            "Remove all code that constructs or appends [VERIFY] tagged sections.",
+            "Remove all code that constructs or appends [CROSS-GROUP] verdict tagged sections (distinct from cross-group review sections which are retained)."
+          ],
+          "test_spec_refs": [
+            "TS-10-22"
+          ],
+          "requirement_refs": [
+            "10-REQ-7.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.2",
+          "title": "Remove [CROSS-SPEC] and [PRIOR-RUN] tag construction from prompt assembly",
+          "details": [
+            "Remove all code that constructs or appends [CROSS-SPEC] tagged sections.",
+            "Remove all code that constructs or appends [PRIOR-RUN] tagged sections.",
+            "After removal, grep the prompt assembly code for the strings '[ERRATA]', '[ADR]', '[VERIFY]', '[CROSS-SPEC]', '[PRIOR-RUN]' and confirm zero matches.",
+            "Ensure no dead conditional branches remain (e.g. if errata_items: ... blocks with no errata_items source)."
+          ],
+          "test_spec_refs": [
+            "TS-10-22",
+            "TS-10-P5"
+          ],
+          "requirement_refs": [
+            "10-REQ-7.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.3",
+          "title": "Verify three retained channel tags are still emitted in prompt assembly",
+          "details": [
+            "Confirm that prompt assembly code for review findings (likely a [REVIEW] or similar tag), cross-group reviews, and same-spec context summaries sections is intact and unchanged.",
+            "Run TS-10-23: assemble a prompt with data in all three retained channels and assert the relevant sections are present.",
+            "If [CROSS-GROUP] was used for both verdicts and reviews, ensure the verdict variant is removed but the review variant is preserved."
+          ],
+          "test_spec_refs": [
+            "TS-10-23"
+          ],
+          "requirement_refs": [
+            "10-REQ-7.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "7.V",
+        "checks": [
+          "TS-10-22 passes: assembled prompt contains none of [ERRATA], [ADR], [VERIFY], [CROSS-GROUP] verdict, [CROSS-SPEC], [PRIOR-RUN]",
+          "TS-10-23 passes: assembled prompt includes all three retained channel sections when data is present",
+          "TS-10-P5 passes: property test confirms no removed tag appears across varied prompt scenarios",
+          "All existing prompt assembly tests still pass: `pytest packages/agentfox -q -k 'prompt or context or assemble'`",
+          "No linter warnings: `ruff check packages/agentfox`"
+        ]
+      }
+    },
+    {
+      "id": 8,
+      "kind": "standard",
+      "title": "Delete and update test files covering removed channels",
+      "subtasks": [
+        {
+          "id": "8.1",
+          "title": "Delete the six entirely removed test files",
+          "details": [
+            "Delete test_errata.py, test_adr.py, test_adr_props.py, test_verdict_normalization.py, test_cross_run_carryforward.py, and test_errata_on_blocking.py from the repository (git rm each).",
+            "Verify each file is absent: file_exists_in_repo returns False for all six."
+          ],
+          "test_spec_refs": [
+            "TS-10-24"
+          ],
+          "requirement_refs": [
+            "10-REQ-8.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.2",
+          "title": "Remove cross-spec and verdict portions from summary/review store test files",
+          "details": [
+            "In test_fox_provider_summaries.py, test_summary_store.py, test_summary_lifecycle.py: delete all test functions/classes that reference query_cross_spec_summaries or [CROSS-SPEC].",
+            "In test_review_store.py, test_review_store_props.py: delete all test functions/classes that reference insert_verdicts, validate_verdict, query_active_verdicts, or query_cross_group_verdicts.",
+            "After edits, grep each file for forbidden terms and confirm zero matches.",
+            "Run pytest on the modified files to confirm remaining tests pass."
+          ],
+          "test_spec_refs": [
+            "TS-10-25",
+            "TS-10-26"
+          ],
+          "requirement_refs": [
+            "10-REQ-8.2",
+            "10-REQ-8.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.3",
+          "title": "Remove prior-run and ADR/errata portions from smoke and idempotency test files",
+          "details": [
+            "In test_retrieval_fixes_smoke.py: remove test cases covering prior-run findings (query_prior_run_findings, prior-run data fixtures).",
+            "In test_duckdb_reader_writer_smoke.py: remove test cases covering ADR ingestion (ingest_adr) and errata indexing (index_errata_from_markdown, errata table).",
+            "In test_duckdb_reader_writer_idempotency.py: remove errata-related test cases and fixtures.",
+            "Run pytest on each modified file; confirm remaining tests pass."
+          ],
+          "test_spec_refs": [
+            "TS-10-27"
+          ],
+          "requirement_refs": [
+            "10-REQ-8.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.4",
+          "title": "Remove errata portions from context assembly and blocking test files",
+          "details": [
+            "In test_assemble_context_readonly.py: remove test cases and fixtures covering the errata channel.",
+            "In test_audit_review_blocking.py: remove all mock patches or imports referencing errata (e.g. mock_errata, patch('agentfox.knowledge.errata...')).",
+            "In test_duckdb_reader_writer_props.py: remove all errata mock references.",
+            "Run pytest --collect-only on all modified files to confirm no ImportError (TS-10-E2); then run the full test files to confirm passing."
+          ],
+          "test_spec_refs": [
+            "TS-10-28",
+            "TS-10-E2"
+          ],
+          "requirement_refs": [
+            "10-REQ-8.5",
+            "10-REQ-8.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "8.V",
+        "checks": [
+          "TS-10-24 passes: all six deleted test files are absent from the repo tree",
+          "TS-10-25 passes: cross-spec summary test files clean and passing",
+          "TS-10-26 passes: verdict portions removed from review store test files and tests pass",
+          "TS-10-27 passes: prior-run and ADR/errata portions removed from smoke/idempotency files and tests pass",
+          "TS-10-28 passes: errata portions removed from three named files and tests pass",
+          "TS-10-E2 passes: pytest --collect-only reports no ImportError or ModuleNotFoundError",
+          "All modified test files pass: `pytest packages/agentfox -q`",
+          "No linter warnings: `ruff check packages/agentfox`"
+        ]
+      }
+    },
+    {
+      "id": 9,
+      "kind": "standard",
+      "title": "Update architecture documentation to reflect three-channel system",
+      "subtasks": [
+        {
+          "id": "9.1",
+          "title": "Update docs/architecture.md to remove removed-channel references",
+          "details": [
+            "Edit docs/architecture.md: remove or rewrite §1.2 description to describe only the three retained channels.",
+            "Remove errata, adr_entries, and verification_results from the DuckDB schema section.",
+            "Remove rows for errata, ADR, verdict, cross-spec summaries, and prior-run items from the knowledge injection table.",
+            "After editing, run: grep -i 'errata\\|\\bADR\\b\\|verdict\\|cross-spec\\|prior-run' docs/architecture.md and confirm zero matches."
+          ],
+          "test_spec_refs": [
+            "TS-10-30"
+          ],
+          "requirement_refs": [
+            "10-REQ-9.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "9.2",
+          "title": "Update docs/architecture/05-knowledge-system-architecture.md",
+          "details": [
+            "Edit docs/architecture/05-knowledge-system-architecture.md: remove or rewrite all sections covering errata, ADRs, verdicts, cross-spec summaries, and prior-run items.",
+            "Ensure exactly three retrieval channels remain documented: review findings, drift/cross-group reviews, and same-spec context summaries.",
+            "After editing, verify: grep -i 'errata\\|\\badr\\b\\|verdict\\|cross-spec summar\\|prior-run' returns zero matches; grep -i 'review findings\\|cross-group review\\|same-spec context' returns matches for all three."
+          ],
+          "test_spec_refs": [
+            "TS-10-31"
+          ],
+          "requirement_refs": [
+            "10-REQ-9.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "9.3",
+          "title": "Update docs/architecture/03-execution-and-archetypes.md",
+          "details": [
+            "Edit docs/architecture/03-execution-and-archetypes.md: remove all references to verdicts (query_active_verdicts, verification_results, verifier archetype verdict writing) and all references to errata.",
+            "After editing, run: grep -i 'verdict\\|errata' docs/architecture/03-execution-and-archetypes.md and confirm zero matches."
+          ],
+          "test_spec_refs": [
+            "TS-10-32"
+          ],
+          "requirement_refs": [
+            "10-REQ-9.3"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "9.V",
+        "checks": [
+          "TS-10-30 passes: grep for errata/ADR/verdict/cross-spec/prior-run in docs/architecture.md returns zero matches",
+          "TS-10-31 passes: 05-knowledge-system-architecture.md describes exactly three channels; removed channel terms absent",
+          "TS-10-32 passes: grep for verdict/errata in 03-execution-and-archetypes.md returns zero matches",
+          "Documentation is valid Markdown (no broken links to removed sections): inspect with a Markdown linter or manual review"
+        ]
+      }
+    },
+    {
+      "id": 10,
+      "kind": "checkpoint",
+      "title": "Intermediate verification: full test suite clean after all removals",
+      "subtasks": [
+        {
+          "id": "10.1",
+          "title": "Run full test suite and confirm exit code 0",
+          "details": [
+            "Execute: pytest packages/agentfox -q",
+            "Confirm exit code is 0.",
+            "Confirm output contains no ImportError, ModuleNotFoundError, or AttributeError referencing deleted symbols.",
+            "Record any failing tests and resolve before proceeding to wiring verification."
+          ],
+          "test_spec_refs": [
+            "TS-10-29"
+          ],
+          "requirement_refs": [
+            "10-REQ-8.6"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "10.2",
+          "title": "Run property tests (TS-10-P1 through TS-10-P5)",
+          "details": [
+            "Execute property tests: pytest packages/agentfox -q -k 'prop or property'",
+            "TS-10-P1: verify migration invariant across DB states.",
+            "TS-10-P2: verify no deleted symbol in any Python file.",
+            "TS-10-P3: verify retrieve() log format across all scenarios.",
+            "TS-10-P4: verify items_with_ids tuple structure across all scenarios.",
+            "TS-10-P5: verify no removed tag in any assembled prompt.",
+            "All five property tests must pass."
+          ],
+          "test_spec_refs": [
+            "TS-10-P1",
+            "TS-10-P2",
+            "TS-10-P3",
+            "TS-10-P4",
+            "TS-10-P5"
+          ],
+          "requirement_refs": [
+            "10-REQ-1.1",
+            "10-REQ-1.2",
+            "10-REQ-2.3",
+            "10-REQ-3.3",
+            "10-REQ-3.5",
+            "10-REQ-7.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "10.3",
+          "title": "Run linter and confirm zero warnings",
+          "details": [
+            "Execute: ruff check packages/agentfox",
+            "Resolve any warnings introduced by the cleanup (e.g. unused imports left behind after function deletions).",
+            "Confirm exit code 0 from ruff."
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [
+            "10-REQ-2.3",
+            "10-REQ-3.1",
+            "10-REQ-4.1",
+            "10-REQ-5.1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "10.V",
+        "checks": [
+          "TS-10-29 passes: full pytest suite exits with code 0",
+          "TS-10-P1 through TS-10-P5 all pass",
+          "ruff check exits with code 0: `ruff check packages/agentfox`",
+          "Zero import errors during test collection: `pytest packages/agentfox --collect-only -q`"
+        ]
+      }
+    },
+    {
+      "id": 11,
+      "kind": "wiring_verification",
+      "title": "End-to-end wiring verification: execution paths, smoke tests, and dead-code audit",
+      "subtasks": [
+        {
+          "id": "11.1",
+          "title": "Trace execution paths — verify startup path has no errata calls (10-PATH-1)",
+          "details": [
+            "Trace 10-PATH-1: confirm run.py startup calls the migration runner (which applies the new DROP migration) but does NOT call index_errata_from_markdown at any point.",
+            "Confirm nightshift/_startup.py startup also omits index_errata_from_markdown.",
+            "Confirm the migration runner is wired into the startup sequence so the DROP TABLE migration is applied before any queries run.",
+            "Verify the call chain from startup entry point → migration runner → new migration version in production code (not a stub)."
+          ],
+          "test_spec_refs": [
+            "TS-10-SMOKE-1"
+          ],
+          "requirement_refs": [
+            "10-REQ-6.1",
+            "10-REQ-6.2",
+            "10-REQ-1.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.2",
+          "title": "Trace execution path — verify three-channel retrieval path (10-PATH-2)",
+          "details": [
+            "Trace 10-PATH-2: confirm the call chain from coder session → fox_provider.retrieve() → _query_reviews() / _query_cross_group_reviews() / _query_same_spec_summaries() only — no calls to deleted methods.",
+            "Verify retrieve() returns a context payload that reaches the coder session (return value propagation).",
+            "Confirm items_with_ids is populated and passed to the caller with only (text, review_id) tuples.",
+            "Confirm the log line is emitted in the three-field format as part of the retrieve() call."
+          ],
+          "test_spec_refs": [
+            "TS-10-SMOKE-2"
+          ],
+          "requirement_refs": [
+            "10-REQ-3.2",
+            "10-REQ-3.3",
+            "10-REQ-3.4",
+            "10-REQ-3.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.3",
+          "title": "Run smoke tests with real components (TS-10-SMOKE-1, TS-10-SMOKE-2, TS-10-SMOKE-3)",
+          "details": [
+            "TS-10-SMOKE-1: run the agent-fox startup path (run.py or nightshift/_startup.py) against an in-memory DuckDB with legacy tables; confirm migration drops the three tables, startup logs no errata messages.",
+            "TS-10-SMOKE-2: invoke FoxProvider.retrieve() with a real DuckDB containing review/cross-group/summary data; assert context payload has no removed tags and log line is correctly formatted.",
+            "TS-10-SMOKE-3: run the full pytest suite (exit code 0, no import errors) — equivalent to TS-10-29.",
+            "All three smoke tests must pass with real components (no mocked DuckDB)."
+          ],
+          "test_spec_refs": [
+            "TS-10-SMOKE-1",
+            "TS-10-SMOKE-2",
+            "TS-10-SMOKE-3"
+          ],
+          "requirement_refs": [
+            "10-REQ-8.6"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.4",
+          "title": "Dead-code and stub audit across all modified files",
+          "details": [
+            "Search for Python dead-code markers in all files modified by this spec: `grep -rn 'raise NotImplementedError\\|pass  *#.*TODO\\|return None  *#.*stub' packages/agentfox`",
+            "Search for any residual references to deleted symbols: `grep -rn '_query_errata\\|_query_adrs\\|_query_verdicts\\|_query_cross_group_verdicts\\|_query_cross_spec_summaries\\|_query_prior_run_findings\\|query_active_verdicts\\|query_cross_group_verdicts\\|query_prior_run_findings\\|query_prior_run_verdicts\\|insert_verdicts\\|validate_verdict\\|query_cross_spec_summaries\\|index_errata_from_markdown\\|_generate_errata' packages/agentfox`",
+            "Any hit must be investigated and resolved — no deleted symbol may remain in production code.",
+            "Confirm no empty function bodies (bare `pass` with no docstring) were left behind by the deletions."
+          ],
+          "test_spec_refs": [
+            "TS-10-P2"
+          ],
+          "requirement_refs": [
+            "10-REQ-3.1",
+            "10-REQ-4.1",
+            "10-REQ-5.1",
+            "10-REQ-6.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.5",
+          "title": "Verify return-value propagation and no orphaned callers remain",
+          "details": [
+            "Confirm that all callers of the six removed review_store functions have been updated (no orphaned call sites remain).",
+            "Confirm that all callers of query_cross_spec_summaries have been updated.",
+            "Confirm that result_handler.py no longer calls _generate_errata() and that the return value path that previously consumed errata is cleanly removed (no dangling variable).",
+            "Confirm that run.py and nightshift/_startup.py do not hold stale references to errata-indexing return values."
+          ],
+          "test_spec_refs": [
+            "TS-10-14",
+            "TS-10-16",
+            "TS-10-18",
+            "TS-10-19"
+          ],
+          "requirement_refs": [
+            "10-REQ-4.2",
+            "10-REQ-5.2",
+            "10-REQ-6.1",
+            "10-REQ-6.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "11.V",
+        "checks": [
+          "TS-10-SMOKE-1 passes: startup path completes with migration applied and no errata calls",
+          "TS-10-SMOKE-2 passes: retrieve() produces three-channel-only context payload with correct log line",
+          "TS-10-SMOKE-3 passes: full pytest suite exits with code 0",
+          "Dead-code grep returns zero matches for all deleted symbols across packages/agentfox",
+          "ruff check exits with code 0: `ruff check packages/agentfox`",
+          "All 32 acceptance tests (TS-10-1 through TS-10-32) plus 5 property tests (TS-10-P1 through TS-10-P5) and 2 edge-case tests (TS-10-E1, TS-10-E2) pass: `pytest packages/agentfox -q`",
+          "Requirements 10-REQ-1 through 10-REQ-9 acceptance criteria all satisfied per traceability matrix"
+        ]
+      }
+    }
+  ],
+  "traceability": [
+    {
+      "requirement_id": "10-REQ-1.1",
+      "test_spec_id": "TS-10-1",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "10-REQ-1.2",
+      "test_spec_id": "TS-10-2",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "10-REQ-1.3",
+      "test_spec_id": "TS-10-3",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "10-REQ-1.E1",
+      "test_spec_id": "TS-10-E1",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "10-REQ-2.1",
+      "test_spec_id": "TS-10-4",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "10-REQ-2.2",
+      "test_spec_id": "TS-10-5",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "10-REQ-2.3",
+      "test_spec_id": "TS-10-6",
+      "task_id": "3.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "10-REQ-3.1",
+      "test_spec_id": "TS-10-7",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "10-REQ-3.2",
+      "test_spec_id": "TS-10-8",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "10-REQ-3.3",
+      "test_spec_id": "TS-10-9",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "10-REQ-3.4",
+      "test_spec_id": "TS-10-10",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "10-REQ-3.5",
+      "test_spec_id": "TS-10-11",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "10-REQ-3.6",
+      "test_spec_id": "TS-10-12",
+      "task_id": "4.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "10-REQ-4.1",
+      "test_spec_id": "TS-10-13",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "10-REQ-4.2",
+      "test_spec_id": "TS-10-14",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "10-REQ-5.1",
+      "test_spec_id": "TS-10-15",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "10-REQ-5.2",
+      "test_spec_id": "TS-10-16",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "10-REQ-5.3",
+      "test_spec_id": "TS-10-17",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "10-REQ-6.1",
+      "test_spec_id": "TS-10-18",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "10-REQ-6.2",
+      "test_spec_id": "TS-10-19",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "10-REQ-6.3",
+      "test_spec_id": "TS-10-20",
+      "task_id": "6.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "10-REQ-6.4",
+      "test_spec_id": "TS-10-21",
+      "task_id": "6.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "10-REQ-7.1",
+      "test_spec_id": "TS-10-22",
+      "task_id": "7.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "10-REQ-7.2",
+      "test_spec_id": "TS-10-23",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "10-REQ-8.1",
+      "test_spec_id": "TS-10-24",
+      "task_id": "8.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "10-REQ-8.2",
+      "test_spec_id": "TS-10-25",
+      "task_id": "8.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "10-REQ-8.3",
+      "test_spec_id": "TS-10-26",
+      "task_id": "8.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "10-REQ-8.4",
+      "test_spec_id": "TS-10-27",
+      "task_id": "8.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "10-REQ-8.5",
+      "test_spec_id": "TS-10-28",
+      "task_id": "8.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "10-REQ-8.6",
+      "test_spec_id": "TS-10-29",
+      "task_id": "10.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "10-REQ-8.E1",
+      "test_spec_id": "TS-10-E2",
+      "task_id": "8.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "10-REQ-9.1",
+      "test_spec_id": "TS-10-30",
+      "task_id": "9.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "10-REQ-9.2",
+      "test_spec_id": "TS-10-31",
+      "task_id": "9.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "10-REQ-9.3",
+      "test_spec_id": "TS-10-32",
+      "task_id": "9.3",
+      "test_path": null
+    }
+  ]
+}

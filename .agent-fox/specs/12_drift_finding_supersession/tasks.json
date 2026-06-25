@@ -1,0 +1,1076 @@
+{
+  "$schema": null,
+  "spec_id": "12",
+  "spec_name": "drift_finding_supersession",
+  "schema_version": 1,
+  "test_commands": {
+    "spec_tests": "pytest -q packages/agentfox/packages/agentfox/tests/test_drift_finding_supersession.py packages/agentfox/packages/agentfox/tests/integration/test_drift_supersession_integration.py",
+    "all_tests": "pytest packages/agentfox -q",
+    "linter": "ruff check packages/agentfox/agentfox/knowledge/review_store.py packages/agentfox/agentfox/engine/result_handler.py"
+  },
+  "dependencies": [],
+  "task_groups": [
+    {
+      "id": 1,
+      "kind": "tests",
+      "title": "Write Spec Tests for Drift Finding Supersession",
+      "subtasks": [
+        {
+          "id": "1.1",
+          "title": "Write unit tests for supersede_drift_findings_by_files core logic",
+          "details": [
+            "Create packages/agentfox/tests/test_drift_finding_supersession.py",
+            "Use in-memory DuckDB connections for all unit tests — initialise drift_findings table via the existing migration helpers",
+            "Implement a shared insert_finding() fixture helper that inserts a row into drift_findings",
+            "Write tests TS-12-1 through TS-12-9 covering: signature/return type, empty touched_files debug short-circuit, cross-task-group query, null artifact_ref skip, line-number stripping, prefix matching, exact matching, superseded_by marker value, and observability logging"
+          ],
+          "test_spec_refs": [
+            "TS-12-1",
+            "TS-12-2",
+            "TS-12-3",
+            "TS-12-4",
+            "TS-12-5",
+            "TS-12-6",
+            "TS-12-7",
+            "TS-12-8",
+            "TS-12-9"
+          ],
+          "requirement_refs": [
+            "12-REQ-1.1",
+            "12-REQ-1.2",
+            "12-REQ-1.3",
+            "12-REQ-1.4",
+            "12-REQ-1.5",
+            "12-REQ-1.6",
+            "12-REQ-1.7",
+            "12-REQ-1.8",
+            "12-REQ-1.9"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.2",
+          "title": "Write unit tests for private helper query and public API encapsulation",
+          "details": [
+            "Write TS-12-10: seed findings across multiple task groups plus one superseded finding; assert the private helper returns only active rows from all task groups",
+            "Write TS-12-11: import review_store and confirm the private helper name (prefixed with '_') is absent from the module's public attribute list and not in __all__ if defined"
+          ],
+          "test_spec_refs": [
+            "TS-12-10",
+            "TS-12-11"
+          ],
+          "requirement_refs": [
+            "12-REQ-2.1",
+            "12-REQ-2.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.3",
+          "title": "Write unit tests for result_handler integration of supersession call",
+          "details": [
+            "Write TS-12-12: mock supersede_injected_findings and supersede_drift_findings_by_files; assert drift supersession is called after injected-findings supersession, once, with correct arguments",
+            "Write TS-12-13: for reviewer and verifier session types, assert supersede_drift_findings_by_files is never called",
+            "Write TS-12-14: mock supersede_drift_findings_by_files to raise RuntimeError; assert no exception propagates and a WARNING log is emitted",
+            "Write TS-12-E3: SessionRecord with touched_files=None; assert the function is called with None and returns 0 without DB access"
+          ],
+          "test_spec_refs": [
+            "TS-12-12",
+            "TS-12-13",
+            "TS-12-14",
+            "TS-12-E3"
+          ],
+          "requirement_refs": [
+            "12-REQ-3.1",
+            "12-REQ-3.2",
+            "12-REQ-3.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.4",
+          "title": "Write unit tests for exact/prefix matching rules and REQ-8 matrix cases",
+          "details": [
+            "Write TS-12-15 to TS-12-18 for exact match hit/miss and prefix match hit/miss",
+            "Write TS-12-19 for supersession marker exact string equality",
+            "Write TS-12-20 to TS-12-22 for null artifact_ref persistence, non-matching persistence, and query_active_drift_findings exclusion of superseded findings",
+            "Write TS-12-23 through TS-12-30 as the REQ-8 unit test matrix (exact match, non-match, directory prefix, line-number strip, null ref, empty list, null list, multiple matches)"
+          ],
+          "test_spec_refs": [
+            "TS-12-15",
+            "TS-12-16",
+            "TS-12-17",
+            "TS-12-18",
+            "TS-12-19",
+            "TS-12-20",
+            "TS-12-21",
+            "TS-12-22",
+            "TS-12-23",
+            "TS-12-24",
+            "TS-12-25",
+            "TS-12-26",
+            "TS-12-27",
+            "TS-12-28",
+            "TS-12-29",
+            "TS-12-30"
+          ],
+          "requirement_refs": [
+            "12-REQ-4.1",
+            "12-REQ-4.2",
+            "12-REQ-5.1",
+            "12-REQ-5.2",
+            "12-REQ-6.1",
+            "12-REQ-7.1",
+            "12-REQ-7.2",
+            "12-REQ-7.3",
+            "12-REQ-8.1",
+            "12-REQ-8.2",
+            "12-REQ-8.3",
+            "12-REQ-8.4",
+            "12-REQ-8.5",
+            "12-REQ-8.6",
+            "12-REQ-8.7",
+            "12-REQ-8.8"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.5",
+          "title": "Write edge case tests and property-based tests",
+          "details": [
+            "Write TS-12-E1: all findings have null artifact_ref — assert return 0, no DB writes",
+            "Write TS-12-E2: multiple distinct findings share the same artifact_ref — assert all are superseded, count correct",
+            "Write TS-12-E4: artifact_ref with ':42' suffix matches touched file without suffix",
+            "Write TS-12-P1 through TS-12-P6 as hypothesis-based property tests using @given strategies for arbitrary file paths, node_ids, and finding sets, validating the six correctness properties"
+          ],
+          "test_spec_refs": [
+            "TS-12-E1",
+            "TS-12-E2",
+            "TS-12-E4",
+            "TS-12-P1",
+            "TS-12-P2",
+            "TS-12-P3",
+            "TS-12-P4",
+            "TS-12-P5",
+            "TS-12-P6"
+          ],
+          "requirement_refs": [
+            "12-REQ-1.E1",
+            "12-REQ-1.E2",
+            "12-REQ-4.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.6",
+          "title": "Write integration tests and smoke tests",
+          "details": [
+            "Create packages/agentfox/tests/integration/test_drift_supersession_integration.py using a full DuckDB database initialised via all migrations up to v25",
+            "Write TS-12-31 through TS-12-34 as the end-to-end nightshift_standalone_cli scenario: seed 12 findings, simulate successful coder session merge via result_handler, assert 10 superseded with correct node_id, 2 active, query_active_drift_findings returns exactly 2",
+            "Write TS-12-SMOKE-1 through TS-12-SMOKE-4 as smoke tests with real components for each execution path"
+          ],
+          "test_spec_refs": [
+            "TS-12-31",
+            "TS-12-32",
+            "TS-12-33",
+            "TS-12-34",
+            "TS-12-SMOKE-1",
+            "TS-12-SMOKE-2",
+            "TS-12-SMOKE-3",
+            "TS-12-SMOKE-4"
+          ],
+          "requirement_refs": [
+            "12-REQ-9.1",
+            "12-REQ-9.2",
+            "12-REQ-9.3",
+            "12-REQ-9.4"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "1.V",
+        "checks": [
+          "All test files are syntactically valid Python and importable: python -m py_compile packages/agentfox/tests/test_drift_finding_supersession.py packages/agentfox/tests/integration/test_drift_supersession_integration.py",
+          "Test collection succeeds with no errors: pytest --collect-only packages/agentfox/tests/test_drift_finding_supersession.py packages/agentfox/tests/integration/test_drift_supersession_integration.py",
+          "All tests are marked as expected failures (xfail) or skip with a clear stub marker — none pass prematurely against unimplemented code",
+          "No linter warnings in new test files: ruff check packages/agentfox/tests/test_drift_finding_supersession.py packages/agentfox/tests/integration/test_drift_supersession_integration.py",
+          "Requirements 12-REQ-1 through 12-REQ-9 each have at least one corresponding test_spec_ref in this group"
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "kind": "standard",
+      "title": "Implement Private Helper Query and supersede_drift_findings_by_files in review_store.py",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Add private helper _query_active_drift_findings_for_spec to review_store.py",
+          "details": [
+            "Add a module-private function _query_active_drift_findings_for_spec(conn, spec_name) in review_store.py",
+            "Execute SQL: SELECT id, artifact_ref FROM drift_findings WHERE spec_name = ? AND superseded_by IS NULL",
+            "Return a list of (id, artifact_ref) tuples",
+            "Do NOT add the function to __all__ or any public import surface",
+            "Ensure the function name starts with '_' to enforce privacy by convention"
+          ],
+          "test_spec_refs": [
+            "TS-12-10",
+            "TS-12-11"
+          ],
+          "requirement_refs": [
+            "12-REQ-2.1",
+            "12-REQ-2.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.2",
+          "title": "Implement artifact_ref normalisation logic (line-number stripping and whitespace)",
+          "details": [
+            "Implement a module-private helper _normalize_artifact_ref(ref: str) -> str",
+            "Strip trailing line-number suffix: use a regex such as r'(:\\d+)+$' to remove ':N' suffixes",
+            "Strip leading/trailing whitespace after suffix removal",
+            "Return the normalised path string",
+            "This helper is used exclusively within supersede_drift_findings_by_files"
+          ],
+          "test_spec_refs": [
+            "TS-12-5",
+            "TS-12-26",
+            "TS-12-E4"
+          ],
+          "requirement_refs": [
+            "12-REQ-1.5",
+            "12-REQ-4.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.3",
+          "title": "Implement matching logic (exact and prefix) in supersede_drift_findings_by_files",
+          "details": [
+            "For each finding row returned by the private helper, skip rows where artifact_ref IS NULL (12-REQ-1.4)",
+            "Call _normalize_artifact_ref on the artifact_ref value",
+            "If normalized ref ends with '/', apply prefix matching: any(f.startswith(normalized_ref) for f in touched_files)",
+            "Otherwise apply exact matching: normalized_ref in touched_files_set (convert list to set for O(1) lookup)",
+            "Collect IDs of matching findings into a list"
+          ],
+          "test_spec_refs": [
+            "TS-12-6",
+            "TS-12-7",
+            "TS-12-15",
+            "TS-12-16",
+            "TS-12-17",
+            "TS-12-18",
+            "TS-12-P1"
+          ],
+          "requirement_refs": [
+            "12-REQ-1.4",
+            "12-REQ-1.6",
+            "12-REQ-1.7",
+            "12-REQ-4.1",
+            "12-REQ-4.2",
+            "12-REQ-5.1",
+            "12-REQ-5.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.4",
+          "title": "Implement supersede_drift_findings_by_files function signature and early-exit guard",
+          "details": [
+            "Define: def supersede_drift_findings_by_files(conn, spec_name: str, touched_files: list[str] | None, node_id: str) -> int",
+            "If touched_files is None or len(touched_files) == 0: log a DEBUG message and return 0 immediately — make NO database calls",
+            "Build a touched_files_set = set(touched_files) for O(1) lookup in the matching step",
+            "Export the function as part of the public review_store API (include in __all__ if it exists)"
+          ],
+          "test_spec_refs": [
+            "TS-12-1",
+            "TS-12-2",
+            "TS-12-28",
+            "TS-12-29",
+            "TS-12-P3"
+          ],
+          "requirement_refs": [
+            "12-REQ-1.1",
+            "12-REQ-1.2",
+            "12-REQ-1.3",
+            "12-REQ-PROP-3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.5",
+          "title": "Implement database update and observability logging in supersede_drift_findings_by_files",
+          "details": [
+            "After collecting matching finding IDs, execute an UPDATE statement to set superseded_by = node_id for each matched ID (can batch with WHERE id IN (...))",
+            "For each superseded finding, log at INFO or DEBUG level: f'Superseded drift finding {finding_id} (artifact_ref={artifact_ref}) via session {node_id}'",
+            "Return the count of superseded findings (len of matched IDs list)",
+            "Findings with null artifact_ref or non-matching artifact_ref retain superseded_by = NULL — no UPDATE is issued for them"
+          ],
+          "test_spec_refs": [
+            "TS-12-8",
+            "TS-12-9",
+            "TS-12-19",
+            "TS-12-20",
+            "TS-12-21",
+            "TS-12-P5"
+          ],
+          "requirement_refs": [
+            "12-REQ-1.8",
+            "12-REQ-1.9",
+            "12-REQ-6.1",
+            "12-REQ-7.1",
+            "12-REQ-7.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "2.V",
+        "checks": [
+          "Unit tests TS-12-1 through TS-12-9, TS-12-10, TS-12-11 pass: pytest -q packages/agentfox/tests/test_drift_finding_supersession.py::test_signature packages/agentfox/tests/test_drift_finding_supersession.py::test_empty_touched_files packages/agentfox/tests/test_drift_finding_supersession.py::test_cross_task_group packages/agentfox/tests/test_drift_finding_supersession.py::test_null_artifact_ref packages/agentfox/tests/test_drift_finding_supersession.py::test_line_number_stripping packages/agentfox/tests/test_drift_finding_supersession.py::test_prefix_match packages/agentfox/tests/test_drift_finding_supersession.py::test_exact_match packages/agentfox/tests/test_drift_finding_supersession.py::test_superseded_by_marker packages/agentfox/tests/test_drift_finding_supersession.py::test_observability_log packages/agentfox/tests/test_drift_finding_supersession.py::test_private_helper_query packages/agentfox/tests/test_drift_finding_supersession.py::test_private_helper_not_public",
+          "All existing tests still pass: pytest packages/agentfox -q",
+          "No linter warnings introduced: ruff check packages/agentfox/agentfox/knowledge/review_store.py",
+          "Requirements 12-REQ-1.1 through 12-REQ-1.9, 12-REQ-2.1, 12-REQ-2.2 acceptance criteria met",
+          "_query_active_drift_findings_for_spec is not importable from review_store's public API"
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "kind": "standard",
+      "title": "Wire supersede_drift_findings_by_files into result_handler.py Coder Session Success Path",
+      "subtasks": [
+        {
+          "id": "3.1",
+          "title": "Import supersede_drift_findings_by_files in result_handler.py",
+          "details": [
+            "Add an import of supersede_drift_findings_by_files from review_store at the top of result_handler.py",
+            "Confirm the import does not introduce circular dependencies by running the module import in isolation"
+          ],
+          "test_spec_refs": [
+            "TS-12-12"
+          ],
+          "requirement_refs": [
+            "12-REQ-3.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.2",
+          "title": "Call supersede_drift_findings_by_files in the coder session post-merge success path",
+          "details": [
+            "Locate the coder-session success branch in result_handler.py where supersede_injected_findings is called after a successful merge and outcome recording",
+            "Immediately after the existing supersede_injected_findings call, add a call to supersede_drift_findings_by_files passing conn, spec_name, session_record.touched_files, and session_record.node_id",
+            "Guard the call so it executes ONLY for coder session types — do not call for reviewer or verifier sessions",
+            "Verify call order: supersede_injected_findings MUST be called before supersede_drift_findings_by_files"
+          ],
+          "test_spec_refs": [
+            "TS-12-12",
+            "TS-12-13"
+          ],
+          "requirement_refs": [
+            "12-REQ-3.1",
+            "12-REQ-3.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.3",
+          "title": "Wrap supersede_drift_findings_by_files in try/except with warning log",
+          "details": [
+            "Wrap the supersede_drift_findings_by_files call in a try/except Exception block",
+            "In the except block, log a WARNING: f'drift finding supersession failed for session {node_id}: {e}'",
+            "Do NOT re-raise the exception — swallow it locally, consistent with the existing try/except around supersede_injected_findings in fox_provider.ingest()",
+            "The session outcome recorded before this call must never be affected by a supersession failure"
+          ],
+          "test_spec_refs": [
+            "TS-12-14",
+            "TS-12-P6"
+          ],
+          "requirement_refs": [
+            "12-REQ-3.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.4",
+          "title": "Handle null/empty touched_files passthrough at call site",
+          "details": [
+            "Pass session_record.touched_files directly to supersede_drift_findings_by_files without pre-filtering in result_handler",
+            "The function itself handles None and empty list via its early-exit guard (12-REQ-1.2), so no defensive check is needed in result_handler",
+            "Confirm that when touched_files is None the call is still made (not skipped), so the function's debug log fires"
+          ],
+          "test_spec_refs": [
+            "TS-12-E3"
+          ],
+          "requirement_refs": [
+            "12-REQ-3.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "3.V",
+        "checks": [
+          "Unit tests TS-12-12, TS-12-13, TS-12-14, TS-12-E3 pass: pytest -q packages/agentfox/tests/test_drift_finding_supersession.py -k 'result_handler'",
+          "All existing tests still pass: pytest packages/agentfox -q",
+          "No linter warnings introduced: ruff check packages/agentfox/agentfox/engine/result_handler.py",
+          "Requirements 12-REQ-3.1, 12-REQ-3.2, 12-REQ-3.3, 12-REQ-3.E1 acceptance criteria met",
+          "Grep confirms supersede_drift_findings_by_files call site is inside the coder-only branch and wrapped in try/except: grep -n 'supersede_drift_findings_by_files' packages/agentfox/agentfox/engine/result_handler.py"
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "kind": "checkpoint",
+      "title": "Checkpoint: Validate Matching Rules, Edge Cases, and Property Tests",
+      "subtasks": [
+        {
+          "id": "4.1",
+          "title": "Run full matching-rule test suite and property tests",
+          "details": [
+            "Execute all matching-rule unit tests for exact path match/miss and prefix match/miss",
+            "Execute all property-based tests with hypothesis; confirm at least 100 examples per property",
+            "Confirm superseded_by = node_id exactly for every superseded finding (12-PROP-5)",
+            "Confirm superseded findings are absent from query_active_drift_findings results (12-PROP-4)"
+          ],
+          "test_spec_refs": [
+            "TS-12-15",
+            "TS-12-16",
+            "TS-12-17",
+            "TS-12-18",
+            "TS-12-19",
+            "TS-12-20",
+            "TS-12-21",
+            "TS-12-22",
+            "TS-12-P1",
+            "TS-12-P2",
+            "TS-12-P3",
+            "TS-12-P4",
+            "TS-12-P5",
+            "TS-12-P6"
+          ],
+          "requirement_refs": [
+            "12-REQ-4.1",
+            "12-REQ-4.2",
+            "12-REQ-5.1",
+            "12-REQ-5.2",
+            "12-REQ-6.1",
+            "12-REQ-7.1",
+            "12-REQ-7.2",
+            "12-REQ-7.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.2",
+          "title": "Run REQ-8 unit test matrix and edge case tests",
+          "details": [
+            "Run all eight REQ-8 unit test cases: exact match, non-match, directory prefix, line-number strip, null ref, empty list, null list, multiple matches",
+            "Run edge case tests TS-12-E1, TS-12-E2, TS-12-E4",
+            "Confirm all return counts match expected values and database state is correct after each test"
+          ],
+          "test_spec_refs": [
+            "TS-12-23",
+            "TS-12-24",
+            "TS-12-25",
+            "TS-12-26",
+            "TS-12-27",
+            "TS-12-28",
+            "TS-12-29",
+            "TS-12-30",
+            "TS-12-E1",
+            "TS-12-E2",
+            "TS-12-E4"
+          ],
+          "requirement_refs": [
+            "12-REQ-8.1",
+            "12-REQ-8.2",
+            "12-REQ-8.3",
+            "12-REQ-8.4",
+            "12-REQ-8.5",
+            "12-REQ-8.6",
+            "12-REQ-8.7",
+            "12-REQ-8.8",
+            "12-REQ-1.E1",
+            "12-REQ-1.E2",
+            "12-REQ-4.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.3",
+          "title": "Validate zero false-positive supersession property",
+          "details": [
+            "For any finding that is NOT superseded, confirm its artifact_ref does not match any touched file by exact or prefix logic",
+            "Run hypothesis property TS-12-P1 with at least 500 examples and confirm no counterexample is found",
+            "Manually review any shrunk counterexamples if found and fix implementation before proceeding"
+          ],
+          "test_spec_refs": [
+            "TS-12-P1"
+          ],
+          "requirement_refs": [
+            "12-REQ-4.2",
+            "12-REQ-5.2",
+            "12-REQ-7.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "4.V",
+        "checks": [
+          "All REQ-8 matrix tests pass: pytest -q packages/agentfox/tests/test_drift_finding_supersession.py -k 'req8 or match or prefix or line_number or null_ref or empty or multiple'",
+          "All property-based tests pass with no counterexamples: pytest -q packages/agentfox/tests/test_drift_finding_supersession.py -k 'property'",
+          "All edge case tests pass: pytest -q packages/agentfox/tests/test_drift_finding_supersession.py -k 'edge'",
+          "All existing tests still pass: pytest packages/agentfox -q",
+          "No linter warnings: ruff check packages/agentfox/agentfox/",
+          "Requirements 12-REQ-4, 12-REQ-5, 12-REQ-6, 12-REQ-7, 12-REQ-8 acceptance criteria all met"
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "kind": "standard",
+      "title": "Write and Pass Integration Tests and Architecture Documentation",
+      "subtasks": [
+        {
+          "id": "5.1",
+          "title": "Run integration tests for end-to-end supersession flow",
+          "details": [
+            "Initialise a test DuckDB database using all migrations up to v25 to ensure drift_findings schema matches production",
+            "Seed 12 findings for spec nightshift_standalone_cli: 10 with artifact_ref matching src/file_0.py through src/file_9.py, 1 with artifact_ref=src/unrelated.py, 1 with artifact_ref=None",
+            "Simulate a successful coder session merge via result_handler using node_id='nightshift_standalone_cli:3' and touched_files=['src/file_0.py',...,'src/file_9.py']",
+            "Assert exactly 10 rows have superseded_by='nightshift_standalone_cli:3'; assert exactly 2 rows have superseded_by=NULL",
+            "Assert query_active_drift_findings(conn, 'nightshift_standalone_cli', include_prereview=True) returns exactly 2 findings, IDs matching the non-superseded rows"
+          ],
+          "test_spec_refs": [
+            "TS-12-31",
+            "TS-12-32",
+            "TS-12-33",
+            "TS-12-34"
+          ],
+          "requirement_refs": [
+            "12-REQ-9.1",
+            "12-REQ-9.2",
+            "12-REQ-9.3",
+            "12-REQ-9.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.2",
+          "title": "Update docs/architecture.md Sections 5.4 and 10.3-10.4",
+          "details": [
+            "In Section 5.4, add a subsection describing the file-based drift finding supersession lifecycle: triggered post-merge for coder sessions, file matching via artifact_ref, graceful degradation on error",
+            "In Sections 10.3-10.4, document the distinction between file-based drift finding supersession and injection-based blanket supersession for review findings and verification results",
+            "Describe the matching rules (exact path, prefix for directory refs, line-number stripping) and fallback for null artifact_ref",
+            "Reference the new supersede_drift_findings_by_files function and its call site in result_handler"
+          ],
+          "test_spec_refs": [
+            "TS-12-35"
+          ],
+          "requirement_refs": [
+            "12-REQ-10.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.3",
+          "title": "Update docs/architecture/05-knowledge-system-architecture.md Sections 4.1, 8, and 9",
+          "details": [
+            "In Section 4.1, document the drift finding data model including the artifact_ref and superseded_by columns and their roles in the supersession lifecycle",
+            "In Section 8, add or update the finding lifecycle diagram to show two distinct supersession paths: (1) file-based via supersede_drift_findings_by_files post-merge, and (2) bulk supersession via insert_drift_findings on future drift review",
+            "In Section 9, document matching rules (exact vs. prefix), fallback behaviour when artifact_ref is null, and the role of the private helper query",
+            "Ensure the updated documentation is consistent with the implementation in review_store.py"
+          ],
+          "test_spec_refs": [
+            "TS-12-36"
+          ],
+          "requirement_refs": [
+            "12-REQ-10.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "5.V",
+        "checks": [
+          "Integration tests TS-12-31 through TS-12-34 pass: pytest -q packages/agentfox/tests/integration/test_drift_supersession_integration.py",
+          "All existing tests still pass: pytest packages/agentfox -q",
+          "No linter warnings: ruff check packages/agentfox/agentfox/",
+          "Documentation test TS-12-35 passes (architecture.md contains required sections): pytest -q packages/agentfox/tests/test_drift_finding_supersession.py -k 'docs'",
+          "Documentation test TS-12-36 passes (05-knowledge-system-architecture.md contains required content): pytest -q packages/agentfox/tests/test_drift_finding_supersession.py -k 'docs'",
+          "Requirements 12-REQ-9.1 through 12-REQ-9.4 and 12-REQ-10.1 through 12-REQ-10.2 acceptance criteria all met"
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "kind": "wiring_verification",
+      "title": "Wiring Verification: End-to-End Integration and Stub Audit",
+      "subtasks": [
+        {
+          "id": "6.1",
+          "title": "Trace execution paths — verify call chain has no broken links",
+          "details": [
+            "Trace 12-PATH-1: confirm result_handler coder success path → supersede_injected_findings → supersede_drift_findings_by_files → _query_active_drift_findings_for_spec → drift_findings UPDATE — no step is stubbed or short-circuited in production code",
+            "Trace 12-PATH-2: confirm null/empty touched_files causes immediate return before any DB call — verify with TS-12-SMOKE-2",
+            "Trace 12-PATH-3: confirm try/except in result_handler catches exceptions and emits WARNING — verify with TS-12-SMOKE-3",
+            "Trace 12-PATH-4: confirm reviewer and verifier completion paths in result_handler do NOT call supersede_drift_findings_by_files — verify with TS-12-SMOKE-4",
+            "Use grep to confirm there is exactly one call site: grep -n 'supersede_drift_findings_by_files' packages/agentfox/agentfox/engine/result_handler.py | wc -l should equal 1"
+          ],
+          "test_spec_refs": [
+            "TS-12-SMOKE-1",
+            "TS-12-SMOKE-4"
+          ],
+          "requirement_refs": [
+            "12-REQ-3.1",
+            "12-REQ-3.2",
+            "12-REQ-3.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.2",
+          "title": "Verify return value propagation through the call chain",
+          "details": [
+            "Confirm supersede_drift_findings_by_files returns an integer count to result_handler (even if result_handler does not use it for control flow)",
+            "Confirm the private helper _query_active_drift_findings_for_spec returns a list of tuples consumed correctly by the matching loop",
+            "Confirm the UPDATE statement's affected rows count aligns with the returned count — no off-by-one errors"
+          ],
+          "test_spec_refs": [
+            "TS-12-SMOKE-1"
+          ],
+          "requirement_refs": [
+            "12-REQ-1.8",
+            "12-REQ-1.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.3",
+          "title": "Run all smoke tests with real components",
+          "details": [
+            "Run TS-12-SMOKE-1: 5 findings (3 matching, 2 non-matching) through real result_handler + review_store + in-memory DuckDB; assert 3 superseded, 2 active",
+            "Run TS-12-SMOKE-2: null touched_files through real result_handler + review_store; assert 0 superseded, debug log emitted",
+            "Run TS-12-SMOKE-3: supersede_drift_findings_by_files raises RuntimeError; assert no exception propagates, WARNING logged, session outcome intact",
+            "Run TS-12-SMOKE-4: reviewer and verifier sessions; assert supersede_drift_findings_by_files call count == 0",
+            "All four smoke tests must pass with real components (no mocks for the primary path components)"
+          ],
+          "test_spec_refs": [
+            "TS-12-SMOKE-1",
+            "TS-12-SMOKE-2",
+            "TS-12-SMOKE-3",
+            "TS-12-SMOKE-4"
+          ],
+          "requirement_refs": [
+            "12-REQ-3.1",
+            "12-REQ-3.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.4",
+          "title": "Stub and dead-code audit",
+          "details": [
+            "Search for Python stub markers in modified files: grep -rn 'raise NotImplementedError\\|pass$\\|return None$\\|TODO\\|FIXME' packages/agentfox/agentfox/knowledge/review_store.py packages/agentfox/agentfox/engine/result_handler.py",
+            "Confirm no bare 'pass' or 'return None' in supersede_drift_findings_by_files or _query_active_drift_findings_for_spec that would indicate an incomplete implementation",
+            "Confirm no TODO comments remain in the new call site in result_handler.py",
+            "Verify _normalize_artifact_ref handles edge cases (already-stripped refs, refs without colons) without raising"
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [
+            "12-REQ-1.1",
+            "12-REQ-2.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.5",
+          "title": "Run full spec test suite and confirm all traceability requirements met",
+          "details": [
+            "Run all spec tests: pytest -q packages/agentfox/tests/test_drift_finding_supersession.py packages/agentfox/tests/integration/test_drift_supersession_integration.py",
+            "Run full test suite to confirm no regressions: pytest -q",
+            "Run linter on all modified files: ruff check packages/agentfox/agentfox/knowledge/review_store.py packages/agentfox/agentfox/engine/result_handler.py docs/",
+            "Confirm the measurable goals from the PRD are demonstrably met by the integration test results: ≥80% resolution coverage (10/12), 0% false positives, and ≥50% stale context reduction implied by the integration test assertions"
+          ],
+          "test_spec_refs": [
+            "TS-12-1",
+            "TS-12-2",
+            "TS-12-3",
+            "TS-12-4",
+            "TS-12-5",
+            "TS-12-6",
+            "TS-12-7",
+            "TS-12-8",
+            "TS-12-9",
+            "TS-12-10",
+            "TS-12-11",
+            "TS-12-12",
+            "TS-12-13",
+            "TS-12-14",
+            "TS-12-15",
+            "TS-12-16",
+            "TS-12-17",
+            "TS-12-18",
+            "TS-12-19",
+            "TS-12-20",
+            "TS-12-21",
+            "TS-12-22",
+            "TS-12-23",
+            "TS-12-24",
+            "TS-12-25",
+            "TS-12-26",
+            "TS-12-27",
+            "TS-12-28",
+            "TS-12-29",
+            "TS-12-30",
+            "TS-12-31",
+            "TS-12-32",
+            "TS-12-33",
+            "TS-12-34",
+            "TS-12-35",
+            "TS-12-36",
+            "TS-12-E1",
+            "TS-12-E2",
+            "TS-12-E3",
+            "TS-12-E4",
+            "TS-12-P1",
+            "TS-12-P2",
+            "TS-12-P3",
+            "TS-12-P4",
+            "TS-12-P5",
+            "TS-12-P6",
+            "TS-12-SMOKE-1",
+            "TS-12-SMOKE-2",
+            "TS-12-SMOKE-3",
+            "TS-12-SMOKE-4"
+          ],
+          "requirement_refs": [
+            "12-REQ-1.1",
+            "12-REQ-1.2",
+            "12-REQ-1.3",
+            "12-REQ-1.4",
+            "12-REQ-1.5",
+            "12-REQ-1.6",
+            "12-REQ-1.7",
+            "12-REQ-1.8",
+            "12-REQ-1.9",
+            "12-REQ-2.1",
+            "12-REQ-2.2",
+            "12-REQ-3.1",
+            "12-REQ-3.2",
+            "12-REQ-3.3",
+            "12-REQ-4.1",
+            "12-REQ-4.2",
+            "12-REQ-5.1",
+            "12-REQ-5.2",
+            "12-REQ-6.1",
+            "12-REQ-7.1",
+            "12-REQ-7.2",
+            "12-REQ-7.3",
+            "12-REQ-8.1",
+            "12-REQ-8.2",
+            "12-REQ-8.3",
+            "12-REQ-8.4",
+            "12-REQ-8.5",
+            "12-REQ-8.6",
+            "12-REQ-8.7",
+            "12-REQ-8.8",
+            "12-REQ-9.1",
+            "12-REQ-9.2",
+            "12-REQ-9.3",
+            "12-REQ-9.4",
+            "12-REQ-10.1",
+            "12-REQ-10.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "6.V",
+        "checks": [
+          "All spec tests pass: pytest -q packages/agentfox/tests/test_drift_finding_supersession.py packages/agentfox/tests/integration/test_drift_supersession_integration.py",
+          "All smoke tests pass with real components: pytest -q packages/agentfox/tests/test_drift_finding_supersession.py -k 'smoke'",
+          "Full test suite passes with no regressions: pytest packages/agentfox -q",
+          "No linter warnings in any modified file: ruff check packages/agentfox/agentfox/knowledge/review_store.py packages/agentfox/agentfox/engine/result_handler.py",
+          "Stub audit finds no raise NotImplementedError, bare pass, or TODO markers in supersede_drift_findings_by_files or _query_active_drift_findings_for_spec",
+          "Exactly one call site for supersede_drift_findings_by_files exists in result_handler.py and is inside the coder-only success branch wrapped in try/except",
+          "Integration test confirms 10/12 findings superseded (≥80% resolution coverage) and 2/12 untouched (0% false positives)",
+          "Requirements 12-REQ-1 through 12-REQ-10 all acceptance criteria confirmed met"
+        ]
+      }
+    }
+  ],
+  "traceability": [
+    {
+      "requirement_id": "12-REQ-1.1",
+      "test_spec_id": "TS-12-1",
+      "task_id": "1.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-1.2",
+      "test_spec_id": "TS-12-2",
+      "task_id": "1.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-1.3",
+      "test_spec_id": "TS-12-3",
+      "task_id": "1.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-1.4",
+      "test_spec_id": "TS-12-4",
+      "task_id": "1.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-1.5",
+      "test_spec_id": "TS-12-5",
+      "task_id": "1.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-1.6",
+      "test_spec_id": "TS-12-6",
+      "task_id": "1.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-1.7",
+      "test_spec_id": "TS-12-7",
+      "task_id": "1.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-1.8",
+      "test_spec_id": "TS-12-8",
+      "task_id": "1.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-1.9",
+      "test_spec_id": "TS-12-9",
+      "task_id": "1.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-1.E1",
+      "test_spec_id": "TS-12-E1",
+      "task_id": "1.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-1.E2",
+      "test_spec_id": "TS-12-E2",
+      "task_id": "1.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-2.1",
+      "test_spec_id": "TS-12-10",
+      "task_id": "1.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-2.2",
+      "test_spec_id": "TS-12-11",
+      "task_id": "1.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-3.1",
+      "test_spec_id": "TS-12-12",
+      "task_id": "1.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-3.2",
+      "test_spec_id": "TS-12-13",
+      "task_id": "1.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-3.3",
+      "test_spec_id": "TS-12-14",
+      "task_id": "1.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-3.E1",
+      "test_spec_id": "TS-12-E3",
+      "task_id": "1.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-4.1",
+      "test_spec_id": "TS-12-15",
+      "task_id": "1.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-4.2",
+      "test_spec_id": "TS-12-16",
+      "task_id": "1.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-4.E1",
+      "test_spec_id": "TS-12-E4",
+      "task_id": "1.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-5.1",
+      "test_spec_id": "TS-12-17",
+      "task_id": "1.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-5.2",
+      "test_spec_id": "TS-12-18",
+      "task_id": "1.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-6.1",
+      "test_spec_id": "TS-12-19",
+      "task_id": "1.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-7.1",
+      "test_spec_id": "TS-12-20",
+      "task_id": "1.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-7.2",
+      "test_spec_id": "TS-12-21",
+      "task_id": "1.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-7.3",
+      "test_spec_id": "TS-12-22",
+      "task_id": "1.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-8.1",
+      "test_spec_id": "TS-12-23",
+      "task_id": "1.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-8.2",
+      "test_spec_id": "TS-12-24",
+      "task_id": "1.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-8.3",
+      "test_spec_id": "TS-12-25",
+      "task_id": "1.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-8.4",
+      "test_spec_id": "TS-12-26",
+      "task_id": "1.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-8.5",
+      "test_spec_id": "TS-12-27",
+      "task_id": "1.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-8.6",
+      "test_spec_id": "TS-12-28",
+      "task_id": "1.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-8.7",
+      "test_spec_id": "TS-12-29",
+      "task_id": "1.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-8.8",
+      "test_spec_id": "TS-12-30",
+      "task_id": "1.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-9.1",
+      "test_spec_id": "TS-12-31",
+      "task_id": "1.6",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-9.2",
+      "test_spec_id": "TS-12-32",
+      "task_id": "1.6",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-9.3",
+      "test_spec_id": "TS-12-33",
+      "task_id": "1.6",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-9.4",
+      "test_spec_id": "TS-12-34",
+      "task_id": "1.6",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-10.1",
+      "test_spec_id": "TS-12-35",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "12-REQ-10.2",
+      "test_spec_id": "TS-12-36",
+      "task_id": "5.3",
+      "test_path": null
+    }
+  ]
+}

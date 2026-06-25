@@ -1,0 +1,246 @@
+{
+  "state": "generated",
+  "prd_path": "prd.md",
+  "assessment_history": [
+    {
+      "quality": "ready",
+      "summary": "This PRD is exceptionally well-written and comprehensive. It clearly articulates the problem, proposed solution, matching rules, integration points, design decisions, and explicit out-of-scope items. All four required/expected sections are effectively present and of high quality \u2014 Intent (Summary), Goals (implicit in the solution outcomes), Non-Goals (Out of Scope), and Background (Problem + Evidence). The level of technical specificity is appropriate for implementation. The PRD is ready to proceed to artifact generation with no blocking gaps.",
+      "gaps": [
+        "Goals section is implicit rather than explicitly stated as measurable outcomes (e.g., reduce stale context injected into coder sessions by X%, supersede N% of resolved findings within one task group completion). Having discrete, measurable success criteria would strengthen verification.",
+        "Owner field is empty \u2014 accountability for this spec is unassigned.",
+        "No explicit mention of error handling or failure modes for the new `supersede_drift_findings_by_files()` function (e.g., what happens if the DuckDB query fails mid-supersession, or if `touched_files` is null/empty on the SessionRecord).",
+        "No testing strategy is described \u2014 unit tests for matching rules (exact vs. prefix), integration tests for the post-merge hook, or regression coverage for the over-supersession scenario are not mentioned.",
+        "The schema of the `drift_findings` table is referenced but not documented in the PRD itself, which could be a friction point for implementers unfamiliar with the existing data model."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "Can you define explicit, measurable success criteria or goals for this feature?",
+          "context": "The PRD lacks a formal Goals section with measurable outcomes. Concrete metrics (e.g., 'reduce stale drift findings injected per session by \u226550% by group 4 of a typical run') would make verification and sign-off unambiguous.",
+          "options": [
+            "Reduce average stale context injected into coder sessions by \u226550% across a typical spec run",
+            "Supersede \u226580% of resolved drift findings within one task group completion of the resolving merge",
+            "Zero false-positive supersessions (no active, unresolved drift finding is incorrectly retired)",
+            "All of the above",
+            "Success is qualitative \u2014 no measurable targets required at this stage"
+          ],
+          "required": false
+        },
+        {
+          "id": "q2",
+          "text": "Who is the owner of this spec?",
+          "context": "The `owner` field is blank. Assigning an owner ensures accountability for implementation, review, and sign-off.",
+          "options": [],
+          "required": false
+        },
+        {
+          "id": "q3",
+          "text": "What is the expected behavior if `touched_files` is null or empty on the SessionRecord at the time of the post-merge hook?",
+          "context": "The PRD assumes `touched_files` is always available from the SessionRecord, but edge cases (e.g., a merge with no detected file changes, or a failure to populate `touched_files`) are not addressed. Defining a safe fallback prevents silent data loss or errors.",
+          "options": [
+            "Skip supersession entirely and log a warning",
+            "Treat as an empty list \u2014 no drift findings are superseded, none are harmed",
+            "Raise an exception to surface the data integrity issue",
+            "This case cannot occur given the existing orchestrator guarantees"
+          ],
+          "required": false
+        },
+        {
+          "id": "q4",
+          "text": "Is a testing strategy expected to be part of this PRD, and if so, what coverage is required?",
+          "context": "No testing approach is described. Given the matching logic has multiple branches (exact vs. prefix, null artifact_ref fallback), unit tests are particularly important to prevent regressions.",
+          "options": [
+            "Unit tests for all matching rule branches are required",
+            "Integration test covering the full post-merge supersession path is required",
+            "Both unit and integration tests are required",
+            "Testing strategy is out of scope for the PRD \u2014 covered separately"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "This is a well-structured and detailed PRD with strong coverage of the core problem, proposed solution, matching rules, edge cases, and design decisions. The goals are measurable, the integration point is clearly specified, and the out-of-scope section effectively prevents scope creep. A few gaps remain: the database schema for `drift_findings` is not documented, the migration strategy for the `superseded_by` column (if new) is unclear, the performance implications of querying all active drift findings on every merge are not addressed, the caller-side changes in `result_handler.py` are described loosely, and acceptance criteria for the integration test are not formally tied back to the measurable goals.",
+      "gaps": [
+        "The `drift_findings` table schema is not documented \u2014 column names, types, and nullable constraints are not specified, making it hard for an implementer to write the query without reading existing code.",
+        "It is unclear whether `superseded_by` is an existing column on `drift_findings` or needs to be added via a schema migration. If a migration is required, there is no mention of how it will be applied (e.g., Alembic, DuckDB DDL in a migration script).",
+        "No performance analysis or bounding is provided for the active-drift-findings query on every merge. If drift findings accumulate across many specs or task groups, the query could become expensive without indexing guidance.",
+        "The changes needed in `result_handler.py` are described at a high level ('post-merge success path') but the exact call site, function signature, and error boundary (try/except scope) are not specified, leaving ambiguity for the implementer.",
+        "The measurable goals (\u226550% stale context reduction by group 4, \u226580% resolution coverage) are not traced to specific test assertions or acceptance criteria, so it is unclear how compliance will be verified before ship.",
+        "The `query_active_drift_findings()` call inside `supersede_drift_findings_by_files()` is described as querying 'all task groups', but the existing function signature accepts `include_prereview=True` \u2014 it is not documented whether this call needs a new query variant or can reuse the existing one.",
+        "No rollback or feature-flag strategy is mentioned in case the supersession logic introduces bugs in production (e.g., over-suppression of still-relevant findings)."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "Is `superseded_by` an existing column on the `drift_findings` table, or does it need to be added? If it needs to be added, what is the migration mechanism (e.g., a DuckDB DDL migration script, Alembic, inline schema upgrade)?",
+          "context": "Without knowing whether a schema change is required, an implementer cannot estimate the work or ensure backward compatibility with existing drift findings rows.",
+          "options": [
+            "Already exists on the table",
+            "Needs to be added \u2014 migration script in the repo's existing DDL folder",
+            "Needs to be added \u2014 inline upgrade in review_store.py on first use",
+            "Needs to be added \u2014 Alembic migration"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "What is the exact call site and error boundary in `result_handler.py` where `supersede_drift_findings_by_files()` should be invoked? Specifically: (a) which function/method, (b) at what point in the success path, and (c) should exceptions from supersession be swallowed locally or allowed to propagate to the existing error handler?",
+          "context": "The PRD says 'after the merge is confirmed and the session outcome is recorded' and 'allow the exception to propagate', but does not name the function or describe the try/except scope, which is critical for the implementer.",
+          "options": [
+            "Swallow locally with a warning log \u2014 supersession failure must never affect session outcome recording",
+            "Propagate to the result handler's existing top-level exception handler",
+            "Propagate only for unexpected exceptions; swallow DuckDB OperationalError"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "Can `supersede_drift_findings_by_files()` reuse the existing `query_active_drift_findings(spec_name, include_prereview=True)` call, or does it need a new query that fetches findings across all task groups regardless of the `include_prereview` flag?",
+          "context": "The PRD says the function queries 'active drift findings for the spec (all task groups)', but the existing function's behavior with `include_prereview=True` may not return all task groups uniformly. A mismatch would cause findings to be missed.",
+          "options": [
+            "Reuse existing query_active_drift_findings(spec_name, include_prereview=True) \u2014 it already returns all task groups",
+            "A new internal query is needed that bypasses the include_prereview filter",
+            "The existing function needs a new parameter to support this use case"
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "Are there indexing requirements or query performance concerns for the `drift_findings` table that should be documented? For example, is there an index on `(spec_name, superseded_by)` already, or does one need to be added?",
+          "context": "Without an index on the spec_name and supersession status, the active-findings query will do a full table scan on every merge. At scale (many specs running in parallel), this could become a bottleneck.",
+          "options": [
+            "No index needed \u2014 the table is small enough that a full scan is acceptable",
+            "An index on (spec_name, superseded_by) already exists",
+            "A new index needs to be added as part of this feature",
+            "Performance is not a concern for the current scale"
+          ],
+          "required": false
+        },
+        {
+          "id": "q5",
+          "text": "How will compliance with the measurable goals (\u226550% stale context reduction by group 4, \u226580% resolution coverage, 0% false positives) be verified? Are these validated by the integration test, by a manual review of a real spec run, or by a future telemetry/metrics feature?",
+          "context": "The goals are specific and measurable, but there is no acceptance criterion in the testing section that maps back to them. Without this, the feature could pass all tests and still not meet the stated goals.",
+          "options": [
+            "Validated by the integration test assertions",
+            "Validated by a manual dry-run on the nightshift_standalone_cli spec after implementation",
+            "Tracked via existing telemetry/logging \u2014 metrics will be reviewed post-deploy",
+            "A dedicated benchmark test will be added"
+          ],
+          "required": true
+        },
+        {
+          "id": "q6",
+          "text": "Is a feature flag or kill switch needed to disable drift finding supersession in production without a code rollback, in case the logic causes unexpected over-suppression of relevant findings?",
+          "context": "The PRD does not mention a rollback strategy. Since over-suppression (hiding relevant findings from coders) could degrade output quality silently, a lightweight disable mechanism could reduce risk.",
+          "options": [
+            "Yes \u2014 add an environment variable or config flag to disable supersession",
+            "No \u2014 a code rollback is acceptable given the low risk",
+            "No \u2014 the 0% false positive guarantee from the matching rules makes this unnecessary",
+            "Defer \u2014 assess after initial rollout"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "ready",
+      "summary": "This is a high-quality, well-structured PRD that is ready for implementation. It clearly articulates the problem with concrete evidence, defines measurable success criteria, specifies the implementation contract at the function level, enumerates edge cases and error handling, provides a detailed testing plan with both unit and integration tests, and documents all major design decisions with rationale. The document is internally consistent and leaves little ambiguity for an implementer.",
+      "gaps": [
+        "The PRD does not specify the exact module path or file location where the private helper function should live (it says 'within review_store.py' but does not give a naming convention or underscore-prefix example).",
+        "The logging format for superseded findings (finding ID and artifact_ref) is mentioned but the log level (INFO vs DEBUG) is not specified \u2014 only the warning level for failure is stated.",
+        "The PRD references 'Section 14 of architecture.md' for graceful degradation but does not confirm the section number is current, which could cause confusion for implementers navigating the docs.",
+        "No explicit mention of whether the returned count from supersede_drift_findings_by_files() is logged or surfaced anywhere beyond the function's own internal logging \u2014 callers may want observability at the call site too.",
+        "The PRD does not specify behavior when the same drift finding matches multiple touched files (i.e., idempotency within a single invocation \u2014 it should only be superseded once, not counted multiple times)."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What should the private helper function inside review_store.py be named, and should it follow a specific naming convention (e.g., underscore prefix like _query_all_active_drift_findings)?",
+          "context": "The PRD specifies the function should not be exported as part of the public API but does not provide a name. A consistent naming convention prevents ambiguity for the implementer.",
+          "options": [
+            "_query_all_active_drift_findings(conn, spec_name)",
+            "_fetch_active_drift_findings_for_supersession(conn, spec_name)",
+            "No preference \u2014 leave to implementer discretion"
+          ],
+          "required": false
+        },
+        {
+          "id": "q2",
+          "text": "At what log level should successful supersession events be recorded (i.e., 'finding X with artifact_ref Y was superseded')? The PRD specifies DEBUG for empty touched_files and WARNING for failures, but is silent on the success path.",
+          "context": "Consistent log levels are important for operational observability. Too verbose (DEBUG) may hide useful signal; too loud (INFO) may create noise in high-throughput runs.",
+          "options": [
+            "DEBUG",
+            "INFO",
+            "No preference \u2014 leave to implementer discretion"
+          ],
+          "required": false
+        },
+        {
+          "id": "q3",
+          "text": "Should the count returned by supersede_drift_findings_by_files() also be logged at the call site in result_handler.py (e.g., 'Superseded N drift findings for spec X'), or only within the function itself?",
+          "context": "Call-site logging makes it easier to correlate supersession activity with a specific session completion event in the logs, but may be redundant if the function already logs per-finding detail.",
+          "options": [
+            "Log the count at the call site in result_handler.py as well",
+            "Log only within supersede_drift_findings_by_files() itself",
+            "No preference \u2014 leave to implementer discretion"
+          ],
+          "required": false
+        },
+        {
+          "id": "q4",
+          "text": "If a single drift finding's artifact_ref matches more than one file in touched_files, should it count as 1 supersession (idempotent) or is this scenario even possible given how findings are structured?",
+          "context": "The 'Multiple matches' unit test covers multiple findings matching one file, but the reverse (one finding matching multiple touched files) is not addressed. Clarifying ensures the returned count and DB writes are correct.",
+          "options": [
+            "Count as 1 supersession per finding regardless of how many touched files match",
+            "This scenario is not possible \u2014 artifact_ref maps to exactly one path",
+            "No preference \u2014 leave to implementer discretion"
+          ],
+          "required": false
+        },
+        {
+          "id": "q5",
+          "text": "Should the architecture.md section reference ('Section 14') be verified and updated to a stable anchor or heading name rather than a section number, to guard against doc restructuring?",
+          "context": "Section numbers in architecture.md may shift as the document evolves, making the reference stale. A heading-based anchor (e.g., '#graceful-degradation') is more durable.",
+          "options": [
+            "Yes \u2014 update to use a heading-based anchor",
+            "No \u2014 section numbers are stable enough",
+            "No preference"
+          ],
+          "required": false
+        }
+      ]
+    }
+  ],
+  "qa_exchanges": [
+    {
+      "assessment_index": 0,
+      "answers": {
+        "q1": "All of the above. Specifically: (1) reduce stale drift context injected per session by >=50% by group 4, (2) supersede >=80% of resolved drift findings within one group completion, (3) zero false-positive supersessions.",
+        "q2": "Leave owner blank \u2014 assignment happens outside this spec.",
+        "q3": "Treat as an empty list \u2014 no drift findings are superseded. Log a debug message. This aligns with the 'graceful degradation everywhere' design principle documented in the architecture.",
+        "q4": "Both unit and integration tests are required. Unit tests must cover: exact path matching, prefix/directory matching, line number stripping, null artifact_ref passthrough, empty touched_files. Integration test must cover the full post-merge hook triggering supersession and verifying findings are excluded from subsequent queries."
+      },
+      "timestamp": "2026-06-25T12:05:24.060433+00:00"
+    },
+    {
+      "assessment_index": 1,
+      "answers": {
+        "q1": "Already exists on the table. The drift_findings table was created with superseded_by in migration v4 (migrations.py lines 107-125). Migration v25 fixed its type from UUID to TEXT to support session_id markers and dismissal timestamps. No schema migration is needed.",
+        "q2": "Swallow locally with a warning log \u2014 supersession failure must never affect session outcome recording. This is consistent with the architecture's 'graceful degradation everywhere' principle (Section 14 of architecture.md) and the existing pattern in fox_provider.ingest() which wraps supersede_injected_findings() in a try/except with a warning log.",
+        "q3": "A new internal query is needed that bypasses the include_prereview filter. The existing query_active_drift_findings() has task_group-scoped logic and the include_prereview flag only adds group '0' to the task_group filter. For supersession we need ALL active findings for the entire spec regardless of task group. A simple query like 'SELECT ... FROM drift_findings WHERE spec_name = ? AND superseded_by IS NULL' is sufficient. This can be a private helper function within review_store.py.",
+        "q4": "No index needed \u2014 the table is small enough that a full scan is acceptable. DuckDB is columnar and excels at analytical scans. Drift findings are generated once per spec (group 0), producing typically 5-20 findings. Even with hundreds of specs, the table would have thousands of rows at most \u2014 trivial for a column scan.",
+        "q5": "Validated by the integration test assertions. The integration test should set up a scenario mirroring the nightshift_standalone_cli case: create 12 drift findings, simulate a merge that touches files referenced by 10 of them, verify that exactly 10 are superseded and 2 remain active. This directly validates >=80% resolution coverage and 0% false positives. The >=50% stale context reduction is an indirect consequence.",
+        "q6": "No \u2014 a code rollback is acceptable given the low risk. The matching rules are deterministic and conservative (artifact_ref-only, no description parsing). The false-positive risk is minimal since only findings whose referenced files were actually touched are superseded."
+      },
+      "timestamp": "2026-06-25T12:07:23.417442+00:00"
+    }
+  ],
+  "generated_artifacts": [
+    "requirements",
+    "test_spec",
+    "tasks"
+  ],
+  "mode": "interactive"
+}

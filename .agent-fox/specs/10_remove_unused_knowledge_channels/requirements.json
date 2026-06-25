@@ -1,0 +1,569 @@
+{
+  "$schema": null,
+  "spec_id": "10",
+  "spec_name": "remove_unused_knowledge_channels",
+  "schema_version": 1,
+  "introduction": "The agent-fox knowledge retrieval system provides context to coder sessions via multiple channels; this spec removes five unused channels (errata, ADRs, verdicts, cross-spec summaries, and prior-run items) from the codebase, DuckDB schema, and all related tests and documentation, retaining only the three channels that produce actionable value.",
+  "glossary": {
+    "MADR": "Markdown Architectural Decision Records — a lightweight format for documenting architecture decisions.",
+    "[ADR]": "A prompt tag used to delimit ADR context injected into coder prompts.",
+    "[CROSS-GROUP]": "A prompt tag used to delimit cross-group verdict context injected into coder prompts.",
+    "[CROSS-SPEC]": "A prompt tag used to delimit cross-spec summary context injected into coder prompts.",
+    "[ERRATA]": "A prompt tag used to delimit errata context injected into coder prompts.",
+    "[PRIOR-RUN]": "A prompt tag used to delimit prior-run finding/verdict context injected into coder prompts.",
+    "[VERIFY]": "A prompt tag used to delimit verdict context injected into coder prompts.",
+    "_generate_errata()": "A method in result_handler.py that generates errata records from session results.",
+    "_query_adrs()": "A private method in fox_provider.py that queries the ADR channel.",
+    "_query_cross_group_verdicts()": "A private method in fox_provider.py that queries cross-group verdict items.",
+    "_query_cross_spec_summaries()": "A private method in fox_provider.py that queries session summaries from other specs.",
+    "_query_errata()": "A private method in fox_provider.py that queries the errata channel.",
+    "_query_prior_run_findings()": "A private method in fox_provider.py that queries findings and verdicts from previous run timestamps.",
+    "_query_verdicts()": "A private method in fox_provider.py that queries the verdicts channel.",
+    "adr_entries": "A DuckDB table storing Architecture Decision Records ingested from MADR-formatted files.",
+    "cross_group_items": "A variable in retrieve() that accumulates knowledge items sourced from other task groups within the same spec.",
+    "detect_adr_changes": "A function that compares on-disk ADR files against stored adr_entries to identify changes.",
+    "errata": "A DuckDB table and associated channel for indexing and retrieving error corrections identified during runs.",
+    "fox_provider": "The knowledge-provider component (fox_provider.py) that assembles retrieval context for each coder session.",
+    "fox_provider.py": "The Python module that orchestrates knowledge retrieval and assembles context for coder sessions.",
+    "index_errata_from_markdown()": "A startup function that parses Markdown files to populate the errata table.",
+    "ingest_adr": "A function that reads MADR-formatted files and inserts parsed ADR records into adr_entries.",
+    "insert_verdicts()": "A function in review_store.py that writes new verdict records to the verification_results table.",
+    "items_with_ids": "A list in retrieve() that tracks injected knowledge items paired with their source record IDs for deduplication.",
+    "max_cross_group_items": "A configuration cap on the number of cross-group knowledge items injected per retrieval call.",
+    "migrations.py": "The Python module that manages versioned DuckDB schema migrations for agent-fox.",
+    "nightshift/_startup.py": "The startup script for the nightshift scheduler that initialises agent-fox subsystems.",
+    "parse_madr": "A function that parses a MADR-formatted Markdown file into a structured ADR record.",
+    "query_active_verdicts()": "A function in review_store.py that retrieves non-superseded verdict records.",
+    "query_cross_group_verdicts()": "A function in review_store.py that retrieves verdict records across task groups.",
+    "query_cross_spec_summaries()": "A function in summary_store.py that retrieves session summaries belonging to other specs.",
+    "query_prior_run_findings()": "A function in review_store.py that retrieves review findings filtered by prior run timestamps.",
+    "query_prior_run_verdicts()": "A function in review_store.py that retrieves verdict records filtered by prior run timestamps.",
+    "result_handler.py": "The Python module (agentfox/engine/result_handler.py) that processes session results after completion.",
+    "retrieve()": "The top-level method in fox_provider.py that orchestrates all knowledge-channel queries and assembles the final context payload.",
+    "review_ids": "A set tracked in retrieve() that records the IDs of review finding items already injected to avoid duplicates.",
+    "review_store.py": "The Python module responsible for persisting and querying review findings and verdict records in DuckDB.",
+    "run.py": "The Python module (agentfox/engine/run.py) that orchestrates a full agent-fox run.",
+    "session_lifecycle.py": "The Python module (agentfox/engine/session_lifecycle.py) that manages individual session state transitions.",
+    "session_summaries": "A DuckDB table storing per-session context summaries used by the same-spec summaries channel.",
+    "summary_store.py": "The Python module responsible for persisting and querying session summaries in DuckDB.",
+    "validate_verdict()": "A function in review_store.py that validates verdict record structure before insertion.",
+    "verdict_ids": "A set tracked in retrieve() that records the IDs of verdict items already injected to avoid duplicates.",
+    "verification_results": "A DuckDB table storing verdict records written by the verifier archetype.",
+    "packages/agentfox/agentfox/knowledge/errata.py": "The full path to the errata module being deleted.",
+    "packages/agentfox/agentfox/knowledge/adr.py": "The full path to the ADR module being deleted.",
+    "errata.py": "Short name for the errata knowledge module (packages/agentfox/agentfox/knowledge/errata.py).",
+    "adr.py": "Short name for the ADR knowledge module (packages/agentfox/agentfox/knowledge/adr.py).",
+    "query_same_spec_summaries()": "A function in summary_store.py that retrieves session summaries for the current spec (retained).",
+    "index_errata_from_markdown": "The function name string used in grep checks (see index_errata_from_markdown() for the function itself).",
+    "(text, review_id)": "A 2-tuple format representing a review finding text paired with its database record ID.",
+    "Retrieved {reviews} review + {cross_group} cross-group + {context} context items for {spec}": "The simplified log format emitted by retrieve() after removal of the five unused channels.",
+    "test_errata.py": "Test file covering the errata module — to be deleted entirely.",
+    "test_adr.py": "Test file covering the ADR module — to be deleted entirely.",
+    "test_adr_props.py": "Property test file covering the ADR module — to be deleted entirely.",
+    "test_verdict_normalization.py": "Test file covering verdict normalization — to be deleted entirely.",
+    "test_cross_run_carryforward.py": "Test file covering cross-run carry-forward — to be deleted entirely.",
+    "test_errata_on_blocking.py": "Test file covering errata generation on blocking results — to be deleted entirely.",
+    "test_fox_provider_summaries.py": "Test file covering fox_provider summary retrieval — cross-spec portions to be removed.",
+    "test_summary_store.py": "Test file covering summary_store CRUD operations — cross-spec portions to be removed.",
+    "test_summary_lifecycle.py": "Test file covering summary lifecycle — cross-spec portions to be removed.",
+    "test_review_store.py": "Test file covering review_store operations — verdict portions to be removed.",
+    "test_review_store_props.py": "Property test file covering review_store — verdict portions to be removed.",
+    "test_retrieval_fixes_smoke.py": "Smoke test file covering retrieval fixes — prior-run portions to be removed.",
+    "test_duckdb_reader_writer_smoke.py": "Smoke test file covering DuckDB reader/writer — ADR/errata portions to be removed.",
+    "test_duckdb_reader_writer_idempotency.py": "Idempotency test file for DuckDB reader/writer — errata portions to be removed.",
+    "test_assemble_context_readonly.py": "Test file covering read-only context assembly — errata portions to be removed.",
+    "test_audit_review_blocking.py": "Test file covering audit review blocking — errata mock references to be removed.",
+    "test_duckdb_reader_writer_props.py": "Property test file for DuckDB reader/writer — errata mock references to be removed."
+  },
+  "requirements": [
+    {
+      "id": "10-REQ-1",
+      "title": "Drop unused DuckDB tables via new migration",
+      "user_story": {
+        "role": "developer",
+        "goal": "have a new migration version in `migrations.py` that drops the `errata`, `adr_entries`, and `verification_results` tables",
+        "benefit": "the schema no longer contains dead tables that are never populated or queried"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "10-REQ-1.1",
+          "ears_pattern": "event_driven",
+          "system": "`migrations.py`",
+          "action": "executes DROP TABLE IF EXISTS statements for `errata`, `adr_entries`, and `verification_results`",
+          "return_contract": "each DROP statement completes without error; the tables no longer exist in the DuckDB database",
+          "trigger": "the migration runner applies the new migration version"
+        },
+        {
+          "id": "10-REQ-1.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`migrations.py`",
+          "action": "retains the `session_summaries` table and does not include it in any DROP statement",
+          "return_contract": "the `session_summaries` table continues to exist and is queryable after the migration"
+        },
+        {
+          "id": "10-REQ-1.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`migrations.py`",
+          "action": "assigns the new migration a version number strictly greater than all existing migration versions so it is applied exactly once and in order",
+          "return_contract": "the migration version table records the new version after successful application"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "10-REQ-1.E1",
+          "ears_pattern": "unwanted",
+          "system": "`migrations.py`",
+          "action": "uses DROP TABLE IF EXISTS so the migration still succeeds without raising an error",
+          "return_contract": "migration completes successfully with no error raised",
+          "error_condition": "one or more of the target tables (`errata`, `adr_entries`, `verification_results`) do not exist at migration time (e.g. fresh database)"
+        }
+      ]
+    },
+    {
+      "id": "10-REQ-2",
+      "title": "Delete errata and ADR Python modules",
+      "user_story": {
+        "role": "developer",
+        "goal": "have the files `packages/agentfox/agentfox/knowledge/errata.py` and `packages/agentfox/agentfox/knowledge/adr.py` removed from the repository",
+        "benefit": "there is no dead code that could mislead contributors or be accidentally imported"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "10-REQ-2.1",
+          "ears_pattern": "ubiquitous",
+          "system": "repository",
+          "action": "does not contain the file `packages/agentfox/agentfox/knowledge/errata.py`",
+          "return_contract": "the file is absent from the repository tree; any import of it raises an ImportError"
+        },
+        {
+          "id": "10-REQ-2.2",
+          "ears_pattern": "ubiquitous",
+          "system": "repository",
+          "action": "does not contain the file `packages/agentfox/agentfox/knowledge/adr.py`",
+          "return_contract": "the file is absent from the repository tree; any import of it raises an ImportError"
+        },
+        {
+          "id": "10-REQ-2.3",
+          "ears_pattern": "ubiquitous",
+          "system": "codebase",
+          "action": "contains no import statements referencing `errata.py` or `adr.py` modules",
+          "return_contract": "static analysis (grep or linter) finds zero references to these modules"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "10-REQ-3",
+      "title": "Remove unused retrieval methods from fox_provider.py",
+      "user_story": {
+        "role": "developer",
+        "goal": "have the six unused private retrieval methods removed from `fox_provider.py` and the `retrieve()` orchestration updated accordingly",
+        "benefit": "the retrieval flow is simplified to the three channels that produce value, reducing maintenance burden"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "10-REQ-3.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`fox_provider.py`",
+          "action": "does not define the methods `_query_errata()`, `_query_adrs()`, `_query_verdicts()`, `_query_cross_group_verdicts()`, `_query_cross_spec_summaries()`, or `_query_prior_run_findings()`",
+          "return_contract": "static analysis finds zero definitions of these method names in fox_provider.py"
+        },
+        {
+          "id": "10-REQ-3.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`retrieve()` in `fox_provider.py`",
+          "action": "does not call any of the six removed methods",
+          "return_contract": "static analysis and runtime execution confirm none of the removed methods are invoked"
+        },
+        {
+          "id": "10-REQ-3.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`retrieve()` in `fox_provider.py`",
+          "action": "tracks only `review_ids` in `items_with_ids` (no `verdict_ids` or None-padded errata/ADR entries)",
+          "return_contract": "`items_with_ids` contains only `(text, review_id)` tuples after a retrieval call"
+        },
+        {
+          "id": "10-REQ-3.4",
+          "ears_pattern": "ubiquitous",
+          "system": "`retrieve()` in `fox_provider.py`",
+          "action": "populates `cross_group_items` from cross-group reviews only (no cross-group verdicts), still subject to the `max_cross_group_items` cap",
+          "return_contract": "`cross_group_items` contains only cross-review records after a retrieval call"
+        },
+        {
+          "id": "10-REQ-3.5",
+          "ears_pattern": "ubiquitous",
+          "system": "`retrieve()` in `fox_provider.py`",
+          "action": "emits a log message in the format: `Retrieved {reviews} review + {cross_group} cross-group + {context} context items for {spec}`",
+          "return_contract": "the log line contains exactly three item-count fields (reviews, cross_group, context) and the spec identifier"
+        },
+        {
+          "id": "10-REQ-3.6",
+          "ears_pattern": "ubiquitous",
+          "system": "`fox_provider.py` `__init__`",
+          "action": "does not initialise any `verdict_ids` tracking set or related verdict state",
+          "return_contract": "the constructor contains no reference to `verdict_ids`"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "10-REQ-4",
+      "title": "Remove unused functions from review_store.py",
+      "user_story": {
+        "role": "developer",
+        "goal": "have the verdict-related and prior-run functions removed from `review_store.py`",
+        "benefit": "review_store.py only exposes functions that are actually called, reducing surface area and confusion"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "10-REQ-4.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`review_store.py`",
+          "action": "does not define `query_active_verdicts()`, `query_cross_group_verdicts()`, `query_prior_run_findings()`, `query_prior_run_verdicts()`, `insert_verdicts()`, or `validate_verdict()`",
+          "return_contract": "static analysis finds zero definitions of these function names in review_store.py"
+        },
+        {
+          "id": "10-REQ-4.2",
+          "ears_pattern": "ubiquitous",
+          "system": "codebase",
+          "action": "contains no call sites for the six functions removed from `review_store.py`",
+          "return_contract": "static analysis (grep or linter) finds zero call sites for these functions across all Python files"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "10-REQ-5",
+      "title": "Remove query_cross_spec_summaries from summary_store.py",
+      "user_story": {
+        "role": "developer",
+        "goal": "have `query_cross_spec_summaries()` removed from `summary_store.py` and all its call sites updated",
+        "benefit": "the summary store only exposes the same-spec query path that is actually used"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "10-REQ-5.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`summary_store.py`",
+          "action": "does not define `query_cross_spec_summaries()`",
+          "return_contract": "static analysis finds zero definitions of this function name in summary_store.py"
+        },
+        {
+          "id": "10-REQ-5.2",
+          "ears_pattern": "ubiquitous",
+          "system": "codebase",
+          "action": "contains no call sites for `query_cross_spec_summaries()`",
+          "return_contract": "static analysis finds zero call sites for this function across all Python files"
+        },
+        {
+          "id": "10-REQ-5.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`summary_store.py`",
+          "action": "retains `query_same_spec_summaries()` and its implementation unchanged",
+          "return_contract": "`query_same_spec_summaries()` is present and queryable against the `session_summaries` table"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "10-REQ-6",
+      "title": "Remove errata startup calls and generation logic from engine modules",
+      "user_story": {
+        "role": "developer",
+        "goal": "have all `index_errata_from_markdown()` startup calls and `_generate_errata()` logic removed from engine and startup modules",
+        "benefit": "no errata indexing code runs at startup, eliminating pointless I/O and confusion"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "10-REQ-6.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`run.py`",
+          "action": "does not call `index_errata_from_markdown()` at startup or at any other point",
+          "return_contract": "static analysis finds zero call sites for `index_errata_from_markdown()` in run.py"
+        },
+        {
+          "id": "10-REQ-6.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`nightshift/_startup.py`",
+          "action": "does not call `index_errata_from_markdown()` at startup or at any other point",
+          "return_contract": "static analysis finds zero call sites for `index_errata_from_markdown()` in nightshift/_startup.py"
+        },
+        {
+          "id": "10-REQ-6.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`result_handler.py`",
+          "action": "does not define or call `_generate_errata()`",
+          "return_contract": "static analysis finds zero definitions and zero call sites for `_generate_errata()` in result_handler.py"
+        },
+        {
+          "id": "10-REQ-6.4",
+          "ears_pattern": "ubiquitous",
+          "system": "`session_lifecycle.py`",
+          "action": "does not contain any comment or reference to `index_errata_from_markdown`",
+          "return_contract": "static analysis finds zero occurrences of the string `index_errata_from_markdown` in session_lifecycle.py"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "10-REQ-7",
+      "title": "Remove removed-channel prompt tags from context assembly",
+      "user_story": {
+        "role": "developer",
+        "goal": "have all prompt tag construction for `[ERRATA]`, `[ADR]`, `[VERIFY]`, `[CROSS-GROUP]`, `[CROSS-SPEC]`, and `[PRIOR-RUN]` removed from the prompt assembly code",
+        "benefit": "coder prompts no longer contain empty or misleading context sections from the removed channels"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "10-REQ-7.1",
+          "ears_pattern": "ubiquitous",
+          "system": "prompt assembly code",
+          "action": "does not construct or inject `[ERRATA]`, `[ADR]`, `[VERIFY]`, `[CROSS-GROUP]`, `[CROSS-SPEC]`, or `[PRIOR-RUN]` tagged sections",
+          "return_contract": "assembled coder prompts contain none of these tag strings"
+        },
+        {
+          "id": "10-REQ-7.2",
+          "ears_pattern": "ubiquitous",
+          "system": "prompt assembly code",
+          "action": "retains formatting for the three kept channels (review findings, drift/cross-group reviews, same-spec context summaries) unchanged",
+          "return_contract": "assembled prompts continue to include the three kept channel sections when data is available"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "10-REQ-8",
+      "title": "Delete and update test files covering removed channels",
+      "user_story": {
+        "role": "developer",
+        "goal": "have all test files and test sections covering the removed channels deleted or updated so the test suite reflects only retained functionality",
+        "benefit": "the test suite passes cleanly with no references to deleted code"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "10-REQ-8.1",
+          "ears_pattern": "ubiquitous",
+          "system": "repository",
+          "action": "does not contain the files `test_errata.py`, `test_adr.py`, `test_adr_props.py`, `test_verdict_normalization.py`, `test_cross_run_carryforward.py`, or `test_errata_on_blocking.py`",
+          "return_contract": "all six listed test files are absent from the repository tree"
+        },
+        {
+          "id": "10-REQ-8.2",
+          "ears_pattern": "ubiquitous",
+          "system": "test suite",
+          "action": "removes cross-spec test portions from `test_fox_provider_summaries.py`, `test_summary_store.py`, and `test_summary_lifecycle.py`",
+          "return_contract": "the remaining tests in those files pass and contain no references to `query_cross_spec_summaries()` or `[CROSS-SPEC]`"
+        },
+        {
+          "id": "10-REQ-8.3",
+          "ears_pattern": "ubiquitous",
+          "system": "test suite",
+          "action": "removes verdict-related test portions from `test_review_store.py` and `test_review_store_props.py`",
+          "return_contract": "the remaining tests in those files pass and contain no references to `insert_verdicts()`, `validate_verdict()`, `query_active_verdicts()`, or `query_cross_group_verdicts()`"
+        },
+        {
+          "id": "10-REQ-8.4",
+          "ears_pattern": "ubiquitous",
+          "system": "test suite",
+          "action": "removes prior-run portions from `test_retrieval_fixes_smoke.py` and ADR/errata portions from `test_duckdb_reader_writer_smoke.py` and `test_duckdb_reader_writer_idempotency.py`",
+          "return_contract": "the remaining tests in those files pass and contain no references to removed functions or tables"
+        },
+        {
+          "id": "10-REQ-8.5",
+          "ears_pattern": "ubiquitous",
+          "system": "test suite",
+          "action": "removes errata portions from `test_assemble_context_readonly.py`, errata mock references from `test_audit_review_blocking.py` and `test_duckdb_reader_writer_props.py`",
+          "return_contract": "the remaining tests in those files pass and contain no references to errata mocks or the errata channel"
+        },
+        {
+          "id": "10-REQ-8.6",
+          "ears_pattern": "event_driven",
+          "system": "test suite",
+          "action": "executes without any import errors, missing-module errors, or failures attributable to deleted code",
+          "return_contract": "all tests pass (exit code 0); no test references a deleted module, function, or table",
+          "trigger": "the full test suite is run after all removals"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "10-REQ-8.E1",
+          "ears_pattern": "unwanted",
+          "system": "test suite",
+          "action": "the import is removed or replaced so the test file no longer depends on deleted code",
+          "return_contract": "the test file imports successfully without errors after the fix",
+          "error_condition": "a retained test file imports from a deleted module (e.g. `errata.py` or `adr.py`)"
+        }
+      ]
+    },
+    {
+      "id": "10-REQ-9",
+      "title": "Update architecture documentation to reflect three-channel system",
+      "user_story": {
+        "role": "developer",
+        "goal": "have `docs/architecture.md`, `docs/architecture/05-knowledge-system-architecture.md`, and `docs/architecture/03-execution-and-archetypes.md` updated to remove all references to errata, ADRs, verdicts, cross-spec summaries, and prior-run items",
+        "benefit": "documentation accurately reflects the simplified retrieval system and does not mislead contributors"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "10-REQ-9.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`docs/architecture.md`",
+          "action": "removes all references to errata, ADRs, verdicts, cross-spec summaries, and prior-run items from the §1.2 description, DuckDB schema section, and knowledge injection table",
+          "return_contract": "grep for 'errata', 'ADR', 'verdict', 'cross-spec', 'prior-run' in docs/architecture.md returns zero matches"
+        },
+        {
+          "id": "10-REQ-9.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`docs/architecture/05-knowledge-system-architecture.md`",
+          "action": "removes or rewrites sections covering the five removed channels so only the three retained channels are documented",
+          "return_contract": "the document describes exactly three retrieval channels: review findings, drift/cross-group reviews, and same-spec context summaries"
+        },
+        {
+          "id": "10-REQ-9.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`docs/architecture/03-execution-and-archetypes.md`",
+          "action": "removes all verdict and errata references",
+          "return_contract": "grep for 'verdict' and 'errata' in docs/architecture/03-execution-and-archetypes.md returns zero matches"
+        }
+      ],
+      "edge_cases": []
+    }
+  ],
+  "correctness_properties": [
+    {
+      "id": "10-PROP-1",
+      "title": "Errata, ADR, and verification_results tables are absent post-migration",
+      "for_any": "DuckDB database that has had the new migration version applied",
+      "invariant": "the tables `errata`, `adr_entries`, and `verification_results` do not exist, while `session_summaries` does exist",
+      "validates": [
+        "10-REQ-1.1",
+        "10-REQ-1.2"
+      ]
+    },
+    {
+      "id": "10-PROP-2",
+      "title": "No deleted symbol is referenced anywhere in the codebase",
+      "for_any": "Python file in the repository after all removals",
+      "invariant": "no file imports, calls, or references `_query_errata()`, `_query_adrs()`, `_query_verdicts()`, `_query_cross_group_verdicts()`, `_query_cross_spec_summaries()`, `_query_prior_run_findings()`, `query_active_verdicts()`, `query_cross_group_verdicts()`, `query_prior_run_findings()`, `query_prior_run_verdicts()`, `insert_verdicts()`, `validate_verdict()`, `query_cross_spec_summaries()`, `index_errata_from_markdown()`, or `_generate_errata()`",
+      "validates": [
+        "10-REQ-2.3",
+        "10-REQ-3.1",
+        "10-REQ-4.2",
+        "10-REQ-5.2",
+        "10-REQ-6.1",
+        "10-REQ-6.2",
+        "10-REQ-6.3"
+      ]
+    },
+    {
+      "id": "10-PROP-3",
+      "title": "retrieve() log line always has exactly three item-count fields",
+      "for_any": "invocation of `retrieve()` in `fox_provider.py`",
+      "invariant": "the emitted log message matches the pattern `Retrieved {reviews} review + {cross_group} cross-group + {context} context items for {spec}` with exactly three numeric count fields",
+      "validates": [
+        "10-REQ-3.5"
+      ]
+    },
+    {
+      "id": "10-PROP-4",
+      "title": "items_with_ids contains only review tuples",
+      "for_any": "invocation of `retrieve()` in `fox_provider.py`",
+      "invariant": "`items_with_ids` contains only `(text, review_id)` tuples — no None-padded entries and no `verdict_ids`",
+      "validates": [
+        "10-REQ-3.3",
+        "10-REQ-3.6"
+      ]
+    },
+    {
+      "id": "10-PROP-5",
+      "title": "Assembled prompts contain no removed channel tags",
+      "for_any": "coder prompt assembled by the prompt assembly code after all removals",
+      "invariant": "the prompt string does not contain `[ERRATA]`, `[ADR]`, `[VERIFY]`, `[CROSS-GROUP]` (verdict), `[CROSS-SPEC]`, or `[PRIOR-RUN]` tags",
+      "validates": [
+        "10-REQ-7.1"
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "10-PATH-1",
+      "title": "Agent-fox run startup — no errata indexing",
+      "steps": [
+        {
+          "actor": "operator",
+          "action": "starts an agent-fox run (via run.py or nightshift/_startup.py)"
+        },
+        {
+          "actor": "`run.py` / `nightshift/_startup.py`",
+          "action": "performs startup initialisation without calling `index_errata_from_markdown()`"
+        },
+        {
+          "actor": "DuckDB",
+          "action": "applies the new migration version, dropping `errata`, `adr_entries`, and `verification_results` tables (using DROP TABLE IF EXISTS)"
+        },
+        {
+          "actor": "operator",
+          "action": "observes that startup completes without errata-related log messages or errors"
+        }
+      ]
+    },
+    {
+      "id": "10-PATH-2",
+      "title": "Coder session knowledge retrieval — three channels only",
+      "steps": [
+        {
+          "actor": "coder session",
+          "action": "calls `retrieve()` in `fox_provider` to assemble context for a coding task"
+        },
+        {
+          "actor": "`retrieve()` in `fox_provider.py`",
+          "action": "queries only the three retained channels: review findings, cross-group reviews, and same-spec context summaries"
+        },
+        {
+          "actor": "`retrieve()` in `fox_provider.py`",
+          "action": "assembles `items_with_ids` containing only `(text, review_id)` tuples, applies `max_cross_group_items` cap to cross-group reviews, and emits the simplified log line"
+        },
+        {
+          "actor": "coder session",
+          "action": "receives a context payload with no `[ERRATA]`, `[ADR]`, `[VERIFY]`, `[CROSS-SPEC]`, `[CROSS-GROUP]` verdict, or `[PRIOR-RUN]` sections"
+        }
+      ]
+    },
+    {
+      "id": "10-PATH-3",
+      "title": "Developer runs full test suite after cleanup",
+      "steps": [
+        {
+          "actor": "developer",
+          "action": "runs the full test suite (e.g. `pytest`) after all code deletions and updates have been applied"
+        },
+        {
+          "actor": "test suite",
+          "action": "discovers no deleted test files and imports no deleted modules"
+        },
+        {
+          "actor": "test suite",
+          "action": "executes all remaining tests for review, cross-group review, and same-spec summary channels"
+        },
+        {
+          "actor": "developer",
+          "action": "observes all tests pass with exit code 0 and no import or reference errors"
+        }
+      ]
+    }
+  ],
+  "error_handling": [
+    {
+      "id": "10-ERR-1",
+      "condition": "Migration is applied to a database where `errata`, `adr_entries`, or `verification_results` does not exist (e.g. fresh install)",
+      "behavior": "The migration uses DROP TABLE IF EXISTS, so it completes successfully without raising an error.",
+      "requirement_id": "10-REQ-1.E1"
+    },
+    {
+      "id": "10-ERR-2",
+      "condition": "A retained test file contains an import of a deleted module (`errata.py` or `adr.py`)",
+      "behavior": "The import is removed from the test file before the test suite is run, so no ImportError is raised at test collection time.",
+      "requirement_id": "10-REQ-8.E1"
+    }
+  ]
+}
