@@ -272,7 +272,7 @@
           "requirement_refs": [
             "09-REQ-1.1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -292,7 +292,7 @@
             "09-REQ-1.2",
             "09-REQ-1.E1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -324,7 +324,7 @@
             "09-REQ-2.3",
             "09-REQ-2.4"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -342,7 +342,7 @@
           "requirement_refs": [
             "09-REQ-1.3"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -360,7 +360,7 @@
           "requirement_refs": [
             "09-REQ-7.1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],

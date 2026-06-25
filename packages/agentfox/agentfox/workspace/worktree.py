@@ -91,20 +91,32 @@ async def create_worktree(
     task_group: int,
     base_branch: str,
     branch_name: str | None = None,
+    role: str | None = None,
+    mode: str | None = None,
 ) -> WorkspaceInfo:
     """Create an isolated git worktree for a coding session.
 
-    Creates a worktree at .agent-fox/worktrees/{spec_name}/{task_group}
-    with a feature branch named feature/{spec_name}/{task_group}.
+    Creates a worktree at ``.agent-fox/worktrees/{spec_name}/{task_group}``
+    (2-level path) when *mode* is absent, or at
+    ``.agent-fox/worktrees/{spec_name}/{task_group}/{role}/{mode}``
+    (4-level path) when *mode* is present.  The branch name follows the
+    same pattern: ``feature/{spec_name}/{task_group}`` or
+    ``feature/{spec_name}/{task_group}/{role}/{mode}``.
 
     When *branch_name* is provided it is used as the git branch instead
-    of the default ``feature/{spec_name}/{task_group}`` convention. The
-    worktree filesystem path is always derived from *spec_name* and
-    *task_group* regardless of the branch name.
+    of the derived convention.  The worktree filesystem path is always
+    derived from *spec_name*, *task_group*, and optionally *role*/*mode*.
+
+    Empty-string values for *role* and *mode* are normalised to ``None``
+    via ``effective_mode = mode or None`` / ``effective_role = role or None``.
+
+    If *mode* is set but *role* is absent (``None`` or ``""``), a
+    WARNING-level log is emitted and ``"unknown"`` is substituted as the
+    role segment.
 
     If a stale worktree or branch exists, it is removed first.
 
-    Requirements: 80-REQ-1.2, 80-REQ-3.2
+    Requirements: 80-REQ-1.2, 80-REQ-3.2, 09-REQ-1, 09-REQ-2, 09-REQ-5
 
     Raises:
         WorkspaceError: If worktree creation fails.
@@ -112,9 +124,40 @@ async def create_worktree(
     if not re.fullmatch(r"[a-zA-Z0-9_-]+", spec_name):
         raise WorkspaceError(f"Invalid spec name: {spec_name!r}")
 
+    # Normalise empty strings to None (09-REQ-1.2)
+    effective_mode = mode or None
+    effective_role = role or None
+
     worktrees_root = repo_root / ".agent-fox" / "worktrees"
-    worktree_path = worktrees_root / spec_name / str(task_group)
-    branch_name = branch_name or f"feature/{spec_name}/{task_group}"
+
+    # Path and branch derivation (09-REQ-2)
+    if effective_mode is None:
+        # 2-level path — role is silently ignored (09-REQ-2.1, 09-REQ-2.3)
+        worktree_path = worktrees_root / spec_name / str(task_group)
+        branch_name = branch_name or f"feature/{spec_name}/{task_group}"
+        # When mode is absent, normalise role to None for WorkspaceInfo
+        effective_role = None
+    else:
+        # 4-level path — mode is present
+        if effective_role is None:
+            # Mode set but role absent: substitute 'unknown' + WARNING (09-REQ-2.4)
+            logger.warning(
+                "worktree: mode=%r was provided but role is None/empty "
+                "for spec=%r task_group=%s — defaulting role to 'unknown'. "
+                "Check graph config.",
+                effective_mode,
+                spec_name,
+                task_group,
+            )
+            effective_role = "unknown"
+        worktree_path = (
+            worktrees_root / spec_name / str(task_group)
+            / effective_role / effective_mode
+        )
+        branch_name = branch_name or (
+            f"feature/{spec_name}/{task_group}"
+            f"/{effective_role}/{effective_mode}"
+        )
 
     # Clean up orphaned empty sibling directories under the spec directory.
     # These are left over from prior crashed or partial cleanup runs.
@@ -187,6 +230,8 @@ async def create_worktree(
         branch=branch_name,
         spec_name=spec_name,
         task_group=task_group,
+        role=effective_role,
+        mode=effective_mode,
     )
 
 

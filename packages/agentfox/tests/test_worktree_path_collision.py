@@ -143,8 +143,12 @@ class TestCoderRegression:
         expected_path = repo_root / ".agent-fox" / "worktrees" / "coder_spec" / "2"
         assert result.path == expected_path
         assert result.branch == "feature/coder_spec/2"
-        # Confirm no extra role/mode segments
-        assert "coder" not in str(result.path)
+        # Confirm no extra role/mode path segments beyond spec_name/task_group
+        # (substring check would false-positive on spec_name 'coder_spec')
+        path_relative = result.path.relative_to(
+            repo_root / ".agent-fox" / "worktrees"
+        )
+        assert list(path_relative.parts) == ["coder_spec", "2"]
 
 
 # ---------------------------------------------------------------------------
@@ -1178,10 +1182,11 @@ class TestSmokeCoderNode2Level:
         assert result.branch == "feature/spec/0"
         assert result.role is None
         assert result.mode is None
-        # No 'reviewer' or 'coder' segment in path
-        path_str = str(result.path)
-        assert "reviewer" not in path_str
-        assert "coder" not in path_str
+        # No extra role/mode path segments beyond spec_name/task_group
+        path_relative = result.path.relative_to(
+            repo_root / ".agent-fox" / "worktrees"
+        )
+        assert list(path_relative.parts) == ["spec", "0"]
 
 
 # ---------------------------------------------------------------------------
