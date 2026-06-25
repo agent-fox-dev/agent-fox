@@ -1042,7 +1042,7 @@ def _normalize_ref(ref: str) -> str:
 
 
 
-@settings(max_examples=200, deadline=None)
+@settings(max_examples=500, deadline=None)
 @given(
     artifact_refs=st.lists(_artifact_ref, min_size=1, max_size=5),
     touched_files=st.lists(_file_path, min_size=0, max_size=5),
@@ -1273,8 +1273,11 @@ def test_ts12_35_architecture_md_updated() -> None:
     docs_path = Path(__file__).resolve().parents[2] / "docs" / "architecture.md"
     assert docs_path.exists(), f"docs/architecture.md not found at {docs_path}"
     content = docs_path.read_text()
-    assert "drift" in content.lower() or "drift_findings" in content
-    assert "artifact_ref" in content or "file-based" in content.lower()
+    # Must mention artifact_ref or file-based supersession (not vacuously true)
+    assert "artifact_ref" in content or "file-based supersession" in content.lower()
+    # Must reference sections 5.4 and 10.3 per spec pseudocode
+    assert "5.4" in content, "Section 5.4 reference missing"
+    assert "10.3" in content, "Section 10.3 reference missing"
 
 
 # ---------------------------------------------------------------------------
@@ -1295,6 +1298,18 @@ def test_ts12_36_knowledge_system_architecture_updated() -> None:
     )
     assert docs_path.exists(), f"05-knowledge-system-architecture.md not found at {docs_path}"
     content = docs_path.read_text()
-    assert "prefix" in content.lower()
-    assert "artifact_ref" in content
-    assert "null" in content.lower() or "None" in content
+    # Must reference artifact_ref matching rules (not vacuously true)
+    assert "artifact_ref" in content, "artifact_ref not documented"
+    # Must reference prefix matching in the context of drift supersession
+    assert "prefix match" in content.lower() or "prefix-match" in content.lower(), (
+        "Prefix matching rule not documented"
+    )
+    # Must document null artifact_ref fallback behaviour
+    assert "null" in content.lower() and "artifact_ref" in content, (
+        "Null artifact_ref fallback not documented"
+    )
+    # Must reference sections 4.1, 8, and 9 per spec pseudocode
+    assert "4.1" in content, "Section 4.1 reference missing"
+    assert any(s in content for s in ["## 8", "### 8", "Section 8"]), (
+        "Section 8 reference missing"
+    )
