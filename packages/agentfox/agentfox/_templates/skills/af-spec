@@ -1,5 +1,5 @@
 ---
-name: afspec
+name: af-spec
 description: Requirements engineering and spec-driven development using the spec CLI.
 argument-hint: "[path-to-prd-or-prompt-or-github-issue-url]"
 ---
@@ -134,7 +134,7 @@ Format the comment as:
 ```
 ## Finalized PRD
 
-> This PRD was generated from this issue using the afspec skill.
+> This PRD was generated from this issue using the af-spec skill.
 > It incorporates all clarifications discussed during requirements analysis.
 
 {finalized PRD content}
@@ -289,6 +289,7 @@ spec generate <spec_dir_name>
 ```
 
 This generates:
+
 - `requirements.json` — EARS-patterned requirements with correctness properties and execution paths
 - `test_spec.json` — Test contracts with full requirement coverage
 - `tasks.json` — Implementation task groups with traceability
@@ -305,6 +306,7 @@ files (`go.mod` → Go, `package.json` → TypeScript/JavaScript, `pyproject.tom
 → Python, `Cargo.toml` → Rust, etc.) or from the PRD's Tech Stack section.
 
 Check `tasks.json` for:
+
 - **`test_commands`**: Must use the project's test runner and linter (e.g.
   `go test` / `go vet` for Go, not `pytest` / `ruff`).
 - **Verification checks**: Must reference the project's actual tooling, not
