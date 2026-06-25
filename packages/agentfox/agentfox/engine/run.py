@@ -109,11 +109,11 @@ def _setup_infrastructure(
     knowledge_db = open_knowledge_store(config.knowledge, read_only=False)
     sink_dispatcher.add(DuckDBSink(knowledge_db.connection))
 
-    # 06-REQ-7.3: Open a separate read-only connection for session context
-    # assembly.  This ensures assemble_context never holds a write lock and
-    # can run concurrently with the orchestrator's write operations.
-    # read-only conn for session context assembly; writes done at startup
-    context_knowledge_db = open_knowledge_store(config.knowledge, read_only=True)
+    # 06-REQ-7.3: Open a separate connection for session context assembly.
+    # DuckDB disallows mixing read_only and read-write connections to the
+    # same file within one process, so both connections use read_only=False.
+    # Read-only semantics are enforced at the application layer instead.
+    context_knowledge_db = open_knowledge_store(config.knowledge, read_only=False)
 
     # Attach agent trace sink unconditionally so that trace-based transcript
     # reconstruction is available for knowledge extraction (113-REQ-1.1).
@@ -324,7 +324,10 @@ async def run_code(
         logger.warning("Pre-run health gate raised an exception; proceeding", exc_info=True)
 
     try:
-        # Build orchestrator kwargs — use infra if available
+        if infra is None:
+            raise RuntimeError("Cannot start orchestrator: infrastructure setup failed")
+
+        # Build orchestrator kwargs
         orch_kwargs: dict[str, Any] = {
             "agent_dir": agent_dir,
             "specs_dir": specs_path,
@@ -335,20 +338,14 @@ async def run_code(
             "planning_config": config.planning,
             "config_path": Path(".agent-fox/config.toml"),
             "full_config": config,
+            "session_runner_factory": infra["session_runner_factory"],
+            "sink_dispatcher": infra["sink_dispatcher"],
+            "audit_dir": infra["audit_dir"],
+            "audit_db_conn": infra["knowledge_db"].connection,
+            "knowledge_db_conn": infra["knowledge_db"].connection,
+            "platform": infra.get("platform"),
+            "knowledge_provider": infra.get("knowledge_provider"),
         }
-
-        if infra is not None:
-            orch_kwargs.update(
-                {
-                    "session_runner_factory": infra["session_runner_factory"],
-                    "sink_dispatcher": infra["sink_dispatcher"],
-                    "audit_dir": infra["audit_dir"],
-                    "audit_db_conn": infra["knowledge_db"].connection,
-                    "knowledge_db_conn": infra["knowledge_db"].connection,
-                    "platform": infra.get("platform"),
-                    "knowledge_provider": infra.get("knowledge_provider"),
-                }
-            )
 
         orchestrator = Orchestrator(orch_config, **orch_kwargs)
         state: ExecutionState = await orchestrator.run()

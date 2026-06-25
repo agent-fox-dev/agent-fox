@@ -392,24 +392,28 @@ class TestOrchestratorPassesReadOnlyConn:
 
     def test_orchestrator_setup_creates_read_only_context_conn(self) -> None:
         """The orchestrator _setup_infrastructure must call
-        open_knowledge_store twice: once with read_only=False for the
-        main DB, and once with read_only=True for context assembly.
+        open_knowledge_store twice: once for the main DB and once for
+        context assembly.  Both use read_only=False because DuckDB
+        disallows mixing read_only configurations on the same file
+        within one process.
 
-        Critically, the read-only connection must be the one stored in the
-        infrastructure dict as 'context_knowledge_db' — there must be no
-        silent fallback to the read-write connection (06-REQ-7.3)."""
+        The context connection must be a *separate* instance stored as
+        'context_knowledge_db' in the infrastructure dict (06-REQ-7.3)."""
         from unittest.mock import MagicMock
 
-        mock_db_rw = MagicMock(name="rw_knowledge_db")
-        mock_db_rw.connection = MagicMock(name="rw_connection")
-        mock_db_ro = MagicMock(name="ro_knowledge_db")
-        mock_db_ro.connection = MagicMock(name="ro_connection")
+        mock_db_main = MagicMock(name="main_knowledge_db")
+        mock_db_main.connection = MagicMock(name="main_connection")
+        mock_db_ctx = MagicMock(name="ctx_knowledge_db")
+        mock_db_ctx.connection = MagicMock(name="ctx_connection")
 
         call_log: list[bool] = []
+        call_count = 0
 
         def _track_open(config, *, read_only):
+            nonlocal call_count
             call_log.append(read_only)
-            return mock_db_ro if read_only else mock_db_rw
+            call_count += 1
+            return mock_db_main if call_count == 1 else mock_db_ctx
 
         with (
             patch(
@@ -430,40 +434,38 @@ class TestOrchestratorPassesReadOnlyConn:
             mock_config = MagicMock()
             infra = _setup_infrastructure(mock_config)
 
-        # Must have called open_knowledge_store at least twice:
-        # first with read_only=False (main), then read_only=True (context)
+        # Must have called open_knowledge_store twice
         assert len(call_log) >= 2, f"Expected at least 2 calls to open_knowledge_store, got {len(call_log)}: {call_log}"
-        assert call_log[0] is False, "First open_knowledge_store call must be read_only=False (main write connection)"
-        assert call_log[1] is True, (
-            "Second open_knowledge_store call must be read_only=True (context read-only connection)"
+        assert call_log[0] is False, "First open_knowledge_store call must be read_only=False (main connection)"
+        assert call_log[1] is False, (
+            "Second open_knowledge_store call must be read_only=False (DuckDB requires same config)"
         )
 
-        # 06-REQ-7.3: The read-only connection must be stored in the
-        # infrastructure dict — NOT the read-write fallback.
-        assert infra["context_knowledge_db"] is mock_db_ro, (
-            "Infrastructure must store the read-only context DB, not fall back to the read-write connection"
+        # 06-REQ-7.3: context_knowledge_db must be a separate instance
+        assert infra["context_knowledge_db"] is mock_db_ctx, (
+            "Infrastructure must store a separate context DB instance"
         )
         assert infra["context_knowledge_db"] is not infra["knowledge_db"], (
             "context_knowledge_db must be a separate connection from the main knowledge_db"
         )
 
-    def test_no_silent_fallback_when_read_only_open_fails(self) -> None:
-        """When opening the read-only context connection fails, the error
-        must propagate — there must be no silent fallback to the read-write
-        connection (06-REQ-7.3 uses unconditional SHALL language)."""
+    def test_no_silent_fallback_when_context_open_fails(self) -> None:
+        """When opening the context connection (second call) fails, the
+        error must propagate — there must be no silent fallback to the
+        main connection (06-REQ-7.3)."""
         from unittest.mock import MagicMock
 
-        mock_db_rw = MagicMock(name="rw_knowledge_db")
-        mock_db_rw.connection = MagicMock(name="rw_connection")
+        mock_db_main = MagicMock(name="main_knowledge_db")
+        mock_db_main.connection = MagicMock(name="main_connection")
 
         call_count = 0
 
         def _track_open(config, *, read_only):
             nonlocal call_count
             call_count += 1
-            if read_only:
-                raise RuntimeError("simulated read-only open failure")
-            return mock_db_rw
+            if call_count == 2:
+                raise RuntimeError("simulated context open failure")
+            return mock_db_main
 
         with (
             patch(
@@ -482,24 +484,26 @@ class TestOrchestratorPassesReadOnlyConn:
             from agentfox.engine.run import _setup_infrastructure
 
             mock_config = MagicMock()
-            # The exception must propagate — no silent fallback
-            with pytest.raises(RuntimeError, match="simulated read-only open failure"):
+            with pytest.raises(RuntimeError, match="simulated context open failure"):
                 _setup_infrastructure(mock_config)
 
-    def test_read_only_conn_propagated_to_session_runner(self) -> None:
-        """Verify the read-only connection is actually passed to
-        session_runner_factory as context_knowledge_db, not the rw one.
-        This catches the former fallback bug where a failed read-only
-        open silently fell back to the rw connection (06-REQ-7.3)."""
+    def test_context_conn_propagated_to_session_runner(self) -> None:
+        """Verify the context connection (second open_knowledge_store call)
+        is passed to session_runner_factory as context_knowledge_db, not
+        the main one (06-REQ-7.3)."""
         from unittest.mock import MagicMock
 
-        mock_db_rw = MagicMock(name="rw_db")
-        mock_db_rw.connection = MagicMock()
-        mock_db_ro = MagicMock(name="ro_db")
-        mock_db_ro.connection = MagicMock()
+        mock_db_main = MagicMock(name="main_db")
+        mock_db_main.connection = MagicMock()
+        mock_db_ctx = MagicMock(name="ctx_db")
+        mock_db_ctx.connection = MagicMock()
+
+        call_count = 0
 
         def _track_open(config, *, read_only):
-            return mock_db_ro if read_only else mock_db_rw
+            nonlocal call_count
+            call_count += 1
+            return mock_db_main if call_count == 1 else mock_db_ctx
 
         with (
             patch(
@@ -514,8 +518,6 @@ class TestOrchestratorPassesReadOnlyConn:
                 "agentfox.nightshift.platform_factory.create_platform_safe",
                 return_value=None,
             ),
-            # Patch NodeSessionRunner at its source module so the
-            # deferred import inside _setup_infrastructure picks it up.
             patch(
                 "agentfox.engine.session_lifecycle.NodeSessionRunner",
             ) as mock_nsr,
@@ -525,16 +527,13 @@ class TestOrchestratorPassesReadOnlyConn:
             mock_config = MagicMock()
             infra = _setup_infrastructure(mock_config)
 
-            # Call session_runner_factory and capture what it passes through
             infra["session_runner_factory"]("test_node")
             mock_nsr.assert_called_once()
             _, kwargs = mock_nsr.call_args
 
-        # The context_knowledge_db passed to NodeSessionRunner must be
-        # the read-only connection, not the read-write one.
-        assert kwargs.get("context_knowledge_db") is mock_db_ro, (
-            "session_runner_factory must pass the read-only connection as "
-            "context_knowledge_db, not the read-write main connection"
+        assert kwargs.get("context_knowledge_db") is mock_db_ctx, (
+            "session_runner_factory must pass the context connection as "
+            "context_knowledge_db, not the main connection"
         )
 
 

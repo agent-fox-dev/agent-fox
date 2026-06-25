@@ -7,9 +7,25 @@ Requirements: 59-REQ-4.1 through 59-REQ-4.E1, 59-REQ-5.1 through 59-REQ-5.3
 from __future__ import annotations
 
 import inspect
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+
+def _mock_infra() -> dict:
+    """Return a minimal mock infrastructure dict for run_code tests."""
+    mock_db = MagicMock()
+    mock_db.connection = MagicMock()
+    return {
+        "session_runner_factory": MagicMock(),
+        "sink_dispatcher": MagicMock(),
+        "knowledge_db": mock_db,
+        "context_knowledge_db": mock_db,
+        "knowledge_provider": MagicMock(),
+        "audit_dir": Path("/tmp/audit"),
+        "platform": None,
+    }
 
 # ---------------------------------------------------------------------------
 # TS-59-14 through TS-59-16: Code backing module
@@ -30,7 +46,7 @@ class TestRunCodeCallable:
         config = MagicMock()
 
         with (
-            patch("agentfox.engine.run._setup_infrastructure", return_value=None),
+            patch("agentfox.engine.run._setup_infrastructure", return_value=_mock_infra()),
             patch("agentfox.engine.run.Orchestrator") as mock_orch_cls,
         ):
             mock_state = MagicMock()
@@ -59,7 +75,7 @@ class TestRunCodeReturnsExecutionState:
         config = MagicMock()
 
         with (
-            patch("agentfox.engine.run._setup_infrastructure", return_value=None),
+            patch("agentfox.engine.run._setup_infrastructure", return_value=_mock_infra()),
             patch("agentfox.engine.run.Orchestrator") as mock_orch_cls,
         ):
             mock_state = MagicMock()
@@ -92,7 +108,7 @@ class TestRunCodeKeyboardInterrupt:
         config = MagicMock()
 
         with (
-            patch("agentfox.engine.run._setup_infrastructure", return_value=None),
+            patch("agentfox.engine.run._setup_infrastructure", return_value=_mock_infra()),
             patch("agentfox.engine.run.Orchestrator") as mock_orch_cls,
         ):
             mock_orch = MagicMock()
