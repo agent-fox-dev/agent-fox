@@ -140,7 +140,7 @@ def main(ctx: click.Context, spec_dir: str, quiet: bool) -> None:
 
     json_mode = ctx.obj.get("agent_mode", False)
     if not json_mode and not quiet:
-        config = load_config(Path(".agent-fox/config.toml"))
+        config = load_config()
         theme_config = config.theme if config else ThemeConfig()
         theme = create_theme(theme_config)
         render_banner(theme, quiet=quiet)

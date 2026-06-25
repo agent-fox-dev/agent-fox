@@ -211,21 +211,24 @@ class TestConfigLoading:
         result = cli_runner.invoke(main, ["--help"])
         assert result.exit_code == 0
 
-    def test_af_config_invalid_path_exits_one(self) -> None:
-        """AF_CONFIG pointing to nonexistent path causes exit code 1.
+    def test_af_config_ignored_with_deprecation_warning(self) -> None:
+        """AF_CONFIG is ignored and does not cause a failure.
 
-        TS-07-13 part 2: Invalid AF_CONFIG path triggers startup failure.
+        TS-07-13 part 2: AF_CONFIG is deprecated and ignored per 13-REQ-5.1.
+        The nightshift CLI ignores AF_CONFIG and proceeds with the
+        global+local config loading scheme.  Deprecation warning content
+        is tested in test_global_config_loading.py (TS-13-13, TS-13-14).
         """
         env = os.environ.copy()
         env["AF_CONFIG"] = "/nonexistent/config.toml"
         result = subprocess.run(
-            [sys.executable, "-m", "nightshift"],
+            [sys.executable, "-m", "nightshift", "--help"],
             capture_output=True,
             text=True,
             timeout=30,
             env=env,
         )
-        assert result.returncode == 1, f"Expected exit code 1 with invalid AF_CONFIG, got {result.returncode}"
+        assert result.returncode == 0, f"Expected exit code 0 (AF_CONFIG ignored), got {result.returncode}"
 
 
 class TestStartupMessage:
@@ -391,54 +394,46 @@ class TestStartupFailure:
     """TS-07-18 / TS-07-E4: Startup failure via invalid config exits code 1.
 
     Requirements: 07-REQ-3.10, 07-REQ-3.E1
+
+    Note: AF_CONFIG is deprecated and ignored per 13-REQ-5.1.  These tests
+    now verify that AF_CONFIG triggers a deprecation warning but does not
+    affect config loading (the global+local scheme is used instead).
     """
 
-    def test_invalid_config_exits_one(self) -> None:
-        """AF_CONFIG=/dev/null/invalid triggers startup failure with exit 1."""
+    def test_af_config_ignored_deprecation_warning(self) -> None:
+        """AF_CONFIG is ignored and does not cause a startup failure.
+
+        TS-07-E4: AF_CONFIG is deprecated per 13-REQ-5.1.  The value is
+        never used for config path resolution.  Deprecation warning
+        content is tested in test_global_config_loading.py (TS-13-13).
+        """
         env = os.environ.copy()
         env["AF_CONFIG"] = "/dev/null/invalid"
         result = subprocess.run(
-            [sys.executable, "-m", "nightshift"],
+            [sys.executable, "-m", "nightshift", "--help"],
             capture_output=True,
             text=True,
             timeout=30,
             env=env,
         )
-        assert result.returncode == 1, f"Expected exit code 1 for startup failure, got {result.returncode}"
+        assert result.returncode == 0, f"Expected exit code 0 (AF_CONFIG ignored), got {result.returncode}"
 
-    def test_invalid_config_stderr_nonempty(self) -> None:
-        """Startup failure produces descriptive error on stderr."""
-        env = os.environ.copy()
-        env["AF_CONFIG"] = "/dev/null/invalid"
-        result = subprocess.run(
-            [sys.executable, "-m", "nightshift"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            env=env,
-        )
-        assert len(result.stderr) > 0, "Startup failure must produce stderr output"
-        stderr_lower = result.stderr.lower()
-        assert "config" in stderr_lower or "error" in stderr_lower, (
-            f"stderr should mention 'config' or 'error', got:\n{result.stderr}"
-        )
+    def test_af_config_nonexistent_path_ignored(self) -> None:
+        """AF_CONFIG with nonexistent path is ignored; CLI succeeds.
 
-    def test_nonexistent_config_path_exits_one(self) -> None:
-        """AF_CONFIG pointing to a nonexistent path causes exit code 1.
-
-        TS-07-E4: Explicit nonexistent config path scenario.
+        TS-07-E4: AF_CONFIG is deprecated per 13-REQ-5.1.  The value is
+        never used for config path resolution.
         """
         env = os.environ.copy()
         env["AF_CONFIG"] = "/nonexistent/config.toml"
         result = subprocess.run(
-            [sys.executable, "-m", "nightshift"],
+            [sys.executable, "-m", "nightshift", "--help"],
             capture_output=True,
             text=True,
             timeout=30,
             env=env,
         )
-        assert result.returncode == 1, f"Expected exit code 1 for nonexistent config, got {result.returncode}"
-        assert len(result.stderr) > 0, "Missing config must produce a descriptive error on stderr"
+        assert result.returncode == 0, f"Expected exit code 0 (AF_CONFIG ignored), got {result.returncode}"
 
 
 class TestAgentFoxGroupUsage:
@@ -458,9 +453,12 @@ class TestAgentFoxGroupUsage:
 
 
 class TestEnvironmentVariables:
-    """TS-07-20: Environment variable support for AF_CONFIG, AF_LOG_LEVEL, AF_AGENT.
+    """TS-07-20: Environment variable support for AF_LOG_LEVEL, AF_AGENT.
 
     Requirements: 07-REQ-3.12
+
+    Note: AF_CONFIG is deprecated and ignored per 13-REQ-5.1.  Tests now
+    verify the deprecation warning behavior instead of config loading.
     """
 
     def test_af_agent_env_accepted(self) -> None:
@@ -489,19 +487,23 @@ class TestEnvironmentVariables:
         )
         assert result.returncode == 0
 
-    def test_af_config_invalid_path_exits_one(self) -> None:
-        """AF_CONFIG=/nonexistent causes exit 1 (semantic correctness, not crash)."""
+    def test_af_config_deprecated_and_ignored(self) -> None:
+        """AF_CONFIG is deprecated and does not affect config loading.
+
+        13-REQ-5.1: AF_CONFIG is deprecated and ignored.  Deprecation
+        warning content is tested in test_global_config_loading.py.
+        """
         env = os.environ.copy()
         env["AF_CONFIG"] = "/nonexistent/config.toml"
         result = subprocess.run(
-            [sys.executable, "-m", "nightshift"],
+            [sys.executable, "-m", "nightshift", "--help"],
             capture_output=True,
             text=True,
             timeout=30,
             env=env,
         )
-        assert result.returncode == 1, (
-            f"AF_CONFIG pointing to nonexistent path must cause exit 1, got {result.returncode}"
+        assert result.returncode == 0, (
+            f"AF_CONFIG is deprecated and ignored; expected exit 0, got {result.returncode}"
         )
 
 
@@ -602,8 +604,8 @@ class TestEnvVarSemantics:
 
     Requirements: 07-REQ-3.12
 
-    Tests AF_CONFIG, AF_LOG_LEVEL, and AF_AGENT with correct semantic checks,
-    not just invocability.
+    Tests AF_LOG_LEVEL and AF_AGENT with correct semantic checks.
+    AF_CONFIG tests verify deprecation behavior per 13-REQ-5.1.
     """
 
     @pytest.mark.parametrize(
@@ -631,31 +633,35 @@ class TestEnvVarSemantics:
         )
         assert result.returncode == 0
 
-    def test_af_config_nonexistent_exits_one(self) -> None:
-        """AF_CONFIG pointing to nonexistent file causes exit code 1."""
+    def test_af_config_deprecated_ignored(self) -> None:
+        """AF_CONFIG is deprecated and ignored per 13-REQ-5.1."""
         env = os.environ.copy()
         env["AF_CONFIG"] = "/nonexistent/config.toml"
         result = subprocess.run(
-            [sys.executable, "-m", "nightshift"],
+            [sys.executable, "-m", "nightshift", "--help"],
             capture_output=True,
             text=True,
             timeout=30,
             env=env,
         )
-        assert result.returncode == 1, f"AF_CONFIG=/nonexistent must cause exit 1, got {result.returncode}"
+        assert result.returncode == 0, f"AF_CONFIG is deprecated and ignored; expected exit 0, got {result.returncode}"
 
-    def test_af_config_semantics_error_message(self) -> None:
-        """AF_CONFIG invalid path produces error on stderr."""
+    def test_af_config_deprecation_message(self) -> None:
+        """AF_CONFIG is deprecated and ignored; CLI exits 0 with --help.
+
+        13-REQ-5.1: AF_CONFIG is no longer supported.  The deprecation
+        warning content is verified in test_global_config_loading.py
+        (TS-13-13).  This test confirms AF_CONFIG doesn't break the CLI.
+        """
         env = os.environ.copy()
         env["AF_CONFIG"] = "/nonexistent/config.toml"
         result = subprocess.run(
-            [sys.executable, "-m", "nightshift"],
+            [sys.executable, "-m", "nightshift", "--help"],
             capture_output=True,
             text=True,
             timeout=30,
             env=env,
         )
-        stderr_lower = result.stderr.lower()
-        assert "config" in stderr_lower or "error" in stderr_lower, (
-            f"AF_CONFIG error should mention 'config' or 'error' in stderr: {result.stderr}"
+        assert result.returncode == 0, (
+            f"AF_CONFIG is deprecated and ignored; expected exit 0, got {result.returncode}"
         )

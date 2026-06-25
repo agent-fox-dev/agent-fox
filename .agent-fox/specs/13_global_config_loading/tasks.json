@@ -238,9 +238,9 @@
         "id": "1.V",
         "checks": [
           "All test files compile without import errors: `python -m pytest --collect-only -q` exits 0 with all TS-13-* tests collected.",
-          "Tests fail (red) because implementation stubs are not yet in place — at least one test in each test group fails.",
+          "Tests fail (red) because implementation stubs are not yet in place \u2014 at least one test in each test group fails.",
           "No linter errors introduced: `ruff check .` exits 0.",
-          "Test count for spec-13 tests matches expected coverage: `pytest --collect-only -q -k 'global_config_loading'` shows ≥30 test items."
+          "Test count for spec-13 tests matches expected coverage: `pytest --collect-only -q -k 'global_config_loading'` shows \u226530 test items."
         ]
       }
     },
@@ -274,7 +274,7 @@
             "Implement a standalone `shallow_merge(global_dict: dict, local_dict: dict) -> dict` function in the config module.",
             "For each key in `local_dict`: if the value is a dict (i.e. a TOML section), replace the entire corresponding key in `global_dict` wholesale; if the value is a scalar (top-level key), override the global scalar.",
             "Keys present in `global_dict` but absent from `local_dict` are inherited unchanged.",
-            "Do NOT deep-merge nested keys — a section present in local replaces the entire global section.",
+            "Do NOT deep-merge nested keys \u2014 a section present in local replaces the entire global section.",
             "Add unit tests for `shallow_merge` directly (in addition to end-to-end tests)."
           ],
           "test_spec_refs": [
@@ -344,7 +344,7 @@
             "At the start of `load_config()`, attempt to resolve `$HOME` using `Path.home()` wrapped in a try/except `RuntimeError`.",
             "If `$HOME` is unresolvable, emit a DEBUG-level warning and skip global config loading entirely (no exception raised).",
             "If `$HOME` is resolvable, check for `$HOME/.agent-fox/config.toml`.",
-            "If it does not exist: create `$HOME/.agent-fox/` with `os.makedirs(mode=0o700, exist_ok=True)` — wrap in try/except `OSError` and raise `ConfigError` on failure.",
+            "If it does not exist: create `$HOME/.agent-fox/` with `os.makedirs(mode=0o700, exist_ok=True)` \u2014 wrap in try/except `OSError` and raise `ConfigError` on failure.",
             "Write default config via `generate_default_config()` to the new path.",
             "If it exists: check for symlink via `os.path.islink()` on the final file path only; raise `ConfigError` mentioning CWE-59 if symlink detected.",
             "Parse the global config using `tomllib.loads()` inside a try/except `tomllib.TOMLDecodeError`; raise `ConfigError` on parse failure identifying the file and error."
@@ -363,7 +363,7 @@
             "13-REQ-2.E1",
             "13-REQ-2.E2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -396,7 +396,7 @@
             "13-REQ-4.2",
             "13-REQ-4.3"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -416,7 +416,7 @@
             "13-REQ-5.1",
             "13-REQ-5.2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -442,7 +442,7 @@
             "13-REQ-7.3",
             "13-REQ-7.4"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -465,7 +465,7 @@
             "13-REQ-1.2",
             "13-REQ-1.3"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -474,7 +474,7 @@
           "details": [],
           "test_spec_refs": [],
           "requirement_refs": [],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],
@@ -590,7 +590,7 @@
           "details": [
             "In the `af init` Click command handler, after resolving HOME (with graceful fallback if unresolvable), check if `$HOME/.agent-fox/config.toml` exists.",
             "If not exists: create `$HOME/.agent-fox/` with `os.makedirs(mode=0o700, exist_ok=True)`, write `generate_default_config()` output to the file.",
-            "If exists: skip without modification — do NOT overwrite even when `--force` is passed.",
+            "If exists: skip without modification \u2014 do NOT overwrite even when `--force` is passed.",
             "If HOME is unresolvable: emit a DEBUG warning and skip global config creation entirely; continue to create local config."
           ],
           "test_spec_refs": [
@@ -728,7 +728,7 @@
           "id": "6.3",
           "title": "Audit for stub/dead-code markers and remove them",
           "details": [
-            "Search for placeholder markers: `grep -rn 'raise NotImplementedError\\|pass  # TODO\\|return None  # stub' packages/` — all must be removed or replaced with real implementation.",
+            "Search for placeholder markers: `grep -rn 'raise NotImplementedError\\|pass  # TODO\\|return None  # stub' packages/` \u2014 all must be removed or replaced with real implementation.",
             "Search for TODO comments related to this spec: `grep -rn 'TODO.*global_config\\|TODO.*load_config\\|TODO.*spec_tool' .`.",
             "Confirm `load_config` has no `pass` or bare `return None` in non-abstract code paths.",
             "Confirm `agentspec.resolve_model` has a complete implementation with all four precedence levels."
@@ -769,8 +769,8 @@
           "title": "Trace execution paths and verify entry points call load_config without stubs",
           "details": [
             "Inspect the source of `af`, `nightshift`, and `spec` CLI entry points to confirm each imports and calls the shared `load_config` function (not separate per-CLI loaders).",
-            "Trace 13-PATH-1 (zero-config first run): verify the call chain af_entrypoint → load_config → _resolve_home → generate_default_config → AgentFoxConfig.model_validate has no stub breaks.",
-            "Trace 13-PATH-2 (merge): verify load_config → shallow_merge → AgentFoxConfig.model_validate is wired end-to-end.",
+            "Trace 13-PATH-1 (zero-config first run): verify the call chain af_entrypoint \u2192 load_config \u2192 _resolve_home \u2192 generate_default_config \u2192 AgentFoxConfig.model_validate has no stub breaks.",
+            "Trace 13-PATH-2 (merge): verify load_config \u2192 shallow_merge \u2192 AgentFoxConfig.model_validate is wired end-to-end.",
             "Confirm no CLI entry point still calls the old nightshift AF_CONFIG path or the old agentspec settings.yaml direct reader."
           ],
           "test_spec_refs": [
@@ -842,8 +842,8 @@
           "id": "7.4",
           "title": "Stub and dead-code final audit",
           "details": [
-            "Run: `grep -rn 'raise NotImplementedError\\|pass$\\|return None$' packages/` — no matches in the new load_config, shallow_merge, generate_local_config_template, or resolve_model code paths.",
-            "Run: `grep -rn 'TODO\\|FIXME\\|HACK\\|XXX' packages/` — no unresolved markers in spec-13 code paths.",
+            "Run: `grep -rn 'raise NotImplementedError\\|pass$\\|return None$' packages/` \u2014 no matches in the new load_config, shallow_merge, generate_local_config_template, or resolve_model code paths.",
+            "Run: `grep -rn 'TODO\\|FIXME\\|HACK\\|XXX' packages/` \u2014 no unresolved markers in spec-13 code paths.",
             "Confirm `generate_local_config_template` produces output where every non-blank line starts with `#` when parsed as text.",
             "Confirm `generate_default_config` still produces valid parseable TOML (use `tomllib.loads()` on its output in a quick sanity check)."
           ],
@@ -856,7 +856,7 @@
           "id": "7.5",
           "title": "Verify cross-spec entry point and backward-compatibility",
           "details": [
-            "Run the complete test suite one final time: `pytest -q --tb=short` — must exit 0 with no failures.",
+            "Run the complete test suite one final time: `pytest -q --tb=short` \u2014 must exit 0 with no failures.",
             "Verify that no test files were modified as part of this implementation (only new test files and implementation files were added/changed).",
             "Confirm that the `agentspec` package entry point (called from `spec` CLI) is wired to the new `load_config` result, not the old direct settings.yaml path.",
             "Verify that `AF_CONFIG` usage is completely absent from production code paths (not just guarded by a deprecation check): `grep -rn 'AF_CONFIG' packages/ | grep -v 'deprecat\\|warning\\|ignore'` returns no matches in logic branches."

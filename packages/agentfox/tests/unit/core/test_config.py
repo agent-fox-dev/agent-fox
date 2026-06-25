@@ -131,32 +131,40 @@ class TestConfigUnrecognizedKeys:
 class TestConfigSymlinkRejection:
     """Security: load_config() rejects symlinked config files (CWE-59 mitigation)."""
 
-    def test_symlink_config_returns_defaults(self, tmp_path: Path) -> None:
-        """load_config() returns defaults when config path is a symlink."""
+    def test_symlink_config_raises_config_error(self, tmp_path: Path) -> None:
+        """load_config() raises ConfigError when config path is a symlink.
+
+        13-REQ-2.E1, 13-REQ-3.E1: Symlink rejection with CWE-59 message.
+        """
+        from agentfox.core.errors import ConfigError
+
         target = tmp_path / "sensitive.toml"
         target.write_text("[orchestrator]\nparallel = 99\n")
         symlink = tmp_path / "config.toml"
         symlink.symlink_to(target)
 
-        config = load_config(path=symlink)
+        with pytest.raises(ConfigError) as exc_info:
+            load_config(path=symlink)
 
-        # Falls back to defaults, does NOT load the symlink target
-        assert isinstance(config, AgentFoxConfig)
-        assert config.orchestrator.parallel == 2  # default, not 99
+        assert "symlink" in str(exc_info.value).lower()
+        assert "CWE-59" in str(exc_info.value)
 
-    def test_symlink_config_logs_warning(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
-        """load_config() logs a warning when config path is a symlink."""
-        import logging
+    def test_symlink_config_identifies_path(self, tmp_path: Path) -> None:
+        """load_config() ConfigError identifies the symlinked path.
+
+        13-REQ-2.E1: Error message identifies the config file path.
+        """
+        from agentfox.core.errors import ConfigError
 
         target = tmp_path / "sensitive.toml"
         target.write_text("")
         symlink = tmp_path / "config.toml"
         symlink.symlink_to(target)
 
-        with caplog.at_level(logging.WARNING):
+        with pytest.raises(ConfigError) as exc_info:
             load_config(path=symlink)
 
-        assert any(record.levelno >= logging.WARNING for record in caplog.records)
+        assert str(symlink) in str(exc_info.value)
 
     def test_non_symlink_config_loads_normally(self, tmp_path: Path) -> None:
         """A regular (non-symlink) config file still loads correctly."""

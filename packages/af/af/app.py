@@ -16,7 +16,6 @@ Requirements: 01-REQ-1.1, 01-REQ-1.2, 01-REQ-1.3, 01-REQ-1.4,
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
 import click
 from agentfox import __version__
@@ -73,7 +72,7 @@ def main(ctx: click.Context, **kwargs) -> None:  # noqa: ARG001
     effective_quiet = om.quiet or (om.json_mode and not om.verbose and not om.trace)
     setup_logging(verbose=om.verbose, quiet=effective_quiet, trace=om.trace)
 
-    config = load_config(Path(".agent-fox/config.toml"))
+    config = load_config()
 
     ctx.obj["config"] = config
     ctx.obj["verbose"] = om.verbose

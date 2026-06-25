@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
 import signal
 import sys
 from pathlib import Path
@@ -36,8 +35,7 @@ def main(ctx: click.Context, **kwargs) -> None:  # noqa: ARG001
         ctx.obj["output"] = om
     effective_quiet = om.quiet or (om.json_mode and not om.verbose and not om.trace)
     setup_logging(verbose=om.verbose, quiet=effective_quiet, trace=om.trace)
-    config_path = Path(os.environ.get("AF_CONFIG", ".agent-fox/config.toml"))
-    config = load_config(config_path)
+    config = load_config()
     ctx.obj.update(config=config, verbose=om.verbose, quiet=om.quiet, trace=om.trace)
     if not om.json_mode and not om.quiet:
         render_banner(create_theme(getattr(config, "theme", None) or ThemeConfig()), quiet=om.quiet)

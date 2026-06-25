@@ -4,13 +4,25 @@ Loads project configuration from a TOML file, validates all fields using
 pydantic models, and merges with documented defaults. Out-of-range numeric
 values are clamped to the nearest valid bound rather than rejected.
 
+The ``load_config()`` function is the single shared entry point used by
+``af``, ``nightshift``, and ``spec`` CLIs.  When called without arguments
+it resolves, merges, and validates a global config
+(``$HOME/.agent-fox/config.toml``) with a local config
+(``.agent-fox/config.toml``) using shallow section replacement semantics.
+
 Requirements: 01-REQ-2.1, 01-REQ-2.2, 01-REQ-2.3, 01-REQ-2.4, 01-REQ-2.5,
-              01-REQ-2.6, 01-REQ-2.E1, 01-REQ-2.E2, 01-REQ-2.E3
+              01-REQ-2.6, 01-REQ-2.E1, 01-REQ-2.E2, 01-REQ-2.E3,
+              13-REQ-1.1, 13-REQ-1.2, 13-REQ-1.3, 13-REQ-2.1, 13-REQ-2.2,
+              13-REQ-2.3, 13-REQ-3.1, 13-REQ-3.2, 13-REQ-3.3, 13-REQ-4.1,
+              13-REQ-4.2, 13-REQ-4.3, 13-REQ-5.1, 13-REQ-5.2, 13-REQ-7.1,
+              13-REQ-7.2, 13-REQ-7.3, 13-REQ-7.4
 """
 
 from __future__ import annotations
 
 import logging
+import os
+import sys
 import tomllib
 from enum import StrEnum
 from pathlib import Path
@@ -750,52 +762,45 @@ def shallow_merge(global_dict: dict, local_dict: dict) -> dict:
     return merged
 
 
-def load_config(path: Path | None = None) -> AgentFoxConfig:
-    """Load config from TOML, validate, and merge with defaults.
+def _check_symlink(path: Path) -> None:
+    """Reject a config file path that is a symlink (CWE-59).
 
-    Args:
-        path: Path to a TOML configuration file. If None or the file does
-              not exist, all defaults are returned.
+    Only the final file inode is checked — intermediate directories
+    in the path are never checked for symlink status.
 
-    Returns:
-        A fully populated AgentFoxConfig with defaults for missing fields.
-
-    Raises:
-        ConfigError: If the file contains invalid TOML or fields with
-                     wrong types.
+    Requirements: 13-REQ-2.E1, 13-REQ-3.E1, 13-REQ-3.E2
     """
-    # 01-REQ-2.E1: missing file returns defaults without error
-    if path is None or not path.exists():
-        return AgentFoxConfig()
-
-    # Security: reject symlinks to prevent path traversal (CWE-59)
     if path.is_symlink():
-        logger.warning("Config file is a symlink; skipping for security")
-        return AgentFoxConfig()
+        raise ConfigError(
+            f"Config file {path} is a symlink (CWE-59 violation). "
+            "For security, config files must be regular files, not symlinks.",
+            path=str(path),
+        )
 
-    # Read and parse TOML
+
+def _parse_toml_file(path: Path) -> dict:
+    """Read and parse a TOML file, raising ConfigError on failure.
+
+    Requirements: 13-REQ-4.1, 13-REQ-4.2, 13-REQ-4.3
+    """
     raw = path.read_text(encoding="utf-8")
-
     try:
-        data = tomllib.loads(raw)
+        return tomllib.loads(raw)
     except tomllib.TOMLDecodeError as exc:
-        # 01-REQ-2.E2: invalid TOML raises ConfigError
         raise ConfigError(
             f"Failed to parse config file {path}: {exc}",
             path=str(path),
         ) from exc
 
-    # 01-REQ-2.6: log warning for unknown top-level keys
-    known_sections = set(AgentFoxConfig.model_fields.keys())
-    for key in data:
-        if key not in known_sections:
-            logger.warning("Ignoring unknown config section: '%s'", key)
 
-    # Validate and construct config with pydantic
+def _validate_config_dict(data: dict, source: str = "<unknown>") -> AgentFoxConfig:
+    """Validate a config dict through the AgentFoxConfig Pydantic model.
+
+    Requirements: 13-REQ-1.3, 01-REQ-2.2
+    """
     try:
         return AgentFoxConfig(**data)
     except ValidationError as exc:
-        # 01-REQ-2.2: report clear error identifying field, value, expected type
         field_errors = []
         for err in exc.errors():
             loc = " → ".join(str(part) for part in err["loc"])
@@ -803,10 +808,185 @@ def load_config(path: Path | None = None) -> AgentFoxConfig:
             field_errors.append(f"  {loc}: {msg}")
         error_detail = "\n".join(field_errors)
         raise ConfigError(
-            f"Invalid configuration in {path}:\n{error_detail}",
-            path=str(path),
+            f"Invalid configuration in {source}:\n{error_detail}",
+            path=source,
             details=exc.errors(),
         ) from exc
+
+
+def load_config(path: Path | None = None) -> AgentFoxConfig:
+    """Load config from TOML, validate, and merge with defaults.
+
+    When called **without arguments** (``path is None``), resolves the
+    global config from ``$HOME/.agent-fox/config.toml`` and the local
+    config from ``.agent-fox/config.toml`` relative to the current
+    working directory, merges them using shallow section replacement,
+    validates through ``AgentFoxConfig``, and returns the result.
+
+    When called **with a path**, loads and validates only that single
+    file (backward compatibility with pre-spec-13 callers).
+
+    Args:
+        path: Path to a TOML configuration file.  If ``None``, use the
+              global+local loading scheme.
+
+    Returns:
+        A fully populated AgentFoxConfig with defaults for missing fields.
+
+    Raises:
+        ConfigError: If a config file contains invalid TOML, fields with
+                     wrong types, or the final config file path is a
+                     symlink.
+
+    Requirements: 13-REQ-1.1, 13-REQ-1.2, 13-REQ-1.3, 13-REQ-2.1,
+                  13-REQ-2.2, 13-REQ-2.3, 13-REQ-2.E1, 13-REQ-2.E2,
+                  13-REQ-3.1, 13-REQ-3.2, 13-REQ-3.3, 13-REQ-3.E1,
+                  13-REQ-3.E2, 13-REQ-4.1, 13-REQ-4.2, 13-REQ-4.3,
+                  13-REQ-5.1, 13-REQ-5.2, 13-REQ-7.1, 13-REQ-7.2,
+                  13-REQ-7.3, 13-REQ-7.4
+    """
+    if path is not None:
+        return _load_config_single_file(path)
+
+    return _load_config_global_local()
+
+
+def _load_config_single_file(path: Path) -> AgentFoxConfig:
+    """Load config from a single explicit file path (backward compat).
+
+    Preserves the pre-spec-13 behavior: missing file returns defaults,
+    symlinked file raises ConfigError, invalid TOML raises ConfigError.
+
+    Requirements: 01-REQ-2.E1, 01-REQ-2.E2
+    """
+    # 01-REQ-2.E1: missing file returns defaults without error
+    if not path.exists():
+        return AgentFoxConfig()
+
+    # 13-REQ-2.E1 / 13-REQ-3.E1: symlink rejection
+    _check_symlink(path)
+
+    data = _parse_toml_file(path)
+
+    # 01-REQ-2.6: log warning for unknown top-level keys
+    known_sections = set(AgentFoxConfig.model_fields.keys())
+    for key in data:
+        if key not in known_sections:
+            logger.warning("Ignoring unknown config section: '%s'", key)
+
+    return _validate_config_dict(data, source=str(path))
+
+
+def _load_config_global_local() -> AgentFoxConfig:
+    """Load config using the global+local merge scheme.
+
+    1. Check for AF_CONFIG deprecation.
+    2. Resolve $HOME and load/auto-create the global config.
+    3. Load the local config from CWD/.agent-fox/config.toml.
+    4. Merge using shallow section replacement.
+    5. Validate through AgentFoxConfig.
+
+    Requirements: 13-REQ-1.2, 13-REQ-2.1, 13-REQ-2.2, 13-REQ-2.3,
+                  13-REQ-3.1, 13-REQ-3.2, 13-REQ-5.1, 13-REQ-5.2,
+                  13-REQ-7.1, 13-REQ-7.2, 13-REQ-7.3, 13-REQ-7.4
+    """
+    # 13-REQ-5.1, 13-REQ-5.2: AF_CONFIG deprecation — check before any I/O
+    if os.environ.get("AF_CONFIG"):
+        print(
+            "Warning: AF_CONFIG is no longer supported and has been ignored. "
+            "Move your settings to $HOME/.agent-fox/config.toml (global) "
+            "or .agent-fox/config.toml (local).",
+            file=sys.stderr,
+        )
+
+    # --- Global config ---
+    global_dict: dict = {}
+    home: Path | None = None
+
+    try:
+        home = Path.home()
+    except (RuntimeError, OSError):
+        # 13-REQ-2.3, 13-REQ-7.4: HOME unresolvable
+        logger.debug(
+            "$HOME could not be resolved; global config loading skipped"
+        )
+
+    if home is not None:
+        global_config_path = home / ".agent-fox" / "config.toml"
+        global_dir = home / ".agent-fox"
+
+        try:
+            config_exists = global_config_path.exists()
+        except OSError as exc:
+            # 13-REQ-2.E2: can't even stat the path — directory is
+            # inaccessible, so we can't create or read the global config.
+            raise ConfigError(
+                f"Failed to create directory {global_dir}: {exc}",
+                path=str(global_dir),
+            ) from exc
+
+        if not config_exists:
+            # 13-REQ-2.1: auto-create global config
+            try:
+                os.makedirs(str(global_dir), mode=0o700, exist_ok=True)
+            except OSError as exc:
+                # 13-REQ-2.E2: directory creation failure
+                raise ConfigError(
+                    f"Failed to create directory {global_dir}: {exc}",
+                    path=str(global_dir),
+                ) from exc
+
+            from agentfox.core.config_gen import generate_default_config
+
+            global_config_path.write_text(
+                generate_default_config(), encoding="utf-8"
+            )
+
+        # 13-REQ-2.E1: symlink rejection on final file
+        _check_symlink(global_config_path)
+
+        # 13-REQ-4.1: malformed global TOML -> fail fast
+        global_dict = _parse_toml_file(global_config_path)
+
+        # 13-REQ-7.1: debug log after successful load
+        logger.debug(
+            "Loaded global config from %s", global_config_path
+        )
+
+    # --- Local config ---
+    local_path = Path.cwd() / ".agent-fox" / "config.toml"
+
+    if local_path.exists():
+        # 13-REQ-3.E1: symlink rejection on final file
+        _check_symlink(local_path)
+
+        # 13-REQ-4.2: malformed local TOML -> ConfigError
+        local_dict = _parse_toml_file(local_path)
+
+        # Track which local keys are sections (dicts) for debug logging
+        overridden_sections = [
+            k for k, v in local_dict.items() if isinstance(v, dict)
+        ]
+
+        # 13-REQ-3.1, 13-REQ-3.3: shallow section replacement merge
+        merged_dict = shallow_merge(global_dict, local_dict)
+
+        # 13-REQ-7.2: debug log with overridden section names
+        logger.debug(
+            "Merging local config from %s (sections overridden: %s)",
+            local_path,
+            overridden_sections,
+        )
+    else:
+        merged_dict = global_dict
+        # 13-REQ-7.3: debug log when no local config found
+        logger.debug(
+            "No local config found at %s",
+            local_path,
+        )
+
+    # 13-REQ-1.3: validate and apply defaults via Pydantic
+    return _validate_config_dict(merged_dict, source="merged config")
 
 
 def resolve_spec_root(config: AgentFoxConfig, project_root: Path) -> Path:
