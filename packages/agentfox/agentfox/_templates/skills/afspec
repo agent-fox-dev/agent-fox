@@ -1,5 +1,5 @@
 ---
-name: af-spec
+name: afspec
 description: Requirements engineering and spec-driven development using the spec CLI.
 argument-hint: "[path-to-prd-or-prompt-or-github-issue-url]"
 ---
