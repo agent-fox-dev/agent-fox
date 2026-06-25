@@ -58,7 +58,11 @@ def _cleanup_empty_ancestors(
     Errors are swallowed: ``PermissionError`` triggers a WARNING log, other
     ``OSError`` (e.g. directory not empty) silently stops traversal.
 
-    Requirements: 80-REQ-3.1, 80-REQ-3.2, 80-REQ-3.E1, 80-REQ-3.E2
+    The traversal is depth-agnostic — it handles both 2-level paths
+    (``spec/task_group``) and 4-level paths (``spec/task_group/role/mode``)
+    without modification (09-REQ-6.2).
+
+    Requirements: 80-REQ-3.1, 80-REQ-3.2, 80-REQ-3.E1, 80-REQ-3.E2, 09-REQ-6.2
     """
     current = worktree_path
     while current != root:
@@ -254,7 +258,12 @@ async def destroy_worktree(
     committed work is recoverable after a harvest failure.  The worktree
     directory is still removed.
 
-    Requirements: 80-REQ-1.1, 80-REQ-1.E1, 80-REQ-3.1
+    All operations use ``workspace.path`` directly — the path is never
+    re-derived from ``spec_name``/``task_group``/``role``/``mode``,
+    making this function transparent to both 2-level and 4-level
+    worktree path structures (09-REQ-6.1).
+
+    Requirements: 80-REQ-1.1, 80-REQ-1.E1, 80-REQ-3.1, 09-REQ-6.1
     """
     worktrees_root = repo_root / ".agent-fox" / "worktrees"
 
