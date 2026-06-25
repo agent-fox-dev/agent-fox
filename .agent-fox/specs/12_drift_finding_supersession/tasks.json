@@ -652,7 +652,7 @@
             "12-REQ-3.2",
             "12-REQ-3.3"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -670,7 +670,7 @@
             "12-REQ-1.8",
             "12-REQ-1.1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -693,7 +693,7 @@
             "12-REQ-3.1",
             "12-REQ-3.3"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -710,7 +710,7 @@
             "12-REQ-1.1",
             "12-REQ-2.1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -812,7 +812,7 @@
             "12-REQ-10.1",
             "12-REQ-10.2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],
