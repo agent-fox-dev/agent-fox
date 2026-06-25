@@ -39,15 +39,22 @@ def _get_db_conn() -> duckdb.DuckDBPyConnection | None:
     """Open a read-write DuckDB connection for reset operations.
 
     Returns None if the database does not exist or cannot be opened.
+    Uses open_knowledge_store per 06-REQ-10.1.
 
     Requirements: 105-REQ-5.3 (DB-only state persistence)
     """
     try:
-        import duckdb
+        from agentfox.core.config import KnowledgeConfig
+        from agentfox.knowledge.db import open_knowledge_store
 
         if not DEFAULT_DB_PATH.exists():
             return None
-        return duckdb.connect(str(DEFAULT_DB_PATH))
+        # 06-REQ-10.1: use open_knowledge_store with explicit read_only=False
+        db = open_knowledge_store(
+            KnowledgeConfig(store_path=str(DEFAULT_DB_PATH)),
+            read_only=False,
+        )
+        return db.connection
     except Exception:
         logger.debug("DuckDB unavailable for reset", exc_info=True)
         return None

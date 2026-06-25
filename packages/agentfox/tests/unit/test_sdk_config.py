@@ -89,12 +89,12 @@ class TestBudgetParsing:
 
 
 class TestBudgetDefault:
-    """Verify default max_budget_usd is 8.0."""
+    """Verify default max_budget_usd is >= 20.0 (NS-REQ-1.1)."""
 
     def test_default_budget(self) -> None:
-        """TS-56-7: Default max_budget_usd is 8.0."""
+        """TS-56-7 / TS-NS-1: Default max_budget_usd is >= 20.0."""
         config = AgentFoxConfig()
-        assert config.orchestrator.max_budget_usd == 8.0
+        assert config.orchestrator.max_budget_usd >= 20.0
 
 
 # ---------------------------------------------------------------------------

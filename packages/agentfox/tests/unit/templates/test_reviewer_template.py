@@ -160,6 +160,44 @@ class TestAuditReviewProfile:
         )
 
 
+class TestCoderFixTemplate:
+    """Verify coder_fix.md contains the test-run limit policy (NS-REQ-1 through NS-REQ-5)."""
+
+    def test_coder_fix_has_test_run_limit(self) -> None:
+        """NS-REQ-1/NS-REQ-2: coder_fix.md contains both warning (3) and hard-stop (5) thresholds."""
+        template = _template_path("coder_fix.md")
+        assert template.exists(), f"coder_fix.md not found at {template}"
+        content = template.read_text(encoding="utf-8")
+        assert "3" in content, "coder_fix.md should contain the warning threshold '3'"
+        assert "5" in content, "coder_fix.md should contain the hard-stop threshold '5'"
+
+    def test_coder_fix_warning_threshold_near_full_suite_context(self) -> None:
+        """NS-REQ-2: The threshold '3' appears near full test-suite run guidance."""
+        template = _template_path("coder_fix.md")
+        content = template.read_text(encoding="utf-8")
+        assert "3 full" in content or "After 3" in content, (
+            "coder_fix.md should reference '3' in the context of full test-suite runs (warning threshold)"
+        )
+
+    def test_coder_fix_hard_limit_triggers_commit(self) -> None:
+        """NS-REQ-3: coder_fix.md instructs commit on reaching the 5-run hard limit."""
+        template = _template_path("coder_fix.md")
+        content = template.read_text(encoding="utf-8")
+        assert "commit" in content.lower(), "coder_fix.md should mention 'commit' in the test-run limit section"
+        assert "5" in content, "coder_fix.md should contain the hard-stop threshold '5'"
+
+    def test_coder_fix_distinguishes_full_vs_targeted(self) -> None:
+        """NS-REQ-5: coder_fix.md distinguishes full suite runs from targeted subset runs."""
+        template = _template_path("coder_fix.md")
+        content = template.read_text(encoding="utf-8")
+        assert "targeted" in content.lower() or "subset" in content.lower(), (
+            "coder_fix.md should use 'targeted' or 'subset' to distinguish test invocation types"
+        )
+        assert "make check" in content or "uv run pytest -q" in content, (
+            "coder_fix.md should identify full suite invocations (make check or uv run pytest -q)"
+        )
+
+
 class TestFixCoderProfileRetained:
     """Verify coder_fix.md is available as a mode-specific profile."""
 

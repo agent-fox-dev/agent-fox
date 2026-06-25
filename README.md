@@ -52,7 +52,7 @@ processes them through a three-stage pipeline (triage → coder → reviewer).
 
 ```bash
 # Start the fix daemon (Ctrl-C to stop gracefully)
-af night-shift
+night-shift
 ```
 
 ## Installation
@@ -69,6 +69,7 @@ with five packages:
 | Package | Description |
 |---------|-------------|
 | `packages/af/` | CLI for the agent-fox orchestrator (`af` command) |
+| `packages/nightshift/` | Standalone CLI for the night-shift fix daemon (`night-shift` command) |
 | `packages/agentfox/` | Core library — spec engine, graph planner, session runtime, workspace tools |
 | `packages/afspec/` | Standalone library for the agent-fox specification format (v1.2) |
 | `packages/agentspec/` | AI-powered spec creation library |
@@ -78,6 +79,8 @@ with five packages:
 af  ──▶  agentfox  ──▶  afspec
               ▲
 spec ──▶ agentspec ──┘──▶  afspec
+
+nightshift ──▶ agentfox
 ```
 
 ```bash

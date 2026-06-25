@@ -683,7 +683,7 @@ class NodeSessionRunner:
         # budget again.  We use cost ratio alone — not an error-message sentinel
         # — so the check remains correct regardless of what diagnostic string
         # _map_message composes from the SDK ResultMessage.
-        resolved_budget = resolve_max_budget(self._config)
+        resolved_budget = resolve_max_budget(self._config, self._archetype)
         is_budget_exhausted = (
             outcome.status == "failed"
             and resolved_budget is not None
@@ -1026,6 +1026,28 @@ class NodeSessionRunner:
 
         try:
             workspace = await self._setup_workspace(repo_root, node_id)
+        except Exception as exc:
+            logger.error(
+                "Workspace setup failed for %s (attempt %d): %s",
+                node_id,
+                attempt,
+                exc,
+            )
+            return SessionRecord(
+                node_id=node_id,
+                attempt=attempt,
+                status="failed",
+                input_tokens=0,
+                output_tokens=0,
+                cost=0.0,
+                duration_ms=0,
+                error_message=str(exc),
+                timestamp=datetime.now(UTC).isoformat(),
+                archetype=self._archetype,
+                is_workspace_setup_failure=True,
+            )
+
+        try:
             record = await self._run_session_lifecycle(node_id, attempt, previous_error, repo_root, workspace)
             # AC-3: Preserve the feature branch when harvest failed so the
             # committed coder work can be recovered.
@@ -1073,22 +1095,33 @@ def build_retry_context(
 ) -> str:
     """Query active critical/major findings for the spec and format them.
 
-    Returns a structured block for inclusion in coder retry prompts,
-    listing all active critical and major review findings. Returns an
-    empty string if no such findings exist or if the DB is unavailable.
+    Returns a structured block for inclusion in coder prompts (both first
+    attempt and retries), listing all active critical and major review
+    findings plus drift findings.  Returns an empty string if no such
+    findings exist or if the DB is unavailable.
 
-    When ``task_group`` is provided, only findings tagged for that group
-    are included, avoiding noise from other task groups' findings.
+    When ``task_group`` is provided, findings from that group AND from
+    group ``"0"`` (pre-review / drift-review) are included.  Findings
+    from other task groups are excluded.  This ensures the coder sees
+    pre-review and drift-review findings on the very first attempt,
+    not only after a failed audit-review.
 
     Requirements: 53-REQ-5.1, 53-REQ-5.2, 53-REQ-5.E1
     """
     try:
-        from agentfox.knowledge.review_store import query_active_findings
+        from agentfox.knowledge.review_store import (
+            query_active_drift_findings,
+            query_active_findings,
+        )
 
         conn = knowledge_db.connection
-        findings = query_active_findings(conn, spec_name, task_group=task_group)
+        findings = query_active_findings(conn, spec_name, task_group=task_group, include_prereview=True)
+        drift_findings = query_active_drift_findings(conn, spec_name, task_group=task_group, include_prereview=True)
+
         critical_major = [f for f in findings if f.severity in ("critical", "major")]
-        if not critical_major:
+        critical_major_drift = [f for f in drift_findings if f.severity in ("critical", "major")]
+
+        if not critical_major and not critical_major_drift:
             return ""
 
         lines = [
@@ -1102,6 +1135,9 @@ def build_retry_context(
             ref_str = f" [{finding.requirement_ref}]" if finding.requirement_ref else ""
             safe_desc = sanitize_prompt_content(finding.description, label="review-finding")
             lines.append(f"- **{finding.severity.upper()}**{ref_str}: {safe_desc}")
+        for drift in critical_major_drift:
+            safe_desc = sanitize_prompt_content(drift.description, label="drift-finding")
+            lines.append(f"- **{drift.severity.upper()}** (drift): {safe_desc}")
         return "\n".join(lines)
 
     except Exception:

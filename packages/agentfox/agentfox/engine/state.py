@@ -62,6 +62,7 @@ class SessionRecord:
     is_budget_exhausted: bool = False  # True when failure was caused by SDK budget limit
     is_non_retryable: bool = False  # True when failure is non-retryable (workspace-state error)
     is_harvest_failure: bool = False  # True when session completed but harvest/merge failed
+    is_workspace_setup_failure: bool = False  # True when failure occurred during workspace setup (worktree/branch)
 
 
 @dataclass
@@ -124,6 +125,7 @@ class ExecutionState:
     total_output_tokens: int = 0
     total_cost: float = 0.0
     total_sessions: int = 0
+    workspace_setup_failures: int = 0
     started_at: str = ""  # ISO 8601
     updated_at: str = ""  # ISO 8601
     run_status: str = "running"
@@ -212,7 +214,10 @@ def update_state_with_session(
     state.total_input_tokens += record.input_tokens + aux_input
     state.total_output_tokens += record.output_tokens + aux_output
     state.total_cost += record.cost + aux_cost
-    state.total_sessions += 1
+    if record.is_workspace_setup_failure:
+        state.workspace_setup_failures += 1
+    else:
+        state.total_sessions += 1
     state.updated_at = datetime.now(UTC).isoformat()
     return state
 
@@ -456,21 +461,24 @@ def update_run_totals(
     input_tokens: int,
     output_tokens: int,
     cost: float,
+    *,
+    is_workspace_setup_failure: bool = False,
 ) -> None:
     """UPDATE runs to accumulate token and cost counters.
 
     Requirements: 105-REQ-4.3
     """
+    session_increment = 0 if is_workspace_setup_failure else 1
     conn.execute(
         """
         UPDATE runs
         SET total_input_tokens  = total_input_tokens  + ?,
             total_output_tokens = total_output_tokens + ?,
             total_cost          = total_cost          + ?,
-            total_sessions      = total_sessions      + 1
+            total_sessions      = total_sessions      + ?
         WHERE id = ?
         """,
-        [input_tokens, output_tokens, cost, run_id],
+        [input_tokens, output_tokens, cost, session_increment, run_id],
     )
 
 

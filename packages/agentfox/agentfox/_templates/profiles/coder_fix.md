@@ -29,6 +29,17 @@ The context may also include:
   problems with a previous fix attempt. Focus on addressing those problems
   precisely.
 
+## Tool Preference
+
+Prefer native tools over Bash for file operations:
+
+- Use **Read** instead of `cat`/`head`/`tail`
+- Use **Glob** instead of `find . -name "*.py"`
+- Use **Grep** instead of `grep -r "pattern"`
+
+Reserve Bash for: git operations, `make`/`pytest`, package management, and
+commands with no native equivalent.
+
 ## Orientation
 
 Before changing files, understand the codebase:
@@ -64,9 +75,26 @@ You are running inside a git worktree already on the correct fix branch.
 
 Run quality checks relevant to files you changed before committing:
 
-- Run the test suite: `uv run pytest -q` (or a targeted subset)
 - Run the linter: `uv run ruff check <changed-files>`
-- Fix any failures before proceeding. No regressions allowed.
+- Run tests to verify your fix. **Prefer targeted subset runs** over full suite
+  runs whenever possible (e.g., `uv run pytest tests/unit/nightshift/`).
+
+### Test-Run Limit Policy
+
+Only **full suite runs** count toward the per-session cap. A full suite run is
+any invocation of `make check` or `uv run pytest -q` without path narrowing.
+Targeted subset runs (e.g., `uv run pytest path/to/specific_test.py`) do **not**
+count toward the cap and are preferred after the warning threshold.
+
+- **After 3 full suite runs** without a passing result: stop running the full
+  suite. Switch exclusively to narrowly targeted tests for any remaining
+  iterations (e.g., `uv run pytest tests/unit/nightshift/test_foo.py`).
+- **After 5 full suite runs** (hard limit): immediately stage and commit whatever
+  changes exist — even if tests still fail — using the nightshift commit format,
+  then stop. Do not continue looping or discard partial work. The reviewer will
+  evaluate the partial fix and a retry can continue from there.
+
+Fix any failures before proceeding. No regressions allowed.
 
 ## Land the Session
 

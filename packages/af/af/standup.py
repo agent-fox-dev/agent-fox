@@ -15,8 +15,10 @@ from dataclasses import asdict
 from pathlib import Path
 
 import click
+from agentfox.core.config import KnowledgeConfig
 from agentfox.core.node_id import DEFAULT_DB_PATH
 from agentfox.io import exit_codes, format_table
+from agentfox.knowledge.db import open_knowledge_store
 from agentfox.reporting.formatters import (
     OutputFormat,
     get_formatter,
@@ -76,12 +78,15 @@ def standup_cmd(ctx: click.Context, hours: int) -> None:
     project_root = Path.cwd()
 
     db_conn = None
+    _db = None
     try:
-        import duckdb
-
         if DEFAULT_DB_PATH.exists():
             # read_only=True: standup is read-only; see spec 06-REQ-8
-            db_conn = duckdb.connect(str(DEFAULT_DB_PATH), read_only=True)
+            _db = open_knowledge_store(
+                KnowledgeConfig(store_path=str(DEFAULT_DB_PATH)),
+                read_only=True,
+            )
+            db_conn = _db.connection
     except Exception:
         logger.debug("DuckDB unavailable for standup", exc_info=True)
 
@@ -92,8 +97,8 @@ def standup_cmd(ctx: click.Context, hours: int) -> None:
             db_conn=db_conn,
         )
     finally:
-        if db_conn is not None:
-            db_conn.close()
+        if _db is not None:
+            _db.close()
 
     # Build cost tables via format_table (04-REQ-6.2)
     cost_tables = _build_cost_tables(report, json_mode=json_mode)

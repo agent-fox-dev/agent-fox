@@ -1,12 +1,13 @@
 [project]
 name = "agent-fox"
-version = "4.0.0-rc4"
+version = "4.0.0-rc5"
 description = "Autonomous coding-agent orchestrator"
 requires-python = ">=3.12"
 dependencies = [
-    "af>=4.0.0rc4",
-    "agentspec>=0.9.0",
-    "spec>=0.9.0",
+    "af>=4.0.0rc5",
+    "agentspec>=4.0.0rc5",
+    "nightshift>=4.0.0rc5",
+    "spec>=4.0.0rc5",
 ]
 
 [dependency-groups]
@@ -22,7 +23,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["packages/agentfox/tests", "packages/af/tests", "packages/afspec/tests", "packages/agentspec/tests"]
+testpaths = ["packages/agentfox/tests", "packages/af/tests", "packages/afspec/tests", "packages/agentspec/tests", "packages/nightshift/tests"]
 pythonpath = ["packages/agentfox"]
 asyncio_mode = "auto"
 addopts = "-n auto --timeout=10 -m 'not smoke'"
@@ -40,6 +41,7 @@ af = { workspace = true }
 agentfox = { workspace = true }
 afspec = { workspace = true }
 agentspec = { workspace = true }
+nightshift = { workspace = true }
 spec = { workspace = true }
 
 [tool.ruff]

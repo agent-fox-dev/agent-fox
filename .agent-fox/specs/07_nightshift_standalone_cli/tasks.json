@@ -1,0 +1,1167 @@
+{
+  "$schema": null,
+  "spec_id": "07",
+  "spec_name": "nightshift_standalone_cli",
+  "schema_version": 1,
+  "test_commands": {
+    "spec_tests": "pytest packages/nightshift/tests/ -v",
+    "all_tests": "pytest -q",
+    "linter": "ruff check packages/nightshift/"
+  },
+  "dependencies": [
+    {
+      "depends_on_spec": "04",
+      "from_group": 1,
+      "to_group": 8,
+      "relationship": "Imports AgentFoxGroup, OutputManager, and common_options from agentfox.io (spec 04). Spec 04 is complete and interfaces are stable.",
+      "sentinel": false
+    }
+  ],
+  "task_groups": [
+    {
+      "id": 1,
+      "kind": "tests",
+      "title": "Write spec tests for nightshift standalone CLI",
+      "subtasks": [
+        {
+          "id": "1.1",
+          "title": "Write unit tests for af package removal (TS-07-1, TS-07-2, TS-07-E1)",
+          "details": [
+            "Create packages/af/tests/test_nightshift_removal.py",
+            "TS-07-1: assert 'night-shift' not in cli.commands by importing af.app and inspecting the Click group",
+            "TS-07-2: assert not os.path.exists('packages/af/af/nightshift.py')",
+            "TS-07-E1: document that if nightshift.py still exists, this guard test fails CI"
+          ],
+          "test_spec_refs": [
+            "TS-07-1",
+            "TS-07-2",
+            "TS-07-E1"
+          ],
+          "requirement_refs": [
+            "07-REQ-1.1",
+            "07-REQ-1.2",
+            "07-REQ-1.E1"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "1.2",
+          "title": "Write integration test for af night-shift unrecognized-command error (TS-07-3, TS-07-SMOKE-6)",
+          "details": [
+            "Add test to packages/af/tests/test_nightshift_removal.py",
+            "Subprocess call: ['af', 'night-shift'], assert returncode != 0",
+            "Assert 'no such command' or 'error' in combined output (case-insensitive)",
+            "This test satisfies REQ-8.5: af suite must have a test asserting removal"
+          ],
+          "test_spec_refs": [
+            "TS-07-3",
+            "TS-07-38",
+            "TS-07-SMOKE-6"
+          ],
+          "requirement_refs": [
+            "07-REQ-1.3",
+            "07-REQ-8.5"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "1.3",
+          "title": "Write unit tests for nightshift package structure and pyproject.toml metadata (TS-07-4 through TS-07-7, TS-07-E2, TS-07-E3)",
+          "details": [
+            "Create packages/nightshift/tests/test_package_structure.py",
+            "TS-07-4: assert all required paths exist (pyproject.toml, __init__.py, __main__.py, app.py)",
+            "TS-07-5: parse pyproject.toml with tomllib; assert name, version, description, build-backend, license, authors",
+            "TS-07-6: parse [project.dependencies]; assert agentfox>=4.0.0rc4, click>=8.1, rich>=15.0, duckdb>=1.5.4",
+            "TS-07-7: parse [project.scripts]; assert scripts['night-shift'] == 'nightshift.app:main'",
+            "TS-07-E2: assert 'agentspec' and 'afspec' not in any deps section",
+            "TS-07-E3: assert 'rich' and 'duckdb' present in direct deps"
+          ],
+          "test_spec_refs": [
+            "TS-07-4",
+            "TS-07-5",
+            "TS-07-6",
+            "TS-07-7",
+            "TS-07-E2",
+            "TS-07-E3"
+          ],
+          "requirement_refs": [
+            "07-REQ-2.1",
+            "07-REQ-2.2",
+            "07-REQ-2.3",
+            "07-REQ-2.4",
+            "07-REQ-2.E1",
+            "07-REQ-2.E2"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "1.4",
+          "title": "Write CLI behavior tests: options, version, banner, env vars (TS-07-8 through TS-07-20, TS-07-E4, TS-07-E5, TS-07-P1, TS-07-P3)",
+          "details": [
+            "Create packages/nightshift/tests/test_cli_behavior.py",
+            "TS-07-11/TS-07-12: subprocess ['night-shift', '--help'] asserts --json, --no-json, --verbose, --quiet, --trace, --version in output; ['night-shift', '--version'] asserts '4.0.0-rc4' and exit 0",
+            "TS-07-9/TS-07-10: use Click test runner or mocked daemon to assert banner presence/suppression with --quiet and --json",
+            "TS-07-13/TS-07-20: env var tests for AF_CONFIG (invalid path \u2192 exit 1), AF_LOG_LEVEL (accepted), AF_AGENT=1 (--help returns 0)",
+            "TS-07-16/TS-07-17: subprocess SIGINT tests for graceful (exit 0) and double-SIGINT (exit 130)",
+            "TS-07-18/TS-07-E4: invalid config \u2192 exit 1, non-empty stderr with 'config' or 'error'",
+            "TS-07-19/TS-07-33: inspect app.py source for AgentFoxGroup, common_options from agentfox.io",
+            "TS-07-P1: parametrize over flag combinations and assert matching behavior",
+            "TS-07-P3: parametrize over env vars (AF_CONFIG, AF_LOG_LEVEL, AF_AGENT) and verify semantics"
+          ],
+          "test_spec_refs": [
+            "TS-07-8",
+            "TS-07-9",
+            "TS-07-10",
+            "TS-07-11",
+            "TS-07-12",
+            "TS-07-13",
+            "TS-07-14",
+            "TS-07-15",
+            "TS-07-16",
+            "TS-07-17",
+            "TS-07-18",
+            "TS-07-19",
+            "TS-07-20",
+            "TS-07-E4",
+            "TS-07-E5",
+            "TS-07-P1",
+            "TS-07-P3"
+          ],
+          "requirement_refs": [
+            "07-REQ-3.1",
+            "07-REQ-3.2",
+            "07-REQ-3.3",
+            "07-REQ-3.4",
+            "07-REQ-3.5",
+            "07-REQ-3.6",
+            "07-REQ-3.7",
+            "07-REQ-3.8",
+            "07-REQ-3.9",
+            "07-REQ-3.10",
+            "07-REQ-3.11",
+            "07-REQ-3.12"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "1.5",
+          "title": "Write workspace integration, documentation, and entry-point integration tests (TS-07-21 through TS-07-40, TS-07-P2, TS-07-P4 through TS-07-P6, TS-07-E6 through TS-07-E10)",
+          "details": [
+            "Create packages/nightshift/tests/test_workspace_integration.py: parse root pyproject.toml for workspace member, deps, testpaths (TS-07-21/22/23)",
+            "Create packages/nightshift/tests/test_entrypoint.py: subprocess python -m nightshift --help and night-shift --help, assert exit 0 and '--version' in output (TS-07-39/40); graceful fallback if night-shift not on PATH (TS-07-E10)",
+            "Create packages/nightshift/tests/test_documentation.py: grep/read docs files for 'af night-shift' absence (TS-07-25 through TS-07-31); diagram topology assertions (TS-07-30/31)",
+            "TS-07-32/TS-07-E8: assert agentfox.nightshift import present in app.py and line count < 150 heuristic (no copy-paste logic)",
+            "TS-07-P2: AST-enumerate public functions in app.py; assert none reimplement agentfox.nightshift logic",
+            "TS-07-P5/TS-07-E7: os.walk docs/ and README.md; assert 'af night-shift' absent in every file",
+            "TS-07-P6/TS-07-E6: dependency isolation and testpaths omission guard tests"
+          ],
+          "test_spec_refs": [
+            "TS-07-21",
+            "TS-07-22",
+            "TS-07-23",
+            "TS-07-24",
+            "TS-07-25",
+            "TS-07-26",
+            "TS-07-27",
+            "TS-07-28",
+            "TS-07-29",
+            "TS-07-30",
+            "TS-07-31",
+            "TS-07-32",
+            "TS-07-33",
+            "TS-07-34",
+            "TS-07-35",
+            "TS-07-36",
+            "TS-07-37",
+            "TS-07-38",
+            "TS-07-39",
+            "TS-07-40",
+            "TS-07-E6",
+            "TS-07-E7",
+            "TS-07-E8",
+            "TS-07-E9",
+            "TS-07-E10",
+            "TS-07-P2",
+            "TS-07-P4",
+            "TS-07-P5",
+            "TS-07-P6"
+          ],
+          "requirement_refs": [
+            "07-REQ-4.1",
+            "07-REQ-4.2",
+            "07-REQ-4.3",
+            "07-REQ-5.1",
+            "07-REQ-6.1",
+            "07-REQ-6.2",
+            "07-REQ-7.1",
+            "07-REQ-7.2",
+            "07-REQ-8.1",
+            "07-REQ-8.2",
+            "07-REQ-8.3",
+            "07-REQ-9.1",
+            "07-REQ-9.2"
+          ],
+          "state": "done",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "1.V",
+        "checks": [
+          "All newly written test files are syntactically valid: ruff check packages/nightshift/tests/ packages/af/tests/test_nightshift_removal.py",
+          "pytest --collect-only packages/nightshift/tests/ collects tests without import errors",
+          "pytest --collect-only packages/af/tests/test_nightshift_removal.py collects tests without import errors",
+          "All test files reference valid requirement IDs (07-REQ-*) and test IDs (TS-07-*) as documented in the requirements and test_spec artifacts",
+          "No implementation code has been written yet \u2014 all tests are expected to fail at this stage"
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "kind": "standard",
+      "title": "Remove night-shift from the af package",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Delete packages/af/af/nightshift.py from the repository",
+          "details": [
+            "Run: git rm packages/af/af/nightshift.py",
+            "Do NOT leave a deprecation stub or re-export \u2014 removal is intentional and clean",
+            "Confirm file is absent from the working tree after removal"
+          ],
+          "test_spec_refs": [
+            "TS-07-2",
+            "TS-07-E1"
+          ],
+          "requirement_refs": [
+            "07-REQ-1.2"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "2.2",
+          "title": "Remove night-shift subcommand registration from packages/af/af/app.py",
+          "details": [
+            "Open packages/af/af/app.py and remove the line that registers the night-shift command (e.g. cli.add_command(...) or @cli.command('night-shift') decorator)",
+            "Remove any import of nightshift from af.nightshift in app.py",
+            "Ensure no other file in packages/af/af/ imports from af.nightshift",
+            "Run: grep -r 'nightshift' packages/af/af/ to confirm no residual references"
+          ],
+          "test_spec_refs": [
+            "TS-07-1"
+          ],
+          "requirement_refs": [
+            "07-REQ-1.1"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "2.3",
+          "title": "Add af test asserting night-shift subcommand is unrecognized after removal",
+          "details": [
+            "In packages/af/tests/test_nightshift_removal.py (created in Group 1), confirm the integration test invoking ['af', 'night-shift'] is present",
+            "Verify the test asserts returncode != 0 and a Click unrecognized-command message in output",
+            "This test must be part of the af test suite, not the nightshift test suite"
+          ],
+          "test_spec_refs": [
+            "TS-07-3",
+            "TS-07-38"
+          ],
+          "requirement_refs": [
+            "07-REQ-1.3",
+            "07-REQ-8.5"
+          ],
+          "state": "done",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "2.V",
+        "checks": [
+          "TS-07-1 passes: 'night-shift' not in af CLI commands dict",
+          "TS-07-2 passes: packages/af/af/nightshift.py does not exist",
+          "TS-07-3 passes: af night-shift returns non-zero exit code with Click error message",
+          "All existing af tests still pass: pytest packages/af/tests/ -q",
+          "No ruff lint warnings in af package: ruff check packages/af/",
+          "07-REQ-1.1, 07-REQ-1.2, 07-REQ-1.3 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "kind": "standard",
+      "title": "Create the nightshift Python package scaffold",
+      "subtasks": [
+        {
+          "id": "3.1",
+          "title": "Create packages/nightshift/ directory structure with required files",
+          "details": [
+            "Create directory: packages/nightshift/nightshift/",
+            "Create packages/nightshift/nightshift/__init__.py (minimal: set __version__ = '4.0.0-rc4' or leave empty per style of other packages)",
+            "Create packages/nightshift/nightshift/__main__.py with: from nightshift.app import main; main()",
+            "Create packages/nightshift/nightshift/app.py as a stub: raise NotImplementedError (to be filled in Group 4)",
+            "Create packages/nightshift/tests/__init__.py if needed for pytest discovery"
+          ],
+          "test_spec_refs": [
+            "TS-07-4"
+          ],
+          "requirement_refs": [
+            "07-REQ-2.1"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "3.2",
+          "title": "Author packages/nightshift/pyproject.toml with correct metadata and dependencies",
+          "details": [
+            "Set name='nightshift', version='4.0.0-rc4', description='Standalone CLI for the AgentFox Night Shift fix daemon'",
+            "Copy license and authors values from packages/af/pyproject.toml",
+            "Set build-backend = 'hatchling.build' in [build-system]",
+            "Declare in [project.dependencies]: agentfox>=4.0.0rc4, click>=8.1, rich>=15.0, duckdb>=1.5.4",
+            "Do NOT list agentspec or afspec as dependencies",
+            "Register CLI script: [project.scripts] night-shift = 'nightshift.app:main'",
+            "Mirror optional PyPI classifiers and homepage URL from af/pyproject.toml if present"
+          ],
+          "test_spec_refs": [
+            "TS-07-5",
+            "TS-07-6",
+            "TS-07-7",
+            "TS-07-E2",
+            "TS-07-E3"
+          ],
+          "requirement_refs": [
+            "07-REQ-2.2",
+            "07-REQ-2.3",
+            "07-REQ-2.4",
+            "07-REQ-2.E1",
+            "07-REQ-2.E2"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "3.3",
+          "title": "Integrate nightshift into the root uv workspace pyproject.toml",
+          "details": [
+            "Add 'packages/nightshift' to [tool.uv.workspace] members array in root pyproject.toml",
+            "Add 'nightshift>=4.0.0rc4' to root [project.dependencies]",
+            "Add 'nightshift = { workspace = true }' to [tool.uv.sources]",
+            "Add 'packages/nightshift/tests/' to [tool.pytest.ini_options] testpaths list, matching pattern of other entries",
+            "Run: uv sync to verify workspace resolution succeeds"
+          ],
+          "test_spec_refs": [
+            "TS-07-21",
+            "TS-07-22",
+            "TS-07-23",
+            "TS-07-E6"
+          ],
+          "requirement_refs": [
+            "07-REQ-4.1",
+            "07-REQ-4.2",
+            "07-REQ-4.3"
+          ],
+          "state": "done",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "3.V",
+        "checks": [
+          "TS-07-4 passes: all required file paths exist under packages/nightshift/",
+          "TS-07-5 passes: pyproject.toml metadata fields are correct (name, version, description, license, authors, build-backend)",
+          "TS-07-6 passes: all four direct dependencies declared with correct version constraints",
+          "TS-07-7 passes: night-shift script entry point registered as 'nightshift.app:main'",
+          "TS-07-21, TS-07-22, TS-07-23 pass: root pyproject.toml workspace member, dep, and testpaths entries present",
+          "TS-07-E2, TS-07-E3 pass: agentspec/afspec absent; rich and duckdb present as direct deps",
+          "ruff check packages/nightshift/ reports no lint errors",
+          "uv sync completes without dependency resolution errors"
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "kind": "standard",
+      "title": "Implement nightshift/app.py CLI entry point delegating to agentfox.nightshift",
+      "subtasks": [
+        {
+          "id": "4.1",
+          "title": "Audit agentfox.io source for AgentFoxGroup, common_options, and supported env vars",
+          "details": [
+            "Read agentfox/io.py (or equivalent module) to identify AgentFoxGroup, OutputManager, and common_options interfaces",
+            "Enumerate all environment variables bound in AgentFoxGroup and common_options (at minimum AF_CONFIG, AF_LOG_LEVEL, AF_AGENT; document any others found)",
+            "Read packages/af/af/nightshift.py (before deletion commit) to understand the exact import and delegation pattern used by the former implementation",
+            "Document the list of agentfox.nightshift modules imported by the former af/nightshift.py"
+          ],
+          "test_spec_refs": [
+            "TS-07-19",
+            "TS-07-20",
+            "TS-07-33"
+          ],
+          "requirement_refs": [
+            "07-REQ-3.11",
+            "07-REQ-3.12",
+            "07-REQ-7.2"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "4.2",
+          "title": "Implement nightshift/app.py: AgentFoxGroup, common_options, banner, and delegation to agentfox.nightshift",
+          "details": [
+            "Import AgentFoxGroup and common_options from agentfox.io; use AgentFoxGroup as the Click group",
+            "Apply common_options decorator to attach --json/--no-json, --verbose/-v, --quiet/-q, --trace, --version global options",
+            "Use Click's version_option reading from package metadata (importlib.metadata.version('nightshift') or equivalent) to satisfy REQ-3.4",
+            "Add banner display logic: print fox ASCII art on startup unless --quiet or --json is active (reuse exact same mechanism as af/app.py)",
+            "Delegate to agentfox.nightshift modules for daemon startup, run loop, signal handling, and summary statistics \u2014 no business logic duplication",
+            "Implement config loading via AgentFoxGroup's built-in mechanism (AF_CONFIG respected automatically)",
+            "Keep app.py as a thin delegation layer \u2014 target < 150 lines total"
+          ],
+          "test_spec_refs": [
+            "TS-07-9",
+            "TS-07-10",
+            "TS-07-11",
+            "TS-07-12",
+            "TS-07-19",
+            "TS-07-32",
+            "TS-07-33",
+            "TS-07-P2"
+          ],
+          "requirement_refs": [
+            "07-REQ-3.1",
+            "07-REQ-3.2",
+            "07-REQ-3.3",
+            "07-REQ-3.4",
+            "07-REQ-3.5",
+            "07-REQ-3.6",
+            "07-REQ-3.7",
+            "07-REQ-3.11",
+            "07-REQ-7.1",
+            "07-REQ-7.2"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "4.3",
+          "title": "Implement signal handling: graceful shutdown (exit 0) and double-SIGINT abort (exit 130)",
+          "details": [
+            "Reuse the identical signal handling pattern from the former packages/af/af/nightshift.py",
+            "First SIGINT: initiate graceful shutdown via agentfox.nightshift; print summary stats at exit; return exit code 0",
+            "Second SIGINT during shutdown: immediately abort; return exit code 130 (sys.exit(130) or raise SystemExit(130))",
+            "Startup failure (bad config, import error): catch exception, print descriptive message to stderr, exit with code 1",
+            "AF_AGENT=1: inherited automatically from AgentFoxGroup \u2014 no explicit handling required in app.py"
+          ],
+          "test_spec_refs": [
+            "TS-07-16",
+            "TS-07-17",
+            "TS-07-18",
+            "TS-07-E4"
+          ],
+          "requirement_refs": [
+            "07-REQ-3.8",
+            "07-REQ-3.9",
+            "07-REQ-3.10"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "4.4",
+          "title": "Implement nightshift/__main__.py to support python -m nightshift invocation",
+          "details": [
+            "nightshift/__main__.py should contain: from nightshift.app import main; main()",
+            "Verify python -m nightshift --help produces identical output to night-shift --help",
+            "Ensure __main__.py does not duplicate any logic from app.py"
+          ],
+          "test_spec_refs": [
+            "TS-07-8"
+          ],
+          "requirement_refs": [
+            "07-REQ-2.5"
+          ],
+          "state": "done",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "4.V",
+        "checks": [
+          "TS-07-8 passes: python -m nightshift --help exits 0 and output matches night-shift --help",
+          "TS-07-11 passes: --help output contains --json, --no-json, --verbose, --quiet, --trace, --version",
+          "TS-07-12 passes: night-shift --version outputs '4.0.0-rc4' and exits 0",
+          "TS-07-19 passes: app.py imports AgentFoxGroup from agentfox.io and uses it as Click group",
+          "TS-07-32 passes: app.py imports from agentfox.nightshift and line count < 150",
+          "TS-07-33 passes: app.py uses both AgentFoxGroup and common_options from agentfox.io",
+          "TS-07-P2 passes: AST analysis of app.py finds no reimplemented agentfox.nightshift business logic",
+          "ruff check packages/nightshift/ reports no lint warnings",
+          "07-REQ-7.1, 07-REQ-7.2, 07-REQ-3.3, 07-REQ-3.4, 07-REQ-3.11 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "kind": "standard",
+      "title": "Migrate night-shift tests from af to nightshift package",
+      "subtasks": [
+        {
+          "id": "5.1",
+          "title": "Inspect packages/af/tests/conftest.py to identify shared vs. exclusive night-shift fixtures",
+          "details": [
+            "Read packages/af/tests/conftest.py and any sub-conftest.py files",
+            "Categorize each fixture as: (a) exclusive to night-shift tests, (b) shared between af and night-shift tests, or (c) exclusive to af tests",
+            "Document the fixture categorization in a migration notes comment at the top of packages/nightshift/tests/conftest.py",
+            "This audit must be completed before any file moves"
+          ],
+          "test_spec_refs": [
+            "TS-07-37"
+          ],
+          "requirement_refs": [
+            "07-REQ-8.4"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "5.2",
+          "title": "Split mixed-concern test files and migrate night-shift-specific tests to packages/nightshift/tests/",
+          "details": [
+            "For each candidate file (test_spec04_req3.py, test_spec04_smoke.py, test_spec04_properties.py, test_code_dry_run.py):",
+            "  - If exclusively night-shift: git mv packages/af/tests/<file> packages/nightshift/tests/<file>",
+            "  - If mixed concerns: split into af-specific portion (stays in packages/af/tests/) and night-shift portion (moved to packages/nightshift/tests/)",
+            "Update import paths in migrated files if af-specific paths are referenced",
+            "Do NOT modify business logic in any migrated test"
+          ],
+          "test_spec_refs": [
+            "TS-07-34",
+            "TS-07-35",
+            "TS-07-36",
+            "TS-07-E9"
+          ],
+          "requirement_refs": [
+            "07-REQ-8.1",
+            "07-REQ-8.2",
+            "07-REQ-8.3"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "5.3",
+          "title": "Create packages/nightshift/tests/conftest.py with migrated/copied fixtures",
+          "details": [
+            "For fixtures categorized as exclusive to night-shift: git mv from packages/af/tests/conftest.py into packages/nightshift/tests/conftest.py",
+            "For fixtures shared between af and night-shift: copy (not move) into packages/nightshift/tests/conftest.py and refactor as needed",
+            "Ensure packages/af/tests/conftest.py remains intact with all af-needed fixtures",
+            "Run pytest packages/af/tests/ immediately after to verify no af fixture is broken"
+          ],
+          "test_spec_refs": [
+            "TS-07-37"
+          ],
+          "requirement_refs": [
+            "07-REQ-8.4"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "5.4",
+          "title": "Add entry point integration test in packages/nightshift/tests/",
+          "details": [
+            "Create packages/nightshift/tests/test_entrypoint.py",
+            "Test 1: subprocess(['python', '-m', 'nightshift', '--help']); assert returncode == 0 and '--version' in stdout",
+            "Test 2: subprocess(['night-shift', '--help']); assert returncode == 0 and '--version' in stdout; graceful skip/fail with descriptive message if night-shift not on PATH",
+            "Ensure this test file is discoverable by pytest via the testpaths entry in root pyproject.toml"
+          ],
+          "test_spec_refs": [
+            "TS-07-39",
+            "TS-07-40",
+            "TS-07-E10"
+          ],
+          "requirement_refs": [
+            "07-REQ-9.1",
+            "07-REQ-9.2"
+          ],
+          "state": "done",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "5.V",
+        "checks": [
+          "TS-07-34 passes: packages/nightshift/tests/ contains all four migrated test files (or their night-shift-split portions)",
+          "TS-07-35 passes: pytest packages/nightshift/tests/ -q exits 0 with all migrated tests passing",
+          "TS-07-36 passes: pytest packages/af/tests/ -q exits 0 with no af tests regressing",
+          "TS-07-37 passes: packages/nightshift/tests/conftest.py exists and fixtures are correctly placed",
+          "TS-07-39 passes: python -m nightshift --help and night-shift --help both exit 0 with '--version' in output",
+          "TS-07-40 passes: pytest --collect-only packages/nightshift/tests/ discovers test_entrypoint.py",
+          "TS-07-E9 passes: af-specific tests remain in packages/af/tests/; nightshift tests in packages/nightshift/tests/",
+          "07-REQ-8.1 through 07-REQ-8.5, 07-REQ-9.1, 07-REQ-9.2 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "kind": "standard",
+      "title": "Update documentation to reference standalone night-shift CLI",
+      "subtasks": [
+        {
+          "id": "6.1",
+          "title": "Update README.md: Night Shift section, Quick Start, and package dependency diagram",
+          "details": [
+            "Find and replace all occurrences of 'af night-shift' with 'night-shift' in README.md",
+            "Update Night Shift section to describe the standalone night-shift CLI (installation via standalone package, not af)",
+            "Update Quick Start guide to show 'night-shift' instead of 'af night-shift'",
+            "Update the package dependency diagram to: af\u2500\u2500\u25b6agentfox\u2500\u2500\u25b6afspec, spec\u2500\u2500\u25b6agentspec\u2500\u2500\u25b6afspec, nightshift\u2500\u2500\u25b6agentfox (no arrow from nightshift to agentspec or afspec)"
+          ],
+          "test_spec_refs": [
+            "TS-07-26",
+            "TS-07-30",
+            "TS-07-31"
+          ],
+          "requirement_refs": [
+            "07-REQ-5.2",
+            "07-REQ-6.1",
+            "07-REQ-6.2"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "6.2",
+          "title": "Update docs/cli-reference.md to document night-shift as a standalone CLI",
+          "details": [
+            "Move the night-shift section out of the af subcommands section and into its own top-level standalone CLI section",
+            "Update the command table: remove night-shift from af's subcommand list; add standalone night-shift entry",
+            "Replace all 'af night-shift' occurrences with 'night-shift' throughout the file"
+          ],
+          "test_spec_refs": [
+            "TS-07-27"
+          ],
+          "requirement_refs": [
+            "07-REQ-5.3"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "6.3",
+          "title": "Update docs/config-reference.md and architecture docs to remove stale af night-shift references",
+          "details": [
+            "docs/config-reference.md: replace all 'af night-shift' and 'agent-fox night-shift' with 'night-shift'",
+            "docs/architecture/04-night-shift.md: update CLI references from 'af night-shift' to 'night-shift'",
+            "docs/architecture/README.md: update CLI references",
+            "docs/architecture/03-execution-and-archetypes.md: update if it references 'af night-shift'",
+            "docs/profiles.md: update if it references 'af night-shift'",
+            "Run: grep -r 'af night-shift' docs/ README.md \u2014 must return no output"
+          ],
+          "test_spec_refs": [
+            "TS-07-28",
+            "TS-07-29"
+          ],
+          "requirement_refs": [
+            "07-REQ-5.4",
+            "07-REQ-5.5"
+          ],
+          "state": "done",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "6.V",
+        "checks": [
+          "TS-07-25 passes: grep -r 'af night-shift' docs/ README.md returns no output (grep exit code 1)",
+          "TS-07-26 passes: README.md Night Shift section and Quick Start reference standalone night-shift; diagram shows nightshift\u2500\u2500\u25b6agentfox",
+          "TS-07-27 passes: docs/cli-reference.md has no 'af night-shift'; night-shift documented as standalone CLI",
+          "TS-07-28 passes: docs/config-reference.md has no 'af night-shift' or 'agent-fox night-shift'",
+          "TS-07-29 passes: all architecture docs and profiles.md have no 'af night-shift' references",
+          "TS-07-30 passes: README.md diagram shows nightshift depending only on agentfox (no agentspec/afspec arrows from nightshift)",
+          "TS-07-31 passes: README.md diagram contains all required nodes (af, spec, nightshift, agentfox, agentspec, afspec) with correct topology",
+          "TS-07-P5 passes: os.walk enumeration of docs/ and README.md finds no 'af night-shift' string in any file",
+          "07-REQ-5.1 acceptance criterion met: grep -r 'af night-shift' docs/ README.md produces empty output"
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "kind": "checkpoint",
+      "title": "Full test suite and behavioral parity checkpoint",
+      "subtasks": [
+        {
+          "id": "7.1",
+          "title": "Run full test suite and verify all tests pass",
+          "details": [
+            "Run: pytest -q (from monorepo root, using root pyproject.toml testpaths)",
+            "Confirm tests from packages/nightshift/tests/, packages/af/tests/, and packages/spec/tests/ are all collected and pass",
+            "Zero failures, zero errors required across all packages",
+            "Run: make check to confirm the exact CI command also passes"
+          ],
+          "test_spec_refs": [
+            "TS-07-35",
+            "TS-07-36",
+            "TS-07-24"
+          ],
+          "requirement_refs": [
+            "07-REQ-8.2",
+            "07-REQ-8.3",
+            "07-REQ-4.4"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "7.2",
+          "title": "Verify behavioral parity: night-shift CLI matches former af night-shift behavior",
+          "details": [
+            "Run smoke tests manually or via pytest markers: banner (TS-07-SMOKE-1), JSON mode (TS-07-SMOKE-2), double-SIGINT (TS-07-SMOKE-3), version (TS-07-SMOKE-4)",
+            "Verify TS-07-P1 property test passes: flag combinations produce identical outputs",
+            "Verify TS-07-P3 property test passes: all env vars (AF_CONFIG, AF_LOG_LEVEL, AF_AGENT) behave identically",
+            "Confirm exit codes: 0 (graceful), 1 (startup failure), 130 (double-SIGINT)"
+          ],
+          "test_spec_refs": [
+            "TS-07-P1",
+            "TS-07-SMOKE-1",
+            "TS-07-SMOKE-2",
+            "TS-07-SMOKE-3",
+            "TS-07-SMOKE-4"
+          ],
+          "requirement_refs": [
+            "07-REQ-3.1",
+            "07-REQ-3.2",
+            "07-REQ-3.3",
+            "07-REQ-3.4",
+            "07-REQ-3.6",
+            "07-REQ-3.7",
+            "07-REQ-3.8",
+            "07-REQ-3.9",
+            "07-REQ-3.10"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "7.3",
+          "title": "Verify dependency isolation: nightshift has no agentspec or afspec dependency",
+          "details": [
+            "Run: uv pip show nightshift (or pip show nightshift) and inspect Requires field",
+            "Run: pip install nightshift --dry-run to enumerate full transitive dependency tree",
+            "Assert neither 'agentspec' nor 'afspec' appear anywhere in the dependency tree",
+            "TS-07-P6 passes: full dependency tree audit confirms isolation"
+          ],
+          "test_spec_refs": [
+            "TS-07-E2",
+            "TS-07-P6"
+          ],
+          "requirement_refs": [
+            "07-REQ-2.E1"
+          ],
+          "state": "done",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "7.V",
+        "checks": [
+          "pytest -q exits 0 with all tests collected from all testpaths (nightshift, af, spec)",
+          "make check exits 0 without any CI configuration file changes beyond pyproject.toml",
+          "TS-07-24 passes: nightshift tests appear in make check output",
+          "TS-07-P1 passes: property test over flag combinations confirms behavioral parity",
+          "TS-07-P4 passes: no previously-passing af test now fails after migration",
+          "TS-07-P6 passes: neither agentspec nor afspec in nightshift dependency tree",
+          "All six smoke tests (TS-07-SMOKE-1 through TS-07-SMOKE-6) produce expected effects",
+          "ruff check packages/nightshift/ packages/af/ exits 0 with no new lint warnings"
+        ]
+      }
+    },
+    {
+      "id": 8,
+      "kind": "wiring_verification",
+      "title": "End-to-end wiring verification and stub audit",
+      "subtasks": [
+        {
+          "id": "8.1",
+          "title": "Trace execution paths end-to-end: verify entry points call correct next function in chain",
+          "details": [
+            "PATH-1: Confirm night-shift \u2192 AgentFoxGroup \u2192 agentfox.nightshift daemon \u2192 SIGINT \u2192 exit 0 chain is fully wired",
+            "PATH-2: Confirm night-shift --json \u2192 AgentFoxGroup (agent mode) \u2192 OutputManager (JSONL) \u2192 daemon \u2192 SIGINT \u2192 JSONL summary \u2192 exit 0",
+            "PATH-3: Confirm double-SIGINT \u2192 immediate abort \u2192 exit 130 is wired through signal handler in agentfox.nightshift",
+            "PATH-4: Confirm night-shift --version \u2192 Click version_option \u2192 importlib.metadata \u2192 '4.0.0-rc4' \u2192 exit 0",
+            "PATH-5: Confirm pytest discovers packages/nightshift/tests/ from root pyproject.toml testpaths",
+            "PATH-6: Confirm af CLI dispatch returns non-zero for 'af night-shift' with no subcommand registered",
+            "Verify __main__.py \u2192 app.main() call is present and not stubbed"
+          ],
+          "test_spec_refs": [
+            "TS-07-8",
+            "TS-07-19",
+            "TS-07-32",
+            "TS-07-33"
+          ],
+          "requirement_refs": [
+            "07-REQ-2.5",
+            "07-REQ-3.11",
+            "07-REQ-7.1",
+            "07-REQ-7.2"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "8.2",
+          "title": "Verify return value propagation: callers receive and use return values from agentfox.nightshift",
+          "details": [
+            "Inspect nightshift/app.py: confirm exit codes (0, 1, 130) are propagated from agentfox.nightshift calls via sys.exit() or Click context",
+            "Confirm summary statistics returned from agentfox.nightshift daemon are passed to OutputManager for printing",
+            "Confirm config loading result is propagated: errors surface as exit code 1 with stderr message",
+            "Confirm JSONL events from OutputManager are flushed to stdout before process exit"
+          ],
+          "test_spec_refs": [
+            "TS-07-16",
+            "TS-07-17",
+            "TS-07-18"
+          ],
+          "requirement_refs": [
+            "07-REQ-3.8",
+            "07-REQ-3.9",
+            "07-REQ-3.10"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "8.3",
+          "title": "Run all smoke tests with real components and verify expected effects",
+          "details": [
+            "TS-07-SMOKE-1: run night-shift with mocked daemon; confirm banner printed, 'Night-shift daemon starting\u2026' present, summary stats at exit, exit 0",
+            "TS-07-SMOKE-2: run night-shift --json with mocked daemon; confirm banner absent, JSONL events on stdout, final summary event, exit 0",
+            "TS-07-SMOKE-3: run night-shift, send two SIGINTs; confirm exit 130",
+            "TS-07-SMOKE-4: run night-shift --version; confirm '4.0.0-rc4' in output, exit 0",
+            "TS-07-SMOKE-5: run make check; confirm nightshift tests collected and pass alongside af and spec tests",
+            "TS-07-SMOKE-6: run af night-shift; confirm non-zero exit and Click unrecognized-command error"
+          ],
+          "test_spec_refs": [
+            "TS-07-SMOKE-1",
+            "TS-07-SMOKE-2",
+            "TS-07-SMOKE-3",
+            "TS-07-SMOKE-4",
+            "TS-07-SMOKE-5",
+            "TS-07-SMOKE-6"
+          ],
+          "requirement_refs": [
+            "07-REQ-3.1",
+            "07-REQ-3.6",
+            "07-REQ-3.7",
+            "07-REQ-3.8",
+            "07-REQ-3.9",
+            "07-REQ-3.4"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "8.4",
+          "title": "Stub and dead-code audit: search for raise NotImplementedError, pass, and TODO markers in nightshift package",
+          "details": [
+            "Run: grep -rn 'raise NotImplementedError\\|# TODO\\|pass$' packages/nightshift/nightshift/ \u2014 expect zero results in app.py and __main__.py",
+            "Run: grep -rn 'raise NotImplementedError' packages/nightshift/ \u2014 must return empty output (no stubs remain)",
+            "Verify __init__.py is not just a placeholder if version info is expected there",
+            "Confirm no bare 'return None' in non-trivial functions within app.py",
+            "Cross-check: all public functions in app.py have real implementations that delegate to agentfox.nightshift"
+          ],
+          "test_spec_refs": [
+            "TS-07-32",
+            "TS-07-E8"
+          ],
+          "requirement_refs": [
+            "07-REQ-7.1",
+            "07-REQ-2.1"
+          ],
+          "state": "done",
+          "optional": false
+        },
+        {
+          "id": "8.5",
+          "title": "Cross-spec entry point verification: confirm AgentFoxGroup and common_options from spec 04 are called from production code",
+          "details": [
+            "Spec 04 (af_agentic_cli) provides AgentFoxGroup, OutputManager, and common_options via agentfox.io \u2014 verify these are imported and used in nightshift/app.py production code (not just tests)",
+            "Run: python -c 'from nightshift.app import main; from agentfox.io import AgentFoxGroup; assert isinstance(main, AgentFoxGroup) or hasattr(main, \"commands\")'",
+            "Verify common_options decorates the main command: python -c 'from nightshift.app import main; help_text = main.get_help(None); assert \"--version\" in help_text'",
+            "Confirm TS-07-P3 property test passes: all env vars from AgentFoxGroup/common_options are supported by the standalone night-shift CLI with identical semantics"
+          ],
+          "test_spec_refs": [
+            "TS-07-19",
+            "TS-07-20",
+            "TS-07-P3"
+          ],
+          "requirement_refs": [
+            "07-REQ-3.11",
+            "07-REQ-3.12"
+          ],
+          "state": "done",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "8.V",
+        "checks": [
+          "All six execution paths (07-PATH-1 through 07-PATH-6) are fully wired with no stub or placeholder code",
+          "grep -rn 'raise NotImplementedError' packages/nightshift/nightshift/ returns empty output",
+          "All six smoke tests (TS-07-SMOKE-1 through TS-07-SMOKE-6) pass with real components",
+          "pytest -q exits 0 \u2014 complete test suite across all testpaths passes",
+          "ruff check packages/nightshift/ packages/af/ exits 0 with zero warnings",
+          "grep -r 'af night-shift' docs/ README.md returns no output (documentation acceptance check passes)",
+          "07-REQ-1.1, 07-REQ-2.1 through 07-REQ-2.5, 07-REQ-3.1 through 07-REQ-3.12, 07-REQ-4.1 through 07-REQ-4.4, 07-REQ-5.1 through 07-REQ-5.5, 07-REQ-6.1, 07-REQ-6.2, 07-REQ-7.1, 07-REQ-7.2, 07-REQ-8.1 through 07-REQ-8.5, 07-REQ-9.1, 07-REQ-9.2 \u2014 all acceptance criteria verified",
+          "Cross-spec: AgentFoxGroup and common_options from spec 04 (agentfox.io) are imported and active in nightshift/app.py production code"
+        ]
+      }
+    }
+  ],
+  "traceability": [
+    {
+      "requirement_id": "07-REQ-1.1",
+      "test_spec_id": "TS-07-1",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-1.2",
+      "test_spec_id": "TS-07-2",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-1.3",
+      "test_spec_id": "TS-07-3",
+      "task_id": "2.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-2.1",
+      "test_spec_id": "TS-07-4",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-2.2",
+      "test_spec_id": "TS-07-5",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-2.3",
+      "test_spec_id": "TS-07-6",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-2.4",
+      "test_spec_id": "TS-07-7",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-2.5",
+      "test_spec_id": "TS-07-8",
+      "task_id": "4.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-3.1",
+      "test_spec_id": "TS-07-9",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-3.2",
+      "test_spec_id": "TS-07-10",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-3.3",
+      "test_spec_id": "TS-07-11",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-3.4",
+      "test_spec_id": "TS-07-12",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-3.5",
+      "test_spec_id": "TS-07-13",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-3.6",
+      "test_spec_id": "TS-07-14",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-3.7",
+      "test_spec_id": "TS-07-15",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-3.8",
+      "test_spec_id": "TS-07-16",
+      "task_id": "4.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-3.9",
+      "test_spec_id": "TS-07-17",
+      "task_id": "4.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-3.10",
+      "test_spec_id": "TS-07-18",
+      "task_id": "4.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-3.11",
+      "test_spec_id": "TS-07-19",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-3.12",
+      "test_spec_id": "TS-07-20",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-4.1",
+      "test_spec_id": "TS-07-21",
+      "task_id": "3.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-4.2",
+      "test_spec_id": "TS-07-22",
+      "task_id": "3.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-4.3",
+      "test_spec_id": "TS-07-23",
+      "task_id": "3.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-4.4",
+      "test_spec_id": "TS-07-24",
+      "task_id": "7.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-5.1",
+      "test_spec_id": "TS-07-25",
+      "task_id": "6.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-5.2",
+      "test_spec_id": "TS-07-26",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-5.3",
+      "test_spec_id": "TS-07-27",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-5.4",
+      "test_spec_id": "TS-07-28",
+      "task_id": "6.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-5.5",
+      "test_spec_id": "TS-07-29",
+      "task_id": "6.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-6.1",
+      "test_spec_id": "TS-07-30",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-6.2",
+      "test_spec_id": "TS-07-31",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-7.1",
+      "test_spec_id": "TS-07-32",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-7.2",
+      "test_spec_id": "TS-07-33",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-8.1",
+      "test_spec_id": "TS-07-34",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-8.2",
+      "test_spec_id": "TS-07-35",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-8.3",
+      "test_spec_id": "TS-07-36",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-8.4",
+      "test_spec_id": "TS-07-37",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-8.5",
+      "test_spec_id": "TS-07-38",
+      "task_id": "2.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-9.1",
+      "test_spec_id": "TS-07-39",
+      "task_id": "5.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "07-REQ-9.2",
+      "test_spec_id": "TS-07-40",
+      "task_id": "5.4",
+      "test_path": null
+    }
+  ]
+}

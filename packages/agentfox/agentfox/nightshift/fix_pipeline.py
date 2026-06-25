@@ -38,6 +38,7 @@ from agentfox.workspace import WorkspaceInfo
 if TYPE_CHECKING:
     import duckdb
 
+    from agentfox.knowledge.fox_provider import KnowledgeProvider
     from agentfox.knowledge.sink import SinkDispatcher
 
 logger = logging.getLogger(__name__)
@@ -130,6 +131,7 @@ class FixPipeline:
         sink_dispatcher: SinkDispatcher | None = None,
         spinner_callback: SpinnerCallback | None = None,
         conn: duckdb.DuckDBPyConnection | None = None,
+        knowledge_provider: KnowledgeProvider | None = None,
     ) -> None:
         self._config = config
         self._platform = platform
@@ -138,6 +140,7 @@ class FixPipeline:
         self._sink = sink_dispatcher
         self._spinner_callback = spinner_callback
         self._conn = conn
+        self._knowledge_provider = knowledge_provider
         self._run_id: str = ""
 
     async def _post_comment(self, issue_number: int, message: str) -> None:
@@ -160,6 +163,78 @@ class FixPipeline:
                 self._spinner_callback(text)
             except Exception:
                 logger.debug("Spinner callback failed", exc_info=True)
+
+    # ------------------------------------------------------------------
+    # Knowledge system helpers
+    # ------------------------------------------------------------------
+
+    def _retrieve_knowledge(
+        self,
+        spec_name: str,
+        task_description: str,
+        session_id: str | None = None,
+    ) -> list[str]:
+        """Retrieve knowledge context for the fix pipeline (best-effort)."""
+        if self._knowledge_provider is None:
+            return []
+        try:
+            return self._knowledge_provider.retrieve(
+                spec_name,
+                task_description,
+                task_group=None,
+                session_id=session_id,
+            )
+        except Exception:
+            logger.warning(
+                "Knowledge retrieval failed for %s, continuing without knowledge context",
+                spec_name,
+                exc_info=True,
+            )
+            return []
+
+    def _ingest_knowledge(
+        self,
+        session_id: str,
+        spec_name: str,
+        session_status: str,
+        *,
+        archetype: str = "coder",
+        attempt: int = 1,
+    ) -> None:
+        """Ingest knowledge from a completed fix session (best-effort)."""
+        if self._knowledge_provider is None:
+            return
+        context: dict[str, object] = {
+            "session_status": session_status,
+            "touched_files": [],
+            "commit_sha": "",
+            "project_root": str(Path.cwd()),
+            "sink": self._sink,
+            "run_id": self._run_id,
+            "archetype": archetype,
+            "task_group": "0",
+            "attempt": attempt,
+        }
+        try:
+            self._knowledge_provider.ingest(session_id, spec_name, context)
+        except Exception:
+            logger.warning(
+                "Knowledge ingestion failed for %s, continuing",
+                session_id,
+                exc_info=True,
+            )
+
+    @staticmethod
+    def _format_knowledge_context(knowledge_items: list[str]) -> str:
+        """Format knowledge items as a Memory Facts section for prompt injection."""
+        if not knowledge_items:
+            return ""
+        from agentfox.core.prompt_safety import sanitize_prompt_content
+
+        facts_text = "\n".join(f"- {sanitize_prompt_content(fact, label='memory-fact')}" for fact in knowledge_items)
+        return f"## Memory Facts\n\n{facts_text}"
+
+    # ------------------------------------------------------------------
 
     async def _run_session(
         self,
@@ -459,6 +534,18 @@ class FixPipeline:
             cost=cost,
         )
 
+        # Ingest knowledge on completed sessions for finding supersession.
+        if status == "completed":
+            parts = node_id.split(":", 2)
+            spec_name = parts[0] if parts else ""
+            self._ingest_knowledge(
+                session_id=node_id,
+                spec_name=spec_name,
+                session_status="completed",
+                archetype=archetype,
+                attempt=attempt,
+            )
+
     # ------------------------------------------------------------------
     # Comment formatting (82-REQ-3.1, 82-REQ-6.1)
     # ------------------------------------------------------------------
@@ -545,6 +632,7 @@ class FixPipeline:
         triage: TriageResult,
         review_feedback: str | None = None,
         prior_context: str = "",
+        knowledge_context: str = "",
     ) -> tuple[str, str]:
         """Build system/task prompts with afspec-rendered context.
 
@@ -555,7 +643,8 @@ class FixPipeline:
         When *prior_context* is non-empty it is prepended to the task prompt
         before the base instructions so the coder knows what was tried before.
         When *review_feedback* is non-empty it is appended after the base
-        instructions.
+        instructions.  When *knowledge_context* is non-empty it is appended
+        to the system context before prompt assembly.
 
         Requirements: 82-REQ-7.2, 82-REQ-8.1, 02-REQ-1.1, 02-REQ-1.2,
                       02-REQ-1.3, 02-REQ-1.4, 02-REQ-1.E1,
@@ -581,6 +670,9 @@ class FixPipeline:
             if criteria_context:
                 context = f"{context}\n\n{criteria_context}"
 
+        if knowledge_context:
+            context = f"{context}\n\n{knowledge_context}"
+
         system_prompt = build_system_prompt(
             context=context,
             archetype="coder",
@@ -603,6 +695,7 @@ class FixPipeline:
         self,
         spec: InMemorySpec,
         triage: TriageResult,
+        knowledge_context: str = "",
     ) -> tuple[str, str]:
         """Build system/task prompts with afspec-rendered context for verification.
 
@@ -612,7 +705,8 @@ class FixPipeline:
 
         When triage contains no acceptance criteria, the task prompt includes
         a fallback message instructing the reviewer to verify from the issue
-        description.
+        description.  When *knowledge_context* is non-empty it is appended
+        to the system context before prompt assembly.
 
         Requirements: 82-REQ-7.3, 82-REQ-5.3, 82-REQ-5.E1, 02-REQ-2.1,
                       02-REQ-2.2, 02-REQ-2.3, 02-REQ-2.E1
@@ -621,8 +715,11 @@ class FixPipeline:
 
         # Empty triage: skip afspec rendering and use fallback message
         if not triage.criteria:
+            reviewer_context = spec.system_context
+            if knowledge_context:
+                reviewer_context = f"{reviewer_context}\n\n{knowledge_context}"
             system_prompt = build_system_prompt(
-                context=spec.system_context,
+                context=reviewer_context,
                 archetype="reviewer",
                 mode="fix-review",
                 project_dir=Path.cwd(),
@@ -651,6 +748,9 @@ class FixPipeline:
             context = spec.system_context
             if criteria_context:
                 context = f"{context}\n\n{criteria_context}"
+
+        if knowledge_context:
+            context = f"{context}\n\n{knowledge_context}"
 
         system_prompt = build_system_prompt(
             context=context,
@@ -800,6 +900,7 @@ class FixPipeline:
         metrics: FixMetrics,
         workspace: WorkspaceInfo,
         prior_context: str = "",
+        knowledge_context: str = "",
     ) -> bool:
         """Coder-reviewer loop with retry and escalation.
 
@@ -817,6 +918,7 @@ class FixPipeline:
             metrics,
             workspace,
             prior_context=prior_context,
+            knowledge_context=knowledge_context,
         )
 
     # ------------------------------------------------------------------
@@ -926,6 +1028,18 @@ class FixPipeline:
                 prior = query_prior_attempts(self._conn, spec_name, self._run_id)
                 prior_context = format_prior_attempts(prior)
 
+            # Retrieve knowledge context (review findings, errata, ADRs, etc.)
+            if self._knowledge_provider is not None:
+                self._knowledge_provider.set_run_id(self._run_id)
+            coder_node_id = f"fix-issue-{spec.issue_number}:0:coder"
+            task_description = triage.summary or spec.title
+            knowledge_items = self._retrieve_knowledge(
+                spec_name,
+                task_description,
+                session_id=coder_node_id,
+            )
+            knowledge_context = self._format_knowledge_context(knowledge_items)
+
             # 82-REQ-7.1: coder-reviewer loop with retry/escalation
             success = await self._coder_review_loop(
                 spec,
@@ -933,12 +1047,17 @@ class FixPipeline:
                 metrics,
                 workspace,
                 prior_context=prior_context,
+                knowledge_context=knowledge_context,
             )
 
             if not success:
                 # Ladder exhausted — do NOT close issue
                 self._try_complete_run("completed")
                 return metrics
+
+            # Pre-harvest commit sweep: stage and commit any changes left
+            # uncommitted by the coder or reviewer session (NS-REQ-5).
+            await self._auto_commit_pending_changes(workspace)
 
             # Optionally push fix branch to upstream remote (93-REQ-3.1).
             # Must run BEFORE harvest, which changes the working tree.
@@ -1082,6 +1201,31 @@ class FixPipeline:
                 exc,
             )
             return False
+
+    async def _auto_commit_pending_changes(self, workspace: WorkspaceInfo) -> None:
+        """Stage and commit any uncommitted changes left in the worktree.
+
+        Called between the coder-reviewer loop and harvest to prevent silent
+        data loss when the coder or reviewer session exits without committing.
+
+        Best-effort: logs INFO on success, WARNING on failure, never raises.
+
+        Requirements: NS-REQ-4, NS-REQ-5
+        """
+        from agentfox.workspace import git as workspace_git
+
+        try:
+            committed = await workspace_git.auto_commit_worktree(workspace.path)
+            if committed:
+                logger.info(
+                    "Auto-committed uncommitted changes from coder session in worktree %s",
+                    workspace.path,
+                )
+        except Exception as exc:
+            logger.warning(
+                "Auto-commit sweep failed, continuing with harvest: %s",
+                exc,
+            )
 
     async def _harvest_and_push(
         self,

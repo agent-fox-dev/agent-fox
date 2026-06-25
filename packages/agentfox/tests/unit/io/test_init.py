@@ -5,7 +5,7 @@ symbols specified by Spec 03, that internal symbols are not exposed,
 and that the package structure contains the required seven files.
 
 Spec 04 later extended the package with additional symbols
-(format_table, ProgressDisplay) and files (group.py, progress.py).
+(format_table, ProgressDisplay) and files (progress.py).
 These tests validate the original Spec 03 contract while acknowledging
 documented extensions.  See docs/errata/03_io_package_extended_by_spec_04.md.
 
@@ -104,8 +104,8 @@ class TestPackageStructure:
     def test_exactly_seven_spec03_files_exist(self) -> None:
         """03-REQ-1.3: All seven Spec 03 files exist in agentfox/io/.
 
-        Spec 04 later added group.py and progress.py; any extra .py files
-        beyond the original seven must be from the documented extension set.
+        Spec 04 later added progress.py; any extra .py files beyond the
+        original seven must be from the documented extension set.
         """
         import agentfox.io
 
@@ -125,7 +125,6 @@ class TestPackageStructure:
 
         # Known additions by Spec 04.
         spec_04_extra_files = {
-            "group.py",
             "progress.py",
         }
 

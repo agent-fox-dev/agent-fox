@@ -423,47 +423,6 @@ async def merge_fast_forward(
         )
 
 
-async def merge_commit(
-    repo_path: Path,
-    branch: str,
-    *,
-    strategy_option: str | None = None,
-) -> None:
-    """Merge branch into HEAD with a merge commit.
-
-    Falls back to a regular (non-fast-forward) merge when a
-    fast-forward is not possible.
-
-    Args:
-        strategy_option: If set, passed as ``-X {value}`` to git merge
-            (e.g. ``"theirs"`` to auto-resolve conflicts by preferring
-            the incoming branch).
-
-    Raises:
-        IntegrationError: If the merge fails (conflicts).
-    """
-    validate_ref_name(branch)
-    cmd = ["merge", "--no-edit"]
-    if strategy_option:
-        cmd.extend(["-X", strategy_option])
-    cmd.extend(["--", branch])
-
-    returncode, stdout, stderr = await run_git(
-        cmd,
-        cwd=repo_path,
-        check=False,
-    )
-    if returncode != 0:
-        # Abort the failed merge to leave the repo in a clean state
-        await run_git(["merge", "--abort"], cwd=repo_path, check=False)
-        # git merge writes conflict details to stdout, not stderr
-        detail = stderr.strip() or stdout.strip()
-        raise IntegrationError(
-            f"Merge of '{branch}' failed: {detail}",
-            branch=branch,
-        )
-
-
 async def rebase_onto(
     repo_path: Path,
     branch: str,
@@ -630,6 +589,53 @@ async def fetch_remote(
             stderr.strip(),
         )
         return False
+    return True
+
+
+async def auto_commit_worktree(
+    worktree_path: Path,
+    message: str = "fix: auto-commit uncommitted changes from coder session",
+) -> bool:
+    """Stage and commit any uncommitted changes in the worktree.
+
+    Runs ``git status --porcelain`` to detect dirty state. If the worktree is
+    clean, returns ``False`` without executing any further git commands.
+
+    If changes are found, runs ``git add -A`` then ``git commit -m <message>``.
+    If the commit fails (e.g. all changes are gitignored), logs a WARNING and
+    returns ``False``.
+
+    Returns:
+        ``True`` if changes were successfully staged and committed.
+        ``False`` if the worktree was clean or the commit failed.
+
+    Never raises — all errors are handled internally.
+
+    Requirements: NS-REQ-1, NS-REQ-2, NS-REQ-3
+    """
+    _rc, stdout, _stderr = await run_git(
+        ["status", "--porcelain"],
+        cwd=worktree_path,
+        check=False,
+    )
+    if not stdout.strip():
+        return False
+
+    await run_git(["add", "-A"], cwd=worktree_path, check=False)
+
+    rc, _out, stderr = await run_git(
+        ["commit", "-m", message],
+        cwd=worktree_path,
+        check=False,
+    )
+    if rc != 0:
+        logger.warning(
+            "auto_commit_worktree: git commit failed (rc=%d): %s",
+            rc,
+            stderr.strip(),
+        )
+        return False
+
     return True
 
 

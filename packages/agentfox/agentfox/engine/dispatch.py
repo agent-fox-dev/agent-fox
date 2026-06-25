@@ -459,6 +459,7 @@ class DispatchManager:
         self._run_id = ""
         self._task_callback = task_callback
         self._planning_config = planning_config
+        self._result_handler: Any | None = None
 
         self.serial_runner = SerialRunner(
             session_runner_factory=session_runner_factory,
@@ -567,6 +568,17 @@ class DispatchManager:
                 node_id,
                 exc_info=True,
             )
+
+        if (
+            self._result_handler is not None
+            and hasattr(self._result_handler, "is_workspace_backoff_active")
+            and self._result_handler.is_workspace_backoff_active(node_id)
+        ):
+            logger.debug(
+                "Workspace backoff active for %s, skipping dispatch cycle",
+                node_id,
+            )
+            return None
 
         archetype = self.get_node_archetype(node_id)
         mode = self.get_node_mode(node_id)
@@ -786,6 +798,10 @@ class DispatchManager:
     def set_sink(self, sink: Any) -> None:
         """Update the sink dispatcher reference."""
         self._sink = sink
+
+    def set_result_handler(self, handler: Any) -> None:
+        """Update the result handler reference (for workspace backoff checks)."""
+        self._result_handler = handler
 
 
 # ---------------------------------------------------------------------------

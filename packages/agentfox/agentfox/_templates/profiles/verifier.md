@@ -84,7 +84,7 @@ Your context may include reports from other archetypes:
 ## Output Format
 
 Output your verification results as a **structured JSON object** using
-exactly these fields:
+the exact field names below:
 
 ```json
 {
@@ -105,6 +105,18 @@ exactly these fields:
 - For FAIL verdicts, `evidence` must describe specifically what is wrong and
   what needs to change.
 - Output ONLY the bare JSON object — no markdown fences, no surrounding prose.
+
+DO NOT wrap output in markdown fences or add surrounding prose.
+
+INCORRECT (wrapped in fences):
+
+    ```json
+    {"verdicts": [...]}
+    ```
+
+CORRECT (bare JSON only):
+
+    {"verdicts": [...]}
 
 ## CRITICAL OUTPUT RULES
 

@@ -163,9 +163,9 @@ class TestCliCreatesSinkDispatcher:
 
     def test_cli_creates_sink_dispatcher_with_duckdb(self) -> None:
         """CLI creates a non-None SinkDispatcher backed by DuckDBSink."""
-        from af.nightshift import night_shift_cmd
         from agentfox.nightshift.daemon import DaemonState
         from click.testing import CliRunner
+        from nightshift.app import main as night_shift_cmd
 
         mock_state = DaemonState(total_cost=0.0, issues_fixed=0)
 
@@ -680,9 +680,9 @@ class TestCliDuckDBUnavailable:
 
     def test_cli_proceeds_without_sink_when_duckdb_fails(self) -> None:
         """If DuckDB open fails, CLI logs warning and uses sink_dispatcher=None."""
-        from af.nightshift import night_shift_cmd
         from agentfox.nightshift.daemon import DaemonState
         from click.testing import CliRunner
+        from nightshift.app import main as night_shift_cmd
 
         mock_state = DaemonState(total_cost=0.0, issues_fixed=0)
 

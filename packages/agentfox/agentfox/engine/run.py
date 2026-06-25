@@ -118,8 +118,7 @@ def _setup_infrastructure(
         context_knowledge_db = open_knowledge_store(config.knowledge, read_only=True)
     except Exception:
         logger.warning(
-            "Failed to open read-only knowledge store for context assembly; "
-            "falling back to main connection",
+            "Failed to open read-only knowledge store for context assembly; falling back to main connection",
             exc_info=True,
         )
 

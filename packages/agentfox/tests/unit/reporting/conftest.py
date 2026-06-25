@@ -8,12 +8,10 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 import duckdb
-import pytest
 from agentfox.engine.state import ExecutionState, SessionRecord
 
 # -- State file helpers -------------------------------------------------------
@@ -149,18 +147,6 @@ def write_plan_to_db(
     )
     save_plan(graph, conn)
     return conn
-
-
-# -- Shared fixtures ----------------------------------------------------------
-
-
-@pytest.fixture
-def tmp_worktrees_dir(tmp_path) -> Path:
-    """Return a path to a temporary worktrees directory."""
-
-    wtdir = tmp_path / ".agent-fox" / "worktrees"
-    wtdir.mkdir(parents=True, exist_ok=True)
-    return wtdir
 
 
 def hours_ago(n: int) -> str:

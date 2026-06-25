@@ -95,7 +95,22 @@ Do NOT run the full suite, formatters, or linters.
 
 ## Output Format
 
-Your output is a JSON object with:
+Your output is a JSON object with the exact field names below:
+
+```json
+{
+  "audit": [
+    {
+      "ts_entry": "TS-05-1",
+      "test_functions": ["tests/unit/test_foo.py::test_bar"],
+      "verdict": "PASS",
+      "notes": null
+    }
+  ],
+  "overall_verdict": "PASS",
+  "summary": "Brief summary of findings."
+}
+```
 
 - `audit` (required): array of per-entry results, each with:
   - `ts_entry` (required): the TS entry ID (e.g. `TS-05-1`)

@@ -1,0 +1,841 @@
+{
+  "$schema": null,
+  "spec_id": "07",
+  "spec_name": "nightshift_standalone_cli",
+  "schema_version": 1,
+  "test_cases": [
+    {
+      "id": "TS-07-1",
+      "requirement_id": "07-REQ-1.1",
+      "kind": "unit",
+      "description": "Verify that the af package's app.py does not register a night-shift subcommand.",
+      "preconditions": [
+        "The af package source is checked out at the post-extraction state",
+        "`packages/af/af/app.py` exists and is importable"
+      ],
+      "input": "Import the Click group from `packages/af/af/app.py` and inspect its registered commands",
+      "expected": "The commands dict of the af Click group does not contain the key `night-shift`",
+      "assertion_pseudocode": "from af.app import cli\nassert 'night-shift' not in cli.commands"
+    },
+    {
+      "id": "TS-07-2",
+      "requirement_id": "07-REQ-1.2",
+      "kind": "unit",
+      "description": "Verify that packages/af/af/nightshift.py does not exist in the repository after extraction.",
+      "preconditions": [
+        "The repository is in the post-extraction state"
+      ],
+      "input": "Check the filesystem for the file `packages/af/af/nightshift.py`",
+      "expected": "The file does not exist and no deprecation stub is present",
+      "assertion_pseudocode": "import os\nassert not os.path.exists('packages/af/af/nightshift.py')"
+    },
+    {
+      "id": "TS-07-3",
+      "requirement_id": "07-REQ-1.3",
+      "kind": "integration",
+      "description": "Verify that invoking `af night-shift` after removal returns a non-zero exit code with Click's unrecognized-command error.",
+      "preconditions": [
+        "The `af` package is installed in the test environment",
+        "`night-shift` subcommand has been removed from af"
+      ],
+      "input": "Subprocess call: `af night-shift`",
+      "expected": "Non-zero exit code and stderr/stdout containing a Click error message indicating `night-shift` is not a recognized command",
+      "assertion_pseudocode": "result = subprocess_run(['af', 'night-shift'])\nassert result.returncode != 0\nassert 'no such command' in result.output.lower() or 'error' in result.output.lower()"
+    },
+    {
+      "id": "TS-07-4",
+      "requirement_id": "07-REQ-2.1",
+      "kind": "unit",
+      "description": "Verify that all required files and directories exist in the nightshift package structure.",
+      "preconditions": [
+        "The nightshift package has been created in packages/nightshift/"
+      ],
+      "input": "Filesystem check for required paths",
+      "expected": "All four paths exist: packages/nightshift/pyproject.toml, packages/nightshift/nightshift/__init__.py, packages/nightshift/nightshift/__main__.py, packages/nightshift/nightshift/app.py",
+      "assertion_pseudocode": "for path in ['packages/nightshift/pyproject.toml', 'packages/nightshift/nightshift/__init__.py', 'packages/nightshift/nightshift/__main__.py', 'packages/nightshift/nightshift/app.py']:\n    assert os.path.exists(path)"
+    },
+    {
+      "id": "TS-07-5",
+      "requirement_id": "07-REQ-2.2",
+      "kind": "unit",
+      "description": "Verify that nightshift pyproject.toml contains correct metadata fields including name, version, description, license, authors, and hatchling build backend.",
+      "preconditions": [
+        "packages/nightshift/pyproject.toml exists",
+        "The af package pyproject.toml exists for comparison"
+      ],
+      "input": "Parse packages/nightshift/pyproject.toml using tomllib or equivalent",
+      "expected": "name='nightshift', version='4.0.0-rc4', description='Standalone CLI for the AgentFox Night Shift fix daemon', build-backend='hatchling.build', license and authors match af package values",
+      "assertion_pseudocode": "config = parse_toml('packages/nightshift/pyproject.toml')\nassert config['project']['name'] == 'nightshift'\nassert config['project']['version'] == '4.0.0-rc4'\nassert config['project']['description'] == 'Standalone CLI for the AgentFox Night Shift fix daemon'\nassert config['build-system']['build-backend'] == 'hatchling.build'\nassert config['project']['license'] is not None\nassert config['project']['authors'] is not None"
+    },
+    {
+      "id": "TS-07-6",
+      "requirement_id": "07-REQ-2.3",
+      "kind": "unit",
+      "description": "Verify that nightshift pyproject.toml declares all four required direct dependencies in [project.dependencies].",
+      "preconditions": [
+        "packages/nightshift/pyproject.toml exists"
+      ],
+      "input": "Parse [project.dependencies] from packages/nightshift/pyproject.toml",
+      "expected": "Dependencies list contains entries matching agentfox>=4.0.0rc4, click>=8.1, rich>=15.0, and duckdb>=1.5.4",
+      "assertion_pseudocode": "deps = parse_toml('packages/nightshift/pyproject.toml')['project']['dependencies']\ndep_names = [parse_package_name(d) for d in deps]\nassert 'agentfox' in dep_names\nassert 'click' in dep_names\nassert 'rich' in dep_names\nassert 'duckdb' in dep_names\nassert any('4.0.0rc4' in d for d in deps if 'agentfox' in d)\nassert any('8.1' in d for d in deps if 'click' in d)\nassert any('15.0' in d for d in deps if 'rich' in d)\nassert any('1.5.4' in d for d in deps if 'duckdb' in d)"
+    },
+    {
+      "id": "TS-07-7",
+      "requirement_id": "07-REQ-2.4",
+      "kind": "unit",
+      "description": "Verify that nightshift pyproject.toml registers the CLI entry point night-shift pointing to nightshift.app:main.",
+      "preconditions": [
+        "packages/nightshift/pyproject.toml exists"
+      ],
+      "input": "Parse [project.scripts] from packages/nightshift/pyproject.toml",
+      "expected": "scripts dict contains key 'night-shift' with value 'nightshift.app:main'",
+      "assertion_pseudocode": "scripts = parse_toml('packages/nightshift/pyproject.toml')['project']['scripts']\nassert scripts.get('night-shift') == 'nightshift.app:main'"
+    },
+    {
+      "id": "TS-07-8",
+      "requirement_id": "07-REQ-2.5",
+      "kind": "integration",
+      "description": "Verify that python -m nightshift executes the same main function as the night-shift entry point and produces equivalent output.",
+      "preconditions": [
+        "nightshift package is installed in the test environment",
+        "nightshift/__main__.py exists and calls main from nightshift.app"
+      ],
+      "input": "Subprocess call: `python -m nightshift --help`",
+      "expected": "Exit code 0 and help text output, identical in structure to `night-shift --help` output",
+      "assertion_pseudocode": "result_module = subprocess_run(['python', '-m', 'nightshift', '--help'])\nresult_entry = subprocess_run(['night-shift', '--help'])\nassert result_module.returncode == 0\nassert result_entry.returncode == 0\nassert result_module.stdout == result_entry.stdout"
+    },
+    {
+      "id": "TS-07-9",
+      "requirement_id": "07-REQ-3.1",
+      "kind": "integration",
+      "description": "Verify that the fox ASCII art banner is displayed on stdout when night-shift is invoked without --quiet or --json flags.",
+      "preconditions": [
+        "nightshift package is installed",
+        "A valid .agent-fox/config.toml exists or startup can be mocked to avoid daemon execution",
+        "Neither --quiet nor --json are passed"
+      ],
+      "input": "Invoke `night-shift` (or mock daemon startup) without --quiet or --json",
+      "expected": "stdout contains the fox ASCII art banner text before the daemon start message",
+      "assertion_pseudocode": "result = invoke_cli_with_mock_daemon([])\nassert fox_banner_pattern in result.stdout\nassert result.stdout.index(fox_banner_pattern) < result.stdout.index('Night-shift daemon starting')"
+    },
+    {
+      "id": "TS-07-10",
+      "requirement_id": "07-REQ-3.2",
+      "kind": "integration",
+      "description": "Verify that the fox ASCII art banner is suppressed when --quiet is supplied.",
+      "preconditions": [
+        "nightshift package is installed",
+        "Daemon startup is mocked or short-circuited"
+      ],
+      "input": "Invoke night-shift CLI with --quiet flag",
+      "expected": "stdout does not contain the fox ASCII art banner",
+      "assertion_pseudocode": "result_quiet = invoke_cli_with_mock_daemon(['--quiet'])\nassert fox_banner_pattern not in result_quiet.stdout\nresult_json = invoke_cli_with_mock_daemon(['--json'])\nassert fox_banner_pattern not in result_json.stdout"
+    },
+    {
+      "id": "TS-07-11",
+      "requirement_id": "07-REQ-3.3",
+      "kind": "unit",
+      "description": "Verify that the night-shift CLI exposes all required global options from common_options.",
+      "preconditions": [
+        "nightshift package is installed"
+      ],
+      "input": "Subprocess call: `night-shift --help`",
+      "expected": "Help text contains --json/--no-json, --verbose/-v, --quiet/-q, --trace, and --version options",
+      "assertion_pseudocode": "result = subprocess_run(['night-shift', '--help'])\nhelp_text = result.stdout\nassert '--json' in help_text\nassert '--no-json' in help_text\nassert '--verbose' in help_text or '-v' in help_text\nassert '--quiet' in help_text or '-q' in help_text\nassert '--trace' in help_text\nassert '--version' in help_text"
+    },
+    {
+      "id": "TS-07-12",
+      "requirement_id": "07-REQ-3.4",
+      "kind": "integration",
+      "description": "Verify that invoking night-shift --version prints the version string containing 4.0.0-rc4 and exits with code 0.",
+      "preconditions": [
+        "nightshift package is installed with version 4.0.0-rc4 in metadata"
+      ],
+      "input": "Subprocess call: `night-shift --version`",
+      "expected": "Exit code 0 and stdout contains '4.0.0-rc4'",
+      "assertion_pseudocode": "result = subprocess_run(['night-shift', '--version'])\nassert result.returncode == 0\nassert '4.0.0-rc4' in result.stdout"
+    },
+    {
+      "id": "TS-07-13",
+      "requirement_id": "07-REQ-3.5",
+      "kind": "integration",
+      "description": "Verify that night-shift loads configuration from .agent-fox/config.toml and respects the AF_CONFIG environment variable override.",
+      "preconditions": [
+        "nightshift package is installed",
+        "A valid .agent-fox/config.toml exists in the working directory",
+        "A second config file exists at a custom path for AF_CONFIG override test"
+      ],
+      "input": "Invoke night-shift with AF_CONFIG set to a custom config path; also invoke with default config",
+      "expected": "CLI reads configuration from the path specified by AF_CONFIG; falls back to .agent-fox/config.toml when AF_CONFIG is unset",
+      "assertion_pseudocode": "result = subprocess_run(['night-shift', '--help'], env={'AF_CONFIG': '/tmp/custom-config.toml'})\nassert result.returncode == 0\n# Verify config loading by checking for config-driven behavior or error when config missing\nresult_missing = subprocess_run(['night-shift'], env={'AF_CONFIG': '/nonexistent/config.toml'})\nassert result_missing.returncode == 1"
+    },
+    {
+      "id": "TS-07-14",
+      "requirement_id": "07-REQ-3.6",
+      "kind": "integration",
+      "description": "Verify that the CLI prints 'Night-shift daemon starting…' on startup and prints summary statistics at exit.",
+      "preconditions": [
+        "nightshift package is installed",
+        "Daemon is mocked to start and immediately stop (e.g. via first SIGINT)"
+      ],
+      "input": "Invoke night-shift with a mocked daemon and send SIGINT after startup message",
+      "expected": "stdout contains 'Night-shift daemon starting' and summary statistics after shutdown",
+      "assertion_pseudocode": "result = invoke_cli_with_controlled_shutdown()\nassert 'Night-shift daemon starting' in result.stdout\nassert summary_stats_present(result.stdout)"
+    },
+    {
+      "id": "TS-07-15",
+      "requirement_id": "07-REQ-3.7",
+      "kind": "integration",
+      "description": "Verify that JSONL progress events are emitted to stdout when --json mode is active.",
+      "preconditions": [
+        "nightshift package is installed",
+        "Daemon is mocked to emit at least one progress event before shutdown"
+      ],
+      "input": "Invoke night-shift --json with a mocked daemon that emits progress events",
+      "expected": "stdout contains one or more valid JSON objects, one per line, for progress events",
+      "assertion_pseudocode": "result = invoke_cli_with_mock_daemon(['--json'])\nlines = [l for l in result.stdout.splitlines() if l.strip()]\nassert len(lines) >= 1\nfor line in lines:\n    parsed = json_parse(line)\n    assert parsed is not None  # each line is valid JSON"
+    },
+    {
+      "id": "TS-07-16",
+      "requirement_id": "07-REQ-3.8",
+      "kind": "integration",
+      "description": "Verify that sending the first SIGINT initiates graceful shutdown and the CLI exits with code 0.",
+      "preconditions": [
+        "nightshift package is installed",
+        "Daemon is running and processing tasks"
+      ],
+      "input": "Start night-shift daemon, send SIGINT once",
+      "expected": "Exit code 0 and graceful shutdown message in output",
+      "assertion_pseudocode": "proc = start_subprocess(['night-shift'])\nwait_for_startup(proc)\nsend_signal(proc, SIGINT)\nreturncode = proc.wait(timeout=30)\nassert returncode == 0"
+    },
+    {
+      "id": "TS-07-17",
+      "requirement_id": "07-REQ-3.9",
+      "kind": "integration",
+      "description": "Verify that sending a second SIGINT during graceful shutdown causes immediate abort with exit code 130.",
+      "preconditions": [
+        "nightshift package is installed",
+        "Daemon is in graceful shutdown state after first SIGINT"
+      ],
+      "input": "Start night-shift, send first SIGINT, then send second SIGINT before shutdown completes",
+      "expected": "Exit code 130",
+      "assertion_pseudocode": "proc = start_subprocess(['night-shift'])\nwait_for_startup(proc)\nsend_signal(proc, SIGINT)\nwait_briefly(0.1)\nsend_signal(proc, SIGINT)\nreturncode = proc.wait(timeout=10)\nassert returncode == 130"
+    },
+    {
+      "id": "TS-07-18",
+      "requirement_id": "07-REQ-3.10",
+      "kind": "integration",
+      "description": "Verify that a startup failure (e.g. missing dependency) causes the CLI to exit with code 1 and print a descriptive error on stderr.",
+      "preconditions": [
+        "nightshift package is installed",
+        "Configuration is invalid or a required resource is unavailable to trigger startup failure"
+      ],
+      "input": "Invoke night-shift with an invalid config file path or corrupted config",
+      "expected": "Exit code 1 and non-empty error message on stderr",
+      "assertion_pseudocode": "result = subprocess_run(['night-shift'], env={'AF_CONFIG': '/dev/null/invalid'})\nassert result.returncode == 1\nassert len(result.stderr) > 0"
+    },
+    {
+      "id": "TS-07-19",
+      "requirement_id": "07-REQ-3.11",
+      "kind": "unit",
+      "description": "Verify that nightshift/app.py uses AgentFoxGroup from agentfox.io as its Click group.",
+      "preconditions": [
+        "packages/nightshift/nightshift/app.py exists",
+        "agentfox package is installed"
+      ],
+      "input": "Inspect the source of nightshift/app.py for AgentFoxGroup import and usage",
+      "expected": "app.py imports AgentFoxGroup from agentfox.io and uses it as the Click group decorator",
+      "assertion_pseudocode": "source = read_file('packages/nightshift/nightshift/app.py')\nassert 'AgentFoxGroup' in source\nassert 'from agentfox.io import' in source or 'agentfox.io' in source\n# Also verify at runtime\nfrom nightshift.app import main\nfrom agentfox.io import AgentFoxGroup\nassert isinstance(main, AgentFoxGroup) or type(main).__name__ == 'AgentFoxGroup'"
+    },
+    {
+      "id": "TS-07-20",
+      "requirement_id": "07-REQ-3.12",
+      "kind": "integration",
+      "description": "Verify that night-shift supports AF_CONFIG, AF_LOG_LEVEL, and AF_AGENT environment variables with correct semantics.",
+      "preconditions": [
+        "nightshift package is installed"
+      ],
+      "input": "Invoke night-shift --help with AF_AGENT=1 set; also invoke with AF_LOG_LEVEL and AF_CONFIG",
+      "expected": "AF_AGENT=1 activates agent-mode (JSONL output); AF_CONFIG overrides config path; AF_LOG_LEVEL adjusts verbosity — no env var is silently dropped",
+      "assertion_pseudocode": "# AF_AGENT test\nresult = subprocess_run(['night-shift', '--help'], env={'AF_AGENT': '1'})\nassert result.returncode == 0\n# AF_CONFIG test — invalid path causes startup failure\nresult2 = subprocess_run(['night-shift'], env={'AF_CONFIG': '/nonexistent.toml'})\nassert result2.returncode == 1\n# AF_LOG_LEVEL test — accepted without error\nresult3 = subprocess_run(['night-shift', '--help'], env={'AF_LOG_LEVEL': 'DEBUG'})\nassert result3.returncode == 0"
+    },
+    {
+      "id": "TS-07-21",
+      "requirement_id": "07-REQ-4.1",
+      "kind": "unit",
+      "description": "Verify that the root pyproject.toml lists packages/nightshift as a uv workspace member.",
+      "preconditions": [
+        "Root pyproject.toml has been updated"
+      ],
+      "input": "Parse the root pyproject.toml and inspect [tool.uv.workspace] members",
+      "expected": "The members array contains 'packages/nightshift'",
+      "assertion_pseudocode": "config = parse_toml('pyproject.toml')\nmembers = config['tool']['uv']['workspace']['members']\nassert 'packages/nightshift' in members"
+    },
+    {
+      "id": "TS-07-22",
+      "requirement_id": "07-REQ-4.2",
+      "kind": "unit",
+      "description": "Verify that the root pyproject.toml declares nightshift>=4.0.0rc4 as a dependency and nightshift as a workspace source.",
+      "preconditions": [
+        "Root pyproject.toml has been updated"
+      ],
+      "input": "Parse root pyproject.toml and inspect [project.dependencies] and [tool.uv.sources]",
+      "expected": "[project.dependencies] contains an entry matching 'nightshift>=4.0.0rc4'; [tool.uv.sources] contains 'nightshift = { workspace = true }'",
+      "assertion_pseudocode": "config = parse_toml('pyproject.toml')\ndeps = config['project']['dependencies']\nassert any('nightshift' in d and '4.0.0rc4' in d for d in deps)\nsources = config['tool']['uv']['sources']\nassert sources.get('nightshift', {}).get('workspace') == True"
+    },
+    {
+      "id": "TS-07-23",
+      "requirement_id": "07-REQ-4.3",
+      "kind": "unit",
+      "description": "Verify that packages/nightshift/tests/ is listed in the testpaths of the root pyproject.toml pytest configuration.",
+      "preconditions": [
+        "Root pyproject.toml has been updated"
+      ],
+      "input": "Parse root pyproject.toml and inspect [tool.pytest.ini_options] testpaths",
+      "expected": "testpaths list contains 'packages/nightshift/tests/'",
+      "assertion_pseudocode": "config = parse_toml('pyproject.toml')\ntestpaths = config['tool']['pytest']['ini_options']['testpaths']\nassert 'packages/nightshift/tests/' in testpaths"
+    },
+    {
+      "id": "TS-07-24",
+      "requirement_id": "07-REQ-4.4",
+      "kind": "integration",
+      "description": "Verify that make check automatically discovers and runs nightshift tests without any CI config file changes beyond pyproject.toml.",
+      "preconditions": [
+        "Root pyproject.toml is updated with nightshift workspace member and testpaths",
+        "packages/nightshift/tests/ contains at least one test file",
+        "make check is available in the project"
+      ],
+      "input": "Run `make check` or equivalent `pytest` invocation from the monorepo root",
+      "expected": "Test output includes collected tests from packages/nightshift/tests/ and all pass",
+      "assertion_pseudocode": "result = subprocess_run(['make', 'check'])\nassert result.returncode == 0\nassert 'packages/nightshift' in result.stdout or 'nightshift' in result.stdout"
+    },
+    {
+      "id": "TS-07-25",
+      "requirement_id": "07-REQ-5.1",
+      "kind": "integration",
+      "description": "Verify that no occurrence of 'af night-shift' exists in docs/ or README.md after implementation.",
+      "preconditions": [
+        "All documentation files have been updated",
+        "grep is available in the environment"
+      ],
+      "input": "Run: `grep -r \"af night-shift\" docs/ README.md`",
+      "expected": "grep returns no output (exit code 1 from grep, meaning no matches found)",
+      "assertion_pseudocode": "result = subprocess_run(['grep', '-r', 'af night-shift', 'docs/', 'README.md'])\nassert result.returncode != 0  # grep exits 1 when no matches\nassert result.stdout == ''"
+    },
+    {
+      "id": "TS-07-26",
+      "requirement_id": "07-REQ-5.2",
+      "kind": "unit",
+      "description": "Verify that README.md Night Shift section and Quick Start reference the standalone night-shift CLI and include the updated package dependency diagram.",
+      "preconditions": [
+        "README.md has been updated"
+      ],
+      "input": "Read README.md and search for Night Shift section, Quick Start section, and dependency diagram",
+      "expected": "README.md references 'night-shift' (standalone) not 'af night-shift'; dependency diagram shows 'nightshift ──▶ agentfox'",
+      "assertion_pseudocode": "content = read_file('README.md')\nassert 'af night-shift' not in content\nassert 'night-shift' in content\nassert 'nightshift' in content\nassert 'nightshift' in content and 'agentfox' in content  # diagram present"
+    },
+    {
+      "id": "TS-07-27",
+      "requirement_id": "07-REQ-5.3",
+      "kind": "unit",
+      "description": "Verify that docs/cli-reference.md documents night-shift as a standalone CLI and updates the command table.",
+      "preconditions": [
+        "docs/cli-reference.md has been updated"
+      ],
+      "input": "Read docs/cli-reference.md",
+      "expected": "File does not contain 'af night-shift'; night-shift is documented as a standalone CLI with its own section",
+      "assertion_pseudocode": "content = read_file('docs/cli-reference.md')\nassert 'af night-shift' not in content\nassert 'night-shift' in content"
+    },
+    {
+      "id": "TS-07-28",
+      "requirement_id": "07-REQ-5.4",
+      "kind": "unit",
+      "description": "Verify that docs/config-reference.md replaces all 'af night-shift' and 'agent-fox night-shift' references with 'night-shift'.",
+      "preconditions": [
+        "docs/config-reference.md has been updated"
+      ],
+      "input": "Read docs/config-reference.md and search for stale references",
+      "expected": "File contains neither 'af night-shift' nor 'agent-fox night-shift'",
+      "assertion_pseudocode": "content = read_file('docs/config-reference.md')\nassert 'af night-shift' not in content\nassert 'agent-fox night-shift' not in content"
+    },
+    {
+      "id": "TS-07-29",
+      "requirement_id": "07-REQ-5.5",
+      "kind": "unit",
+      "description": "Verify that architecture docs and profiles.md contain no stale 'af night-shift' references.",
+      "preconditions": [
+        "All architecture documentation files and docs/profiles.md have been updated"
+      ],
+      "input": "Read docs/architecture/04-night-shift.md, docs/architecture/README.md, docs/architecture/03-execution-and-archetypes.md, and docs/profiles.md",
+      "expected": "None of the files contain the string 'af night-shift'",
+      "assertion_pseudocode": "for path in ['docs/architecture/04-night-shift.md', 'docs/architecture/README.md', 'docs/architecture/03-execution-and-archetypes.md', 'docs/profiles.md']:\n    if os.path.exists(path):\n        content = read_file(path)\n        assert 'af night-shift' not in content"
+    },
+    {
+      "id": "TS-07-30",
+      "requirement_id": "07-REQ-6.1",
+      "kind": "unit",
+      "description": "Verify that the README.md dependency diagram shows nightshift depending only on agentfox with no arrow to agentspec or afspec.",
+      "preconditions": [
+        "README.md has been updated with the new diagram"
+      ],
+      "input": "Read README.md and locate the package dependency diagram",
+      "expected": "Diagram contains 'nightshift' with an arrow to 'agentfox' and no arrow from 'nightshift' to 'agentspec' or 'afspec'",
+      "assertion_pseudocode": "content = read_file('README.md')\nassert 'nightshift' in content\nassert 'agentfox' in content\n# Ensure agentspec/afspec are not shown as nightshift dependencies\ndiagram_section = extract_diagram(content)\nassert 'nightshift' in diagram_section\nassert not re.search(r'nightshift.*agentspec', diagram_section)\nassert not re.search(r'nightshift.*afspec', diagram_section)"
+    },
+    {
+      "id": "TS-07-31",
+      "requirement_id": "07-REQ-6.2",
+      "kind": "unit",
+      "description": "Verify that the README.md dependency diagram reflects the full updated topology including af, spec, nightshift, agentfox, agentspec, and afspec.",
+      "preconditions": [
+        "README.md has been updated with the new diagram"
+      ],
+      "input": "Read README.md and inspect the package dependency diagram",
+      "expected": "Diagram contains all nodes: af→agentfox→afspec, spec→agentspec→afspec, nightshift→agentfox",
+      "assertion_pseudocode": "content = read_file('README.md')\nassert 'nightshift' in content and 'agentfox' in content\nassert 'af' in content\nassert 'agentspec' in content\nassert 'afspec' in content"
+    },
+    {
+      "id": "TS-07-32",
+      "requirement_id": "07-REQ-7.1",
+      "kind": "unit",
+      "description": "Verify that nightshift/app.py delegates to agentfox.nightshift modules and contains no duplicated business logic.",
+      "preconditions": [
+        "packages/nightshift/nightshift/app.py exists",
+        "agentfox package is installed with agentfox.nightshift modules"
+      ],
+      "input": "Inspect source of packages/nightshift/nightshift/app.py",
+      "expected": "File imports from agentfox.nightshift; contains no reimplementation of daemon fix logic, task processing, or other business logic from agentfox.nightshift",
+      "assertion_pseudocode": "source = read_file('packages/nightshift/nightshift/app.py')\nassert 'agentfox.nightshift' in source or 'from agentfox' in source\n# Line count heuristic: app.py should be a thin wrapper\nassert len(source.splitlines()) < 150  # thin delegation layer"
+    },
+    {
+      "id": "TS-07-33",
+      "requirement_id": "07-REQ-7.2",
+      "kind": "unit",
+      "description": "Verify that nightshift/app.py uses AgentFoxGroup as the Click group and common_options from agentfox.io to attach global CLI options.",
+      "preconditions": [
+        "packages/nightshift/nightshift/app.py exists"
+      ],
+      "input": "Inspect source of packages/nightshift/nightshift/app.py for AgentFoxGroup and common_options usage",
+      "expected": "File imports and uses both AgentFoxGroup and common_options from agentfox.io",
+      "assertion_pseudocode": "source = read_file('packages/nightshift/nightshift/app.py')\nassert 'AgentFoxGroup' in source\nassert 'common_options' in source\nassert 'agentfox.io' in source"
+    },
+    {
+      "id": "TS-07-34",
+      "requirement_id": "07-REQ-8.1",
+      "kind": "unit",
+      "description": "Verify that packages/nightshift/tests/ contains the migrated night-shift test files or their night-shift-specific portions.",
+      "preconditions": [
+        "Test migration has been completed"
+      ],
+      "input": "List files in packages/nightshift/tests/",
+      "expected": "Directory contains at least the migrated night-shift test files: test_spec04_req3.py, test_spec04_smoke.py, test_spec04_properties.py, test_code_dry_run.py (or night-shift-split portions thereof)",
+      "assertion_pseudocode": "test_files = list_files('packages/nightshift/tests/')\nexpected_files = ['test_spec04_req3.py', 'test_spec04_smoke.py', 'test_spec04_properties.py', 'test_code_dry_run.py']\nfor f in expected_files:\n    assert any(f in tf for tf in test_files), f'Missing test file: {f}'"
+    },
+    {
+      "id": "TS-07-35",
+      "requirement_id": "07-REQ-8.2",
+      "kind": "integration",
+      "description": "Verify that all migrated night-shift tests pass without modification to business logic.",
+      "preconditions": [
+        "nightshift package is installed",
+        "All test dependencies are available",
+        "Test files are present in packages/nightshift/tests/"
+      ],
+      "input": "Run: `pytest packages/nightshift/tests/`",
+      "expected": "All tests pass with zero failures and zero errors",
+      "assertion_pseudocode": "result = subprocess_run(['pytest', 'packages/nightshift/tests/', '-v'])\nassert result.returncode == 0\nassert 'failed' not in result.stdout.lower() or '0 failed' in result.stdout"
+    },
+    {
+      "id": "TS-07-36",
+      "requirement_id": "07-REQ-8.3",
+      "kind": "integration",
+      "description": "Verify that the af test suite continues to pass after nightshift extraction and test migration.",
+      "preconditions": [
+        "af package is installed",
+        "nightshift test migration is complete"
+      ],
+      "input": "Run: `pytest packages/af/tests/`",
+      "expected": "All af tests pass with zero failures",
+      "assertion_pseudocode": "result = subprocess_run(['pytest', 'packages/af/tests/', '-v'])\nassert result.returncode == 0\nassert 'failed' not in result.stdout.lower() or '0 failed' in result.stdout"
+    },
+    {
+      "id": "TS-07-37",
+      "requirement_id": "07-REQ-8.4",
+      "kind": "unit",
+      "description": "Verify that the test migration process inspected conftest.py for shared fixtures and placed them correctly.",
+      "preconditions": [
+        "Test migration has been completed",
+        "packages/nightshift/tests/ exists"
+      ],
+      "input": "Check existence of packages/nightshift/tests/conftest.py if shared fixtures were identified",
+      "expected": "If fixtures are shared between af and nightshift tests, packages/nightshift/tests/conftest.py exists and contains the relevant fixtures; exclusive nightshift fixtures are moved, not duplicated",
+      "assertion_pseudocode": "# Verify conftest exists for nightshift tests\nassert os.path.exists('packages/nightshift/tests/conftest.py') or nightshift_tests_have_no_shared_fixtures()\n# Verify af conftest is intact\nassert os.path.exists('packages/af/tests/conftest.py')"
+    },
+    {
+      "id": "TS-07-38",
+      "requirement_id": "07-REQ-8.5",
+      "kind": "integration",
+      "description": "Verify that the af test suite includes a test asserting that 'af night-shift' is not a recognized command.",
+      "preconditions": [
+        "af package is installed after night-shift removal",
+        "af test suite has been updated"
+      ],
+      "input": "Run the af test suite and check for a test that verifies af night-shift is rejected",
+      "expected": "A test in packages/af/tests/ invokes 'af night-shift', asserts non-zero exit code, and passes",
+      "assertion_pseudocode": "# Find test asserting af night-shift is unrecognized\ntest_files = list_files('packages/af/tests/')\nfound = False\nfor f in test_files:\n    if 'night-shift' in read_file(f) or 'night_shift' in read_file(f):\n        found = True\nassert found\n# Run it\nresult = subprocess_run(['pytest', 'packages/af/tests/', '-k', 'night_shift or night-shift', '-v'])\nassert result.returncode == 0"
+    },
+    {
+      "id": "TS-07-39",
+      "requirement_id": "07-REQ-9.1",
+      "kind": "integration",
+      "description": "Verify that the entry point integration test invokes python -m nightshift --help or night-shift --help and asserts zero exit code and --version in output.",
+      "preconditions": [
+        "nightshift package is installed in the test environment",
+        "Integration test file exists in packages/nightshift/tests/"
+      ],
+      "input": "Run the integration test: `pytest packages/nightshift/tests/ -k 'entrypoint or integration'`",
+      "expected": "Test passes with exit code 0, and the help output contains '--version'",
+      "assertion_pseudocode": "result_help = subprocess_run(['python', '-m', 'nightshift', '--help'])\nassert result_help.returncode == 0\nassert '--version' in result_help.stdout\n# Also test night-shift entry point if installed\nresult_ep = subprocess_run(['night-shift', '--help'])\nassert result_ep.returncode == 0\nassert '--version' in result_ep.stdout"
+    },
+    {
+      "id": "TS-07-40",
+      "requirement_id": "07-REQ-9.2",
+      "kind": "unit",
+      "description": "Verify that the nightshift integration test file is located in packages/nightshift/tests/ and is discovered by make check.",
+      "preconditions": [
+        "packages/nightshift/tests/ is listed in testpaths in root pyproject.toml"
+      ],
+      "input": "List files in packages/nightshift/tests/ and check for integration test file",
+      "expected": "An integration test file (e.g. test_integration.py or test_entrypoint.py) exists in packages/nightshift/tests/ and is discoverable by pytest",
+      "assertion_pseudocode": "test_files = list_files('packages/nightshift/tests/')\nassert any('integration' in f or 'entrypoint' in f or 'smoke' in f for f in test_files)\n# Verify pytest discovers it\nresult = subprocess_run(['pytest', '--collect-only', 'packages/nightshift/tests/'])\nassert result.returncode == 0\nassert 'test session starts' in result.stdout or '<Module' in result.stdout"
+    }
+  ],
+  "property_tests": [
+    {
+      "id": "TS-07-P1",
+      "property_id": "07-PROP-1",
+      "validates": [
+        "07-REQ-3.1",
+        "07-REQ-3.2",
+        "07-REQ-3.3",
+        "07-REQ-3.4",
+        "07-REQ-3.6",
+        "07-REQ-3.7",
+        "07-REQ-3.8",
+        "07-REQ-3.9",
+        "07-REQ-3.10"
+      ],
+      "description": "For any combination of flags supported by the former af night-shift, verify that night-shift produces identical output, exit code, and side effects.",
+      "for_any_strategy": "Generate random combinations of valid flags from {[], ['--quiet'], ['--json'], ['--verbose'], ['--trace'], ['--quiet', '--verbose'], ['--json', '--verbose']} using hypothesis or pytest-randomly",
+      "invariant_check": "For each flag combination, invoke night-shift (mocked daemon) and compare output, exit code, and emitted events to recorded reference behavior from af night-shift under the same flags"
+    },
+    {
+      "id": "TS-07-P2",
+      "property_id": "07-PROP-2",
+      "validates": [
+        "07-REQ-7.1",
+        "07-REQ-7.2"
+      ],
+      "description": "For any function or class defined in nightshift/app.py, verify that no business logic from agentfox.nightshift is reimplemented.",
+      "for_any_strategy": "Enumerate all public function and class definitions in nightshift/app.py using Python's AST module",
+      "invariant_check": "For each function/class defined in app.py, verify it does not implement daemon logic, task processing, fix pipeline steps, or any other logic that exists in agentfox.nightshift modules — it should only import, configure, and delegate"
+    },
+    {
+      "id": "TS-07-P3",
+      "property_id": "07-PROP-3",
+      "validates": [
+        "07-REQ-3.11",
+        "07-REQ-3.12"
+      ],
+      "description": "For any environment variable supported by the former af night-shift, verify that the standalone night-shift CLI supports it with identical semantics.",
+      "for_any_strategy": "Enumerate all environment variables defined in AgentFoxGroup and common_options by auditing agentfox.io source; generate test scenarios for each",
+      "invariant_check": "For each env var in the enumerated set (at minimum AF_CONFIG, AF_LOG_LEVEL, AF_AGENT), invoke night-shift with the env var set to a valid value and assert behavior matches the documented semantics (e.g. AF_AGENT=1 activates JSONL mode, AF_CONFIG overrides config path)"
+    },
+    {
+      "id": "TS-07-P4",
+      "property_id": "07-PROP-4",
+      "validates": [
+        "07-REQ-8.3",
+        "07-REQ-8.5"
+      ],
+      "description": "For any test previously passing in packages/af/tests/ that tests af behavior, verify it continues to pass after nightshift extraction and test migration.",
+      "for_any_strategy": "Collect all test IDs from packages/af/tests/ before migration; after migration, run the same test IDs",
+      "invariant_check": "Run pytest packages/af/tests/ and assert that no previously-passing test now fails; compare test result sets before and after migration using pytest --tb=short output"
+    },
+    {
+      "id": "TS-07-P5",
+      "property_id": "07-PROP-5",
+      "validates": [
+        "07-REQ-5.1",
+        "07-REQ-5.E1"
+      ],
+      "description": "For any file under docs/ or README.md, verify that the string 'af night-shift' does not appear anywhere after implementation.",
+      "for_any_strategy": "Enumerate all files under docs/ and README.md using os.walk",
+      "invariant_check": "For each file in the enumerated set, read its contents and assert that the string 'af night-shift' is not present; equivalent to running grep -r 'af night-shift' docs/ README.md and asserting empty output"
+    },
+    {
+      "id": "TS-07-P6",
+      "property_id": "07-PROP-6",
+      "validates": [
+        "07-REQ-2.E1"
+      ],
+      "description": "For any dependency declared in nightshift/pyproject.toml (direct or transitive), verify that neither agentspec nor afspec appears.",
+      "for_any_strategy": "Use `uv pip show nightshift` or `pip show nightshift` to enumerate all installed dependencies of the nightshift package including transitive ones",
+      "invariant_check": "Assert that neither 'agentspec' nor 'afspec' appear in the full dependency tree of the installed nightshift package"
+    }
+  ],
+  "edge_case_tests": [
+    {
+      "id": "TS-07-E1",
+      "requirement_id": "07-REQ-1.E1",
+      "kind": "unit",
+      "description": "Verify that if packages/af/af/nightshift.py still exists, a CI-style test asserting its absence fails.",
+      "preconditions": [
+        "A test asserting nightshift.py does not exist is part of the af test suite"
+      ],
+      "input": "Simulate state where packages/af/af/nightshift.py still exists and run the absence assertion",
+      "expected": "The assertion fails, indicating CI would catch the incomplete removal",
+      "assertion_pseudocode": "# This test verifies the guard test logic\nif os.path.exists('packages/af/af/nightshift.py'):\n    # The file should not exist — this would cause CI failure\n    assert False, 'nightshift.py must be deleted; CI guard test would fail'\nelse:\n    assert True  # Correctly removed"
+    },
+    {
+      "id": "TS-07-E2",
+      "requirement_id": "07-REQ-2.E1",
+      "kind": "unit",
+      "description": "Verify that agentspec and afspec are not declared as dependencies in nightshift pyproject.toml.",
+      "preconditions": [
+        "packages/nightshift/pyproject.toml exists"
+      ],
+      "input": "Parse packages/nightshift/pyproject.toml and inspect all dependency sections",
+      "expected": "Neither 'agentspec' nor 'afspec' appear in [project.dependencies] or any optional-dependency group",
+      "assertion_pseudocode": "config = parse_toml('packages/nightshift/pyproject.toml')\ndeps = config['project'].get('dependencies', [])\noptional_deps = config['project'].get('optional-dependencies', {})\nall_deps = deps + [d for group in optional_deps.values() for d in group]\nassert not any('agentspec' in d for d in all_deps)\nassert not any('afspec' in d for d in all_deps)"
+    },
+    {
+      "id": "TS-07-E3",
+      "requirement_id": "07-REQ-2.E2",
+      "kind": "unit",
+      "description": "Verify that both rich and duckdb are declared as direct dependencies in nightshift pyproject.toml.",
+      "preconditions": [
+        "packages/nightshift/pyproject.toml exists"
+      ],
+      "input": "Parse [project.dependencies] from packages/nightshift/pyproject.toml",
+      "expected": "Both 'rich' and 'duckdb' are present in the direct dependencies list",
+      "assertion_pseudocode": "deps = parse_toml('packages/nightshift/pyproject.toml')['project']['dependencies']\nassert any('rich' in d for d in deps), 'rich must be a direct dependency'\nassert any('duckdb' in d for d in deps), 'duckdb must be a direct dependency'"
+    },
+    {
+      "id": "TS-07-E4",
+      "requirement_id": "07-REQ-3.E1",
+      "kind": "integration",
+      "description": "Verify that night-shift exits with code 1 and a descriptive error on stderr when the config file is missing or malformed.",
+      "preconditions": [
+        "nightshift package is installed",
+        "No .agent-fox/config.toml exists in the working directory (or AF_CONFIG points to nonexistent file)"
+      ],
+      "input": "Invoke night-shift with AF_CONFIG=/nonexistent/config.toml",
+      "expected": "Exit code 1 and non-empty, human-readable error message on stderr describing the configuration error",
+      "assertion_pseudocode": "result = subprocess_run(['night-shift'], env={'AF_CONFIG': '/nonexistent/config.toml'})\nassert result.returncode == 1\nassert len(result.stderr) > 0\nassert 'config' in result.stderr.lower() or 'error' in result.stderr.lower()"
+    },
+    {
+      "id": "TS-07-E5",
+      "requirement_id": "07-REQ-3.E2",
+      "kind": "integration",
+      "description": "Verify that AF_AGENT=1 activates agent-mode defaults including JSONL output and suppressed interactive prompts.",
+      "preconditions": [
+        "nightshift package is installed",
+        "Daemon is mocked to emit at least one progress event"
+      ],
+      "input": "Invoke night-shift with AF_AGENT=1 in the environment (no --json flag)",
+      "expected": "JSONL output mode is active (structured JSON events on stdout); interactive prompts are suppressed",
+      "assertion_pseudocode": "result = invoke_cli_with_mock_daemon([], env={'AF_AGENT': '1'})\nlines = [l for l in result.stdout.splitlines() if l.strip()]\nassert len(lines) >= 1\nassert all(is_valid_json(l) for l in lines if l.strip())\nassert fox_banner_pattern not in result.stdout  # suppressed in agent mode"
+    },
+    {
+      "id": "TS-07-E6",
+      "requirement_id": "07-REQ-4.E1",
+      "kind": "unit",
+      "description": "Verify that omitting packages/nightshift/tests/ from testpaths causes zero nightshift tests to be collected.",
+      "preconditions": [
+        "A version of root pyproject.toml without packages/nightshift/tests/ in testpaths is used"
+      ],
+      "input": "Run pytest with testpaths that exclude packages/nightshift/tests/",
+      "expected": "Zero tests collected from packages/nightshift/tests/ — detectable by comparing test counts",
+      "assertion_pseudocode": "# Simulate omission\nresult_without = subprocess_run(['pytest', '--collect-only', 'packages/af/tests/', 'packages/spec/tests/'])\nresult_with = subprocess_run(['pytest', '--collect-only', 'packages/af/tests/', 'packages/spec/tests/', 'packages/nightshift/tests/'])\n# Without nightshift testpath, nightshift tests are absent\nassert 'nightshift' not in result_without.stdout\nassert 'nightshift' in result_with.stdout"
+    },
+    {
+      "id": "TS-07-E7",
+      "requirement_id": "07-REQ-5.E1",
+      "kind": "integration",
+      "description": "Verify that the grep acceptance check produces non-empty output if any doc file still contains 'af night-shift'.",
+      "preconditions": [
+        "A test doc file containing 'af night-shift' is introduced for this test"
+      ],
+      "input": "Create a temporary file under docs/ containing 'af night-shift' then run: grep -r \"af night-shift\" docs/ README.md",
+      "expected": "grep returns non-empty output (exit code 0 from grep), indicating an incomplete implementation",
+      "assertion_pseudocode": "write_temp_file('docs/test_stale_ref.md', 'Use af night-shift to run')\nresult = subprocess_run(['grep', '-r', 'af night-shift', 'docs/', 'README.md'])\nassert result.returncode == 0  # grep found matches\nassert 'af night-shift' in result.stdout\ndelete_file('docs/test_stale_ref.md')"
+    },
+    {
+      "id": "TS-07-E8",
+      "requirement_id": "07-REQ-7.E1",
+      "kind": "unit",
+      "description": "Verify that nightshift/app.py does not contain copy-pasted business logic from agentfox.nightshift modules.",
+      "preconditions": [
+        "packages/nightshift/nightshift/app.py exists",
+        "agentfox.nightshift source is available for comparison"
+      ],
+      "input": "Inspect app.py source for any reimplementation of agentfox.nightshift business logic functions",
+      "expected": "app.py contains only import statements, CLI wiring, and delegation calls — no copied business logic functions",
+      "assertion_pseudocode": "source = read_file('packages/nightshift/nightshift/app.py')\n# Business logic functions from agentfox.nightshift should not be reimplemented\nagentfox_functions = get_public_functions('agentfox.nightshift')\nfor func_name in agentfox_functions:\n    # Function should be used (called), not defined\n    assert f'def {func_name}' not in source, f'Business logic function {func_name} is duplicated in app.py'"
+    },
+    {
+      "id": "TS-07-E9",
+      "requirement_id": "07-REQ-8.E1",
+      "kind": "unit",
+      "description": "Verify that if a test file covers both af and night-shift behavior, it is split so af-specific tests remain in packages/af/tests/.",
+      "preconditions": [
+        "Test migration has been completed"
+      ],
+      "input": "Inspect packages/af/tests/ and packages/nightshift/tests/ for test distribution",
+      "expected": "Tests asserting af behavior (e.g. af command structure, af-specific fixtures) remain in packages/af/tests/; night-shift daemon tests are in packages/nightshift/tests/",
+      "assertion_pseudocode": "af_tests = list_files('packages/af/tests/')\nns_tests = list_files('packages/nightshift/tests/')\n# af-specific tests must still exist in af\nassert any('af' in read_file(f) for f in af_tests)\n# nightshift tests must be present\nassert len(ns_tests) > 0\n# Neither suite should be empty\nassert len(af_tests) > 0"
+    },
+    {
+      "id": "TS-07-E10",
+      "requirement_id": "07-REQ-9.E1",
+      "kind": "integration",
+      "description": "Verify that the integration test falls back gracefully or reports a clear failure when the night-shift entry point is not installed.",
+      "preconditions": [
+        "nightshift entry point (night-shift) is NOT installed in the test environment",
+        "python -m nightshift is available as fallback or test is configured to detect missing entry point"
+      ],
+      "input": "Run the nightshift integration test in an environment where night-shift binary is not on PATH",
+      "expected": "Test either falls back to python -m nightshift --help (passes) or raises a descriptive skip/failure message indicating the entry point is missing",
+      "assertion_pseudocode": "# Simulate missing entry point\nresult = subprocess_run(['which', 'night-shift'])\nif result.returncode != 0:\n    # Entry point not installed — integration test should handle this gracefully\n    result_fallback = subprocess_run(['python', '-m', 'nightshift', '--help'])\n    assert result_fallback.returncode == 0  # fallback works\n    assert '--version' in result_fallback.stdout"
+    }
+  ],
+  "smoke_tests": [
+    {
+      "id": "TS-07-SMOKE-1",
+      "execution_path_id": "07-PATH-1",
+      "description": "Smoke test for the normal night-shift daemon startup, banner display, daemon run, graceful SIGINT shutdown, and exit code 0.",
+      "trigger": "Developer invokes `night-shift` from the terminal without --quiet or --json; daemon runs briefly then receives SIGINT",
+      "real_components": [
+        "nightshift.app:main (Click entry point)",
+        "agentfox.io.AgentFoxGroup",
+        "agentfox.io.OutputManager",
+        "agentfox.nightshift daemon modules",
+        ".agent-fox/config.toml"
+      ],
+      "mockable": [
+        "agentfox.nightshift daemon loop (mock to return after startup for speed)",
+        ".agent-fox/config.toml (provide minimal valid fixture config)"
+      ],
+      "expected_effects": [
+        "Fox ASCII art banner is printed to stdout",
+        "'Night-shift daemon starting…' message appears on stdout",
+        "After SIGINT, daemon shuts down gracefully",
+        "Summary statistics are printed to stdout at exit",
+        "Process exits with code 0"
+      ]
+    },
+    {
+      "id": "TS-07-SMOKE-2",
+      "execution_path_id": "07-PATH-2",
+      "description": "Smoke test for night-shift in JSON/agent mode: banner suppressed, JSONL events emitted, graceful shutdown with final JSONL summary.",
+      "trigger": "Developer invokes `night-shift --json` or sets AF_AGENT=1 in the environment",
+      "real_components": [
+        "nightshift.app:main (Click entry point)",
+        "agentfox.io.AgentFoxGroup (agent-mode defaults)",
+        "agentfox.io.OutputManager (JSONL mode)",
+        "agentfox.nightshift daemon modules"
+      ],
+      "mockable": [
+        "agentfox.nightshift daemon loop (emit one progress event then stop)",
+        ".agent-fox/config.toml (provide minimal valid fixture config)"
+      ],
+      "expected_effects": [
+        "Fox ASCII art banner is NOT present in stdout",
+        "stdout contains at least one valid JSONL line (JSON object)",
+        "Final JSONL summary event is emitted at exit",
+        "Process exits with code 0 after SIGINT"
+      ]
+    },
+    {
+      "id": "TS-07-SMOKE-3",
+      "execution_path_id": "07-PATH-3",
+      "description": "Smoke test for the double-SIGINT immediate abort path: first SIGINT triggers graceful shutdown, second SIGINT causes immediate abort with exit code 130.",
+      "trigger": "Developer sends first SIGINT to running night-shift daemon, then sends second SIGINT before graceful shutdown completes",
+      "real_components": [
+        "nightshift.app:main (Click entry point)",
+        "agentfox.nightshift daemon signal handling",
+        "OS signal delivery (SIGINT)"
+      ],
+      "mockable": [
+        "agentfox.nightshift daemon loop (mock to block on first SIGINT for testing second SIGINT)",
+        ".agent-fox/config.toml (provide minimal valid fixture config)"
+      ],
+      "expected_effects": [
+        "First SIGINT triggers graceful shutdown sequence",
+        "Second SIGINT immediately aborts all in-progress work",
+        "Process exits with code 130"
+      ]
+    },
+    {
+      "id": "TS-07-SMOKE-4",
+      "execution_path_id": "07-PATH-4",
+      "description": "Smoke test for the night-shift --version path: version string 4.0.0-rc4 is printed and process exits with code 0.",
+      "trigger": "User invokes `night-shift --version`",
+      "real_components": [
+        "nightshift.app:main (Click entry point)",
+        "Click version_option reading from package metadata"
+      ],
+      "mockable": [],
+      "expected_effects": [
+        "stdout contains '4.0.0-rc4'",
+        "Process exits with code 0"
+      ]
+    },
+    {
+      "id": "TS-07-SMOKE-5",
+      "execution_path_id": "07-PATH-5",
+      "description": "Smoke test for the full CI check path: make check discovers and runs nightshift tests from testpaths without any CI config file changes.",
+      "trigger": "Developer runs `make check` (or `pytest` with root pyproject.toml testpaths) in the monorepo root",
+      "real_components": [
+        "pytest (test runner)",
+        "root pyproject.toml [tool.pytest.ini_options] testpaths",
+        "packages/nightshift/tests/ (all test files)",
+        "packages/af/tests/ (all test files)",
+        "nightshift.app:main entry point"
+      ],
+      "mockable": [
+        "agentfox.nightshift daemon (mock for unit/integration tests that don't need real daemon)"
+      ],
+      "expected_effects": [
+        "pytest discovers and collects tests from packages/nightshift/tests/",
+        "All nightshift tests pass",
+        "All af tests pass",
+        "Test output includes results from both packages",
+        "make check exits with code 0"
+      ]
+    },
+    {
+      "id": "TS-07-SMOKE-6",
+      "execution_path_id": "07-PATH-6",
+      "description": "Smoke test for the af night-shift removal path: invoking af night-shift after extraction produces a non-zero exit code and unrecognized-command error.",
+      "trigger": "User invokes `af night-shift` after the extraction is complete",
+      "real_components": [
+        "af CLI (packages/af/af/app.py)",
+        "Click command dispatch"
+      ],
+      "mockable": [],
+      "expected_effects": [
+        "af CLI reports an unrecognized command error (Click default behavior)",
+        "No reference to night-shift subcommand in af's registered commands",
+        "Process exits with a non-zero exit code"
+      ]
+    }
+  ],
+  "coverage": {
+    "requirements_covered": [],
+    "properties_covered": [],
+    "paths_covered": [],
+    "gaps": []
+  }
+}

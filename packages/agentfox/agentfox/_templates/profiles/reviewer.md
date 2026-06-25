@@ -34,8 +34,34 @@ Treat this file as executable workflow policy.
 ## Output Format
 
 Every mode outputs **bare JSON only** — no markdown fences, no surrounding
-prose. Mode-specific instructions and schemas are loaded from
-`reviewer_<mode>.md` when a mode is assigned.
+prose. Use the exact field names from the schema. Mode-specific instructions
+and schemas are loaded from `reviewer_<mode>.md` when a mode is assigned.
+
+The default output schema for finding-based modes is:
+
+```json
+{
+  "findings": [
+    {
+      "severity": "critical",
+      "description": "Concrete description of the issue",
+      "requirement_ref": "NN-REQ-X.Y"
+    }
+  ]
+}
+```
+
+DO NOT wrap output in markdown fences or add surrounding prose.
+
+INCORRECT (wrapped in fences):
+
+    ```json
+    {"findings": [...]}
+    ```
+
+CORRECT (bare JSON only):
+
+    {"findings": [...]}
 
 ## CRITICAL OUTPUT RULES
 

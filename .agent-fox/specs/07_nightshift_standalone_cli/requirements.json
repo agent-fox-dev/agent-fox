@@ -1,0 +1,847 @@
+{
+  "$schema": null,
+  "spec_id": "07",
+  "spec_name": "nightshift_standalone_cli",
+  "schema_version": 1,
+  "introduction": "The `nightshift` package extracts the `night-shift` daemon command from the `af` CLI into a standalone Python package and CLI tool, providing identical functionality, output, and user experience as the former `af night-shift` subcommand.",
+  "glossary": {
+    "4.0.0-rc4": "The pre-release version string aligned across all workspace packages (`af`, `nightshift`, `agentfox`) in the current release cycle.",
+    "AF_AGENT": "Environment variable (value `1`) that enables agent-mode defaults in `AgentFoxGroup`, activating JSONL output and suppressing interactive prompts.",
+    "AF_CONFIG": "Environment variable that overrides the default `.agent-fox/config.toml` configuration file path.",
+    "AF_LOG_LEVEL": "Environment variable that sets the logging verbosity for AgentFox CLI tools.",
+    "AgentFoxGroup": "A Click group subclass from `agentfox.io` that provides consistent error handling, agent-mode defaults, and `OutputManager` construction for all AgentFox CLI tools.",
+    "JSONL": "JSON Lines format \u2014 one JSON object per line \u2014 used for structured progress event output in `--json` mode.",
+    "OutputManager": "A class from `agentfox.io` that manages structured and human-readable output for AgentFox CLI tools.",
+    "SIGINT": "POSIX signal sent to a process on keyboard interrupt (Ctrl+C), used to trigger graceful shutdown or immediate abort of the night-shift daemon.",
+    "__main__.py": "Python module that enables `python -m nightshift` invocation by defining the package entry point.",
+    "af": "The AgentFox orchestrator CLI package (`packages/af/`), from which the `night-shift` subcommand is being removed.",
+    "afspec": "A workspace package in the AgentFox monorepo; `nightshift` must not directly depend on it.",
+    "agentfox.io": "The module within the `agentfox` core library that provides `AgentFoxGroup`, `OutputManager`, and `common_options`.",
+    "agentfox.nightshift": "The namespace within the `agentfox` core library that contains all night-shift business logic and daemon modules.",
+    "agentspec": "A workspace package in the AgentFox monorepo; `nightshift` must not directly depend on it.",
+    "app.py": "The Click entry-point module in `nightshift/app.py` that defines the `main` function and CLI command.",
+    "common_options": "A shared set of Click decorators from `agentfox.io` that attach global options (`--json`, `--verbose`, `--quiet`, `--trace`, `--version`) to a CLI command.",
+    "hatchling": "The build backend used by workspace packages to produce distributable Python packages.",
+    "make check": "The project-level command that runs linting and the full test suite across all workspace packages.",
+    "night-shift": "The standalone CLI command (entry point `night-shift`) that runs the AgentFox fix-only daemon.",
+    "nightshift": "The new standalone Python package (`packages/nightshift/`) that provides the `night-shift` CLI entry point.",
+    "pyproject.toml": "The PEP 517/518 build configuration file that declares package metadata, dependencies, and tooling configuration.",
+    "testpaths": "The `pytest` configuration key in the root `pyproject.toml` that lists directories scanned for test files.",
+    "uv workspace": "A monorepo project layout managed by the `uv` Python package manager, where multiple packages share a single root `pyproject.toml` with workspace member declarations.",
+    "--json": "CLI flag to enable JSON/JSONL output mode.",
+    "--json/--no-json": "Mutually exclusive CLI flags to enable or disable JSON output mode.",
+    "--quiet": "CLI flag to suppress informational output.",
+    "--quiet/-q": "CLI flag (long and short forms) to suppress informational output.",
+    "--trace": "CLI flag to enable trace-level logging.",
+    "--verbose": "CLI flag to enable debug-level logging.",
+    "--verbose/-v": "CLI flag (long and short forms) to enable debug-level logging.",
+    "--version": "CLI flag to display the package version and exit.",
+    ".agent-fox/config.toml": "Default configuration file path for agent-fox projects.",
+    "1": "Exit code indicating startup failure.",
+    "AF_AGENT=1": "Environment variable value that activates agent-mode defaults in AgentFoxGroup.",
+    "README.md": "The project's top-level readme file.",
+    "[project.dependencies]": "pyproject.toml section declaring direct package dependencies.",
+    "[project.scripts]": "pyproject.toml section declaring CLI entry points.",
+    "[tool.pytest.ini_options]": "pyproject.toml section for pytest configuration.",
+    "[tool.uv.sources]": "pyproject.toml section mapping package names to workspace sources.",
+    "[tool.uv.workspace]": "pyproject.toml section declaring uv workspace membership.",
+    "af night-shift": "The former subcommand of the af CLI that ran the night-shift daemon (being removed).",
+    "agent-fox night-shift": "Alternative invocation form of the former af night-shift subcommand.",
+    "agentfox": "The core library package providing business logic, IO, and nightshift modules.",
+    "agentfox>=4.0.0rc4": "Dependency specifier for the agentfox core library at version 4.0.0-rc4 or later.",
+    "authors": "pyproject.toml metadata field listing package authors.",
+    "click>=8.1": "Dependency specifier for the Click CLI framework at version 8.1 or later.",
+    "description = \"Standalone CLI for the AgentFox Night Shift fix daemon\"": "The one-line description for the nightshift pyproject.toml.",
+    "docs/": "The project documentation directory.",
+    "docs/architecture/03-execution-and-archetypes.md": "Architecture doc covering execution model and agent archetypes.",
+    "docs/architecture/04-night-shift.md": "Architecture doc for the night-shift daemon.",
+    "docs/architecture/README.md": "Architecture documentation index.",
+    "docs/cli-reference.md": "CLI reference documentation.",
+    "docs/config-reference.md": "Configuration reference documentation.",
+    "docs/profiles.md": "Documentation for agent profiles.",
+    "duckdb": "Embedded analytical database used for cost tracking.",
+    "duckdb>=1.5.4": "Dependency specifier for DuckDB at version 1.5.4 or later.",
+    "grep -r \"af night-shift\" docs/ README.md": "Verification command to ensure all af night-shift references are removed from documentation.",
+    "license": "pyproject.toml metadata field specifying the package license.",
+    "main": "The Click entry-point function in nightshift/app.py.",
+    "name = \"nightshift\"": "The package name declaration in nightshift's pyproject.toml.",
+    "night-shift --help": "CLI invocation to display the night-shift help text.",
+    "night-shift --json": "CLI invocation to run night-shift with JSON output mode.",
+    "night-shift --version": "CLI invocation to display the night-shift version.",
+    "night-shift = \"nightshift.app:main\"": "The CLI entry point declaration mapping the night-shift command to nightshift.app:main.",
+    "nightshift = { workspace = true }": "uv workspace source declaration for the nightshift package.",
+    "nightshift.app": "The Python module containing the night-shift CLI entry point.",
+    "nightshift/app.py": "The CLI entry-point module in the nightshift package.",
+    "nightshift/pyproject.toml": "The build configuration file for the nightshift package.",
+    "nightshift>=4.0.0rc4": "Dependency specifier for the nightshift package at version 4.0.0-rc4 or later.",
+    "packages/af/": "The directory containing the af CLI package.",
+    "packages/af/af/app.py": "The af CLI entry point module where subcommands are registered.",
+    "packages/af/af/nightshift.py": "The af CLI module containing the night-shift command (to be removed).",
+    "packages/af/tests/": "The test directory for the af CLI package.",
+    "packages/af/tests/conftest.py": "Pytest fixtures file for the af package tests.",
+    "packages/nightshift": "The workspace member path for the nightshift package.",
+    "packages/nightshift/": "The directory containing the new nightshift standalone CLI package.",
+    "packages/nightshift/nightshift/__init__.py": "The package init module for nightshift.",
+    "packages/nightshift/nightshift/__main__.py": "The module enabling python -m nightshift invocation.",
+    "packages/nightshift/nightshift/app.py": "The Click entry-point module for the standalone night-shift CLI.",
+    "packages/nightshift/pyproject.toml": "The build configuration file for the nightshift package.",
+    "packages/nightshift/tests/": "The test directory for the nightshift package.",
+    "packages/nightshift/tests/conftest.py": "Pytest fixtures file for the nightshift package tests.",
+    "packages/spec/tests/": "The test directory for the spec CLI package (reference for testpaths pattern).",
+    "pytest": "The Python test framework used by the project.",
+    "python -m nightshift": "Alternative invocation of the night-shift CLI via Python's -m flag.",
+    "python -m nightshift --help": "Invocation to display night-shift help via python -m.",
+    "rich": "Terminal formatting library used for styled output.",
+    "rich>=15.0": "Dependency specifier for Rich at version 15.0 or later.",
+    "spec": "The AI-powered spec creation CLI package.",
+    "test_code_dry_run.py": "Test file for daemon guard and dry-run behavior.",
+    "test_spec04_properties.py": "Property-based test file for night-shift daemon behavior.",
+    "test_spec04_req3.py": "Test file for JSONL progress event requirements.",
+    "test_spec04_smoke.py": "Smoke test file for the night-shift daemon.",
+    "uv": "The Python package manager used by the project.",
+    "version = \"4.0.0-rc4\"": "The version declaration in nightshift's pyproject.toml.",
+    "version_option": "Click decorator that adds a --version flag to a CLI command.",
+    "af \u2500\u2500\u25b6 agentfox \u2500\u2500\u25b6 afspec": "Package diagram line showing af depends on agentfox depends on afspec.",
+    "spec \u2500\u2500\u25b6 agentspec \u2500\u2500\u25b6 afspec": "Package diagram line showing spec depends on agentspec depends on afspec.",
+    "nightshift \u2500\u2500\u25b6 agentfox": "Package diagram line showing nightshift depends on agentfox."
+  },
+  "requirements": [
+    {
+      "id": "07-REQ-1",
+      "title": "Remove night-shift from the af CLI",
+      "user_story": {
+        "role": "project maintainer",
+        "goal": "remove the night-shift subcommand from the af package entirely",
+        "benefit": "so that af no longer carries the night-shift daemon and coupling between the packages is eliminated"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "07-REQ-1.1",
+          "ears_pattern": "ubiquitous",
+          "system": "af package",
+          "action": "does not register or expose a `night-shift` subcommand in `packages/af/af/app.py`",
+          "return_contract": null
+        },
+        {
+          "id": "07-REQ-1.2",
+          "ears_pattern": "ubiquitous",
+          "system": "af package",
+          "action": "has the file `packages/af/af/nightshift.py` deleted from the repository with no deprecation stub left in its place",
+          "return_contract": null
+        },
+        {
+          "id": "07-REQ-1.3",
+          "ears_pattern": "event_driven",
+          "system": "af CLI",
+          "action": "reports an unrecognized command error (Click's default behavior for unregistered subcommands)",
+          "return_contract": "Non-zero exit code and Click error message indicating the subcommand does not exist",
+          "trigger": "a user invokes `af night-shift`"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "07-REQ-1.E1",
+          "ears_pattern": "unwanted",
+          "system": "af package build",
+          "action": "fails CI checks because the af test suite includes a test asserting the subcommand is absent",
+          "return_contract": "Non-zero exit code from the test runner",
+          "error_condition": "`packages/af/af/nightshift.py` still exists or `night-shift` is still registered in `app.py` after the change"
+        }
+      ]
+    },
+    {
+      "id": "07-REQ-2",
+      "title": "Create new nightshift Python package",
+      "user_story": {
+        "role": "developer",
+        "goal": "create the `nightshift` Python package with the correct structure and metadata",
+        "benefit": "so that it can be installed independently and published to PyPI as a standalone tool"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "07-REQ-2.1",
+          "ears_pattern": "ubiquitous",
+          "system": "nightshift package",
+          "action": "contains the directory structure: `packages/nightshift/pyproject.toml`, `packages/nightshift/nightshift/__init__.py`, `packages/nightshift/nightshift/__main__.py`, and `packages/nightshift/nightshift/app.py`",
+          "return_contract": null
+        },
+        {
+          "id": "07-REQ-2.2",
+          "ears_pattern": "ubiquitous",
+          "system": "nightshift `pyproject.toml`",
+          "action": "declares `name = \"nightshift\"`, `version = \"4.0.0-rc4\"`, `description = \"Standalone CLI for the AgentFox Night Shift fix daemon\"`, `license`, and `authors` matching the `af` package values, with `hatchling` as the build backend",
+          "return_contract": null
+        },
+        {
+          "id": "07-REQ-2.3",
+          "ears_pattern": "ubiquitous",
+          "system": "nightshift `pyproject.toml`",
+          "action": "declares direct dependencies on `agentfox>=4.0.0rc4`, `click>=8.1`, `rich>=15.0`, and `duckdb>=1.5.4` in the `[project.dependencies]` section (not as transitive dependencies)",
+          "return_contract": null
+        },
+        {
+          "id": "07-REQ-2.4",
+          "ears_pattern": "ubiquitous",
+          "system": "nightshift `pyproject.toml`",
+          "action": "registers the CLI entry point `night-shift = \"nightshift.app:main\"` under `[project.scripts]`",
+          "return_contract": null
+        },
+        {
+          "id": "07-REQ-2.5",
+          "ears_pattern": "event_driven",
+          "system": "nightshift package",
+          "action": "executes the `main` function from `nightshift.app` via `__main__.py`",
+          "return_contract": "Same output and exit code as invoking the `night-shift` entry point directly",
+          "trigger": "a user installs the `nightshift` package and runs `python -m nightshift`"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "07-REQ-2.E1",
+          "ears_pattern": "unwanted",
+          "system": "nightshift `pyproject.toml`",
+          "action": "fails a dependency audit check, as these packages must not be dependencies of `nightshift`",
+          "return_contract": "Dependency resolution error or audit failure",
+          "error_condition": "`agentspec` or `afspec` are listed as direct or indirect dependencies of `nightshift`"
+        },
+        {
+          "id": "07-REQ-2.E2",
+          "ears_pattern": "unwanted",
+          "system": "nightshift `pyproject.toml`",
+          "action": "fails validation because both must be declared as direct dependencies matching the pattern established in the `af` package",
+          "return_contract": "Missing dependency error at install or import time",
+          "error_condition": "`rich` or `duckdb` are omitted from the direct dependencies in `[project.dependencies]`"
+        }
+      ]
+    },
+    {
+      "id": "07-REQ-3",
+      "title": "Replicate af night-shift CLI behavior exactly",
+      "user_story": {
+        "role": "user who previously used af night-shift",
+        "goal": "get the identical experience from the standalone `night-shift` command",
+        "benefit": "so that switching from `af night-shift` to `night-shift` requires no behavior adaptation"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "07-REQ-3.1",
+          "ears_pattern": "state_driven",
+          "system": "night-shift CLI",
+          "action": "displays the fox ASCII art banner on startup",
+          "return_contract": "Banner printed to stdout before the daemon start message",
+          "state": "`--quiet` and `--json` flags are both absent"
+        },
+        {
+          "id": "07-REQ-3.2",
+          "ears_pattern": "complex_event",
+          "system": "night-shift CLI",
+          "action": "suppresses the fox ASCII art banner",
+          "return_contract": "No banner output on stdout",
+          "trigger": "the command starts",
+          "condition": "either `--quiet` or `--json` is supplied"
+        },
+        {
+          "id": "07-REQ-3.3",
+          "ears_pattern": "ubiquitous",
+          "system": "night-shift CLI",
+          "action": "exposes global options `--json/--no-json`, `--verbose/-v`, `--quiet/-q`, `--trace`, and `--version` via `common_options` from `agentfox.io`",
+          "return_contract": null
+        },
+        {
+          "id": "07-REQ-3.4",
+          "ears_pattern": "event_driven",
+          "system": "night-shift CLI",
+          "action": "prints the version string using Click's default `version_option` behavior, reading the version from the package metadata",
+          "return_contract": "Exit code 0 and version output containing `4.0.0-rc4`",
+          "trigger": "a user invokes `night-shift --version`"
+        },
+        {
+          "id": "07-REQ-3.5",
+          "ears_pattern": "ubiquitous",
+          "system": "night-shift CLI",
+          "action": "loads configuration from `.agent-fox/config.toml` using the same config-loading mechanism as `af`, respecting `AF_CONFIG` to override the config file path",
+          "return_contract": null
+        },
+        {
+          "id": "07-REQ-3.6",
+          "ears_pattern": "event_driven",
+          "system": "night-shift CLI",
+          "action": "prints the startup message \"Night-shift daemon starting\u2026\" and, upon exit, prints summary statistics",
+          "return_contract": "Startup message on stdout; summary stats on stdout at exit",
+          "trigger": "the daemon starts successfully"
+        },
+        {
+          "id": "07-REQ-3.7",
+          "ears_pattern": "state_driven",
+          "system": "night-shift CLI",
+          "action": "emits structured progress events in `JSONL` format to stdout",
+          "return_contract": "One JSON object per line for each progress event",
+          "state": "`--json` mode is active"
+        },
+        {
+          "id": "07-REQ-3.8",
+          "ears_pattern": "event_driven",
+          "system": "night-shift CLI",
+          "action": "initiates a graceful shutdown, completing in-progress work before terminating",
+          "return_contract": "Exit code 0",
+          "trigger": "the first `SIGINT` is received while the daemon is running"
+        },
+        {
+          "id": "07-REQ-3.9",
+          "ears_pattern": "event_driven",
+          "system": "night-shift CLI",
+          "action": "immediately aborts all in-progress work and terminates",
+          "return_contract": "Exit code 130",
+          "trigger": "a second `SIGINT` is received during graceful shutdown"
+        },
+        {
+          "id": "07-REQ-3.10",
+          "ears_pattern": "event_driven",
+          "system": "night-shift CLI",
+          "action": "exits immediately with a descriptive error message",
+          "return_contract": "Exit code 1 and error message on stderr",
+          "trigger": "a startup failure occurs (e.g. invalid config or missing dependency)"
+        },
+        {
+          "id": "07-REQ-3.11",
+          "ears_pattern": "ubiquitous",
+          "system": "night-shift CLI",
+          "action": "uses `AgentFoxGroup` from `agentfox.io` as its Click group, inheriting consistent error handling, `OutputManager` construction, and `AF_AGENT` env-var agent-mode defaults",
+          "return_contract": null
+        },
+        {
+          "id": "07-REQ-3.12",
+          "ears_pattern": "ubiquitous",
+          "system": "night-shift CLI",
+          "action": "supports all environment variables provided by `AgentFoxGroup` and `common_options` from `agentfox.io`, including at minimum `AF_CONFIG`, `AF_LOG_LEVEL`, and `AF_AGENT`, with no env var supported by the former `af night-shift` silently dropped",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "07-REQ-3.E1",
+          "ears_pattern": "unwanted",
+          "system": "night-shift CLI",
+          "action": "exits with a descriptive configuration error",
+          "return_contract": "Exit code 1 and a human-readable error message on stderr",
+          "error_condition": "the `.agent-fox/config.toml` file is missing or malformed"
+        },
+        {
+          "id": "07-REQ-3.E2",
+          "ears_pattern": "unwanted",
+          "system": "night-shift CLI",
+          "action": "activates agent-mode defaults (JSONL output, suppressed interactive prompts) as provided by `AgentFoxGroup`",
+          "return_contract": "JSONL output mode active; exit code reflects daemon outcome",
+          "error_condition": "`AF_AGENT=1` is set in the environment"
+        }
+      ]
+    },
+    {
+      "id": "07-REQ-4",
+      "title": "Integrate nightshift into the uv workspace",
+      "user_story": {
+        "role": "developer",
+        "goal": "have the `nightshift` package fully integrated into the monorepo workspace",
+        "benefit": "so that it is built, tested, and linted alongside all other workspace packages without additional configuration"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "07-REQ-4.1",
+          "ears_pattern": "ubiquitous",
+          "system": "root `pyproject.toml`",
+          "action": "lists `packages/nightshift` as a member in the `[tool.uv.workspace]` members array",
+          "return_contract": null
+        },
+        {
+          "id": "07-REQ-4.2",
+          "ears_pattern": "ubiquitous",
+          "system": "root `pyproject.toml`",
+          "action": "declares `nightshift>=4.0.0rc4` in the root `[project.dependencies]` and `nightshift = { workspace = true }` in `[tool.uv.sources]`",
+          "return_contract": null
+        },
+        {
+          "id": "07-REQ-4.3",
+          "ears_pattern": "ubiquitous",
+          "system": "root `pyproject.toml`",
+          "action": "includes `packages/nightshift/tests/` in the `testpaths` list under the `[tool.pytest.ini_options]` section, matching the pattern used for `packages/af/tests/` and `packages/spec/tests/`",
+          "return_contract": null
+        },
+        {
+          "id": "07-REQ-4.4",
+          "ears_pattern": "event_driven",
+          "system": "CI pipeline (`make check`)",
+          "action": "automatically includes lint and test runs for `packages/nightshift/` without any changes to CI configuration files beyond `pyproject.toml`",
+          "return_contract": "All `nightshift` tests and lint checks are executed and reported",
+          "trigger": "the CI pipeline runs"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "07-REQ-4.E1",
+          "ears_pattern": "unwanted",
+          "system": "root `pyproject.toml`",
+          "action": "causes `nightshift` tests to be silently skipped by the test runner",
+          "return_contract": "Zero tests collected from the `nightshift` package \u2014 detectable by comparing test counts",
+          "error_condition": "`packages/nightshift/tests/` is omitted from `testpaths`"
+        }
+      ]
+    },
+    {
+      "id": "07-REQ-5",
+      "title": "Update documentation to reference standalone night-shift CLI",
+      "user_story": {
+        "role": "user reading the documentation",
+        "goal": "find accurate references to the standalone `night-shift` command throughout all docs",
+        "benefit": "so that I am not confused by stale references to the removed `af night-shift` subcommand"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "07-REQ-5.1",
+          "ears_pattern": "ubiquitous",
+          "system": "documentation files",
+          "action": "contain zero occurrences of the string `af night-shift` across `docs/` and `README.md`, verified by `grep -r \"af night-shift\" docs/ README.md` returning no output",
+          "return_contract": "Empty grep output (exit code 1 from grep, meaning no matches found)"
+        },
+        {
+          "id": "07-REQ-5.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`README.md`",
+          "action": "updates the Night Shift section and Quick Start guide to reference the standalone `night-shift` CLI and includes the updated package dependency diagram showing `nightshift` depending only on `agentfox`",
+          "return_contract": null
+        },
+        {
+          "id": "07-REQ-5.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`docs/cli-reference.md`",
+          "action": "documents `night-shift` as a standalone CLI (not an `af` subcommand) and updates the command table accordingly",
+          "return_contract": null
+        },
+        {
+          "id": "07-REQ-5.4",
+          "ears_pattern": "ubiquitous",
+          "system": "`docs/config-reference.md`",
+          "action": "replaces all references to `af night-shift` and `agent-fox night-shift` with `night-shift`",
+          "return_contract": null
+        },
+        {
+          "id": "07-REQ-5.5",
+          "ears_pattern": "ubiquitous",
+          "system": "architecture documentation files (`docs/architecture/04-night-shift.md`, `docs/architecture/README.md`, `docs/architecture/03-execution-and-archetypes.md`) and `docs/profiles.md`",
+          "action": "replace any references to `af night-shift` with the standalone `night-shift` CLI where applicable",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "07-REQ-5.E1",
+          "ears_pattern": "unwanted",
+          "system": "documentation",
+          "action": "fails the documentation acceptance check (`grep -r \"af night-shift\" docs/ README.md` returns output)",
+          "return_contract": "Non-empty grep output \u2014 implementation is incomplete",
+          "error_condition": "any documentation file under `docs/` or `README.md` still contains the string `af night-shift` after implementation"
+        }
+      ]
+    },
+    {
+      "id": "07-REQ-6",
+      "title": "Update package dependency diagram",
+      "user_story": {
+        "role": "developer reading the README",
+        "goal": "see an accurate package dependency diagram that includes the new `nightshift` package",
+        "benefit": "so that I understand the dependency topology of the monorepo at a glance"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "07-REQ-6.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`README.md` package dependency diagram",
+          "action": "shows `nightshift` as a node depending on `agentfox` only, with no arrow from `nightshift` to `agentspec` or `afspec`",
+          "return_contract": null
+        },
+        {
+          "id": "07-REQ-6.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`README.md` package dependency diagram",
+          "action": "reflects the updated topology: `af \u2500\u2500\u25b6 agentfox \u2500\u2500\u25b6 afspec`, `spec \u2500\u2500\u25b6 agentspec \u2500\u2500\u25b6 afspec`, and `nightshift \u2500\u2500\u25b6 agentfox`",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "07-REQ-7",
+      "title": "Delegate CLI to agentfox.nightshift modules (no logic duplication)",
+      "user_story": {
+        "role": "developer maintaining the codebase",
+        "goal": "ensure `nightshift/app.py` imports from `agentfox.nightshift` rather than duplicating business logic",
+        "benefit": "so that bug fixes in `agentfox.nightshift` automatically apply to the standalone CLI"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "07-REQ-7.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`nightshift/app.py`",
+          "action": "imports and delegates to the same `agentfox.nightshift` modules used by the former `packages/af/af/nightshift.py`, containing no duplicated business logic",
+          "return_contract": null
+        },
+        {
+          "id": "07-REQ-7.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`nightshift/app.py`",
+          "action": "uses `AgentFoxGroup` from `agentfox.io` as the Click group and `common_options` from `agentfox.io` to attach global CLI options",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "07-REQ-7.E1",
+          "ears_pattern": "unwanted",
+          "system": "`nightshift/app.py`",
+          "action": "is rejected during code review as a violation of the no-duplication constraint",
+          "return_contract": null,
+          "error_condition": "business logic from `agentfox.nightshift` is copy-pasted into `nightshift/app.py` rather than imported"
+        }
+      ]
+    },
+    {
+      "id": "07-REQ-8",
+      "title": "Migrate night-shift tests to the nightshift package",
+      "user_story": {
+        "role": "developer running the test suite",
+        "goal": "have all night-shift-related tests located in `packages/nightshift/tests/` and passing",
+        "benefit": "so that the `nightshift` package is independently verifiable and the `af` test suite does not carry tests for a removed feature"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "07-REQ-8.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`packages/nightshift/tests/`",
+          "action": "contains the migrated night-shift test files (`test_spec04_req3.py`, `test_spec04_smoke.py`, `test_spec04_properties.py`, `test_code_dry_run.py`) or the night-shift-specific portions thereof if they were split due to mixed concerns",
+          "return_contract": null
+        },
+        {
+          "id": "07-REQ-8.2",
+          "ears_pattern": "ubiquitous",
+          "system": "migrated night-shift tests",
+          "action": "pass without modification to business logic after migration",
+          "return_contract": "All migrated tests report passing status from the test runner"
+        },
+        {
+          "id": "07-REQ-8.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`af` test suite",
+          "action": "continues to pass after migration, with no af tests regressing due to fixture or file movement",
+          "return_contract": "All af tests report passing status from the test runner"
+        },
+        {
+          "id": "07-REQ-8.4",
+          "ears_pattern": "ubiquitous",
+          "system": "test migration process",
+          "action": "inspects `packages/af/tests/conftest.py` for shared fixtures before moving any files, moving exclusive fixtures alongside test files and copying shared fixtures into `packages/nightshift/tests/conftest.py`",
+          "return_contract": null
+        },
+        {
+          "id": "07-REQ-8.5",
+          "ears_pattern": "ubiquitous",
+          "system": "`af` test suite",
+          "action": "includes a test asserting that `af night-shift` is not a recognized command after removal",
+          "return_contract": "Test passes with non-zero exit code and Click unrecognized-command error from `af night-shift`"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "07-REQ-8.E1",
+          "ears_pattern": "unwanted",
+          "system": "test migration",
+          "action": "causes the `af` test suite to lose coverage; the file must be split so that `af`-specific tests remain in `packages/af/tests/`",
+          "return_contract": null,
+          "error_condition": "a test file tests both `af` and night-shift behavior and is moved entirely to `packages/nightshift/tests/`"
+        }
+      ]
+    },
+    {
+      "id": "07-REQ-9",
+      "title": "Entry point integration test for the nightshift CLI",
+      "user_story": {
+        "role": "developer running CI",
+        "goal": "have an integration test that verifies the `night-shift` CLI entry point is correctly wired",
+        "benefit": "so that packaging or import errors are caught immediately rather than discovered by end users"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "07-REQ-9.1",
+          "ears_pattern": "event_driven",
+          "system": "nightshift integration test",
+          "action": "invokes `python -m nightshift --help` or `night-shift --help` (or both) as a subprocess and asserts a zero exit code and the presence of `--version` in the help output",
+          "return_contract": "Exit code 0 and stdout containing the string `--version`",
+          "trigger": "the test suite runs"
+        },
+        {
+          "id": "07-REQ-9.2",
+          "ears_pattern": "ubiquitous",
+          "system": "nightshift integration test",
+          "action": "is located in `packages/nightshift/tests/` and runs as part of the standard `make check` pipeline",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "07-REQ-9.E1",
+          "ears_pattern": "unwanted",
+          "system": "nightshift integration test",
+          "action": "the test falls back to `python -m nightshift --help` or raises a clear skip/failure message indicating the entry point is missing",
+          "return_contract": "Test failure or skip with a descriptive message",
+          "error_condition": "the `night-shift` entry point is not installed in the test environment"
+        }
+      ]
+    }
+  ],
+  "correctness_properties": [
+    {
+      "id": "07-PROP-1",
+      "title": "Behavioral parity with af night-shift",
+      "for_any": "invocation of `night-shift` with any combination of flags supported by the former `af night-shift`",
+      "invariant": "the output, exit code, and side effects of `night-shift` are identical to those that `af night-shift` would have produced with the same flags and environment",
+      "validates": [
+        "07-REQ-3.1",
+        "07-REQ-3.2",
+        "07-REQ-3.3",
+        "07-REQ-3.4",
+        "07-REQ-3.6",
+        "07-REQ-3.7",
+        "07-REQ-3.8",
+        "07-REQ-3.9",
+        "07-REQ-3.10"
+      ]
+    },
+    {
+      "id": "07-PROP-2",
+      "title": "No business logic duplication",
+      "for_any": "function or class in `nightshift/app.py`",
+      "invariant": "no business logic from `agentfox.nightshift` is re-implemented in `nightshift/app.py`; all logic is imported from `agentfox.nightshift` modules",
+      "validates": [
+        "07-REQ-7.1",
+        "07-REQ-7.2"
+      ]
+    },
+    {
+      "id": "07-PROP-3",
+      "title": "Environment variable completeness",
+      "for_any": "environment variable supported by the former `af night-shift` invocation path via `AgentFoxGroup` or `common_options`",
+      "invariant": "the same environment variable is supported by the standalone `night-shift` CLI with identical semantics",
+      "validates": [
+        "07-REQ-3.11",
+        "07-REQ-3.12"
+      ]
+    },
+    {
+      "id": "07-PROP-4",
+      "title": "Test suite non-regression",
+      "for_any": "test previously passing in `packages/af/tests/` that tests `af` behavior",
+      "invariant": "the test continues to pass after the nightshift extraction and test migration are complete",
+      "validates": [
+        "07-REQ-8.3",
+        "07-REQ-8.5"
+      ]
+    },
+    {
+      "id": "07-PROP-5",
+      "title": "Documentation reference cleanliness",
+      "for_any": "file under `docs/` or `README.md`",
+      "invariant": "the string `af night-shift` does not appear anywhere in the file after implementation is complete",
+      "validates": [
+        "07-REQ-5.1",
+        "07-REQ-5.E1"
+      ]
+    },
+    {
+      "id": "07-PROP-6",
+      "title": "Dependency isolation",
+      "for_any": "dependency declared in `nightshift/pyproject.toml`",
+      "invariant": "neither `agentspec` nor `afspec` appear as direct or transitive dependencies of the `nightshift` package",
+      "validates": [
+        "07-REQ-2.E1"
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "07-PATH-1",
+      "title": "User runs night-shift daemon in normal mode",
+      "steps": [
+        {
+          "actor": "User",
+          "action": "Invokes `night-shift` from the terminal (no `--quiet` or `--json` flags)"
+        },
+        {
+          "actor": "night-shift CLI",
+          "action": "Initializes `AgentFoxGroup`, constructs `OutputManager`, loads `AF_CONFIG` or default `.agent-fox/config.toml`"
+        },
+        {
+          "actor": "night-shift CLI",
+          "action": "Displays the fox ASCII art banner on stdout"
+        },
+        {
+          "actor": "night-shift CLI",
+          "action": "Prints \"Night-shift daemon starting\u2026\" to stdout"
+        },
+        {
+          "actor": "agentfox.nightshift daemon",
+          "action": "Runs the fix-only daemon loop, processing tasks until interrupted"
+        },
+        {
+          "actor": "User",
+          "action": "Sends first `SIGINT` (Ctrl+C)"
+        },
+        {
+          "actor": "night-shift CLI",
+          "action": "Initiates graceful shutdown, completes in-progress work, prints summary statistics, exits with code 0"
+        }
+      ]
+    },
+    {
+      "id": "07-PATH-2",
+      "title": "User runs night-shift in JSON/agent mode",
+      "steps": [
+        {
+          "actor": "User",
+          "action": "Invokes `night-shift --json` (or sets `AF_AGENT=1` in the environment)"
+        },
+        {
+          "actor": "night-shift CLI",
+          "action": "Initializes `AgentFoxGroup` with agent-mode defaults, suppresses banner output"
+        },
+        {
+          "actor": "night-shift CLI",
+          "action": "Emits structured `JSONL` progress events to stdout for each daemon action"
+        },
+        {
+          "actor": "User",
+          "action": "Sends first `SIGINT` to stop the daemon"
+        },
+        {
+          "actor": "night-shift CLI",
+          "action": "Gracefully shuts down and exits with code 0, emitting a final JSONL summary event"
+        }
+      ]
+    },
+    {
+      "id": "07-PATH-3",
+      "title": "User sends a second SIGINT for immediate abort",
+      "steps": [
+        {
+          "actor": "User",
+          "action": "Sends first `SIGINT` while daemon is running, triggering graceful shutdown"
+        },
+        {
+          "actor": "night-shift CLI",
+          "action": "Begins graceful shutdown sequence"
+        },
+        {
+          "actor": "User",
+          "action": "Sends second `SIGINT` before graceful shutdown completes"
+        },
+        {
+          "actor": "night-shift CLI",
+          "action": "Immediately aborts all in-progress work and exits with code 130"
+        }
+      ]
+    },
+    {
+      "id": "07-PATH-4",
+      "title": "User queries night-shift CLI version",
+      "steps": [
+        {
+          "actor": "User",
+          "action": "Invokes `night-shift --version`"
+        },
+        {
+          "actor": "night-shift CLI",
+          "action": "Reads version from package metadata (`4.0.0-rc4`) using Click's `version_option` and prints it to stdout"
+        },
+        {
+          "actor": "night-shift CLI",
+          "action": "Exits with code 0"
+        }
+      ]
+    },
+    {
+      "id": "07-PATH-5",
+      "title": "Developer runs full CI check including nightshift tests",
+      "steps": [
+        {
+          "actor": "Developer",
+          "action": "Runs `make check` in the monorepo root"
+        },
+        {
+          "actor": "CI pipeline",
+          "action": "Reads `testpaths` from the root `pyproject.toml` and discovers `packages/nightshift/tests/`"
+        },
+        {
+          "actor": "Test runner (pytest)",
+          "action": "Collects and runs all tests in `packages/nightshift/tests/`, including the entry point integration test"
+        },
+        {
+          "actor": "Test runner (pytest)",
+          "action": "Reports pass/fail results for all nightshift tests alongside `af` and `spec` test results"
+        }
+      ]
+    },
+    {
+      "id": "07-PATH-6",
+      "title": "User invokes af night-shift after removal",
+      "steps": [
+        {
+          "actor": "User",
+          "action": "Invokes `af night-shift` after the extraction is complete"
+        },
+        {
+          "actor": "af CLI",
+          "action": "Looks up `night-shift` in its registered subcommands and finds no match"
+        },
+        {
+          "actor": "af CLI",
+          "action": "Prints Click's unrecognized-command error and exits with a non-zero exit code"
+        }
+      ]
+    }
+  ],
+  "error_handling": [
+    {
+      "id": "07-ERR-1",
+      "condition": "`.agent-fox/config.toml` is missing or malformed when `night-shift` starts",
+      "behavior": "The CLI prints a descriptive configuration error to stderr and exits with code 1",
+      "requirement_id": "07-REQ-3.E1"
+    },
+    {
+      "id": "07-ERR-2",
+      "condition": "A startup failure occurs (e.g. missing dependency, import error, bad config)",
+      "behavior": "The CLI prints a descriptive error message to stderr and exits with code 1",
+      "requirement_id": "07-REQ-3.10"
+    },
+    {
+      "id": "07-ERR-3",
+      "condition": "A second `SIGINT` is received during graceful shutdown",
+      "behavior": "The daemon immediately aborts all in-progress work and exits with code 130",
+      "requirement_id": "07-REQ-3.9"
+    },
+    {
+      "id": "07-ERR-4",
+      "condition": "User invokes `af night-shift` after the subcommand has been removed",
+      "behavior": "The `af` CLI reports an unrecognized command error via Click's default behavior and exits with a non-zero code",
+      "requirement_id": "07-REQ-1.3"
+    },
+    {
+      "id": "07-ERR-5",
+      "condition": "`night-shift` entry point is not installed in the test environment when the integration test runs",
+      "behavior": "The integration test fails or is skipped with a descriptive message indicating the entry point is missing",
+      "requirement_id": "07-REQ-9.E1"
+    },
+    {
+      "id": "07-ERR-6",
+      "condition": "Any documentation file under `docs/` or `README.md` contains the string `af night-shift` after implementation",
+      "behavior": "The documentation acceptance check (`grep -r \"af night-shift\" docs/ README.md`) produces non-empty output, signaling an incomplete implementation",
+      "requirement_id": "07-REQ-5.E1"
+    }
+  ]
+}

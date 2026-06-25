@@ -12,13 +12,11 @@ Requirements: 06-REQ-5.1, 06-REQ-5.2, 06-REQ-5.3, 06-REQ-6.1, 06-REQ-6.2,
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import duckdb
 import pytest
-
 
 # -----------------------------------------------------------------------
 # TS-06-10: assemble_context no longer calls _migrate_legacy_files
@@ -40,9 +38,7 @@ class TestAssembleContextNoMigration:
         # Create a minimal tasks.json for spec parsing
         (spec_dir / "tasks.json").write_text('{"version":"1.2","tasks":[]}')
 
-        with patch(
-            "agentfox.session.context._migrate_legacy_files"
-        ) as mock_migrate:
+        with patch("agentfox.session.context._migrate_legacy_files") as mock_migrate:
             try:
                 assemble_context(
                     spec_dir=spec_dir,
@@ -54,8 +50,7 @@ class TestAssembleContextNoMigration:
                 pass  # We only care about whether _migrate was called
 
             assert mock_migrate.call_count == 0, (
-                "assemble_context must NOT call _migrate_legacy_files; "
-                f"it was called {mock_migrate.call_count} time(s)"
+                f"assemble_context must NOT call _migrate_legacy_files; it was called {mock_migrate.call_count} time(s)"
             )
 
 
@@ -106,20 +101,34 @@ class TestAssembleContextNoErrataIndex:
 class TestOrchestratorStartupMigration:
     """TS-06-11: startup must call _migrate_legacy_files for each spec."""
 
-    def test_orchestrator_calls_migrate_for_each_spec(self) -> None:
+    def test_orchestrator_calls_migrate_for_each_spec(self, tmp_path: Path) -> None:
         """The orchestrator startup sequence must call _migrate_legacy_files
         once per spec with a read-write connection before dispatching any
         sessions."""
-        # This test verifies the startup sequence that will be implemented
-        # in af/nightshift.py or agentfox/engine/run.py.
-        # After spec 06, the orchestrator startup should:
-        # 1. Open a read-write connection
-        # 2. Call _migrate_legacy_files for each spec
-        # 3. Close the write connection before dispatching sessions
-        pytest.skip(
-            "Orchestrator startup migration not yet extracted from "
-            "assemble_context (spec 06 group 5)"
+        from unittest.mock import MagicMock
+
+        from agentfox.engine.run import _run_startup_migrations
+
+        mock_knowledge_db = MagicMock()
+        mock_conn = MagicMock()
+        mock_knowledge_db.connection = mock_conn
+
+        # Create specs directory with two spec subdirectories
+        specs_dir = tmp_path / "specs"
+        specs_dir.mkdir()
+        (specs_dir / "spec_a").mkdir()
+        (specs_dir / "spec_b").mkdir()
+
+        with patch("agentfox.session.context._migrate_legacy_files") as mock_migrate:
+            _run_startup_migrations(mock_knowledge_db, specs_dir, tmp_path)
+
+        # Must be called once per spec directory
+        assert mock_migrate.call_count == 2, (
+            f"Expected 2 calls to _migrate_legacy_files (one per spec), got {mock_migrate.call_count}"
         )
+        # Verify both spec names were passed
+        called_spec_names = {call.args[2] for call in mock_migrate.call_args_list}
+        assert called_spec_names == {"spec_a", "spec_b"}
 
 
 # -----------------------------------------------------------------------
@@ -130,14 +139,29 @@ class TestOrchestratorStartupMigration:
 class TestOrchestratorStartupErrata:
     """TS-06-14: startup must call index_errata_from_markdown with rw conn."""
 
-    def test_orchestrator_calls_index_errata_at_startup(self) -> None:
+    def test_orchestrator_calls_index_errata_at_startup(self, tmp_path: Path) -> None:
         """The orchestrator startup sequence must call
         index_errata_from_markdown with a read-write connection before
         dispatching any sessions."""
-        pytest.skip(
-            "Orchestrator startup errata indexing not yet extracted "
-            "from assemble_context (spec 06 group 5)"
-        )
+        from unittest.mock import MagicMock
+
+        from agentfox.engine.run import _run_startup_migrations
+
+        mock_knowledge_db = MagicMock()
+        mock_conn = MagicMock()
+        mock_knowledge_db.connection = mock_conn
+
+        specs_dir = tmp_path / "specs"
+        specs_dir.mkdir()
+
+        with patch("agentfox.knowledge.errata.index_errata_from_markdown") as mock_index:
+            _run_startup_migrations(mock_knowledge_db, specs_dir, tmp_path)
+
+        assert mock_index.call_count >= 1, "index_errata_from_markdown must be called at startup"
+        # Verify it was called with the connection and project root
+        call_args = mock_index.call_args
+        assert call_args.args[0] is mock_conn
+        assert call_args.args[1] == tmp_path
 
 
 # -----------------------------------------------------------------------
@@ -148,9 +172,7 @@ class TestOrchestratorStartupErrata:
 class TestMigrateLegacyFilesIdempotent:
     """TS-06-12: calling _migrate_legacy_files twice produces no duplicates."""
 
-    def test_idempotent_migration(
-        self, knowledge_conn: duckdb.DuckDBPyConnection, tmp_path: Path
-    ) -> None:
+    def test_idempotent_migration(self, knowledge_conn: duckdb.DuckDBPyConnection, tmp_path: Path) -> None:
         """Calling _migrate_legacy_files twice with the same arguments
         must produce the same record count — no duplicate records."""
         from agentfox.session.context import _migrate_legacy_files
@@ -170,13 +192,13 @@ class TestMigrateLegacyFilesIdempotent:
         # First migration
         _migrate_legacy_files(knowledge_conn, spec_dir, "test_spec")
         count_first = knowledge_conn.execute(
-            "SELECT COUNT(*) FROM findings WHERE spec_name = 'test_spec'"
+            "SELECT COUNT(*) FROM review_findings WHERE spec_name = 'test_spec'"
         ).fetchone()[0]
 
         # Second migration — should produce no additional records
         _migrate_legacy_files(knowledge_conn, spec_dir, "test_spec")
         count_second = knowledge_conn.execute(
-            "SELECT COUNT(*) FROM findings WHERE spec_name = 'test_spec'"
+            "SELECT COUNT(*) FROM review_findings WHERE spec_name = 'test_spec'"
         ).fetchone()[0]
 
         assert count_first == count_second, (
@@ -194,9 +216,7 @@ class TestMigrateLegacyFilesIdempotent:
 class TestIndexErrataIdempotent:
     """TS-06-15: calling index_errata_from_markdown twice produces no duplicates."""
 
-    def test_idempotent_errata_indexing(
-        self, knowledge_conn: duckdb.DuckDBPyConnection, tmp_path: Path
-    ) -> None:
+    def test_idempotent_errata_indexing(self, knowledge_conn: duckdb.DuckDBPyConnection, tmp_path: Path) -> None:
         """Calling index_errata_from_markdown twice with the same
         project_root must produce the same errata record count."""
         from agentfox.knowledge.errata import index_errata_from_markdown
@@ -204,21 +224,15 @@ class TestIndexErrataIdempotent:
         # Create minimal errata directory structure
         errata_dir = tmp_path / "docs" / "errata"
         errata_dir.mkdir(parents=True)
-        (errata_dir / "01_test_erratum.md").write_text(
-            "# Erratum: test\n\nThis is a test erratum.\n"
-        )
+        (errata_dir / "01_test_erratum.md").write_text("# Erratum: test\n\nThis is a test erratum.\n")
 
         # First indexing
         index_errata_from_markdown(knowledge_conn, tmp_path)
-        count_first = knowledge_conn.execute(
-            "SELECT COUNT(*) FROM errata"
-        ).fetchone()[0]
+        count_first = knowledge_conn.execute("SELECT COUNT(*) FROM errata").fetchone()[0]
 
         # Second indexing — should produce no additional records
         index_errata_from_markdown(knowledge_conn, tmp_path)
-        count_second = knowledge_conn.execute(
-            "SELECT COUNT(*) FROM errata"
-        ).fetchone()[0]
+        count_second = knowledge_conn.execute("SELECT COUNT(*) FROM errata").fetchone()[0]
 
         assert count_first == count_second, (
             f"index_errata_from_markdown is not idempotent: "
@@ -240,14 +254,82 @@ class TestAssembleContextWithReadOnlyConn:
     ) -> None:
         """assemble_context must complete successfully when given a
         read-only connection, returning a populated context string.
-        Currently blocked because assemble_context still performs writes."""
-        # After spec 06 group 5 extracts writes from assemble_context,
-        # this test should pass with a genuine read-only connection.
-        # For now, skip since assemble_context still calls write functions.
-        pytest.skip(
-            "assemble_context still calls _migrate_legacy_files and "
-            "index_errata_from_markdown (spec 06 group 5 not implemented)"
+
+        Seeds a minimal v1.2 spec on disk so that afspec.load_spec
+        succeeds, letting assemble_context run to completion without
+        swallowing exceptions."""
+        from agentfox.session.context import assemble_context
+
+        spec_dir = tmp_path / "test_spec"
+        spec_dir.mkdir()
+
+        # Seed a valid v1.2 spec so afspec.load_spec succeeds
+        import json
+
+        spec_data = {
+            "$schema": "https://agentfox.dev/schemas/spec-v1.2.json",
+            "spec_id": "99",
+            "spec_name": "test_spec",
+            "schema_version": 1,
+            "test_commands": {"spec_tests": "pytest -q", "all_tests": "make check", "linter": "ruff check"},
+            "dependencies": [],
+            "task_groups": [
+                {
+                    "id": 1,
+                    "kind": "tests",
+                    "title": "Test group",
+                    "subtasks": [
+                        {
+                            "id": "1.1",
+                            "title": "A test subtask",
+                            "details": [],
+                            "test_spec_refs": [],
+                            "requirement_refs": [],
+                            "state": "pending",
+                            "optional": False,
+                        }
+                    ],
+                    "verification": {"id": "1.V", "checks": []},
+                }
+            ],
+            "traceability": [],
+        }
+        (spec_dir / "tasks.json").write_text(json.dumps(spec_data))
+        (spec_dir / "requirements.json").write_text(
+            json.dumps(
+                {
+                    "introduction": "Test",
+                    "glossary": [],
+                    "requirements": [],
+                    "correctness_properties": [],
+                    "execution_paths": [],
+                    "error_handling": [],
+                }
+            )
         )
+        (spec_dir / "test_spec.json").write_text(
+            json.dumps(
+                {
+                    "test_cases": [],
+                    "property_tests": [],
+                    "edge_case_tests": [],
+                    "smoke_tests": [],
+                    "coverage": {},
+                }
+            )
+        )
+
+        # assemble_context must complete without raising — no try/except
+        ctx = assemble_context(
+            spec_dir=spec_dir,
+            task_group=1,
+            conn=knowledge_conn,
+            project_root=tmp_path,
+        )
+
+        # Must return a non-None string
+        assert isinstance(ctx, str)
+        assert ctx is not None
 
 
 # -----------------------------------------------------------------------
@@ -263,12 +345,40 @@ class TestAssembleContextNoWrites:
     ) -> None:
         """After calling assemble_context, the DB state must be identical
         to before the call — no INSERT, UPDATE, or DELETE operations."""
-        # After spec 06 group 5, assemble_context should perform zero writes.
-        # This test verifies that contract by snapshotting DB state.
-        pytest.skip(
-            "assemble_context still performs writes via "
-            "_migrate_legacy_files and index_errata_from_markdown "
-            "(spec 06 group 5 not implemented)"
+        from agentfox.session.context import assemble_context
+
+        spec_dir = tmp_path / "test_spec"
+        spec_dir.mkdir()
+        (spec_dir / "tasks.json").write_text('{"version":"1.2","tasks":[]}')
+
+        # Snapshot table row counts before
+        tables = knowledge_conn.execute(
+            "SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'"
+        ).fetchall()
+        counts_before = {}
+        for (table_name,) in tables:
+            count = knowledge_conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+            counts_before[table_name] = count
+
+        # Call assemble_context
+        try:
+            assemble_context(
+                spec_dir=spec_dir,
+                task_group=1,
+                conn=knowledge_conn,
+                project_root=tmp_path,
+            )
+        except Exception:
+            pass  # Spec loading may fail; we only care about DB state
+
+        # Snapshot table row counts after
+        counts_after = {}
+        for (table_name,) in tables:
+            count = knowledge_conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+            counts_after[table_name] = count
+
+        assert counts_before == counts_after, (
+            f"assemble_context modified DB state: before={counts_before}, after={counts_after}"
         )
 
 
@@ -280,12 +390,50 @@ class TestAssembleContextNoWrites:
 class TestOrchestratorPassesReadOnlyConn:
     """TS-06-18: orchestrator must pass read_only=True conn to assemble_context."""
 
-    def test_orchestrator_session_uses_read_only_conn(self) -> None:
-        """The orchestrator must pass a connection opened with
-        read_only=True to assemble_context when dispatching sessions."""
-        pytest.skip(
-            "Orchestrator read-only conn wiring not yet implemented "
-            "(spec 06 group 5)"
+    def test_orchestrator_setup_creates_read_only_context_conn(self) -> None:
+        """The orchestrator _setup_infrastructure must call
+        open_knowledge_store twice: once with read_only=False for the
+        main DB, and once with read_only=True for context assembly.
+        This verifies at runtime that the factory function is invoked
+        with the correct read_only values (06-REQ-7.3)."""
+        from unittest.mock import MagicMock
+
+        mock_db_rw = MagicMock()
+        mock_db_rw.connection = MagicMock()
+        mock_db_ro = MagicMock()
+        mock_db_ro.connection = MagicMock()
+
+        call_log: list[bool] = []
+
+        def _track_open(config, *, read_only):
+            call_log.append(read_only)
+            return mock_db_ro if read_only else mock_db_rw
+
+        with (
+            patch(
+                "agentfox.engine.run.open_knowledge_store",
+                side_effect=_track_open,
+            ),
+            patch("agentfox.engine.run.DuckDBSink"),
+            patch("agentfox.engine.run.SinkDispatcher"),
+            patch("agentfox.engine.run.FoxKnowledgeProvider"),
+            patch("agentfox.knowledge.agent_trace.AgentTraceSink"),
+            patch(
+                "agentfox.nightshift.platform_factory.create_platform_safe",
+                return_value=None,
+            ),
+        ):
+            from agentfox.engine.run import _setup_infrastructure
+
+            mock_config = MagicMock()
+            _setup_infrastructure(mock_config)
+
+        # Must have called open_knowledge_store at least twice:
+        # first with read_only=False (main), then read_only=True (context)
+        assert len(call_log) >= 2, f"Expected at least 2 calls to open_knowledge_store, got {len(call_log)}: {call_log}"
+        assert call_log[0] is False, "First open_knowledge_store call must be read_only=False (main write connection)"
+        assert call_log[1] is True, (
+            "Second open_knowledge_store call must be read_only=True (context read-only connection)"
         )
 
 
@@ -297,13 +445,39 @@ class TestOrchestratorPassesReadOnlyConn:
 class TestMigrationFailureIsolation:
     """TS-06-E5: migration failure for one spec must not abort startup."""
 
-    def test_migration_failure_does_not_abort_remaining_specs(self) -> None:
+    def test_migration_failure_does_not_abort_remaining_specs(self, tmp_path: Path) -> None:
         """When _migrate_legacy_files fails for spec_a, the orchestrator
         must log the error and continue processing spec_b."""
-        pytest.skip(
-            "Orchestrator startup error isolation not yet implemented "
-            "(spec 06 group 5)"
-        )
+        from unittest.mock import MagicMock
+
+        from agentfox.engine.run import _run_startup_migrations
+
+        mock_knowledge_db = MagicMock()
+        mock_knowledge_db.connection = MagicMock()
+
+        # Create specs directory with two spec subdirectories
+        specs_dir = tmp_path / "specs"
+        specs_dir.mkdir()
+        (specs_dir / "spec_a").mkdir()
+        (specs_dir / "spec_b").mkdir()
+
+        call_log: list[str] = []
+
+        def _side_effect(conn, spec_dir, spec_name):
+            call_log.append(spec_name)
+            if spec_name == "spec_a":
+                raise RuntimeError("simulated migration failure for spec_a")
+
+        with patch(
+            "agentfox.session.context._migrate_legacy_files",
+            side_effect=_side_effect,
+        ):
+            # Should not raise — errors are logged and skipped
+            _run_startup_migrations(mock_knowledge_db, specs_dir, tmp_path)
+
+        # Both specs must have been attempted
+        assert "spec_a" in call_log, "spec_a migration must be attempted"
+        assert "spec_b" in call_log, "spec_b migration must be attempted after spec_a fails"
 
 
 # -----------------------------------------------------------------------
@@ -314,13 +488,25 @@ class TestMigrationFailureIsolation:
 class TestErrataIndexFailureIsolation:
     """TS-06-E6: errata indexing failure must not block session dispatch."""
 
-    def test_errata_failure_does_not_block_sessions(self) -> None:
+    def test_errata_failure_does_not_block_sessions(self, tmp_path: Path) -> None:
         """When index_errata_from_markdown raises, the orchestrator must
         log the error and continue with session dispatch."""
-        pytest.skip(
-            "Orchestrator startup error isolation not yet implemented "
-            "(spec 06 group 5)"
-        )
+        from unittest.mock import MagicMock
+
+        from agentfox.engine.run import _run_startup_migrations
+
+        mock_knowledge_db = MagicMock()
+        mock_knowledge_db.connection = MagicMock()
+
+        specs_dir = tmp_path / "specs"
+        specs_dir.mkdir()
+
+        with patch(
+            "agentfox.knowledge.errata.index_errata_from_markdown",
+            side_effect=OSError("simulated errata indexing failure"),
+        ):
+            # Should not raise — error is logged and startup continues
+            _run_startup_migrations(mock_knowledge_db, specs_dir, tmp_path)
 
 
 # -----------------------------------------------------------------------
@@ -357,8 +543,6 @@ class TestAssembleContextWriteRegression:
         conn_ro = duckdb.connect(db_path, read_only=True)
         with pytest.raises(duckdb.InvalidInputException):
             conn_ro.execute(
-                "INSERT INTO findings VALUES "
-                "('f1', 'spec', '1', 'major', 'desc', 'src', 'active', "
-                "CURRENT_TIMESTAMP)"
+                "INSERT INTO findings VALUES ('f1', 'spec', '1', 'major', 'desc', 'src', 'active', CURRENT_TIMESTAMP)"
             )
         conn_ro.close()

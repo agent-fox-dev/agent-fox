@@ -162,40 +162,6 @@ class TestCodeJsonlEvents:
             assert "timestamp" in ev
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="af night-shift --json requires daemon infrastructure; "
-    "wiring IS in place but end-to-end test infrastructure is not",
-)
-class TestNightShiftJsonlEvents:
-    """TS-04-16: af night-shift --json emits JSONL events on stderr.
-
-    Uses ``mix_stderr=False`` to validate stderr JSONL events independently
-    from the stdout JSON result.
-    """
-
-    def test_night_shift_emits_progress_events(self, cli_runner_separated) -> None:
-        """af night-shift --json stderr has task events.
-
-        Uses CliRunner(mix_stderr=False) to validate that stderr contains
-        JSONL progress events and stdout contains the final JSON result.
-        """
-        from af.app import main
-
-        result = cli_runner_separated.invoke(main, ["--json", "night-shift"])
-        assert result.exit_code == 0
-
-        # stdout: final JSON result
-        final = json.loads(result.output)
-        assert isinstance(final, dict)
-        # stderr: JSONL progress events
-        stderr_text = result.stderr if hasattr(result, "stderr") else ""
-        events = [json.loads(line) for line in stderr_text.strip().splitlines() if line.strip()]
-        assert len(events) > 0, "Expected at least one JSONL event on stderr"
-        for ev in events:
-            assert ev["event"] in ("task_started", "task_completed", "task_failed")
-
-
 class TestBrokenPipeSuppressed:
     """TS-04-E3: emit_progress suppresses IO errors from stderr."""
 

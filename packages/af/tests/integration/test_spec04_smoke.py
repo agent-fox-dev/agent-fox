@@ -21,7 +21,6 @@ _SUBCOMMANDS = [
     "plan",
     "standup",
     "init",
-    "night-shift",
     "reset",
     "insights",
 ]
@@ -39,6 +38,7 @@ class TestFullSuitePassesAfterMigration:
     file, so we verify the non-spec04 suite remains green.
     """
 
+    @pytest.mark.timeout(120)
     def test_af_test_suite_passes(self) -> None:
         """Run pytest on the af test suite and assert zero failures.
 
@@ -61,6 +61,7 @@ class TestFullSuitePassesAfterMigration:
                 "--ignore=tests/unit/test_spec04_req456.py",
                 "--ignore=tests/property/test_spec04_properties.py",
                 "--ignore=tests/integration/test_spec04_smoke.py",
+                "--ignore=tests/test_nightshift_removal.py",
             ],
             capture_output=True,
             text=True,
@@ -150,22 +151,6 @@ class TestSmoke2StandupJson:
         assert result.exit_code == 0
         obj = json.loads(result.output)
         assert isinstance(obj, dict)
-
-
-class TestSmoke3JsonHelp:
-    """TS-04-SMOKE-3: af night-shift --json --help returns JSON help."""
-
-    def test_json_help_for_night_shift(self, cli_runner) -> None:
-        """af night-shift --json --help: JSON with command metadata."""
-        from af.app import main
-
-        result = cli_runner.invoke(main, ["night-shift", "--json", "--help"])
-        assert result.exit_code == 0
-        obj = json.loads(result.output)
-        assert "name" in obj
-        assert "description" in obj
-        assert "options" in obj
-        assert "exit_codes" in obj
 
 
 class TestSmoke4ShimRemoval:

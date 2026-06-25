@@ -87,7 +87,7 @@ in the Architecture Guide.
 
 ### Night Shift
 
-For ongoing codebase health, `agent-fox night-shift` runs as a continuously
+For ongoing codebase health, the standalone `night-shift` CLI runs as a continuously
 running fix-only daemon. It polls GitHub for issues labelled `af:fix` and
 processes them through a three-stage pipeline (Triage, Coder, Reviewer in
 fix-review mode). Each fix is implemented on an isolated branch and merged

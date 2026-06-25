@@ -1,0 +1,26 @@
+[project]
+name = "nightshift"
+version = "4.0.0-rc5"
+description = "Standalone CLI for the AgentFox Night Shift fix daemon"
+requires-python = ">=3.12"
+dependencies = [
+    "agentfox>=4.0.0rc5",
+    "click>=8.1",
+    "rich>=15.0",
+    "duckdb>=1.5.4",
+]
+
+[project.scripts]
+night-shift = "nightshift.app:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.uv.sources]
+agentfox = { workspace = true }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["../agentfox"]
+asyncio_mode = "auto"

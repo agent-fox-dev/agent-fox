@@ -504,6 +504,8 @@ class Orchestrator:
             original_session_timeout=self._config.session_timeout,
         )
 
+        self._dispatch_mgr.set_result_handler(self._result_handler)
+
         return state, init_attempt_tracker(state), init_error_tracker(state)
 
     async def run(self) -> ExecutionState:
@@ -516,6 +518,27 @@ class Orchestrator:
         state, attempt_tracker, error_tracker = result
 
         self._signal.install()
+
+        # Run-level pre-flight workspace check: prune stale worktrees,
+        # check for stale lock files, and test git credentials.
+        try:
+            from agentfox.workspace.health import run_preflight_workspace_check
+
+            preflight = await run_preflight_workspace_check(self._repo_root)
+            emit_audit_event(
+                self._sink,
+                self._run_id,
+                AuditEventType.RUN_PREFLIGHT,
+                payload={
+                    "push_available": preflight.push_available,
+                    "worktrees_pruned": preflight.worktrees_pruned,
+                    "stale_locks": preflight.stale_locks_found,
+                    "issues": preflight.issues_found,
+                },
+            )
+        except Exception:
+            logger.warning("Run pre-flight check failed, proceeding", exc_info=True)
+
         emit_audit_event(
             self._sink,
             self._run_id,
