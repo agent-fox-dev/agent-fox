@@ -846,7 +846,7 @@
             "08-REQ-6.1",
             "08-REQ-7.1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -867,7 +867,7 @@
             "08-REQ-9.2",
             "08-REQ-9.3"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -891,7 +891,7 @@
             "08-REQ-9.1",
             "08-REQ-9.3"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -909,7 +909,7 @@
             "08-REQ-8.2",
             "08-REQ-9.1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -933,7 +933,7 @@
             "08-REQ-10.1",
             "08-REQ-10.2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -942,7 +942,7 @@
           "details": [],
           "test_spec_refs": [],
           "requirement_refs": [],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],
@@ -956,7 +956,8 @@
           "Execution paths 08-PATH-1, 08-PATH-2, 08-PATH-3, 08-PATH-4 are all exercised by passing tests",
           "validate() callers in the CLI receive and use the ValidationResult \u2014 no return value is silently discarded",
           "All requirements 08-REQ-1 through 08-REQ-10 have passing test coverage as confirmed by the full test run"
-        ]
+        ],
+        "state": "done"
       }
     }
   ],
