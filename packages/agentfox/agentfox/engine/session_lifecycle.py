@@ -47,7 +47,7 @@ from agentfox.workspace import (
     WorkspaceInfo,
     create_worktree,
     destroy_worktree,
-    ensure_develop,
+    ensure_integration_branch,
     run_git,
 )
 from agentfox.workspace.harvest import harvest, post_harvest_integrate
@@ -128,8 +128,8 @@ def extract_subtask_descriptions(spec_dir: Path, task_group: int) -> list[str]:
     return descriptions
 
 
-async def _capture_develop_head(repo_root: Path) -> str:
-    """Return the current SHA of the develop branch HEAD.
+async def _capture_integration_head(repo_root: Path, branch: str) -> str:
+    """Return the current SHA of the integration branch HEAD.
 
     Returns empty string if git rev-parse fails.
 
@@ -139,13 +139,14 @@ async def _capture_develop_head(repo_root: Path) -> str:
 
     try:
         rc, stdout, _stderr = await run_git(
-            ["rev-parse", "develop"],
+            ["rev-parse", branch],
             cwd=repo_root,
             check=False,
         )
         if rc != 0:
             logger.warning(
-                "git rev-parse develop failed (returncode %d) in %s",
+                "git rev-parse %s failed (returncode %d) in %s",
+                branch,
                 rc,
                 repo_root,
             )
@@ -153,7 +154,8 @@ async def _capture_develop_head(repo_root: Path) -> str:
         return stdout.strip()
     except Exception as exc:
         logger.warning(
-            "Failed to capture develop HEAD in %s: %s",
+            "Failed to capture %s HEAD in %s: %s",
+            branch,
             repo_root,
             exc,
         )
@@ -466,12 +468,13 @@ class NodeSessionRunner:
         if outcome.status != "completed":
             return status, error_message, touched_files, is_non_retryable
 
-        # 03-REQ-7.1: Harvest changes into develop on success
+        # 03-REQ-7.1: Harvest changes into integration branch on success
         # 121-REQ-1.1: Push inside the merge lock (atomic merge+push)
         try:
             touched_files = await harvest(
                 repo_root,
                 workspace,
+                dev_branch=self._config.workspace.integration_branch,
                 force_clean=self._config.workspace.force_clean,
                 push=True,
                 audit_sink=self._sink,
@@ -503,7 +506,8 @@ class NodeSessionRunner:
             status = "failed"
             error_message = (
                 f"Session completed but harvest failed: {exc}. "
-                f"The coding work was done — the merge into develop "
+                f"The coding work was done — the merge into "
+                f"{self._config.workspace.integration_branch} "
                 f"encountered a conflict."
             )
             # 118-REQ-3.1: Propagate non-retryable classification
@@ -529,7 +533,7 @@ class NodeSessionRunner:
             )
             return status, error_message, touched_files, is_non_retryable
 
-        # 35-REQ-1.1: Capture develop HEAD SHA after successful harvest
+        # 35-REQ-1.1: Capture integration branch HEAD SHA after successful harvest
         # 19-REQ-3.4: Post-harvest remote integration
         # 121-REQ-5.E1: Skip push in post_harvest — harvest already pushed
         if touched_files:
@@ -537,6 +541,7 @@ class NodeSessionRunner:
                 await post_harvest_integrate(
                     repo_root=repo_root,
                     workspace=workspace,
+                    branch=self._config.workspace.integration_branch,
                     push_already_done=True,
                 )
             except Exception as exc:
@@ -707,10 +712,10 @@ class NodeSessionRunner:
         if is_budget_exhausted:
             error_message = f"Budget exhausted (${cost:.2f} of ${resolved_budget:.2f})"
 
-        # 35-REQ-1.1: Capture develop HEAD SHA after successful harvest
+        # 35-REQ-1.1: Capture integration branch HEAD SHA after successful harvest
         commit_sha = ""
         if touched_files and status == "completed":
-            commit_sha = await _capture_develop_head(repo_root)
+            commit_sha = await _capture_integration_head(repo_root, self._config.workspace.integration_branch)
 
         # 119-REQ-5.3: Read session artifacts once, before both the audit
         # event emission and knowledge ingestion.
@@ -926,16 +931,17 @@ class NodeSessionRunner:
         repo_root: Path,
         node_id: str,
     ) -> WorkspaceInfo:
-        """Ensure develop is ready and create an isolated worktree.
+        """Ensure integration branch is ready and create an isolated worktree.
 
-        19-REQ-1.1, 19-REQ-1.6: ensure develop branch exists and is
+        19-REQ-1.1, 19-REQ-1.6: ensure integration branch exists and is
         up-to-date before creating the worktree.
         """
+        branch = self._config.workspace.integration_branch
         try:
-            await ensure_develop(repo_root)
+            await ensure_integration_branch(repo_root, branch)
         except Exception:
             logger.warning(
-                "ensure_develop failed for %s, continuing with existing branch state",
+                "ensure_integration_branch failed for %s, continuing with existing branch state",
                 node_id,
                 exc_info=True,
             )
@@ -944,6 +950,7 @@ class NodeSessionRunner:
             repo_root,
             self._spec_name,
             self._task_group,
+            base_branch=branch,
         )
 
     async def _run_session_lifecycle(

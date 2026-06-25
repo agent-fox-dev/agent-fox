@@ -320,6 +320,7 @@ class FixPipeline:
             repo_root,
             spec_name=f"fix-issue-{spec.issue_number}",
             task_group=0,
+            base_branch=self._config.workspace.integration_branch,
             branch_name=spec.branch_name,
         )
 
@@ -1093,7 +1094,8 @@ class FixPipeline:
             await self._post_comment(
                 issue.number,
                 f"Fix sessions completed but changes from branch "
-                f"`{spec.branch_name}` could not be merged into `develop`. "
+                f"`{spec.branch_name}` could not be merged into "
+                f"`{self._config.workspace.integration_branch}`. "
                 f"Manual investigation is required. (run: `{self._run_id}`)",
             )
             self._try_complete_run("completed")
@@ -1128,10 +1130,10 @@ class FixPipeline:
 
         # harvest_result == "merged": close the originating issue with a comment
         # pointing to the branch.
+        _ib = self._config.workspace.integration_branch
         close_msg = (
             f"Fix complete on branch `{spec.branch_name}`. "
-            "Changes have been merged into `develop`. "
-            "Create a PR from that branch to land them on `main`."
+            f"Changes have been merged into `{_ib}`."
             f" (run: `{self._run_id}`)"
         )
         try:
@@ -1232,19 +1234,20 @@ class FixPipeline:
         spec: InMemorySpec,
         workspace: WorkspaceInfo,
     ) -> str:
-        """Harvest the fix branch into develop and push to origin.
+        """Harvest the fix branch into the integration branch and push to origin.
 
         Returns:
             ``"merged"`` when changes were merged successfully.
             ``"no_changes"`` when harvest found no new commits on the
-            fix branch (the fix may already be on develop).
+            fix branch (the fix may already be on the integration branch).
             ``"error"`` when an error occurred during harvest or push.
         """
         from agentfox.workspace.harvest import harvest, post_harvest_integrate
 
+        branch = self._config.workspace.integration_branch
         repo_root = Path.cwd()
         try:
-            changed_files = await harvest(repo_root, workspace)
+            changed_files = await harvest(repo_root, workspace, dev_branch=branch)
             if not changed_files:
                 logger.warning(
                     "No changes produced for issue #%d on branch %s",
@@ -1252,7 +1255,7 @@ class FixPipeline:
                     spec.branch_name,
                 )
                 return "no_changes"
-            await post_harvest_integrate(repo_root, workspace, push_already_done=True)
+            await post_harvest_integrate(repo_root, workspace, branch=branch, push_already_done=True)
         except Exception as exc:
             logger.warning(
                 "Harvest/push failed for issue #%d on branch %s: %s",

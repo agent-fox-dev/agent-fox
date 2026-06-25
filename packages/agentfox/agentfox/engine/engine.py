@@ -685,12 +685,16 @@ class Orchestrator:
                     from agentfox.core.config import resolve_spec_root as _rsr
 
                     _eff = _rsr(self._full_config, Path.cwd())
+                _branch = "main"
+                if self._full_config is not None:
+                    _branch = self._full_config.workspace.integration_branch
                 posted = await post_issue_summaries(
                     self._platform,
                     _eff or Path(".specs"),
                     newly_completed,
                     self._issue_summaries_posted,
                     Path.cwd(),
+                    integration_branch=_branch,
                 )
                 self._issue_summaries_posted.update(posted)
         except Exception:
@@ -737,10 +741,14 @@ class Orchestrator:
         completed_count = _count_node_status(state.node_states, "completed")
         if not should_trigger_barrier(completed_count, self._config.sync_interval):
             return
+        _ib = "main"
+        if self._full_config is not None:
+            _ib = self._full_config.workspace.integration_branch
         await run_sync_barrier_sequence(
             state=state,
             sync_interval=self._config.sync_interval,
             repo_root=self._repo_root,
+            integration_branch=_ib,
             emit_audit=self._emit_audit,
             specs_dir=self._specs_dir,
             hot_load_enabled=self._config.hot_load,
@@ -756,10 +764,14 @@ class Orchestrator:
             return False
         logger.info("End-of-run discovery: checking for new specs")
         try:
+            _ib = "main"
+            if self._full_config is not None:
+                _ib = self._full_config.workspace.integration_branch
             await run_sync_barrier_sequence(
                 state=state,
                 sync_interval=self._config.sync_interval,
                 repo_root=self._repo_root,
+                integration_branch=_ib,
                 emit_audit=self._emit_audit,
                 specs_dir=self._specs_dir,
                 hot_load_enabled=self._config.hot_load,
@@ -785,12 +797,16 @@ class Orchestrator:
         assert self._graph_sync is not None  # noqa: S101
         assert self._graph is not None  # noqa: S101
 
+        _ib = "main"
+        if self._full_config is not None:
+            _ib = self._full_config.workspace.integration_branch
         self._graph, self._graph_sync = await hot_load_into_graph(
             specs_dir=self._specs_dir,
             graph=self._graph,
             graph_sync=self._graph_sync,
             state=state,
             repo_root=self._repo_root,
+            integration_branch=_ib,
             knowledge_db_conn=self._knowledge_db_conn,
             archetypes_config=self._archetypes_config,
         )
@@ -936,17 +952,17 @@ def parse_source_url(prd_path: Path) -> SourceIssue | None:
         return None
 
 
-def _get_develop_head(repo_root: Path) -> str:
-    """Return the current develop branch HEAD SHA.
+def _get_integration_head(repo_root: Path, branch: str) -> str:
+    """Return the current integration branch HEAD SHA.
 
-    Runs ``git rev-parse develop`` in the given repository root.
+    Runs ``git rev-parse <branch>`` in the given repository root.
     Returns ``"unknown"`` if the command fails for any reason.
 
     Requirements: 108-REQ-6.1, 108-REQ-6.E1
     """
     try:
         result = subprocess.run(
-            ["git", "rev-parse", "develop"],
+            ["git", "rev-parse", branch],
             capture_output=True,
             text=True,
             cwd=str(repo_root),
@@ -954,7 +970,7 @@ def _get_develop_head(repo_root: Path) -> str:
         if result.returncode == 0:
             return result.stdout.strip()
     except Exception:
-        logger.debug("git rev-parse develop failed", exc_info=True)
+        logger.debug("git rev-parse %s failed", branch, exc_info=True)
     return "unknown"
 
 
@@ -962,10 +978,11 @@ def build_summary_comment(
     spec_name: str,
     commit_sha: str,
     tasks_path: Path,
+    branch: str = "main",
 ) -> str:
     """Construct the Markdown comment body for the originating issue.
 
-    Includes the spec name, the develop HEAD commit SHA, a bulleted list
+    Includes the spec name, the integration branch HEAD commit SHA, a bulleted list
     of task group titles derived from tasks.md, and an auto-generated footer.
 
     Requirements: 108-REQ-3.1, 108-REQ-3.2, 108-REQ-3.3, 108-REQ-3.4
@@ -986,7 +1003,7 @@ def build_summary_comment(
 
     return (
         f"## Spec Implemented\n\n"
-        f"Spec `{spec_name}` has been fully implemented and merged to `develop`.\n\n"
+        f"Spec `{spec_name}` has been fully implemented and merged to `{branch}`.\n\n"
         f"**Commit:** `{commit_sha}`\n\n"
         f"### Task Groups\n\n"
         f"{task_section}\n\n"
@@ -1001,6 +1018,7 @@ async def post_issue_summaries(
     completed_specs: set[str],
     already_posted: set[str],
     repo_root: Path,
+    integration_branch: str = "main",
 ) -> set[str]:
     """Post summary comments for newly completed specs.
 
@@ -1044,9 +1062,9 @@ async def post_issue_summaries(
             )
             continue
 
-        commit_sha = _get_develop_head(repo_root)
+        commit_sha = _get_integration_head(repo_root, integration_branch)
         tasks_path = specs_dir / spec_name / "tasks.md"
-        body = build_summary_comment(spec_name, commit_sha, tasks_path)
+        body = build_summary_comment(spec_name, commit_sha, tasks_path, integration_branch)
 
         try:
             await platform.add_issue_comment(source_issue.issue_number, body)

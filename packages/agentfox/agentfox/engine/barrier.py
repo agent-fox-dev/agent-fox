@@ -18,7 +18,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from agentfox.workspace.develop import _sync_develop_with_remote
+from agentfox.workspace.integration import _sync_integration_with_remote
 from agentfox.workspace.git import run_git
 from agentfox.workspace.merge_lock import MergeLock
 
@@ -51,8 +51,8 @@ def verify_worktrees(repo_root: Path) -> list[Path]:
     return orphans
 
 
-async def sync_develop_bidirectional(repo_root: Path) -> None:
-    """Pull remote into local develop, then push local to origin.
+async def sync_integration_bidirectional(repo_root: Path, branch: str) -> None:
+    """Pull remote into local integration branch, then push local to origin.
 
     Acquires MergeLock for the entire operation.
     Logs warnings on failure but does not raise.
@@ -64,7 +64,7 @@ async def sync_develop_bidirectional(repo_root: Path) -> None:
     try:
         await run_git(["remote", "get-url", "origin"], cwd=repo_root)
     except Exception:
-        logger.debug("No origin remote found; skipping develop sync")
+        logger.debug("No origin remote found; skipping integration branch sync")
         return
 
     # 51-REQ-3.3: acquire MergeLock for entire operation
@@ -72,11 +72,11 @@ async def sync_develop_bidirectional(repo_root: Path) -> None:
     async with lock:
         # 51-REQ-3.1: pull sync
         try:
-            await _sync_develop_with_remote(repo_root)
+            await _sync_integration_with_remote(repo_root, branch)
         except Exception:
             # 51-REQ-3.E1: pull failure — log warning, skip push
             logger.warning(
-                "Develop pull sync failed; skipping push to origin",
+                "Integration branch pull sync failed; skipping push to origin",
                 exc_info=True,
             )
             return
@@ -84,14 +84,15 @@ async def sync_develop_bidirectional(repo_root: Path) -> None:
         # 51-REQ-3.2: push local develop to origin
         try:
             await run_git(
-                ["push", "origin", "develop"],
+                ["push", "origin", branch],
                 cwd=repo_root,
                 check=True,
             )
         except Exception:
             # 51-REQ-3.E2: push failure — non-blocking
             logger.warning(
-                "Failed to push develop to origin; proceeding",
+                "Failed to push %s to origin; proceeding",
+                branch,
                 exc_info=True,
             )
 
@@ -121,6 +122,7 @@ async def run_sync_barrier_sequence(
     state: Any,
     sync_interval: int,
     repo_root: Path,
+    integration_branch: str,
     emit_audit: Callable[..., None],
     specs_dir: Path | None,
     hot_load_enabled: bool,
@@ -173,13 +175,13 @@ async def run_sync_barrier_sequence(
     except Exception:
         logger.warning("Worktree verification failed", exc_info=True)
 
-    # 51-REQ-3.1, 51-REQ-3.2: Bidirectional develop sync
+    # 51-REQ-3.1, 51-REQ-3.2: Bidirectional integration branch sync
     develop_sync_status = "success"
     try:
-        await sync_develop_bidirectional(repo_root)
+        await sync_integration_bidirectional(repo_root, integration_branch)
     except Exception:
         develop_sync_status = "failed"
-        logger.warning("Bidirectional develop sync failed", exc_info=True)
+        logger.warning("Bidirectional integration branch sync failed", exc_info=True)
 
     # 40-REQ-9.5: Emit sync.barrier audit event (extended payload)
     completed_nodes = [nid for nid, s in state.node_states.items() if s == "completed"]

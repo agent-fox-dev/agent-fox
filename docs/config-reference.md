@@ -56,15 +56,17 @@ spec_root = ".agent-fox/specs"
 
 ## workspace
 
-Controls workspace health checks and automatic cleanup before session dispatch.
+Controls workspace health checks, automatic cleanup, and branch configuration.
 
 | Field | Type | Default | Bounds | Description |
 |-------|------|---------|--------|-------------|
 | `force_clean` | bool | `false` | -- | Automatically remove untracked files and reset dirty index before session dispatch instead of aborting. Can also be set via `--force-clean` CLI flag on the `code` command (CLI flag takes precedence). |
+| `integration_branch` | str | `"main"` | -- | Git branch used as the integration target for all merges. Feature branches are created from this branch and squash-merged back into it. Use `"develop"` for git-flow workflows. |
 
 ```toml
 [workspace]
 force_clean = false
+integration_branch = "main"
 ```
 
 ---

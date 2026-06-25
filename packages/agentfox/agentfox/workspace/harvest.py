@@ -1,7 +1,7 @@
-"""Harvest and integrate worktree changes into the development branch.
+"""Harvest and integrate worktree changes into the integration branch.
 
-Combines harvesting (rebase/merge into develop) with post-harvest remote
-integration (push via local git).
+Combines harvesting (rebase/merge into the configured integration branch)
+with post-harvest remote integration (push via local git).
 
 Requirements: 03-REQ-7.1 through 03-REQ-7.E2,
               45-REQ-3.1, 45-REQ-4.1, 45-REQ-6.1,
@@ -19,7 +19,7 @@ from agentfox.core.errors import IntegrationError
 from agentfox.knowledge.audit import AuditEvent, AuditEventType
 from agentfox.workspace import (
     WorkspaceInfo,
-    _sync_develop_with_remote,
+    _sync_integration_with_remote,
     abort_rebase,
     checkout_branch,
     fetch_remote,
@@ -36,14 +36,14 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Harvest: integrate worktree changes into develop
+# Harvest: integrate worktree changes into the integration branch
 # ---------------------------------------------------------------------------
 
 
 async def harvest(
     repo_root: Path,
     workspace: WorkspaceInfo,
-    dev_branch: str = "develop",
+    dev_branch: str,
     *,
     force_clean: bool = False,
     push: bool = True,
@@ -510,7 +510,7 @@ def _emit_audit_safe(
 
 async def _push_with_retry(
     repo_root: Path,
-    branch: str = "develop",
+    branch: str,
     remote: str = "origin",
     max_retries: int = 3,
     audit_sink: object | None = None,
@@ -647,29 +647,32 @@ async def _push_with_retry(
 # ---------------------------------------------------------------------------
 
 
-async def _push_develop_if_pushable(
+async def _push_integration_branch(
     repo_root: Path,
+    branch: str,
     *,
     _lock_held: bool = False,
 ) -> None:
-    """Push develop to origin, but only if the push won't be rejected.
+    """Push integration branch to origin, but only if the push won't be rejected.
 
-    Checks whether origin/develop has commits not on local develop
+    Checks whether origin/<branch> has commits not on local branch
     (which would cause a non-fast-forward rejection). If remote is ahead,
-    attempts reconciliation via _sync_develop_with_remote() before pushing.
+    attempts reconciliation via _sync_integration_with_remote() before pushing.
     If fetch fails during reconciliation, skips reconciliation and attempts
     push as-is.
 
     Args:
-        _lock_held: When True, pass through to _sync_develop_with_remote
+        branch: Name of the integration branch.
+        _lock_held: When True, pass through to _sync_integration_with_remote
             so it skips lock acquisition (the caller already holds the
             merge lock). Requirements: 121-REQ-4.1
 
     Requirements: 36-REQ-2.1, 36-REQ-2.2, 36-REQ-2.E1, 36-REQ-2.E2,
                   121-REQ-4.1
     """
+    remote_ref = f"origin/{branch}"
     _rc, remote_ahead_str, _ = await run_git(
-        ["rev-list", "--count", "develop..origin/develop"],
+        ["rev-list", "--count", f"{branch}..{remote_ref}"],
         cwd=repo_root,
         check=False,
     )
@@ -677,11 +680,12 @@ async def _push_develop_if_pushable(
     if remote_ahead > 0:
         # Origin is ahead — attempt reconciliation before push (36-REQ-2.1)
         logger.info(
-            "origin/develop is %d commit(s) ahead. Attempting reconciliation before push.",
+            "%s is %d commit(s) ahead. Attempting reconciliation before push.",
+            remote_ref,
             remote_ahead,
         )
         try:
-            await _sync_develop_with_remote(repo_root, _lock_held=_lock_held)
+            await _sync_integration_with_remote(repo_root, branch, _lock_held=_lock_held)
         except Exception as e:
             # If reconciliation fails (e.g., fetch failed), skip and attempt
             # push as-is (36-REQ-2.E2)
@@ -691,19 +695,20 @@ async def _push_develop_if_pushable(
             )
         # Proceed to push regardless of reconciliation outcome (36-REQ-2.2)
 
-    result = await push_to_remote(repo_root, "develop")
+    result = await push_to_remote(repo_root, branch)
     if not result:
         # Log warning if push fails after reconciliation (36-REQ-2.E1)
-        logger.warning("Failed to push develop to origin")
+        logger.warning("Failed to push %s to origin", branch)
 
 
 async def post_harvest_integrate(
     repo_root: Path,
     workspace: WorkspaceInfo,
+    branch: str,
     *,
     push_already_done: bool = False,
 ) -> None:
-    """Push develop to origin after harvest.
+    """Push integration branch to origin after harvest.
 
     Feature branches are kept local-only and are not pushed to the remote.
     The workspace parameter is retained for logging context.
@@ -722,5 +727,5 @@ async def post_harvest_integrate(
     if push_already_done:
         return
 
-    # Push only develop — feature branches are local-only (78-REQ-1.1)
-    await _push_develop_if_pushable(repo_root)
+    # Push only integration branch — feature branches are local-only (78-REQ-1.1)
+    await _push_integration_branch(repo_root, branch)

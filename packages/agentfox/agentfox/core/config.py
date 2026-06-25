@@ -657,6 +657,10 @@ class WorkspaceConfig(BaseModel):
             "Automatically remove untracked files and reset dirty index before session dispatch instead of aborting."
         ),
     )
+    integration_branch: str = Field(
+        default="main",
+        description="Git branch used as the integration target for all merges.",
+    )
 
 
 # Default spec root for backward compatibility fallback

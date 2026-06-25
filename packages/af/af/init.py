@@ -98,7 +98,7 @@ def init_cmd(ctx: click.Context, skills: bool, profiles: bool) -> None:
     """Initialize the current project for agent-fox.
 
     Creates the .agent-fox/ directory structure with a default
-    configuration file, sets up the development branch, and
+    configuration file, sets up the integration branch, and
     updates .gitignore.
     """
     # 04-REQ-2.1, 04-REQ-2.6: retrieve OutputManager from context

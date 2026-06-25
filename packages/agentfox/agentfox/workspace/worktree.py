@@ -87,7 +87,7 @@ async def create_worktree(
     repo_root: Path,
     spec_name: str,
     task_group: int,
-    base_branch: str = "develop",
+    base_branch: str,
     branch_name: str | None = None,
 ) -> WorkspaceInfo:
     """Create an isolated git worktree for a coding session.

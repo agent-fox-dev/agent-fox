@@ -57,7 +57,7 @@ class SessionRecord:
     model: str = ""  # Model ID used for this session
     files_touched: list[str] = field(default_factory=list)
     archetype: str = "coder"  # Archetype name; defaults for backward compat
-    commit_sha: str = ""  # develop HEAD after harvest (empty if no code merged)
+    commit_sha: str = ""  # integration branch HEAD after harvest (empty if no code merged)
     is_transport_error: bool = False  # True when failure was a transient connection error
     is_budget_exhausted: bool = False  # True when failure was caused by SDK budget limit
     is_non_retryable: bool = False  # True when failure is non-retryable (workspace-state error)

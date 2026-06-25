@@ -513,7 +513,7 @@ def hard_reset_all(
     target = find_rollback_target(state.session_history, repo_path)
     if target is not None:
         try:
-            rollback_develop(repo_path, target)
+            rollback_integration_branch(repo_path, target)
             rollback_sha = target
         except AgentFoxError:
             logger.warning("Rollback failed, skipping code rollback.")
@@ -566,7 +566,7 @@ def hard_reset_task(
         target = find_rollback_target(state.session_history, repo_path, target_commit_sha=target_sha)
         if target is not None:
             try:
-                rollback_develop(repo_path, target)
+                rollback_integration_branch(repo_path, target)
             except AgentFoxError:
                 logger.warning("Rollback failed, skipping code rollback.")
             else:
@@ -869,13 +869,14 @@ def find_rollback_target(
         return None
 
 
-def rollback_develop(
+def rollback_integration_branch(
     repo_path: Path,
     target_sha: str,
+    branch: str = "main",
 ) -> None:
-    """Reset the develop branch to the given commit SHA.
+    """Reset the integration branch to the given commit SHA.
 
-    Checks out develop and runs git reset --hard <target_sha>.
+    Checks out the integration branch and runs git reset --hard <target_sha>.
 
     Raises:
         AgentFoxError: If the SHA cannot be resolved.
@@ -883,13 +884,13 @@ def rollback_develop(
     try:
         # Checkout develop
         checkout_result = subprocess.run(
-            ["git", "checkout", "develop"],
+            ["git", "checkout", branch],
             cwd=str(repo_path),
             capture_output=True,
             text=True,
         )
         if checkout_result.returncode != 0:
-            raise AgentFoxError(f"Failed to checkout develop: {checkout_result.stderr.strip()}")
+            raise AgentFoxError(f"Failed to checkout {branch}: {checkout_result.stderr.strip()}")
 
         # Reset to target SHA
         reset_result = subprocess.run(
@@ -899,8 +900,8 @@ def rollback_develop(
             text=True,
         )
         if reset_result.returncode != 0:
-            raise AgentFoxError(f"Failed to reset develop to {target_sha}: {reset_result.stderr.strip()}")
-        logger.info("Rolled back develop to %s", target_sha)
+            raise AgentFoxError(f"Failed to reset {branch} to {target_sha}: {reset_result.stderr.strip()}")
+        logger.info("Rolled back %s to %s", branch, target_sha)
     except (OSError, subprocess.SubprocessError) as exc:
         raise AgentFoxError(f"Git rollback failed: {exc}") from exc
 

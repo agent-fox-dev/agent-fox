@@ -1,4 +1,4 @@
-"""Develop branch management: ensure, sync, and reconcile.
+"""Integration branch management: ensure, sync, and reconcile.
 
 Requirements: 19-REQ-1.1 through 19-REQ-1.6,
               45-REQ-3.2, 45-REQ-5.1, 45-REQ-5.2, 45-REQ-5.E1, 45-REQ-6.2,
@@ -24,15 +24,15 @@ from agentfox.workspace.merge_lock import MergeLock, run_merge_agent
 logger = logging.getLogger(__name__)
 
 
-async def ensure_develop(repo_root: Path) -> None:
-    """Ensure a local develop branch exists and is up-to-date.
+async def ensure_integration_branch(repo_root: Path, branch: str) -> None:
+    """Ensure a local integration branch exists and is up-to-date.
 
     1. Fetch origin (warn and continue on failure).
-    2. If local develop exists:
-       a. If origin/develop exists and local is behind, fast-forward.
+    2. If local branch exists:
+       a. If origin/<branch> exists and local is behind, fast-forward.
        b. If diverged, warn and use local as-is.
-    3. If local develop does not exist:
-       a. If origin/develop exists, create tracking branch.
+    3. If local branch does not exist:
+       a. If origin/<branch> exists, create tracking branch.
        b. Otherwise, create from default branch.
 
     Raises:
@@ -41,14 +41,14 @@ async def ensure_develop(repo_root: Path) -> None:
     Requirements: 19-REQ-1.1, 19-REQ-1.2, 19-REQ-1.3, 19-REQ-1.5, 19-REQ-1.6,
                   118-REQ-5.E1
     """
-    # Step 1: Fetch origin (best-effort)
+    remote_ref = f"origin/{branch}"
+
     fetch_ok = True
     try:
         await run_git(["fetch", "origin"], cwd=repo_root)
     except WorkspaceError as exc:
         logger.warning("Failed to fetch from origin; proceeding with local state only")
         fetch_ok = False
-        # 118-REQ-5.E1: emit develop.fetch_failed audit event
         emit_audit_event(
             None,
             "",
@@ -57,122 +57,95 @@ async def ensure_develop(repo_root: Path) -> None:
             payload={"reason": str(exc)},
         )
 
-    has_local = await local_branch_exists(repo_root, "develop")
+    has_local = await local_branch_exists(repo_root, branch)
 
     if has_local:
-        # Local develop exists — check if we need to fast-forward
         if fetch_ok:
-            has_remote = await remote_branch_exists(repo_root, "develop")
+            has_remote = await remote_branch_exists(repo_root, branch)
             if has_remote:
-                await _sync_develop_with_remote(repo_root)
-        # 19-REQ-1.E1: local exists and is up-to-date → no-op
-        logger.info("Local develop branch is ready")
+                await _sync_integration_with_remote(repo_root, branch)
+        logger.info("Local %s branch is ready", branch)
         return
 
-    # No local develop — need to create it
     if fetch_ok:
-        has_remote = await remote_branch_exists(repo_root, "develop")
+        has_remote = await remote_branch_exists(repo_root, branch)
         if has_remote:
-            # 19-REQ-1.2: Create from origin/develop
             await run_git(
-                ["branch", "develop", "origin/develop"],
+                ["branch", branch, remote_ref],
                 cwd=repo_root,
             )
-            logger.info("Created local develop branch tracking origin/develop")
+            logger.info("Created local %s branch tracking %s", branch, remote_ref)
             return
 
-    # 19-REQ-1.3: No remote develop — create from default branch
     default_branch = await detect_default_branch(repo_root)
     await run_git(
-        ["branch", "develop", default_branch],
+        ["branch", branch, default_branch],
         cwd=repo_root,
     )
-    logger.info("Created local develop branch from '%s'", default_branch)
+    logger.info("Created local %s branch from '%s'", branch, default_branch)
 
 
-async def _sync_develop_with_remote(
+async def _sync_integration_with_remote(
     repo_root: Path,
+    branch: str,
     *,
     _lock_held: bool = False,
 ) -> str | None:
-    """Synchronize local develop with origin/develop.
+    """Synchronize local integration branch with its remote counterpart.
 
     Checks commit counts to determine if local is behind, ahead,
     or diverged from remote. Fast-forwards if behind only.
-
-    Read-only divergence checks are performed without the lock.
-    The merge lock is only acquired when actual changes are needed
-    (45-REQ-3.2).
-
-    Args:
-        _lock_held: When True, skip lock acquisition because the caller
-            already holds the merge lock. This prevents deadlocking when
-            called from within a lock scope (e.g. during harvest push
-            reconciliation). When False (default), the lock is acquired
-            as normal — no behavioral change for existing callers.
-            Requirements: 121-REQ-4.1, 121-REQ-4.2, 121-REQ-4.E1
-
-    Returns the sync method used on success ('fast-forward', 'rebase',
-    'merge', or 'merge-agent'), or None when no sync was needed or it
-    failed.
 
     Requirements: 19-REQ-1.6, 19-REQ-1.E1, 19-REQ-1.E4,
                   45-REQ-3.2, 45-REQ-5.1, 45-REQ-5.2, 45-REQ-5.E1, 45-REQ-6.2,
                   121-REQ-4.1, 121-REQ-4.2, 121-REQ-4.E1
     """
-    # Read-only divergence checks — no lock needed
+    remote_ref = f"origin/{branch}"
+
     _rc, remote_ahead_str, _stderr = await run_git(
-        ["rev-list", "--count", "develop..origin/develop"],
+        ["rev-list", "--count", f"{branch}..{remote_ref}"],
         cwd=repo_root,
         check=False,
     )
     remote_ahead = int(remote_ahead_str.strip()) if remote_ahead_str.strip() else 0
 
     _rc, local_ahead_str, _stderr = await run_git(
-        ["rev-list", "--count", "origin/develop..develop"],
+        ["rev-list", "--count", f"{remote_ref}..{branch}"],
         cwd=repo_root,
         check=False,
     )
     local_ahead = int(local_ahead_str.strip()) if local_ahead_str.strip() else 0
 
     if remote_ahead == 0:
-        # Local is up-to-date or ahead — nothing to do (19-REQ-1.E1)
         return None
 
     if _lock_held:
-        # Caller already holds the merge lock — call sync logic directly
-        # to avoid deadlocking (121-REQ-4.1).
-        return await _sync_develop_under_lock(repo_root, remote_ahead, local_ahead)
+        return await _sync_integration_under_lock(repo_root, branch, remote_ahead, local_ahead)
 
-    # Remote has new commits — acquire lock before making changes (45-REQ-3.2)
     lock = MergeLock(repo_root)
     async with lock:
-        return await _sync_develop_under_lock(repo_root, remote_ahead, local_ahead)
+        return await _sync_integration_under_lock(repo_root, branch, remote_ahead, local_ahead)
 
 
-async def _sync_develop_under_lock(repo_root: Path, remote_ahead: int, local_ahead: int) -> str | None:
-    """Execute the develop sync strategies under the merge lock.
-
-    Called from _sync_develop_with_remote() after the lock is acquired.
-    The commit counts are pre-computed outside the lock.
-
-    Returns the sync method used on success ('fast-forward', 'rebase',
-    'merge', or 'merge-agent'), or None on failure.
+async def _sync_integration_under_lock(
+    repo_root: Path, branch: str, remote_ahead: int, local_ahead: int
+) -> str | None:
+    """Execute the integration branch sync strategies under the merge lock.
 
     Requirements: 118-REQ-5.1, 118-REQ-5.2, 118-REQ-5.3
     """
+    remote_ref = f"origin/{branch}"
     sync_method: str | None = None
 
     if local_ahead > 0 and remote_ahead > 0:
-        # Diverged — attempt rebase to reconcile
-        # 118-REQ-5.3: log commit counts at INFO before reconciliation
         logger.info(
-            "Local develop has diverged from origin/develop (%d local, %d remote commits). Attempting rebase.",
+            "Local %s has diverged from %s (%d local, %d remote commits). Attempting rebase.",
+            branch,
+            remote_ref,
             local_ahead,
             remote_ahead,
         )
 
-        # Save current branch to restore after rebase
         _rc, current_ref, _ = await run_git(
             ["symbolic-ref", "--short", "HEAD"],
             cwd=repo_root,
@@ -180,69 +153,60 @@ async def _sync_develop_under_lock(repo_root: Path, remote_ahead: int, local_ahe
         )
         original_branch = current_ref.strip() if _rc == 0 else ""
 
-        # Checkout develop so we can rebase it
         rc_co, _, _ = await run_git(
-            ["checkout", "develop"],
+            ["checkout", branch],
             cwd=repo_root,
             check=False,
         )
         if rc_co != 0:
             logger.warning(
-                "Could not checkout develop for rebase. Using local as-is.",
+                "Could not checkout %s for rebase. Using local as-is.",
+                branch,
             )
-            # 118-REQ-5.2: emit develop.sync_failed audit event
             emit_audit_event(
                 None,
                 "",
                 AuditEventType.DEVELOP_SYNC_FAILED,
                 severity=AuditSeverity.WARNING,
                 payload={
-                    "reason": "Could not checkout develop for rebase",
+                    "reason": f"Could not checkout {branch} for rebase",
                     "local_ahead": local_ahead,
                     "remote_ahead": remote_ahead,
                 },
             )
             return None
 
-        # Attempt rebase onto origin/develop
         rc_rb, _, stderr_rb = await run_git(
-            ["rebase", "origin/develop"],
+            ["rebase", remote_ref],
             cwd=repo_root,
             check=False,
         )
         if rc_rb == 0:
-            # Rebase succeeded
             sync_method = "rebase"
             logger.info(
-                "Rebased %d local commit(s) onto origin/develop successfully.",
+                "Rebased %d local commit(s) onto %s successfully.",
                 local_ahead,
+                remote_ref,
             )
         else:
-            # Rebase failed (conflicts) — attempt merge commit fallback
             await run_git(["rebase", "--abort"], cwd=repo_root, check=False)
-            logger.info(
-                "Rebase failed; attempting merge commit fallback.",
-            )
+            logger.info("Rebase failed; attempting merge commit fallback.")
 
-            # Try merge commit without conflict resolution
             rc_merge, stdout_merge, stderr_merge = await run_git(
-                ["merge", "--no-edit", "origin/develop"],
+                ["merge", "--no-edit", remote_ref],
                 cwd=repo_root,
                 check=False,
             )
             if rc_merge == 0:
-                # Merge succeeded
                 sync_method = "merge"
                 logger.info(
-                    "Merged origin/develop into local develop via merge commit.",
+                    "Merged %s into local %s via merge commit.",
+                    remote_ref,
+                    branch,
                 )
             else:
-                # Merge failed — abort and spawn merge agent (45-REQ-5.1)
-                # Replaces blind -X ours strategy (45-REQ-6.2)
                 await run_git(["merge", "--abort"], cwd=repo_root, check=False)
-                logger.info(
-                    "Merge commit failed; spawning merge agent to resolve conflicts.",
-                )
+                logger.info("Merge commit failed; spawning merge agent to resolve conflicts.")
 
                 conflict_output = stderr_merge.strip() or stdout_merge.strip() or "merge conflict"
                 resolved = await run_merge_agent(
@@ -251,18 +215,18 @@ async def _sync_develop_under_lock(repo_root: Path, remote_ahead: int, local_ahe
                     model_id="ADVANCED",
                 )
                 if resolved:
-                    # Agent resolved conflicts (45-REQ-5.2)
                     sync_method = "merge-agent"
                     logger.info(
-                        "Merge agent resolved develop-sync conflicts successfully.",
+                        "Merge agent resolved %s-sync conflicts successfully.",
+                        branch,
                     )
                 else:
-                    # Agent failed (45-REQ-5.E1) — log warning and leave as-is
                     logger.warning(
-                        "Merge agent failed to resolve develop-sync conflicts. "
-                        "Using local develop as-is; verify manually.",
+                        "Merge agent failed to resolve %s-sync conflicts. "
+                        "Using local %s as-is; verify manually.",
+                        branch,
+                        branch,
                     )
-                    # 118-REQ-5.2: emit develop.sync_failed audit event
                     emit_audit_event(
                         None,
                         "",
@@ -274,8 +238,7 @@ async def _sync_develop_under_lock(repo_root: Path, remote_ahead: int, local_ahe
                             "remote_ahead": remote_ahead,
                         },
                     )
-                    # Restore original branch
-                    if original_branch and original_branch != "develop":
+                    if original_branch and original_branch != branch:
                         await run_git(
                             ["checkout", original_branch],
                             cwd=repo_root,
@@ -283,15 +246,13 @@ async def _sync_develop_under_lock(repo_root: Path, remote_ahead: int, local_ahe
                         )
                     return None
 
-        # Restore original branch
-        if original_branch and original_branch != "develop":
+        if original_branch and original_branch != branch:
             await run_git(
                 ["checkout", original_branch],
                 cwd=repo_root,
                 check=False,
             )
 
-        # 118-REQ-5.1: emit develop.sync audit event on success
         if sync_method is not None:
             emit_audit_event(
                 None,
@@ -305,28 +266,26 @@ async def _sync_develop_under_lock(repo_root: Path, remote_ahead: int, local_ahe
             )
         return sync_method
 
-    # Local is behind only — fast-forward (19-REQ-1.6)
     logger.info(
-        "Fast-forwarding local develop (%d commits behind origin/develop)",
+        "Fast-forwarding local %s (%d commits behind %s)",
+        branch,
         remote_ahead,
+        remote_ref,
     )
 
-    # Attempt fast-forward merge if on develop, else use branch force update
     rc_ff, _, _ = await run_git(
-        ["merge", "--ff-only", "origin/develop"],
+        ["merge", "--ff-only", remote_ref],
         cwd=repo_root,
         check=False,
     )
     if rc_ff != 0:
-        # Fast-forward merge failed (maybe not on develop), try branch force update
         await run_git(
-            ["branch", "-f", "develop", "origin/develop"],
+            ["branch", "-f", branch, remote_ref],
             cwd=repo_root,
         )
 
     sync_method = "fast-forward"
 
-    # 118-REQ-5.1: emit develop.sync audit event on success
     emit_audit_event(
         None,
         "",

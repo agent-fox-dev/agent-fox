@@ -59,8 +59,8 @@ This project uses spec-driven development. Specifications live in
   `refactor:`, `docs:`, `test:`, `chore:`).
 - **Commit discipline:** only commit files relevant to the current change.
 - **Never add `Co-Authored-By` lines.** No AI attribution in commits — ever.
-- Do not switch branches, rebase, or merge into develop — the orchestrator
-  handles integration.
+- Do not switch branches, rebase, or merge into the integration branch — the
+  orchestrator handles integration.
 - Never push to remote. The orchestrator handles remote integration.
 
 ## Scope Discipline

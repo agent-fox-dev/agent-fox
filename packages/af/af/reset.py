@@ -215,7 +215,7 @@ def reset_cmd(
 
     With --hard, perform a comprehensive wipe: reset ALL tasks (including
     completed), clean worktrees/branches, compact knowledge, and optionally
-    roll back code on develop.
+    roll back code on the integration branch.
 
     With --spec, reset all tasks belonging to a single spec.
     """

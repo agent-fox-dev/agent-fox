@@ -85,15 +85,16 @@ def _parse_dep_specs_from_prd(prd_path: Path) -> list[str]:
     return dep_names
 
 
-async def is_spec_tracked_on_develop(
+async def is_spec_tracked_on_branch(
     repo_root: Path,
     spec_name: str,
+    branch: str,
     specs_dir_rel: str = ".agent-fox/specs",
 ) -> bool:
-    """Check if a spec folder is tracked by git on the develop branch.
+    """Check if a spec folder is tracked by git on the given branch.
 
-    Uses ``git ls-tree develop -- {specs_dir_rel}/{spec_name}`` and returns True
-    if any entries are found.
+    Uses ``git ls-tree <branch> -- {specs_dir_rel}/{spec_name}`` and
+    returns True if any entries are found.
 
     On failure, returns True (permissive fallback) and logs a warning.
 
@@ -101,7 +102,7 @@ async def is_spec_tracked_on_develop(
     """
     try:
         _rc, stdout, _stderr = await run_git(
-            ["ls-tree", "develop", "--", f"{specs_dir_rel}/{spec_name}"],
+            ["ls-tree", branch, "--", f"{specs_dir_rel}/{spec_name}"],
             cwd=repo_root,
             check=False,
         )
@@ -225,13 +226,14 @@ async def discover_new_specs_gated(
     known_specs: set[str],
     repo_root: Path,
     *,
+    integration_branch: str = "main",
     db_conn: duckdb.DuckDBPyConnection | None = None,
 ) -> list[SpecInfo]:
     """Discover new specs that pass all four gates.
 
     Pipeline:
     1. Filesystem discovery (existing ``discover_new_specs``).
-    2. Gate 1: git-tracked on develop.
+    2. Gate 1: git-tracked on the integration branch.
     3. Gate 2: all 5 required files present and non-empty.
     4. Gate 3: no lint errors from validator.
     5. Gate 4: not already fully implemented (tasks.json + plan state).
@@ -257,14 +259,14 @@ async def discover_new_specs_gated(
 
     accepted: list[SpecInfo] = []
     for spec in candidates:
-        # Gate 1: git-tracked on develop
+        # Gate 1: git-tracked on integration branch
         try:
             specs_rel = str(specs_dir.relative_to(repo_root))
         except ValueError:
             specs_rel = str(specs_dir)
-        tracked = await is_spec_tracked_on_develop(repo_root, spec.name, specs_dir_rel=specs_rel)
+        tracked = await is_spec_tracked_on_branch(repo_root, spec.name, integration_branch, specs_dir_rel=specs_rel)
         if not tracked:
-            logger.debug("Spec '%s' not tracked on develop, skipping", spec.name)
+            logger.debug("Spec '%s' not tracked on %s, skipping", spec.name, integration_branch)
             continue
 
         # Gate 2: completeness
@@ -461,6 +463,7 @@ async def hot_load_into_graph(
     graph_sync: Any,
     state: Any,
     repo_root: Path,
+    integration_branch: str = "main",
     knowledge_db_conn: Any | None = None,
     archetypes_config: Any | None = None,
 ) -> tuple[TaskGraph, Any]:
@@ -480,7 +483,11 @@ async def hot_load_into_graph(
         node.status = NodeStatus(state.node_states.get(nid, "pending"))
 
     known_specs = {n.spec_name for n in graph.nodes.values()}
-    gated_specs = await discover_new_specs_gated(specs_dir, known_specs, repo_root, db_conn=knowledge_db_conn)
+    gated_specs = await discover_new_specs_gated(
+        specs_dir, known_specs, repo_root,
+        integration_branch=integration_branch,
+        db_conn=knowledge_db_conn,
+    )
 
     if not gated_specs:
         return graph, graph_sync

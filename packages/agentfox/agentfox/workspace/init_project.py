@@ -356,39 +356,41 @@ def _ensure_steering_md(project_root: Path, specs_dir: Path | None = None) -> st
     return "created"
 
 
-def _ensure_develop_branch(*, quiet: bool = False) -> None:
-    """Create or recover the develop branch using the robust ensure logic.
+def _ensure_integration_branch(branch: str, *, quiet: bool = False) -> None:
+    """Create or recover the integration branch using the robust ensure logic.
 
-    Uses the async ``ensure_develop()`` from workspace.git, which handles
-    remote tracking, fast-forwarding, and fallback to the default branch.
+    Uses the async ``ensure_integration_branch()`` from workspace, which
+    handles remote tracking, fast-forwarding, and fallback to the default
+    branch.
 
     Args:
+        branch: Name of the integration branch (e.g. "main" or "develop").
         quiet: If True, suppress human-readable output (for JSON mode).
 
     Requirements: 19-REQ-1.5
     """
     import asyncio
 
-    from agentfox.workspace import ensure_develop
+    from agentfox.workspace import ensure_integration_branch
 
     try:
-        asyncio.run(ensure_develop(Path.cwd()))
+        asyncio.run(ensure_integration_branch(Path.cwd(), branch))
     except Exception as exc:
         if not quiet:
             import click
 
-            click.echo(f"Warning: Could not ensure develop branch: {exc}", err=True)
+            click.echo(f"Warning: Could not ensure {branch} branch: {exc}", err=True)
         # Fall back to the simple approach
-        if _branch_exists("develop"):
+        if _branch_exists(branch):
             pass
         else:
             try:
-                _create_branch("develop")
+                _create_branch(branch)
             except Exception:
                 if not quiet:
                     import click
 
-                    click.echo("Error: Could not create develop branch.", err=True)
+                    click.echo(f"Error: Could not create {branch} branch.", err=True)
 
 
 @dataclass(frozen=True)
@@ -449,7 +451,7 @@ def _ensure_platform_labels(project_root: Path) -> int:
     """Synchronous wrapper for :func:`_ensure_platform_labels_async`.
 
     Uses :func:`asyncio.run` following the same pattern as
-    :func:`_ensure_develop_branch`.  Returns 0 silently on any error so that
+    :func:`_ensure_integration_branch`.  Returns 0 silently on any error so that
     a platform misconfiguration does not block local ``af init``.
 
     Requirements: 358-REQ-3, 358-REQ-4, 358-REQ-5
@@ -502,6 +504,7 @@ def init_project(
 
     if already_initialized and not force:
         # Re-init: merge existing config with schema
+        from agentfox.core.config import load_config
         from agentfox.core.config_gen import merge_existing_config
 
         existing_content = config_path.read_text(encoding="utf-8")
@@ -509,11 +512,13 @@ def init_project(
         if merged_content != existing_content:
             config_path.write_text(merged_content, encoding="utf-8")
 
+        cfg = load_config(config_path)
+
         # Ensure structure is complete
         (agent_fox_dir / "worktrees").mkdir(parents=True, exist_ok=True)
         _ensure_specs_dirs(path)
         _update_gitignore(path)
-        _ensure_develop_branch(quiet=quiet)
+        _ensure_integration_branch(cfg.workspace.integration_branch, quiet=quiet)
         _ensure_claude_settings(path)
         agents_md_status = _ensure_agents_md(path)
         steering_status = _ensure_steering_md(path)
