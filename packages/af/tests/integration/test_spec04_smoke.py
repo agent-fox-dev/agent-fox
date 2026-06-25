@@ -91,10 +91,7 @@ class TestSubcommandContracts:
 # --- Smoke Tests ---
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="af code --json requires a plan DB and execution backend; full end-to-end test needs mocked orchestrator",
-)
+@pytest.mark.skip(reason="af code --json requires a plan DB and mocked orchestrator not yet wired in tests")
 class TestSmoke1CodeJsonlStreaming:
     """TS-04-SMOKE-1: af code --json emits JSONL progress + JSON result.
 

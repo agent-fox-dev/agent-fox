@@ -88,11 +88,7 @@ class TestNoEmitProgressInTextMode:
         om.emit_progress.assert_not_called()
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="af code --json requires a plan DB and mocked orchestrator; "
-    "wiring IS in place but end-to-end test infrastructure is not",
-)
+@pytest.mark.skip(reason="af code --json requires a plan DB and mocked orchestrator not yet wired in tests")
 class TestStdoutStderrSeparation:
     """TS-04-14: JSONL progress on stderr, final result on stdout.
 
@@ -125,11 +121,7 @@ class TestStdoutStderrSeparation:
             assert "event" in obj, f"JSONL line missing 'event' key: {line}"
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="af code --json requires a plan DB and mocked orchestrator; "
-    "wiring IS in place but end-to-end test infrastructure is not",
-)
+@pytest.mark.skip(reason="af code --json requires a plan DB and mocked orchestrator not yet wired in tests")
 class TestCodeJsonlEvents:
     """TS-04-15: af code --json emits JSONL events on stderr.
 

@@ -119,11 +119,6 @@ class TestProp1StdoutStderrSeparation:
             )
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="Some subcommands (code) require backend infrastructure; "
-    "subcommands with no external deps (standup, init) now pass",
-)
 class TestProp4JsonModeValidOutput:
     """TS-04-P4: JSON mode produces valid JSON on stdout.
 
@@ -131,7 +126,23 @@ class TestProp4JsonModeValidOutput:
     JSON text and the process exits with code 0 on success.
     """
 
-    @pytest.mark.parametrize("command", _SUBCOMMANDS)
+    @pytest.mark.parametrize(
+        "command",
+        [
+            pytest.param(
+                "code",
+                marks=pytest.mark.xfail(
+                    strict=True,
+                    reason="'code' requires plan DB and orchestrator backend",
+                ),
+            ),
+            "plan",
+            "standup",
+            "init",
+            "reset",
+            "insights",
+        ],
+    )
     def test_json_mode_stdout_is_valid_json(self, cli_runner, command: str) -> None:
         """af --json <cmd> produces valid JSON on stdout and exits 0.
 
