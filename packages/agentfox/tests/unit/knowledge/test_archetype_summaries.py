@@ -213,26 +213,27 @@ class TestSameSpecIncludesAllArchetypes:
 
 # ---------------------------------------------------------------------------
 # TS-120-E5: Reviewer with zero findings (120-REQ-3.E1)
+# Superseded by 11-REQ-4.1: returns None instead of a noise string.
 # ---------------------------------------------------------------------------
 
 
 class TestReviewerZeroFindings:
-    """Reviewer summary generated even with no findings."""
+    """Reviewer returns None with no findings (11-REQ-4.1 supersedes 120-REQ-3.E1)."""
 
-    def test_non_empty_summary_no_findings(self) -> None:
+    def test_returns_none_no_findings(self) -> None:
         summary = _generate_archetype_summary("reviewer", findings=[])
-        assert len(summary) > 0
-        assert "no findings" in summary.lower() or "0 findings" in summary.lower()
+        assert summary is None
 
 
 # ---------------------------------------------------------------------------
 # TS-120-E6: Verifier with zero verdicts (120-REQ-3.E2)
+# Superseded by 11-REQ-4.2: returns None instead of a noise string.
 # ---------------------------------------------------------------------------
 
 
 class TestVerifierZeroVerdicts:
-    """Verifier summary generated even with no verdicts."""
+    """Verifier returns None with no verdicts (11-REQ-4.2 supersedes 120-REQ-3.E2)."""
 
-    def test_non_empty_summary_no_verdicts(self) -> None:
+    def test_returns_none_no_verdicts(self) -> None:
         summary = _generate_archetype_summary("verifier", verdicts=[])
-        assert len(summary) > 0
+        assert summary is None

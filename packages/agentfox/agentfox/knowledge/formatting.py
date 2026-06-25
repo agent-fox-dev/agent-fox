@@ -45,7 +45,7 @@ def generate_archetype_summary(
     archetype: str,
     findings: list[Any] | None = None,
     verdicts: list[Any] | None = None,
-) -> str:
+) -> str | None:
     """Generate a summary string for reviewer or verifier sessions.
 
     For reviewer: counts findings by severity and includes descriptions of
@@ -53,14 +53,20 @@ def generate_archetype_summary(
     For verifier: counts pass/fail verdicts and lists the requirement IDs
     of all FAIL verdicts.
 
-    Returns a non-empty string even when the input lists are empty
-    (120-REQ-3.E1, 120-REQ-3.E2).
+    Returns ``None`` when there are no actionable findings or verdicts,
+    so the caller's ``if summary_text:`` guard prevents storage of trivial
+    completion-status noise (11-REQ-4.1, 11-REQ-4.2).
 
-    Requirements: 120-REQ-3.1, 120-REQ-3.2, 120-REQ-3.E1, 120-REQ-3.E2
+    Requirements: 120-REQ-3.1, 120-REQ-3.2, 11-REQ-4.1, 11-REQ-4.2,
+                  11-REQ-4.E1
     """
     if archetype == "reviewer":
         if not findings:
-            return "Reviewer session completed with no findings."
+            return None
+        # 11-REQ-4.E1: If findings are structurally present but all have
+        # count == 0, treat as no findings.
+        if all(getattr(f, "count", None) == 0 for f in findings):
+            return None
         severity_counts = Counter(getattr(f, "severity", "unknown") for f in findings)
         # Build count string ordered by severity rank
         count_parts: list[str] = []
@@ -79,7 +85,7 @@ def generate_archetype_summary(
 
     if archetype == "verifier":
         if not verdicts:
-            return "Verifier session completed with no verdicts."
+            return None
         pass_count = sum(1 for v in verdicts if getattr(v, "verdict", "") == "PASS")
         fail_count = sum(1 for v in verdicts if getattr(v, "verdict", "") == "FAIL")
         fail_req_ids = [getattr(v, "requirement_id", "") for v in verdicts if getattr(v, "verdict", "") == "FAIL"]

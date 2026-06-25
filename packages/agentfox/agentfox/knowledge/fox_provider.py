@@ -342,11 +342,15 @@ class FoxKnowledgeProvider:
             self._store_summary(conn, session_id, spec_name, context)
 
         # ADR ingestion (unchanged from spec 117).
-        from agentfox.knowledge.adr import detect_adr_changes, ingest_adr
-
         touched_files = context.get("touched_files") or []
         project_root_str = context.get("project_root", "")
         if not project_root_str:
+            return
+
+        try:
+            from agentfox.knowledge.adr import detect_adr_changes, ingest_adr
+        except ImportError:
+            logger.debug("ADR module unavailable, skipping ADR ingestion")
             return
 
         project_root = Path(str(project_root_str))

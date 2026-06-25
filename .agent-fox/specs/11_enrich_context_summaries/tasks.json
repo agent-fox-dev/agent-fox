@@ -339,7 +339,7 @@
             "11-REQ-4.1",
             "11-REQ-4.E1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -355,7 +355,7 @@
           "requirement_refs": [
             "11-REQ-4.2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -374,7 +374,7 @@
           "requirement_refs": [
             "11-REQ-4.5"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -383,7 +383,7 @@
           "details": [],
           "test_spec_refs": [],
           "requirement_refs": [],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],
