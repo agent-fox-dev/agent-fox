@@ -707,20 +707,31 @@ class FoxKnowledgeProvider:
         """Store a session summary in the database.
 
         Extracts archetype, task_group, and attempt from the context dict
-        and inserts a SummaryRecord.  Handles DB failures gracefully.
+        and inserts a SummaryRecord.  Calls ``compose_enriched_summary``
+        to merge structured fields (rejected_approaches, gotchas,
+        assumptions) into the stored summary text.
 
-        Requirements: 119-REQ-5.2, 119-REQ-5.E1
+        Requirements: 119-REQ-5.2, 119-REQ-5.E1, 11-REQ-3.5
         """
         import uuid
 
         try:
+            from agentfox.engine.session_lifecycle import compose_enriched_summary
             from agentfox.knowledge.summary_store import SummaryRecord, insert_summary
 
-            summary_text = context.get("summary", "")
+            raw_summary = context.get("summary", "")
             archetype = context.get("archetype", "coder")
             task_group = str(context.get("task_group", "0"))
             attempt = int(context.get("attempt", 1))
             run_id = context.get("run_id", "") or (self._run_id or "")
+
+            # 11-REQ-3.5: Compose enriched summary from structured fields.
+            summary_text = compose_enriched_summary(
+                summary=raw_summary,
+                rejected_approaches=context.get("rejected_approaches"),
+                gotchas=context.get("gotchas"),
+                assumptions=context.get("assumptions"),
+            )
 
             record = SummaryRecord(
                 id=str(uuid.uuid4()),

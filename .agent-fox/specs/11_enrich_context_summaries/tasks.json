@@ -191,7 +191,7 @@
             "11-REQ-1.3",
             "11-REQ-1.4"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -208,7 +208,7 @@
           "requirement_refs": [
             "11-REQ-1.E1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -217,7 +217,7 @@
           "details": [],
           "test_spec_refs": [],
           "requirement_refs": [],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],

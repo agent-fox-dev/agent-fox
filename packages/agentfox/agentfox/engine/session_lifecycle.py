@@ -162,6 +162,60 @@ async def _capture_integration_head(repo_root: Path, branch: str) -> str:
         return ""
 
 
+def compose_enriched_summary(
+    summary: str,
+    rejected_approaches: list[dict[str, str]] | None = None,
+    gotchas: list[str] | None = None,
+    assumptions: list[str] | None = None,
+) -> str:
+    """Merge structured session-summary fields into a single enriched text.
+
+    Combines the narrative *summary* with optional structured fields
+    (``rejected_approaches``, ``gotchas``, ``assumptions``) into a single
+    string suitable for storage in the ``session_summaries`` table.
+
+    Each section is separated by a newline character.  No trailing newline
+    is appended after the final section.
+
+    When none of the structured fields are present or all are empty, the
+    raw *summary* text is returned unchanged.
+
+    Malformed ``rejected_approaches`` entries (missing ``approach`` or
+    ``reason`` key) are silently skipped.
+
+    Requirements: 11-REQ-3.1, 11-REQ-3.2, 11-REQ-3.3, 11-REQ-3.4,
+                  11-REQ-3.6, 11-REQ-1.E1, 11-REQ-3.E1, 11-REQ-3.E2
+    """
+    sections: list[str] = []
+
+    if summary:
+        sections.append(summary)
+
+    # Rejected approaches — skip malformed entries (11-REQ-1.E1).
+    if rejected_approaches:
+        for entry in rejected_approaches:
+            if not isinstance(entry, dict):
+                continue
+            approach = entry.get("approach")
+            reason = entry.get("reason")
+            if approach and reason:
+                sections.append(f"Tried: {approach} — rejected because: {reason}")
+
+    # Gotchas
+    if gotchas:
+        for gotcha in gotchas:
+            if gotcha:
+                sections.append(f"Watch out: {gotcha}")
+
+    # Assumptions
+    if assumptions:
+        for assumption in assumptions:
+            if assumption:
+                sections.append(f"Assumes: {assumption}")
+
+    return "\n".join(sections)
+
+
 class NodeSessionRunner:
     """Session runner for a single task graph node.
 
@@ -565,6 +619,9 @@ class NodeSessionRunner:
         archetype: str | None = None,
         task_group: str | None = None,
         attempt: int | None = None,
+        rejected_approaches: list | None = None,
+        gotchas: list | None = None,
+        assumptions: list | None = None,
     ) -> None:
         """Ingest knowledge from a completed session via the KnowledgeProvider.
 
@@ -575,6 +632,9 @@ class NodeSessionRunner:
         under the ``"summary"`` key so the provider can store it
         (119-REQ-5.1).  *archetype*, *task_group*, and *attempt* are also
         passed for SummaryRecord construction (119-REQ-5.2).
+
+        11-REQ-3.5: *rejected_approaches*, *gotchas*, and *assumptions* are
+        passed through for enriched summary composition in _store_summary.
 
         Requirements: 114-REQ-4.1, 114-REQ-4.E1, 117-REQ-1.1, 119-REQ-5.1
         """
@@ -596,6 +656,13 @@ class NodeSessionRunner:
             context["task_group"] = task_group
         if attempt is not None:
             context["attempt"] = attempt
+        # 11-REQ-3.5: Pass structured fields for enriched summary composition.
+        if rejected_approaches is not None:
+            context["rejected_approaches"] = rejected_approaches
+        if gotchas is not None:
+            context["gotchas"] = gotchas
+        if assumptions is not None:
+            context["assumptions"] = assumptions
         try:
             self._knowledge_provider.ingest(node_id, self._spec_name, context)
         except Exception:
@@ -720,8 +787,16 @@ class NodeSessionRunner:
         # event emission and knowledge ingestion.
         summary_text: str | None = None
         artifacts = self._read_session_artifacts(workspace)
+        # 11-REQ-1.1, 11-REQ-1.2, 11-REQ-1.3: Extract structured fields
+        # from session-summary.json for enriched summary composition.
+        rejected_approaches: list | None = None
+        gotchas_list: list | None = None
+        assumptions_list: list | None = None
         if artifacts:
             summary_text = artifacts.get("summary") or None
+            rejected_approaches = artifacts.get("rejected_approaches")
+            gotchas_list = artifacts.get("gotchas")
+            assumptions_list = artifacts.get("assumptions")
             if not summary_text:
                 logger.debug(
                     "Session artifacts present but no summary for %s",
@@ -799,6 +874,7 @@ class NodeSessionRunner:
             # 114-REQ-4.1, 119-REQ-5.1: Ingest knowledge via KnowledgeProvider.
             # Pass summary, archetype, task_group, and attempt through the
             # context dict so the provider can store the summary.
+            # 11-REQ-3.5: Pass structured fields for enriched summary composition.
             self._ingest_knowledge(
                 node_id,
                 touched_files,
@@ -809,6 +885,9 @@ class NodeSessionRunner:
                 archetype=self._archetype,
                 task_group=str(self._task_group),
                 attempt=attempt,
+                rejected_approaches=rejected_approaches,
+                gotchas=gotchas_list,
+                assumptions=assumptions_list,
             )
 
         # AC-3: Track whether the session completed but harvest/merge failed so
