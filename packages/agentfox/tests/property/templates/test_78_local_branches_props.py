@@ -74,7 +74,7 @@ def test_never_pushes_feature(branch: str) -> None:
             mock_push_remote,
         ),
         patch(
-            "agentfox.workspace.harvest._push_develop_if_pushable",
+            "agentfox.workspace.harvest._push_integration_branch",
             new_callable=AsyncMock,
         ),
     ):
@@ -92,14 +92,14 @@ def test_never_pushes_feature(branch: str) -> None:
 
 
 # ---------------------------------------------------------------------------
-# TS-78-P2: Post-harvest always calls _push_develop_if_pushable
+# TS-78-P2: Post-harvest always calls _push_integration_branch
 # ---------------------------------------------------------------------------
 
 
 @given(branch=_feature_branch_strategy)
 @settings(suppress_health_check=[HealthCheck.function_scoped_fixture])
 def test_always_pushes_develop(branch: str) -> None:
-    """Property: for any branch name, _push_develop_if_pushable is always called.
+    """Property: for any branch name, _push_integration_branch is always called.
 
     Test Spec: TS-78-P2
     Requirements: 78-REQ-1.2, 78-REQ-1.E1
@@ -114,7 +114,7 @@ def test_always_pushes_develop(branch: str) -> None:
 
     with (
         patch(
-            "agentfox.workspace.harvest._push_develop_if_pushable",
+            "agentfox.workspace.harvest._push_integration_branch",
             new_callable=AsyncMock,
         ) as mock_push_develop,
     ):
@@ -126,7 +126,7 @@ def test_always_pushes_develop(branch: str) -> None:
             )
         )
 
-    mock_push_develop.assert_called_once_with(repo_root)
+    mock_push_develop.assert_called_once_with(repo_root, "develop")
 
 
 # ---------------------------------------------------------------------------

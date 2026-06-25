@@ -18,8 +18,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from agentfox.workspace.integration import _sync_integration_with_remote
 from agentfox.workspace.git import run_git
+from agentfox.workspace.integration import _sync_integration_with_remote
 from agentfox.workspace.merge_lock import MergeLock
 
 logger = logging.getLogger(__name__)

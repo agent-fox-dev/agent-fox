@@ -118,6 +118,7 @@ class TestSimplifiedBarrierSmoke:
             state=mock_state,
             sync_interval=1,
             repo_root=MagicMock(),
+            integration_branch="develop",
             emit_audit=MagicMock(),
             specs_dir=None,
             hot_load_enabled=False,

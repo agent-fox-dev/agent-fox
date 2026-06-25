@@ -546,7 +546,7 @@ def init_project(
 
     _secure_write_text(config_path, generate_default_config())
 
-    _ensure_develop_branch(quiet=quiet)
+    _ensure_integration_branch("develop", quiet=quiet)
     _update_gitignore(path)
     _ensure_claude_settings(path)
     agents_md_status = _ensure_agents_md(path)

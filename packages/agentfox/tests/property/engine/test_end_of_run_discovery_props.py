@@ -171,6 +171,7 @@ class TestFullBarrierEquivalence:
             "state",
             "sync_interval",
             "repo_root",
+            "integration_branch",
             "emit_audit",
             "specs_dir",
             "hot_load_enabled",

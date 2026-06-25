@@ -500,6 +500,7 @@ def hard_reset_all(
     repo_path: Path,
     memory_path: Path,
     db_conn: duckdb.DuckDBPyConnection | None = None,
+    integration_branch: str = "main",
 ) -> HardResetResult:
     """Full hard reset: all tasks, all artifacts, code rollback.
 
@@ -513,7 +514,7 @@ def hard_reset_all(
     target = find_rollback_target(state.session_history, repo_path)
     if target is not None:
         try:
-            rollback_integration_branch(repo_path, target)
+            rollback_integration_branch(repo_path, target, branch=integration_branch)
             rollback_sha = target
         except AgentFoxError:
             logger.warning("Rollback failed, skipping code rollback.")
@@ -535,6 +536,7 @@ def hard_reset_task(
     repo_path: Path,
     memory_path: Path,
     db_conn: duckdb.DuckDBPyConnection | None = None,
+    integration_branch: str = "main",
 ) -> HardResetResult:
     """Partial hard reset: target task + cascaded tasks, code rollback.
 
@@ -566,7 +568,7 @@ def hard_reset_task(
         target = find_rollback_target(state.session_history, repo_path, target_commit_sha=target_sha)
         if target is not None:
             try:
-                rollback_integration_branch(repo_path, target)
+                rollback_integration_branch(repo_path, target, branch=integration_branch)
             except AgentFoxError:
                 logger.warning("Rollback failed, skipping code rollback.")
             else:
@@ -636,6 +638,11 @@ def run_reset(
         )
 
     if hard:
+        branch = "main"
+        if config is not None:
+            branch = getattr(
+                getattr(config, "workspace", None), "integration_branch", "main"
+            )
         if target is not None:
             return hard_reset_task(
                 task_id=target,
@@ -643,12 +650,14 @@ def run_reset(
                 repo_path=project_root,
                 memory_path=resolved_memory,
                 db_conn=db_conn,
+                integration_branch=branch,
             )
         return hard_reset_all(
             worktrees_dir=resolved_worktrees,
             repo_path=project_root,
             memory_path=resolved_memory,
             db_conn=db_conn,
+            integration_branch=branch,
         )
 
     if target is not None:

@@ -195,6 +195,7 @@ class TestBarrierRetainedSteps:
                 state=mock_state,
                 sync_interval=1,
                 repo_root=MagicMock(),
+                integration_branch="develop",
                 emit_audit=mock_emit_audit,
                 specs_dir=MagicMock(),
                 hot_load_enabled=True,

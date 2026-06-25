@@ -209,7 +209,7 @@ class TestSessionLifecycleArchetypeBudget:
                 return_value=9.5,  # < 15.0 * 0.9 = 13.5 → NOT exhausted against coder budget
             ),
             patch(
-                "agentfox.engine.session_lifecycle._capture_develop_head",
+                "agentfox.engine.session_lifecycle._capture_integration_head",
                 new_callable=AsyncMock,
                 return_value="",
             ),
@@ -273,7 +273,7 @@ class TestSessionLifecycleArchetypeBudget:
                 return_value=14.0,  # >= 15.0 * 0.9 = 13.5 → exhausted
             ),
             patch(
-                "agentfox.engine.session_lifecycle._capture_develop_head",
+                "agentfox.engine.session_lifecycle._capture_integration_head",
                 new_callable=AsyncMock,
                 return_value="",
             ),

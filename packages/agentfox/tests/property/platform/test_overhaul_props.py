@@ -218,7 +218,7 @@ class TestAlwaysPushesBoth:
     """TS-65-P1 (updated by spec 78): post-harvest always pushes develop only.
 
     Spec 78 supersedes 65-REQ-3.1. Feature branches are local-only.
-    Property: post_harvest_integrate always calls _push_develop_if_pushable
+    Property: post_harvest_integrate always calls _push_integration_branch
     and never calls push_to_remote directly.
     Validates: 78-REQ-1.1, 78-REQ-1.2
     """
@@ -241,7 +241,7 @@ class TestAlwaysPushesBoth:
                     return_value=True,
                 ) as mock_push_remote,
                 patch(
-                    "agentfox.workspace.harvest._push_develop_if_pushable",
+                    "agentfox.workspace.harvest._push_integration_branch",
                     new_callable=AsyncMock,
                 ) as mock_push_develop,
             ):

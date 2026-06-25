@@ -114,12 +114,12 @@ class TestCommitShaCaptured:
     SessionRecord should contain the develop HEAD SHA.
 
     Since _run_and_harvest requires a full session setup, we test
-    the _capture_develop_head helper directly with a real git repo.
+    the _capture_integration_head helper directly with a real git repo.
     """
 
     def test_capture_develop_head(self, tmp_path: Path) -> None:
-        """_capture_develop_head returns 40-char hex SHA of develop HEAD."""
-        from agentfox.engine.session_lifecycle import _capture_develop_head
+        """_capture_integration_head returns 40-char hex SHA of develop HEAD."""
+        from agentfox.engine.session_lifecycle import _capture_integration_head
 
         repo = _init_repo(tmp_path / "repo")
         _commit_file(repo, "task1.py", "print('hello')", "task 1 commit")
@@ -127,21 +127,21 @@ class TestCommitShaCaptured:
 
         import asyncio
 
-        sha = asyncio.run(_capture_develop_head(repo))
+        sha = asyncio.run(_capture_integration_head(repo, "develop"))
 
         assert len(sha) == 40
         assert sha == expected_sha
 
     def test_capture_returns_empty_on_failure(self, tmp_path: Path) -> None:
-        """_capture_develop_head returns '' when git fails."""
-        from agentfox.engine.session_lifecycle import _capture_develop_head
+        """_capture_integration_head returns '' when git fails."""
+        from agentfox.engine.session_lifecycle import _capture_integration_head
 
         # Non-existent directory => git will fail
         bad_path = tmp_path / "nonexistent"
 
         import asyncio
 
-        sha = asyncio.run(_capture_develop_head(bad_path))
+        sha = asyncio.run(_capture_integration_head(bad_path, "develop"))
 
         assert sha == ""
 
@@ -191,7 +191,7 @@ class TestFullHardResetRollback:
         )
 
         with patch("agentfox.engine.reset._load_state_or_raise", return_value=state):
-            result = hard_reset_all(worktrees_dir, repo, memory_path, db_conn=db_conn)
+            result = hard_reset_all(worktrees_dir, repo, memory_path, db_conn=db_conn, integration_branch="develop")
 
         # Develop should be at pre_task_sha (predecessor of earliest commit)
         new_head = _get_head(repo, "develop")
@@ -249,7 +249,7 @@ class TestPartialHardResetRollback:
         )
 
         with patch("agentfox.engine.reset._load_state_or_raise", return_value=state):
-            result = hard_reset_task("s:2", worktrees_dir, repo, memory_path, db_conn=db_conn)
+            result = hard_reset_task("s:2", worktrees_dir, repo, memory_path, db_conn=db_conn, integration_branch="develop")
 
         # Develop should be at sha1 (predecessor of task 2's commit)
         new_head = _get_head(repo, "develop")

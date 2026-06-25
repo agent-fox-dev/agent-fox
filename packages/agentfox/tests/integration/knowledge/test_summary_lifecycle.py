@@ -182,7 +182,7 @@ class TestAuditEventIncludesSummary:
                 return_value=("completed", None, ["store.py"], False),
             ),
             patch(
-                "agentfox.engine.session_lifecycle._capture_develop_head",
+                "agentfox.engine.session_lifecycle._capture_integration_head",
                 new_callable=AsyncMock,
                 return_value="abc123",
             ),
@@ -306,7 +306,7 @@ class TestAuditEventOmitsSummaryWhenMissing:
                 return_value=("completed", None, [], False),
             ),
             patch(
-                "agentfox.engine.session_lifecycle._capture_develop_head",
+                "agentfox.engine.session_lifecycle._capture_integration_head",
                 new_callable=AsyncMock,
                 return_value="",
             ),
@@ -538,7 +538,7 @@ class TestSummaryAvailableToBothPaths:
                 return_value=("completed", None, ["handler.py"], False),
             ),
             patch(
-                "agentfox.engine.session_lifecycle._capture_develop_head",
+                "agentfox.engine.session_lifecycle._capture_integration_head",
                 new_callable=AsyncMock,
                 return_value="abc123",
             ),
@@ -747,7 +747,7 @@ class TestSmokeAuditEventIncludesSummary:
                 return_value=("completed", None, ["handler.py"], False),
             ),
             patch(
-                "agentfox.engine.session_lifecycle._capture_develop_head",
+                "agentfox.engine.session_lifecycle._capture_integration_head",
                 new_callable=AsyncMock,
                 return_value="abc123",
             ),

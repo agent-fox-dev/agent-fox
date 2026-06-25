@@ -162,10 +162,10 @@ class TestNoBlindStrategyOptions:
 
     def test_no_x_ours_in_workspace(self) -> None:
         """workspace submodules do not use -X ours."""
-        import agentfox.workspace.develop as develop_mod
         import agentfox.workspace.git as git_mod
+        import agentfox.workspace.integration as integration_mod
 
-        for mod in (develop_mod, git_mod):
+        for mod in (integration_mod, git_mod):
             source = inspect.getsource(mod)
             assert '"-X", "ours"' not in source
             assert "'-X', 'ours'" not in source

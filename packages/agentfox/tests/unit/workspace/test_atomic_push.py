@@ -1588,6 +1588,7 @@ class TestPropertyNoDoublePush:
                 await post_harvest_integrate(
                     repo_root,
                     ws,
+                    "develop",
                     push_already_done=push_flag,
                 )
 

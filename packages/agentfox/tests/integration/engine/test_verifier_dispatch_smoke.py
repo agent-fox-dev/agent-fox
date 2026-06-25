@@ -156,7 +156,7 @@ class TestVerifierDispatchNoPhantomGroup:
             patch.object(runner, "_setup_workspace", new_callable=AsyncMock, return_value=mock_workspace),
             patch("agentfox.engine.session_lifecycle.destroy_worktree", new_callable=AsyncMock),
             patch(
-                "agentfox.engine.session_lifecycle._capture_develop_head",
+                "agentfox.engine.session_lifecycle._capture_integration_head",
                 new_callable=AsyncMock,
                 return_value="abc123",
             ),
