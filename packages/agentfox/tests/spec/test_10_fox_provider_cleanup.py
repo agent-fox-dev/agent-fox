@@ -21,7 +21,7 @@ import duckdb
 import pytest
 from agentfox.knowledge.fox_provider import FoxKnowledgeProvider
 
-_FOX_PROVIDER_PATH = Path(__file__).resolve().parents[3] / "agentfox" / "knowledge" / "fox_provider.py"
+_FOX_PROVIDER_PATH = Path(__file__).resolve().parents[2] / "agentfox" / "knowledge" / "fox_provider.py"
 
 # ---------------------------------------------------------------------------
 # Helpers

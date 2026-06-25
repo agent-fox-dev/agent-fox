@@ -108,21 +108,3 @@ class TestSummariesFormattedWithContextPrefix:
         assert "Built the SQLite store with WAL mode" in context_items[0]
 
 
-# TS-119-12: Cross-spec formatted with CROSS-SPEC prefix (119-REQ-3.2)
-class TestCrossSpecFormattedWithPrefix:
-    def test_cross_spec_prefix_format(self, provider_db, provider_conn):
-        insert_summary(
-            provider_conn,
-            _make_record(
-                spec_name="spec_b",
-                task_group="3",
-                node_id="spec_b:3",
-                summary="Changed AuthConfig to remove BearerToken",
-            ),
-        )
-        provider = _make_provider(provider_db, run_id="run-1")
-        items = provider.retrieve("spec_a", "task description", task_group="2", session_id="spec_a:2")
-        cross_items = [i for i in items if i.startswith("[CROSS-SPEC]")]
-        assert len(cross_items) >= 1
-        assert "(spec_b, group 3)" in cross_items[0]
-        assert "Changed AuthConfig to remove BearerToken" in cross_items[0]

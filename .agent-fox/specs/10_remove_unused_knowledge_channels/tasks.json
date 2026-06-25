@@ -165,7 +165,7 @@
             "TS-10-25/TS-10-26/TS-10-27/TS-10-28: grep the named retained test files for forbidden symbols and forbidden table names.",
             "TS-10-E2: run pytest --collect-only and assert no ImportError or ModuleNotFoundError in output.",
             "TS-10-P2: enumerate all Python files and assert none reference any deleted symbol from the PRD's removed-symbol list.",
-            "TS-10-29: mark as integration — runs full pytest and checks exit code 0 (can be skipped in unit mode with a pytest mark)."
+            "TS-10-29: mark as integration \u2014 runs full pytest and checks exit code 0 (can be skipped in unit mode with a pytest mark)."
           ],
           "test_spec_refs": [
             "TS-10-24",
@@ -194,7 +194,7 @@
         "id": "1.V",
         "checks": [
           "All new test files are collected by pytest without import errors: `pytest packages/agentfox --collect-only -q`",
-          "New tests are present and fail (red) because implementation has not been applied yet — confirm at least one failure per test group",
+          "New tests are present and fail (red) because implementation has not been applied yet \u2014 confirm at least one failure per test group",
           "No linter warnings introduced by new test files: `ruff check packages/agentfox`",
           "Test IDs TS-10-1 through TS-10-32, TS-10-P1 through TS-10-P5, TS-10-E1, TS-10-E2, TS-10-SMOKE-1 through TS-10-SMOKE-3 are all represented in the test files"
         ]
@@ -212,7 +212,7 @@
             "Open migrations.py and determine the current highest migration version number.",
             "Add a new migration entry with version = max_existing_version + 1.",
             "The migration body must execute: DROP TABLE IF EXISTS errata; DROP TABLE IF EXISTS adr_entries; DROP TABLE IF EXISTS verification_results;",
-            "Do NOT add a DROP for session_summaries — it is retained.",
+            "Do NOT add a DROP for session_summaries \u2014 it is retained.",
             "Ensure the migration is registered in the migrations list/dict so the runner applies it in order.",
             "Use IF EXISTS on all three DROP statements to satisfy 10-REQ-1.E1 (fresh DB safety)."
           ],
@@ -335,7 +335,7 @@
           "title": "Scan entire codebase for residual errata/adr module references",
           "details": [
             "Run: grep -r 'agentfox.knowledge.errata\\|agentfox.knowledge.adr\\|from .errata\\|from .adr\\|import errata\\|import adr' packages/agentfox",
-            "Resolve any remaining references found — likely in engine modules or test helpers.",
+            "Resolve any remaining references found \u2014 likely in engine modules or test helpers.",
             "After cleanup, the grep should return zero matches."
           ],
           "test_spec_refs": [
@@ -379,7 +379,7 @@
           "requirement_refs": [
             "10-REQ-3.1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -404,7 +404,7 @@
             "10-REQ-3.4",
             "10-REQ-3.5"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -422,7 +422,7 @@
           "requirement_refs": [
             "10-REQ-3.6"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],
@@ -766,7 +766,7 @@
           "id": "9.1",
           "title": "Update docs/architecture.md to remove removed-channel references",
           "details": [
-            "Edit docs/architecture.md: remove or rewrite §1.2 description to describe only the three retained channels.",
+            "Edit docs/architecture.md: remove or rewrite \u00a71.2 description to describe only the three retained channels.",
             "Remove errata, adr_entries, and verification_results from the DuckDB schema section.",
             "Remove rows for errata, ADR, verdict, cross-spec summaries, and prior-run items from the knowledge injection table.",
             "After editing, run: grep -i 'errata\\|\\bADR\\b\\|verdict\\|cross-spec\\|prior-run' docs/architecture.md and confirm zero matches."
@@ -913,12 +913,12 @@
       "subtasks": [
         {
           "id": "11.1",
-          "title": "Trace execution paths — verify startup path has no errata calls (10-PATH-1)",
+          "title": "Trace execution paths \u2014 verify startup path has no errata calls (10-PATH-1)",
           "details": [
             "Trace 10-PATH-1: confirm run.py startup calls the migration runner (which applies the new DROP migration) but does NOT call index_errata_from_markdown at any point.",
             "Confirm nightshift/_startup.py startup also omits index_errata_from_markdown.",
             "Confirm the migration runner is wired into the startup sequence so the DROP TABLE migration is applied before any queries run.",
-            "Verify the call chain from startup entry point → migration runner → new migration version in production code (not a stub)."
+            "Verify the call chain from startup entry point \u2192 migration runner \u2192 new migration version in production code (not a stub)."
           ],
           "test_spec_refs": [
             "TS-10-SMOKE-1"
@@ -933,9 +933,9 @@
         },
         {
           "id": "11.2",
-          "title": "Trace execution path — verify three-channel retrieval path (10-PATH-2)",
+          "title": "Trace execution path \u2014 verify three-channel retrieval path (10-PATH-2)",
           "details": [
-            "Trace 10-PATH-2: confirm the call chain from coder session → fox_provider.retrieve() → _query_reviews() / _query_cross_group_reviews() / _query_same_spec_summaries() only — no calls to deleted methods.",
+            "Trace 10-PATH-2: confirm the call chain from coder session \u2192 fox_provider.retrieve() \u2192 _query_reviews() / _query_cross_group_reviews() / _query_same_spec_summaries() only \u2014 no calls to deleted methods.",
             "Verify retrieve() returns a context payload that reaches the coder session (return value propagation).",
             "Confirm items_with_ids is populated and passed to the caller with only (text, review_id) tuples.",
             "Confirm the log line is emitted in the three-field format as part of the retrieve() call."
@@ -958,7 +958,7 @@
           "details": [
             "TS-10-SMOKE-1: run the agent-fox startup path (run.py or nightshift/_startup.py) against an in-memory DuckDB with legacy tables; confirm migration drops the three tables, startup logs no errata messages.",
             "TS-10-SMOKE-2: invoke FoxProvider.retrieve() with a real DuckDB containing review/cross-group/summary data; assert context payload has no removed tags and log line is correctly formatted.",
-            "TS-10-SMOKE-3: run the full pytest suite (exit code 0, no import errors) — equivalent to TS-10-29.",
+            "TS-10-SMOKE-3: run the full pytest suite (exit code 0, no import errors) \u2014 equivalent to TS-10-29.",
             "All three smoke tests must pass with real components (no mocked DuckDB)."
           ],
           "test_spec_refs": [
@@ -978,7 +978,7 @@
           "details": [
             "Search for Python dead-code markers in all files modified by this spec: `grep -rn 'raise NotImplementedError\\|pass  *#.*TODO\\|return None  *#.*stub' packages/agentfox`",
             "Search for any residual references to deleted symbols: `grep -rn '_query_errata\\|_query_adrs\\|_query_verdicts\\|_query_cross_group_verdicts\\|_query_cross_spec_summaries\\|_query_prior_run_findings\\|query_active_verdicts\\|query_cross_group_verdicts\\|query_prior_run_findings\\|query_prior_run_verdicts\\|insert_verdicts\\|validate_verdict\\|query_cross_spec_summaries\\|index_errata_from_markdown\\|_generate_errata' packages/agentfox`",
-            "Any hit must be investigated and resolved — no deleted symbol may remain in production code.",
+            "Any hit must be investigated and resolved \u2014 no deleted symbol may remain in production code.",
             "Confirm no empty function bodies (bare `pass` with no docstring) were left behind by the deletions."
           ],
           "test_spec_refs": [

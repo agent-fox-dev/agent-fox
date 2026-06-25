@@ -27,9 +27,7 @@ from agentfox.core.errors import KnowledgeStoreError
 from agentfox.knowledge.migrations import run_migrations
 from agentfox.knowledge.review_store import (
     ReviewFinding,
-    VerificationResult,
     insert_findings,
-    insert_verdicts,
 )
 
 # ---------------------------------------------------------------------------
@@ -578,144 +576,6 @@ class TestTaskGroupFiltering:
 
 
 # ===========================================================================
-# Issue #555: FAIL verdicts from verification_results must be injected
-# ===========================================================================
-
-
-def _insert_verdict(
-    conn: duckdb.DuckDBPyConnection,
-    spec_name: str,
-    requirement_id: str,
-    verdict: str,
-    task_group: str = "tg1",
-    evidence: str | None = None,
-) -> None:
-    """Insert a VerificationResult via the public review_store API.
-
-    Uses a unique ID per verdict to prevent accidental supersession.
-    """
-    vr = VerificationResult(
-        id=str(uuid.uuid4()),
-        requirement_id=requirement_id,
-        verdict=verdict,
-        evidence=evidence,
-        spec_name=spec_name,
-        task_group=task_group,
-        session_id="sess-verifier",
-    )
-    insert_verdicts(conn, [vr])
-
-
-class TestVerifyFeedback:
-    """AC-1 through AC-5: FAIL verdicts from verification_results are surfaced.
-
-    Issue #555: the verifier ran terminally; its FAIL verdicts were written to
-    the DB but never consumed by any subsequent agent.  Wiring
-    query_active_verdicts into retrieve() closes that gap for cross-run usage.
-    """
-
-    # ------------------------------------------------------------------
-    # AC-1: FAIL verdict appears with [VERIFY] prefix containing req_id
-    # ------------------------------------------------------------------
-
-    def test_ac1_fail_verdict_appears_with_verify_prefix(self, provider_db, provider_conn) -> None:
-        """AC-1: retrieve() includes a [VERIFY] entry for an active FAIL verdict."""
-        _insert_verdict(provider_conn, "foo", "01-REQ-8.E1", "FAIL", evidence="Not implemented")
-
-        provider = _make_provider(provider_db)
-        result = provider.retrieve("foo", "task")
-        verify_items = [r for r in result if r.startswith("[VERIFY]")]
-
-        assert len(verify_items) >= 1, f"Expected at least one [VERIFY] item, got: {result}"
-        assert any("01-REQ-8.E1" in item for item in verify_items), (
-            f"requirement_id missing from [VERIFY] items: {verify_items}"
-        )
-
-    # ------------------------------------------------------------------
-    # AC-2: PASS verdicts are excluded; only FAIL are injected
-    # ------------------------------------------------------------------
-
-    def test_ac2_pass_excluded_fail_included(self, provider_db, provider_conn) -> None:
-        """AC-2: retrieve() contains [VERIFY] only for FAIL, not PASS."""
-        _insert_verdict(provider_conn, "bar", "bar-REQ-1", "PASS", task_group="tg-pass")
-        _insert_verdict(provider_conn, "bar", "bar-REQ-2", "FAIL", task_group="tg-fail")
-
-        provider = _make_provider(provider_db)
-        result = provider.retrieve("bar", "task")
-        verify_items = [r for r in result if r.startswith("[VERIFY]")]
-
-        assert len(verify_items) == 1, f"Expected exactly 1 [VERIFY] item (FAIL only), got: {verify_items}"
-        assert "bar-REQ-2" in verify_items[0], f"Expected FAIL requirement_id in [VERIFY] item: {verify_items[0]}"
-        assert "bar-REQ-1" not in "\n".join(verify_items), "PASS requirement_id must not appear in [VERIFY] items"
-
-    # ------------------------------------------------------------------
-    # AC-3: Missing verification_results table does not raise
-    # ------------------------------------------------------------------
-
-    def test_ac3_missing_table_no_exception(self) -> None:
-        """AC-3: retrieve() returns a list (no exception) when table is absent."""
-        from agentfox.core.config import KnowledgeProviderConfig
-        from agentfox.knowledge.db import KnowledgeDB
-        from agentfox.knowledge.fox_provider import FoxKnowledgeProvider
-
-        conn = duckdb.connect(":memory:")
-        # Only schema_version table — no verification_results
-        conn.execute(
-            "CREATE TABLE IF NOT EXISTS schema_version ("
-            "  version INTEGER PRIMARY KEY,"
-            "  applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,"
-            "  description TEXT"
-            ")"
-        )
-
-        db = KnowledgeDB.__new__(KnowledgeDB)
-        db._conn = conn
-
-        provider = FoxKnowledgeProvider(db, KnowledgeProviderConfig())
-        result = provider.retrieve("any_spec", "task")
-        assert isinstance(result, list)
-        conn.close()
-
-    # ------------------------------------------------------------------
-    # AC-4: task_group filter restricts FAIL verdicts
-    # ------------------------------------------------------------------
-
-    def test_ac4_task_group_filter_restricts_verdicts(self, provider_db, provider_conn) -> None:
-        """AC-4: retrieve(task_group='g1') excludes verdicts for 'g2'."""
-        _insert_verdict(provider_conn, "spec_tg", "spec_tg-REQ-1", "FAIL", task_group="g1")
-        _insert_verdict(provider_conn, "spec_tg", "spec_tg-REQ-2", "FAIL", task_group="g2")
-
-        provider = _make_provider(provider_db)
-        result = provider.retrieve("spec_tg", "task", task_group="g1")
-        verify_items = [r for r in result if r.startswith("[VERIFY]")]
-
-        assert all("spec_tg-REQ-2" not in item for item in verify_items), (
-            "g2 verdict must not appear when task_group='g1'"
-        )
-        assert any("spec_tg-REQ-1" in item for item in verify_items), "g1 verdict must appear when task_group='g1'"
-
-    # ------------------------------------------------------------------
-    # AC-5: FAIL verdicts count toward max_items cap
-    # ------------------------------------------------------------------
-
-    def test_ac5_fail_verdicts_count_toward_max_items(self, provider_db, provider_conn) -> None:
-        """AC-5: retrieve() with max_items=2 returns ≤2 items combining reviews and verdicts."""
-        from agentfox.core.config import KnowledgeProviderConfig
-
-        _insert_review_finding(provider_conn, "spec_cap", "critical", "Review finding A")
-        _insert_verdict(provider_conn, "spec_cap", "spec_cap-REQ-1", "FAIL", task_group="cap-tg")
-
-        config = KnowledgeProviderConfig(max_items=2)
-        provider = _make_provider(provider_db, config=config)
-        result = provider.retrieve("spec_cap", "task")
-
-        assert len(result) <= 2, f"Expected at most 2 items, got {len(result)}: {result}"
-        prefixes = {item.split("]")[0] + "]" for item in result}
-        assert "[REVIEW]" in prefixes, "Expected [REVIEW] item within cap"
-        assert "[VERIFY]" in prefixes, "Expected [VERIFY] item within cap"
-
-
-# ===========================================================================
 # Issue #557: relevance scoring ranks findings by task_description keyword
 # overlap before the max_items cap is applied
 # ===========================================================================
@@ -834,37 +694,6 @@ class TestRelevanceScoringReviews:
             1 for phrase in ("alpha unrelated work", "beta unrelated work") if phrase in descriptions
         )
         assert non_matching_present < 2, "At least one non-matching finding must be excluded by the cap"
-
-
-class TestRelevanceScoringVerdicts:
-    """AC-4: FAIL verdicts are also ranked by keyword overlap with task_description.
-
-    Issue #557: the same relevance scoring that applies to review findings
-    now also applies to verification verdicts.
-    """
-
-    def _insert_fail_verdict(
-        self,
-        conn: duckdb.DuckDBPyConnection,
-        spec: str,
-        requirement_id: str,
-        evidence: str,
-    ) -> None:
-        """Insert an independent FAIL verdict (unique task_group avoids supersession)."""
-        _insert_verdict(conn, spec, requirement_id, "FAIL", task_group=str(uuid.uuid4()), evidence=evidence)
-
-    def test_ac4_relevant_verdict_ranks_before_irrelevant(self, provider_db, provider_conn) -> None:
-        """AC-4: verdict with keyword-matching evidence appears before one without."""
-        self._insert_fail_verdict(provider_conn, "v1", "v1-REQ-LOG", "logging format is wrong")
-        self._insert_fail_verdict(provider_conn, "v1", "v1-REQ-CACHE", "caching layer not implemented")
-
-        provider = _make_provider(provider_db)
-        result = provider.retrieve("v1", "implement caching layer")
-        verify_items = [r for r in result if r.startswith("[VERIFY]")]
-
-        assert len(verify_items) == 2
-        assert "v1-REQ-CACHE" in verify_items[0], f"Expected caching verdict first, got: {verify_items[0]!r}"
-        assert "v1-REQ-LOG" in verify_items[1], f"Expected logging verdict second, got: {verify_items[1]!r}"
 
 
 # ===========================================================================
@@ -1020,30 +849,3 @@ class TestCrossGroupReviewRetrieval:
         assert "group 1" in cross_group[0], f"Expected source group reference, got: {cross_group[0]!r}"
 
 
-class TestCrossGroupVerdictRetrieval:
-    """Issue #559: cross-group FAIL verdicts are surfaced alongside cross-group findings."""
-
-    def test_cross_group_fail_verdict_appears(self, provider_db, provider_conn) -> None:
-        """FAIL verdicts from other groups appear with [CROSS-GROUP] prefix."""
-        _insert_verdict(provider_conn, "spec_xv", "REQ-1", "FAIL", task_group="0", evidence="Not tested")
-        _insert_verdict(provider_conn, "spec_xv", "REQ-2", "PASS", task_group="0-pass")
-
-        provider = _make_provider(provider_db)
-        result = provider.retrieve("spec_xv", "desc", task_group="2")
-
-        cross_group = [r for r in result if r.startswith("[CROSS-GROUP]")]
-        assert len(cross_group) == 1, f"Expected 1 cross-group verdict, got: {cross_group}"
-        assert "REQ-1" in cross_group[0]
-        assert "REQ-2" not in "\n".join(cross_group)
-
-    def test_cross_group_verdicts_excluded_from_injections(self, provider_db, provider_conn) -> None:
-        """Cross-group verdicts must NOT be tracked in finding_injections."""
-        _insert_verdict(provider_conn, "spec_xvi", "REQ-X", "FAIL", task_group="0", evidence="Missing")
-
-        provider = _make_provider(provider_db)
-        provider.retrieve("spec_xvi", "desc", task_group="2", session_id="test-session-v")
-
-        injections = provider_conn.execute(
-            "SELECT finding_id FROM finding_injections WHERE session_id = 'test-session-v'"
-        ).fetchall()
-        assert len(injections) == 0

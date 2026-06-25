@@ -119,28 +119,6 @@ class TestSummariesRetrievedAfterSetRunId:
 # ---------------------------------------------------------------------------
 
 
-class TestCrossSpecSummariesRetrieved:
-    """Verify cross-spec summaries are returned when run_id is set."""
-
-    def test_cross_spec_items_returned(
-        self,
-        provider_db: KnowledgeDB,
-        provider_conn: duckdb.DuckDBPyConnection,
-    ) -> None:
-        insert_summary(
-            provider_conn,
-            _make_summary(
-                spec_name="other_spec",
-                task_group="1",
-                run_id="run1",
-                summary="Changed auth",
-            ),
-        )
-        provider = _make_provider(provider_db, run_id="run1")
-        result = provider.retrieve("test_spec", "test", task_group="1")
-        assert any("[CROSS-SPEC]" in item and "Changed auth" in item for item in result)
-
-
 # ---------------------------------------------------------------------------
 # TS-120-E1: set_run_id never called — summaries return empty (120-REQ-1.E1)
 # ---------------------------------------------------------------------------

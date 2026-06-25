@@ -2,7 +2,7 @@
 
 Defines the KnowledgeProvider protocol (the clean boundary between the
 engine and any knowledge implementation) and the concrete
-FoxKnowledgeProvider (review carry-forward + ADR retrieval).
+FoxKnowledgeProvider (review carry-forward + context summaries).
 
 Requirements: 116-REQ-1.3, 116-REQ-1.4, 116-REQ-2.2,
               116-REQ-6.1, 116-REQ-6.2, 116-REQ-6.3, 116-REQ-6.E1,
@@ -22,10 +22,8 @@ from agentfox.knowledge.formatting import (
     _extract_keywords,
     _score_relevance,
     format_finding_parts,
-    format_verdict_parts,
     generate_archetype_summary,
     sort_findings,
-    sort_verdicts,
 )
 from agentfox.knowledge.review_store import (
     supersede_drift_findings_by_files,
@@ -132,13 +130,12 @@ class NoOpKnowledgeProvider:
 
 
 class FoxKnowledgeProvider:
-    """Concrete KnowledgeProvider: review carry-forward + ADR retrieval.
+    """Concrete KnowledgeProvider: review carry-forward + context summaries.
 
-    Retrieves active critical/major review findings, errata, ADR
-    summaries, and session summaries for a spec.  Ingests ADR files
-    detected in session ``touched_files`` and stores session summaries.
-    Satisfies the ``KnowledgeProvider`` protocol defined in spec 114
-    (``@runtime_checkable``).
+    Retrieves active critical/major review findings, cross-group reviews,
+    and same-spec context summaries for a spec.  Stores session summaries
+    on ingestion.  Satisfies the ``KnowledgeProvider`` protocol defined
+    in spec 114 (``@runtime_checkable``).
     """
 
     def __init__(
@@ -153,9 +150,8 @@ class FoxKnowledgeProvider:
     def set_run_id(self, run_id: str) -> None:
         """Set the current run ID for summary queries.
 
-        Stores the run ID for use in ``_query_same_spec_summaries()`` and
-        ``_query_cross_spec_summaries()``.  An empty string is treated as
-        unset (``None``).
+        Stores the run ID for use in ``_query_same_spec_summaries()``.
+        An empty string is treated as unset (``None``).
 
         Requirements: 120-REQ-1.1, 120-REQ-1.2
         """
@@ -174,15 +170,14 @@ class FoxKnowledgeProvider:
     ) -> list[str]:
         """Retrieve knowledge context for an upcoming session.
 
-        Queries active critical/major review findings, errata, and ADR
-        summaries for the given spec and returns them as prefixed strings,
-        capped at ``max_items``.
+        Queries active critical/major review findings for the given spec
+        and returns them as prefixed strings, capped at ``max_items``.
 
-        When *session_id* is provided, the IDs of every review finding and
-        verification verdict that appears in the returned list are recorded in
-        the ``finding_injections`` table.  A subsequent successful
-        ``ingest()`` call for the same session then supersedes those findings
-        so they are not re-injected into future sessions.
+        When *session_id* is provided, the IDs of every review finding
+        that appears in the returned list are recorded in the
+        ``finding_injections`` table.  A subsequent successful
+        ``ingest()`` call for the same session then supersedes those
+        findings so they are not re-injected into future sessions.
 
         Args:
             spec_name: Name of the spec being worked on.
@@ -191,10 +186,10 @@ class FoxKnowledgeProvider:
                 findings to those tagged for this group.  When ``None``,
                 findings from all task groups are returned.
             session_id: Optional node ID of the current session.  When
-                provided, injected finding/verdict IDs are persisted for
-                later deduplication.  Callers that omit this parameter
-                get the same retrieval behaviour as before (backward-
-                compatible default).
+                provided, injected finding IDs are persisted for later
+                deduplication.  Callers that omit this parameter get the
+                same retrieval behaviour as before (backward-compatible
+                default).
 
         Returns:
             List of formatted text blocks ready for prompt injection.
@@ -213,64 +208,39 @@ class FoxKnowledgeProvider:
         reviews, review_ids = self._query_reviews(
             conn, spec_name, task_group=task_group, task_description=task_description
         )
-        errata = self._query_errata(conn, spec_name)
-        adrs = self._query_adrs(conn, spec_name, task_description)
-        verdicts, verdict_ids = self._query_verdicts(
-            conn, spec_name, task_group=task_group, task_description=task_description
-        )
 
-        # Build a parallel list of (text, optional_id) so we can track which
-        # finding/verdict IDs survive the max_items cap.
-        items_with_ids: list[tuple[str, str | None]] = [
-            *zip(reviews, review_ids),
-            *((t, None) for t in errata),
-            *((t, None) for t in adrs),
-            *zip(verdicts, verdict_ids),
-        ]
+        # Build a parallel list of (text, review_id) so we can track which
+        # finding IDs survive the max_items cap.
+        items_with_ids: list[tuple[str, str]] = list(zip(reviews, review_ids))
 
-        # Cross-group items: findings and FAIL verdicts from other task groups
-        # in the same spec.  These are informational (not tracked for injection)
-        # and have their own cap (issue #559).
+        # Cross-group items: findings from other task groups in the same spec.
+        # These are informational (not tracked for injection) and have their
+        # own cap (issue #559).
         cross_group_items: list[str] = []
         if task_group is not None:
             cross_reviews = self._query_cross_group_reviews(conn, spec_name, task_group, task_description)
-            cross_verdicts = self._query_cross_group_verdicts(conn, spec_name, task_group, task_description)
-            cross_group_items = (cross_reviews + cross_verdicts)[: self._config.max_cross_group_items]
+            cross_group_items = cross_reviews[: self._config.max_cross_group_items]
 
         capped = items_with_ids[: self._config.max_items]
         result = [text for text, _ in capped] + cross_group_items
 
-        # Session summary injection (119-REQ-2.1, 119-REQ-3.1)
+        # Session summary injection (119-REQ-2.1)
         same_spec_summaries = self._query_same_spec_summaries(conn, spec_name, task_group)
-        cross_spec_summaries = self._query_cross_spec_summaries(conn, spec_name)
         result.extend(same_spec_summaries)
-        result.extend(cross_spec_summaries)
-
-        # Prior-run carry-forward (120-REQ-4.1, 120-REQ-4.2).
-        # Informational context, NOT tracked in finding_injections (120-REQ-4.4).
-        prior_run_items, prior_run_ids = self._query_prior_run_findings(conn, spec_name)
-        result.extend(prior_run_items)
 
         logger.debug(
-            "Retrieved %d review + %d errata + %d ADR + %d verdict + %d cross-group "
-            "+ %d context + %d cross-spec + %d prior-run items for %s",
+            "Retrieved %d review + %d cross-group + %d context items for %s",
             len(reviews),
-            len(errata),
-            len(adrs),
-            len(verdicts),
             len(cross_group_items),
             len(same_spec_summaries),
-            len(cross_spec_summaries),
-            len(prior_run_items),
             spec_name,
         )
 
-        # Record which finding/verdict IDs were injected into this session so
+        # Record which finding IDs were injected into this session so
         # that a successful ingest() can supersede them later (558-AC-1).
-        # Cross-group items and prior-run items are NOT tracked — they are
-        # informational context (120-REQ-4.4).
+        # Cross-group items are NOT tracked — they are informational context.
         if session_id:
-            injected_ids = [id_ for _, id_ in capped if id_ is not None and id_ not in prior_run_ids]
+            injected_ids = [id_ for _, id_ in capped if id_ is not None]
             if injected_ids:
                 try:
                     from agentfox.knowledge.review_store import record_finding_injections
@@ -294,13 +264,9 @@ class FoxKnowledgeProvider:
         """Ingest knowledge from a completed session.
 
         On successful completion (``context['session_status'] == 'completed'``),
-        supersedes all review findings and verification verdicts that were
-        previously injected into the session (recorded in the
-        ``finding_injections`` table), preventing them from being re-injected
-        into subsequent sessions for the same spec.
-
-        Gotcha extraction was removed in spec 116; ADR ingestion was
-        removed in spec 10.
+        supersedes all review findings that were previously injected into the
+        session (recorded in the ``finding_injections`` table), preventing
+        them from being re-injected into subsequent sessions for the same spec.
 
         Args:
             session_id: Node ID of the completed session.
@@ -312,8 +278,9 @@ class FoxKnowledgeProvider:
         """
         session_status = context.get("session_status", "")
 
-        # Acquire the DB connection once for both finding supersession and
-        # ADR ingestion.  If unavailable, log and bail out early.
+        # Acquire the DB connection once for finding supersession, drift
+        # supersession, and summary storage.  If unavailable, log and bail.
+
         try:
             conn = self._knowledge_db.connection
         except KnowledgeStoreError:
@@ -360,8 +327,6 @@ class FoxKnowledgeProvider:
         summary_text = context.get("summary")
         if session_status == "completed" and summary_text:
             self._store_summary(conn, session_id, spec_name, context)
-
-        # ADR ingestion removed in spec 10 (unused channel).
 
     # ------------------------------------------------------------------
     # Internal query helpers
@@ -464,101 +429,6 @@ class FoxKnowledgeProvider:
             result.append(f"[CROSS-GROUP] (group {f.task_group}) {format_finding_parts(f)}")
         return result
 
-    def _query_cross_group_verdicts(
-        self,
-        conn: Any,
-        spec_name: str,
-        task_group: str,
-        task_description: str,
-    ) -> list[str]:
-        """Query active FAIL verdicts from *other* task groups in the same spec.
-
-        Returns formatted strings with a ``[CROSS-GROUP]`` prefix.  Only FAIL
-        verdicts are returned — PASS verdicts are not actionable.
-        """
-
-        def _do_query():
-            from agentfox.knowledge.review_store import query_cross_group_verdicts
-
-            return query_cross_group_verdicts(conn, spec_name, task_group)
-
-        verdicts = _query_safe(_do_query, (), label="cross-group verdicts", spec_name=spec_name)
-
-        keywords = _extract_keywords(task_description)
-        fail_verdicts = [v for v in verdicts if v.verdict == "FAIL"]
-        fail_verdicts = sort_verdicts(fail_verdicts, keywords)
-
-        result: list[str] = []
-        for v in fail_verdicts:
-            result.append(f"[CROSS-GROUP] (group {v.task_group}) {format_verdict_parts(v)}")
-        return result
-
-    def _query_errata(
-        self,
-        conn: Any,
-        spec_name: str,
-    ) -> list[str]:
-        """Errata channel removed in spec 10 — always returns empty list."""
-        return []
-
-    def _query_adrs(
-        self,
-        conn: Any,
-        spec_name: str,
-        task_description: str,
-    ) -> list[str]:
-        """ADR channel removed in spec 10 — always returns empty list."""
-        return []
-
-    def _query_verdicts(
-        self,
-        conn: Any,
-        spec_name: str,
-        task_group: str | None = None,
-        task_description: str = "",
-    ) -> tuple[list[str], list[str]]:
-        """Query active FAIL verdicts and format as prompt-ready strings.
-
-        Returns a tuple of ``(formatted_strings, verdict_ids)`` so that
-        ``retrieve()`` can record which verdict IDs were injected.
-
-        Only FAIL verdicts are returned — PASS verdicts indicate the
-        requirement was satisfied and need not be re-injected.  Handles
-        a missing ``verification_results`` table gracefully by returning
-        empty lists (AC-3).
-
-        When ``task_group`` is provided, only verdicts tagged for that
-        group are returned (AC-4).
-
-        Verdicts are sorted by:
-          1. Relevance score — keyword overlap with ``task_description``
-             (higher overlap ranks first).
-          2. Requirement ID (stable alphabetical tiebreaker).
-
-        When ``task_description`` is blank, relevance scores are all zero
-        and the sort reduces to requirement_id order.
-
-        Requirements: 555-AC-1, 555-AC-2, 555-AC-3, 555-AC-4
-        """
-
-        def _do_query():
-            from agentfox.knowledge.review_store import query_active_verdicts
-
-            return query_active_verdicts(conn, spec_name, task_group=task_group)
-
-        verdicts = _query_safe(_do_query, (), label="verification verdicts", spec_name=spec_name)
-
-        keywords = _extract_keywords(task_description)
-        fail_verdicts = [v for v in verdicts if v.verdict == "FAIL"]
-        fail_verdicts = sort_verdicts(fail_verdicts, keywords)
-
-        result: list[str] = []
-        ids: list[str] = []
-        for v in fail_verdicts:
-            result.append(f"[VERIFY] {format_verdict_parts(v)}")
-            ids.append(v.id)
-        return result, ids
-
     # ------------------------------------------------------------------
     # Session summary helpers (spec 119)
     # ------------------------------------------------------------------
@@ -588,80 +458,6 @@ class FoxKnowledgeProvider:
         records = _query_safe(_do_query, (), label="same-spec summaries", spec_name=spec_name)
 
         return [f"[CONTEXT] ({r.archetype}, group {r.task_group}, attempt {r.attempt}) {r.summary}" for r in records]
-
-    def _query_cross_spec_summaries(
-        self,
-        conn: Any,
-        spec_name: str,
-    ) -> list[str]:
-        """Query and format cross-spec summaries as [CROSS-SPEC] items.
-
-        Requirements: 119-REQ-3.1, 119-REQ-3.2, 119-REQ-3.E2
-        """
-        run_id = self._run_id
-        if not run_id:
-            return []
-
-        def _do_query():
-            from agentfox.knowledge.summary_store import query_cross_spec_summaries
-
-            return query_cross_spec_summaries(conn, spec_name, run_id)
-
-        records = _query_safe(_do_query, (), label="cross-spec summaries", spec_name=spec_name)
-
-        return [f"[CROSS-SPEC] ({r.spec_name}, group {r.task_group}) {r.summary}" for r in records]
-
-    def _query_prior_run_findings(
-        self,
-        conn: Any,
-        spec_name: str,
-    ) -> tuple[list[str], set[str]]:
-        """Query prior-run findings and verdicts, formatted as [PRIOR-RUN] items.
-
-        Returns a tuple of ``(formatted_items, prior_run_ids)`` where
-        ``prior_run_ids`` is the set of finding/verdict IDs from prior runs.
-        The IDs are used by ``retrieve()`` to exclude prior-run items from
-        ``finding_injections`` tracking (120-REQ-4.4).
-
-        Returns unresolved critical/major findings and FAIL verdicts from
-        prior runs (i.e. created before the current run started).  These
-        are informational context — they are NOT tracked in
-        ``finding_injections`` (120-REQ-4.4).
-
-        When ``_run_id`` is not set, returns empty collections (no way to
-        distinguish prior from current without a run reference).
-
-        Requirements: 120-REQ-4.1, 120-REQ-4.2, 120-REQ-4.4, 120-REQ-4.5
-        """
-        if not self._run_id:
-            return [], set()
-
-        max_items = self._config.max_prior_run_items
-
-        result: list[str] = []
-        prior_ids: set[str] = set()
-
-        def _do_findings_query():
-            from agentfox.knowledge.review_store import query_prior_run_findings
-
-            return query_prior_run_findings(conn, spec_name, self._run_id, max_items=max_items)
-
-        findings = _query_safe(_do_findings_query, (), label="prior-run findings", spec_name=spec_name)
-        for f in findings:
-            result.append(f"[PRIOR-RUN] (spec {spec_name}) {format_finding_parts(f)}")
-            prior_ids.add(f.id)
-
-        def _do_verdicts_query():
-            from agentfox.knowledge.review_store import query_prior_run_verdicts
-
-            return query_prior_run_verdicts(conn, spec_name, self._run_id, max_items=max_items)
-
-        verdicts = _query_safe(_do_verdicts_query, (), label="prior-run verdicts", spec_name=spec_name)
-        for v in verdicts:
-            result.append(f"[PRIOR-RUN] (spec {spec_name}) {format_verdict_parts(v)}")
-            prior_ids.add(v.id)
-
-        return result, prior_ids
 
     def _store_summary(
         self,
