@@ -15,8 +15,6 @@ Before making any changes, orient yourself:
 4. **Explore the codebase:** `<main_package>/` is the main package, `<test_directory>/` has
    unit, property, and integration tests. Their location is language dependent.
 5. **Check git state:** `git log --oneline -20`, `git status --short --branch`.
-6. **Run `make check`** to confirm the baseline is green. If tests fail, fix
-   them before starting new work.
 
 **Important:** Read all documents and code in depth — don't skim.
 
