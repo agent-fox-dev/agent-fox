@@ -951,6 +951,8 @@ class NodeSessionRunner:
             self._spec_name,
             self._task_group,
             base_branch=branch,
+            role=self._archetype,
+            mode=self._mode,
         )
 
     async def _run_session_lifecycle(
