@@ -17,7 +17,7 @@ import pytest
 
 
 class TestSmoke4VersionOutput:
-    """TS-07-SMOKE-4: night-shift --version prints 4.0.0-rc4 and exits 0."""
+    """TS-07-SMOKE-4: night-shift --version prints 4.0.0-rc5 and exits 0."""
 
     def test_version_output(self) -> None:
         """night-shift --version outputs version string and exits 0."""

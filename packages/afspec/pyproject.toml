@@ -1,6 +1,6 @@
 [project]
 name = "afspec"
-version = "4.0.0-rc4"
+version = "4.0.0-rc5"
 description = "Python library for agent-fox specification format (v1.2)"
 requires-python = ">=3.12"
 dependencies = [
