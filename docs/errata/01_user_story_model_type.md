@@ -23,5 +23,5 @@ strings). This satisfies the intent of the requirement — the description
 is preserved verbatim without any template or LLM call — while conforming
 to the actual afspec model structure.
 
-Test TS-01-6 asserts `spec.requirements.items[0].user_story.goal == <description>`
-rather than `spec.requirements.items[0].user_story == <description>`.
+Test TS-01-6 asserts `spec.requirements.requirements[0].user_story.goal == <description>`
+rather than `spec.requirements.requirements[0].user_story == <description>`.
