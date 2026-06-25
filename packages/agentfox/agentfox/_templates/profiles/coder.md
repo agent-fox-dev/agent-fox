@@ -100,7 +100,21 @@ summary before committing.
 
 ```json
 {
-  "summary": "1-3 sentence description of work done, including task group number and specification name.",
+  "summary": "What was surprising or non-obvious about the implementation. Include task group number and spec name, but focus on learnings rather than completion status. Target ~500-1000 characters of genuinely useful context.",
+  "rejected_approaches": [
+    {
+      "approach": "Used library Y for parsing",
+      "reason": "Too slow for large datasets — 10x slower than hand-rolled parser"
+    }
+  ],
+  "gotchas": [
+    "DuckDB closes connection on fork — must re-open after subprocess calls",
+    "Empty arrays serialize as null in some JSON paths"
+  ],
+  "assumptions": [
+    "Spec 10 will not remove the session_summaries table",
+    "DuckDB version >= 0.9 is available in CI"
+  ],
   "tests_added_or_modified": [
     {
       "path": "tests/unit/test_example.py",
@@ -111,8 +125,25 @@ summary before committing.
 ```
 
 4. **Field rules:**
-   - `summary` (string): 1-3 sentences describing work performed, including
-     the task group number and specification name.
+   - `summary` (string, ~500–1000 characters): Record what was surprising or
+     non-obvious about the implementation — unexpected edge cases, counter-intuitive
+     API behavior, performance cliffs, or design decisions that were not obvious
+     from the spec. Include the task group number and specification name, but
+     focus on non-obvious learnings rather than completion status. Future coder
+     agents on the same spec will see this as context, so write what you wish
+     the previous coder had told you.
+   - `rejected_approaches` (array, optional): Record each approach you tried
+     and rejected during the session. Each entry has `approach` (string, what
+     you tried) and `reason` (string, why it was rejected). This prevents
+     later coders from re-attempting dead ends.
+   - `gotchas` (array of strings, optional): Edge cases, fragile patterns, or
+     counter-intuitive behaviors the next coder should watch out for. Examples:
+     race conditions, serialization quirks, implicit dependencies, or behaviors
+     that silently break under certain conditions.
+   - `assumptions` (array of strings, optional): Assumptions you made during
+     the session that might not hold for later task groups. Examples: table
+     schemas staying stable, specific library versions, ordering guarantees,
+     or feature flags remaining enabled.
    - `tests_added_or_modified` (array): Test files added or modified. Each
      entry has `path` (string) and `description` (string). Use `[]` when
      no tests were changed.

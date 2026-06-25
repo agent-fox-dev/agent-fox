@@ -414,7 +414,7 @@
             "11-REQ-2.1",
             "11-REQ-2.5"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -436,7 +436,7 @@
             "11-REQ-2.3",
             "11-REQ-2.4"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -445,7 +445,7 @@
           "details": [],
           "test_spec_refs": [],
           "requirement_refs": [],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],
