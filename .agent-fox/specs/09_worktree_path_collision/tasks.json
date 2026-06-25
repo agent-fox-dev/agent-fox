@@ -220,7 +220,7 @@
             "09-REQ-3.2",
             "09-REQ-3.3"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -237,7 +237,7 @@
           "requirement_refs": [
             "09-REQ-3.2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],

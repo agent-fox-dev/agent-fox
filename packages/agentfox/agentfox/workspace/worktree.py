@@ -41,6 +41,8 @@ class WorkspaceInfo:
     branch: str
     spec_name: str
     task_group: int
+    role: str | None = None
+    mode: str | None = None
 
 
 def _cleanup_empty_ancestors(
