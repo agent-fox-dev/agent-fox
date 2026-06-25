@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from afspec.models import (
     EARSPattern,
     Spec,
+    TaskGroup,
 )
 from afspec.schemas import schemas as load_schemas
 
@@ -23,6 +24,41 @@ class ValidationError(BaseModel):
     path: str = ""
     message: str = ""
     rule: str = ""
+
+
+class ValidationWarning(BaseModel):
+    """A non-blocking validation diagnostic.
+
+    Unlike :class:`ValidationError`, warnings do not cause validation
+    to fail.  They highlight potential sizing or complexity issues that
+    a spec author may want to address.
+
+    Attributes:
+        message: Human-readable description of the warning.
+        entity_id: Identifier of the offending entity (e.g. group ID
+            or subtask ID such as ``"1"`` or ``"1.3"``).
+    """
+
+    message: str
+    entity_id: str
+
+
+class ValidationResult(BaseModel):
+    """Structured result of spec validation.
+
+    Combines errors and warnings into a single return value.
+    ``valid`` is ``True`` when there are no errors, regardless of
+    how many warnings are present.
+
+    Attributes:
+        valid: ``True`` when ``errors`` is empty.
+        errors: Blocking validation errors.
+        warnings: Non-blocking validation warnings (sizing, complexity).
+    """
+
+    valid: bool = True
+    errors: list[ValidationError] = []
+    warnings: list[ValidationWarning] = []
 
 
 # ---------------------------------------------------------------------------
@@ -596,17 +632,104 @@ def validate_cross_file(spec: Spec) -> list[ValidationError]:
 
 
 # ---------------------------------------------------------------------------
+# Warning checks — non-blocking sizing / complexity diagnostics
+# ---------------------------------------------------------------------------
+
+# Maximum total test_spec_refs across all subtasks in a single group.
+_MAX_GROUP_TEST_SPEC_REFS = 15
+
+# Maximum number of non-verification subtasks per group.
+_MAX_SUBTASKS_PER_GROUP = 6
+
+# Maximum test_spec_refs for a single subtask.
+_MAX_SUBTASK_TEST_SPEC_REFS = 8
+
+
+def _check_group_test_spec_refs(group: TaskGroup) -> list[ValidationWarning]:
+    """Warn if a group's total ``test_spec_refs`` count exceeds the ceiling.
+
+    Sums ``len(subtask.test_spec_refs)`` for all non-verification subtasks.
+    Applies to all ``kind`` values.
+    """
+    total = sum(len(subtask.test_spec_refs) for subtask in group.subtasks)
+    if total > _MAX_GROUP_TEST_SPEC_REFS:
+        return [
+            ValidationWarning(
+                message=(
+                    f"Group {group.id} has {total} test_spec_refs "
+                    f"(limit {_MAX_GROUP_TEST_SPEC_REFS})"
+                ),
+                entity_id=str(group.id),
+            )
+        ]
+    return []
+
+
+def _check_group_subtask_count(group: TaskGroup) -> list[ValidationWarning]:
+    """Warn if a group has more than the allowed number of subtasks.
+
+    The verification subtask (stored separately in ``group.verification``)
+    is excluded from the count.  Only ``group.subtasks`` are counted.
+    """
+    count = len(group.subtasks)
+    if count > _MAX_SUBTASKS_PER_GROUP:
+        return [
+            ValidationWarning(
+                message=(
+                    f"Group {group.id} has {count} subtasks "
+                    f"(limit {_MAX_SUBTASKS_PER_GROUP}, excluding verification)"
+                ),
+                entity_id=str(group.id),
+            )
+        ]
+    return []
+
+
+def _check_subtask_overload(group: TaskGroup) -> list[ValidationWarning]:
+    """Warn if any individual subtask references too many ``test_spec_refs``.
+
+    Subtasks with missing or empty ``test_spec_refs`` count as zero.
+    """
+    warnings: list[ValidationWarning] = []
+    for subtask in group.subtasks:
+        count = len(subtask.test_spec_refs)
+        if count > _MAX_SUBTASK_TEST_SPEC_REFS:
+            warnings.append(
+                ValidationWarning(
+                    message=(
+                        f"Subtask {subtask.id} references {count} "
+                        f"test_spec_refs (limit {_MAX_SUBTASK_TEST_SPEC_REFS})"
+                    ),
+                    entity_id=subtask.id,
+                )
+            )
+    return warnings
+
+
+# ---------------------------------------------------------------------------
 # Combined validation
 # ---------------------------------------------------------------------------
 
 
-def validate(spec: Spec) -> list[ValidationError]:
+def validate(spec: Spec) -> ValidationResult:
     """Run both schema and cross-file validation.
 
-    Returns the combined list of all ValidationError values from both
-    schema validation and cross-file integrity checks.
+    Returns a :class:`ValidationResult` containing all errors and
+    warnings.  ``result.valid`` is ``True`` when ``result.errors`` is
+    empty, regardless of how many warnings are present.
     """
     errors: list[ValidationError] = []
     errors.extend(validate_schema(spec))
     errors.extend(validate_cross_file(spec))
-    return errors
+
+    warnings: list[ValidationWarning] = []
+    for group in spec.tasks.task_groups:
+        warnings.extend(_check_group_test_spec_refs(group))
+        warnings.extend(_check_group_subtask_count(group))
+        warnings.extend(_check_subtask_overload(group))
+
+    return ValidationResult(
+        valid=len(errors) == 0,
+        errors=errors,
+        warnings=warnings,
+    )

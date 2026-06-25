@@ -502,8 +502,8 @@ class TestSmokeValidate:
         """
         # Valid spec: zero errors from combined validate()
         valid_spec = _load_golden(valid_spec_dir)
-        errs = afspec.validate(valid_spec)
-        assert len(errs) == 0
+        result = afspec.validate(valid_spec)
+        assert len(result.errors) == 0
 
         # Mutated spec: introduce a cross-file violation (dangling ref)
         invalid_spec = _load_golden(valid_spec_dir)
@@ -515,6 +515,6 @@ class TestSmokeValidate:
         )
         invalid_spec.test_spec.test_cases.append(bogus_case)
 
-        errs = afspec.validate(invalid_spec)
-        assert len(errs) > 0
-        assert any("99-REQ-99.1" in e.message for e in errs)
+        result = afspec.validate(invalid_spec)
+        assert len(result.errors) > 0
+        assert any("99-REQ-99.1" in e.message for e in result.errors)

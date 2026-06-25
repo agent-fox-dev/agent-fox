@@ -99,9 +99,9 @@ class BootstrapSpec:
         # Run full validation
         from afspec.validation import validate
 
-        errors = validate(spec)
+        result = validate(spec)
 
-        if errors:
-            return None, errors
+        if not result.valid:
+            return None, result.errors
 
         return spec, []

@@ -59,7 +59,14 @@ from afspec.models import (
 )
 from afspec.render import render_combined, render_individual, render_requirements, render_tasks, render_test_spec
 from afspec.schemas import schemas
-from afspec.validation import ValidationError, validate, validate_cross_file, validate_schema
+from afspec.validation import (
+    ValidationError,
+    ValidationResult,
+    ValidationWarning,
+    validate,
+    validate_cross_file,
+    validate_schema,
+)
 
 __all__ = [
     # Core types
@@ -127,6 +134,8 @@ __all__ = [
     "BootstrapSpec",
     "DependencyGraph",
     "ValidationError",
+    "ValidationResult",
+    "ValidationWarning",
     # Exceptions
     "SpecError",
     "LoadError",

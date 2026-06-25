@@ -461,12 +461,12 @@ class SpecSession:
         except Exception:
             spec = self._load_spec_from_artifacts()
 
-        errors = afspec.validate(spec)
-        if not errors:
+        afspec_result = afspec.validate(spec)
+        if afspec_result.valid:
             return ValidationResult(valid=True)
         return ValidationResult(
             valid=False,
-            schema_errors=[str(e) for e in errors],
+            schema_errors=[str(e) for e in afspec_result.errors],
         )
 
     def render(self, combined: bool = False) -> str | dict[str, str]:

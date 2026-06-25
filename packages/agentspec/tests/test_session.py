@@ -288,7 +288,7 @@ class TestSessionValidateRender:
             patch("agentspec.session.afspec") as mock_afspec,
         ):
             mock_afspec.load_spec.return_value = mock_spec
-            mock_afspec.validate.return_value = []
+            mock_afspec.validate.return_value = MagicMock(valid=True, errors=[], warnings=[])
 
             result = session.validate()
 
@@ -661,7 +661,7 @@ class TestSessionSmokeTests:
 
         with patch("agentspec.session.afspec") as mock_afspec:
             mock_afspec.load_spec.return_value = mock_spec
-            mock_afspec.validate.return_value = []
+            mock_afspec.validate.return_value = MagicMock(valid=True, errors=[], warnings=[])
             mock_afspec.render_combined.return_value = "# Combined Output"
             mock_afspec.render_individual.return_value = {
                 "prd": "# PRD",

@@ -103,5 +103,5 @@ def test_smoke_bootstrap(valid_spec_dir: Path) -> None:
     assert finalized_spec is not None
     assert len(errs) == 0
     # The finalized spec should also pass full validation
-    validation_errs = validate(finalized_spec)
-    assert len(validation_errs) == 0
+    validation_result = validate(finalized_spec)
+    assert len(validation_result.errors) == 0
