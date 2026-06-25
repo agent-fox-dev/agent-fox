@@ -528,9 +528,12 @@ class TestAfConfigDeprecation:
         # TS-13-13: must specifically say 'no longer supported'
         assert "no longer supported" in captured.err.lower()
         assert isinstance(config, AgentFoxConfig)
-        # TS-13-13: the AF_CONFIG path must never have been read
-        # Config should NOT reflect values from the custom config path
-        assert str(custom_config) not in captured.err or "AF_CONFIG" in captured.err
+        # TS-13-13: the AF_CONFIG path was never used for config resolution.
+        # The custom config sets theme.playful=false; if AF_CONFIG were read,
+        # the returned config would reflect that canary value.  Since it is
+        # ignored, the config should NOT have theme.playful==False (it should
+        # use the global config value or Pydantic default instead).
+        assert config.theme.playful is not False
 
 
 # ===================================================================
@@ -1224,37 +1227,79 @@ class TestSymlinkFinalFileOnlyProperty:
     def test_symlink_final_file_only(
         self, fake_home, tmp_path, monkeypatch, clean_af_env
     ):
-        """Property: symlinked final file rejected; symlinked dir OK."""
-        # Test with symlinked final file
-        global_dir = fake_home / ".agent-fox"
-        global_dir.mkdir(exist_ok=True)
-        real = tmp_path / "real.toml"
-        real.write_text("[orchestrator]\nparallel = 1\n")
-        link = global_dir / "config.toml"
-        link.symlink_to(real)
+        """Property: symlinked final file rejected; symlinked intermediate dir OK."""
+        import shutil
 
-        repo = tmp_path / "repo"
-        repo.mkdir(exist_ok=True)
-        monkeypatch.chdir(repo)
+        from hypothesis import given
+        from hypothesis import settings as h_settings
+        from hypothesis import strategies as st
 
-        with pytest.raises(ConfigError):
-            load_config()
+        # Strategy: generate varying TOML content for diverse path structures
+        toml_content_st = st.sampled_from([
+            "[orchestrator]\nparallel = 1\n",
+            "[theme]\nplayful = true\n",
+            "[routing]\nretries_before_escalation = 2\n",
+            "# empty\n",
+        ])
+        # Strategy: generate varying directory depth for intermediate dirs
+        depth_st = st.integers(min_value=0, max_value=3)
 
-        # Clean up and test with symlinked intermediate dir
-        link.unlink()
-        global_dir.rmdir()
+        @given(toml_content=toml_content_st, depth=depth_st)
+        @h_settings(max_examples=20)
+        def check_symlinked_final_file_rejected(toml_content, depth):
+            """Symlinked final config file is always rejected."""
+            # Build a real file in a unique location
+            real_base = tmp_path / f"real_final_{depth}"
+            real_base.mkdir(exist_ok=True)
+            real_file = real_base / "config.toml"
+            real_file.write_text(toml_content)
 
-        # Create real dir with real file
-        real_dir = tmp_path / "real_agent_fox"
-        real_dir.mkdir()
-        (real_dir / "config.toml").write_text("[orchestrator]\nparallel = 1\n")
+            # Set up global config dir with symlinked final file
+            global_dir = fake_home / ".agent-fox"
+            if global_dir.is_symlink():
+                global_dir.unlink()
+            elif global_dir.exists():
+                shutil.rmtree(global_dir)
+            global_dir.mkdir(exist_ok=True)
+            link = global_dir / "config.toml"
+            if link.exists() or link.is_symlink():
+                link.unlink()
+            link.symlink_to(real_file)
 
-        # Symlink the directory
-        (fake_home / ".agent-fox").symlink_to(real_dir)
+            repo = tmp_path / "repo_final"
+            repo.mkdir(exist_ok=True)
+            monkeypatch.chdir(repo)
 
-        # Should NOT raise
-        config = load_config()
-        assert isinstance(config, AgentFoxConfig)
+            with pytest.raises(ConfigError):
+                load_config()
+
+        @given(toml_content=toml_content_st, depth=depth_st)
+        @h_settings(max_examples=20)
+        def check_symlinked_intermediate_dir_accepted(toml_content, depth):
+            """Symlinked intermediate directory with real final file is accepted."""
+            # Create a real directory with a real config file
+            real_dir = tmp_path / f"real_inter_{depth}"
+            real_dir.mkdir(exist_ok=True)
+            (real_dir / "config.toml").write_text(toml_content)
+
+            # Set up $HOME/.agent-fox as a symlink to the real directory
+            global_dir = fake_home / ".agent-fox"
+            if global_dir.is_symlink():
+                global_dir.unlink()
+            elif global_dir.exists():
+                shutil.rmtree(global_dir)
+            global_dir.symlink_to(real_dir)
+
+            repo = tmp_path / "repo_inter"
+            repo.mkdir(exist_ok=True)
+            monkeypatch.chdir(repo)
+
+            # Should NOT raise — symlink check is on the final file only
+            config = load_config()
+            assert isinstance(config, AgentFoxConfig)
+
+        check_symlinked_final_file_rejected()
+        check_symlinked_intermediate_dir_accepted()
 
 
 # ===================================================================
