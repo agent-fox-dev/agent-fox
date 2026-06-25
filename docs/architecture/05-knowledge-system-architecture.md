@@ -104,16 +104,44 @@ actions:
 
 ### 4.1 Finding Supersession
 
+Two distinct supersession mechanisms keep the knowledge store current:
+
+**Injection-based supersession** (review findings and verification results).
 If the session completed successfully, all review findings and verification
 verdicts that were injected into that session (as tracked in the
 `finding_injections` table) are automatically superseded. The logic: if the
 coder saw the finding and completed the work, the finding is considered
 addressed. Superseded findings remain in the database with a `superseded_by`
-reference for audit history but are excluded from active queries.
+reference for audit history but are excluded from active queries. This closes
+the retrieve-inject-address-supersede feedback loop — the core mechanism by
+which the knowledge store stays current.
 
-This closes the retrieve-inject-address-supersede feedback loop — the core
-mechanism by which the knowledge store stays current. Without it, resolved
-findings would accumulate indefinitely and consume prompt space.
+**File-based supersession** (drift findings). For completed coder sessions
+only, immediately after injection-based supersession, the system calls
+`supersede_drift_findings_by_files` to retire drift findings whose
+`artifact_ref` matches files modified by the session. This mechanism applies
+only to the `drift_findings` table and uses path matching rather than
+injection tracking:
+
+- Each active drift finding's `artifact_ref` is normalized: line-number
+  suffixes (e.g. `:42`, `:42:10`) are stripped and whitespace is trimmed.
+- **Exact matching**: when the normalized `artifact_ref` does not end with
+  `/`, the finding is superseded only if the exact path appears in the
+  session's `touched_files`.
+- **Prefix matching**: when the normalized `artifact_ref` ends with `/`
+  (indicating a directory reference), the finding is superseded if any
+  touched file starts with that prefix.
+- **Null `artifact_ref` fallback**: findings with a null `artifact_ref` are
+  never superseded by file matching. They persist until a future drift
+  review's `insert_drift_findings` call retires them via bulk supersession.
+
+The file-based supersession call is wrapped in a try/except guard — any
+exception is caught and logged as a warning without affecting the session
+outcome. Reviewer and verifier sessions do not trigger file-based
+supersession.
+
+Without these two mechanisms, resolved findings would accumulate indefinitely
+and consume prompt space.
 
 ### 4.2 Session Summary Storage
 
@@ -356,36 +384,61 @@ closed loop that keeps the knowledge store current without manual intervention.
 ## 8. The Finding Lifecycle
 
 Findings follow a closed-loop lifecycle that is central to how the knowledge
-system operates:
+system operates. Two distinct supersession paths exist, depending on the
+finding type:
 
 ```
-Created (by reviewer/verifier session)
+Created (by reviewer/verifier/drift-review session)
     ↓
 Active (queryable by context assembly and knowledge retrieval)
     ↓
-Injected (tracked in finding_injections when served to a coder session)
-    ↓
-Superseded (retired when the session that received them completes)
+    ├── Path A: Injection-based (review_findings, verification_results)
+    │   Injected (tracked in finding_injections when served to a session)
+    │       ↓
+    │   Superseded (retired when the session that received them completes)
+    │
+    └── Path B: File-based (drift_findings)
+        Matched (artifact_ref compared against session's touched_files)
+            ↓
+        Superseded (retired when a coder session touches the referenced file)
 ```
 
 **Created.** Review and verifier sessions parse structured JSON output to
-produce findings classified by severity. Findings are stored with full
-provenance: spec name, task group, session ID, attempt number, archetype,
-and mode.
+produce findings classified by severity. Drift-review sessions produce drift
+findings with an `artifact_ref` field referencing the file or directory where
+drift was detected. Findings are stored with full provenance: spec name, task
+group, session ID, attempt number, archetype, and mode.
 
 **Active.** Findings in the active state are visible to three consumers:
 context assembly (rendered as structured markdown in Layer 3 of the system
 prompt), knowledge retrieval (returned as `[REVIEW]` or `[VERIFY]` items),
 and retry context (prepended to coder task prompts on retry attempts).
 
-**Injected.** When `retrieve()` serves a finding to a session, the finding ID
-and session ID are recorded in `finding_injections`. This bookkeeping is what
-enables automatic supersession — without it, the system would not know which
-findings the coder actually saw.
+**Path A — Injection-based supersession** (review findings and verification
+results). When `retrieve()` serves a finding to a session, the finding ID and
+session ID are recorded in `finding_injections`. When that session completes
+successfully, `ingest()` queries `finding_injections` for all findings served
+to that session and marks them as superseded. This bookkeeping is what enables
+automatic supersession — without it, the system would not know which findings
+the coder actually saw.
 
-**Superseded.** When a session completes successfully, `ingest()` queries
-`finding_injections` for all findings served to that session and marks them
-as superseded. Superseded findings retain their `superseded_by` reference for
+**Path B — File-based supersession** (drift findings). When a coder session
+completes, `supersede_drift_findings_by_files` matches each active drift
+finding's `artifact_ref` against the session's `touched_files` using two
+matching rules:
+
+- **Exact match**: normalized `artifact_ref` (without trailing `/`) must
+  equal a path in `touched_files`.
+- **Prefix match**: normalized `artifact_ref` ending with `/` matches if any
+  touched file starts with that prefix.
+
+Before matching, the `artifact_ref` is normalized by stripping line-number
+suffixes (e.g. `:42`) and trimming whitespace. Findings with a null
+`artifact_ref` are never superseded by file matching — they persist until a
+future drift review's `insert_drift_findings` call retires them via bulk
+supersession.
+
+Superseded findings of both types retain their `superseded_by` reference for
 audit trail purposes but are excluded from all active queries.
 
 Findings from cross-group and prior-run sources are not tracked in the
@@ -413,7 +466,22 @@ the threshold.
 
 The reviewer archetype in drift-review mode compares spec assumptions against
 the actual codebase and detects drift: places where existing code diverges from
-what the spec assumes.
+what the spec assumes. Each drift finding carries an optional `artifact_ref`
+field that records the file or directory path where the drift was detected.
+
+Drift findings are superseded through two mechanisms:
+
+1. **Bulk supersession via `insert_drift_findings`**: when a new drift-review
+   session runs, all prior active findings for the same `(spec_name,
+   task_group)` are superseded and replaced by the new batch.
+2. **File-based supersession via `supersede_drift_findings_by_files`**: after
+   each successful coder session merge, drift findings whose `artifact_ref`
+   matches any file the session touched are superseded. The matching rules
+   normalize the `artifact_ref` (stripping line-number suffixes like `:42`
+   and trimming whitespace), then apply exact matching for file references
+   or prefix matching for directory references ending with `/`. Findings
+   with a null `artifact_ref` are never superseded by file matching and
+   persist until a future drift review replaces them.
 
 ### Verification Results
 

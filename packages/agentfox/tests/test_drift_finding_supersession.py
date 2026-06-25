@@ -1265,12 +1265,11 @@ def test_ts12_p6_session_outcome_isolation(
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(reason="Documentation not yet updated", strict=True)
 def test_ts12_35_architecture_md_updated() -> None:
     """docs/architecture.md documents file-based drift finding supersession."""
     from pathlib import Path
 
-    docs_path = Path(__file__).resolve().parents[2] / "docs" / "architecture.md"
+    docs_path = Path(__file__).resolve().parents[3] / "docs" / "architecture.md"
     assert docs_path.exists(), f"docs/architecture.md not found at {docs_path}"
     content = docs_path.read_text()
     # Must mention artifact_ref or file-based supersession (not vacuously true)
@@ -1285,13 +1284,12 @@ def test_ts12_35_architecture_md_updated() -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.xfail(reason="Documentation not yet updated", strict=True)
 def test_ts12_36_knowledge_system_architecture_updated() -> None:
     """05-knowledge-system-architecture.md documents matching rules."""
     from pathlib import Path
 
     docs_path = (
-        Path(__file__).resolve().parents[2]
+        Path(__file__).resolve().parents[3]
         / "docs"
         / "architecture"
         / "05-knowledge-system-architecture.md"
