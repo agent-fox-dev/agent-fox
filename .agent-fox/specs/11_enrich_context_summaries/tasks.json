@@ -558,7 +558,7 @@
             "11-REQ-4.4",
             "11-REQ-4.5"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -583,7 +583,7 @@
             "11-REQ-4.2",
             "11-REQ-4.5"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -595,7 +595,7 @@
           ],
           "test_spec_refs": [],
           "requirement_refs": [],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -604,7 +604,7 @@
           "details": [],
           "test_spec_refs": [],
           "requirement_refs": [],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],
