@@ -22,9 +22,8 @@ def init_knowledge(config, project_root):
     except Exception:
         logger.warning("Failed to open knowledge store", exc_info=True)
         return None, None, None
-    # Run legacy migrations and errata indexing at startup.
+    # Run legacy migrations at startup (errata indexing removed in spec 10).
     from agentfox.core.config import resolve_spec_root
-    from agentfox.knowledge.errata import index_errata_from_markdown
     from agentfox.session.context import _migrate_legacy_files
 
     specs = resolve_spec_root(config, project_root)
@@ -35,10 +34,6 @@ def init_knowledge(config, project_root):
                     _migrate_legacy_files(kdb.connection, d, d.name)
                 except Exception:
                     logger.warning("Migration failed for %s", d.name, exc_info=True)
-    try:
-        index_errata_from_markdown(kdb.connection, project_root)
-    except Exception:
-        logger.warning("Failed to index errata", exc_info=True)
     return kdb, sink, kprov
 
 

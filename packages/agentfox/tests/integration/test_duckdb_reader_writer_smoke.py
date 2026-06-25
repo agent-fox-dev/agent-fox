@@ -158,7 +158,7 @@ class TestAfPlanVerifySmoke:
 @pytest.mark.smoke
 class TestOrchestratorStartupSmoke:
     """TS-06-SMOKE-3: orchestrator startup calls _migrate_legacy_files
-    and index_errata_from_markdown with RW conn before sessions."""
+    with RW conn before sessions (errata indexing removed in spec 10)."""
 
     def test_startup_migration_and_indexing_flow(self, tmp_path: Path) -> None:
         """Verify the orchestrator startup sequence."""
@@ -172,24 +172,15 @@ class TestOrchestratorStartupSmoke:
         (specs_dir / "spec_b").mkdir()
 
         migrate_calls: list[str] = []
-        errata_calls: list[object] = []
 
         def _track_migrate(conn, spec_dir, spec_name):
             migrate_calls.append(spec_name)
 
-        def _track_errata(conn, project_root):
-            errata_calls.append(project_root)
-
-        with (
-            patch("agentfox.session.context._migrate_legacy_files", side_effect=_track_migrate),
-            patch("agentfox.knowledge.errata.index_errata_from_markdown", side_effect=_track_errata),
-        ):
+        with patch("agentfox.session.context._migrate_legacy_files", side_effect=_track_migrate):
             _run_startup_migrations(mock_knowledge_db, specs_dir, tmp_path)
 
         assert len(migrate_calls) == 2
         assert set(migrate_calls) == {"spec_a", "spec_b"}
-        assert len(errata_calls) >= 1
-        assert errata_calls[0] == tmp_path
 
     def test_session_receives_read_only_conn(self) -> None:
         """Verify _setup_infrastructure opens a second read-only conn

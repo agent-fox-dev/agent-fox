@@ -449,51 +449,8 @@ class SessionResultHandler:
         return False
 
     def _generate_errata(self, record: SessionRecord) -> None:
-        """Generate errata from critical/major findings that caused blocking."""
-        if self._knowledge_db_conn is None:
-            return
-        try:
-            from agentfox.core.node_id import parse_node_id
-            from agentfox.knowledge.errata import (
-                generate_errata_from_findings,
-                persist_erratum_markdown,
-                store_errata,
-            )
-            from agentfox.knowledge.review_store import query_findings_by_session
-
-            parsed = parse_node_id(record.node_id)
-            spec_name = parsed.spec_name
-            task_group = str(parsed.group_number) if parsed.group_number else "1"
-            session_id = f"{record.node_id}:{record.attempt}"
-
-            findings = query_findings_by_session(self._knowledge_db_conn, session_id)
-            errata = generate_errata_from_findings(findings, spec_name, task_group)
-            if not errata:
-                return
-
-            stored = store_errata(self._knowledge_db_conn, errata)
-
-            from pathlib import Path
-
-            persist_erratum_markdown(errata, Path.cwd())
-
-            emit_audit_event(
-                self._sink,
-                self._run_id,
-                AuditEventType.ERRATA_GENERATED,
-                node_id=record.node_id,
-                payload={
-                    "spec_name": spec_name,
-                    "task_group": task_group,
-                    "count": stored,
-                },
-            )
-        except Exception:
-            logger.warning(
-                "Failed to generate errata for %s",
-                record.node_id,
-                exc_info=True,
-            )
+        """Errata generation removed in spec 10 (unused channel)."""
+        return
 
     def process(
         self,

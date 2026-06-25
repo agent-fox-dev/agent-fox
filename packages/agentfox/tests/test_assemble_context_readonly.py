@@ -131,37 +131,7 @@ class TestOrchestratorStartupMigration:
         assert called_spec_names == {"spec_a", "spec_b"}
 
 
-# -----------------------------------------------------------------------
-# TS-06-14: orchestrator startup calls index_errata_from_markdown
-# -----------------------------------------------------------------------
-
-
-class TestOrchestratorStartupErrata:
-    """TS-06-14: startup must call index_errata_from_markdown with rw conn."""
-
-    def test_orchestrator_calls_index_errata_at_startup(self, tmp_path: Path) -> None:
-        """The orchestrator startup sequence must call
-        index_errata_from_markdown with a read-write connection before
-        dispatching any sessions."""
-        from unittest.mock import MagicMock
-
-        from agentfox.engine.run import _run_startup_migrations
-
-        mock_knowledge_db = MagicMock()
-        mock_conn = MagicMock()
-        mock_knowledge_db.connection = mock_conn
-
-        specs_dir = tmp_path / "specs"
-        specs_dir.mkdir()
-
-        with patch("agentfox.knowledge.errata.index_errata_from_markdown") as mock_index:
-            _run_startup_migrations(mock_knowledge_db, specs_dir, tmp_path)
-
-        assert mock_index.call_count >= 1, "index_errata_from_markdown must be called at startup"
-        # Verify it was called with the connection and project root
-        call_args = mock_index.call_args
-        assert call_args.args[0] is mock_conn
-        assert call_args.args[1] == tmp_path
+# TS-06-14 (orchestrator startup errata) removed in spec 10.
 
 
 # -----------------------------------------------------------------------
@@ -208,37 +178,7 @@ class TestMigrateLegacyFilesIdempotent:
         )
 
 
-# -----------------------------------------------------------------------
-# TS-06-15: index_errata_from_markdown is idempotent
-# -----------------------------------------------------------------------
-
-
-class TestIndexErrataIdempotent:
-    """TS-06-15: calling index_errata_from_markdown twice produces no duplicates."""
-
-    def test_idempotent_errata_indexing(self, knowledge_conn: duckdb.DuckDBPyConnection, tmp_path: Path) -> None:
-        """Calling index_errata_from_markdown twice with the same
-        project_root must produce the same errata record count."""
-        from agentfox.knowledge.errata import index_errata_from_markdown
-
-        # Create minimal errata directory structure
-        errata_dir = tmp_path / "docs" / "errata"
-        errata_dir.mkdir(parents=True)
-        (errata_dir / "01_test_erratum.md").write_text("# Erratum: test\n\nThis is a test erratum.\n")
-
-        # First indexing
-        index_errata_from_markdown(knowledge_conn, tmp_path)
-        count_first = knowledge_conn.execute("SELECT COUNT(*) FROM errata").fetchone()[0]
-
-        # Second indexing — should produce no additional records
-        index_errata_from_markdown(knowledge_conn, tmp_path)
-        count_second = knowledge_conn.execute("SELECT COUNT(*) FROM errata").fetchone()[0]
-
-        assert count_first == count_second, (
-            f"index_errata_from_markdown is not idempotent: "
-            f"first call produced {count_first} records, "
-            f"second call produced {count_second} records"
-        )
+# TS-06-15 (index_errata_from_markdown idempotency) removed in spec 10.
 
 
 # -----------------------------------------------------------------------
@@ -580,33 +520,7 @@ class TestMigrationFailureIsolation:
         assert "spec_b" in call_log, "spec_b migration must be attempted after spec_a fails"
 
 
-# -----------------------------------------------------------------------
-# TS-06-E6: index_errata_from_markdown failure doesn't block dispatch
-# -----------------------------------------------------------------------
-
-
-class TestErrataIndexFailureIsolation:
-    """TS-06-E6: errata indexing failure must not block session dispatch."""
-
-    def test_errata_failure_does_not_block_sessions(self, tmp_path: Path) -> None:
-        """When index_errata_from_markdown raises, the orchestrator must
-        log the error and continue with session dispatch."""
-        from unittest.mock import MagicMock
-
-        from agentfox.engine.run import _run_startup_migrations
-
-        mock_knowledge_db = MagicMock()
-        mock_knowledge_db.connection = MagicMock()
-
-        specs_dir = tmp_path / "specs"
-        specs_dir.mkdir()
-
-        with patch(
-            "agentfox.knowledge.errata.index_errata_from_markdown",
-            side_effect=OSError("simulated errata indexing failure"),
-        ):
-            # Should not raise — error is logged and startup continues
-            _run_startup_migrations(mock_knowledge_db, specs_dir, tmp_path)
+# TS-06-E6 (errata indexing failure isolation) removed in spec 10.
 
 
 # -----------------------------------------------------------------------

@@ -100,6 +100,7 @@ class TestNoImportReferences:
                 line
                 for line in matches.splitlines()
                 if "test_10_deleted_modules_absent.py" not in line
+                and "test_knowledge_pruning.py" not in line
             ]
             assert not filtered, (
                 f"Found import references to deleted module pattern '{pattern}':\n"

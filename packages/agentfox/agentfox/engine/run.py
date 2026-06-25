@@ -179,16 +179,14 @@ def _run_startup_migrations(
 ) -> None:
     """Run legacy file migrations and errata indexing at orchestrator startup.
 
-    Migrates legacy review.md/verification.md files and indexes errata
-    markdown files into DuckDB using the read-write connection, before any
-    sessions are dispatched.
+    Migrates legacy review.md/verification.md files into DuckDB using the
+    read-write connection, before any sessions are dispatched.
 
-    Errors on individual specs or errata indexing are logged and skipped —
-    they do not abort the startup sequence.
+    Errors on individual specs are logged and skipped — they do not abort
+    the startup sequence.
 
-    Requirements: 06-REQ-5.2, 06-REQ-5.E1, 06-REQ-6.2, 06-REQ-6.E1
+    Requirements: 06-REQ-5.2, 06-REQ-5.E1
     """
-    from agentfox.knowledge.errata import index_errata_from_markdown
     from agentfox.session.context import _migrate_legacy_files
 
     conn = knowledge_db.connection
@@ -209,15 +207,7 @@ def _run_startup_migrations(
                     exc_info=True,
                 )
 
-    # Index errata markdown files (06-REQ-6.2)
-    try:
-        index_errata_from_markdown(conn, project_root)
-    except Exception:
-        # 06-REQ-6.E1: Log error and continue startup
-        logger.warning(
-            "Failed to index errata from markdown, continuing",
-            exc_info=True,
-        )
+    # Errata indexing removed in spec 10 (unused channel).
 
 
 async def run_code(

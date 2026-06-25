@@ -12,7 +12,6 @@ Requirements: 116-REQ-1.3, 116-REQ-1.4, 116-REQ-2.2,
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 from agentfox.core.config import KnowledgeProviderConfig
@@ -300,8 +299,8 @@ class FoxKnowledgeProvider:
         ``finding_injections`` table), preventing them from being re-injected
         into subsequent sessions for the same spec.
 
-        Also detects ADR files in ``touched_files`` and ingests them into
-        the knowledge database.  Gotcha extraction was removed in spec 116.
+        Gotcha extraction was removed in spec 116; ADR ingestion was
+        removed in spec 10.
 
         Args:
             session_id: Node ID of the completed session.
@@ -362,43 +361,7 @@ class FoxKnowledgeProvider:
         if session_status == "completed" and summary_text:
             self._store_summary(conn, session_id, spec_name, context)
 
-        # ADR ingestion (unchanged from spec 117).
-        touched_files = context.get("touched_files") or []
-        project_root_str = context.get("project_root", "")
-        if not project_root_str:
-            return
-
-        try:
-            from agentfox.knowledge.adr import detect_adr_changes, ingest_adr
-        except ImportError:
-            logger.debug("ADR module unavailable, skipping ADR ingestion")
-            return
-
-        project_root = Path(str(project_root_str))
-        adr_paths = detect_adr_changes(touched_files)
-        if not adr_paths:
-            return
-
-        # Extract sink and run_id from context if available
-        sink = context.get("sink")
-        run_id = str(context.get("run_id", ""))
-
-        for adr_path in adr_paths:
-            try:
-                ingest_adr(
-                    conn,
-                    adr_path,
-                    project_root,
-                    sink=sink,
-                    run_id=run_id,
-                )
-            except Exception:
-                logger.warning(
-                    "Failed to ingest ADR %s in session %s",
-                    adr_path,
-                    session_id,
-                    exc_info=True,
-                )
+        # ADR ingestion removed in spec 10 (unused channel).
 
     # ------------------------------------------------------------------
     # Internal query helpers
@@ -535,18 +498,8 @@ class FoxKnowledgeProvider:
         conn: Any,
         spec_name: str,
     ) -> list[str]:
-        """Query errata for the spec and format as prompt-ready strings.
-
-        Handles missing ``errata`` table gracefully by returning an
-        empty list.
-        """
-
-        def _do_query():
-            from agentfox.knowledge.errata import format_errata_for_prompt, query_errata
-
-            return format_errata_for_prompt(query_errata(conn, spec_name))
-
-        return _query_safe(_do_query, (), label="errata", spec_name=spec_name)
+        """Errata channel removed in spec 10 — always returns empty list."""
+        return []
 
     def _query_adrs(
         self,
@@ -554,20 +507,8 @@ class FoxKnowledgeProvider:
         spec_name: str,
         task_description: str,
     ) -> list[str]:
-        """Query ADRs matching the spec or task and format for prompt injection.
-
-        Handles missing ``adr_entries`` table gracefully by returning
-        an empty list (117-REQ-6.E1).
-
-        Requirements: 117-REQ-6.1, 117-REQ-6.3
-        """
-
-        def _do_query():
-            from agentfox.knowledge.adr import format_adrs_for_prompt, query_adrs
-
-            return format_adrs_for_prompt(query_adrs(conn, spec_name, task_description))
-
-        return _query_safe(_do_query, (), label="ADRs", spec_name=spec_name)
+        """ADR channel removed in spec 10 — always returns empty list."""
+        return []
 
     def _query_verdicts(
         self,
