@@ -98,40 +98,7 @@ class TestSkepticFindingsPersistedAuditEvent:
         assert event.payload["severity_summary"] == {"critical": 1, "major": 1}
 
 
-class TestVerifierVerdictsPersistedAuditEvent:
-    """TS-84-4: review.verdicts_persisted event emitted for verifier."""
-
-    def test_verdicts_persisted_event_emitted(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
-        """Verify review.verdicts_persisted event with pass/fail counts."""
-        mock_sink = MagicMock()
-
-        transcript = _make_verifier_transcript(
-            [
-                {"requirement_id": "REQ-1.1", "verdict": "PASS"},
-                {"requirement_id": "REQ-1.2", "verdict": "FAIL"},
-            ]
-        )
-
-        persist_review_findings(
-            transcript,
-            "my_spec:1",
-            1,
-            archetype="verifier",
-            spec_name="my_spec",
-            task_group="1",
-            knowledge_db_conn=knowledge_conn,
-            sink=mock_sink,
-            run_id="test-run",
-        )
-
-        calls = mock_sink.emit_audit_event.call_args_list
-        persisted_events = [c for c in calls if c.args[0].event_type == AuditEventType.REVIEW_VERDICTS_PERSISTED]
-        assert len(persisted_events) == 1
-
-        event = persisted_events[0].args[0]
-        assert event.payload["count"] == 2
-        assert event.payload["pass_count"] == 1
-        assert event.payload["fail_count"] == 1
+# TS-84-4 removed — verification_results table dropped in spec 10.
 
 
 class TestOracleDriftPersistedAuditEvent:

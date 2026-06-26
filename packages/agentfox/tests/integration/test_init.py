@@ -43,17 +43,14 @@ class TestInitCreatesStructure:
 
         assert (tmp_git_repo / ".agent-fox" / "worktrees").is_dir()
 
-    def test_init_creates_develop_branch(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
-        """init creates the develop branch."""
+    def test_init_creates_agent_fox_config(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
+        """init creates a config.toml under .agent-fox/."""
         cli_runner.invoke(main, ["init"])
 
-        result = subprocess.run(
-            ["git", "branch", "--list", "develop"],
-            cwd=tmp_git_repo,
-            capture_output=True,
-            text=True,
-        )
-        assert "develop" in result.stdout
+        config_path = tmp_git_repo / ".agent-fox" / "config.toml"
+        assert config_path.exists()
+        content = config_path.read_text()
+        assert len(content) > 0
 
     def test_init_exits_zero(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
         """init exits with code 0 on success."""
@@ -82,14 +79,14 @@ class TestInitIdempotent:
         content = config_path.read_text()
         assert "parallel = 8" in content
 
-    def test_second_init_reports_already_initialized(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
-        """Second init reports that project is already initialized."""
+    def test_second_init_reports_skipped(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
+        """Second init reports that config was skipped."""
         cli_runner.invoke(main, ["init"])
 
         result = cli_runner.invoke(main, ["init"])
 
         assert result.exit_code == 0
-        assert "already initialized" in result.output.lower()
+        assert "skipped existing local config" in result.output.lower()
 
 
 class TestInitGitignore:
@@ -263,74 +260,50 @@ class TestInitConfigGeneration:
         assert config.orchestrator.parallel == 2
         assert config.theme.playful is True
 
-    def test_fresh_config_contains_all_sections(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
-        """Fresh config.toml contains section headers for all visible sections.
-
-        The simplified template includes only visible sections. Hidden sections
-        (routing, hooks, theme, security, knowledge) are omitted.
-        """
+    def test_fresh_config_contains_core_sections(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
+        """Fresh config.toml contains section headers for core sections."""
         cli_runner.invoke(main, ["init"])
 
         config_path = tmp_git_repo / ".agent-fox" / "config.toml"
         content = config_path.read_text()
 
-        # Visible sections must appear ([models] removed in spec 130)
         for section in ["orchestrator", "platform", "archetypes"]:
-            # Sections may be active [section] or commented # [section]
             assert f"[{section}]" in content, f"Missing section header: {section}"
 
-        # [models] was removed — must not appear
         assert "[models]" not in content, "[models] section should have been removed"
 
-        # Hidden sections must NOT appear
-        for section in ["routing", "hooks", "theme", "security", "knowledge"]:
-            assert f"[{section}]" not in content, f"Hidden section [{section}] should not appear in simplified template"
-
-    def test_reinit_merges_new_fields(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
-        """Re-init adds missing schema fields to existing config.
+    def test_reinit_preserves_existing_config(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
+        """Re-init preserves existing config file unchanged.
 
         Requirements: 33-REQ-2.1, 33-REQ-2.2
         """
-        # First init
         cli_runner.invoke(main, ["init"])
 
-        # Overwrite with a minimal config containing only one field
         config_path = tmp_git_repo / ".agent-fox" / "config.toml"
         config_path.write_text("[orchestrator]\nparallel = 4\n")
 
-        # Re-init should merge
         result = cli_runner.invoke(main, ["init"])
         assert result.exit_code == 0
 
         content = config_path.read_text()
-        # User value preserved
         assert "parallel = 4" in content
-        # [models] was removed — must not appear
-        assert "[models]" not in content
-        assert "# [archetypes]" in content or "[archetypes]" in content
-        # Hidden sections must NOT be added by merge
-        assert "# [routing]" not in content and "[routing]" not in content
-        assert "# [theme]" not in content and "[theme]" not in content
 
-    def test_reinit_marks_deprecated_fields(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
-        """Re-init marks unrecognized active fields as DEPRECATED.
+    def test_reinit_skips_existing_config(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
+        """Re-init skips existing config without modifying it.
 
         Requirements: 33-REQ-2.4
         """
-        # First init
         cli_runner.invoke(main, ["init"])
 
-        # Add an unrecognized field
         config_path = tmp_git_repo / ".agent-fox" / "config.toml"
         config_path.write_text("[orchestrator]\nparallel = 4\nobsolete_setting = true\n")
 
-        # Re-init should mark it deprecated
         result = cli_runner.invoke(main, ["init"])
         assert result.exit_code == 0
 
         content = config_path.read_text()
-        assert "DEPRECATED" in content
         assert "obsolete_setting" in content
+        assert "parallel = 4" in content
 
     def test_reinit_no_changes_leaves_file_unchanged(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
         """Re-init on an up-to-date config leaves file byte-for-byte identical.
@@ -365,14 +338,14 @@ class TestInitConfigGeneration:
 class TestInitOutsideGitRepo:
     """TS-01-E4: Init outside git repo fails gracefully."""
 
-    def test_init_outside_git_exits_one(self, cli_runner: CliRunner, tmp_path: Path) -> None:
-        """Init outside a git repository exits with code 1."""
+    def test_init_outside_git_exits_zero(self, cli_runner: CliRunner, tmp_path: Path) -> None:
+        """Init outside a git repository still succeeds (creates local config)."""
         original_dir = os.getcwd()
         os.chdir(tmp_path)
         try:
             result = cli_runner.invoke(main, ["init"])
 
-            assert result.exit_code == 1
+            assert result.exit_code == 0
         finally:
             os.chdir(original_dir)
 

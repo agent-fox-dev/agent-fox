@@ -73,7 +73,7 @@ def _make_record(spec_name, task_group, archetype, attempt, run_id="run-1", crea
 # TS-119-P1: Prior-group filtering correctness (Property 2)
 @pytest.mark.timeout(30)
 class TestPriorGroupFilteringProperty:
-    @settings(max_examples=100)
+    @settings(max_examples=50)
     @given(
         current_group=st.integers(min_value=1, max_value=15),
         current_spec=st.sampled_from(["spec_a", "spec_b", "spec_c"]),

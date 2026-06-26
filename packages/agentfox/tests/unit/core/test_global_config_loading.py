@@ -969,7 +969,7 @@ class TestRegressionSuite:
     """TS-13-29: Full existing test suite passes without modification.
 
     The full test suite has pre-existing failures from specs 10, 11, and 12
-    (mostly ImportError from removed insert_verdicts and broken meta-tests)
+    (mostly ImportError from removed functions and broken meta-tests)
     that predate spec 13.  To properly validate that spec 13 did NOT
     introduce regressions, this test runs all tests in the packages that
     spec 13 touches — af, nightshift, spec, agentspec, and core config —

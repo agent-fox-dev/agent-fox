@@ -219,7 +219,8 @@ class TestSubtaskAudit:
         assert "1.2" in ids
         assert "1.V" in ids
 
-    def test_erratum_covers_unchecked_subtask(self, tmp_path: Path) -> None:
+    def test_errata_always_false_after_table_drop(self, tmp_path: Path) -> None:
+        """has_errata is always False after the errata table was dropped (spec 10)."""
         spec_dir = tmp_path / "10_my_spec"
         _write_spec(
             spec_dir,
@@ -244,13 +245,8 @@ class TestSubtaskAudit:
             ],
         )
         conn = _make_conn()
-        conn.execute(
-            "INSERT INTO errata "
-            "(id, spec_name, task_group, finding_summary, created_at) "
-            "VALUES ('e1', '10_my_spec', '1', 'Documented deviation for 1.1', CURRENT_TIMESTAMP)",
-        )
         checklist = build_verification_checklist(spec_dir, conn)
-        assert checklist.has_errata is True
+        assert checklist.has_errata is False
 
     def test_multiple_groups_audited(self, tmp_path: Path) -> None:
         spec_dir = tmp_path / "10_my_spec"

@@ -100,7 +100,7 @@ class TestInsertFindingsSupersession:
         assert first[1] is not None  # superseded_by is set
 
 
-# TS-27-7 (verdict supersession) removed in spec 10 — insert_verdicts and query_active_verdicts deleted.
+# TS-27-7 removed in spec 10.
 
 
 class TestNoRecordsToSupersede:
@@ -204,7 +204,7 @@ class TestQueryBySession:
         assert len(results) == 1
         assert results[0].description == "Finding 1"
 
-    # test_query_verdicts_by_session removed in spec 10 — insert_verdicts deleted.
+    # TS-27-verdict-query removed in spec 10.
 
 
 # ---------------------------------------------------------------------------

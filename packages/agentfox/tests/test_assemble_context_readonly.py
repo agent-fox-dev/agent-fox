@@ -1,8 +1,7 @@
 """Tests for assemble_context write extraction and orchestrator startup.
 
-Verifies that assemble_context no longer calls _migrate_legacy_files or
-index_errata_from_markdown, that the orchestrator startup calls them
-instead, and that they are idempotent.
+Verifies that assemble_context no longer calls _migrate_legacy_files,
+that the orchestrator startup calls it instead, and that it is idempotent.
 
 Test Spec: TS-06-10, TS-06-11, TS-06-12, TS-06-13, TS-06-14, TS-06-15,
            TS-06-16, TS-06-17, TS-06-18, TS-06-E5, TS-06-E6, TS-06-E7
@@ -54,7 +53,7 @@ class TestAssembleContextNoMigration:
             )
 
 
-# TS-06-13 (assemble_context errata index check) removed in spec 10 — errata module deleted.
+# TS-06-13 removed in spec 10.
 
 
 # -----------------------------------------------------------------------
@@ -95,7 +94,7 @@ class TestOrchestratorStartupMigration:
         assert called_spec_names == {"spec_a", "spec_b"}
 
 
-# TS-06-14 (orchestrator startup errata) removed in spec 10.
+# TS-06-14 removed in spec 10.
 
 
 # -----------------------------------------------------------------------
@@ -142,7 +141,7 @@ class TestMigrateLegacyFilesIdempotent:
         )
 
 
-# TS-06-15 (index_errata_from_markdown idempotency) removed in spec 10.
+# TS-06-15 removed in spec 10.
 
 
 # -----------------------------------------------------------------------
@@ -484,7 +483,7 @@ class TestMigrationFailureIsolation:
         assert "spec_b" in call_log, "spec_b migration must be attempted after spec_a fails"
 
 
-# TS-06-E6 (errata indexing failure isolation) removed in spec 10.
+# TS-06-E6 removed in spec 10.
 
 
 # -----------------------------------------------------------------------

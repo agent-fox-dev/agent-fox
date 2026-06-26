@@ -7,6 +7,8 @@ Requirements: 35-REQ-3.1, 35-REQ-3.6, 35-REQ-3.E1, 35-REQ-4.E1,
 
 from __future__ import annotations
 
+import pytest
+
 from unittest.mock import patch
 
 from agentfox.engine.state import ExecutionState, SessionRecord
@@ -102,6 +104,7 @@ def _mock_git_subprocess(*args, **kwargs):
 # ===========================================================================
 
 
+@pytest.mark.timeout(60)
 class TestTotalTaskResetProperty:
     """TS-35-P1: For any state, hard_reset_all sets all tasks to pending."""
 
@@ -152,6 +155,7 @@ class TestTotalTaskResetProperty:
 # ===========================================================================
 
 
+@pytest.mark.timeout(60)
 class TestCounterPreservationProperty:
     """TS-35-P2: Counters and session history unchanged after hard reset."""
 
@@ -212,6 +216,7 @@ class TestCounterPreservationProperty:
 # ===========================================================================
 
 
+@pytest.mark.timeout(60)
 class TestGracefulDegradationProperty:
     """TS-35-P3: No commit_sha data => rollback_sha is None, all tasks reset."""
 

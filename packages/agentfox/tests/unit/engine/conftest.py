@@ -155,6 +155,15 @@ def mock_runner() -> MockSessionRunner:
     return MockSessionRunner()
 
 
+@pytest.fixture(autouse=True)
+def _patch_coverage_measurement(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Disable coverage measurement in orchestrator tests to avoid subprocess hangs."""
+    monkeypatch.setattr(
+        "agentfox.engine.result_handler.measure_coverage",
+        lambda *a, **kw: None,
+    )
+
+
 # -- DuckDB helpers for plan persistence (post-issue-446) ------------------
 
 

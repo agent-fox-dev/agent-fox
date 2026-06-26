@@ -330,6 +330,6 @@ class TestPropertyRetryPredecessor:
 
 
 # _make_verdict, knowledge_conn_for_retry, and TestTryRetryPredecessorTaskGroupFilter removed in spec 10 —
-# insert_verdicts deleted and verification_results table dropped by migration v26.
+# Verdict tests removed in spec 10.
 # The production code (_try_retry_predecessor) handles the missing table gracefully
 # via try/except, falling through to the default retry-predecessor path.

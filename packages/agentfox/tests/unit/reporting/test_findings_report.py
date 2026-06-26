@@ -146,8 +146,7 @@ class TestQueryFindingsBySeverity:
 class TestQueryFindingsByArchetype:
     """TS-84-11: Findings command filters by archetype."""
 
-    # test_archetype_filter_verifier removed — insert_verdicts and
-    # verification_results table dropped in spec 10.
+    # test_archetype_filter_verifier removed in spec 10.
 
     def test_archetype_filter_reviewer_pre_review(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
         """Verify --archetype reviewer/pre-review returns only pre-review findings."""

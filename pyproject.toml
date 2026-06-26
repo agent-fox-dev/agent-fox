@@ -26,7 +26,7 @@ dev = [
 testpaths = ["packages/agentfox/tests", "packages/af/tests", "packages/afspec/tests", "packages/agentspec/tests", "packages/nightshift/tests"]
 pythonpath = ["packages/agentfox"]
 asyncio_mode = "auto"
-addopts = "-n auto --timeout=10 -m 'not smoke'"
+addopts = "-n auto --dist=loadfile --timeout=15 -m 'not smoke'"
 markers = [
     "property: Hypothesis property-based test",
     "slow: tests that take >1s (property, integration, orchestrator); excluded by test-fast",

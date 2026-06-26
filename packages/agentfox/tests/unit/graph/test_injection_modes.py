@@ -190,13 +190,13 @@ class TestDriftReviewGating:
         """TS-98-10: collect_enabled_auto_pre includes drift-review when spec references code."""
         from agentfox.graph.injection import collect_enabled_auto_pre
 
-        # Create a spec dir with an architecture.md that references an existing file
-        # Use injection.py as the existing file reference
-        existing_file = Path("agentfox/graph/injection.py")
+        # Create a real file so spec_has_existing_code finds it via Path.exists()
+        real_file = tmp_path / "existing_module.py"
+        real_file.write_text("# placeholder", encoding="utf-8")
         spec_dir = tmp_path / "00_hascode"
         spec_dir.mkdir()
         (spec_dir / "architecture.md").write_text(
-            f"# Design\n\n**`{existing_file}`** (modified)\n",
+            f"# Design\n\n**`{real_file}`** (modified)\n",
             encoding="utf-8",
         )
 

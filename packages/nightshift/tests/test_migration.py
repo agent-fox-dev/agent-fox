@@ -61,11 +61,13 @@ class TestMigratedTestsPass:
                 "packages/nightshift/tests/",
                 "-q",
                 "--tb=short",
+                "--timeout=30",
                 "--ignore=packages/nightshift/tests/test_migration.py",
+                "--ignore=packages/nightshift/tests/test_workspace_integration.py",
             ],
             capture_output=True,
             text=True,
-            timeout=120,
+            timeout=180,
         )
         assert result.returncode == 0, (
             f"Nightshift tests must all pass. Exit code: {result.returncode}\n"

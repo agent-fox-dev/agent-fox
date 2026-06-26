@@ -53,7 +53,6 @@ _DROPPED_TABLES = [
 
 _RETAINED_TABLES = [
     "review_findings",
-    "verification_results",
     "drift_findings",
     "session_outcomes",
     "tool_calls",

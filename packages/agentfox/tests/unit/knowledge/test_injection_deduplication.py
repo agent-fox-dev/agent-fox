@@ -70,7 +70,7 @@ def _make_finding(
     )
 
 
-# _make_verdict helper removed — spec 10 dropped insert_verdicts / verification_results table.
+# _make_verdict helper removed in spec 10.
 
 
 def _make_provider(provider_db):
@@ -152,7 +152,7 @@ class TestRetrieveRecordsInjections:
         assert count == 1, f"Expected 1 injection record for S:1:coder, got {count}"
 
     # test_ac1_verdict_id_appears_in_finding_injections removed —
-    # spec 10 dropped insert_verdicts / verification_results table.
+    # Verdict deduplication removed in spec 10.
 
     def test_ac1_no_recording_when_session_id_omitted(self, provider_db, conn: duckdb.DuckDBPyConnection) -> None:
         """AC-1 backward-compat: no injection log written when session_id is None."""
@@ -255,7 +255,7 @@ class TestIngestSupersedes:
         assert row[0] == "S:1:coder", f"Expected superseded_by='S:1:coder', got {row[0]!r}"
 
     # test_ac2_verdict_superseded_after_successful_ingest removed —
-    # spec 10 dropped insert_verdicts / query_active_verdicts / verification_results table.
+    # Verdict deduplication removed in spec 10.
 
     def test_ac2_finding_not_superseded_if_not_injected(self, provider_db, conn: duckdb.DuckDBPyConnection) -> None:
         """AC-2: A finding that was NOT injected into a session is not superseded
@@ -478,7 +478,7 @@ class TestSupersededInjectedFindings:
         assert row is not None and row[0] == "coder-session"
 
     # test_supersedes_verification_results removed —
-    # spec 10 dropped insert_verdicts / verification_results table.
+    # Verdict deduplication removed in spec 10.
 
     def test_no_op_when_no_injections_recorded(self, conn: duckdb.DuckDBPyConnection) -> None:
         """supersede_injected_findings() with no prior injections is a no-op."""

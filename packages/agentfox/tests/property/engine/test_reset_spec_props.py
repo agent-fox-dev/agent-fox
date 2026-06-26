@@ -9,6 +9,8 @@ Requirements: 50-REQ-1.1, 50-REQ-1.2, 50-REQ-1.3, 50-REQ-1.5,
 
 from __future__ import annotations
 
+import pytest
+
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -120,6 +122,7 @@ def _setup_for_property(
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.timeout(60)
 class TestSpecIsolation:
     """TS-50-P1: Only nodes from the target spec are modified."""
 
@@ -155,6 +158,7 @@ class TestSpecIsolation:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.timeout(60)
 class TestCompleteSpecCoverage:
     """TS-50-P2: Every node in the spec is reset regardless of archetype."""
 

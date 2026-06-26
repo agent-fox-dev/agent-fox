@@ -306,7 +306,7 @@ def assemble_context(
     """Assemble task-specific context for a coding session.
 
     conn must be a read-only connection; write operations
-    (_migrate_legacy_files, index_errata_from_markdown) are performed
+    (_migrate_legacy_files) is performed
     at orchestrator startup, not here.  See 06-REQ-5.1, 06-REQ-6.1,
     06-REQ-7.1, 06-REQ-7.2.
 

@@ -7,6 +7,8 @@ Requirements: 70-REQ-3.2, 70-REQ-3.E1, 70-REQ-5.2, 70-REQ-1.2, 70-REQ-4.1
 
 from __future__ import annotations
 
+import pytest
+
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -172,6 +174,7 @@ class TestPollNumberMonotonicity:
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.timeout(60)
 class TestHotLoadGate:
     """TS-70-P3: hot_load=False prevents watch loop from activating."""
 

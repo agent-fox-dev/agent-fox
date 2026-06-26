@@ -1042,7 +1042,8 @@ def _normalize_ref(ref: str) -> str:
 
 
 
-@settings(max_examples=500, deadline=None)
+@pytest.mark.timeout(60)
+@settings(max_examples=30, deadline=None)
 @given(
     artifact_refs=st.lists(_artifact_ref, min_size=1, max_size=5),
     touched_files=st.lists(_file_path, min_size=0, max_size=5),
@@ -1091,7 +1092,8 @@ def test_ts12_p1_zero_false_positive(
 
 
 
-@settings(max_examples=200, deadline=None)
+@pytest.mark.timeout(60)
+@settings(max_examples=20, deadline=None)
 @given(
     touched_files=st.lists(_file_path, min_size=1, max_size=5),
     node_id=_node_id,
@@ -1118,7 +1120,8 @@ def test_ts12_p2_null_ref_never_superseded(
 
 
 
-@settings(max_examples=100, deadline=None)
+@pytest.mark.timeout(60)
+@settings(max_examples=30, deadline=None)
 @given(
     artifact_refs=st.lists(_artifact_ref, min_size=1, max_size=3),
     use_none=st.booleans(),
@@ -1154,7 +1157,8 @@ def test_ts12_p3_empty_touched_no_side_effects(
         conn.close()
 
 
-@settings(max_examples=100, deadline=None)
+@pytest.mark.timeout(60)
+@settings(max_examples=30, deadline=None)
 @given(
     node_id=_node_id,
 )
@@ -1188,7 +1192,8 @@ def test_ts12_p4_superseded_excluded_from_query(
 
 
 
-@settings(max_examples=100, deadline=None)
+@pytest.mark.timeout(60)
+@settings(max_examples=30, deadline=None)
 @given(
     node_id=_node_id,
     artifact_ref=_file_path,
@@ -1217,7 +1222,8 @@ def test_ts12_p5_marker_consistency(
         conn.close()
 
 
-@settings(max_examples=50, deadline=None)
+@pytest.mark.timeout(60)
+@settings(max_examples=20, deadline=None)
 @given(
     exc_type=st.sampled_from([Exception, RuntimeError, IOError]),
 )

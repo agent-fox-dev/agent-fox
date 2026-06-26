@@ -189,7 +189,7 @@ class TestNoDuplicationReviewCrossGroup:
 
 
 # TS-120-P3 (Prior-Run Findings Never Tracked) removed — the prior-run
-# filtering pipeline was deleted when verification_results was dropped.
+# Filtering pipeline removed in spec 10.
 
 
 # ---------------------------------------------------------------------------

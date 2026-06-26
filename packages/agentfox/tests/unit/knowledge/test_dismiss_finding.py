@@ -117,8 +117,7 @@ class TestDismissDriftFinding:
         assert row[0].startswith("dismissed:")
 
 
-# TestDismissVerificationResult removed — insert_verdicts() and the
-# verification_results table were dropped in spec 10 (migration v26).
+# TestDismissVerificationResult removed in spec 10.
 
 
 class TestDismissUnknownId:

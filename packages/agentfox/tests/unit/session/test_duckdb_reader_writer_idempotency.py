@@ -22,7 +22,7 @@ from hypothesis import strategies as st
 
 
 def _create_review_schema(conn: duckdb.DuckDBPyConnection) -> None:
-    """Create the review_findings table (verification_results dropped in spec 10)."""
+    """Create the review_findings table."""
     conn.execute("""
         CREATE TABLE IF NOT EXISTS review_findings (
             id              UUID PRIMARY KEY,
@@ -93,8 +93,8 @@ class TestMigrateLegacyFilesIdempotency:
         )
         conn.close()
 
-    # test_verdicts_idempotent_no_duplicates removed in spec 10 — verification_results table dropped.
-    # test_combined_record_count_stable removed in spec 10 — verification_results table dropped.
+    # test_verdicts_idempotent_no_duplicates removed in spec 10.
+    # test_combined_record_count_stable removed in spec 10.
 
     def test_no_error_on_repeated_calls(self, tmp_path: Path) -> None:
         """Repeated calls raise no exceptions."""

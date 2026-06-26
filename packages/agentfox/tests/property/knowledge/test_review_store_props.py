@@ -122,7 +122,7 @@ class TestMigrationIdempotency:
         assert version is not None
         assert version[0] == 26
 
-        # Tables should exist (v2 + v4 migrations; verification_results dropped by v26)
+        # Tables should exist (v2 + v4 migrations)
         tables = conn.execute(
             "SELECT table_name FROM information_schema.tables "
             "WHERE table_name IN ("

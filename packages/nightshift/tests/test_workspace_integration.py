@@ -6,6 +6,8 @@ Requirements: 07-REQ-4.1, 07-REQ-4.2, 07-REQ-4.3, 07-REQ-4.4, 07-REQ-4.E1
 
 from __future__ import annotations
 
+import pytest
+
 import fnmatch
 import subprocess
 import sys
@@ -100,6 +102,7 @@ class TestTestpathsOmissionGuard:
             "nightshift tests missing from testpaths -- CI would not run them"
         )
 
+    @pytest.mark.timeout(60)
     def test_omission_means_zero_nightshift_tests(self) -> None:
         """Without nightshift in testpaths, pytest collects no nightshift tests.
 

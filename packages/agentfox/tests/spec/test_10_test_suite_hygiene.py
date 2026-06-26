@@ -202,12 +202,15 @@ class TestCollectionNoImportErrors:
             cwd=str(_PACKAGES_ROOT),
             timeout=120,
         )
-        output = result.stdout + result.stderr
-        assert "ImportError" not in output, (
-            f"pytest collection raised ImportError:\n{output}"
+        # Check stderr for actual import errors (not test names containing "ImportError")
+        assert "ImportError" not in result.stderr, (
+            f"pytest collection raised ImportError:\n{result.stderr}"
         )
-        assert "ModuleNotFoundError" not in output, (
-            f"pytest collection raised ModuleNotFoundError:\n{output}"
+        assert "ModuleNotFoundError" not in result.stderr, (
+            f"pytest collection raised ModuleNotFoundError:\n{result.stderr}"
+        )
+        assert result.returncode == 0, (
+            f"pytest --collect-only failed with exit code {result.returncode}:\n{result.stderr}"
         )
 
 

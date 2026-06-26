@@ -307,9 +307,20 @@ def v12_spec_dir(tmp_path: Path) -> Path:
 
 @pytest.fixture
 def v12_spec_dir_with_arch(tmp_path: Path) -> Path:
-    """A v1.2 spec directory with architecture.md included."""
+    """A v1.2 spec directory with architecture.md included.
+
+    Creates a real file so spec_has_existing_code can find it via Path.exists().
+    """
+    real_file = tmp_path / "agentfox" / "session" / "context.py"
+    real_file.parent.mkdir(parents=True, exist_ok=True)
+    real_file.write_text("# placeholder", encoding="utf-8")
     spec_dir = tmp_path / "specs" / "134_test_spec_arch"
     _write_spec(spec_dir, include_architecture=True)
+    arch_path = spec_dir / "architecture.md"
+    original = arch_path.read_text()
+    arch_path.write_text(
+        original.replace("agentfox/session/context.py", str(real_file)),
+    )
     return spec_dir
 
 

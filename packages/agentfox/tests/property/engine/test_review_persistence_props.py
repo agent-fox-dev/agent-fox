@@ -82,10 +82,9 @@ VALID_SEVERITIES = ["critical", "major", "minor", "observation"]
 # Only these severities are persisted by insert_findings() (issue #553).
 ACTIONABLE_SEVERITIES = ["critical", "major"]
 # Reviewer needs mode to route correctly; use (archetype, mode) tuples
-VALID_ARCHETYPES = ["reviewer", "verifier"]
+VALID_ARCHETYPES = ["reviewer"]
 _ARCHETYPE_MODES: dict[str, str | None] = {
     "reviewer": "pre-review",
-    "verifier": None,
 }
 WRITE_COMMANDS = {"cp", "mv", "rm", "mkdir", "touch", "tee", "sed", "awk"}
 
@@ -208,7 +207,7 @@ class TestParseOrWarnInvariant:
             runner._persist_review_findings(output, "prop_spec:1", 1)
 
             # Count total inserted records across all tables
-            _tables = ("review_findings", "verification_results", "drift_findings")
+            _tables = ("review_findings", "drift_findings")
             total_inserted = sum(
                 db._conn.execute(  # type: ignore[union-attr]
                     f"SELECT COUNT(*) FROM {table}"  # noqa: S608
@@ -309,13 +308,8 @@ class TestArchetypeRoutingCorrectness:
         """TS-53-P3: Each archetype type routes to the correct persistence function."""
         db = _make_knowledge_db()
         try:
-            # Build valid JSON for each archetype type
-            if archetype == "reviewer":
-                output = json.dumps([{"severity": "major", "description": "finding"}])
-                table = "review_findings"
-            else:  # verifier
-                output = json.dumps([{"requirement_id": "REQ-1.1", "verdict": "PASS"}])
-                table = "verification_results"
+            output = json.dumps([{"severity": "major", "description": "finding"}])
+            table = "review_findings"
 
             runner = NodeSessionRunner(
                 "prop_spec:1",
@@ -333,10 +327,8 @@ class TestArchetypeRoutingCorrectness:
 
             assert count > 0, f"archetype={archetype} should have inserted into {table}, but count=0"
 
-            # Verify nothing was inserted into the wrong tables
             other_tables = {
                 "review_findings",
-                "verification_results",
                 "drift_findings",
             } - {table}
             for other in other_tables:

@@ -116,7 +116,7 @@ class TestFindingSupersession:
         assert len(active) == 1
         assert active[0].description == "Round 2 finding"
 
-    # test_verdict_supersession removed in spec 10 — insert_verdicts and verification_results deleted.
+    # test_verdict_supersession removed in spec 10.
 
     def test_drift_finding_supersession(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
         """TS-53-4: Drift findings are superseded on re-insert for same spec+task."""
@@ -222,5 +222,5 @@ class TestReviewOnlySummaryOutput:
         output = capsys.readouterr().out
 
         assert "critical" in output.lower()
-        # Verdict assertions removed in spec 10 — insert_verdicts deleted.
+        # Verdict assertions removed in spec 10.
         assert "major" in output.lower()

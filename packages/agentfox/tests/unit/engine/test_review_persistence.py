@@ -1,12 +1,12 @@
 """Unit tests for review finding persistence wiring in session lifecycle.
 
 Tests that archetype session output is routed to the correct insert function
-(Skeptic→insert_findings, Verifier→insert_verdicts, Oracle→insert_drift_findings),
+(Skeptic→insert_findings, Oracle→insert_drift_findings),
 that parse failures emit a review.parse_failure audit event, and that retry
 context is assembled correctly from active findings.
 
-Test Spec: TS-53-1, TS-53-2, TS-53-3, TS-53-5, TS-53-8, TS-53-9
-Requirements: 53-REQ-1.1, 53-REQ-2.1, 53-REQ-3.1, 53-REQ-1.E1,
+Test Spec: TS-53-1, TS-53-3, TS-53-5, TS-53-8, TS-53-9
+Requirements: 53-REQ-1.1, 53-REQ-3.1, 53-REQ-1.E1,
               53-REQ-5.1, 53-REQ-5.2, 53-REQ-5.E1
 """
 
@@ -103,65 +103,7 @@ class TestSkepticOutputParsedAndPersisted:
         assert rows[0][1] == "Missing null check"
 
 
-# ---------------------------------------------------------------------------
-# TS-53-2: Verifier output parsed via engine.review_parser and persisted
-# ---------------------------------------------------------------------------
-
-
-class TestVerifierOutputParsedAndPersisted:
-    """TS-53-2: Verifier session output is parsed using engine.review_parser."""
-
-    def test_verifier_uses_extract_json_array(self, knowledge_db: KnowledgeDB) -> None:
-        """TS-53-2: _persist_review_findings calls extract_json_array for Verifier."""
-        _verdict_item = {
-            "requirement_id": "03-REQ-1.1",
-            "verdict": "PASS",
-            "evidence": "Tests pass",
-        }
-        output = json.dumps([_verdict_item])
-        runner = NodeSessionRunner(
-            "03_api:2",
-            AgentFoxConfig(),
-            archetype="verifier",
-            knowledge_db=knowledge_db,
-        )
-
-        # Patch extract_json_array in session_lifecycle (fails until TG3)
-        with patch(
-            "agentfox.engine.review_persistence.extract_json_array",
-        ) as mock_extract:
-            mock_extract.return_value = [_verdict_item]
-            runner._persist_review_findings(output, "03_api:2:1", 1)
-
-        mock_extract.assert_called_once_with(output)
-
-    def test_verifier_end_to_end_verdict_persisted(self, knowledge_db: KnowledgeDB) -> None:
-        """TS-53-2: Verifier output persisted to DuckDB."""
-        _verdict_item = {
-            "requirement_id": "03-REQ-1.1",
-            "verdict": "PASS",
-            "evidence": "Tests pass",
-        }
-        output = json.dumps([_verdict_item])
-        runner = NodeSessionRunner(
-            "03_api:2",
-            AgentFoxConfig(),
-            archetype="verifier",
-            knowledge_db=knowledge_db,
-        )
-
-        with patch(
-            "agentfox.engine.review_persistence.extract_json_array",
-            return_value=[_verdict_item],
-        ):
-            runner._persist_review_findings(output, "03_api:2:1", 1)
-
-        rows = knowledge_db._conn.execute(  # type: ignore[union-attr]
-            "SELECT requirement_id, verdict FROM verification_results"
-        ).fetchall()
-        assert len(rows) == 1
-        assert rows[0][0] == "03-REQ-1.1"
-        assert rows[0][1] == "PASS"
+# TS-53-2 removed — verification_results table dropped in spec 10.
 
 
 # ---------------------------------------------------------------------------

@@ -56,7 +56,7 @@ def _make_finding(
     )
 
 
-# _make_verdict helper removed — insert_verdicts and verification_results
+# _make_verdict helper removed in spec 10.
 # table dropped in spec 10.
 
 
@@ -142,8 +142,7 @@ class TestRenderReviewContext:
         assert "Summary:" in result
 
 
-# TestRenderVerificationContext removed — insert_verdicts and
-# verification_results table dropped in spec 10.
+# TestRenderVerificationContext removed in spec 10.
 
 
 class TestRenderedFormatMatchesLegacy:
@@ -169,8 +168,7 @@ class TestRenderedFormatMatchesLegacy:
         assert "### Observations" in result
         assert "Summary:" in result
 
-    # test_verification_format_matches_legacy removed — insert_verdicts
-    # and verification_results table dropped in spec 10.
+    # test_verification_format_matches_legacy removed in spec 10.
 
 
 class TestNoFindingsOmitsSection:

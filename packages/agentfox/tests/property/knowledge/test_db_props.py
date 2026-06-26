@@ -22,7 +22,6 @@ EXPECTED_TABLES = {
     "tool_calls",
     "tool_errors",
     "review_findings",
-    "verification_results",
     "drift_findings",
     "audit_events",
     # Added by migration v11 (spec 105: DB-based plan state)
@@ -30,10 +29,6 @@ EXPECTED_TABLES = {
     "plan_edges",
     "plan_meta",
     "runs",
-    # Added by migration v19 (issue #522: errata generation)
-    "errata",
-    # Added by migration v22 (spec 117: ADR ingestion)
-    "adr_entries",
     # Added by migration v23 (issue #558: injection deduplication)
     "finding_injections",
     # Added by migration v24 (spec 119: session summary storage)
@@ -72,7 +67,7 @@ class TestSchemaInitializationIdempotency:
 
             version_count = db.connection.execute("SELECT COUNT(*) FROM schema_version").fetchone()
             assert version_count is not None
-            assert version_count[0] == 25
+            assert version_count[0] == 26
 
             tables = {r[0] for r in db.connection.execute("SHOW TABLES").fetchall()}
             assert tables == EXPECTED_TABLES

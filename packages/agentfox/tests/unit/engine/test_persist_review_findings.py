@@ -77,7 +77,7 @@ class TestPersistSkepticFindings:
         assert rows[0] == 0
 
 
-# TestPersistVerifierVerdicts removed — verification_results table dropped in spec 10.
+# TestPersistVerifierVerdicts removed in spec 10.
 
 
 class TestPersistOracleDrift:
