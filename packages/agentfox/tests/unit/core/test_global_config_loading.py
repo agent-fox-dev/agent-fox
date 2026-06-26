@@ -1387,3 +1387,303 @@ class TestAfInitNeverOverwritesGlobalProperty:
             assert config_path.read_text() == content
 
         check()
+
+
+# ===================================================================
+# SMOKE TESTS — end-to-end execution path verification
+# ===================================================================
+
+
+class TestSmoke1ZeroConfigFirstRun:
+    """TS-13-SMOKE-1: Zero-config first run auto-creates global config."""
+
+    @pytest.mark.smoke
+    def test_zero_config_first_run(
+        self, fake_home, tmp_path, monkeypatch, caplog, clean_af_env
+    ):
+        """PATH-1: First load_config() auto-creates global config, emits DEBUG logs."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        monkeypatch.chdir(repo)
+
+        with caplog.at_level(logging.DEBUG):
+            config = load_config()
+
+        # Global config created
+        global_dir = fake_home / ".agent-fox"
+        global_config = global_dir / "config.toml"
+        assert global_dir.exists()
+        assert oct(global_dir.stat().st_mode & 0o777) == "0o700"
+        assert global_config.exists()
+
+        # Valid config returned
+        assert isinstance(config, AgentFoxConfig)
+
+        # DEBUG log: 'Loaded global config from ...'
+        assert any(
+            "Loaded global config from" in msg and str(global_config) in msg
+            for msg in caplog.messages
+        )
+        # DEBUG log: 'No local config found ...'
+        assert any(
+            "No local config found" in msg
+            for msg in caplog.messages
+        )
+
+
+class TestSmoke2GlobalLocalMerge:
+    """TS-13-SMOKE-2: Global + local config merge with section override."""
+
+    @pytest.mark.smoke
+    def test_global_local_merge(
+        self, fake_home, global_config_dir, tmp_path, monkeypatch, caplog, clean_af_env
+    ):
+        """PATH-2: Merge global+local, DEBUG log lists overridden sections."""
+        (global_config_dir / "config.toml").write_text(textwrap.dedent("""\
+            [orchestrator]
+            parallel = 2
+            session_timeout = 60
+
+            [routing]
+            retries_before_escalation = 3
+        """))
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        local_dir = repo / ".agent-fox"
+        local_dir.mkdir()
+        (local_dir / "config.toml").write_text(
+            "[orchestrator]\nparallel = 8\n"
+        )
+        monkeypatch.chdir(repo)
+
+        with caplog.at_level(logging.DEBUG):
+            config = load_config()
+
+        # Merged config has local values
+        assert config.orchestrator.parallel == 8
+        # Routing inherited from global
+        assert config.routing.retries_before_escalation == 3
+        # Shallow replace: session_timeout gone from global's [orchestrator]
+        assert config.orchestrator.session_timeout != 60
+
+        # DEBUG log: 'Loaded global config from ...'
+        assert any(
+            "Loaded global config from" in msg
+            for msg in caplog.messages
+        )
+        # DEBUG log: 'Merging local config from ... (sections overridden: ...)'
+        assert any(
+            "Merging local config from" in msg and "orchestrator" in msg
+            for msg in caplog.messages
+        )
+
+
+class TestSmoke3MalformedGlobalFailFast:
+    """TS-13-SMOKE-3: Malformed global config causes fail-fast exit."""
+
+    @pytest.mark.smoke
+    def test_malformed_global_fail_fast(
+        self, fake_home, global_config_dir, tmp_path, monkeypatch, clean_af_env
+    ):
+        """PATH-3: Invalid TOML in global config -> ConfigError, local never read."""
+        global_config_path = global_config_dir / "config.toml"
+        global_config_path.write_text("[broken = ")
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        local_dir = repo / ".agent-fox"
+        local_dir.mkdir()
+        local_config_path = local_dir / "config.toml"
+        local_config_path.write_text("[orchestrator]\nparallel = 1\n")
+        monkeypatch.chdir(repo)
+
+        with pytest.raises(ConfigError) as exc_info:
+            load_config()
+
+        # Error identifies global config path
+        assert str(global_config_path) in str(exc_info.value)
+        # Error mentions parse/TOML
+        error_msg = str(exc_info.value)
+        assert "parse" in error_msg.lower() or "TOML" in error_msg
+
+
+class TestSmoke4AfConfigDeprecation:
+    """TS-13-SMOKE-4: AF_CONFIG deprecation warning, value ignored."""
+
+    @pytest.mark.smoke
+    def test_af_config_deprecation_e2e(
+        self, fake_home, global_config_dir, tmp_path, monkeypatch, capsys
+    ):
+        """PATH-4: AF_CONFIG set -> deprecation warning, config from global+local."""
+        (global_config_dir / "config.toml").write_text(
+            "[orchestrator]\nparallel = 5\n"
+        )
+        # Create a decoy config at AF_CONFIG path with a canary value
+        decoy = tmp_path / "custom.toml"
+        decoy.write_text("[orchestrator]\nparallel = 99\n")
+        monkeypatch.setenv("AF_CONFIG", str(decoy))
+        monkeypatch.delenv("AF_SPEC_MODEL", raising=False)
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        monkeypatch.chdir(repo)
+
+        config = load_config()
+
+        # Deprecation warning on stderr
+        captured = capsys.readouterr()
+        assert "AF_CONFIG" in captured.err
+        assert "no longer supported" in captured.err.lower()
+
+        # Decoy config was never read (parallel=99 from decoy was ignored)
+        assert config.orchestrator.parallel == 5  # from global
+        assert isinstance(config, AgentFoxConfig)
+
+
+class TestSmoke5AgentspecMigrationFallback:
+    """TS-13-SMOKE-5: agentspec migration fallback from settings.yaml."""
+
+    @pytest.mark.smoke
+    def test_agentspec_migration_fallback_e2e(
+        self, fake_home, global_config_dir, tmp_path, monkeypatch, capsys, clean_af_env
+    ):
+        """PATH-5: No [spec_tool] in config, settings.yaml exists -> fallback."""
+        from agentspec.config import load_config as agentspec_load_config
+
+        # Global config without [spec_tool]
+        (global_config_dir / "config.toml").write_text(
+            "[orchestrator]\nparallel = 2\n"
+        )
+        # Legacy settings.yaml
+        af_dir = fake_home / ".af"
+        af_dir.mkdir()
+        (af_dir / "settings.yaml").write_text(
+            "spec_tool:\n  model: claude-haiku-4\n"
+        )
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        monkeypatch.chdir(repo)
+
+        agent_fox_config = AgentFoxConfig()
+        spec_config = agentspec_load_config(agent_fox_config=agent_fox_config)
+
+        # Model resolved from settings.yaml
+        assert spec_config.model == "claude-haiku-4"
+        # Deprecation warning emitted
+        captured = capsys.readouterr()
+        assert "[spec_tool]" in captured.err
+        assert "deprecat" in captured.err.lower()
+
+
+class TestSmoke6AfInitCleanEnvironment:
+    """TS-13-SMOKE-6: af init creates both global and local configs."""
+
+    @pytest.mark.smoke
+    def test_af_init_clean_e2e(
+        self, fake_home, tmp_path, monkeypatch, clean_af_env
+    ):
+        """PATH-6: af init with no existing configs creates both."""
+        from af.app import main as af_main
+        from click.testing import CliRunner
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        monkeypatch.chdir(repo)
+
+        runner = CliRunner()
+        result = runner.invoke(af_main, ["init"])
+
+        assert result.exit_code == 0
+
+        # Global config created with 0o700 dir and active defaults
+        global_dir = fake_home / ".agent-fox"
+        global_config = global_dir / "config.toml"
+        assert global_dir.exists()
+        assert oct(global_dir.stat().st_mode & 0o777) == "0o700"
+        assert global_config.exists()
+        # Default config should be parseable TOML
+        import tomllib
+        tomllib.loads(global_config.read_text())
+
+        # Local config created with all values commented out
+        local_config = repo / ".agent-fox" / "config.toml"
+        assert local_config.exists()
+        for line in local_config.read_text().splitlines():
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#"):
+                pytest.fail(f"Non-comment line in local config: {line}")
+
+
+class TestSmoke7AfInitForce:
+    """TS-13-SMOKE-7: af init --force regenerates local only."""
+
+    @pytest.mark.smoke
+    def test_af_init_force_e2e(
+        self, fake_home, global_config_dir, tmp_path, monkeypatch, clean_af_env
+    ):
+        """PATH-7: --force overwrites local, leaves global unchanged."""
+        from af.app import main as af_main
+        from click.testing import CliRunner
+
+        # Set up existing global and local configs
+        global_content = "# my custom global\n[orchestrator]\nparallel = 7\n"
+        (global_config_dir / "config.toml").write_text(global_content)
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        local_dir = repo / ".agent-fox"
+        local_dir.mkdir()
+        (local_dir / "config.toml").write_text("[orchestrator]\nparallel = 4\n")
+        monkeypatch.chdir(repo)
+
+        runner = CliRunner()
+        result = runner.invoke(af_main, ["init", "--force"])
+
+        assert result.exit_code == 0
+
+        # Global config byte-for-byte identical
+        assert (global_config_dir / "config.toml").read_text() == global_content
+
+        # Local config regenerated as all-comments template
+        local_content = (local_dir / "config.toml").read_text()
+        for line in local_content.splitlines():
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#"):
+                pytest.fail(f"Non-comment line after --force: {line}")
+
+
+class TestSmoke8HomeUnsetLocalUsed:
+    """TS-13-SMOKE-8: HOME unset, local config used, no exception."""
+
+    @pytest.mark.smoke
+    def test_home_unset_local_used(
+        self, tmp_path, monkeypatch, caplog, clean_af_env
+    ):
+        """PATH-8: Unresolvable HOME -> skip global, use local config."""
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        local_dir = repo / ".agent-fox"
+        local_dir.mkdir()
+        (local_dir / "config.toml").write_text(
+            "[orchestrator]\nparallel = 3\n"
+        )
+        monkeypatch.chdir(repo)
+        monkeypatch.delenv("HOME", raising=False)
+        monkeypatch.setattr(
+            Path, "home",
+            staticmethod(lambda: (_ for _ in ()).throw(RuntimeError("no home")))
+        )
+
+        with caplog.at_level(logging.DEBUG):
+            config = load_config()
+
+        # No exception raised
+        assert isinstance(config, AgentFoxConfig)
+        # Local config values used
+        assert config.orchestrator.parallel == 3
+        # DEBUG warning about HOME
+        assert any(
+            "HOME" in msg and ("could not be resolved" in msg or "skipped" in msg)
+            for msg in caplog.messages
+        )
