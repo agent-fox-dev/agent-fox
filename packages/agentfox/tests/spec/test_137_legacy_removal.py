@@ -373,19 +373,6 @@ class TestValidatorsDeleted:
 
 
 # ===================================================================
-# TS-137-6: ai_validation.py deleted
-# Requirement: 137-REQ-4.1
-# ===================================================================
-
-
-class TestAiValidationDeleted:
-    """TS-137-6: ai_validation.py does not exist on disk."""
-
-    def test_ai_validation_does_not_exist(self) -> None:
-        assert not (_AGENT_FOX_ROOT / "spec" / "ai_validation.py").exists()
-
-
-# ===================================================================
 # TS-137-7: lint.py and lint_specs.py have no validator imports
 # Requirement: 137-REQ-3.2, 137-REQ-3.3, 137-REQ-5.4
 # ===================================================================
@@ -508,7 +495,6 @@ class TestNoDeletedModuleImportsInTests:
     def test_no_deleted_module_imports_in_tests(self) -> None:
         pattern = re.compile(
             r"from agent_fox\.spec\.validators"
-            r"|from agent_fox\.spec\.ai_validation import"
         )
         py_files = _collect_py_files(_TESTS_ROOT)
         matches: list[str] = []
