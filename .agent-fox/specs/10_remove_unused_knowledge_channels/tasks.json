@@ -307,7 +307,7 @@
             "10-REQ-2.1",
             "10-REQ-2.3"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -327,7 +327,7 @@
             "10-REQ-2.2",
             "10-REQ-2.3"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -345,7 +345,7 @@
           "requirement_refs": [
             "10-REQ-2.3"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],
