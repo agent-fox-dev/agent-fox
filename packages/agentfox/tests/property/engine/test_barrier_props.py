@@ -105,7 +105,11 @@ class TestWorktreeVerificationNeverRaises:
                 for i in range(subdir_count):
                     (wt_dir / f"spec_{i}" / "1").mkdir(parents=True)
 
-            result = verify_worktrees(repo_root)
+            async def _mock_git(args, cwd, check=True, **kwargs):
+                return (0, "", "")
+
+            with patch("agentfox.engine.barrier.run_git", side_effect=_mock_git):
+                result = asyncio.get_event_loop().run_until_complete(verify_worktrees(repo_root))
             assert isinstance(result, list)
 
 

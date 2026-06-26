@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from agentfox.knowledge.fox_provider import KnowledgeProvider, NoOpKnowledgeProvider
@@ -184,6 +184,7 @@ class TestBarrierRetainedSteps:
         with (
             patch(
                 "agentfox.engine.barrier.verify_worktrees",
+                new_callable=AsyncMock,
                 return_value=[],
             ) as mock_verify,
             patch(
