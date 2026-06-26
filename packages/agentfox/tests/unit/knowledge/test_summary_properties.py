@@ -14,7 +14,6 @@ from agentfox.knowledge.migrations import run_migrations
 from agentfox.knowledge.summary_store import (
     SummaryRecord,
     insert_summary,
-    query_cross_spec_summaries,
     query_same_spec_summaries,
 )
 from hypothesis import given, settings
@@ -113,35 +112,7 @@ class TestPriorGroupFilteringProperty:
             conn.close()
 
 
-# TS-119-P2: Cross-spec exclusion (Property 3)
-@pytest.mark.timeout(30)
-class TestCrossSpecExclusionProperty:
-    @settings(max_examples=100)
-    @given(
-        current_spec=spec_names,
-        records=st.lists(summary_record_st, min_size=1, max_size=15),
-    )
-    def test_cross_spec_exclusion(self, current_spec, records):
-        conn = _make_conn_with_table()
-        try:
-            for rec in records:
-                insert_summary(
-                    conn,
-                    _make_record(
-                        rec["spec_name"],
-                        rec["task_group"],
-                        rec["archetype"],
-                        rec["attempt"],
-                    ),
-                )
-            results = query_cross_spec_summaries(conn, current_spec, "run-1")
-            for r in results:
-                assert r.spec_name != current_spec
-            # 120-REQ-3.3: all archetypes returned, uniqueness per (spec, group, archetype)
-            triples = [(r.spec_name, r.task_group, r.archetype) for r in results]
-            assert len(triples) == len(set(triples))
-        finally:
-            conn.close()
+# TS-119-P2 (cross-spec exclusion property) removed in spec 10.
 
 
 # TS-119-P3: Append-only invariant (Property 4)
@@ -188,9 +159,6 @@ class TestSortOrderProperty:
             # 120-REQ-3.3: multiple archetypes per group, so >= not >
             for i in range(1, len(same)):
                 assert int(same[i].task_group) >= int(same[i - 1].task_group)
-            cross = query_cross_spec_summaries(conn, "spec_a", "run-1")
-            for i in range(1, len(cross)):
-                assert cross[i].created_at <= cross[i - 1].created_at
         finally:
             conn.close()
 
@@ -207,9 +175,7 @@ class TestGracefulDegradationProperty:
         conn = duckdb.connect(":memory:")
         try:
             result1 = query_same_spec_summaries(conn, spec, str(group), run)
-            result2 = query_cross_spec_summaries(conn, spec, run)
             assert result1 == []
-            assert result2 == []
         finally:
             conn.close()
 

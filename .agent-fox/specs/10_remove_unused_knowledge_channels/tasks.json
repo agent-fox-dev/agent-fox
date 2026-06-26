@@ -681,7 +681,7 @@
           "requirement_refs": [
             "10-REQ-8.1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -701,7 +701,7 @@
             "10-REQ-8.2",
             "10-REQ-8.3"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -719,7 +719,7 @@
           "requirement_refs": [
             "10-REQ-8.4"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -739,7 +739,7 @@
             "10-REQ-8.5",
             "10-REQ-8.E1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],

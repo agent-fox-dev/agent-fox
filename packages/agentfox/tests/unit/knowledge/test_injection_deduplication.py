@@ -16,11 +16,8 @@ import pytest
 from agentfox.knowledge.migrations import get_current_version, run_migrations
 from agentfox.knowledge.review_store import (
     ReviewFinding,
-    VerificationResult,
     insert_findings,
-    insert_verdicts,
     query_active_findings,
-    query_active_verdicts,
     record_finding_injections,
     supersede_injected_findings,
 )
@@ -73,23 +70,7 @@ def _make_finding(
     )
 
 
-def _make_verdict(
-    spec_name: str,
-    *,
-    task_group: str | None = None,
-    session_id: str = "verifier:1",
-    verdict: str = "FAIL",
-    requirement_id: str = "REQ-1",
-) -> VerificationResult:
-    return VerificationResult(
-        id=str(uuid.uuid4()),
-        requirement_id=requirement_id,
-        verdict=verdict,
-        evidence="Evidence text",
-        spec_name=spec_name,
-        task_group=task_group or str(uuid.uuid4()),
-        session_id=session_id,
-    )
+# _make_verdict helper removed — spec 10 dropped insert_verdicts / verification_results table.
 
 
 def _make_provider(provider_db):
@@ -170,16 +151,8 @@ class TestRetrieveRecordsInjections:
         count = conn.execute("SELECT COUNT(*) FROM finding_injections WHERE session_id = 'S:1:coder'").fetchone()[0]
         assert count == 1, f"Expected 1 injection record for S:1:coder, got {count}"
 
-    def test_ac1_verdict_id_appears_in_finding_injections(self, provider_db, conn: duckdb.DuckDBPyConnection) -> None:
-        """AC-1: retrieve() also records verdict IDs in finding_injections."""
-        verdict = _make_verdict("S", task_group="1")
-        insert_verdicts(conn, [verdict])
-
-        provider = _make_provider(provider_db)
-        provider.retrieve("S", "", task_group="1", session_id="S:1:coder")
-
-        count = conn.execute("SELECT COUNT(*) FROM finding_injections WHERE session_id = 'S:1:coder'").fetchone()[0]
-        assert count == 1, f"Expected 1 verdict injection record, got {count}"
+    # test_ac1_verdict_id_appears_in_finding_injections removed —
+    # spec 10 dropped insert_verdicts / verification_results table.
 
     def test_ac1_no_recording_when_session_id_omitted(self, provider_db, conn: duckdb.DuckDBPyConnection) -> None:
         """AC-1 backward-compat: no injection log written when session_id is None."""
@@ -281,25 +254,8 @@ class TestIngestSupersedes:
         assert row is not None
         assert row[0] == "S:1:coder", f"Expected superseded_by='S:1:coder', got {row[0]!r}"
 
-    def test_ac2_verdict_superseded_after_successful_ingest(self, provider_db, conn: duckdb.DuckDBPyConnection) -> None:
-        """AC-2: FAIL verdict injected into session is superseded on completion."""
-        verdict = _make_verdict("S", task_group="1", requirement_id="REQ-AUTH")
-        insert_verdicts(conn, [verdict])
-
-        provider = _make_provider(provider_db)
-        provider.retrieve("S", "", task_group="1", session_id="S:1:coder")
-
-        active_before = query_active_verdicts(conn, "S", task_group="1")
-        assert len(active_before) == 1
-
-        provider.ingest(
-            "S:1:coder",
-            "S",
-            {"session_status": "completed", "touched_files": [], "project_root": ""},
-        )
-
-        active_after = query_active_verdicts(conn, "S", task_group="1")
-        assert len(active_after) == 0, "FAIL verdict should be superseded after successful ingest()"
+    # test_ac2_verdict_superseded_after_successful_ingest removed —
+    # spec 10 dropped insert_verdicts / query_active_verdicts / verification_results table.
 
     def test_ac2_finding_not_superseded_if_not_injected(self, provider_db, conn: duckdb.DuckDBPyConnection) -> None:
         """AC-2: A finding that was NOT injected into a session is not superseded
@@ -521,17 +477,8 @@ class TestSupersededInjectedFindings:
         ).fetchone()
         assert row is not None and row[0] == "coder-session"
 
-    def test_supersedes_verification_results(self, conn: duckdb.DuckDBPyConnection) -> None:
-        verdict = _make_verdict("S", task_group="1")
-        insert_verdicts(conn, [verdict])
-        record_finding_injections(conn, [verdict.id], "coder-session")
-        supersede_injected_findings(conn, "coder-session")
-
-        row = conn.execute(
-            "SELECT superseded_by::VARCHAR FROM verification_results WHERE id::VARCHAR = ?",
-            [verdict.id],
-        ).fetchone()
-        assert row is not None and row[0] == "coder-session"
+    # test_supersedes_verification_results removed —
+    # spec 10 dropped insert_verdicts / verification_results table.
 
     def test_no_op_when_no_injections_recorded(self, conn: duckdb.DuckDBPyConnection) -> None:
         """supersede_injected_findings() with no prior injections is a no-op."""

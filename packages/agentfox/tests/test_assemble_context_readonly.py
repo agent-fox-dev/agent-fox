@@ -54,43 +54,7 @@ class TestAssembleContextNoMigration:
             )
 
 
-# -----------------------------------------------------------------------
-# TS-06-13: assemble_context no longer calls index_errata_from_markdown
-# -----------------------------------------------------------------------
-
-
-class TestAssembleContextNoErrataIndex:
-    """TS-06-13: index_errata_from_markdown must NOT be called from assemble_context."""
-
-    def test_assemble_context_does_not_call_index_errata(
-        self, knowledge_conn: duckdb.DuckDBPyConnection, tmp_path: Path
-    ) -> None:
-        """When assemble_context is called, index_errata_from_markdown
-        must not be invoked — indexing is moved to orchestrator startup."""
-        spec_dir = tmp_path / "test_spec"
-        spec_dir.mkdir()
-        (spec_dir / "tasks.json").write_text('{"version":"1.2","tasks":[]}')
-
-        with patch(
-            "agentfox.session.context.index_errata_from_markdown",
-            create=True,
-        ) as mock_index:
-            from agentfox.session.context import assemble_context
-
-            try:
-                assemble_context(
-                    spec_dir=spec_dir,
-                    task_group=1,
-                    conn=knowledge_conn,
-                    project_root=tmp_path,
-                )
-            except Exception:
-                pass
-
-            assert mock_index.call_count == 0, (
-                "assemble_context must NOT call index_errata_from_markdown; "
-                f"it was called {mock_index.call_count} time(s)"
-            )
+# TS-06-13 (assemble_context errata index check) removed in spec 10 — errata module deleted.
 
 
 # -----------------------------------------------------------------------

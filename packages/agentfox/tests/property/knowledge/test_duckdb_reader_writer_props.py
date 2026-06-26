@@ -220,23 +220,19 @@ class TestOpenKnowledgeStoreRequiresReadOnly:
 
 
 class TestAssembleContextZeroWrites:
-    """TS-06-P3: For any invocation of assemble_context, neither
-    _migrate_legacy_files nor index_errata_from_markdown is called,
-    and the conn is used exclusively for SELECT operations."""
+    """TS-06-P3: For any invocation of assemble_context,
+    _migrate_legacy_files is not called and the conn is used
+    exclusively for SELECT operations."""
 
     @pytest.mark.parametrize("task_group", [1, 2, 3], ids=["group_1", "group_2", "group_3"])
     def test_no_write_functions_called_for_any_group(self, task_group: int, tmp_path: Path) -> None:
-        """assemble_context must not call _migrate_legacy_files or
-        index_errata_from_markdown for any task group."""
+        """assemble_context must not call _migrate_legacy_files for any task group."""
         conn = _create_migrated_conn()
         spec_dir = tmp_path / "test_spec"
         spec_dir.mkdir()
         (spec_dir / "tasks.json").write_text('{"version":"1.2","tasks":[]}')
 
-        with (
-            patch("agentfox.session.context._migrate_legacy_files") as mock_migrate,
-            patch("agentfox.session.context.index_errata_from_markdown", create=True) as mock_errata,
-        ):
+        with patch("agentfox.session.context._migrate_legacy_files") as mock_migrate:
             from agentfox.session.context import assemble_context
 
             try:
@@ -244,7 +240,6 @@ class TestAssembleContextZeroWrites:
             except Exception:
                 pass
             assert mock_migrate.call_count == 0
-            assert mock_errata.call_count == 0
         conn.close()
 
     @pytest.mark.parametrize("task_group", [1, 2, 3], ids=["group_1", "group_2", "group_3"])

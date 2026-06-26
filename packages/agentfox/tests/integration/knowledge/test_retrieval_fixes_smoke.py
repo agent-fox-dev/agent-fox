@@ -68,26 +68,6 @@ def _insert_finding_direct(
     return fid
 
 
-def _create_run(
-    conn: duckdb.DuckDBPyConnection,
-    run_id: str,
-    plan_hash: str = "hash1",
-) -> None:
-    from agentfox.engine.state import create_run
-
-    create_run(conn, run_id, plan_hash)
-
-
-def _complete_run(
-    conn: duckdb.DuckDBPyConnection,
-    run_id: str,
-    status: str = "stalled",
-) -> None:
-    from agentfox.engine.state import complete_run
-
-    complete_run(conn, run_id, status)
-
-
 # ---------------------------------------------------------------------------
 # TS-120-SMOKE-1: End-to-End Summary Flow
 # ---------------------------------------------------------------------------
@@ -164,34 +144,7 @@ class TestSmokeSummaryFlow:
         finally:
             conn.close()
 
-    def test_cross_spec_summary_round_trip(self) -> None:
-        """Summary from another spec appears as [CROSS-SPEC] item."""
-        conn = _make_conn()
-        try:
-            provider = _make_provider(conn, run_id="test_run")
-
-            provider.ingest(
-                "spec_b:2",
-                "spec_b",
-                {
-                    "session_status": "completed",
-                    "summary": "Changed auth config",
-                    "archetype": "coder",
-                    "task_group": "2",
-                    "attempt": 1,
-                    "run_id": "test_run",
-                    "touched_files": [],
-                    "commit_sha": "def456",
-                },
-            )
-
-            result = provider.retrieve("spec_a", "test", task_group="1")
-            cross_items = [item for item in result if "[CROSS-SPEC]" in item]
-            assert any("Changed auth config" in item for item in cross_items), (
-                f"Expected cross-spec summary: {cross_items}"
-            )
-        finally:
-            conn.close()
+    # test_cross_spec_summary_round_trip removed in spec 10 — cross-spec channel deleted.
 
 
 # ---------------------------------------------------------------------------
@@ -284,131 +237,4 @@ class TestSmokePreReviewToCoderFlow:
             conn.close()
 
 
-# ---------------------------------------------------------------------------
-# TS-120-SMOKE-3: Cross-Run Carry-Forward Flow
-# ---------------------------------------------------------------------------
-
-
-class TestSmokeCrossRunCarryForward:
-    """Unresolved findings from a prior run appear as [PRIOR-RUN] items
-    in the new run, without being tracked in finding_injections.
-
-    Must NOT satisfy with mocked _query_prior_run_findings.
-
-    Execution Path: Path 4 from design.md
-    Requirements: 120-REQ-4.1, 120-REQ-4.2, 120-REQ-4.4
-    """
-
-    def test_prior_run_findings_surfaced(self) -> None:
-        """Active findings from a completed prior run appear as
-        [PRIOR-RUN] items and are NOT tracked in finding_injections."""
-        conn = _make_conn()
-        try:
-            # Create prior run
-            _create_run(conn, "old_run", "hash1")
-            _complete_run(conn, "old_run", "stalled")
-
-            # Insert finding during the prior run
-            old_finding_id = str(uuid.uuid4())
-            finding_id = _insert_finding_direct(
-                conn,
-                finding_id=old_finding_id,
-                spec_name="s",
-                task_group="1",
-                severity="critical",
-                description="Old issue",
-                session_id="old_sess",
-            )
-
-            # Create current run
-            _create_run(conn, "new_run", "hash2")
-
-            provider = _make_provider(conn, run_id="new_run")
-            result = provider.retrieve(
-                "s",
-                "test",
-                task_group="1",
-                session_id="new_sess",
-            )
-
-            # [PRIOR-RUN] item should be present
-            prior_items = [i for i in result if "[PRIOR-RUN]" in i]
-            assert any("Old issue" in i for i in prior_items), f"Prior-run finding not found: {prior_items}"
-
-            # Finding ID should NOT be in finding_injections
-            injections = conn.execute(
-                "SELECT * FROM finding_injections WHERE finding_id = ?",
-                [finding_id],
-            ).fetchall()
-            assert len(injections) == 0, f"Prior-run finding should not be tracked: {injections}"
-        finally:
-            conn.close()
-
-    def test_superseded_prior_findings_not_surfaced(self) -> None:
-        """Superseded findings from prior runs do not appear."""
-        conn = _make_conn()
-        try:
-            _create_run(conn, "old_run", "hash1")
-            _complete_run(conn, "old_run", "stalled")
-
-            _insert_finding_direct(
-                conn,
-                spec_name="s",
-                task_group="1",
-                severity="critical",
-                description="Resolved issue",
-                session_id="old_sess",
-                superseded_by="resolved",
-            )
-
-            _create_run(conn, "new_run", "hash2")
-
-            provider = _make_provider(conn, run_id="new_run")
-            result = provider.retrieve("s", "test", task_group="1")
-
-            prior_items = [i for i in result if "[PRIOR-RUN]" in i]
-            assert not any("Resolved issue" in i for i in prior_items), (
-                "Superseded finding should not appear in prior-run items"
-            )
-        finally:
-            conn.close()
-
-    def test_prior_run_fail_verdicts_surfaced(self) -> None:
-        """Active FAIL verdicts from prior runs appear as [PRIOR-RUN]
-        items (120-REQ-4.5)."""
-        conn = _make_conn()
-        try:
-            _create_run(conn, "old_run", "hash1")
-            _complete_run(conn, "old_run", "stalled")
-
-            # Insert a FAIL verdict during the prior run
-            verdict_id = str(uuid.uuid4())
-            conn.execute(
-                "INSERT INTO verification_results "
-                "(id, requirement_id, verdict, evidence, spec_name, task_group, "
-                "session_id, created_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
-                [verdict_id, "REQ-5.E3", "FAIL", "Assertion failed", "s", "1", "old_sess"],
-            )
-
-            _create_run(conn, "new_run", "hash2")
-
-            provider = _make_provider(conn, run_id="new_run")
-            result = provider.retrieve(
-                "s",
-                "test",
-                task_group="1",
-                session_id="new_sess",
-            )
-
-            prior_items = [i for i in result if "[PRIOR-RUN]" in i]
-            assert any("REQ-5.E3" in i for i in prior_items), f"Prior-run FAIL verdict not found: {prior_items}"
-
-            # Verdict should NOT be tracked in finding_injections
-            injections = conn.execute(
-                "SELECT * FROM finding_injections WHERE finding_id = ?",
-                [verdict_id],
-            ).fetchall()
-            assert len(injections) == 0
-        finally:
-            conn.close()
+# TS-120-SMOKE-3 (cross-run carry-forward) removed in spec 10 — prior-run channel deleted.

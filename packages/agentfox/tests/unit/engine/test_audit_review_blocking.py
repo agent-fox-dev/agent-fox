@@ -796,9 +796,6 @@ class TestAC6AuditMaxRetriesConfig:
             timestamp="2026-01-01T00:00:00",
         )
 
-        # Suppress errata file generation (side effect that pollutes the working tree)
-        handler._generate_errata = MagicMock()
-
         # Pre-review with retry_predecessor=True should use the escalation ladder,
         # not audit_max_retries. audit_max_retries=0 would block immediately if
         # the code incorrectly applied it to pre-review.

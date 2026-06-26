@@ -1,6 +1,6 @@
 """Integration tests for the review archetype persistence pipeline.
 
-Tests end-to-end finding/verdict/drift persistence with supersession,
+Tests end-to-end finding/drift persistence with supersession,
 review-only graph construction, and summary output formatting using
 real in-memory DuckDB instances.
 
@@ -24,10 +24,8 @@ from agentfox.graph.injection import build_review_only_graph
 from agentfox.knowledge.review_store import (
     DriftFinding,
     ReviewFinding,
-    VerificationResult,
     insert_drift_findings,
     insert_findings,
-    insert_verdicts,
     query_active_findings,
 )
 
@@ -47,23 +45,6 @@ def _make_finding(
         severity=severity,
         description=description,
         requirement_ref=None,
-        spec_name=spec_name,
-        task_group=task_group,
-        session_id="test_session",
-    )
-
-
-def _make_verdict(
-    spec_name: str = "03_api",
-    task_group: str = "2",
-    verdict: str = "PASS",
-    requirement_id: str = "03-REQ-1.1",
-) -> VerificationResult:
-    return VerificationResult(
-        id=str(uuid.uuid4()),
-        requirement_id=requirement_id,
-        verdict=verdict,
-        evidence="test evidence",
         spec_name=spec_name,
         task_group=task_group,
         session_id="test_session",
@@ -135,20 +116,7 @@ class TestFindingSupersession:
         assert len(active) == 1
         assert active[0].description == "Round 2 finding"
 
-    def test_verdict_supersession(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
-        """TS-53-4: Verdicts are superseded on re-insert for same spec+task_group."""
-        old_verdict = _make_verdict(verdict="FAIL")
-        insert_verdicts(knowledge_conn, [old_verdict])
-
-        new_verdict = _make_verdict(verdict="PASS")
-        insert_verdicts(knowledge_conn, [new_verdict])
-
-        old_row = knowledge_conn.execute(
-            "SELECT superseded_by::VARCHAR FROM verification_results WHERE id = ?::UUID",
-            [old_verdict.id],
-        ).fetchone()
-        assert old_row is not None
-        assert old_row[0] is not None, "Prior verdict should be superseded"
+    # test_verdict_supersession removed in spec 10 — insert_verdicts and verification_results deleted.
 
     def test_drift_finding_supersession(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
         """TS-53-4: Drift findings are superseded on re-insert for same spec+task."""
@@ -247,10 +215,6 @@ class TestReviewOnlySummaryOutput:
         for _ in range(2):
             insert_findings(knowledge_conn, [_make_finding(severity="critical")])
 
-        # Insert 1 PASS verdict and 1 FAIL verdict
-        insert_verdicts(knowledge_conn, [_make_verdict(verdict="PASS", requirement_id="03-REQ-1.1")])
-        insert_verdicts(knowledge_conn, [_make_verdict(verdict="FAIL", requirement_id="03-REQ-2.1")])
-
         # Insert 1 major drift finding
         insert_drift_findings(knowledge_conn, [_make_drift(severity="major")])
 
@@ -258,6 +222,5 @@ class TestReviewOnlySummaryOutput:
         output = capsys.readouterr().out
 
         assert "critical" in output.lower()
-        assert "PASS" in output or "pass" in output.lower()
-        assert "FAIL" in output or "fail" in output.lower()
+        # Verdict assertions removed in spec 10 — insert_verdicts deleted.
         assert "major" in output.lower()

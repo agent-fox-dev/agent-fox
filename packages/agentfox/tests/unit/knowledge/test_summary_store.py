@@ -25,7 +25,6 @@ from agentfox.knowledge.migrations import run_migrations
 from agentfox.knowledge.summary_store import (
     SummaryRecord,
     insert_summary,
-    query_cross_spec_summaries,
     query_same_spec_summaries,
     truncate_for_audit,
 )
@@ -258,107 +257,7 @@ class TestAllArchetypeSummariesRetrieved:
         assert archetypes == {"coder", "reviewer", "verifier"}
 
 
-# TS-119-11: Cross-spec retrieval excludes current spec (119-REQ-3.1)
-class TestCrossSpecExcludesCurrentSpec:
-    def test_excludes_own_spec(self, summary_conn):
-        insert_summary(
-            summary_conn,
-            _make_record(
-                id=str(uuid.uuid4()),
-                spec_name="spec_a",
-                task_group="2",
-                node_id="spec_a:2",
-            ),
-        )
-        insert_summary(
-            summary_conn,
-            _make_record(
-                id=str(uuid.uuid4()),
-                spec_name="spec_b",
-                task_group="3",
-                node_id="spec_b:3",
-            ),
-        )
-        results = query_cross_spec_summaries(summary_conn, "spec_a", "run-1")
-        assert len(results) == 1
-        assert results[0].spec_name == "spec_b"
-
-
-# TS-119-13: Cross-spec cap applied (119-REQ-3.3)
-class TestCrossSpecCapApplied:
-    def test_cap_at_three(self, summary_conn):
-        for s in ["spec_b", "spec_c", "spec_d", "spec_e", "spec_f"]:
-            insert_summary(
-                summary_conn,
-                _make_record(
-                    id=str(uuid.uuid4()),
-                    spec_name=s,
-                    task_group="1",
-                    node_id=f"{s}:1",
-                ),
-            )
-        results = query_cross_spec_summaries(summary_conn, "spec_a", "run-1", max_items=3)
-        assert len(results) == 3
-
-
-# TS-119-14: Cross-spec sorted by created_at descending (119-REQ-3.4)
-class TestCrossSpecSortedCreatedAtDesc:
-    def test_most_recent_first(self, summary_conn):
-        insert_summary(
-            summary_conn,
-            _make_record(
-                id=str(uuid.uuid4()),
-                spec_name="spec_b",
-                task_group="1",
-                node_id="spec_b:1",
-                created_at="2026-04-28T10:00:00",
-            ),
-        )
-        insert_summary(
-            summary_conn,
-            _make_record(
-                id=str(uuid.uuid4()),
-                spec_name="spec_c",
-                task_group="1",
-                node_id="spec_c:1",
-                created_at="2026-04-28T11:00:00",
-            ),
-        )
-        results = query_cross_spec_summaries(summary_conn, "spec_a", "run-1")
-        assert results[0].spec_name == "spec_c"
-        assert results[1].spec_name == "spec_b"
-
-
-# TS-119-15: Cross-spec latest attempt only (119-REQ-3.5)
-class TestCrossSpecLatestAttemptOnly:
-    def test_latest_attempt_per_spec_group(self, summary_conn):
-        insert_summary(
-            summary_conn,
-            _make_record(
-                id=str(uuid.uuid4()),
-                spec_name="spec_b",
-                task_group="2",
-                node_id="spec_b:2",
-                attempt=1,
-                summary="First attempt",
-                created_at="2026-04-28T10:00:00",
-            ),
-        )
-        insert_summary(
-            summary_conn,
-            _make_record(
-                id=str(uuid.uuid4()),
-                spec_name="spec_b",
-                task_group="2",
-                node_id="spec_b:2",
-                attempt=2,
-                summary="Second attempt",
-                created_at="2026-04-28T11:00:00",
-            ),
-        )
-        results = query_cross_spec_summaries(summary_conn, "spec_a", "run-1")
-        assert len(results) == 1
-        assert results[0].attempt == 2
+# TS-119-11 to TS-119-15 (cross-spec tests) removed in spec 10.
 
 
 # TS-119-E1: Missing summary artifact (119-REQ-1.E1)
@@ -430,14 +329,6 @@ class TestMissingTableHandledGracefully:
         finally:
             conn.close()
 
-    def test_cross_spec_returns_empty(self):
-        conn = duckdb.connect(":memory:")
-        try:
-            results = query_cross_spec_summaries(conn, "spec_a", "run-1")
-            assert results == []
-        finally:
-            conn.close()
-
 
 # TS-119-E4: Task group 1 returns empty (119-REQ-2.E1)
 class TestTaskGroup1ReturnsEmpty:
@@ -484,43 +375,7 @@ class TestNonCoderPriorGroupsIncluded:
         assert archetypes == {"reviewer", "verifier"}
 
 
-# TS-119-E6: No cross-spec summaries in run (119-REQ-3.E1)
-class TestNoCrossSpecSummariesInRun:
-    def test_only_own_spec(self, summary_conn):
-        insert_summary(
-            summary_conn,
-            _make_record(
-                id=str(uuid.uuid4()),
-                spec_name="spec_a",
-                node_id="spec_a:1",
-            ),
-        )
-        results = query_cross_spec_summaries(summary_conn, "spec_a", "run-1")
-        assert results == []
-
-
-# TS-119-E7: No run_id skips cross-spec (119-REQ-3.E2)
-class TestNoRunIdSkipsCrossSpec:
-    def test_no_run_id_no_cross_spec(self, summary_conn):
-        from agentfox.core.config import KnowledgeProviderConfig
-        from agentfox.knowledge.db import KnowledgeDB
-        from agentfox.knowledge.fox_provider import FoxKnowledgeProvider
-
-        insert_summary(
-            summary_conn,
-            _make_record(
-                id=str(uuid.uuid4()),
-                spec_name="spec_b",
-                task_group="1",
-                node_id="spec_b:1",
-            ),
-        )
-        db = KnowledgeDB.__new__(KnowledgeDB)
-        db._conn = summary_conn
-        provider = FoxKnowledgeProvider(db, KnowledgeProviderConfig())
-        items = provider.retrieve("spec_a", "desc", task_group="2")
-        cross_items = [i for i in items if i.startswith("[CROSS-SPEC]")]
-        assert cross_items == []
+# TS-119-E6 and TS-119-E7 (cross-spec edge cases) removed in spec 10.
 
 
 # TS-119-E8: Audit summary truncated at 2000 chars (119-REQ-4.E1)

@@ -18,10 +18,8 @@ import pytest
 from agentfox.knowledge.review_store import (
     DriftFinding,
     ReviewFinding,
-    VerificationResult,
     insert_drift_findings,
     insert_findings,
-    insert_verdicts,
 )
 from agentfox.reporting.findings import (
     format_findings_table,
@@ -148,26 +146,8 @@ class TestQueryFindingsBySeverity:
 class TestQueryFindingsByArchetype:
     """TS-84-11: Findings command filters by archetype."""
 
-    def test_archetype_filter_verifier(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
-        """Verify --archetype verifier returns only verifier verdicts."""
-        # Insert skeptic findings
-        _insert_test_findings(knowledge_conn, severities=["critical"])
-        # Insert verifier verdicts
-        verdicts = [
-            VerificationResult(
-                id=str(uuid.uuid4()),
-                requirement_id="REQ-1.1",
-                verdict="PASS",
-                evidence="all good",
-                spec_name="my_spec",
-                task_group="1",
-                session_id="my_spec:1:2",
-            ),
-        ]
-        insert_verdicts(knowledge_conn, verdicts)
-
-        rows = query_findings(knowledge_conn, archetype="verifier")
-        assert all(r.archetype == "verifier" for r in rows)
+    # test_archetype_filter_verifier removed — insert_verdicts and
+    # verification_results table dropped in spec 10.
 
     def test_archetype_filter_reviewer_pre_review(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
         """Verify --archetype reviewer/pre-review returns only pre-review findings."""

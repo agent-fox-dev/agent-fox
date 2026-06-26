@@ -18,13 +18,9 @@ from agentfox.core.errors import KnowledgeStoreError
 from agentfox.knowledge.migrations import Migration
 from agentfox.knowledge.review_store import (
     ReviewFinding,
-    VerificationResult,
     insert_findings,
-    insert_verdicts,
     query_active_findings,
-    query_active_verdicts,
     query_findings_by_session,
-    query_verdicts_by_session,
 )
 
 
@@ -42,26 +38,6 @@ def _make_finding(
         severity=severity,
         description=description,
         requirement_ref=requirement_ref,
-        spec_name=spec_name,
-        task_group=task_group,
-        session_id=session_id,
-    )
-
-
-def _make_verdict(
-    *,
-    requirement_id: str = "27-REQ-1.1",
-    verdict: str = "PASS",
-    evidence: str | None = "Tests pass",
-    spec_name: str = "test_spec",
-    task_group: str = "1",
-    session_id: str = "session-1",
-) -> VerificationResult:
-    return VerificationResult(
-        id=str(uuid.uuid4()),
-        requirement_id=requirement_id,
-        verdict=verdict,
-        evidence=evidence,
         spec_name=spec_name,
         task_group=task_group,
         session_id=session_id,
@@ -89,25 +65,7 @@ class TestReviewFindingsTableCreated:
         assert "created_at" in columns
 
 
-class TestVerificationResultsTableCreated:
-    """TS-27-2: verification_results table exists after schema creation."""
-
-    def test_verification_results_table_created(self, schema_conn: duckdb.DuckDBPyConnection) -> None:
-        """verification_results table exists with expected columns."""
-        rows = schema_conn.execute(
-            "SELECT column_name FROM information_schema.columns "
-            "WHERE table_name = 'verification_results' ORDER BY ordinal_position"
-        ).fetchall()
-        columns = [r[0] for r in rows]
-        assert "id" in columns
-        assert "requirement_id" in columns
-        assert "verdict" in columns
-        assert "evidence" in columns
-        assert "spec_name" in columns
-        assert "task_group" in columns
-        assert "session_id" in columns
-        assert "superseded_by" in columns
-        assert "created_at" in columns
+# TS-27-2 (verification_results table) removed in spec 10 — table dropped by migration v26.
 
 
 class TestInsertFindingsSupersession:
@@ -142,24 +100,7 @@ class TestInsertFindingsSupersession:
         assert first[1] is not None  # superseded_by is set
 
 
-class TestInsertVerdictsSupersession:
-    """TS-27-7: insert verdicts with supersession."""
-
-    def test_insert_verdicts_supersession(self, schema_conn: duckdb.DuckDBPyConnection) -> None:
-        """New verdicts supersede existing active records."""
-        v1 = _make_verdict(verdict="FAIL", session_id="s1")
-        insert_verdicts(schema_conn, [v1])
-
-        active = query_active_verdicts(schema_conn, "test_spec")
-        assert len(active) == 1
-        assert active[0].verdict == "FAIL"
-
-        v2 = _make_verdict(verdict="PASS", session_id="s2")
-        insert_verdicts(schema_conn, [v2])
-
-        active = query_active_verdicts(schema_conn, "test_spec")
-        assert len(active) == 1
-        assert active[0].verdict == "PASS"
+# TS-27-7 (verdict supersession) removed in spec 10 — insert_verdicts and query_active_verdicts deleted.
 
 
 class TestNoRecordsToSupersede:
@@ -263,25 +204,7 @@ class TestQueryBySession:
         assert len(results) == 1
         assert results[0].description == "Finding 1"
 
-    def test_query_verdicts_by_session(self, schema_conn: duckdb.DuckDBPyConnection) -> None:
-        """Verdicts can be queried by session_id."""
-        v1 = _make_verdict(session_id="s1")
-        v2 = _make_verdict(session_id="s2", requirement_id="27-REQ-2.1")
-        insert_verdicts(schema_conn, [v1])
-        v2b = VerificationResult(
-            id=v2.id,
-            requirement_id=v2.requirement_id,
-            verdict=v2.verdict,
-            evidence=v2.evidence,
-            spec_name=v2.spec_name,
-            task_group="2",
-            session_id=v2.session_id,
-        )
-        insert_verdicts(schema_conn, [v2b])
-
-        results = query_verdicts_by_session(schema_conn, "s1")
-        assert len(results) == 1
-        assert results[0].requirement_id == "27-REQ-1.1"
+    # test_query_verdicts_by_session removed in spec 10 — insert_verdicts deleted.
 
 
 # ---------------------------------------------------------------------------

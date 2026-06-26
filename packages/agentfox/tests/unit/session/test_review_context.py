@@ -16,9 +16,7 @@ import duckdb
 import pytest
 from agentfox.knowledge.review_store import (
     ReviewFinding,
-    VerificationResult,
     insert_findings,
-    insert_verdicts,
 )
 from agentfox.session.prompt import (
     assemble_context,
@@ -58,22 +56,8 @@ def _make_finding(
     )
 
 
-def _make_verdict(
-    requirement_id: str = "05-REQ-1.1",
-    verdict: str = "PASS",
-    evidence: str | None = "Tests pass",
-    spec_name: str = "test_spec",
-    session_id: str = "s1",
-) -> VerificationResult:
-    return VerificationResult(
-        id=str(uuid.uuid4()),
-        requirement_id=requirement_id,
-        verdict=verdict,
-        evidence=evidence,
-        spec_name=spec_name,
-        task_group="1",
-        session_id=session_id,
-    )
+# _make_verdict helper removed — insert_verdicts and verification_results
+# table dropped in spec 10.
 
 
 def _write_spec(spec_dir: Path) -> None:
@@ -158,24 +142,8 @@ class TestRenderReviewContext:
         assert "Summary:" in result
 
 
-class TestRenderVerificationContext:
-    """TS-27-10: render verification context from DB."""
-
-    def test_render_verification_context(self, review_conn: duckdb.DuckDBPyConnection) -> None:
-        """Active verdicts are rendered as Verification Report markdown."""
-        verdicts = [
-            _make_verdict(requirement_id="05-REQ-1.1", verdict="PASS"),
-            _make_verdict(requirement_id="05-REQ-2.1", verdict="FAIL", evidence="Not implemented"),
-        ]
-        insert_verdicts(review_conn, verdicts)
-
-        result = render_verification_context(review_conn, "test_spec")
-        assert result is not None
-        assert "## Verification Report" in result
-        assert "05-REQ-1.1" in result
-        assert "PASS" in result
-        assert "FAIL" in result
-        assert "Verdict: FAIL" in result
+# TestRenderVerificationContext removed — insert_verdicts and
+# verification_results table dropped in spec 10.
 
 
 class TestRenderedFormatMatchesLegacy:
@@ -201,18 +169,8 @@ class TestRenderedFormatMatchesLegacy:
         assert "### Observations" in result
         assert "Summary:" in result
 
-    def test_verification_format_matches_legacy(self, review_conn: duckdb.DuckDBPyConnection) -> None:
-        """Verification context has table format."""
-        verdicts = [_make_verdict()]
-        insert_verdicts(review_conn, verdicts)
-
-        result = render_verification_context(review_conn, "test_spec")
-        assert result is not None
-
-        # Check table structure
-        assert "| Requirement | Status | Notes |" in result
-        assert "|-------------|--------|-------|" in result
-        assert "Verdict:" in result
+    # test_verification_format_matches_legacy removed — insert_verdicts
+    # and verification_results table dropped in spec 10.
 
 
 class TestNoFindingsOmitsSection:

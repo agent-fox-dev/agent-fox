@@ -140,7 +140,6 @@ class TestSetRunIdNeverCalled:
         provider = FoxKnowledgeProvider(provider_db, KnowledgeProviderConfig())
         result = provider.retrieve("test_spec", "test", task_group="2")
         assert not any("[CONTEXT]" in item for item in result)
-        assert not any("[CROSS-SPEC]" in item for item in result)
 
 
 # ---------------------------------------------------------------------------

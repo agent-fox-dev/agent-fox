@@ -1,7 +1,7 @@
 """Unit tests for dismiss_finding_by_id in review_store.
 
-Validates manual dismissal of findings across review_findings,
-drift_findings, and verification_results tables.
+Validates manual dismissal of findings across review_findings
+and drift_findings tables.
 
 Requirements: 592-AC-1, 592-AC-2
 """
@@ -13,11 +13,9 @@ import uuid
 from agentfox.knowledge.review_store import (
     DriftFinding,
     ReviewFinding,
-    VerificationResult,
     dismiss_finding_by_id,
     insert_drift_findings,
     insert_findings,
-    insert_verdicts,
     query_active_findings,
 )
 
@@ -119,35 +117,8 @@ class TestDismissDriftFinding:
         assert row[0].startswith("dismissed:")
 
 
-class TestDismissVerificationResult:
-    """AC-1: dismiss_finding_by_id sets superseded_by on verification_results."""
-
-    def test_dismiss_active_verification_result(self, knowledge_conn) -> None:
-        """Dismissing an active verification result marks it superseded and returns description."""
-        verdict = VerificationResult(
-            id=str(uuid.uuid4()),
-            requirement_id="84-REQ-3.1",
-            verdict="FAIL",
-            evidence="Test file not found",
-            spec_name="84_spec",
-            task_group="3",
-            session_id="84_spec:3:1",
-        )
-        insert_verdicts(knowledge_conn, [verdict])
-
-        result = dismiss_finding_by_id(knowledge_conn, verdict.id, "Test was added in later session")
-
-        assert result is not None
-        assert "FAIL" in result
-        assert "84-REQ-3.1" in result
-
-        row = knowledge_conn.execute(
-            "SELECT superseded_by FROM verification_results WHERE id::VARCHAR = ?",
-            [verdict.id],
-        ).fetchone()
-        assert row is not None
-        assert row[0] is not None
-        assert row[0].startswith("dismissed:")
+# TestDismissVerificationResult removed — insert_verdicts() and the
+# verification_results table were dropped in spec 10 (migration v26).
 
 
 class TestDismissUnknownId:

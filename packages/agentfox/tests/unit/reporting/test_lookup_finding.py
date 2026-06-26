@@ -1,7 +1,7 @@
 """Unit tests for lookup_finding_by_id in reporting.findings.
 
-Validates retrieval of a FindingRow by ID across review_findings,
-drift_findings, and verification_results tables.
+Validates retrieval of a FindingRow by ID across review_findings
+and drift_findings tables.
 
 Requirements: 592-AC-5
 """
@@ -13,10 +13,8 @@ import uuid
 from agentfox.knowledge.review_store import (
     DriftFinding,
     ReviewFinding,
-    VerificationResult,
     insert_drift_findings,
     insert_findings,
-    insert_verdicts,
 )
 from agentfox.reporting.findings import lookup_finding_by_id
 
@@ -89,30 +87,8 @@ class TestLookupDriftFinding:
         assert result.description == "Spec-code mismatch on auth flow"
 
 
-class TestLookupVerificationResult:
-    """lookup_finding_by_id finds verification_results rows with archetype='verifier'."""
-
-    def test_finds_verification_result_by_id(self, knowledge_conn) -> None:
-        """Returns a FindingRow with archetype='verifier' for a verification result."""
-        verdict = VerificationResult(
-            id=str(uuid.uuid4()),
-            requirement_id="84-REQ-3.1",
-            verdict="FAIL",
-            evidence="Test not found",
-            spec_name="84_spec",
-            task_group="3",
-            session_id="84_spec:3:1",
-        )
-        insert_verdicts(knowledge_conn, [verdict])
-
-        result = lookup_finding_by_id(knowledge_conn, verdict.id)
-
-        assert result is not None
-        assert result.id == verdict.id
-        assert result.archetype == "verifier"
-        assert result.severity == "major"  # FAIL maps to major
-        assert "84-REQ-3.1" in result.description
-        assert "FAIL" in result.description
+# TestLookupVerificationResult removed — insert_verdicts and verification_results
+# table dropped in spec 10.
 
 
 class TestLookupUnknownId:

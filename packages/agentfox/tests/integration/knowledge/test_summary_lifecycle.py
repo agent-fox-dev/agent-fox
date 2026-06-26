@@ -616,36 +616,7 @@ class TestSmokeSummaryStorageAndRetrieval:
             conn.close()
 
 
-# TS-119-SMOKE-2: Cross-spec summary injection
-class TestSmokeCrossSpecInjection:
-    def test_smoke_cross_spec(self):
-        """End-to-end: ingest for spec_b, retrieve cross-spec for spec_a."""
-        conn = _make_conn()
-        try:
-            provider = _make_provider(conn, run_id="run-1")
-            provider.ingest(
-                "spec_b:2",
-                "spec_b",
-                {
-                    "summary": "Changed AuthConfig to remove BearerToken",
-                    "session_status": "completed",
-                    "touched_files": [],
-                    "commit_sha": "def456",
-                    "archetype": "coder",
-                    "task_group": "2",
-                    "attempt": 1,
-                },
-            )
-            items = provider.retrieve(
-                "spec_a",
-                "implement auth",
-                task_group="3",
-            )
-            cross_items = [i for i in items if i.startswith("[CROSS-SPEC]")]
-            assert len(cross_items) == 1
-            assert "Changed AuthConfig" in cross_items[0]
-        finally:
-            conn.close()
+# TS-119-SMOKE-2 (cross-spec injection) removed in spec 10.
 
 
 # TS-119-SMOKE-3: Audit event includes summary end-to-end
