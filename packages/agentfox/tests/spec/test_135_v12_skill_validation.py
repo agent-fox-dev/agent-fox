@@ -28,7 +28,7 @@ from hypothesis import strategies as st
 # ---------------------------------------------------------------------------
 
 _REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-_SKILL_TEMPLATE_PATH = _REPO_ROOT / "agentfox" / "_templates" / "skills" / "afspec"
+_SKILL_TEMPLATE_PATH = _REPO_ROOT / "agentfox" / "_templates" / "skills" / "af-spec"
 
 # ---------------------------------------------------------------------------
 # Valid v1.2 fixture content
@@ -677,7 +677,7 @@ class TestSkillTemplateContentSmoke:
         content = _SKILL_TEMPLATE_PATH.read_text()
         assert "spec validate" in content
 
-    def test_skill_template_afspec_reference(self) -> None:
-        """Skill template should reference afspec."""
+    def test_skill_template_af_spec_reference(self) -> None:
+        """Skill template should reference af-spec (the skill name)."""
         content = _SKILL_TEMPLATE_PATH.read_text()
-        assert "afspec" in content.lower()
+        assert "af-spec" in content.lower()

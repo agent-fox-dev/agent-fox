@@ -14,7 +14,7 @@ from pathlib import Path
 
 _REPO_ROOT = Path(__file__).parents[3]
 _AGENTS_MD_TEMPLATE = _REPO_ROOT / "agentfox" / "_templates" / "agents_md.md"
-_AF_SPEC_TEMPLATE = _REPO_ROOT / "agentfox" / "_templates" / "skills" / "afspec"
+_AF_SPEC_TEMPLATE = _REPO_ROOT / "agentfox" / "_templates" / "skills" / "af-spec"
 
 
 # ---------------------------------------------------------------------------

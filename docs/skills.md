@@ -19,7 +19,7 @@ skills to the latest bundled versions.
 
 ---
 
-## afspec
+## af-spec
 
 **Spec-driven development: from idea to implementation-ready spec package.**
 

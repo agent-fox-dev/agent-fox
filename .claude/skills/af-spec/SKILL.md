@@ -1,5 +1,5 @@
 ---
-name: af-fix
+name: af-spec
 description: Autonomous code fixer — analyzes a GitHub issue, implements the fix, and lands it.
 argument-hint: "https://github.com/{owner}/{repo}/issues/{number}"
 ---
