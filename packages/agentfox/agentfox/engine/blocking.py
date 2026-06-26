@@ -103,7 +103,7 @@ def _evaluate_audit_review_blocking(
     coder_node_id: str,
     node_id: str,
 ) -> BlockDecision:
-    """Evaluate audit-review blocking: active critical/major audit findings trigger retry.
+    """Evaluate audit-review blocking: only active critical audit findings trigger retry.
 
     Uses ``query_active_findings`` filtered by ``category='audit'`` because the
     session_id format for audit findings (``{spec_name}:audit:{N}``) does not
@@ -115,12 +115,17 @@ def _evaluate_audit_review_blocking(
     because the referenced code will be written in a later group; blocking on them
     creates an unwinnable retry loop.
 
-    Returns a blocking decision when any non-superseded, non-deferred critical or
-    major audit finding exists for (spec_name, task_group).  An empty,
-    deferred-only, or minor-only finding set returns ``should_block=False`` so
+    Only ``critical`` findings (from MISSING/MISALIGNED verdicts) block.
+    ``major`` findings (from WEAK verdicts) are logged as warnings but do not
+    halt the pipeline — a later task group may fix the underlying tests,
+    and blocking on WEAK findings creates unwinnable retry loops (issue #639).
+
+    Returns a blocking decision when any non-superseded, non-deferred critical
+    audit finding exists for (spec_name, task_group).  An empty, deferred-only,
+    major-only, or minor-only finding set returns ``should_block=False`` so
     execution proceeds normally.
 
-    Requirements: 554-REQ-1, 572-AC-2, 572-AC-4
+    Requirements: 554-REQ-1, 572-AC-2, 572-AC-4, 639-AC-1
     """
     try:
         from agentfox.knowledge.review_store import query_active_findings
@@ -150,17 +155,30 @@ def _evaluate_audit_review_blocking(
             )
             return BlockDecision(should_block=False)
 
-        n = len(actionable_findings)
-        shown = actionable_findings[:3]
+        # Only critical findings block.  Major (WEAK) findings are logged but
+        # do not halt the pipeline — they may be resolved by later task groups
+        # and blocking on them creates unwinnable retry loops (issue #639).
+        blocking_findings = [f for f in actionable_findings if f.severity.lower() == "critical"]
+
+        if not blocking_findings:
+            weak_count = len(actionable_findings)
+            logger.info(
+                "AUDIT-REVIEW: %d WEAK (major) finding(s) for %s:%s — not blocking",
+                weak_count,
+                spec_name,
+                task_group,
+            )
+            return BlockDecision(should_block=False)
+
+        n = len(blocking_findings)
+        shown = blocking_findings[:3]
         detail = ", ".join(
             "F-" + f.id.replace("-", "")[:8] + ": " + f.description[:60] + ("…" if len(f.description) > 60 else "")
             for f in shown
         )
         if n > 3:
             detail += f", and {n - 3} more"
-        reason = (
-            f"reviewer:audit-review found {n} critical/major audit finding(s) for {spec_name}:{task_group} — {detail}"
-        )
+        reason = f"reviewer:audit-review found {n} critical audit finding(s) for {spec_name}:{task_group} — {detail}"
         logger.warning("AUDIT-REVIEW blocking %s: %s", coder_node_id, reason)
         return BlockDecision(
             should_block=True,
