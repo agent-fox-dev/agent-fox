@@ -93,12 +93,12 @@ class TestCreateLabelSuccess:
 
         mock_resp = _json_response(
             201,
-            {"id": 1, "name": "af:hunt", "color": "0075ca", "description": ""},
+            {"id": 1, "name": "af:fix", "color": "12ec39", "description": ""},
         )
         client = _mock_client(post=AsyncMock(return_value=mock_resp))
 
         with patch(_TARGET, return_value=client):
-            result = await platform.create_label("af:hunt", "0075ca")
+            result = await platform.create_label("af:fix", "12ec39")
 
         assert result is None
 

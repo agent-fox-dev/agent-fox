@@ -1,6 +1,6 @@
 """Centralised label constants for agent-fox platform operations.
 
-The nightshift pipeline requires these labels to exist on the target
+The agent-fox pipeline requires these labels to exist on the target
 repository before it can assign them to issues. Use the REQUIRED_LABELS
 list with ``platform.create_label`` (called automatically by ``af init``)
 to ensure they are present.
@@ -25,15 +25,6 @@ LABEL_FIXED: str = "af:fixed"
 #: Applied when the coder produced no commits — needs human review.
 LABEL_NO_CHANGE: str = "af:no-change"
 
-#: Applied to issues created by hunt scans (dedup fingerprint label).
-LABEL_HUNT: str = "af:hunt"
-
-#: Applied by users to hunt issues they consider false positives.
-LABEL_IGNORE: str = "af:ignore"
-
-#: Gray hex color for the af:ignore label.
-LABEL_IGNORE_COLOR: str = "999999"
-
 #: Applied when all task groups for a spec are completed — awaiting verification.
 LABEL_IMPLEMENTED: str = "af:implemented"
 
@@ -52,7 +43,7 @@ class LabelSpec:
     description: str
 
 
-#: Labels that must exist on the target repository for nightshift to operate.
+#: Labels that must exist on the target repository for agent-fox to operate.
 REQUIRED_LABELS: list[LabelSpec] = [
     LabelSpec(
         name=LABEL_FIX,
@@ -68,16 +59,6 @@ REQUIRED_LABELS: list[LabelSpec] = [
         name=LABEL_NO_CHANGE,
         color="e4e669",
         description="Fix attempt produced no commits — needs human review",
-    ),
-    LabelSpec(
-        name=LABEL_HUNT,
-        color="0075ca",
-        description="Issues created by hunt scans",
-    ),
-    LabelSpec(
-        name=LABEL_IGNORE,
-        color=LABEL_IGNORE_COLOR,
-        description="Hunt findings marked as not-an-issue by the user",
     ),
     LabelSpec(
         name=LABEL_IMPLEMENTED,

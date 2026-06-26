@@ -145,11 +145,8 @@ class PlatformProtocol(Protocol):
     ) -> None:
         """Update the body of an existing issue.
 
-        Used by the ignore ingestion pipeline to append the
-        ``<!-- af:knowledge-ingested -->`` marker to af:ignore issue bodies
-        after they have been ingested into the knowledge store.
-
-        Requirements: 110-REQ-5.3
+        Used to append markers (e.g. ``<!-- af:knowledge-ingested -->``)
+        to issue bodies after they have been processed.
         """
         ...
 

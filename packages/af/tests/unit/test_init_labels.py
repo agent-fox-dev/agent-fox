@@ -169,16 +169,9 @@ class TestLabelConstants:
 
         assert LABEL_FIX == "af:fix"
 
-    def test_label_hunt_value(self) -> None:
-        """TS-358-12: LABEL_HUNT == 'af:hunt'."""
-        from agentfox.platform.labels import LABEL_HUNT
-
-        assert LABEL_HUNT == "af:hunt"
-
-    def test_required_labels_contains_both(self) -> None:
-        """TS-358-13: REQUIRED_LABELS contains both af:fix and af:hunt."""
-        from agentfox.platform.labels import LABEL_FIX, LABEL_HUNT, REQUIRED_LABELS
+    def test_required_labels_contains_fix(self) -> None:
+        """TS-358-13: REQUIRED_LABELS contains af:fix."""
+        from agentfox.platform.labels import LABEL_FIX, REQUIRED_LABELS
 
         names = {spec.name for spec in REQUIRED_LABELS}
         assert LABEL_FIX in names
-        assert LABEL_HUNT in names
