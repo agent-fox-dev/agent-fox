@@ -11,6 +11,7 @@ Requirements: 16-REQ-5.1, 16-REQ-5.E1, 06-REQ-1.1, 06-REQ-2.1,
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from datetime import UTC, datetime
@@ -1164,10 +1165,14 @@ class NodeSessionRunner:
         finally:
             # 03-REQ-2.1: Always clean up the worktree. When harvest failed,
             # preserve the feature branch so committed work is recoverable.
+            #
+            # Shield from asyncio cancellation: CancelledError (BaseException
+            # since Python 3.9) would interrupt destroy_worktree() at its
+            # first await, leaving stale worktrees that block retries (#638).
             if workspace is not None:
                 try:
-                    await destroy_worktree(repo_root, workspace, preserve_branch=_preserve_branch)
-                except Exception:
+                    await asyncio.shield(destroy_worktree(repo_root, workspace, preserve_branch=_preserve_branch))
+                except BaseException:
                     logger.warning(
                         "Failed to clean up worktree for %s",
                         node_id,

@@ -245,7 +245,11 @@ class TestCustomBranchName:
     ) -> None:
         """When branch_name is provided, the worktree uses it instead of the default."""
         ws = await create_worktree(
-            tmp_worktree_repo, "fix-issue-42", 0, base_branch="develop", branch_name="fix/issue-42-linter",
+            tmp_worktree_repo,
+            "fix-issue-42",
+            0,
+            base_branch="develop",
+            branch_name="fix/issue-42-linter",
         )
         assert ws.branch == "fix/issue-42-linter"
         branches = list_branches(tmp_worktree_repo)
@@ -261,7 +265,11 @@ class TestCustomBranchName:
         import subprocess
 
         ws = await create_worktree(
-            tmp_worktree_repo, "fix-issue-99", 0, base_branch="develop", branch_name="fix/issue-99-bug",
+            tmp_worktree_repo,
+            "fix-issue-99",
+            0,
+            base_branch="develop",
+            branch_name="fix/issue-99-bug",
         )
         result = subprocess.run(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
@@ -317,6 +325,65 @@ class TestSafeRmtree:
         assert not worktree_dir.exists()
         assert external_file.exists()
         assert external_file.read_text() == "keep me"
+
+
+class TestForceRemoveStaleWorktreeEntry:
+    """Issue #638: create_worktree recovers from stale .git/worktrees/ entries.
+
+    When destroy_worktree is interrupted (e.g. by CancelledError), it may
+    remove the worktree directory but leave a stale entry in .git/worktrees/
+    that still references the branch. git worktree prune may fail to clean
+    these up (e.g. due to lock files). create_worktree must force-remove
+    such stale entries so retries succeed.
+    """
+
+    @pytest.mark.asyncio
+    async def test_create_worktree_recovers_from_stale_entry(
+        self,
+        tmp_worktree_repo: Path,
+    ) -> None:
+        """create_worktree succeeds when a stale .git/worktrees/ entry exists."""
+        import subprocess
+
+        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
+        worktree_path = ws.path
+
+        # Simulate interrupted cleanup: remove the worktree directory manually
+        # but leave the .git/worktrees/ entry intact.
+        import shutil
+
+        shutil.rmtree(worktree_path)
+
+        # Lock the stale worktree entry to prevent git worktree prune from
+        # cleaning it up (simulates the real-world failure mode).
+        git_worktrees_dir = tmp_worktree_repo / ".git" / "worktrees"
+        if git_worktrees_dir.is_dir():
+            for entry in git_worktrees_dir.iterdir():
+                if entry.is_dir():
+                    (entry / "locked").write_text("")
+
+        # Verify the branch is still considered "referenced" by git
+        result = subprocess.run(
+            ["git", "worktree", "list", "--porcelain"],
+            cwd=tmp_worktree_repo,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        assert "feature/test_spec/1" in result.stdout
+
+        # Switch back to develop so we're not on the feature branch
+        subprocess.run(
+            ["git", "checkout", "develop"],
+            cwd=tmp_worktree_repo,
+            check=True,
+            capture_output=True,
+        )
+
+        # create_worktree should force-remove the stale entry and succeed
+        ws2 = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
+        assert ws2.path.is_dir()
+        assert ws2.branch == "feature/test_spec/1"
 
 
 class TestWorktreeCleanupOnFailure:
