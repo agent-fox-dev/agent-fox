@@ -11,6 +11,7 @@ from bisect import insort
 from collections import defaultdict
 from dataclasses import dataclass
 
+from agentfox.platform.labels import LABEL_PRIORITY_HIGH, LABEL_PRIORITY_LOW
 from agentfox.platform.protocol import IssueResult
 
 logger = logging.getLogger(__name__)
@@ -32,7 +33,8 @@ def build_graph(
 ) -> list[int]:
     """Build dependency graph, detect/break cycles, return topological order.
 
-    Uses Kahn's algorithm. Ties broken by ascending issue number.
+    Uses Kahn's algorithm. Ties broken first by priority label
+    (high > medium/none > low), then by ascending issue number.
     Cycles broken by removing the edge pointing to the oldest (lowest-
     numbered) issue in the cycle, with a WARNING log.
 
@@ -42,23 +44,44 @@ def build_graph(
     """
     issue_numbers = {i.number for i in issues}
 
+    # Build a priority rank map: high=0, medium/none=1, low=2
+    priority_map: dict[int, int] = {}
+    for issue in issues:
+        label_set = set(issue.labels)
+        if LABEL_PRIORITY_HIGH in label_set:
+            priority_map[issue.number] = 0
+        elif LABEL_PRIORITY_LOW in label_set:
+            priority_map[issue.number] = 2
+        else:
+            priority_map[issue.number] = 1  # medium or unlabelled
+
     # Filter edges to only include those between issues in the batch
     valid_edges = [e for e in edges if e.from_issue in issue_numbers and e.to_issue in issue_numbers]
 
     # Break cycles before running topological sort
     valid_edges = _break_all_cycles(valid_edges, issue_numbers)
 
-    return _kahn_sort(issue_numbers, valid_edges)
+    return _kahn_sort(issue_numbers, valid_edges, priority_map)
 
 
 def _kahn_sort(
     nodes: set[int],
     edges: list[DependencyEdge],
+    priority_map: dict[int, int] | None = None,
 ) -> list[int]:
-    """Kahn's algorithm with tie-breaking by ascending issue number.
+    """Kahn's algorithm with tie-breaking by priority label, then ascending issue number.
+
+    Priority rank: 0 = high, 1 = medium/none, 2 = low.  Nodes with lower
+    rank (higher priority) are processed first.  Within the same priority
+    tier, the lower issue number is processed first.
 
     Requirements: 71-REQ-4.1, 71-REQ-4.2
     """
+    _priority = priority_map or {}
+
+    def _sort_key(n: int) -> tuple[int, int]:
+        return (_priority.get(n, 1), n)
+
     # Build adjacency list and in-degree map
     in_degree: dict[int, int] = {n: 0 for n in nodes}
     successors: dict[int, list[int]] = defaultdict(list)
@@ -67,12 +90,12 @@ def _kahn_sort(
         in_degree[edge.to_issue] += 1
         successors[edge.from_issue].append(edge.to_issue)
 
-    # Initialize with zero in-degree nodes, sorted by issue number (tie-break)
-    ready = sorted(n for n, deg in in_degree.items() if deg == 0)
+    # Initialize with zero in-degree nodes, sorted by (priority, issue_number)
+    ready = sorted((n for n, deg in in_degree.items() if deg == 0), key=_sort_key)
     result: list[int] = []
 
     while ready:
-        # Pick the lowest-numbered node (tie-breaking: 71-REQ-4.2)
+        # Pick the highest-priority (then lowest-numbered) node
         node = ready.pop(0)
         result.append(node)
 
@@ -80,7 +103,7 @@ def _kahn_sort(
             in_degree[succ] -= 1
             if in_degree[succ] == 0:
                 # Insert in sorted position to maintain order
-                insort(ready, succ)
+                insort(ready, succ, key=_sort_key)
 
     return result
 

@@ -28,6 +28,11 @@ LABEL_NO_CHANGE: str = "af:no-change"
 #: Applied when all task groups for a spec are completed — awaiting verification.
 LABEL_IMPLEMENTED: str = "af:implemented"
 
+#: Priority labels for nightshift processing order (high > medium/none > low).
+LABEL_PRIORITY_HIGH: str = "priority:high"
+LABEL_PRIORITY_MEDIUM: str = "priority:medium"
+LABEL_PRIORITY_LOW: str = "priority:low"
+
 
 # ---------------------------------------------------------------------------
 # Label metadata for idempotent creation

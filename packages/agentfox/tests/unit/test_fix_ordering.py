@@ -1063,3 +1063,91 @@ class TestDrainSeenDedup:
         # Second call with same set: issue #7 already in seen → must be skipped.
         await engine._run_issue_check(already_seen)
         assert fix_calls == [7], "Issue #7 was processed a second time"
+
+
+# ===========================================================================
+# Priority label ordering tests: TS-NS-1 through TS-NS-5
+# Requirements: NS-REQ-1 through NS-REQ-5
+# ===========================================================================
+
+
+def _make_issue_with_labels(number: int, *labels: str) -> IssueResult:
+    """Create an IssueResult with the given priority labels."""
+    return IssueResult(
+        number=number,
+        title=f"Issue #{number}",
+        html_url=f"https://github.com/test/repo/issues/{number}",
+        body="",
+        labels=tuple(labels),
+    )
+
+
+class TestPriorityLabelConstants:
+    """TS-NS-1: Priority label name constants are defined in labels.py."""
+
+    def test_ts_ns_1_priority_label_constants_exported(self) -> None:
+        """Module exports LABEL_PRIORITY_HIGH, LABEL_PRIORITY_MEDIUM, LABEL_PRIORITY_LOW."""
+        from agentfox.platform.labels import (
+            LABEL_PRIORITY_HIGH,
+            LABEL_PRIORITY_LOW,
+            LABEL_PRIORITY_MEDIUM,
+        )
+
+        assert LABEL_PRIORITY_HIGH == "priority:high"
+        assert LABEL_PRIORITY_MEDIUM == "priority:medium"
+        assert LABEL_PRIORITY_LOW == "priority:low"
+
+
+class TestPriorityOrdering:
+    """TS-NS-2 through TS-NS-5: Priority label ordering in build_graph."""
+
+    def test_ts_ns_2_independent_issues_ordered_high_medium_low(self) -> None:
+        """Independent issues: high > unlabelled (medium) > low, regardless of number."""
+        from agentfox.nightshift.dep_graph import build_graph
+
+        issues = [
+            _make_issue_with_labels(30, "priority:low"),
+            _make_issue_with_labels(10),  # no priority label → medium
+            _make_issue_with_labels(20, "priority:high"),
+        ]
+        order = build_graph(issues, [])
+
+        assert order.index(20) < order.index(10) < order.index(30)
+
+    def test_ts_ns_3_dependency_edges_take_precedence_over_priority(self) -> None:
+        """A low-priority prerequisite appears before a high-priority dependent."""
+        from agentfox.nightshift.dep_graph import DependencyEdge, build_graph
+
+        issues = [
+            _make_issue_with_labels(1, "priority:low"),
+            _make_issue_with_labels(2, "priority:high"),
+        ]
+        edges = [DependencyEdge(1, 2, "explicit", "1 must be fixed before 2")]
+        order = build_graph(issues, edges)
+
+        assert order.index(1) < order.index(2)
+
+    def test_ts_ns_4_issue_number_is_secondary_tiebreaker(self) -> None:
+        """Within the same priority tier, the lower issue number appears first."""
+        from agentfox.nightshift.dep_graph import build_graph
+
+        issues = [
+            _make_issue_with_labels(50, "priority:high"),
+            _make_issue_with_labels(10, "priority:high"),
+        ]
+        order = build_graph(issues, [])
+
+        assert order == [10, 50]
+
+    def test_ts_ns_5_unlabelled_treated_as_medium(self) -> None:
+        """Unlabelled issue is treated as medium: order is [high, medium, low]."""
+        from agentfox.nightshift.dep_graph import build_graph
+
+        issues = [
+            _make_issue_with_labels(20, "priority:high"),
+            _make_issue_with_labels(10),  # no priority label → medium default
+            _make_issue_with_labels(30, "priority:low"),
+        ]
+        order = build_graph(issues, [])
+
+        assert order == [20, 10, 30]
