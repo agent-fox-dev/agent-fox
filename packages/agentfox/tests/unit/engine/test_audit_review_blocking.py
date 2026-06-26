@@ -111,8 +111,8 @@ class TestAC1EvaluateReviewBlockingReturnsBlock:
         assert decision.coder_node_id == "foo:2"
         assert decision.reason  # non-empty
 
-    def test_major_audit_finding_triggers_block(self, audit_conn: duckdb.DuckDBPyConnection) -> None:
-        """Major-severity audit finding also triggers blocking (not critical-only)."""
+    def test_major_audit_finding_does_not_block(self, audit_conn: duckdb.DuckDBPyConnection) -> None:
+        """Major-severity (WEAK) audit finding does NOT block — only critical blocks (issue #639)."""
         finding = _make_audit_finding(
             severity="major",
             description="Tests lack DB-state assertions",
@@ -124,8 +124,7 @@ class TestAC1EvaluateReviewBlockingReturnsBlock:
         record = _make_audit_review_record(node_id="foo:2:reviewer:audit-review")
         decision = evaluate_review_blocking(record, None, audit_conn, mode="audit-review")
 
-        assert decision.should_block is True
-        assert decision.coder_node_id == "foo:2"
+        assert decision.should_block is False
 
     def test_reason_includes_finding_count_and_description(self, audit_conn: duckdb.DuckDBPyConnection) -> None:
         """Blocking reason includes finding count and truncated description."""
@@ -142,6 +141,40 @@ class TestAC1EvaluateReviewBlockingReturnsBlock:
         assert decision.should_block is True
         assert "1" in decision.reason
         assert "foo:2" in decision.reason
+
+    def test_mixed_critical_and_major_blocks_on_critical(self, audit_conn: duckdb.DuckDBPyConnection) -> None:
+        """When both critical and major findings exist, only critical causes blocking."""
+        audit_conn.execute(
+            """
+            INSERT INTO review_findings
+                (id, severity, description, spec_name, task_group, session_id, category)
+            VALUES (gen_random_uuid(), 'major', 'Assertions are shallow', 'foo', '2', 'foo:audit:1', 'audit'),
+                   (gen_random_uuid(), 'critical', 'Missing DB assertion', 'foo', '2', 'foo:audit:2', 'audit')
+            """
+        )
+
+        record = _make_audit_review_record(node_id="foo:2:reviewer:audit-review")
+        decision = evaluate_review_blocking(record, None, audit_conn, mode="audit-review")
+
+        assert decision.should_block is True
+        assert "1" in decision.reason  # 1 critical finding (not 2)
+
+    def test_only_major_findings_do_not_block(self, audit_conn: duckdb.DuckDBPyConnection) -> None:
+        """Multiple major-severity (WEAK) findings → should_block=False (issue #639)."""
+        for i in range(3):
+            audit_conn.execute(
+                """
+                INSERT INTO review_findings
+                    (id, severity, description, spec_name, task_group, session_id, category)
+                VALUES (gen_random_uuid(), 'major', ?, 'foo', '2', ?, 'audit')
+                """,
+                [f"WEAK gap {i}", f"foo:audit:{i}"],
+            )
+
+        record = _make_audit_review_record(node_id="foo:2:reviewer:audit-review")
+        decision = evaluate_review_blocking(record, None, audit_conn, mode="audit-review")
+
+        assert decision.should_block is False
 
     def test_multiple_audit_findings_all_count(self, audit_conn: duckdb.DuckDBPyConnection) -> None:
         """Multiple audit findings all contribute to the reason summary."""
