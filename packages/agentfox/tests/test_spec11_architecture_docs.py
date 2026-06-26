@@ -102,34 +102,36 @@ class TestSection42EnrichedSchema:
 
 
 # ---------------------------------------------------------------------------
-# TS-11-22: Section 5.5 notes session_summaries rows contain non-obvious
+# TS-11-22: Section 5.4 notes session_summaries rows contain non-obvious
 #           learnings (11-REQ-5.2)
+#           (Section renumbered from 5.5 to 5.4 after spec 10 removed
+#            adr_entries, errata, and verification_results sections.)
 # ---------------------------------------------------------------------------
 
 
 class TestSection55NonObviousLearnings:
-    """Verify Section 5.5 notes non-obvious learnings in session_summaries."""
+    """Verify Section 5.4 notes non-obvious learnings in session_summaries."""
 
     def test_section_55_mentions_non_obvious_or_rejected(
         self, arch_doc_content: str
     ) -> None:
-        section = _extract_section(arch_doc_content, "5.5")
+        section = _extract_section(arch_doc_content, "5.4")
         section_lower = section.lower()
         assert "non-obvious" in section_lower or "rejected" in section_lower, (
-            "Section 5.5 must mention non-obvious learnings or rejected "
+            "Section 5.4 must mention non-obvious learnings or rejected "
             "approaches in session_summaries rows"
         )
 
     def test_section_55_no_longer_completion_status(
         self, arch_doc_content: str
     ) -> None:
-        section = _extract_section(arch_doc_content, "5.5")
+        section = _extract_section(arch_doc_content, "5.4")
         section_lower = section.lower()
         # Either 'completion' should not appear, or it should be qualified
         # with 'no longer' or similar negation
         if "completion" in section_lower:
             assert "no longer" in section_lower or "not" in section_lower, (
-                "Section 5.5 should indicate completion-status pings are no "
+                "Section 5.4 should indicate completion-status pings are no "
                 "longer stored, not describe them as current behavior"
             )
 

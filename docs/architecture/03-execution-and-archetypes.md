@@ -171,7 +171,7 @@ After harvest, the system extracts knowledge from the session:
 
 - **Review parsing**: For review archetypes (Reviewer in all modes,
   Verifier), the session output is parsed for structured JSON containing
-  findings, verdicts, or drift reports. The parser is tolerant of format
+  findings or drift reports. The parser is tolerant of format
   variations — it handles fenced code blocks, bare JSON, wrapper objects with
   various key names, and single-object responses.
 - **Knowledge ingestion**: For completed sessions, the `KnowledgeProvider`
@@ -245,9 +245,9 @@ The task context layer is assembled from the following sources, in order:
    [Part 6: Spec Format v1.2](06-spec-format-v12.md#context-assembly) for
    details on the rendering pipeline.
 
-2. **DB-backed findings.** Review findings, drift findings, and verification
-   verdicts are queried from DuckDB and rendered as structured markdown
-   sections (grouped by severity for reviews, tabular for verifications).
+2. **DB-backed findings.** Review findings and drift findings are queried
+   from DuckDB and rendered as structured markdown sections (grouped by
+   severity for reviews).
 3. **Steering directives.** Project-wide guidance from `.agent-fox/steering.md`
    is included after spec files and before memory facts. Placeholder-only
    steering files (containing only HTML comment sentinels) are detected and
@@ -258,10 +258,10 @@ The task context layer is assembled from the following sources, in order:
    a "Memory Facts" header. See Knowledge Retrieval below for details.
 
 5. **Prior group findings.** For task groups beyond group 1, active findings
-   from earlier groups in the same spec (reviews, drift findings, verification
-   verdicts) are queried from DuckDB, sorted by timestamp, and appended as
-   accumulated context. This gives later groups visibility into issues found
-   during earlier implementation.
+   from earlier groups in the same spec (reviews and drift findings) are
+   queried from DuckDB, sorted by timestamp, and appended as accumulated
+   context. This gives later groups visibility into issues found during
+   earlier implementation.
 
 6. **Verification checklist.** For the verifier archetype, a structured
    checklist is generated from the spec's task completion status and
@@ -280,30 +280,25 @@ produce a single context string, which becomes Layer 3 of the system prompt.
 Before each session, the `KnowledgeProvider` is queried with the spec name,
 a task description derived from the subtask list, the task group number, and
 the session ID. The concrete implementation (`FoxKnowledgeProvider`) queries
-eight categories of knowledge from DuckDB using direct SQL, with keyword-based
+three categories of knowledge from DuckDB using direct SQL, with keyword-based
 relevance scoring for result ordering:
 
 | Category | Source | Prefix | Scope |
 |---|---|---|---|
 | Review findings | `review_findings` | `[REVIEW]` | Active critical/major for this spec and task group |
-| Verification verdicts | `verification_results` | `[VERDICT]` | Active FAIL verdicts only |
-| Errata | `errata` | `[ERRATA]` | All errata for this spec |
-| ADR summaries | `adr_entries` | `[ADR]` | ADRs matching spec or task keywords |
 | Cross-group findings | `review_findings` | `[CROSS-GROUP]` | Critical/major from other task groups in the same spec |
 | Same-spec summaries | `session_summaries` | `[CONTEXT]` | Summaries from earlier sessions on the same spec |
-| Cross-spec summaries | `session_summaries` | `[CROSS-SPEC]` | Summaries from sessions on other specs in the current run |
-| Prior-run findings | `review_findings` + `verification_results` | `[PRIOR-RUN]` | Unresolved findings from previous orchestrator runs |
 
 Within each category, results are sorted by keyword overlap between the task
 description and the item text. Results are capped at a configurable maximum
 per category. If any table does not exist (fresh database) or any query fails,
 that category is silently skipped.
 
-When a session ID is provided, the IDs of injected review findings and
-verification verdicts are recorded in the `finding_injections` table. When the
-session later completes, these findings are automatically superseded — closing
-the retrieve-inject-address-supersede feedback loop. Cross-group items and
-prior-run findings are informational and are not tracked for supersession.
+When a session ID is provided, the IDs of injected review findings are
+recorded in the `finding_injections` table. When the session later completes,
+these findings are automatically superseded — closing the
+retrieve-inject-address-supersede feedback loop. Cross-group items are
+informational and are not tracked for supersession.
 
 For the full knowledge system architecture, see
 [Part 5: Knowledge System](05-knowledge-system-architecture.md).
@@ -341,7 +336,7 @@ the mechanism by which a single registry entry serves multiple distinct roles.
 |---|---|---|
 | **coder** | `fix` | Implementation — writes code, tests, commits |
 | **reviewer** | `pre-review`, `drift-review`, `audit-review`, `fix-review` | Review — examines specs and code, produces structured findings |
-| **verifier** | — | Verification — runs tests, checks requirements, produces verdicts |
+| **verifier** | — | Verification — runs tests, checks requirements, produces pass/fail assessments |
 | **maintainer** | `fix-triage`, `extraction` | Night-shift internal — not user-facing |
 
 When a mode is specified, the system resolves the effective configuration by
@@ -385,7 +380,7 @@ is nothing to detect drift against.
 **Audit-review mode** (injection: `auto_mid`) validates test quality against
 test spec contracts after tests are written. It examines coverage, assertion
 strength, precondition fidelity, edge case rigor, and test independence for
-each test spec entry, producing per-entry verdicts (PASS, WEAK, MISSING,
+each test spec entry, producing per-entry assessments (PASS, WEAK, MISSING,
 MISALIGNED). This mode has read-only access plus `uv` for test collection.
 It triggers predecessor retries when tests are missing or misaligned.
 
@@ -407,7 +402,7 @@ mapped to the corresponding reviewer modes with deprecation warnings.
 
 Performs post-implementation verification (injection: `auto_post`). It runs the
 test suite, checks each requirement against the acceptance criteria, and
-produces per-requirement verdicts (PASS, FAIL, PARTIAL). The Verifier has full
+produces per-requirement results (PASS, FAIL, PARTIAL). The Verifier has full
 tool access (it needs to run tests). It can trigger retries of its predecessor
 — if verification fails, the orchestrator may re-run the preceding coder
 session with the Verifier's findings injected as context.
@@ -453,14 +448,14 @@ instances (ceiling of N/2). This prevents a single overzealous instance from
 blocking progress on a spurious finding. Non-critical findings are
 union-merged.
 
-**Audit-review convergence** uses union semantics with worst-verdict-wins. For
-each test spec entry, the worst verdict across all instances is taken. This is
+**Audit-review convergence** uses union semantics with worst-result-wins. For
+each test spec entry, the worst result across all instances is taken. This is
 conservative — if any instance finds a test MISSING, the entry is considered
 MISSING regardless of what other instances report.
 
 **Verifier convergence** uses majority voting per requirement. A requirement
 is considered PASS if a majority of instances report PASS. The representative
-evidence comes from the first matching verdict.
+evidence comes from the first matching result.
 
 **Fix-review** does not support multi-instance execution. If multiple results
 are provided, convergence raises an error.
@@ -630,7 +625,7 @@ an orchestrator-enforced gate — the agent decides how to satisfy it.
 After the last coding group, the Verifier archetype performs structured
 post-implementation verification: running the test suite, checking each
 requirement against acceptance criteria, and producing per-requirement
-verdicts. A failing verification triggers a coder retry with the Verifier's
+results. A failing verification triggers a coder retry with the Verifier's
 findings injected as context.
 
 ---
