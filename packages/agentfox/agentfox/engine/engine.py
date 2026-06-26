@@ -532,6 +532,7 @@ class Orchestrator:
                 payload={
                     "push_available": preflight.push_available,
                     "worktrees_pruned": preflight.worktrees_pruned,
+                    "stale_worktrees_removed": preflight.stale_worktrees_removed,
                     "stale_locks": preflight.stale_locks_found,
                     "issues": preflight.issues_found,
                 },
