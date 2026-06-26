@@ -34,6 +34,9 @@ LABEL_IGNORE: str = "af:ignore"
 #: Gray hex color for the af:ignore label.
 LABEL_IGNORE_COLOR: str = "999999"
 
+#: Applied when all task groups for a spec are completed — awaiting verification.
+LABEL_IMPLEMENTED: str = "af:implemented"
+
 
 # ---------------------------------------------------------------------------
 # Label metadata for idempotent creation
@@ -75,5 +78,10 @@ REQUIRED_LABELS: list[LabelSpec] = [
         name=LABEL_IGNORE,
         color=LABEL_IGNORE_COLOR,
         description="Hunt findings marked as not-an-issue by the user",
+    ),
+    LabelSpec(
+        name=LABEL_IMPLEMENTED,
+        color="0969da",
+        description="Spec implementation complete — awaiting manual verification",
     ),
 ]

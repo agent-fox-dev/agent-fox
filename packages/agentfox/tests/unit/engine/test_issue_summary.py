@@ -265,6 +265,7 @@ class TestPostIssueSummaries:
         platform = MagicMock()
         platform.forge_type = forge_type
         platform.add_issue_comment = AsyncMock()
+        platform.assign_label = AsyncMock()
         return platform
 
     def _mock_git_sha(self, sha: str = "abc123") -> MagicMock:
@@ -390,6 +391,78 @@ class TestPostIssueSummaries:
         assert spec_name not in posted
         # Warning must be logged
         assert any(r.levelno >= logging.WARNING for r in caplog.records)
+
+    @pytest.mark.asyncio
+    async def test_assigns_implemented_label_on_success(self, tmp_path: Path) -> None:
+        """Issue #636: assign_label called with af:implemented after successful post."""
+        from agentfox.engine.engine import post_issue_summaries
+
+        spec_name = "108_my_spec"
+        specs_dir = tmp_path / "specs"
+        self._make_spec_dir(specs_dir, spec_name, "https://github.com/owner/repo/issues/42")
+
+        platform = self._make_mock_platform(forge_type="github")
+
+        with patch("subprocess.run", return_value=self._mock_git_sha("abc123")):
+            posted = await post_issue_summaries(
+                platform=platform,
+                specs_dir=specs_dir,
+                completed_specs={spec_name},
+                already_posted=set(),
+                repo_root=tmp_path,
+            )
+
+        assert spec_name in posted
+        platform.assign_label.assert_called_once_with(42, "af:implemented")
+
+    @pytest.mark.asyncio
+    async def test_label_failure_does_not_block_posting(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+        """Issue #636: assign_label failure is caught; spec still in posted set."""
+        from agentfox.engine.engine import post_issue_summaries
+
+        spec_name = "108_my_spec"
+        specs_dir = tmp_path / "specs"
+        self._make_spec_dir(specs_dir, spec_name, "https://github.com/owner/repo/issues/42")
+
+        platform = self._make_mock_platform(forge_type="github")
+        platform.assign_label = AsyncMock(side_effect=RuntimeError("label API error"))
+
+        with caplog.at_level(logging.WARNING), patch("subprocess.run", return_value=self._mock_git_sha("abc123")):
+            posted = await post_issue_summaries(
+                platform=platform,
+                specs_dir=specs_dir,
+                completed_specs={spec_name},
+                already_posted=set(),
+                repo_root=tmp_path,
+            )
+
+        assert spec_name in posted
+        assert any("af:implemented" in r.message for r in caplog.records if r.levelno >= logging.WARNING)
+
+    @pytest.mark.asyncio
+    async def test_label_not_assigned_when_comment_fails(
+        self, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Issue #636: assign_label is NOT called when add_issue_comment fails."""
+        from agentfox.engine.engine import post_issue_summaries
+
+        spec_name = "108_my_spec"
+        specs_dir = tmp_path / "specs"
+        self._make_spec_dir(specs_dir, spec_name, "https://github.com/owner/repo/issues/42")
+
+        platform = self._make_mock_platform(forge_type="github")
+        platform.add_issue_comment = AsyncMock(side_effect=RuntimeError("network error"))
+
+        with caplog.at_level(logging.WARNING), patch("subprocess.run", return_value=self._mock_git_sha("abc123")):
+            await post_issue_summaries(
+                platform=platform,
+                specs_dir=specs_dir,
+                completed_specs={spec_name},
+                already_posted=set(),
+                repo_root=tmp_path,
+            )
+
+        platform.assign_label.assert_not_called()
 
 
 # ---------------------------------------------------------------------------

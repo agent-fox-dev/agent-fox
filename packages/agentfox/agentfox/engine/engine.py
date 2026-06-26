@@ -1082,5 +1082,25 @@ async def post_issue_summaries(
                 spec_name,
                 exc_info=True,
             )
+            continue
+
+        # Issue #636: assign af:implemented label after successful comment
+        try:
+            from agentfox.platform.labels import LABEL_IMPLEMENTED
+
+            await platform.assign_label(source_issue.issue_number, LABEL_IMPLEMENTED)
+            logger.info(
+                "Assigned '%s' label to issue #%d for spec '%s'",
+                LABEL_IMPLEMENTED,
+                source_issue.issue_number,
+                spec_name,
+            )
+        except Exception:
+            logger.warning(
+                "Failed to assign '%s' label for spec '%s'",
+                "af:implemented",
+                spec_name,
+                exc_info=True,
+            )
 
     return posted
