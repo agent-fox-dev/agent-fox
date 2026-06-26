@@ -22,6 +22,13 @@ from agentfox.engine.barrier import (
 from agentfox.engine.state import ExecutionState
 
 
+def _mock_git_no_worktrees(args, cwd, check=True, **kwargs):
+    """Mock run_git returning empty worktree list."""
+    if args[:2] == ["worktree", "list"]:
+        return (0, "", "")
+    return (0, "", "")
+
+
 class TestVerifyWorktreesOrphansFound:
     """TS-51-5: Worktree verification finds orphans.
 
@@ -30,26 +37,32 @@ class TestVerifyWorktreesOrphansFound:
     Requirements: 51-REQ-2.1, 51-REQ-2.2
     """
 
-    def test_finds_orphaned_worktree_dirs(self, tmp_path: Path) -> None:
+    @pytest.mark.asyncio
+    async def test_finds_orphaned_worktree_dirs(self, tmp_path: Path) -> None:
         """Orphaned worktree subdirectories are detected."""
         wt_dir = tmp_path / ".agent-fox" / "worktrees"
         (wt_dir / "spec_a" / "1").mkdir(parents=True)
         (wt_dir / "spec_b" / "2").mkdir(parents=True)
 
-        result = verify_worktrees(tmp_path)
+        with patch("agentfox.engine.barrier.run_git", new_callable=AsyncMock, side_effect=_mock_git_no_worktrees):
+            result = await verify_worktrees(tmp_path)
         assert len(result) == 2
         names = {p.name for p in result}
         assert "spec_a" in names
         assert "spec_b" in names
 
-    def test_logs_warning_for_orphans(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    @pytest.mark.asyncio
+    async def test_logs_warning_for_orphans(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         """WARNING log emitted listing orphaned paths."""
         wt_dir = tmp_path / ".agent-fox" / "worktrees"
         (wt_dir / "spec_a" / "1").mkdir(parents=True)
         (wt_dir / "spec_b" / "2").mkdir(parents=True)
 
-        with caplog.at_level(logging.WARNING, logger="agentfox.engine.barrier"):
-            verify_worktrees(tmp_path)
+        with (
+            caplog.at_level(logging.WARNING, logger="agentfox.engine.barrier"),
+            patch("agentfox.engine.barrier.run_git", new_callable=AsyncMock, side_effect=_mock_git_no_worktrees),
+        ):
+            await verify_worktrees(tmp_path)
 
         assert "spec_a" in caplog.text
         assert "spec_b" in caplog.text
@@ -61,21 +74,27 @@ class TestVerifyWorktreesNoOrphans:
     Requirements: 51-REQ-2.3
     """
 
-    def test_returns_empty_list_when_no_orphans(self, tmp_path: Path) -> None:
+    @pytest.mark.asyncio
+    async def test_returns_empty_list_when_no_orphans(self, tmp_path: Path) -> None:
         """Empty worktrees directory returns empty list."""
         wt_dir = tmp_path / ".agent-fox" / "worktrees"
         wt_dir.mkdir(parents=True)
 
-        result = verify_worktrees(tmp_path)
+        with patch("agentfox.engine.barrier.run_git", new_callable=AsyncMock, side_effect=_mock_git_no_worktrees):
+            result = await verify_worktrees(tmp_path)
         assert result == []
 
-    def test_no_warning_when_no_orphans(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    @pytest.mark.asyncio
+    async def test_no_warning_when_no_orphans(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
         """No warnings logged when no orphans exist."""
         wt_dir = tmp_path / ".agent-fox" / "worktrees"
         wt_dir.mkdir(parents=True)
 
-        with caplog.at_level(logging.WARNING, logger="agentfox.engine.barrier"):
-            verify_worktrees(tmp_path)
+        with (
+            caplog.at_level(logging.WARNING, logger="agentfox.engine.barrier"),
+            patch("agentfox.engine.barrier.run_git", new_callable=AsyncMock, side_effect=_mock_git_no_worktrees),
+        ):
+            await verify_worktrees(tmp_path)
 
         assert caplog.text == ""
 
@@ -86,10 +105,104 @@ class TestVerifyWorktreesDirMissing:
     Requirements: 51-REQ-2.E1
     """
 
-    def test_returns_empty_when_dir_missing(self, tmp_path: Path) -> None:
+    @pytest.mark.asyncio
+    async def test_returns_empty_when_dir_missing(self, tmp_path: Path) -> None:
         """Missing .agent-fox/worktrees/ returns empty list, no exception."""
-        result = verify_worktrees(tmp_path)
+        result = await verify_worktrees(tmp_path)
         assert result == []
+
+
+# ---------------------------------------------------------------------------
+# Issue #618: orphaned worktree cleanup acceptance criteria
+# ---------------------------------------------------------------------------
+
+
+class TestAC1CrossCheckGitWorktreeList:
+    """AC-1: verify_worktrees cross-checks git worktree list."""
+
+    @pytest.mark.asyncio
+    async def test_registered_worktree_excluded_from_orphans(self, tmp_path: Path) -> None:
+        """A directory registered in git worktree list is NOT an orphan."""
+        wt_dir = tmp_path / ".agent-fox" / "worktrees"
+        active = wt_dir / "spec_a" / "1"
+        orphan = wt_dir / "spec_b" / "2"
+        active.mkdir(parents=True)
+        orphan.mkdir(parents=True)
+
+        async def mock_git(args, cwd, check=True, **kwargs):
+            if args[:2] == ["worktree", "list"]:
+                return (0, f"worktree {active}\nbranch refs/heads/feature/spec_a/1\n\n", "")
+            return (0, "", "")
+
+        with patch("agentfox.engine.barrier.run_git", side_effect=mock_git):
+            result = await verify_worktrees(tmp_path)
+
+        names = {p.name for p in result}
+        assert "spec_b" in names
+        assert "spec_a" not in names
+
+
+class TestAC2RemoveConfirmedOrphans:
+    """AC-2: verify_worktrees removes confirmed orphans."""
+
+    @pytest.mark.asyncio
+    async def test_orphan_removed_from_disk(self, tmp_path: Path) -> None:
+        """After verify_worktrees(), the orphaned directory no longer exists."""
+        wt_dir = tmp_path / ".agent-fox" / "worktrees"
+        orphan = wt_dir / "fix-issue-605"
+        orphan.mkdir(parents=True)
+        (orphan / "file.py").touch()
+
+        with patch("agentfox.engine.barrier.run_git", new_callable=AsyncMock, side_effect=_mock_git_no_worktrees):
+            result = await verify_worktrees(tmp_path)
+
+        assert len(result) == 1
+        assert not orphan.exists()
+
+
+class TestAC3NamingPatternSafetyCheck:
+    """AC-3: verify_worktrees applies naming-pattern safety check."""
+
+    @pytest.mark.asyncio
+    async def test_dotfile_skipped_safe_name_removed(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+        """`.claude` is skipped for safety; `fix-issue-605` is removed."""
+        wt_dir = tmp_path / ".agent-fox" / "worktrees"
+        dotfile = wt_dir / ".claude"
+        safe = wt_dir / "fix-issue-605"
+        dotfile.mkdir(parents=True)
+        safe.mkdir(parents=True)
+
+        with (
+            caplog.at_level(logging.WARNING, logger="agentfox.engine.barrier"),
+            patch("agentfox.engine.barrier.run_git", new_callable=AsyncMock, side_effect=_mock_git_no_worktrees),
+        ):
+            result = await verify_worktrees(tmp_path)
+
+        assert len(result) == 2
+        assert not safe.exists(), "fix-issue-605 should be removed"
+        assert dotfile.exists(), ".claude should NOT be removed"
+        assert "skipped for safety" in caplog.text
+
+
+class TestAC5RemovalErrorsCaught:
+    """AC-5: removal errors are caught and logged, never propagated."""
+
+    @pytest.mark.asyncio
+    async def test_permission_error_caught(self, tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+        """PermissionError on removal is caught; function does not raise."""
+        wt_dir = tmp_path / ".agent-fox" / "worktrees"
+        orphan = wt_dir / "fix-issue-609"
+        orphan.mkdir(parents=True)
+
+        with (
+            caplog.at_level(logging.WARNING, logger="agentfox.engine.barrier"),
+            patch("agentfox.engine.barrier.run_git", new_callable=AsyncMock, side_effect=_mock_git_no_worktrees),
+            patch("agentfox.engine.barrier.shutil.rmtree", side_effect=PermissionError("denied")),
+        ):
+            result = await verify_worktrees(tmp_path)
+
+        assert len(result) == 1
+        assert "fix-issue-609" in caplog.text
 
 
 class TestSyncDevelopBidirectionalSuccess:
@@ -305,7 +418,7 @@ class TestCompactionCalledDuringBarrier:
     async def test_barrier_completes_with_db_conn(self, tmp_path: Path) -> None:
         """Barrier completes with knowledge_db_conn (no compaction)."""
         with (
-            patch("agentfox.engine.barrier.verify_worktrees", return_value=[]),
+            patch("agentfox.engine.barrier.verify_worktrees", new_callable=AsyncMock, return_value=[]),
             patch(
                 "agentfox.engine.barrier.sync_integration_bidirectional",
                 new_callable=AsyncMock,
@@ -329,7 +442,7 @@ class TestCompactionCalledDuringBarrier:
     async def test_barrier_completes_without_db_conn(self, tmp_path: Path) -> None:
         """Barrier completes when knowledge_db_conn is None."""
         with (
-            patch("agentfox.engine.barrier.verify_worktrees", return_value=[]),
+            patch("agentfox.engine.barrier.verify_worktrees", new_callable=AsyncMock, return_value=[]),
             patch(
                 "agentfox.engine.barrier.sync_integration_bidirectional",
                 new_callable=AsyncMock,
@@ -353,7 +466,7 @@ class TestCompactionCalledDuringBarrier:
     async def test_barrier_completes_without_knowledge_steps(self, tmp_path: Path) -> None:
         """Barrier completes without compaction, rendering, or other knowledge steps."""
         with (
-            patch("agentfox.engine.barrier.verify_worktrees", return_value=[]),
+            patch("agentfox.engine.barrier.verify_worktrees", new_callable=AsyncMock, return_value=[]),
             patch(
                 "agentfox.engine.barrier.sync_integration_bidirectional",
                 new_callable=AsyncMock,
@@ -449,7 +562,7 @@ class TestBarrierProgressPrint:
             updated_at="2026-04-01T00:00:01Z",
         )
         with (
-            patch("agentfox.engine.barrier.verify_worktrees", return_value=[]),
+            patch("agentfox.engine.barrier.verify_worktrees", new_callable=AsyncMock, return_value=[]),
             patch(
                 "agentfox.engine.barrier.sync_integration_bidirectional",
                 new_callable=AsyncMock,
@@ -474,7 +587,7 @@ class TestBarrierProgressPrint:
             updated_at="2026-04-01T00:00:01Z",
         )
         with (
-            patch("agentfox.engine.barrier.verify_worktrees", return_value=[]),
+            patch("agentfox.engine.barrier.verify_worktrees", new_callable=AsyncMock, return_value=[]),
             patch(
                 "agentfox.engine.barrier.sync_integration_bidirectional",
                 new_callable=AsyncMock,
@@ -506,7 +619,7 @@ class TestBarrierProgressPrint:
             updated_at="2026-04-01T00:00:01Z",
         )
         with (
-            patch("agentfox.engine.barrier.verify_worktrees", return_value=[]),
+            patch("agentfox.engine.barrier.verify_worktrees", new_callable=AsyncMock, return_value=[]),
             patch(
                 "agentfox.engine.barrier.sync_integration_bidirectional",
                 new_callable=AsyncMock,
@@ -530,7 +643,7 @@ class TestBarrierProgressPrint:
 
         state = _make_barrier_state()
         with (
-            patch("agentfox.engine.barrier.verify_worktrees", return_value=[]),
+            patch("agentfox.engine.barrier.verify_worktrees", new_callable=AsyncMock, return_value=[]),
             patch(
                 "agentfox.engine.barrier.sync_integration_bidirectional",
                 side_effect=_mock_sync,

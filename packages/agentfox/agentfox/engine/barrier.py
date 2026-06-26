@@ -14,6 +14,8 @@ Requirements: 51-REQ-2.1, 51-REQ-2.2, 51-REQ-2.3, 51-REQ-2.E1,
 from __future__ import annotations
 
 import logging
+import re
+import shutil
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -24,12 +26,21 @@ from agentfox.workspace.merge_lock import MergeLock
 
 logger = logging.getLogger(__name__)
 
+_SAFE_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]*$")
 
-def verify_worktrees(repo_root: Path) -> list[Path]:
+
+async def verify_worktrees(repo_root: Path) -> list[Path]:
     """Scan .agent-fox/worktrees/ for orphaned directories.
 
-    Returns list of orphaned paths (empty if none found).
-    Logs a warning per orphaned path.
+    Cross-checks ``git worktree list --porcelain`` to distinguish active
+    registered worktrees from truly orphaned directories (AC-1, issue #618).
+    Directories whose names do not match ``[a-zA-Z0-9_-]+`` (e.g. dotfiles
+    like ``.claude``) are logged but skipped for safety (AC-3).
+    Confirmed orphans matching the safe pattern are removed from disk (AC-2).
+    Removal errors are caught and logged as warnings (AC-5).
+
+    Returns the list of orphaned paths (including those that could not be
+    removed) for audit purposes.
 
     Requirements: 51-REQ-2.1, 51-REQ-2.2, 51-REQ-2.3, 51-REQ-2.E1
     """
@@ -39,14 +50,47 @@ def verify_worktrees(repo_root: Path) -> list[Path]:
     if not worktrees_dir.exists():
         return []
 
+    # AC-1: query git for registered worktree paths
+    registered: set[str] = set()
+    try:
+        _rc, stdout, _stderr = await run_git(
+            ["worktree", "list", "--porcelain"],
+            cwd=repo_root,
+            check=False,
+        )
+        for line in stdout.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("worktree "):
+                registered.add(stripped[len("worktree ") :])
+    except Exception:
+        logger.warning("Could not query git worktree list during verification", exc_info=True)
+
     orphans: list[Path] = []
     for child in worktrees_dir.iterdir():
-        if child.is_dir():
-            orphans.append(child)
+        if not child.is_dir():
+            continue
+        # AC-1: skip directories that are registered worktrees (or parents thereof)
+        child_str = str(child)
+        if any(r == child_str or r.startswith(child_str + "/") for r in registered):
+            continue
+        orphans.append(child)
 
-    # 51-REQ-2.2: log warning for each orphaned path
+    # 51-REQ-2.2: log warning and remediate each orphan
     for orphan in orphans:
-        logger.warning("Orphaned worktree directory found: %s", orphan)
+        name = orphan.name
+        # AC-3: skip directories whose names don't match the safe pattern
+        if not _SAFE_NAME_RE.match(name):
+            logger.warning(
+                "Orphaned worktree directory skipped for safety (suspicious name): %s",
+                orphan,
+            )
+            continue
+        logger.warning("Orphaned worktree directory found, removing: %s", orphan)
+        # AC-2: remove confirmed orphan; AC-5: catch errors
+        try:
+            shutil.rmtree(orphan)
+        except OSError:
+            logger.warning("Failed to remove orphaned worktree directory: %s", orphan, exc_info=True)
 
     return orphans
 
@@ -170,7 +214,7 @@ async def run_sync_barrier_sequence(
     # 51-REQ-2.1: Verify worktrees for orphans
     orphaned_worktrees: list[str] = []
     try:
-        orphans = verify_worktrees(repo_root)
+        orphans = await verify_worktrees(repo_root)
         orphaned_worktrees = [str(p) for p in orphans]
     except Exception:
         logger.warning("Worktree verification failed", exc_info=True)

@@ -84,7 +84,7 @@ class TestReloadTriggeredAtBarrier:
         reload_fn = MagicMock()
 
         with (
-            patch("agentfox.engine.barrier.verify_worktrees", return_value=[]),
+            patch("agentfox.engine.barrier.verify_worktrees", new_callable=AsyncMock, return_value=[]),
             patch(
                 "agentfox.engine.barrier.sync_integration_bidirectional",
                 new_callable=AsyncMock,

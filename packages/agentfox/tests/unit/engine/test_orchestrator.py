@@ -869,7 +869,7 @@ class TestSyncBarrierTriggering:
 
         with (
             patch("agentfox.engine.barrier.sync_integration_bidirectional", new_callable=AsyncMock),
-            patch("agentfox.engine.barrier.verify_worktrees", return_value=[]),
+            patch("agentfox.engine.barrier.verify_worktrees", new_callable=AsyncMock, return_value=[]),
         ):
             orchestrator = Orchestrator(
                 config=config,
@@ -907,7 +907,7 @@ class TestSyncBarrierTriggering:
 
         with (
             patch("agentfox.engine.barrier.sync_integration_bidirectional", new_callable=AsyncMock),
-            patch("agentfox.engine.barrier.verify_worktrees", return_value=[]),
+            patch("agentfox.engine.barrier.verify_worktrees", new_callable=AsyncMock, return_value=[]),
         ):
             orchestrator = Orchestrator(
                 config=config,
@@ -984,7 +984,7 @@ class TestSyncBarrierTriggering:
 
         with (
             patch("agentfox.engine.barrier.sync_integration_bidirectional", new_callable=AsyncMock),
-            patch("agentfox.engine.barrier.verify_worktrees", return_value=[]),
+            patch("agentfox.engine.barrier.verify_worktrees", new_callable=AsyncMock, return_value=[]),
         ):
             orchestrator = Orchestrator(
                 config=config,
