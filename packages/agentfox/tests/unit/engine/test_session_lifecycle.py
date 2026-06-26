@@ -649,3 +649,65 @@ class TestBudgetExhaustionDetection:
         assert record.is_budget_exhausted is False
         if record.error_message:
             assert "Budget exhausted" not in record.error_message
+
+
+# ---------------------------------------------------------------------------
+# Issue #638: destroy_worktree runs even when task is cancelled
+# ---------------------------------------------------------------------------
+
+
+class TestWorktreeCleanupOnCancellation:
+    """Verify destroy_worktree is called even when the session task is cancelled.
+
+    Before the fix, CancelledError (BaseException since Python 3.9) would
+    interrupt destroy_worktree at its first await, leaving stale worktrees
+    that block retries.
+    """
+
+    @pytest.mark.asyncio
+    async def test_destroy_worktree_called_on_cancellation(self) -> None:
+        """destroy_worktree is invoked even when the session is cancelled."""
+        import asyncio
+
+        config = AgentFoxConfig()
+        runner = NodeSessionRunner("spec:1", config, knowledge_db=_MOCK_KB)
+
+        workspace = WorkspaceInfo(
+            path=Path("/tmp/ws"),
+            spec_name="spec",
+            task_group=1,
+            branch="feature/spec/1",
+        )
+
+        destroy_called = asyncio.Event()
+
+        async def _hanging_session(*_args, **_kwargs):
+            await asyncio.sleep(3600)
+
+        async def _mock_destroy(*_args, **_kwargs):
+            destroy_called.set()
+
+        with (
+            patch(
+                "agentfox.engine.session_lifecycle.ensure_integration_branch",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "agentfox.engine.session_lifecycle.create_worktree",
+                new_callable=AsyncMock,
+                return_value=workspace,
+            ),
+            patch(
+                "agentfox.engine.session_lifecycle.destroy_worktree",
+                new_callable=AsyncMock,
+                side_effect=_mock_destroy,
+            ),
+            patch.object(runner, "_run_session_lifecycle", _hanging_session),
+        ):
+            task = asyncio.create_task(runner.execute("spec:1", 1))
+            await asyncio.sleep(0.01)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+        assert destroy_called.is_set(), "destroy_worktree was not called after task cancellation (issue #638)"

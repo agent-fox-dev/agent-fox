@@ -89,6 +89,61 @@ def _cleanup_empty_ancestors(
         current = current.parent
 
 
+async def _force_remove_stale_worktree_entry(
+    repo_root: Path,
+    branch_name: str,
+) -> bool:
+    """Force-remove a stale .git/worktrees/ entry referencing *branch_name*.
+
+    When ``git worktree prune`` fails to clean up a stale entry (e.g. due
+    to lock files or incomplete prior cleanup), this function manually
+    removes the entry directory from ``.git/worktrees/``.
+
+    Parses ``git worktree list --porcelain`` to find the entry whose
+    ``branch`` line matches *branch_name*, checks that the worktree
+    directory does not actually exist (confirming it is stale), then
+    removes the metadata directory.
+
+    Returns True if a stale entry was found and removed, False otherwise.
+    """
+    target_ref = f"refs/heads/{branch_name}"
+
+    try:
+        _rc, stdout, _stderr = await run_git(
+            ["worktree", "list", "--porcelain"],
+            cwd=repo_root,
+            check=False,
+        )
+    except Exception:
+        logger.warning("git worktree list failed during stale entry cleanup")
+        return False
+
+    current_worktree_path: str | None = None
+    for line in stdout.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("worktree "):
+            current_worktree_path = stripped[len("worktree ") :]
+        elif stripped.startswith("branch ") and stripped[len("branch ") :] == target_ref:
+            if current_worktree_path and not Path(current_worktree_path).exists():
+                # Stale entry: worktree dir is gone but registry entry remains.
+                # Remove the metadata directory under .git/worktrees/.
+                git_dir = repo_root / ".git" / "worktrees"
+                if git_dir.is_dir():
+                    entry_name = Path(current_worktree_path).name
+                    entry_path = git_dir / entry_name
+                    if entry_path.is_dir():
+                        _safe_rmtree(entry_path)
+                        logger.info(
+                            "Force-removed stale .git/worktrees/%s entry for branch '%s'",
+                            entry_name,
+                            branch_name,
+                        )
+                        return True
+            current_worktree_path = None
+
+    return False
+
+
 async def create_worktree(
     repo_root: Path,
     spec_name: str,
@@ -154,14 +209,8 @@ async def create_worktree(
                 task_group,
             )
             effective_role = "unknown"
-        worktree_path = (
-            worktrees_root / spec_name / str(task_group)
-            / effective_role / effective_mode
-        )
-        branch_name = branch_name or (
-            f"feature/{spec_name}/{task_group}"
-            f"/{effective_role}/{effective_mode}"
-        )
+        worktree_path = worktrees_root / spec_name / str(task_group) / effective_role / effective_mode
+        branch_name = branch_name or (f"feature/{spec_name}/{task_group}/{effective_role}/{effective_mode}")
 
     # Clean up orphaned empty sibling directories under the spec directory.
     # These are left over from prior crashed or partial cleanup runs.
@@ -201,8 +250,15 @@ async def create_worktree(
         still_referenced = await branch_used_by_worktree(repo_root, branch_name)
 
     if still_referenced:
+        # Last resort: force-remove the stale .git/worktrees/ entry (#638)
+        removed = await _force_remove_stale_worktree_entry(repo_root, branch_name)
+        if removed:
+            await run_git(["worktree", "prune"], cwd=repo_root, check=False)
+            still_referenced = await branch_used_by_worktree(repo_root, branch_name)
+
+    if still_referenced:
         logger.warning(
-            "Branch '%s' is still referenced by a worktree after two prune attempts; skipping stale branch deletion",
+            "Branch '%s' is still referenced by a worktree after force cleanup; skipping stale branch deletion",
             branch_name,
         )
     else:
