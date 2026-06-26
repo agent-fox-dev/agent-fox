@@ -74,6 +74,68 @@ def _extract_workspace_state_errors(state: ExecutionState) -> list[tuple[str, st
     return results
 
 
+def _spec_breakdown(node_states: dict[str, str]) -> dict[str, dict[str, int]]:
+    """Group node_states by spec name, counting statuses per spec.
+
+    Injected nodes (group_number == "0", e.g. ``spec:0:reviewer``) are
+    excluded so they do not inflate the numbered-group count.
+
+    Returns a dict mapping spec_name -> status counts dict.  Each inner
+    dict always has a ``total`` key plus one key per distinct status seen
+    (e.g. ``completed``, ``blocked``, ``pending``, ``in_progress``, ``failed``).
+    """
+    specs: dict[str, dict[str, int]] = {}
+    for node_id, status in node_states.items():
+        parts = node_id.split(":")
+        if len(parts) < 2:
+            continue
+        spec_name = parts[0]
+        group_part = parts[1]
+        # Skip injected nodes (group_number == 0)
+        if group_part == "0":
+            continue
+        if spec_name not in specs:
+            specs[spec_name] = {"total": 0}
+        specs[spec_name]["total"] += 1
+        specs[spec_name][status] = specs[spec_name].get(status, 0) + 1
+    return specs
+
+
+def _format_spec_progress(spec_name: str, counts: dict[str, int]) -> str:
+    """Format one spec's group-level progress as a human-readable string.
+
+    Examples::
+
+        "08_session_lifecycle    3/3 groups done"
+        "10_knowledge_cleanup    2/4 groups done, 1 blocked, 1 pending"
+        "11_enrich_summaries     0/2 groups done (stalled)"
+    """
+    total = counts["total"]
+    done = counts.get("completed", 0)
+    blocked = counts.get("blocked", 0)
+    pending = counts.get("pending", 0)
+    in_progress = counts.get("in_progress", 0)
+    failed = counts.get("failed", 0)
+
+    qualifiers: list[str] = []
+    if blocked:
+        qualifiers.append(f"{blocked} blocked")
+    if pending:
+        qualifiers.append(f"{pending} pending")
+    if in_progress:
+        qualifiers.append(f"{in_progress} in progress")
+    if failed:
+        qualifiers.append(f"{failed} failed")
+
+    summary = f"{done}/{total} groups done"
+    if qualifiers:
+        summary += ", " + ", ".join(qualifiers)
+    elif done == 0:
+        summary += " (stalled)"
+
+    return f"{spec_name}    {summary}"
+
+
 def _completed_spec_names(node_states: dict[str, str]) -> set[str]:
     """Return spec names where all nodes are completed."""
     spec_nodes: dict[str, list[str]] = {}
@@ -151,6 +213,21 @@ def _print_summary(state: ExecutionState) -> None:
         parts.append(f"{blocked} blocked")
 
     click.echo(f"Tasks:  {', '.join(parts)}")
+
+    # Per-spec breakdown (NS-REQ-1, NS-REQ-3, NS-REQ-4, NS-REQ-5)
+    breakdown = _spec_breakdown(state.node_states)
+    if breakdown:
+        sorted_specs = sorted(breakdown.items())
+        if len(sorted_specs) == 1:
+            # NS-REQ-3: single spec — condensed one-line format
+            spec_name, counts = sorted_specs[0]
+            click.echo(f"Specs:  {_format_spec_progress(spec_name, counts)}")
+        else:
+            # NS-REQ-1: multiple specs — indented block
+            click.echo("Specs:")
+            for spec_name, counts in sorted_specs:
+                click.echo(f"  {_format_spec_progress(spec_name, counts)}")
+
     click.echo(f"Tokens: {format_tokens(state.total_input_tokens)} in / {format_tokens(state.total_output_tokens)} out")
     click.echo(f"Cost:   ${state.total_cost:.2f}")
     click.echo(f"Status: {state.run_status}")
@@ -506,6 +583,19 @@ def code_cmd(
     # 23-REQ-5.1, 04-REQ-2.1: emit summary via OutputManager
     if json_mode:
         counts = _count_by_status(state.node_states)
+        # NS-REQ-2: per-spec breakdown in JSON payload
+        breakdown = _spec_breakdown(state.node_states)
+        specs_payload = {
+            spec_name: {
+                "completed": spec_counts.get("completed", 0),
+                "total": spec_counts["total"],
+                "blocked": spec_counts.get("blocked", 0),
+                "pending": spec_counts.get("pending", 0),
+                "in_progress": spec_counts.get("in_progress", 0),
+                "failed": spec_counts.get("failed", 0),
+            }
+            for spec_name, spec_counts in breakdown.items()
+        }
         summary_payload: dict = {
             "tasks": len(state.node_states),
             "completed": counts.get("completed", 0),
@@ -514,6 +604,7 @@ def code_cmd(
             "output_tokens": state.total_output_tokens,
             "cost": state.total_cost,
             "run_status": state.run_status,
+            "specs": specs_payload,
         }
         # 118-REQ-8.3: include workspace-state classification in JSON output
         ws_errors = _extract_workspace_state_errors(state)

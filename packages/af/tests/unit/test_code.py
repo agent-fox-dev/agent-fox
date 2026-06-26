@@ -675,3 +675,220 @@ class TestArchiveFlag:
 
         assert result.exit_code == 0
         assert "archive directory does not exist" in result.output.lower()
+
+
+class TestPerSpecSummary:
+    """NS-REQ-1 through NS-REQ-5: per-spec task-group progress in summary.
+
+    Tests for issue #649.
+    """
+
+    # TS-NS-1: multi-spec shows indented Specs: block
+    def test_multi_spec_shows_specs_block(self, cli_runner: CliRunner) -> None:
+        """TS-NS-1: Specs block with indented lines when multiple specs present."""
+        state = _make_execution_state(
+            run_status="stalled",
+            node_states={
+                "08_session_lifecycle:1": "completed",
+                "08_session_lifecycle:2": "completed",
+                "10_knowledge_cleanup:1": "completed",
+                "10_knowledge_cleanup:2": "blocked",
+            },
+        )
+        with (
+            patch("af.code.run_code", _mock_run_code(state)),
+            patch("agentfox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
+        ):
+            mock_db_path.exists.return_value = True
+            result = cli_runner.invoke(main, ["code"])
+
+        assert "Specs:" in result.output
+        assert "08_session_lifecycle" in result.output
+        assert "2/2" in result.output
+        assert "1 blocked" in result.output
+
+    def test_multi_spec_indented_lines_not_single_line(self, cli_runner: CliRunner) -> None:
+        """Multi-spec output uses indented block, not a single condensed line."""
+        state = _make_execution_state(
+            run_status="completed",
+            node_states={
+                "spec_a:1": "completed",
+                "spec_b:1": "completed",
+            },
+        )
+        with (
+            patch("af.code.run_code", _mock_run_code(state)),
+            patch("agentfox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
+        ):
+            mock_db_path.exists.return_value = True
+            result = cli_runner.invoke(main, ["code"])
+
+        lines = result.output.splitlines()
+        specs_line_idx = next(i for i, ln in enumerate(lines) if ln.strip().startswith("Specs"))
+        # The line containing "Specs:" should not also contain a spec name on
+        # the same token (it should be just "Specs:")
+        assert lines[specs_line_idx].strip() == "Specs:"
+        # The following lines should be indented and contain spec names
+        assert any("spec_a" in ln and ln.startswith("  ") for ln in lines)
+        assert any("spec_b" in ln and ln.startswith("  ") for ln in lines)
+
+    # TS-NS-2: JSON mode includes specs key
+    def test_json_mode_includes_specs_key(self, cli_runner: CliRunner) -> None:
+        """TS-NS-2: JSON complete event includes specs breakdown."""
+        import json as _json
+
+        state = _make_execution_state(
+            run_status="stalled",
+            node_states={
+                "08_session_lifecycle:1": "completed",
+                "08_session_lifecycle:2": "completed",
+                "10_knowledge_cleanup:1": "completed",
+                "10_knowledge_cleanup:2": "blocked",
+            },
+        )
+        with (
+            patch("af.code.run_code", _mock_run_code(state)),
+            patch("agentfox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
+        ):
+            mock_db_path.exists.return_value = True
+            result = cli_runner.invoke(main, ["--json", "code"], input="")
+
+        # The OutputManager may emit a pretty-printed multi-line JSON object.
+        # Accumulate full blocks and try to parse each boundary-complete chunk.
+        complete_event = None
+        buf = ""
+        for line in result.output.splitlines():
+            buf += line + "\n"
+            try:
+                obj = _json.loads(buf)
+                buf = ""
+            except _json.JSONDecodeError:
+                continue
+            if isinstance(obj, dict) and obj.get("event") == "complete":
+                complete_event = obj
+                break
+
+        assert complete_event is not None, (
+            f"No 'complete' event found in JSON output. Raw output:\n{result.output!r}"
+        )
+        assert "specs" in complete_event["summary"]
+        specs = complete_event["summary"]["specs"]
+        assert "08_session_lifecycle" in specs
+        assert "10_knowledge_cleanup" in specs
+        assert specs["08_session_lifecycle"]["completed"] == 2
+        assert specs["08_session_lifecycle"]["total"] == 2
+        assert specs["10_knowledge_cleanup"]["blocked"] == 1
+        assert specs["10_knowledge_cleanup"]["total"] == 2
+
+    # TS-NS-3: single spec uses condensed one-line format
+    def test_single_spec_condensed_format(self, cli_runner: CliRunner) -> None:
+        """TS-NS-3: Single spec uses a one-line Specs: entry, not an indented block."""
+        state = _make_execution_state(
+            run_status="completed",
+            node_states={
+                "08_session_lifecycle:1": "completed",
+                "08_session_lifecycle:2": "completed",
+                "08_session_lifecycle:3": "pending",
+            },
+        )
+        with (
+            patch("af.code.run_code", _mock_run_code(state)),
+            patch("agentfox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
+        ):
+            mock_db_path.exists.return_value = True
+            result = cli_runner.invoke(main, ["code"])
+
+        specs_lines = [ln for ln in result.output.splitlines() if "Specs" in ln]
+        assert len(specs_lines) == 1
+        line = specs_lines[0]
+        assert "08_session_lifecycle" in line
+        assert "2/3" in line
+
+    # TS-NS-4: injected nodes excluded from count
+    def test_injected_nodes_excluded(self, cli_runner: CliRunner) -> None:
+        """TS-NS-4: Injected reviewer/verifier nodes (group=0) excluded from count."""
+        state = _make_execution_state(
+            run_status="completed",
+            node_states={
+                "spec_a:1": "completed",
+                "spec_a:2": "completed",
+                "spec_a:0:reviewer": "completed",
+                "spec_a:0:verifier": "completed",
+            },
+        )
+        with (
+            patch("af.code.run_code", _mock_run_code(state)),
+            patch("agentfox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
+        ):
+            mock_db_path.exists.return_value = True
+            result = cli_runner.invoke(main, ["code"])
+
+        assert result.exit_code == 0
+        specs_lines = [ln for ln in result.output.splitlines() if "spec_a" in ln]
+        assert len(specs_lines) == 1
+        assert "2/2" in specs_lines[0]
+        # Must not show 4/4
+        assert "4/4" not in specs_lines[0]
+
+    # TS-NS-5: empty plan skips Specs section
+    def test_empty_plan_no_specs_line(self, cli_runner: CliRunner) -> None:
+        """TS-NS-5: Empty node_states omits the Specs: section."""
+        state = _make_execution_state(
+            run_status="completed",
+            node_states={},
+            total_sessions=0,
+        )
+        with (
+            patch("af.code.run_code", _mock_run_code(state)),
+            patch("agentfox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
+        ):
+            mock_db_path.exists.return_value = True
+            result = cli_runner.invoke(main, ["code"])
+
+        assert "Specs:" not in result.output
+        assert "No tasks to execute" in result.output
+
+    # Additional: Tasks line still present before Specs section
+    def test_tasks_line_precedes_specs_section(self, cli_runner: CliRunner) -> None:
+        """Tasks: line appears before Specs: section in output."""
+        state = _make_execution_state(
+            run_status="completed",
+            node_states={
+                "spec_a:1": "completed",
+                "spec_b:1": "pending",
+            },
+        )
+        with (
+            patch("af.code.run_code", _mock_run_code(state)),
+            patch("agentfox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
+        ):
+            mock_db_path.exists.return_value = True
+            result = cli_runner.invoke(main, ["code"])
+
+        lines = result.output.splitlines()
+        tasks_idx = next((i for i, ln in enumerate(lines) if ln.startswith("Tasks:")), -1)
+        specs_idx = next((i for i, ln in enumerate(lines) if "Specs" in ln), -1)
+        tokens_idx = next((i for i, ln in enumerate(lines) if ln.startswith("Tokens:")), -1)
+        assert tasks_idx != -1
+        assert specs_idx != -1
+        assert tokens_idx != -1
+        assert tasks_idx < specs_idx < tokens_idx
+
+    # Additional: stalled qualifier shows (stalled) when 0 groups done
+    def test_stalled_qualifier_when_zero_done(self, cli_runner: CliRunner) -> None:
+        """A spec with 0 done and no in-progress groups is marked (stalled)."""
+        state = _make_execution_state(
+            run_status="stalled",
+            node_states={
+                "11_enrich_summaries:1": "blocked",
+                "11_enrich_summaries:2": "blocked",
+            },
+        )
+        with (
+            patch("af.code.run_code", _mock_run_code(state)),
+            patch("agentfox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
+        ):
+            mock_db_path.exists.return_value = True
+            result = cli_runner.invoke(main, ["code"])
+
+        assert "stalled" in result.output
