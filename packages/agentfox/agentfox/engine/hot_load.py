@@ -228,15 +228,22 @@ async def discover_new_specs_gated(
     *,
     integration_branch: str = "main",
     db_conn: duckdb.DuckDBPyConnection | None = None,
+    filtered_spec: str | None = None,
 ) -> list[SpecInfo]:
     """Discover new specs that pass all four gates.
 
     Pipeline:
+    0. Pre-filter: if ``filtered_spec`` is set, reject specs not matching.
     1. Filesystem discovery (existing ``discover_new_specs``).
     2. Gate 1: git-tracked on the integration branch.
     3. Gate 2: all 5 required files present and non-empty.
     4. Gate 3: no lint errors from validator.
     5. Gate 4: not already fully implemented (tasks.json + plan state).
+
+    When ``filtered_spec`` is set (from ``af plan --spec``), only that
+    spec is considered as a candidate.  All other specs are rejected
+    before gate evaluation, preventing the hot-loader from re-introducing
+    unrelated completed specs (issue #630).
 
     Returns only specs that pass all gates.  Skipped specs are
     re-evaluated at the next barrier with a clean slate (51-REQ-7.2).
@@ -249,6 +256,8 @@ async def discover_new_specs_gated(
             (tasks-complete gate).  When None, the plan node check is
             skipped (gate degrades gracefully — specs are never skipped
             based on plan state alone).
+        filtered_spec: When set, only this spec name is eligible for
+            hot-loading.  All others are rejected before gate evaluation.
 
     Requirements: 51-REQ-4.1, 51-REQ-5.1, 51-REQ-6.1, 51-REQ-7.1,
                   51-REQ-7.2, 51-REQ-7.3
@@ -256,6 +265,20 @@ async def discover_new_specs_gated(
     candidates = discover_new_specs(specs_dir, known_specs)
     if not candidates:
         return []
+
+    # Pre-filter: respect --spec filter from plan metadata (issue #630)
+    if filtered_spec:
+        before = len(candidates)
+        candidates = [s for s in candidates if s.name == filtered_spec]
+        skipped = before - len(candidates)
+        if skipped:
+            logger.debug(
+                "Filtered out %d spec(s) not matching --spec %s",
+                skipped,
+                filtered_spec,
+            )
+        if not candidates:
+            return []
 
     accepted: list[SpecInfo] = []
     for spec in candidates:
@@ -484,9 +507,12 @@ async def hot_load_into_graph(
 
     known_specs = {n.spec_name for n in graph.nodes.values()}
     gated_specs = await discover_new_specs_gated(
-        specs_dir, known_specs, repo_root,
+        specs_dir,
+        known_specs,
+        repo_root,
         integration_branch=integration_branch,
         db_conn=knowledge_db_conn,
+        filtered_spec=graph.metadata.filtered_spec,
     )
 
     if not gated_specs:

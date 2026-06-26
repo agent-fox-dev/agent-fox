@@ -400,7 +400,10 @@ class TestFullGatePipeline:
             ),
         ):
             result = await discover_new_specs_gated(
-                specs_dir, known_specs=set(), repo_root=tmp_path, integration_branch="main",
+                specs_dir,
+                known_specs=set(),
+                repo_root=tmp_path,
+                integration_branch="main",
             )
 
         assert len(result) == 1
@@ -459,7 +462,10 @@ class TestSkippedSpecReEvaluation:
         ):
             # Barrier N: spec is incomplete
             result_1 = await discover_new_specs_gated(
-                specs_dir, known_specs=set(), repo_root=tmp_path, integration_branch="main",
+                specs_dir,
+                known_specs=set(),
+                repo_root=tmp_path,
+                integration_branch="main",
             )
             assert result_1 == []
 
@@ -468,7 +474,10 @@ class TestSkippedSpecReEvaluation:
 
             # Barrier N+1: spec now passes
             result_2 = await discover_new_specs_gated(
-                specs_dir, known_specs=set(), repo_root=tmp_path, integration_branch="main",
+                specs_dir,
+                known_specs=set(),
+                repo_root=tmp_path,
+                integration_branch="main",
             )
             assert len(result_2) == 1
             assert result_2[0].name == "42_feature"
@@ -726,8 +735,11 @@ class TestTasksCompleteGatePipeline:
             caplog.at_level(logging.INFO, logger="agentfox.engine.hot_load"),
         ):
             result = await discover_new_specs_gated(
-                specs_dir, known_specs=set(), repo_root=tmp_path,
-                integration_branch="main", db_conn=conn,
+                specs_dir,
+                known_specs=set(),
+                repo_root=tmp_path,
+                integration_branch="main",
+                db_conn=conn,
             )
 
         assert result == []
@@ -770,8 +782,11 @@ class TestTasksCompleteGatePipeline:
             patch("agentfox.engine.hot_load.are_all_tasks_done", return_value=True),
         ):
             result = await discover_new_specs_gated(
-                specs_dir, known_specs=set(), repo_root=tmp_path,
-                integration_branch="main", db_conn=conn,
+                specs_dir,
+                known_specs=set(),
+                repo_root=tmp_path,
+                integration_branch="main",
+                db_conn=conn,
             )
 
         assert len(result) == 1
@@ -814,8 +829,11 @@ class TestTasksCompleteGatePipeline:
             patch("agentfox.engine.hot_load.are_all_tasks_done", return_value=False),
         ):
             result = await discover_new_specs_gated(
-                specs_dir, known_specs=set(), repo_root=tmp_path,
-                integration_branch="main", db_conn=conn,
+                specs_dir,
+                known_specs=set(),
+                repo_root=tmp_path,
+                integration_branch="main",
+                db_conn=conn,
             )
 
         assert len(result) == 1
@@ -853,7 +871,152 @@ class TestTasksCompleteGatePipeline:
         ):
             # No db_conn argument — backward compatible
             result = await discover_new_specs_gated(
-                specs_dir, known_specs=set(), repo_root=tmp_path, integration_branch="main",
+                specs_dir,
+                known_specs=set(),
+                repo_root=tmp_path,
+                integration_branch="main",
             )
 
         assert len(result) == 1
+
+
+# ---------------------------------------------------------------------------
+# Issue #630: hot-loader respects --spec filter (filtered_spec parameter)
+# ---------------------------------------------------------------------------
+
+
+class TestFilteredSpecRespected:
+    """Issue #630: discover_new_specs_gated rejects specs not matching filtered_spec."""
+
+    @pytest.mark.asyncio
+    async def test_unrelated_spec_rejected_when_filter_set(self, tmp_path: Path) -> None:
+        """With filtered_spec='09_collision', spec '01_models' is rejected."""
+        from agentfox.spec.discovery import SpecInfo
+
+        specs_dir = tmp_path / ".specs"
+        unrelated = specs_dir / "01_models"
+        _create_spec_files(unrelated)
+
+        mock_spec = SpecInfo(
+            name="01_models",
+            prefix=1,
+            path=unrelated,
+            has_tasks=True,
+            has_prd=True,
+        )
+
+        with patch("agentfox.engine.hot_load.discover_new_specs", return_value=[mock_spec]):
+            result = await discover_new_specs_gated(
+                specs_dir,
+                known_specs=set(),
+                repo_root=tmp_path,
+                filtered_spec="09_collision",
+            )
+
+        assert result == []
+
+    @pytest.mark.asyncio
+    async def test_matching_spec_passes_filter(self, tmp_path: Path) -> None:
+        """With filtered_spec='09_collision', spec '09_collision' proceeds to gates."""
+        from agentfox.spec.discovery import SpecInfo
+
+        specs_dir = tmp_path / ".specs"
+        target = specs_dir / "09_collision"
+        _create_spec_files(target)
+
+        mock_spec = SpecInfo(
+            name="09_collision",
+            prefix=9,
+            path=target,
+            has_tasks=True,
+            has_prd=True,
+        )
+
+        async def mock_is_tracked(*args, **kwargs):
+            return True
+
+        with (
+            patch("agentfox.engine.hot_load.discover_new_specs", return_value=[mock_spec]),
+            patch("agentfox.engine.hot_load.is_spec_tracked_on_branch", side_effect=mock_is_tracked),
+            patch("agentfox.engine.hot_load.is_spec_complete", return_value=(True, [])),
+            patch("agentfox.engine.hot_load.lint_spec_gate", return_value=(True, [])),
+            patch("agentfox.engine.hot_load.are_all_tasks_done", return_value=False),
+        ):
+            result = await discover_new_specs_gated(
+                specs_dir,
+                known_specs=set(),
+                repo_root=tmp_path,
+                filtered_spec="09_collision",
+            )
+
+        assert len(result) == 1
+        assert result[0].name == "09_collision"
+
+    @pytest.mark.asyncio
+    async def test_no_filter_allows_all_specs(self, tmp_path: Path) -> None:
+        """With filtered_spec=None, all specs proceed to gates."""
+        from agentfox.spec.discovery import SpecInfo
+
+        specs_dir = tmp_path / ".specs"
+        _create_spec_files(specs_dir / "01_models")
+        _create_spec_files(specs_dir / "06_split")
+
+        mock_specs = [
+            SpecInfo(name="01_models", prefix=1, path=specs_dir / "01_models", has_tasks=True, has_prd=True),
+            SpecInfo(name="06_split", prefix=6, path=specs_dir / "06_split", has_tasks=True, has_prd=True),
+        ]
+
+        async def mock_is_tracked(*args, **kwargs):
+            return True
+
+        with (
+            patch("agentfox.engine.hot_load.discover_new_specs", return_value=mock_specs),
+            patch("agentfox.engine.hot_load.is_spec_tracked_on_branch", side_effect=mock_is_tracked),
+            patch("agentfox.engine.hot_load.is_spec_complete", return_value=(True, [])),
+            patch("agentfox.engine.hot_load.lint_spec_gate", return_value=(True, [])),
+            patch("agentfox.engine.hot_load.are_all_tasks_done", return_value=False),
+        ):
+            result = await discover_new_specs_gated(
+                specs_dir,
+                known_specs=set(),
+                repo_root=tmp_path,
+                filtered_spec=None,
+            )
+
+        assert len(result) == 2
+
+    @pytest.mark.asyncio
+    async def test_multiple_candidates_only_match_survives(self, tmp_path: Path) -> None:
+        """With filtered_spec set, only the matching spec survives from multiple candidates."""
+        from agentfox.spec.discovery import SpecInfo
+
+        specs_dir = tmp_path / ".specs"
+        _create_spec_files(specs_dir / "01_models")
+        _create_spec_files(specs_dir / "06_split")
+        _create_spec_files(specs_dir / "09_collision")
+
+        mock_specs = [
+            SpecInfo(name="01_models", prefix=1, path=specs_dir / "01_models", has_tasks=True, has_prd=True),
+            SpecInfo(name="06_split", prefix=6, path=specs_dir / "06_split", has_tasks=True, has_prd=True),
+            SpecInfo(name="09_collision", prefix=9, path=specs_dir / "09_collision", has_tasks=True, has_prd=True),
+        ]
+
+        async def mock_is_tracked(*args, **kwargs):
+            return True
+
+        with (
+            patch("agentfox.engine.hot_load.discover_new_specs", return_value=mock_specs),
+            patch("agentfox.engine.hot_load.is_spec_tracked_on_branch", side_effect=mock_is_tracked),
+            patch("agentfox.engine.hot_load.is_spec_complete", return_value=(True, [])),
+            patch("agentfox.engine.hot_load.lint_spec_gate", return_value=(True, [])),
+            patch("agentfox.engine.hot_load.are_all_tasks_done", return_value=False),
+        ):
+            result = await discover_new_specs_gated(
+                specs_dir,
+                known_specs=set(),
+                repo_root=tmp_path,
+                filtered_spec="09_collision",
+            )
+
+        assert len(result) == 1
+        assert result[0].name == "09_collision"
