@@ -1,11 +1,7 @@
 ---
 name: af-clone-issue
-description: >
-  Copies a GitHub issue (title, body, and all comments in chronological order)
-  from an upstream repository into a fork or other target repo using the GitHub
-  CLI and optional jq. Use when mirroring an issue locally, syncing a report into
-  a fork, or when the user asks to copy, clone, or duplicate a GitHub issue across
-  repos.
+description: Copies a GitHub issue (title, body, and all comments in chronological order) from an upstream repository into a fork or other target repo using the GitHub CLI and optional jq.
+argument-hint: "https://github.com/{owner}/{repo}/issues/{number}"
 ---
 
 # Copy GitHub issue to another repo
