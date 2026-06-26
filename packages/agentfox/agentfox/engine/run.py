@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 from agentfox.engine.engine import Orchestrator
 from agentfox.engine.state import ExecutionState, RunStatus
-from agentfox.knowledge.db import open_knowledge_store
+from agentfox.knowledge.db import ContextKnowledgeDB, open_knowledge_store
 from agentfox.knowledge.duckdb_sink import DuckDBSink
 from agentfox.knowledge.fox_provider import FoxKnowledgeProvider
 from agentfox.knowledge.sink import SinkDispatcher
@@ -109,11 +109,12 @@ def _setup_infrastructure(
     knowledge_db = open_knowledge_store(config.knowledge, read_only=False)
     sink_dispatcher.add(DuckDBSink(knowledge_db.connection))
 
-    # 06-REQ-7.3: Open a separate connection for session context assembly.
-    # DuckDB disallows mixing read_only and read-write connections to the
-    # same file within one process, so both connections use read_only=False.
-    # Read-only semantics are enforced at the application layer instead.
-    context_knowledge_db = open_knowledge_store(config.knowledge, read_only=False)
+    # 06-REQ-7.3: Derive a cursor from the primary connection for context
+    # assembly. DuckDB disallows opening a second connection to the same
+    # file with a different read_only flag, so we use a cursor instead.
+    # Cursors support concurrent SELECT queries without contending with
+    # write operations on the primary connection.
+    context_knowledge_db = ContextKnowledgeDB(knowledge_db.connection.cursor())
 
     # Attach agent trace sink unconditionally so that trace-based transcript
     # reconstruction is available for knowledge extraction (113-REQ-1.1).
@@ -370,7 +371,7 @@ def _cleanup_infrastructure(infra: dict[str, Any], config: Any) -> None:
         infra["sink_dispatcher"].close()
     except Exception:
         logger.warning("Sink dispatcher close failed", exc_info=True)
-    # Close the read-only context knowledge DB if it was opened separately
+    # Close the context cursor wrapper if present
     context_knowledge_db = infra.get("context_knowledge_db")
     if context_knowledge_db is not None:
         try:

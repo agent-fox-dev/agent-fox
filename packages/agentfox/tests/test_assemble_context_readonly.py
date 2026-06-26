@@ -295,28 +295,25 @@ class TestOrchestratorPassesReadOnlyConn:
 
     def test_orchestrator_setup_creates_read_only_context_conn(self) -> None:
         """The orchestrator _setup_infrastructure must call
-        open_knowledge_store twice: once for the main DB and once for
-        context assembly.  Both use read_only=False because DuckDB
-        disallows mixing read_only configurations on the same file
-        within one process.
+        open_knowledge_store exactly once, then derive a cursor from the
+        primary connection for context assembly (06-REQ-7.3).
 
-        The context connection must be a *separate* instance stored as
-        'context_knowledge_db' in the infrastructure dict (06-REQ-7.3)."""
+        The cursor approach avoids DuckDB's same-file constraint (no mixed
+        read_only flags on the same file within one process)."""
         from unittest.mock import MagicMock
+
+        from agentfox.knowledge.db import ContextKnowledgeDB
 
         mock_db_main = MagicMock(name="main_knowledge_db")
         mock_db_main.connection = MagicMock(name="main_connection")
-        mock_db_ctx = MagicMock(name="ctx_knowledge_db")
-        mock_db_ctx.connection = MagicMock(name="ctx_connection")
+        mock_cursor = MagicMock(name="cursor")
+        mock_db_main.connection.cursor.return_value = mock_cursor
 
         call_log: list[bool] = []
-        call_count = 0
 
         def _track_open(config, *, read_only):
-            nonlocal call_count
             call_log.append(read_only)
-            call_count += 1
-            return mock_db_main if call_count == 1 else mock_db_ctx
+            return mock_db_main
 
         with (
             patch(
@@ -337,43 +334,35 @@ class TestOrchestratorPassesReadOnlyConn:
             mock_config = MagicMock()
             infra = _setup_infrastructure(mock_config)
 
-        # Must have called open_knowledge_store twice
-        assert len(call_log) >= 2, f"Expected at least 2 calls to open_knowledge_store, got {len(call_log)}: {call_log}"
-        assert call_log[0] is False, "First open_knowledge_store call must be read_only=False (main connection)"
-        assert call_log[1] is False, (
-            "Second open_knowledge_store call must be read_only=False (DuckDB requires same config)"
+        # open_knowledge_store called exactly once — cursor replaces second connection
+        assert len(call_log) == 1, (
+            f"Expected exactly 1 call to open_knowledge_store, got {len(call_log)}: {call_log}"
         )
+        assert call_log[0] is False, "open_knowledge_store call must use read_only=False"
 
-        # 06-REQ-7.3: context_knowledge_db must be a separate instance
-        assert infra["context_knowledge_db"] is mock_db_ctx, (
-            "Infrastructure must store a separate context DB instance"
+        # 06-REQ-7.3: context_knowledge_db must be a cursor-based wrapper
+        assert isinstance(infra["context_knowledge_db"], ContextKnowledgeDB), (
+            "context_knowledge_db must be a ContextKnowledgeDB cursor wrapper"
         )
         assert infra["context_knowledge_db"] is not infra["knowledge_db"], (
-            "context_knowledge_db must be a separate connection from the main knowledge_db"
+            "context_knowledge_db must be distinct from the main knowledge_db"
+        )
+        assert infra["context_knowledge_db"].connection is mock_cursor, (
+            "context_knowledge_db.connection must be a cursor from the main connection"
         )
 
-    def test_no_silent_fallback_when_context_open_fails(self) -> None:
-        """When opening the context connection (second call) fails, the
-        error must propagate — there must be no silent fallback to the
-        main connection (06-REQ-7.3)."""
+    def test_cursor_creation_failure_propagates(self) -> None:
+        """When cursor() creation fails, the error propagates (06-REQ-7.3).
+        There must be no silent fallback to the main connection."""
         from unittest.mock import MagicMock
 
         mock_db_main = MagicMock(name="main_knowledge_db")
-        mock_db_main.connection = MagicMock(name="main_connection")
-
-        call_count = 0
-
-        def _track_open(config, *, read_only):
-            nonlocal call_count
-            call_count += 1
-            if call_count == 2:
-                raise RuntimeError("simulated context open failure")
-            return mock_db_main
+        mock_db_main.connection.cursor.side_effect = RuntimeError("simulated cursor failure")
 
         with (
             patch(
                 "agentfox.engine.run.open_knowledge_store",
-                side_effect=_track_open,
+                return_value=mock_db_main,
             ),
             patch("agentfox.engine.run.DuckDBSink"),
             patch("agentfox.engine.run.SinkDispatcher"),
@@ -387,31 +376,25 @@ class TestOrchestratorPassesReadOnlyConn:
             from agentfox.engine.run import _setup_infrastructure
 
             mock_config = MagicMock()
-            with pytest.raises(RuntimeError, match="simulated context open failure"):
+            with pytest.raises(RuntimeError, match="simulated cursor failure"):
                 _setup_infrastructure(mock_config)
 
     def test_context_conn_propagated_to_session_runner(self) -> None:
-        """Verify the context connection (second open_knowledge_store call)
-        is passed to session_runner_factory as context_knowledge_db, not
-        the main one (06-REQ-7.3)."""
+        """Verify the cursor wrapper is passed to session_runner_factory as
+        context_knowledge_db (06-REQ-7.3)."""
         from unittest.mock import MagicMock
+
+        from agentfox.knowledge.db import ContextKnowledgeDB
 
         mock_db_main = MagicMock(name="main_db")
         mock_db_main.connection = MagicMock()
-        mock_db_ctx = MagicMock(name="ctx_db")
-        mock_db_ctx.connection = MagicMock()
-
-        call_count = 0
-
-        def _track_open(config, *, read_only):
-            nonlocal call_count
-            call_count += 1
-            return mock_db_main if call_count == 1 else mock_db_ctx
+        mock_cursor = MagicMock(name="cursor")
+        mock_db_main.connection.cursor.return_value = mock_cursor
 
         with (
             patch(
                 "agentfox.engine.run.open_knowledge_store",
-                side_effect=_track_open,
+                return_value=mock_db_main,
             ),
             patch("agentfox.engine.run.DuckDBSink"),
             patch("agentfox.engine.run.SinkDispatcher"),
@@ -434,9 +417,12 @@ class TestOrchestratorPassesReadOnlyConn:
             mock_nsr.assert_called_once()
             _, kwargs = mock_nsr.call_args
 
-        assert kwargs.get("context_knowledge_db") is mock_db_ctx, (
-            "session_runner_factory must pass the context connection as "
-            "context_knowledge_db, not the main connection"
+        ctx_db = kwargs.get("context_knowledge_db")
+        assert isinstance(ctx_db, ContextKnowledgeDB), (
+            "session_runner_factory must pass a ContextKnowledgeDB as context_knowledge_db"
+        )
+        assert ctx_db.connection is mock_cursor, (
+            "context_knowledge_db.connection must be the cursor from the main connection"
         )
 
 

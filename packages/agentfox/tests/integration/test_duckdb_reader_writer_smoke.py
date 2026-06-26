@@ -183,17 +183,21 @@ class TestOrchestratorStartupSmoke:
         assert set(migrate_calls) == {"spec_a", "spec_b"}
 
     def test_session_receives_read_only_conn(self) -> None:
-        """Verify _setup_infrastructure opens a second read-only conn
-        and propagates it as context_knowledge_db (06-REQ-7.3)."""
+        """Verify _setup_infrastructure uses a cursor for context assembly.
+
+        06-REQ-7.3: context reads don't contend with write operations.
+        The cursor approach avoids DuckDB's same-file configuration
+        constraint (no mixed read_only flags on the same file)."""
+        from agentfox.knowledge.db import ContextKnowledgeDB
+
         call_log: list[bool] = []
         mock_db_rw = MagicMock()
-        mock_db_rw.connection = MagicMock()
-        mock_db_ro = MagicMock()
-        mock_db_ro.connection = MagicMock()
+        mock_cursor = MagicMock()
+        mock_db_rw.connection.cursor.return_value = mock_cursor
 
         def _track_open(config, *, read_only):
             call_log.append(read_only)
-            return mock_db_ro if read_only else mock_db_rw
+            return mock_db_rw
 
         with (
             patch("agentfox.engine.run.open_knowledge_store", side_effect=_track_open),
@@ -207,11 +211,15 @@ class TestOrchestratorStartupSmoke:
 
             infra = _setup_infrastructure(MagicMock())
 
-        assert len(call_log) >= 2
+        # Exactly one open_knowledge_store call — cursor replaces second connection
+        assert len(call_log) == 1
         assert call_log[0] is False
-        assert call_log[1] is True
-        # Verify the read-only connection is propagated, not the write conn
-        assert infra["context_knowledge_db"] is mock_db_ro
+
+        # context_knowledge_db is a cursor wrapper, distinct from the main DB
+        assert isinstance(infra["context_knowledge_db"], ContextKnowledgeDB)
+        assert infra["context_knowledge_db"] is not infra["knowledge_db"]
+        assert infra["context_knowledge_db"].connection is mock_cursor
+        assert infra["context_knowledge_db"].connection is not infra["knowledge_db"].connection
 
 
 @pytest.mark.smoke

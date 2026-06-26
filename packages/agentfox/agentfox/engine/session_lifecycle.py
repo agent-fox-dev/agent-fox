@@ -33,7 +33,7 @@ from agentfox.engine.sdk_params import (
 )
 from agentfox.engine.state import SessionRecord
 from agentfox.knowledge.audit import AuditEventType, AuditSeverity
-from agentfox.knowledge.db import KnowledgeDB
+from agentfox.knowledge.db import ContextKnowledgeDB, KnowledgeDB
 from agentfox.knowledge.fox_provider import KnowledgeProvider
 from agentfox.knowledge.sink import SessionOutcome, SinkDispatcher
 from agentfox.session.prompt import (
@@ -238,7 +238,7 @@ class NodeSessionRunner:
         instances: int = 1,
         sink_dispatcher: SinkDispatcher | None = None,
         knowledge_db: KnowledgeDB,
-        context_knowledge_db: KnowledgeDB | None = None,
+        context_knowledge_db: KnowledgeDB | ContextKnowledgeDB | None = None,
         knowledge_provider: KnowledgeProvider | None = None,
         activity_callback: ActivityCallback | None = None,
         assessed_tier: ModelTier | None = None,

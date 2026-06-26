@@ -147,6 +147,35 @@ class KnowledgeDB:
         self.close()
 
 
+class ContextKnowledgeDB:
+    """Cursor-based wrapper for read-only context assembly queries.
+
+    Wraps a DuckDB cursor obtained from the primary read-write connection,
+    allowing concurrent SELECT queries without opening a second database
+    connection.
+
+    DuckDB disallows opening a second connection to the same file with a
+    different ``read_only`` flag than existing connections. This class
+    satisfies 06-REQ-7.3 (context reads don't contend with write queries)
+    without violating that constraint.
+    """
+
+    def __init__(self, cursor: duckdb.DuckDBPyConnection) -> None:
+        self._cursor = cursor
+
+    @property
+    def connection(self) -> duckdb.DuckDBPyConnection:
+        """Return the underlying cursor (usable for SELECT queries)."""
+        return self._cursor
+
+    def close(self) -> None:
+        """Close the underlying cursor."""
+        try:
+            self._cursor.close()
+        except Exception:
+            pass
+
+
 def open_knowledge_store(config: KnowledgeConfig, *, read_only: bool) -> KnowledgeDB:
     """Open the knowledge store. Raises on failure.
 
