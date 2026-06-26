@@ -23,6 +23,7 @@ class IssueResult:
     title: str
     html_url: str
     body: str = ""
+    labels: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

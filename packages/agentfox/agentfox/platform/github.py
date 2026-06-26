@@ -401,6 +401,7 @@ class GitHubPlatform:
                 title=item["title"],
                 html_url=item["html_url"],
                 body=item.get("body") or "",
+                labels=tuple(lbl["name"] for lbl in item.get("labels", [])),
             )
             for item in items
             if "pull_request" not in item  # exclude PRs
@@ -540,6 +541,7 @@ class GitHubPlatform:
             title=data["title"],
             html_url=data["html_url"],
             body=data.get("body") or "",
+            labels=tuple(lbl["name"] for lbl in data.get("labels", [])),
         )
         logger.debug("Fetched issue #%d: %s", result.number, result.title)
         return result

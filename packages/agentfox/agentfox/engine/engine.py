@@ -1044,6 +1044,8 @@ async def post_issue_summaries(
     newly_completed = completed_specs - already_posted
     posted: set[str] = set()
 
+    from agentfox.platform.labels import LABEL_IMPLEMENTED
+
     for spec_name in sorted(newly_completed):
         prd_path = specs_dir / spec_name / "prd.md"
         source_issue = parse_source_url(prd_path)
@@ -1062,6 +1064,25 @@ async def post_issue_summaries(
                 platform_forge,
             )
             continue
+
+        # Issue #648: use af:implemented label as durable dedup marker
+        try:
+            issue = await platform.get_issue(source_issue.issue_number)
+            if LABEL_IMPLEMENTED in issue.labels:
+                logger.debug(
+                    "Issue #%d already has '%s' label; skipping spec '%s'",
+                    source_issue.issue_number,
+                    LABEL_IMPLEMENTED,
+                    spec_name,
+                )
+                posted.add(spec_name)
+                continue
+        except Exception:
+            logger.debug(
+                "Could not check labels for issue #%d; proceeding with post",
+                source_issue.issue_number,
+                exc_info=True,
+            )
 
         commit_sha = _get_integration_head(repo_root, integration_branch)
         tasks_path = specs_dir / spec_name / "tasks.md"
@@ -1086,8 +1107,6 @@ async def post_issue_summaries(
 
         # Issue #636: assign af:implemented label after successful comment
         try:
-            from agentfox.platform.labels import LABEL_IMPLEMENTED
-
             await platform.assign_label(source_issue.issue_number, LABEL_IMPLEMENTED)
             logger.info(
                 "Assigned '%s' label to issue #%d for spec '%s'",
@@ -1098,7 +1117,7 @@ async def post_issue_summaries(
         except Exception:
             logger.warning(
                 "Failed to assign '%s' label for spec '%s'",
-                "af:implemented",
+                LABEL_IMPLEMENTED,
                 spec_name,
                 exc_info=True,
             )

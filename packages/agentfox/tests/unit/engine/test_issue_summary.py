@@ -260,12 +260,17 @@ class TestPostIssueSummaries:
         (spec_dir / "tasks.md").write_text("- [x] 1. Implement feature\n")
         return spec_dir
 
-    def _make_mock_platform(self, forge_type: str = "github") -> MagicMock:
+    def _make_mock_platform(self, forge_type: str = "github", issue_labels: tuple[str, ...] = ()) -> MagicMock:
         """Create a mock platform with the given forge type."""
+        from agentfox.platform.protocol import IssueResult
+
         platform = MagicMock()
         platform.forge_type = forge_type
         platform.add_issue_comment = AsyncMock()
         platform.assign_label = AsyncMock()
+        platform.get_issue = AsyncMock(
+            return_value=IssueResult(number=42, title="test", html_url="", labels=issue_labels),
+        )
         return platform
 
     def _mock_git_sha(self, sha: str = "abc123") -> MagicMock:
@@ -463,6 +468,57 @@ class TestPostIssueSummaries:
             )
 
         platform.assign_label.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_skips_when_implemented_label_already_present(self, tmp_path: Path) -> None:
+        """Issue #648: skip posting when af:implemented label is already on the issue."""
+        from agentfox.engine.engine import post_issue_summaries
+
+        spec_name = "108_my_spec"
+        specs_dir = tmp_path / "specs"
+        self._make_spec_dir(specs_dir, spec_name, "https://github.com/owner/repo/issues/42")
+
+        platform = self._make_mock_platform(
+            forge_type="github",
+            issue_labels=("bug", "af:implemented"),
+        )
+
+        with patch("subprocess.run", return_value=self._mock_git_sha("abc123")):
+            posted = await post_issue_summaries(
+                platform=platform,
+                specs_dir=specs_dir,
+                completed_specs={spec_name},
+                already_posted=set(),
+                repo_root=tmp_path,
+            )
+
+        assert spec_name in posted
+        platform.add_issue_comment.assert_not_called()
+        platform.assign_label.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_posts_when_get_issue_fails(self, tmp_path: Path) -> None:
+        """Issue #648: fall through to posting if get_issue raises."""
+        from agentfox.engine.engine import post_issue_summaries
+
+        spec_name = "108_my_spec"
+        specs_dir = tmp_path / "specs"
+        self._make_spec_dir(specs_dir, spec_name, "https://github.com/owner/repo/issues/42")
+
+        platform = self._make_mock_platform(forge_type="github")
+        platform.get_issue = AsyncMock(side_effect=RuntimeError("API error"))
+
+        with patch("subprocess.run", return_value=self._mock_git_sha("abc123")):
+            posted = await post_issue_summaries(
+                platform=platform,
+                specs_dir=specs_dir,
+                completed_specs={spec_name},
+                already_posted=set(),
+                repo_root=tmp_path,
+            )
+
+        assert spec_name in posted
+        platform.add_issue_comment.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
