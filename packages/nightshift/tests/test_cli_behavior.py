@@ -575,7 +575,7 @@ class TestBehavioralParity:
         )
 
     def test_version_output_matches_spec(self) -> None:
-        """--version outputs '4.0.0-rc5' matching the former af nightshift."""
+        """--version outputs '4.0.0' matching the former af nightshift."""
         result = subprocess.run(
             [sys.executable, "-m", "nightshift", "--version"],
             capture_output=True,

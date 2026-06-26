@@ -1,3 +1,3 @@
 """agentfox: autonomous coding-agent orchestrator core library."""
 
-__version__ = "4.0.0-rc5"
+__version__ = "4.0.0"

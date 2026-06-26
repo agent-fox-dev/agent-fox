@@ -6,13 +6,13 @@ Requirements: 07-REQ-4.1, 07-REQ-4.2, 07-REQ-4.3, 07-REQ-4.4, 07-REQ-4.E1
 
 from __future__ import annotations
 
-import pytest
-
 import fnmatch
 import subprocess
 import sys
 import tomllib
 from pathlib import Path
+
+import pytest
 
 
 def _load_root_toml() -> dict:
@@ -45,8 +45,8 @@ class TestWorkspaceDependency:
     def test_nightshift_in_root_dependencies(self) -> None:
         config = _load_root_toml()
         deps = config["project"]["dependencies"]
-        assert any("nightshift" in d and "4.0.0rc5" in d for d in deps), (
-            f"nightshift>=4.0.0rc5 not found in root dependencies: {deps}"
+        assert any("nightshift" in d and "4.0.0" in d for d in deps), (
+            f"nightshift>=4.0.0 not found in root dependencies: {deps}"
         )
 
     def test_nightshift_workspace_source(self) -> None:
