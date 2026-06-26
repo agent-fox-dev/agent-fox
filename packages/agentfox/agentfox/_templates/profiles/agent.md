@@ -49,7 +49,12 @@ This project uses spec-driven development. Specifications live in
 | Command | What it does |
 |---------|-------------|
 | `make check` | Run lint + all tests (use before committing) |
-| `make test` | Run all tests (`uv run pytest -q`) |
+| `make test` | Run all tests (see `test_commands.all_tests` in `tasks.json`) |
+
+The exact test and lint commands for this project are defined in the
+**Test Commands** section of `tasks.json` (rendered in your context under
+`## Test Commands`). Always use those commands instead of assuming a specific
+test runner or linter.
 
 ## Git Workflow
 

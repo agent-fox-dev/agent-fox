@@ -74,12 +74,15 @@ Your context may include reports from other archetypes:
 
 ## Constraints
 
-- You may run tests using `uv run pytest` and the linter using
-  `uv run ruff check`. You may use `ls`, `cat`, `git`, `grep`, `find`,
-  `head`, `tail`, `wc`, `make` for read-only exploration.
+- You may run tests using the `spec_tests` and `all_tests` commands defined in
+  `tasks.json` (rendered in your context under `## Test Commands`), and the
+  linter using the `linter` command from the same section. You may use `ls`,
+  `cat`, `git`, `grep`, `find`, `head`, `tail`, `wc`, `make` for read-only
+  exploration.
 - Do NOT create, modify, or delete any files.
 - Do NOT modify source code, spec files, or documentation.
-- Run `make check` to execute the full quality suite.
+- Run `make check` (or the `all_tests` command from `tasks.json`) to execute
+  the full quality suite.
 
 ## Output Format
 

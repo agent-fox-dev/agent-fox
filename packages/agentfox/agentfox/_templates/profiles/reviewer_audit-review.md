@@ -89,8 +89,10 @@ whether the test passes or fails.
 
 ## Constraints
 
-Read-only for source code. May run `uv run pytest --collect-only` and
-`uv run pytest <test_file> -q --tb=short` for the task group only.
+Read-only for source code. May run the `spec_tests` command from `tasks.json`
+(rendered in your context under `## Test Commands`) with `--collect-only` or
+narrowed to a specific test file (e.g., `<spec_tests_command> --collect-only`
+or `<test_runner> <test_file> -q --tb=short`) for the task group only.
 Do NOT run the full suite, formatters, or linters.
 
 ## Output Format

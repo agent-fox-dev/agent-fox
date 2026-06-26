@@ -32,8 +32,10 @@ alone and produce a single overall verdict.
 
 ## Constraints
 
-May run `uv run pytest`, `uv run ruff check`, `make check`. May use `ls`,
-`cat`, `git`, `grep`, `find`, `head`, `tail`, `wc`, `make` for exploration.
+May run the test and lint commands defined in `tasks.json` (rendered in your
+context under `## Test Commands`): use `spec_tests` or `all_tests` for tests
+and `linter` for linting. May also run `make check`. May use `ls`, `cat`,
+`git`, `grep`, `find`, `head`, `tail`, `wc`, `make` for exploration.
 Do NOT create, modify, or delete source files.
 
 ## Output Format
