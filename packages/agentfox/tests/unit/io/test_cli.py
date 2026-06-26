@@ -206,10 +206,10 @@ class TestSentinelKeys:
 
 
 class TestCommonOptionsAddsFlags:
-    """TS-03-47: common_options adds all four flag groups to the root Click group."""
+    """TS-03-47: common_options adds all flag groups to the root Click group."""
 
     def test_all_flags_registered(self) -> None:
-        """03-REQ-9.1: Group has --verbose, --quiet, --trace, --json params."""
+        """03-REQ-9.1: Group has --verbose, --quiet, --json params (no --trace)."""
         from agentfox.io import common_options
 
         @click.group()
@@ -220,7 +220,7 @@ class TestCommonOptionsAddsFlags:
         param_names = [p.name for p in cli.params]
         assert "verbose" in param_names
         assert "quiet" in param_names
-        assert "trace" in param_names
+        assert "trace" not in param_names, "--trace must not be registered after removal"
         # json may be registered as 'json' or 'json_mode' depending on impl
         assert any(name in param_names for name in ("json", "json_mode", "no_json")), (
             f"No json-related param found in {param_names}"

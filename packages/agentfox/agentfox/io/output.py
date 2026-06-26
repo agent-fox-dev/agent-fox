@@ -1,7 +1,7 @@
 """OutputManager — central coordinator for CLI output.
 
 Provides the ``OutputManager`` class that controls json_mode, quiet,
-verbose, and trace settings, and ``get_output_manager()`` to retrieve
+and verbose settings, and ``get_output_manager()`` to retrieve
 the active instance from Click context or a fallback.
 
 Also re-exports the JSON serialization functions from ``agentfox.io.json``
@@ -49,7 +49,6 @@ class OutputManager:
         json_mode: If True, output is JSON to stdout.
         quiet: If True, suppress banner and status lines on stderr.
         verbose: If True, enable verbose output.
-        trace: If True, enable trace-level output.
         console: Rich Console instance for stderr output.
 
     Requirements: 03-REQ-2.1, 03-REQ-4, 04-REQ-3
@@ -61,14 +60,12 @@ class OutputManager:
         json_mode: bool = False,
         quiet: bool = False,
         verbose: bool = False,
-        trace: bool = False,
         stdout: Any = None,
         stderr: Any = None,
     ) -> None:
         self.json_mode = json_mode
         self.quiet = quiet
         self.verbose = verbose
-        self.trace = trace
         self._explicit_stdout = stdout
         self._explicit_stderr = stderr
         self.console = Console(stderr=True)
@@ -202,7 +199,7 @@ def get_output_manager() -> OutputManager:
         pass
 
     # Fallback: fixed defaults, AF_AGENT not consulted
-    return OutputManager(json_mode=False, quiet=False, verbose=False, trace=False)
+    return OutputManager(json_mode=False, quiet=False, verbose=False)
 
 
 def _pad_row(row: list[Any], n: int, fill: Any) -> list[Any]:

@@ -334,7 +334,7 @@ class TestPropOutputManagerDispatchExclusion:
     def test_dispatch_mutual_exclusion(self, json_mode: bool, quiet: bool) -> None:
         from agentfox.io import OutputManager
 
-        om = OutputManager(json_mode=json_mode, quiet=quiet, verbose=False, trace=False)
+        om = OutputManager(json_mode=json_mode, quiet=quiet, verbose=False)
 
         # emit_json writes iff json_mode=True
         with capture_stdout() as out:
@@ -394,4 +394,4 @@ class TestPropGetOutputManagerFallbackIgnoresEnv:
             assert om.json_mode is False
             assert om.quiet is False
             assert om.verbose is False
-            assert om.trace is False
+            assert not hasattr(om, "trace")

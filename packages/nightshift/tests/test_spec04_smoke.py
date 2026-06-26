@@ -56,7 +56,7 @@ class TestSubcommandContracts:
     """
 
     def test_help_shows_global_options(self, cli_runner) -> None:
-        """nightshift --help contains --json, --verbose, --quiet, --trace, --version."""
+        """nightshift --help contains --json, --verbose, --quiet, --version (no --trace)."""
         from nightshift.app import main
 
         result = cli_runner.invoke(main, ["--help"])
@@ -66,7 +66,7 @@ class TestSubcommandContracts:
         assert "--no-json" in help_text
         assert "--verbose" in help_text
         assert "--quiet" in help_text
-        assert "--trace" in help_text
+        assert "--trace" not in help_text, "--trace must be absent after removal"
         assert "--version" in help_text
 
 
@@ -92,7 +92,7 @@ class TestHelpOutputSubprocess:
 
     @pytest.mark.parametrize(
         "flag",
-        ["--json", "--no-json", "--verbose", "--quiet", "--trace", "--version"],
+        ["--json", "--no-json", "--verbose", "--quiet", "--version"],
     )
     def test_help_lists_flag(self, flag: str) -> None:
         """nightshift --help output contains expected flag."""

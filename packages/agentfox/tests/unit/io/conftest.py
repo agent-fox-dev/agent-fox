@@ -122,7 +122,6 @@ def make_mock_context(*, json_mode: bool = False) -> MagicMock:
         json_mode=json_mode,
         quiet=False,
         verbose=False,
-        trace=False,
     )
     ctx = MagicMock()
     ctx.obj = {"output": om}

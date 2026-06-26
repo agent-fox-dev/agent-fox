@@ -33,10 +33,10 @@ def main(ctx: click.Context, **kwargs) -> None:  # noqa: ARG001
     if om is None:
         om = OutputManager(json_mode=bool(kwargs.get("json", False)))
         ctx.obj["output"] = om
-    effective_quiet = om.quiet or (om.json_mode and not om.verbose and not om.trace)
-    setup_logging(verbose=om.verbose, quiet=effective_quiet, trace=om.trace)
+    effective_quiet = om.quiet or (om.json_mode and not om.verbose)
+    setup_logging(verbose=om.verbose, quiet=effective_quiet)
     config = load_config()
-    ctx.obj.update(config=config, verbose=om.verbose, quiet=om.quiet, trace=om.trace)
+    ctx.obj.update(config=config, verbose=om.verbose, quiet=om.quiet)
     if not om.json_mode and not om.quiet:
         render_banner(create_theme(getattr(config, "theme", None) or ThemeConfig()), quiet=om.quiet)
     if ctx.invoked_subcommand is None:

@@ -68,16 +68,15 @@ def main(ctx: click.Context, **kwargs) -> None:  # noqa: ARG001
     ctx.obj["json"] = om.json_mode
 
     # In JSON mode, suppress warning-level log output so it doesn't pollute
-    # the structured JSON stdout stream. Verbose/trace flags override this.
-    effective_quiet = om.quiet or (om.json_mode and not om.verbose and not om.trace)
-    setup_logging(verbose=om.verbose, quiet=effective_quiet, trace=om.trace)
+    # the structured JSON stdout stream. Verbose flag overrides this.
+    effective_quiet = om.quiet or (om.json_mode and not om.verbose)
+    setup_logging(verbose=om.verbose, quiet=effective_quiet)
 
     config = load_config()
 
     ctx.obj["config"] = config
     ctx.obj["verbose"] = om.verbose
     ctx.obj["quiet"] = om.quiet
-    ctx.obj["trace"] = om.trace
 
     # 14-REQ-4.1: render banner on every invocation (suppressed by --quiet)
     # 23-REQ-2.1: suppress banner in JSON mode

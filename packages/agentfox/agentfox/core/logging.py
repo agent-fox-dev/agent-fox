@@ -1,7 +1,7 @@
 """Logging configuration for agent-fox.
 
 Configures Python's logging module with a consistent format and
-level control via --verbose, --trace, and --quiet flags. Uses named
+level control via --verbose and --quiet flags. Uses named
 loggers per module for component-based log filtering.
 
 When a Rich Live display is active (e.g. the progress spinner),
@@ -9,7 +9,6 @@ log messages are routed through Rich's console so they appear
 cleanly above the spinner instead of corrupting it.
 
 Log level hierarchy (low → high):
-  TRACE (5) — bulk AI payload dumps (prompts, raw responses)
   DEBUG (10) — standard debug output
   INFO (20) — progress and informational messages
   WARNING (30) — default level
@@ -27,17 +26,6 @@ if TYPE_CHECKING:
     from rich.console import Console
 
 _LOG_FORMAT = "[%(levelname)s] %(name)s: %(message)s"
-
-# ---------------------------------------------------------------------------
-# TRACE level — one tier below DEBUG, for bulk AI payload dumps
-# ---------------------------------------------------------------------------
-
-#: Custom log level for AI prompt/response payloads.  Sits below DEBUG (10)
-#: so that ``--verbose`` (DEBUG) does not emit these multi-KB blobs.
-#: Only activated when ``--trace`` is passed to the CLI.
-TRACE: int = logging.DEBUG - 5  # = 5
-
-logging.addLevelName(TRACE, "TRACE")
 
 
 class LiveAwareHandler(logging.Handler):
@@ -95,13 +83,12 @@ def get_live_handler() -> LiveAwareHandler | None:
     return _live_handler
 
 
-def setup_logging(*, verbose: bool = False, quiet: bool = False, trace: bool = False) -> None:
+def setup_logging(*, verbose: bool = False, quiet: bool = False) -> None:
     """Configure Python logging for agent-fox.
 
     Sets the root ``agent_fox`` logger level and format.
 
     Verbosity tiers (highest to lowest detail):
-      - ``trace=True``   → TRACE (5)  — bulk AI payload dumps
       - ``verbose=True`` → DEBUG (10) — detailed debug messages
       - default          → WARNING    — normal operation
       - ``quiet=True``   → ERROR      — errors only
@@ -109,19 +96,15 @@ def setup_logging(*, verbose: bool = False, quiet: bool = False, trace: bool = F
     Args:
         verbose: If True, set level to DEBUG (standard debug output).
         quiet: If True, set level to ERROR (errors only).
-        trace: If True, set level to TRACE (enables AI payload dumps).
-               Implies ``verbose``.
 
     Note:
         When conflicting flags are set, the most-verbose wins
-        (01-REQ-6.E1: most information wins).  Order: trace > verbose > quiet.
+        (01-REQ-6.E1: most information wins).  Order: verbose > quiet.
     """
     global _live_handler  # noqa: PLW0603
 
     # 01-REQ-6.E1: most-verbose wins when multiple flags are set
-    if trace:
-        level = TRACE
-    elif verbose:
+    if verbose:
         level = logging.DEBUG
     elif quiet:
         level = logging.ERROR

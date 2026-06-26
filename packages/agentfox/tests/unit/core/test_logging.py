@@ -1,6 +1,6 @@
 """Unit tests for agent-fox logging configuration.
 
-Covers the TRACE custom level and setup_logging() verbosity tiers.
+Covers setup_logging() verbosity tiers.
 
 Requirements: 01-REQ-6.1, 01-REQ-6.2, 01-REQ-6.3, 01-REQ-6.E1
 """
@@ -10,33 +10,6 @@ from __future__ import annotations
 import logging
 
 import pytest
-
-# ---------------------------------------------------------------------------
-# TRACE level constant
-# ---------------------------------------------------------------------------
-
-
-class TestTraceLevelConstant:
-    """TRACE is defined at level 5 (below DEBUG=10)."""
-
-    def test_trace_value_is_5(self) -> None:
-        """TRACE must equal 5."""
-        from agentfox.core.logging import TRACE
-
-        assert TRACE == 5
-
-    def test_trace_below_debug(self) -> None:
-        """TRACE must be strictly below logging.DEBUG."""
-        from agentfox.core.logging import TRACE
-
-        assert TRACE < logging.DEBUG
-
-    def test_trace_level_name_registered(self) -> None:
-        """logging.getLevelName(TRACE) must return 'TRACE'."""
-        from agentfox.core.logging import TRACE
-
-        assert logging.getLevelName(TRACE) == "TRACE"
-
 
 # ---------------------------------------------------------------------------
 # setup_logging() verbosity tiers
@@ -53,105 +26,54 @@ class TestSetupLoggingTiers:
         """No flags → WARNING level."""
         from agentfox.core.logging import setup_logging
 
-        setup_logging(verbose=False, quiet=False, trace=False)
+        setup_logging(verbose=False, quiet=False)
         assert self._get_agent_fox_level() == logging.WARNING
 
     def test_verbose_sets_debug(self) -> None:
         """--verbose → DEBUG level."""
         from agentfox.core.logging import setup_logging
 
-        setup_logging(verbose=True, quiet=False, trace=False)
+        setup_logging(verbose=True, quiet=False)
         assert self._get_agent_fox_level() == logging.DEBUG
 
     def test_quiet_sets_error(self) -> None:
         """--quiet → ERROR level."""
         from agentfox.core.logging import setup_logging
 
-        setup_logging(verbose=False, quiet=True, trace=False)
+        setup_logging(verbose=False, quiet=True)
         assert self._get_agent_fox_level() == logging.ERROR
-
-    def test_trace_sets_trace_level(self) -> None:
-        """--trace → TRACE level (5)."""
-        from agentfox.core.logging import TRACE, setup_logging
-
-        setup_logging(verbose=False, quiet=False, trace=True)
-        assert self._get_agent_fox_level() == TRACE
-
-    def test_trace_wins_over_verbose(self) -> None:
-        """--trace --verbose → TRACE level (most verbose wins)."""
-        from agentfox.core.logging import TRACE, setup_logging
-
-        setup_logging(verbose=True, quiet=False, trace=True)
-        assert self._get_agent_fox_level() == TRACE
-
-    def test_trace_wins_over_quiet(self) -> None:
-        """--trace --quiet → TRACE level (01-REQ-6.E1: most info wins)."""
-        from agentfox.core.logging import TRACE, setup_logging
-
-        setup_logging(verbose=False, quiet=True, trace=True)
-        assert self._get_agent_fox_level() == TRACE
 
     def test_verbose_wins_over_quiet(self) -> None:
         """--verbose --quiet → DEBUG level (01-REQ-6.E1: most info wins)."""
         from agentfox.core.logging import setup_logging
 
-        setup_logging(verbose=True, quiet=True, trace=False)
+        setup_logging(verbose=True, quiet=True)
         assert self._get_agent_fox_level() == logging.DEBUG
 
-    def test_trace_implies_debug_messages_visible(self) -> None:
-        """With trace=True, DEBUG-level records pass the level filter."""
+    def test_setup_logging_rejects_trace_kwarg(self) -> None:
+        """setup_logging(trace=True) raises TypeError — trace param removed."""
         from agentfox.core.logging import setup_logging
 
-        setup_logging(verbose=False, quiet=False, trace=True)
-        agent_logger = logging.getLogger("agentfox")
-        assert agent_logger.isEnabledFor(logging.DEBUG)
-
-    def test_verbose_does_not_show_trace_records(self) -> None:
-        """With verbose=True, TRACE-level records are filtered out."""
-        from agentfox.core.logging import TRACE, setup_logging
-
-        setup_logging(verbose=True, quiet=False, trace=False)
-        agent_logger = logging.getLogger("agentfox")
-        assert not agent_logger.isEnabledFor(TRACE)
-
-    def test_trace_shows_trace_records(self) -> None:
-        """With trace=True, TRACE-level records are enabled."""
-        from agentfox.core.logging import TRACE, setup_logging
-
-        setup_logging(verbose=False, quiet=False, trace=True)
-        agent_logger = logging.getLogger("agentfox")
-        assert agent_logger.isEnabledFor(TRACE)
+        with pytest.raises(TypeError):
+            setup_logging(trace=True)  # type: ignore[call-arg]
 
 
 # ---------------------------------------------------------------------------
-# TRACE emission gating
+# TRACE constant removed
 # ---------------------------------------------------------------------------
 
 
-class TestTraceLevelEmission:
-    """TRACE records are only emitted when the logger level is TRACE."""
+class TestTraceConstantRemoved:
+    """TRACE constant no longer exported from agentfox.core.logging."""
 
-    def test_trace_not_emitted_at_debug_level(self, caplog: pytest.LogCaptureFixture) -> None:
-        """At DEBUG level, TRACE records must not be captured."""
-        from agentfox.core.logging import TRACE, setup_logging
+    def test_trace_import_raises_import_error(self) -> None:
+        """from agentfox.core.logging import TRACE must raise ImportError."""
+        with pytest.raises(ImportError):
+            from agentfox.core.logging import TRACE  # noqa: F401
 
-        setup_logging(verbose=True, quiet=False, trace=False)
+    def test_level_5_not_named_trace(self) -> None:
+        """logging.getLevelName(5) must NOT return 'TRACE' after module import."""
+        import agentfox.core.logging  # noqa: F401
 
-        with caplog.at_level(logging.DEBUG, logger="agentfox"):
-            logging.getLogger("agentfox.test_sentinel").log(TRACE, "bulk payload dump")
-
-        trace_records = [r for r in caplog.records if r.levelno == TRACE]
-        assert trace_records == [], "TRACE records must not be emitted at DEBUG level"
-
-    def test_trace_emitted_at_trace_level(self, caplog: pytest.LogCaptureFixture) -> None:
-        """At TRACE level, TRACE records must be captured."""
-        from agentfox.core.logging import TRACE, setup_logging
-
-        setup_logging(verbose=False, quiet=False, trace=True)
-
-        with caplog.at_level(TRACE, logger="agentfox"):
-            logging.getLogger("agentfox.test_sentinel").log(TRACE, "bulk payload dump")
-
-        trace_records = [r for r in caplog.records if r.levelno == TRACE]
-        assert len(trace_records) == 1
-        assert "bulk payload dump" in trace_records[0].message
+        name = logging.getLevelName(5)
+        assert name != "TRACE", f"Expected level 5 not to be 'TRACE', got {name!r}"

@@ -159,15 +159,15 @@ class TestGlobalOptions:
         )
         assert "--quiet" in result.stdout or "-q" in result.stdout
 
-    def test_help_contains_trace_flag(self) -> None:
-        """--trace must be present in help output (common_options)."""
+    def test_help_does_not_contain_trace_flag(self) -> None:
+        """--trace must NOT be present in help output (removed dead flag)."""
         result = subprocess.run(
             [sys.executable, "-m", "nightshift", "--help"],
             capture_output=True,
             text=True,
             timeout=30,
         )
-        assert "--trace" in result.stdout
+        assert "--trace" not in result.stdout
 
     def test_help_contains_version_flag(self) -> None:
         result = subprocess.run(
@@ -554,7 +554,6 @@ class TestBehavioralParity:
             (["--quiet", "--help"], 0),
             (["--json", "--help"], 0),
             (["--verbose", "--help"], 0),
-            (["--trace", "--help"], 0),
             (["--quiet", "--verbose", "--help"], 0),
             (["--json", "--verbose", "--help"], 0),
         ],

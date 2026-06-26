@@ -123,37 +123,27 @@ class TestVersionFlagSkipsBanner:
         assert "/\\_/\\" not in result.output, f"Fox art should not appear with --version, got:\n{result.output!r}"
 
 
-class TestTraceFlagWiring:
-    """--trace flag wires through to setup_logging() and ctx.obj (issue #410)."""
+class TestTraceFlagRemoved:
+    """--trace flag has been removed (issue #650)."""
 
-    def test_trace_flag_accepted(self, cli_runner: CliRunner) -> None:
-        """--trace is a valid CLI flag and exits with code 0."""
-        result = cli_runner.invoke(main, ["--trace", "--quiet"])
-        assert result.exit_code == 0, f"--trace should be accepted, got: {result.output!r}"
+    def test_trace_flag_not_in_help(self, cli_runner: CliRunner) -> None:
+        """--trace must NOT appear in af --help output after removal."""
+        result = cli_runner.invoke(main, ["--help"])
+        assert result.exit_code == 0
+        assert "--trace" not in result.output, f"--trace must be absent from help, got:\n{result.output!r}"
 
-    def test_trace_calls_setup_logging_with_trace_true(self, cli_runner: CliRunner) -> None:
-        """--trace passes trace=True to setup_logging()."""
-        with patch("af.app.setup_logging") as mock_setup:
-            cli_runner.invoke(main, ["--trace", "--quiet"])
-
-        mock_setup.assert_called_once()
-        call_kwargs = mock_setup.call_args.kwargs
-        assert call_kwargs.get("trace") is True, f"Expected trace=True in setup_logging call, got: {call_kwargs}"
-
-    def test_no_trace_calls_setup_logging_with_trace_false(self, cli_runner: CliRunner) -> None:
-        """Without --trace, setup_logging() receives trace=False."""
+    def test_setup_logging_called_without_trace_kwarg(self, cli_runner: CliRunner) -> None:
+        """setup_logging() must not be called with a trace= kwarg."""
         with patch("af.app.setup_logging") as mock_setup:
             cli_runner.invoke(main, ["--quiet"])
 
         mock_setup.assert_called_once()
         call_kwargs = mock_setup.call_args.kwargs
-        assert call_kwargs.get("trace") is False, f"Expected trace=False in setup_logging call, got: {call_kwargs}"
+        assert "trace" not in call_kwargs, f"setup_logging must not receive trace kwarg, got: {call_kwargs}"
 
-    def test_trace_stored_in_ctx_obj(self, cli_runner: CliRunner) -> None:
-        """--trace is stored as ctx.obj['trace'] = True for subcommands."""
+    def test_ctx_obj_does_not_have_trace_key(self, cli_runner: CliRunner) -> None:
+        """ctx.obj must not contain a 'trace' key."""
         captured: dict = {}
-
-        import click
 
         @click.command("probe")
         @click.pass_context
@@ -162,32 +152,11 @@ class TestTraceFlagWiring:
 
         main.add_command(probe, name="probe")
         try:
-            cli_runner.invoke(main, ["--trace", "probe"])
+            cli_runner.invoke(main, ["--quiet", "probe"])
         finally:
             main.commands.pop("probe", None)
 
-        assert captured.get("trace") is True, f"Expected ctx.obj['trace']=True, got: {captured}"
-
-    def test_trace_sets_log_level_to_trace(self, cli_runner: CliRunner) -> None:
-        """--trace sets the agent_fox logger to TRACE level."""
-        import logging
-
-        from agentfox.core.logging import TRACE
-
-        cli_runner.invoke(main, ["--trace", "--quiet"])
-        agent_logger = logging.getLogger("agentfox")
-        assert agent_logger.level == TRACE
-
-    def test_verbose_alone_does_not_set_trace(self, cli_runner: CliRunner) -> None:
-        """--verbose alone does not enable TRACE-level output."""
-        import logging
-
-        from agentfox.core.logging import TRACE
-
-        cli_runner.invoke(main, ["--verbose", "--quiet"])
-        agent_logger = logging.getLogger("agentfox")
-        assert agent_logger.level == logging.DEBUG
-        assert agent_logger.level != TRACE
+        assert "trace" not in captured, f"ctx.obj must not contain 'trace', got: {captured}"
 
 
 class TestConfigAutoDiscovery:

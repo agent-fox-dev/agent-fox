@@ -42,7 +42,7 @@ class _UniqueParamList(list):
 
 
 def common_options(fn: Any) -> Any:
-    """Add --verbose, --quiet, --trace, and --json/--no-json flags.
+    """Add --verbose, --quiet, and --json/--no-json flags.
 
     Must be applied to a Click Group (the root group), not a subcommand.
     Raises ``TypeError`` if applied to a non-Group ``click.Command``.
@@ -86,11 +86,6 @@ def common_options(fn: Any) -> Any:
         )(fn)
     else:
         logger.debug("Skipping --json/--no-json: name collision with existing flag")
-
-    if "trace" not in existing_names:
-        fn = click.option("--trace", is_flag=True, default=False, help="Enable trace logging")(fn)
-    else:
-        logger.debug("Skipping --trace: name collision with existing flag")
 
     if "quiet" not in existing_names:
         fn = click.option(
@@ -168,13 +163,11 @@ class AgentFoxGroup(click.Group):
             quiet = ctx.params.get("quiet", False) or False
 
         verbose = ctx.params.get("verbose", False) or False
-        trace = ctx.params.get("trace", False) or False
 
         return {
             "json_mode": bool(json_mode),
             "quiet": bool(quiet),
             "verbose": bool(verbose),
-            "trace": bool(trace),
             "agent_mode": af_agent or bool(json_mode),
         }
 
@@ -201,14 +194,13 @@ class AgentFoxGroup(click.Group):
             json_mode=flags["json_mode"],
             quiet=flags["quiet"],
             verbose=flags["verbose"],
-            trace=flags["trace"],
         )
         ctx.obj["output"] = om
 
         try:
             from agentfox.core.logging import setup_logging
 
-            setup_logging(verbose=flags["verbose"], quiet=flags["quiet"], trace=flags["trace"])
+            setup_logging(verbose=flags["verbose"], quiet=flags["quiet"])
         except ImportError:
             pass
 

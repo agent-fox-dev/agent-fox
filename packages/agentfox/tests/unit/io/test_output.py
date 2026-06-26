@@ -25,17 +25,30 @@ from tests.unit.io.conftest import capture_stderr, capture_stdout
 class TestOutputManagerFields:
     """TS-03-4: Verify OutputManager fields with correct types."""
 
-    def test_all_five_fields_accessible(self) -> None:
-        """03-REQ-2.1: All five fields are accessible on every OutputManager instance."""
+    def test_all_fields_accessible(self) -> None:
+        """03-REQ-2.1: All fields are accessible on every OutputManager instance."""
         from agentfox.io import OutputManager
         from rich.console import Console
 
-        om = OutputManager(json_mode=True, quiet=False, verbose=False, trace=False)
+        om = OutputManager(json_mode=True, quiet=False, verbose=False)
         assert isinstance(om.json_mode, bool)
         assert isinstance(om.quiet, bool)
         assert isinstance(om.verbose, bool)
-        assert isinstance(om.trace, bool)
         assert isinstance(om.console, Console)
+
+    def test_trace_attr_absent(self) -> None:
+        """NS-REQ-2.1: OutputManager must not have a trace attribute."""
+        from agentfox.io import OutputManager
+
+        om = OutputManager()
+        assert not hasattr(om, "trace"), "OutputManager must not expose a 'trace' attribute"
+
+    def test_trace_kwarg_raises_type_error(self) -> None:
+        """NS-REQ-2.1: Passing trace=False raises TypeError."""
+        from agentfox.io import OutputManager
+
+        with pytest.raises(TypeError):
+            OutputManager(trace=False)  # type: ignore[call-arg]
 
 
 class TestAgentFoxGroupOutputManagerConstruction:
@@ -77,7 +90,7 @@ class TestGetOutputManagerFallback:
         assert om.json_mode is False
         assert om.quiet is False
         assert om.verbose is False
-        assert om.trace is False
+        assert not hasattr(om, "trace")
 
 
 class TestAgentFoxGroupNonDictCtxObj:
@@ -119,7 +132,7 @@ class TestEmitJsonWritesWhenJsonMode:
         """03-REQ-4.1: JSON string with 2-space indentation to stdout."""
         from agentfox.io import OutputManager
 
-        om = OutputManager(json_mode=True, quiet=False, verbose=False, trace=False)
+        om = OutputManager(json_mode=True, quiet=False, verbose=False)
         with capture_stdout() as out:
             om.emit_json({"key": "value"})
         output = out.getvalue()
@@ -135,7 +148,7 @@ class TestEmitJsonNoop:
         """03-REQ-4.2: Nothing is written to stdout."""
         from agentfox.io import OutputManager
 
-        om = OutputManager(json_mode=False, quiet=False, verbose=False, trace=False)
+        om = OutputManager(json_mode=False, quiet=False, verbose=False)
         with capture_stdout() as out:
             om.emit_json({"key": "value"})
         assert out.getvalue() == ""
@@ -148,7 +161,7 @@ class TestEmitHumanWritesWhenNotJsonMode:
         """03-REQ-4.3: Plain text string is written to stdout."""
         from agentfox.io import OutputManager
 
-        om = OutputManager(json_mode=False, quiet=False, verbose=False, trace=False)
+        om = OutputManager(json_mode=False, quiet=False, verbose=False)
         with capture_stdout() as out:
             om.emit_human("Hello world")
         assert "Hello world" in out.getvalue()
@@ -161,7 +174,7 @@ class TestEmitHumanNoop:
         """03-REQ-4.4: Nothing is written to stdout."""
         from agentfox.io import OutputManager
 
-        om = OutputManager(json_mode=True, quiet=False, verbose=False, trace=False)
+        om = OutputManager(json_mode=True, quiet=False, verbose=False)
         with capture_stdout() as out:
             om.emit_human("Hello world")
         assert out.getvalue() == ""
@@ -179,7 +192,7 @@ class TestEmitDispatchJsonMode:
         def human_fn() -> None:
             called.append(True)
 
-        om = OutputManager(json_mode=True, quiet=False, verbose=False, trace=False)
+        om = OutputManager(json_mode=True, quiet=False, verbose=False)
         with capture_stdout() as out:
             om.emit({"key": "value"}, human_fn=human_fn)
         assert json.loads(out.getvalue()) == {"key": "value"}
@@ -198,7 +211,7 @@ class TestEmitDispatchHumanMode:
         def human_fn() -> None:
             called.append(True)
 
-        om = OutputManager(json_mode=False, quiet=False, verbose=False, trace=False)
+        om = OutputManager(json_mode=False, quiet=False, verbose=False)
         with capture_stdout() as out:
             om.emit({"key": "value"}, human_fn=human_fn)
         assert len(called) == 1
@@ -212,7 +225,7 @@ class TestEmitDispatchNoopWhenNoHumanFn:
         """03-REQ-4.7: No output produced; no exception raised."""
         from agentfox.io import OutputManager
 
-        om = OutputManager(json_mode=False, quiet=False, verbose=False, trace=False)
+        om = OutputManager(json_mode=False, quiet=False, verbose=False)
         with capture_stdout() as out:
             om.emit({"key": "value"}, human_fn=None)  # should not raise
         assert out.getvalue() == ""
@@ -235,7 +248,7 @@ class TestBannerSuppression:
         """03-REQ-4.8: Banner written to stderr only for (json_mode=False, quiet=False)."""
         from agentfox.io import OutputManager
 
-        om = OutputManager(json_mode=json_mode, quiet=quiet, verbose=False, trace=False)
+        om = OutputManager(json_mode=json_mode, quiet=quiet, verbose=False)
         with capture_stderr() as err:
             om.banner()
         if expect_output:
@@ -251,7 +264,7 @@ class TestStatusSuppression:
         """03-REQ-4.9: No output when quiet=True."""
         from agentfox.io import OutputManager
 
-        om = OutputManager(json_mode=False, quiet=True, verbose=False, trace=False)
+        om = OutputManager(json_mode=False, quiet=True, verbose=False)
         with capture_stderr() as err:
             om.status("Processing...")
         assert err.getvalue() == ""
@@ -260,7 +273,7 @@ class TestStatusSuppression:
         """03-REQ-4.9: Message written to stderr when quiet=False."""
         from agentfox.io import OutputManager
 
-        om = OutputManager(json_mode=False, quiet=False, verbose=False, trace=False)
+        om = OutputManager(json_mode=False, quiet=False, verbose=False)
         with capture_stderr() as err:
             om.status("Processing...")
         assert "Processing..." in err.getvalue()
@@ -282,7 +295,7 @@ class TestGetOutputManagerFallbackIgnoresAfAgent:
             assert om.json_mode is False
             assert om.quiet is False
             assert om.verbose is False
-            assert om.trace is False
+            assert not hasattr(om, "trace")
 
 
 class TestSetupLoggingCalledByAgentFoxGroup:
@@ -313,4 +326,4 @@ class TestSetupLoggingCalledByAgentFoxGroup:
         assert len(calls) == 1
         assert calls[0].get("verbose") is True
         assert calls[0].get("quiet") is False
-        assert calls[0].get("trace") is False
+        assert "trace" not in calls[0]
