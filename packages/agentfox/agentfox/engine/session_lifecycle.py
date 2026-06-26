@@ -979,12 +979,6 @@ class NodeSessionRunner:
 
                 findings = query_findings_by_session(conn, node_id)
                 return generate_archetype_summary("reviewer", findings=findings)
-
-            if self._archetype == "verifier":
-                from agentfox.knowledge.review_store import query_verdicts_by_session
-
-                verdicts = query_verdicts_by_session(conn, node_id)
-                return generate_archetype_summary("verifier", verdicts=verdicts)
         except Exception:
             logger.warning(
                 "Failed to generate archetype summary for %s (%s)",

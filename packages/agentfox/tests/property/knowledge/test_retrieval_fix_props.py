@@ -188,58 +188,8 @@ class TestNoDuplicationReviewCrossGroup:
             conn.close()
 
 
-# ---------------------------------------------------------------------------
-# TS-120-P3: Prior-Run Findings Never Tracked
-# ---------------------------------------------------------------------------
-
-
-class TestPriorRunFindingsNeverTracked:
-    """Prior-run finding IDs never appear in finding_injections.
-
-    Property 6: After retrieve(), finding_injections contains no prior-run IDs.
-
-    Requirements: 120-REQ-4.4
-    """
-
-    @given(
-        num_prior_findings=st.integers(min_value=1, max_value=5),
-    )
-    @settings(max_examples=5)
-    def test_prior_run_ids_not_tracked(self, num_prior_findings: int) -> None:
-        conn, db = _fresh_db()
-        try:
-            from agentfox.engine.state import complete_run, create_run
-
-            # Create and complete a prior run
-            create_run(conn, "prior_run", "hash_prior")
-            complete_run(conn, "prior_run", "stalled")
-
-            prior_ids: set[str] = set()
-            for i in range(num_prior_findings):
-                fid = _insert_finding_direct(
-                    conn,
-                    spec_name="test_spec",
-                    severity="critical",
-                    description=f"Prior finding {i}",
-                    session_id="prior_session",
-                )
-                prior_ids.add(fid)
-
-            # Create current run
-            create_run(conn, "current_run", "hash_current")
-
-            provider = FoxKnowledgeProvider(db, KnowledgeProviderConfig())
-            provider.set_run_id("current_run")
-            provider.retrieve("test_spec", "test", task_group="1", session_id="sess-1")
-
-            injected = conn.execute("SELECT finding_id FROM finding_injections").fetchall()
-            injected_ids = {row[0] for row in injected}
-
-            assert prior_ids.isdisjoint(injected_ids), (
-                f"Prior-run IDs leaked into finding_injections: {prior_ids & injected_ids}"
-            )
-        finally:
-            conn.close()
+# TS-120-P3 (Prior-Run Findings Never Tracked) removed — the prior-run
+# filtering pipeline was deleted when verification_results was dropped.
 
 
 # ---------------------------------------------------------------------------
@@ -248,10 +198,11 @@ class TestPriorRunFindingsNeverTracked:
 
 
 class TestArchetypeSummaryCompleteness:
-    """generate_archetype_summary always returns a non-empty string.
+    """generate_archetype_summary returns a non-empty string when items exist.
 
     Property 3: For any archetype in {"reviewer", "verifier"}, findings/verdicts
-    list of length 0..20, the return value is a non-empty string.
+    list of length 1..20, the return value is a non-empty string. For length 0
+    the return value is None (trivial session — no actionable content).
 
     Requirements: 120-REQ-3.1, 120-REQ-3.2, 120-REQ-3.E1, 120-REQ-3.E2
     """
@@ -274,8 +225,11 @@ class TestArchetypeSummaryCompleteness:
             for i in range(num_items)
         ]
         summary = _generate_archetype_summary("reviewer", findings=findings)
-        assert isinstance(summary, str)
-        assert len(summary) > 0
+        if num_items == 0:
+            assert summary is None
+        else:
+            assert isinstance(summary, str)
+            assert len(summary) > 0
 
     @given(
         num_items=st.integers(min_value=0, max_value=20),
@@ -295,5 +249,8 @@ class TestArchetypeSummaryCompleteness:
             for i in range(num_items)
         ]
         summary = _generate_archetype_summary("verifier", verdicts=verdicts)
-        assert isinstance(summary, str)
-        assert len(summary) > 0
+        if num_items == 0:
+            assert summary is None
+        else:
+            assert isinstance(summary, str)
+            assert len(summary) > 0

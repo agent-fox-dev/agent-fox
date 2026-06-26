@@ -254,7 +254,7 @@ The system uses a modular architecture.
 
 ## File References
 
-**`packages/agentfox/agentfox/session/context.py`** (modified)
+**`agentfox/session/context.py`** (modified)
 """
 
 # ---------------------------------------------------------------------------

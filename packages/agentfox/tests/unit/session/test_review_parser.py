@@ -16,7 +16,6 @@ from agentfox.session.review_parser import (
     parse_legacy_review_md,
     parse_legacy_verification_md,
     parse_review_output,
-    parse_verification_output,
 )
 
 
@@ -71,37 +70,6 @@ That's all.
         assert findings[0].severity == "minor"
 
 
-class TestParseVerifierJson:
-    """TS-27-4: parse Verifier JSON output."""
-
-    def test_parse_verifier_json(self) -> None:
-        """Valid JSON with verdicts array is parsed correctly."""
-        response = """
-```json
-{
-  "verdicts": [
-    {
-      "requirement_id": "05-REQ-1.1",
-      "verdict": "PASS",
-      "evidence": "Test passes"
-    },
-    {
-      "requirement_id": "05-REQ-2.1",
-      "verdict": "FAIL",
-      "evidence": "Not implemented"
-    }
-  ]
-}
-```
-"""
-        verdicts = parse_verification_output(response, "test_spec", "1", "s1")
-        assert len(verdicts) == 2
-        assert verdicts[0].requirement_id == "05-REQ-1.1"
-        assert verdicts[0].verdict == "PASS"
-        assert verdicts[0].evidence == "Test passes"
-        assert verdicts[1].verdict == "FAIL"
-
-
 class TestValidateSchemaRejects:
     """TS-27-5: invalid JSON blocks are rejected."""
 
@@ -116,20 +84,6 @@ class TestValidateSchemaRejects:
         response = '```json\n[{"severity": "major"}]\n```'
         findings = parse_review_output(response, "s", "1", "s1")
         assert len(findings) == 0
-
-    def test_missing_requirement_id_rejected(self) -> None:
-        """Verdict without requirement_id is skipped."""
-        response = '```json\n[{"verdict": "PASS"}]\n```'
-        verdicts = parse_verification_output(response, "s", "1", "s1")
-        assert len(verdicts) == 0
-
-    def test_invalid_verdict_normalized_to_fail(self) -> None:
-        """Verdict with non-PASS/FAIL value is normalized to FAIL (not skipped)."""
-        response = '```json\n[{"requirement_id": "X", "verdict": "MAYBE"}]\n```'
-        verdicts = parse_verification_output(response, "s", "1", "s1")
-        assert len(verdicts) == 1
-        assert verdicts[0].verdict == "FAIL"
-
 
 class TestNoValidJsonReturnsEmpty:
     """TS-27-E3: no valid JSON blocks in agent output."""
@@ -194,38 +148,6 @@ class TestReviewerTemplateJson:
         )
         content = template_path.read_text(encoding="utf-8")
         assert "read-only" in content.lower() or "read only" in content.lower() or "do not" in content.lower()
-
-
-class TestVerifierTemplateJson:
-    """TS-27-16: Verifier template instructs JSON output."""
-
-    def test_verifier_template_json(self) -> None:
-        """Verifier template contains JSON output instructions."""
-        template_path = (
-            Path(__file__).resolve().parent.parent.parent.parent
-            / "agentfox"
-            / "_templates"
-            / "profiles"
-            / "verifier.md"
-        )
-        content = template_path.read_text(encoding="utf-8")
-        assert '"verdicts"' in content
-        assert '"requirement_id"' in content
-        assert '"verdict"' in content
-        assert "json" in content.lower()
-
-    def test_verifier_template_constraints(self) -> None:
-        """Verifier template retains verification process guidance."""
-        template_path = (
-            Path(__file__).resolve().parent.parent.parent.parent
-            / "agentfox"
-            / "_templates"
-            / "profiles"
-            / "verifier.md"
-        )
-        content = template_path.read_text(encoding="utf-8")
-        assert "PASS" in content
-        assert "FAIL" in content
 
 
 class TestJsonPreferredOverFile:

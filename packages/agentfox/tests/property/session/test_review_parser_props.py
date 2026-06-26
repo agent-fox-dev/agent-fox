@@ -11,7 +11,6 @@ import json
 from agentfox.knowledge.review_store import VALID_SEVERITIES
 from agentfox.session.review_parser import (
     parse_review_output,
-    parse_verification_output,
 )
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -37,17 +36,6 @@ def valid_finding_json(draw: st.DrawFn) -> dict:
     return result
 
 
-@st.composite
-def valid_verdict_json(draw: st.DrawFn) -> dict:
-    """Generate a valid verdict JSON object."""
-    req_id = draw(st.from_regex(r"[A-Z0-9]+-REQ-[0-9]+\.[0-9]+", fullmatch=True))
-    verdict = draw(st.sampled_from(["PASS", "FAIL"]))
-    result: dict = {"requirement_id": req_id, "verdict": verdict}
-    if draw(st.booleans()):
-        ev_alpha = st.characters(whitelist_categories=("L", "N", "P", "Z"))
-        result["evidence"] = draw(st.text(min_size=1, max_size=100, alphabet=ev_alpha))
-    return result
-
 
 class TestParseRoundtripFidelity:
     """TS-27-P2: Property 2 — Parse-Roundtrip Fidelity.
@@ -67,17 +55,6 @@ class TestParseRoundtripFidelity:
         assert f.description == finding_data["description"]
         assert f.requirement_ref == finding_data.get("requirement_ref")
 
-    @given(verdict_data=valid_verdict_json())
-    @settings(max_examples=30)
-    def test_verdict_roundtrip(self, verdict_data: dict) -> None:
-        """Parsed verdict matches original JSON data."""
-        response = f"```json\n{json.dumps({'verdicts': [verdict_data]})}\n```"
-        verdicts = parse_verification_output(response, "spec", "1", "session")
-        assert len(verdicts) == 1
-        v = verdicts[0]
-        assert v.requirement_id == verdict_data["requirement_id"]
-        assert v.verdict == verdict_data["verdict"]
-        assert v.evidence == verdict_data.get("evidence")
 
 
 class TestSeverityNormalization:

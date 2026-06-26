@@ -20,7 +20,7 @@ import json
 import logging
 import re
 import uuid
-from collections.abc import Callable, Iterator
+from collections.abc import Iterator
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -29,9 +29,7 @@ if TYPE_CHECKING:
     from agentfox.session.convergence import AuditResult
 
 from agentfox.core.json_extraction import extract_json_array
-from agentfox.knowledge.audit import AuditEvent, AuditEventType, AuditSeverity
 from agentfox.knowledge.review_store import (
-    VALID_VERDICTS,
     DriftFinding,
     ReviewFinding,
     VerificationResult,
@@ -243,8 +241,7 @@ def _iter_valid_items(
 ) -> Iterator[dict]:
     """Validate, normalize keys, and yield dicts that have all required fields.
 
-    Shared loop for parse_review_findings, parse_verification_results,
-    and parse_drift_findings.
+    Shared loop for parse_review_findings and parse_drift_findings.
     """
     for obj in json_objects:
         if not isinstance(obj, dict):
@@ -301,79 +298,6 @@ def parse_review_findings(
                 task_group=item_task_group,  # type: ignore[arg-type]
                 session_id=session_id,
                 category=_classify_category(description),
-            )
-        )
-    return results
-
-
-def parse_verification_results(
-    json_objects: list[dict],
-    spec_name: str,
-    task_group: int | str,
-    session_id: str,
-    *,
-    emit_audit_event: Callable[[AuditEvent], None] | None = None,
-) -> list[VerificationResult]:
-    """Parse a list of dicts into VerificationResult instances.
-
-    Required fields: ``requirement_id``, ``verdict`` (PASS or FAIL).
-    Optional fields: ``evidence``.
-
-    Non-standard verdict values are normalized to ``FAIL``. When
-    *emit_audit_event* is provided, a VERDICT_NORMALIZED event is emitted
-    for each coerced verdict.
-
-    Requirements: 53-REQ-4.2
-    """
-    results: list[VerificationResult] = []
-    for obj in _iter_valid_items(json_objects, ("requirement_id", "verdict"), "verification result"):
-        raw_verdict = str(obj["verdict"])
-        original_upper = raw_verdict.upper().strip()
-        verdict_was_coerced = original_upper not in VALID_VERDICTS
-        if verdict_was_coerced:
-            logger.warning(
-                "Invalid verdict '%s' normalized to 'FAIL' (must be PASS or FAIL)",
-                raw_verdict,
-            )
-        verdict_val = original_upper if not verdict_was_coerced else "FAIL"
-
-        req_id = truncate_field(
-            str(obj["requirement_id"]),
-            max_length=MAX_REF_LENGTH,
-            field_name="verdict.requirement_id",
-        )
-
-        if verdict_was_coerced and emit_audit_event is not None:
-            emit_audit_event(
-                AuditEvent(
-                    run_id="",
-                    event_type=AuditEventType.VERDICT_NORMALIZED,
-                    severity=AuditSeverity.WARNING,
-                    session_id=session_id,
-                    payload={
-                        "original_verdict": original_upper,
-                        "normalized_verdict": verdict_val,
-                        "requirement_id": req_id,
-                    },
-                )
-            )
-
-        evidence = obj.get("evidence")
-        if isinstance(evidence, str):
-            evidence = truncate_field(
-                evidence,
-                max_length=MAX_EVIDENCE_LENGTH,
-                field_name="verdict.evidence",
-            )
-        results.append(
-            VerificationResult(
-                id=str(uuid.uuid4()),
-                requirement_id=req_id,
-                verdict=verdict_val,
-                evidence=evidence,
-                spec_name=spec_name,
-                task_group=task_group,  # type: ignore[arg-type]
-                session_id=session_id,
             )
         )
     return results
@@ -638,28 +562,6 @@ def parse_review_output(
     if not findings:
         logger.warning("No valid findings extracted from Skeptic output")
     return findings
-
-
-def parse_verification_output(
-    response: str,
-    spec_name: str,
-    task_group: str,
-    session_id: str,
-) -> list[VerificationResult]:
-    """Extract VerificationResult objects from agent response JSON.
-
-    Looks for a JSON object with a "verdicts" array, or a bare JSON array
-    of verdict objects. Each verdict must have "requirement_id" and "verdict".
-
-    Returns empty list if no valid JSON found (27-REQ-3.E1).
-
-    Requirements: 27-REQ-3.2, 27-REQ-3.3, 27-REQ-3.E1
-    """
-    items = _unwrap_items(response, "verdicts", ("requirement_id",), "Verifier")
-    verdicts = parse_verification_results(items, spec_name, task_group, session_id)
-    if not verdicts:
-        logger.warning("No valid verdicts extracted from Verifier output")
-    return verdicts
 
 
 def parse_oracle_output(

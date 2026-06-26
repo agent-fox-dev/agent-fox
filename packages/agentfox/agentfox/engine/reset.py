@@ -39,7 +39,6 @@ _SESSION_TABLES_ALL = (
     "runs",
     "session_outcomes",
     "review_findings",
-    "verification_results",
     "drift_findings",
 )
 

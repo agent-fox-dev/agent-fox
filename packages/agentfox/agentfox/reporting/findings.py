@@ -106,7 +106,6 @@ def query_findings(
 
     # Determine which tables to include
     include_pre_review = archetype is None or archetype in ("reviewer", "reviewer/pre-review")
-    include_verifier = archetype is None or archetype == "verifier"
     include_drift_review = archetype is None or archetype in ("reviewer", "reviewer/drift-review")
 
     severity_threshold: int | None = SEVERITY_ORDER.get(severity) if severity else None
@@ -115,9 +114,6 @@ def query_findings(
 
     if include_pre_review:
         rows.extend(_query_review_findings(conn, spec, severity_threshold, active_only))
-
-    if include_verifier:
-        rows.extend(_query_verification_results(conn, spec, severity_threshold, active_only))
 
     if include_drift_review:
         rows.extend(_query_drift_findings(conn, spec, severity_threshold, active_only))
@@ -174,64 +170,6 @@ def _query_review_findings(
                 spec_name=spec_name,
                 task_group=task_group,
                 description=desc,
-                created_at=created_at,
-            )
-        )
-    return rows
-
-
-def _query_verification_results(
-    conn: Any,
-    spec: str | None,
-    severity_threshold: int | None,
-    active_only: bool,
-) -> list[FindingRow]:
-    """Query the verification_results table (verifier archetype).
-
-    Maps VerificationResult to FindingRow:
-    - severity: "major" for FAIL, "minor" for PASS
-    - description: "<requirement_id>: <verdict>"
-    """
-    conditions: list[str] = []
-    params: list[Any] = []
-
-    if active_only:
-        conditions.append("superseded_by IS NULL")
-    if spec:
-        conditions.append("spec_name = ?")
-        params.append(spec)
-
-    where = _build_where(conditions)
-    sql = (
-        f"SELECT id, requirement_id, verdict, evidence, spec_name, task_group, created_at "
-        f"FROM verification_results {where} ORDER BY created_at DESC"
-    )
-
-    try:
-        result = conn.execute(sql, params).fetchall()
-    except Exception:
-        logger.warning("Failed to query verification_results", exc_info=True)
-        return []
-
-    rows = []
-    for row_id, req_id, verdict, evidence, spec_name, task_group, created_at in result:
-        # Map verdict to severity for unified display
-        severity = "major" if verdict == "FAIL" else "minor"
-        if severity_threshold is not None:
-            row_sev_order = SEVERITY_ORDER.get(severity, 999)
-            if row_sev_order > severity_threshold:
-                continue
-        description = f"{req_id}: {verdict}"
-        if evidence:
-            description = f"{description} — {evidence}"
-        rows.append(
-            FindingRow(
-                id=str(row_id),
-                severity=severity,
-                archetype="verifier",
-                spec_name=spec_name,
-                task_group=task_group,
-                description=description,
                 created_at=created_at,
             )
         )
@@ -422,31 +360,6 @@ def lookup_finding_by_id(
             )
     except Exception:
         logger.warning("Failed to query drift_findings by ID", exc_info=True)
-
-    # Try verification_results (verifier archetype)
-    try:
-        row = conn.execute(
-            "SELECT id, requirement_id, verdict, evidence, spec_name, task_group, created_at "  # noqa: S608
-            "FROM verification_results WHERE id::VARCHAR = ?",
-            [finding_id],
-        ).fetchone()
-        if row is not None:
-            row_id, req_id, verdict, evidence, spec_name, task_group, created_at = row
-            severity = "major" if verdict == "FAIL" else "minor"
-            description = f"{req_id}: {verdict}"
-            if evidence:
-                description = f"{description} — {evidence}"
-            return FindingRow(
-                id=str(row_id),
-                severity=severity,
-                archetype="verifier",
-                spec_name=spec_name,
-                task_group=task_group,
-                description=description,
-                created_at=created_at,
-            )
-    except Exception:
-        logger.warning("Failed to query verification_results by ID", exc_info=True)
 
     return None
 

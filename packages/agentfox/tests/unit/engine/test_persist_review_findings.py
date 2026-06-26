@@ -77,47 +77,7 @@ class TestPersistSkepticFindings:
         assert rows[0] == 0
 
 
-class TestPersistVerifierVerdicts:
-    """Verifier verdicts are parsed from JSON and inserted into verification_results."""
-
-    def test_verdicts_persisted(self, knowledge_db: KnowledgeDB) -> None:
-        runner = NodeSessionRunner(
-            "my_spec:7",
-            AgentFoxConfig(),
-            archetype="verifier",
-            knowledge_db=knowledge_db,
-        )
-        transcript = json.dumps(
-            {
-                "verdicts": [
-                    {
-                        "requirement_id": "01-REQ-1.1",
-                        "verdict": "PASS",
-                        "evidence": "Test passes",
-                    },
-                    {
-                        "requirement_id": "01-REQ-2.1",
-                        "verdict": "FAIL",
-                        "evidence": "Returns None instead of raising",
-                    },
-                ]
-            }
-        )
-        runner._persist_review_findings(transcript, "my_spec:7", 1)
-
-        rows = knowledge_db._conn.execute(  # type: ignore[union-attr]
-            "SELECT requirement_id, verdict, evidence, spec_name, task_group "
-            "FROM verification_results ORDER BY requirement_id"
-        ).fetchall()
-        assert len(rows) == 2
-        assert rows[0] == ("01-REQ-1.1", "PASS", "Test passes", "my_spec", "7")
-        assert rows[1] == (
-            "01-REQ-2.1",
-            "FAIL",
-            "Returns None instead of raising",
-            "my_spec",
-            "7",
-        )
+# TestPersistVerifierVerdicts removed — verification_results table dropped in spec 10.
 
 
 class TestPersistOracleDrift:

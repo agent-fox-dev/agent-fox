@@ -29,16 +29,11 @@ and will fail at runtime after the migration is applied:
 | `engine/reset.py:42` | Table name in reset list | Fails on DB reset |
 | `session/review_parser.py:309,659` | `parse_verification_results()` | Parses verifier output into dropped table |
 
-## Mitigation
+## Resolution
 
-These callers must be updated or removed in a follow-up task group or
-spec before the migration is deployed. Options:
-
-1. **Remove the callers** — delete the functions and their call sites if
-   the verifier archetype no longer writes verdicts.
-2. **Make callers resilient** — wrap queries in try/except or check table
-   existence before querying, returning empty results when the table is
-   absent.
+All callers were removed or updated in issue #647. Functions that existed
+solely to query the dropped table were deleted; functions that queried
+multiple tables had their `verification_results` branch removed.
 
 ## Source
 

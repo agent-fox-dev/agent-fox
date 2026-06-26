@@ -500,29 +500,8 @@ def get_prior_group_findings(
                 table,
             )
 
-    def _map_verification_row(row: tuple) -> PriorFinding:
-        verdict = str(row[1])
-        req_id = str(row[2])
-        evidence = str(row[3]) if row[3] is not None else ""
-        description = f"{req_id}: {verdict}"
-        if evidence:
-            description = f"{req_id}: {verdict} — {evidence}"
-        return PriorFinding(
-            type="verification",
-            group=str(row[4]),
-            severity=verdict,
-            description=description,
-            created_at=str(row[5]) if row[5] is not None else "",
-        )
-
     _query_findings_table("review_findings", "review")
     _query_findings_table("drift_findings", "drift")
-    _query_findings_table(
-        "verification_results",
-        "verification",
-        columns="CAST(id AS VARCHAR), verdict, requirement_id, evidence, task_group, CAST(created_at AS VARCHAR)",
-        row_mapper=_map_verification_row,
-    )
 
     return findings
 

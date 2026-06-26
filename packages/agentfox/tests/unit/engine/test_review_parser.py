@@ -21,7 +21,6 @@ from agentfox.session.review_parser import (
     extract_json_array,
     parse_drift_findings,
     parse_review_findings,
-    parse_verification_results,
 )
 
 # ---------------------------------------------------------------------------
@@ -198,65 +197,6 @@ class TestParseReviewFindings:
         result = parse_review_findings(json_objects, "spec", 1, "sess")
         assert len(result) == 1
         assert result[0].requirement_ref is None
-
-
-# ---------------------------------------------------------------------------
-# parse_verification_results
-# ---------------------------------------------------------------------------
-
-
-class TestParseVerificationResults:
-    """parse_verification_results parses VerificationResult instances."""
-
-    def test_valid_verdict_parsed(self) -> None:
-        """Valid verdict dict is parsed into a VerificationResult."""
-        json_objects = [
-            {
-                "requirement_id": "03-REQ-1.1",
-                "verdict": "PASS",
-                "evidence": "All tests pass",
-            },
-        ]
-        result = parse_verification_results(json_objects, "03_api", 2, "verifier_03_2")
-        assert len(result) == 1
-        assert result[0].requirement_id == "03-REQ-1.1"
-        assert result[0].verdict == "PASS"
-        assert result[0].evidence == "All tests pass"
-        assert result[0].spec_name == "03_api"
-        assert result[0].task_group == 2
-
-    def test_missing_verdict_field_skipped(self) -> None:
-        """Objects missing the verdict field are skipped."""
-        json_objects = [{"requirement_id": "03-REQ-1.1"}]
-        result = parse_verification_results(json_objects, "03_api", 2, "sess")
-        assert len(result) == 0
-
-    def test_missing_requirement_id_skipped(self) -> None:
-        """Objects missing the requirement_id field are skipped."""
-        json_objects = [{"verdict": "PASS"}]
-        result = parse_verification_results(json_objects, "03_api", 2, "sess")
-        assert len(result) == 0
-
-    def test_invalid_verdict_value_normalized_to_fail(self) -> None:
-        """Objects with unrecognised verdict values are normalized to FAIL (not skipped)."""
-        json_objects = [{"requirement_id": "03-REQ-1.1", "verdict": "UNKNOWN"}]
-        result = parse_verification_results(json_objects, "03_api", 2, "sess")
-        assert len(result) == 1
-        assert result[0].verdict == "FAIL"
-
-    def test_fail_verdict_accepted(self) -> None:
-        """FAIL verdict is valid and parsed correctly."""
-        json_objects = [{"requirement_id": "03-REQ-2.1", "verdict": "FAIL"}]
-        result = parse_verification_results(json_objects, "spec", 1, "sess")
-        assert len(result) == 1
-        assert result[0].verdict == "FAIL"
-
-    def test_optional_evidence_defaults_none(self) -> None:
-        """evidence field is optional; defaults to None."""
-        json_objects = [{"requirement_id": "03-REQ-1.1", "verdict": "PASS"}]
-        result = parse_verification_results(json_objects, "spec", 1, "sess")
-        assert len(result) == 1
-        assert result[0].evidence is None
 
 
 # ---------------------------------------------------------------------------

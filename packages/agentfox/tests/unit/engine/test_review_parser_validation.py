@@ -11,7 +11,6 @@ from agentfox.session.review_parser import (
     MAX_REF_LENGTH,
     parse_drift_findings,
     parse_review_findings,
-    parse_verification_results,
 )
 
 
@@ -46,39 +45,6 @@ class TestReviewFindingFieldValidation:
         results = parse_review_findings(objs, "spec-1", "1", "session-1")
         assert results[0].requirement_ref is not None
         assert len(results[0].requirement_ref) == MAX_REF_LENGTH
-
-
-class TestVerificationResultFieldValidation:
-    """parse_verification_results enforces field-level constraints."""
-
-    def test_normal_verdict_parses(self) -> None:
-        objs = [{"requirement_id": "REQ-1", "verdict": "PASS"}]
-        results = parse_verification_results(objs, "spec-1", "1", "session-1")
-        assert len(results) == 1
-
-    def test_oversized_evidence_truncated(self) -> None:
-        from agentfox.session.review_parser import MAX_EVIDENCE_LENGTH
-
-        objs = [
-            {
-                "requirement_id": "REQ-1",
-                "verdict": "PASS",
-                "evidence": "e" * (MAX_EVIDENCE_LENGTH + 500),
-            }
-        ]
-        results = parse_verification_results(objs, "spec-1", "1", "session-1")
-        assert results[0].evidence is not None
-        assert len(results[0].evidence) == MAX_EVIDENCE_LENGTH
-
-    def test_oversized_requirement_id_truncated(self) -> None:
-        objs = [
-            {
-                "requirement_id": "r" * (MAX_REF_LENGTH + 100),
-                "verdict": "FAIL",
-            }
-        ]
-        results = parse_verification_results(objs, "spec-1", "1", "session-1")
-        assert len(results[0].requirement_id) == MAX_REF_LENGTH
 
 
 class TestDriftFindingFieldValidation:

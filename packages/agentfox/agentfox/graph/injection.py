@@ -484,12 +484,6 @@ def print_review_only_summary(conn: Any) -> None:
     ).fetchall()
     finding_counts: dict[str, int] = {row[0]: row[1] for row in finding_rows}
 
-    # Verdicts by status
-    verdict_rows = conn.execute(
-        "SELECT verdict, COUNT(*) FROM verification_results WHERE superseded_by IS NULL GROUP BY verdict"
-    ).fetchall()
-    verdict_counts: dict[str, int] = {row[0]: row[1] for row in verdict_rows}
-
     # Drift findings by severity
     drift_rows = conn.execute(
         "SELECT severity, COUNT(*) FROM drift_findings WHERE superseded_by IS NULL GROUP BY severity"
@@ -502,11 +496,6 @@ def print_review_only_summary(conn: Any) -> None:
     # Findings line
     f_parts = [f"{finding_counts.get(sev, 0)} {sev}" for sev in ("critical", "major", "minor", "observation")]
     print(f"Findings:  {', '.join(f_parts)}")
-
-    # Verdicts line
-    pass_count = verdict_counts.get("PASS", 0)
-    fail_count = verdict_counts.get("FAIL", 0)
-    print(f"Verdicts:  {pass_count} PASS, {fail_count} FAIL")
 
     # Drift line
     d_parts = [f"{drift_counts.get(sev, 0)} {sev}" for sev in ("critical", "major", "minor", "observation")]

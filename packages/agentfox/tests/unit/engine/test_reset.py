@@ -379,11 +379,6 @@ def _seed_session_tables(conn, spec_name: str = "s", node_id: str = "s:1") -> No
         [str(uuid.uuid4()), spec_name, session_id],
     )
     conn.execute(
-        "INSERT INTO verification_results (id, requirement_id, verdict, spec_name, task_group, session_id) "
-        "VALUES (?, 'REQ-1', 'fail', ?, '1', ?)",
-        [str(uuid.uuid4()), spec_name, session_id],
-    )
-    conn.execute(
         "INSERT INTO drift_findings (id, severity, description, spec_name, task_group, session_id) "
         "VALUES (?, 'major', 'stale drift', ?, '1', ?)",
         [str(uuid.uuid4()), spec_name, session_id],
@@ -438,18 +433,6 @@ class TestHardResetClearsSessionTables:
         from agentfox.engine.reset import _SESSION_TABLES_ALL
 
         assert "blocking_history" not in _SESSION_TABLES_ALL
-
-    def test_clears_verification_results(self, tmp_path: Path) -> None:
-        nodes = {"s:1": {"title": "T1"}}
-        db_conn = write_plan_to_db(nodes, [])
-        _seed_session_tables(db_conn)
-        state = _make_state({"s:1": "failed"})
-        state.session_history = []
-
-        with patch("agentfox.engine.reset._load_state_or_raise", return_value=state):
-            hard_reset_all(tmp_path / "wt", tmp_path, tmp_path / "mem.jsonl", db_conn=db_conn)
-
-        assert _count(db_conn, "verification_results") == 0
 
     def test_clears_drift_findings(self, tmp_path: Path) -> None:
         nodes = {"s:1": {"title": "T1"}}

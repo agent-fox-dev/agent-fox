@@ -15,19 +15,17 @@ from unittest.mock import MagicMock, patch
 import pytest
 from agentfox.core.json_extraction import extract_json_array
 from agentfox.knowledge.audit import AuditEventType
-from agentfox.knowledge.review_store import ReviewFinding, VerificationResult
+from agentfox.knowledge.review_store import ReviewFinding
 from agentfox.session.convergence import (
     AuditEntry,
     AuditResult,
     converge_auditor,
     converge_skeptic_records,
-    converge_verifier_records,
 )
 from agentfox.session.review_parser import (
     _unwrap_items,
     parse_drift_findings,
     parse_review_findings,
-    parse_verification_results,
 )
 
 # ---------------------------------------------------------------------------
@@ -52,23 +50,6 @@ def _make_finding(
         session_id=session_id,
     )
 
-
-def _make_verdict(
-    requirement_id: str = "74-REQ-1.1",
-    verdict: str = "PASS",
-    spec_name: str = "test_spec",
-    task_group: str = "1",
-    session_id: str = "sess1",
-) -> VerificationResult:
-    return VerificationResult(
-        id=str(uuid.uuid4()),
-        requirement_id=requirement_id,
-        verdict=verdict,
-        evidence=None,
-        spec_name=spec_name,
-        task_group=task_group,
-        session_id=session_id,
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -230,14 +211,6 @@ class TestFieldLevelCaseNormalization:
         findings = parse_review_findings(items, "spec", "1", "sess1")
         assert len(findings) == 1
         assert findings[0].severity == "major"
-
-    def test_parse_verification_results_mixed_case_keys(self) -> None:
-        """parse_verification_results handles mixed-case field keys."""
-        items = [{"Requirement_Id": "74-REQ-1.1", "Verdict": "PASS"}]
-        verdicts = parse_verification_results(items, "spec", "1", "sess1")
-        assert len(verdicts) == 1
-        assert verdicts[0].requirement_id == "74-REQ-1.1"
-        assert verdicts[0].verdict == "PASS"
 
     def test_parse_drift_findings_mixed_case_keys(self) -> None:
         """parse_drift_findings handles mixed-case field keys."""
@@ -489,30 +462,6 @@ class TestPartialConvergenceSkeptic:
         assert len(filtered) == 1
         merged, _blocked = converge_skeptic_records(filtered, block_threshold=5)
         assert len(merged) == 1
-
-
-# ---------------------------------------------------------------------------
-# TS-74-21: Partial convergence - Verifier (REQ-4.2)
-# ---------------------------------------------------------------------------
-
-
-class TestPartialConvergenceVerifier:
-    """TS-74-21: Verifier convergence proceeds with parseable instances only.
-
-    Requirements: 74-REQ-4.2
-    """
-
-    def test_none_instance_filtered_before_convergence(self) -> None:
-        """Verifier convergence receives only non-None verdict lists."""
-        v_pass = _make_verdict(requirement_id="74-REQ-1.1", verdict="PASS")
-
-        raw_results: list[list[VerificationResult] | None] = [[v_pass], None]
-        filtered = [r for r in raw_results if r is not None]
-
-        assert len(filtered) == 1
-        merged = converge_verifier_records(filtered)
-        assert len(merged) == 1
-        assert merged[0].verdict == "PASS"
 
 
 # ---------------------------------------------------------------------------

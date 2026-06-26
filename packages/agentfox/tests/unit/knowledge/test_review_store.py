@@ -218,7 +218,7 @@ class TestTableNameValidation:
     def test_validate_table_name_accepts_allowed(self) -> None:
         from agentfox.knowledge.review_store import _validate_table_name
 
-        for name in ("review_findings", "drift_findings", "verification_results"):
+        for name in ("review_findings", "drift_findings"):
             _validate_table_name(name)  # should not raise
 
     def test_validate_table_name_rejects_unknown(self) -> None:

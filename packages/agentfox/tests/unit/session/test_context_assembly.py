@@ -132,53 +132,6 @@ def _insert_drift_finding(
         )
 
 
-def _insert_verification_result(
-    conn: duckdb.DuckDBPyConnection,
-    result_id: str,
-    spec_name: str,
-    *,
-    requirement_id: str = "REQ-1",
-    verdict: str = "FAIL",
-    evidence: str = "Test failed",
-    task_group: str = "1",
-    session_id: str = "test-session",
-    created_at: str | None = None,
-) -> None:
-    if created_at:
-        conn.execute(
-            "INSERT INTO verification_results "
-            "(id, requirement_id, verdict, evidence, spec_name, "
-            "task_group, session_id, created_at) "
-            "VALUES (?::UUID, ?, ?, ?, ?, ?, ?, ?::TIMESTAMP)",
-            [
-                result_id,
-                requirement_id,
-                verdict,
-                evidence,
-                spec_name,
-                task_group,
-                session_id,
-                created_at,
-            ],
-        )
-    else:
-        conn.execute(
-            "INSERT INTO verification_results "
-            "(id, requirement_id, verdict, evidence, spec_name, "
-            "task_group, session_id, created_at) "
-            "VALUES (?::UUID, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
-            [
-                result_id,
-                requirement_id,
-                verdict,
-                evidence,
-                spec_name,
-                task_group,
-                session_id,
-            ],
-        )
-
-
 @pytest.fixture
 def schema_conn() -> Generator[duckdb.DuckDBPyConnection, None, None]:
     """In-memory DuckDB with full schema."""
@@ -270,40 +223,6 @@ class TestPriorGroupFindings:
         descriptions = [r.description if hasattr(r, "description") else str(r) for r in result]
         assert any("Drift from group 1" in d for d in descriptions)
         assert any("Drift from group 2" in d for d in descriptions)
-
-    def test_includes_verification_results_from_earlier_groups(
-        self,
-        schema_conn: duckdb.DuckDBPyConnection,
-    ) -> None:
-        """TS-42-17: prior findings include verification results from earlier groups."""
-        id1 = _new_id()
-        id2 = _new_id()
-
-        _insert_verification_result(
-            schema_conn,
-            id1,
-            "test_spec",
-            task_group="1",
-            requirement_id="REQ-1",
-            verdict="FAIL",
-        )
-        _insert_verification_result(
-            schema_conn,
-            id2,
-            "test_spec",
-            task_group="2",
-            requirement_id="REQ-2",
-            verdict="PASS",
-        )
-
-        result = get_prior_group_findings(
-            schema_conn,
-            "test_spec",
-            task_group=3,
-        )
-
-        # Should include verification results from both prior groups
-        assert len(result) >= 2
 
     def test_excludes_current_and_future_groups(
         self,

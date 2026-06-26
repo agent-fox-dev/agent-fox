@@ -192,7 +192,7 @@ class TestDriftReviewGating:
 
         # Create a spec dir with an architecture.md that references an existing file
         # Use injection.py as the existing file reference
-        existing_file = Path("packages/agentfox/agentfox/graph/injection.py")
+        existing_file = Path("agentfox/graph/injection.py")
         spec_dir = tmp_path / "00_hascode"
         spec_dir.mkdir()
         (spec_dir / "architecture.md").write_text(

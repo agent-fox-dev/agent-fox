@@ -30,7 +30,7 @@ VALID_VERDICTS = {"PASS", "FAIL"}
 ACTIONABLE_SEVERITIES: frozenset[str] = frozenset({"critical", "major"})
 
 # Defense-in-depth: only these table names may be interpolated into SQL.
-_ALLOWED_TABLES: frozenset[str] = frozenset({"review_findings", "drift_findings", "verification_results"})
+_ALLOWED_TABLES: frozenset[str] = frozenset({"review_findings", "drift_findings"})
 
 
 def _validate_table_name(table: str) -> None:
@@ -302,11 +302,6 @@ _FINDING_COLS = (
     "spec_name, task_group, session_id, superseded_by::VARCHAR, created_at, category"
 )
 
-_VERDICT_COLS = (
-    "id::VARCHAR, requirement_id, verdict, evidence, "
-    "spec_name, task_group, session_id, superseded_by::VARCHAR, created_at"
-)
-
 _DRIFT_COLS = (
     "id::VARCHAR, severity, description, spec_ref, artifact_ref, "
     "spec_name, task_group, session_id, superseded_by::VARCHAR, created_at"
@@ -408,22 +403,6 @@ def query_findings_by_session(
     return findings
 
 
-def query_verdicts_by_session(
-    conn: duckdb.DuckDBPyConnection,
-    session_id: str,
-) -> list[VerificationResult]:
-    """Query all verdicts for a specific session (for convergence).
-
-    Requirements: 27-REQ-6.2
-    """
-    rows = conn.execute(
-        f"SELECT {_VERDICT_COLS} FROM verification_results WHERE session_id = ? ORDER BY requirement_id",
-        [session_id],
-    ).fetchall()
-
-    return [_row_to_verdict(r) for r in rows]
-
-
 def query_active_drift_findings(
     conn: duckdb.DuckDBPyConnection,
     spec_name: str,
@@ -498,21 +477,6 @@ def _row_to_finding(row: tuple) -> ReviewFinding:
     )
 
 
-def _row_to_verdict(row: tuple) -> VerificationResult:
-    """Convert a DB row to a VerificationResult."""
-    return VerificationResult(
-        id=row[0],
-        requirement_id=row[1],
-        verdict=row[2],
-        evidence=row[3],
-        spec_name=row[4],
-        task_group=row[5],
-        session_id=row[6],
-        superseded_by=row[7],
-        created_at=row[8],
-    )
-
-
 # ---------------------------------------------------------------------------
 # Injection tracking (issue #558)
 # ---------------------------------------------------------------------------
@@ -563,13 +527,12 @@ def dismiss_finding_by_id(
     finding_id: str,
     reason: str,
 ) -> str | None:
-    """Manually supersede a finding by ID across all three finding tables.
+    """Manually supersede a finding by ID across finding tables.
 
     Sets ``superseded_by`` to ``dismissed:<ISO-timestamp>`` on the matching
-    active row (``superseded_by IS NULL``) in ``review_findings``,
-    ``drift_findings``, or ``verification_results``, whichever contains the
-    record.  Only active rows are dismissed; already-superseded rows are
-    treated as "not found".
+    active row (``superseded_by IS NULL``) in ``review_findings`` or
+    ``drift_findings``, whichever contains the record.  Only active rows
+    are dismissed; already-superseded rows are treated as "not found".
 
     Args:
         conn: DuckDB connection.
@@ -587,15 +550,9 @@ def dismiss_finding_by_id(
     """
     marker = f"dismissed:{datetime.now(UTC).isoformat()}"
 
-    # Table configs: (table, select_columns, log_label)
-    # col_a/col_b positions: review_findings & drift_findings use
-    # (description, severity) → label="[severity] description";
-    # verification_results uses (requirement_id, verdict) →
-    # label="[verdict] requirement_id".
     _tables = [
         ("review_findings", "description, severity", "review finding"),
         ("drift_findings", "description, severity", "drift finding"),
-        ("verification_results", "requirement_id, verdict", "verification result"),
     ]
 
     for table, select_cols, log_label in _tables:
@@ -628,12 +585,12 @@ def supersede_injected_findings(
     conn: duckdb.DuckDBPyConnection,
     session_id: str,
 ) -> None:
-    """Supersede all review findings and verdicts injected into a completed session.
+    """Supersede all review findings injected into a completed session.
 
     Looks up the finding_injections table for the given session_id, then marks
-    each referenced row in ``review_findings`` and ``verification_results`` as
-    superseded (sets ``superseded_by`` to the session_id string).  Only rows
-    that are still active (``superseded_by IS NULL``) are updated.
+    each referenced row in ``review_findings`` as superseded (sets
+    ``superseded_by`` to the session_id string).  Only rows that are still
+    active (``superseded_by IS NULL``) are updated.
 
     A missing ``finding_injections`` table (pre-v23 DB) raises no exception —
     the caller is responsible for catching and logging the error.
@@ -654,10 +611,6 @@ def supersede_injected_findings(
     for finding_id in finding_ids:
         conn.execute(
             "UPDATE review_findings SET superseded_by = ? WHERE id::VARCHAR = ? AND superseded_by IS NULL",
-            [marker, finding_id],
-        )
-        conn.execute(
-            "UPDATE verification_results SET superseded_by = ? WHERE id::VARCHAR = ? AND superseded_by IS NULL",
             [marker, finding_id],
         )
 
