@@ -7,10 +7,9 @@ Requirements: 35-REQ-3.1, 35-REQ-3.6, 35-REQ-3.E1, 35-REQ-4.E1,
 
 from __future__ import annotations
 
-import pytest
-
 from unittest.mock import patch
 
+import pytest
 from agentfox.engine.state import ExecutionState, SessionRecord
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st

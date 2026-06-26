@@ -7,12 +7,11 @@ Requirements: 70-REQ-3.2, 70-REQ-3.E1, 70-REQ-5.2, 70-REQ-1.2, 70-REQ-4.1
 
 from __future__ import annotations
 
-import pytest
-
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from agentfox.core.config import OrchestratorConfig
 from agentfox.knowledge.audit import AuditEvent, AuditEventType
 from agentfox.knowledge.sink import SinkDispatcher

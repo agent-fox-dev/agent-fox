@@ -9,13 +9,12 @@ Requirements: 50-REQ-1.1, 50-REQ-1.2, 50-REQ-1.3, 50-REQ-1.5,
 
 from __future__ import annotations
 
-import pytest
-
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
 import duckdb
+import pytest
 from agentfox.engine.reset import reset_spec
 from agentfox.engine.state import ExecutionState, SessionRecord
 from hypothesis import given, settings
