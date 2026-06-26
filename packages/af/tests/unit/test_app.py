@@ -10,7 +10,6 @@ Requirements: 01-REQ-1.1, 01-REQ-1.E1, 01-REQ-2.1, 01-REQ-4.E1,
 from __future__ import annotations
 
 import re
-from pathlib import Path
 from unittest.mock import patch
 
 import click
@@ -192,14 +191,16 @@ class TestTraceFlagWiring:
 
 
 class TestConfigAutoDiscovery:
-    """01-REQ-2.1: CLI auto-discovers .agent-fox/config.toml.
+    """01-REQ-2.1 / 13-REQ-1.1: CLI auto-discovers config via load_config.
 
-    Regression test for issue #51: config file was never loaded because
-    load_config() was called without a path argument.
+    Originally a regression test for issue #51. Updated for spec 13:
+    load_config() is now called with **no arguments** — it auto-discovers
+    the global ($HOME/.agent-fox/config.toml) and local
+    (.agent-fox/config.toml) config files internally.
     """
 
     def test_load_config_receives_config_path(self, cli_runner: CliRunner) -> None:
-        """load_config is called with Path('.agent-fox/config.toml')."""
+        """load_config is called with no arguments (spec 13 convention)."""
         with patch(
             "af.app.load_config",
         ) as mock_load:
@@ -207,9 +208,10 @@ class TestConfigAutoDiscovery:
             cli_runner.invoke(main, ["--quiet"])
 
         mock_load.assert_called_once()
-        (call_path,) = mock_load.call_args.args
-        assert isinstance(call_path, Path)
-        assert call_path == Path(".agent-fox/config.toml")
+        # Spec 13: load_config() takes no arguments — it auto-discovers
+        # global and local config files via $HOME and CWD.
+        assert mock_load.call_args.args == ()
+        assert mock_load.call_args.kwargs == {}
 
 
 def _make_failing_subcommand(error: Exception) -> click.Command:
