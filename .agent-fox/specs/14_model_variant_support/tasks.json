@@ -666,7 +666,7 @@
             "14-REQ-6.1",
             "14-REQ-6.2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -691,7 +691,7 @@
             "14-REQ-6.5",
             "14-REQ-6.E1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],
