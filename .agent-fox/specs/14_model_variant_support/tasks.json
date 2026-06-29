@@ -132,7 +132,7 @@
             "Add tests to test_archetype_variant_fields.py or a dedicated test_resolve_effective_config_variant.py",
             "TS-14-13 / TS-14-45: mode variant='extended' beats archetype variant='standard'; assert result.default_model_variant == 'extended'",
             "TS-14-14 / TS-14-46: mode variant=None preserves archetype variant='extended'; assert result.default_model_variant == 'extended'",
-            "TS-14-47: verify symmetry — mode overrides both model_tier and model_variant; assert both in merged result match mode values"
+            "TS-14-47: verify symmetry \u2014 mode overrides both model_tier and model_variant; assert both in merged result match mode values"
           ],
           "test_spec_refs": [
             "TS-14-13",
@@ -279,9 +279,9 @@
           "details": [
             "TS-14-26 / TS-14-34 / TS-14-E4: resolve_model('SIMPLE', variant='extended'); capture logs; assert result=='claude-haiku-4-5' and DEBUG log emitted",
             "TS-14-35 / TS-14-E5: resolve_model('ADVANCED', variant='turbo'); assert no exception and result is non-empty string and DEBUG log emitted",
-            "TS-14-36: verify fallback log is DEBUG only — no WARNING or ERROR",
+            "TS-14-36: verify fallback log is DEBUG only \u2014 no WARNING or ERROR",
             "TS-14-E7: resolve_model('SIMPLE', variant='standard'); assert result == TIER_DEFAULTS['SIMPLE'] and DEBUG log emitted",
-            "TS-14-P3: parametrize over all tiers × ['fast','standard','extended','turbo','UNKNOWN','x'*100]; assert no exception and non-empty result"
+            "TS-14-P3: parametrize over all tiers \u00d7 ['fast','standard','extended','turbo','UNKNOWN','x'*100]; assert no exception and non-empty result"
           ],
           "test_spec_refs": [
             "TS-14-26",
@@ -344,14 +344,14 @@
             "14-REQ-8.3",
             "14-REQ-8.6"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
           "id": "5.2",
           "title": "Write EscalationLadder variant pass-through and fallback delegation tests",
           "details": [
-            "TS-14-31: mock resolve_model; escalate STANDARD→ADVANCED with starting_variant='extended'; assert resolve_model called with variant='extended'",
+            "TS-14-31: mock resolve_model; escalate STANDARD\u2192ADVANCED with starting_variant='extended'; assert resolve_model called with variant='extended'",
             "TS-14-32: mock resolve_model; EscalationLadder at SIMPLE with starting_variant='extended'; assert resolve_model called with variant='extended' (not substituted)",
             "TS-14-E6: capture logs; EscalationLadder at ADVANCED with starting_variant='fast'; assert DEBUG log comes from resolve_model module path, not escalation module"
           ],
@@ -365,7 +365,7 @@
             "14-REQ-8.5",
             "14-REQ-8.E1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],
@@ -441,7 +441,7 @@
           "title": "Write remaining property tests (TS-14-P5, TS-14-P6, TS-14-P7)",
           "details": [
             "Create packages/agentfox/tests/unit/test_variant_properties.py",
-            "TS-14-P5: parametrize mode_variant × arch_variant over ['fast','standard','extended']; assert merged result.default_model_variant == mode_variant",
+            "TS-14-P5: parametrize mode_variant \u00d7 arch_variant over ['fast','standard','extended']; assert merged result.default_model_variant == mode_variant",
             "TS-14-P6: for each archetype in legacy dict; mock resolve_effective_config; assert result None and mock call_count == 0",
             "TS-14-P7: assert all canonical labels ['fast','standard','extended'] in VARIANT_ORDER with int values; assert None not in VARIANT_ORDER"
           ],
@@ -483,7 +483,7 @@
             "In packages/agentfox/agentfox/core/models.py, add `variant: str | None = None` to ModelEntry",
             "If ModelEntry is a dataclass, add field with default=None; if Pydantic, add Field(default=None)",
             "Type annotation must be `str | None` to accept None and arbitrary strings",
-            "No custom validator needed — dataclass/Pydantic native type checking handles TS-14-E1"
+            "No custom validator needed \u2014 dataclass/Pydantic native type checking handles TS-14-E1"
           ],
           "test_spec_refs": [
             "TS-14-1",
@@ -531,7 +531,7 @@
           "details": [
             "Add VARIANT_ORDER: dict[str, int] = {'fast': 0, 'standard': 1, 'extended': 2} at module level in models.py",
             "Ensure it is defined before any function that references it",
-            "Confirm no circular import by checking existing import graph — VARIANT_ORDER is a plain dict constant",
+            "Confirm no circular import by checking existing import graph \u2014 VARIANT_ORDER is a plain dict constant",
             "Export from __all__ if models.py uses explicit __all__"
           ],
           "test_spec_refs": [
@@ -569,7 +569,7 @@
           "details": [
             "In packages/agentfox/agentfox/archetypes.py, add `default_model_variant: str | None = None` to ArchetypeEntry",
             "Add `model_variant: str | None = None` to ModeConfig",
-            "Fields default to None — no existing call sites break"
+            "Fields default to None \u2014 no existing call sites break"
           ],
           "test_spec_refs": [
             "TS-14-11",
@@ -587,7 +587,7 @@
           "title": "Add model_variant to PerArchetypeConfig with TOML key mapping",
           "details": [
             "In packages/agentfox/agentfox/core/config.py, add `model_variant: str | None = None` to PerArchetypeConfig",
-            "PerArchetypeConfig is self-referential for modes — the same struct handles both archetype-level and mode-level overrides",
+            "PerArchetypeConfig is self-referential for modes \u2014 the same struct handles both archetype-level and mode-level overrides",
             "ConfigDict(extra='ignore') already handles silently ignoring unknown keys outside archetypes.overrides",
             "No additional validation needed for out-of-scope locations"
           ],
@@ -613,7 +613,7 @@
             "In resolve_effective_config() (agentfox/resolve_effective_config.py or equivalent), mirror the existing model_tier merge logic for model_variant",
             "If ModeConfig.model_variant is not None, write it onto the merged ArchetypeEntry.default_model_variant",
             "If ModeConfig.model_variant is None, preserve the archetype-level default_model_variant unchanged",
-            "Ensure the merge is symmetric with model_tier — both fields follow identical priority rules"
+            "Ensure the merge is symmetric with model_tier \u2014 both fields follow identical priority rules"
           ],
           "test_spec_refs": [
             "TS-14-13",
@@ -673,9 +673,9 @@
           "id": "9.2",
           "title": "Implement resolve_model_variant() Layer 3 (legacy dict short-circuit) and Layer 4 (registry default)",
           "details": [
-            "Layer 3: if config.archetypes.models dict matches the archetype name, return None immediately (early return — never reach Layer 4)",
+            "Layer 3: if config.archetypes.models dict matches the archetype name, return None immediately (early return \u2014 never reach Layer 4)",
             "Layer 4: call resolve_effective_config() and return the merged result's default_model_variant (may be None)",
-            "If all layers return None, the function returns None — resolve_model() will use TIER_DEFAULTS",
+            "If all layers return None, the function returns None \u2014 resolve_model() will use TIER_DEFAULTS",
             "Ensure Layer 3 short-circuit exactly mirrors resolve_model_tier() Layer 3 behavior"
           ],
           "test_spec_refs": [
@@ -739,8 +739,8 @@
           "title": "Implement variant fallback with DEBUG logging in resolve_model()",
           "details": [
             "When variant is provided but no MODEL_REGISTRY entry matches (tier, variant): fall back to TIER_DEFAULTS[tier]",
-            "Emit a DEBUG-level log message (format at implementer's discretion) — use logger.debug(...)",
-            "Never raise an exception — always return a non-empty string",
+            "Emit a DEBUG-level log message (format at implementer's discretion) \u2014 use logger.debug(...)",
+            "Never raise an exception \u2014 always return a non-empty string",
             "Valid-but-unavailable variants (e.g., 'extended' for SIMPLE) and completely unrecognized strings (e.g., 'turbo') both trigger the same fallback path with no distinction"
           ],
           "test_spec_refs": [
@@ -787,7 +787,7 @@
           "details": [
             "In packages/agentfox/agentfox/core/escalation.py, add `*, starting_variant: str | None = None` to EscalationLadder.__init__() after existing positional parameters",
             "Store as private `self._variant: str | None = starting_variant`",
-            "Add `@property def current_variant(self) -> str | None: return self._variant` — no setter",
+            "Add `@property def current_variant(self) -> str | None: return self._variant` \u2014 no setter",
             "Existing call sites that do not pass starting_variant continue to work; current_variant returns None"
           ],
           "test_spec_refs": [
@@ -811,9 +811,9 @@
           "title": "Wire variant pass-through in EscalationLadder tier escalation and model resolution",
           "details": [
             "Wherever EscalationLadder calls resolve_model() internally, pass variant=self.current_variant as keyword argument",
-            "EscalationLadder must NOT implement any fallback or substitution logic — pass the variant unchanged",
-            "EscalationLadder must NOT emit any log for variant fallback — that is resolve_model()'s responsibility",
-            "Verify that escalating from STANDARD→ADVANCED with starting_variant='extended' results in resolve_model called with variant='extended'"
+            "EscalationLadder must NOT implement any fallback or substitution logic \u2014 pass the variant unchanged",
+            "EscalationLadder must NOT emit any log for variant fallback \u2014 that is resolve_model()'s responsibility",
+            "Verify that escalating from STANDARD\u2192ADVANCED with starting_variant='extended' results in resolve_model called with variant='extended'"
           ],
           "test_spec_refs": [
             "TS-14-31",
@@ -868,7 +868,7 @@
         },
         {
           "id": "12.2",
-          "title": "Wire two-step resolve_model_variant() → resolve_model(variant=...) calls in NodeSessionRunner",
+          "title": "Wire two-step resolve_model_variant() \u2192 resolve_model(variant=...) calls in NodeSessionRunner",
           "details": [
             "In packages/agentfox/agentfox/engine/session_lifecycle.py, update NodeSessionRunner model resolution",
             "Step 1: call resolve_model_variant() to get effective variant (or None)",
@@ -934,7 +934,7 @@
           "title": "Run full property test suite and variant properties",
           "details": [
             "pytest packages/agentfox/tests/unit/test_variant_properties.py -q must pass",
-            "TS-14-P3: resolve_model never raises for any tier × variant combination",
+            "TS-14-P3: resolve_model never raises for any tier \u00d7 variant combination",
             "TS-14-P4: EscalationLadder.current_variant immutable across escalations",
             "TS-14-P5: mode-beats-archetype variant priority holds for all cross-product combinations",
             "TS-14-P6: legacy dict short-circuit never invokes resolve_effective_config",
@@ -979,7 +979,7 @@
       "verification": {
         "id": "13.V",
         "checks": [
-          "pytest packages/agentfox/tests/unit/ -q exits with code 0 — all unit tests including pre-existing tests pass",
+          "pytest packages/agentfox/tests/unit/ -q exits with code 0 \u2014 all unit tests including pre-existing tests pass",
           "ruff check packages/agentfox/ exits with code 0",
           "TS-14-P1 (TIER_DEFAULTS ADVANCED invariant) is present and passes",
           "All 12 requirements (14-REQ-1 through 14-REQ-13) have at least one green test in the unit suite"
@@ -996,9 +996,9 @@
           "title": "Trace execution paths and verify no stubs remain in implementation files",
           "details": [
             "Audit models.py, sdk_params.py, escalation.py, session_lifecycle.py, resolve_effective_config.py for raise NotImplementedError, bare pass in non-abstract methods, or TODO stubs",
-            "Verify 14-PATH-1: ArchetypeEntry(default_model_variant='extended') → resolve_model_variant() → resolve_model('ADVANCED', variant='extended') → 'claude-opus-4-6[1m]' chain is fully wired with no stubs",
-            "Verify 14-PATH-4: EscalationLadder(starting_variant='extended').escalate() → resolve_model(variant='extended') → 'claude-opus-4-6[1m]' chain is fully wired",
-            "Verify 14-PATH-5: PerArchetypeConfig(model_variant='extended') → resolve_model_variant() Layer 2 → 'extended' → resolve_model → 'claude-opus-4-6[1m]' chain is fully wired"
+            "Verify 14-PATH-1: ArchetypeEntry(default_model_variant='extended') \u2192 resolve_model_variant() \u2192 resolve_model('ADVANCED', variant='extended') \u2192 'claude-opus-4-6[1m]' chain is fully wired with no stubs",
+            "Verify 14-PATH-4: EscalationLadder(starting_variant='extended').escalate() \u2192 resolve_model(variant='extended') \u2192 'claude-opus-4-6[1m]' chain is fully wired",
+            "Verify 14-PATH-5: PerArchetypeConfig(model_variant='extended') \u2192 resolve_model_variant() Layer 2 \u2192 'extended' \u2192 resolve_model \u2192 'claude-opus-4-6[1m]' chain is fully wired"
           ],
           "test_spec_refs": [],
           "requirement_refs": [
@@ -1014,7 +1014,7 @@
           "id": "14.2",
           "title": "Verify return value propagation across module boundaries",
           "details": [
-            "Confirm NodeSessionRunner stores and uses the return value of resolve_model() — not discards it",
+            "Confirm NodeSessionRunner stores and uses the return value of resolve_model() \u2014 not discards it",
             "Confirm EscalationLadder passes current_variant (not a hardcoded value) to resolve_model()",
             "Confirm resolve_model_variant() return value (including None) is forwarded as variant= kwarg to resolve_model() in NodeSessionRunner",
             "Confirm resolve_effective_config() result's default_model_variant is read (not ignored) in resolve_model_variant() Layer 4"
@@ -1034,8 +1034,8 @@
           "details": [
             "TS-14-SMOKE-1: ADVANCED archetype with extended variant resolves to claude-opus-4-6[1m] end-to-end",
             "TS-14-SMOKE-2: SIMPLE tier with extended variant falls back to claude-haiku-4-5 with DEBUG log",
-            "TS-14-SMOKE-3: resolve_model('ADVANCED') without variant returns 'claude-opus-4-6' — backward compatibility",
-            "TS-14-SMOKE-4: EscalationLadder(starting_variant='extended') escalated STANDARD→ADVANCED returns 'claude-opus-4-6[1m]'",
+            "TS-14-SMOKE-3: resolve_model('ADVANCED') without variant returns 'claude-opus-4-6' \u2014 backward compatibility",
+            "TS-14-SMOKE-4: EscalationLadder(starting_variant='extended') escalated STANDARD\u2192ADVANCED returns 'claude-opus-4-6[1m]'",
             "TS-14-SMOKE-5: config.toml model_variant='extended' for coder archetype flows through to 'claude-opus-4-6[1m]'"
           ],
           "test_spec_refs": [
@@ -1062,7 +1062,7 @@
             "Confirm VARIANT_ORDER is importable from agentfox.core.models without circular import (run: python -c 'from agentfox.core.models import VARIANT_ORDER; print(VARIANT_ORDER)')",
             "Confirm EscalationLadder.starting_variant keyword-only parameter is accessible (inspect.signature check passes)",
             "Confirm MODEL_REGISTRY with variant fields is importable and iterable by downstream spec 15 code",
-            "These are the three public interfaces spec 15 depends on — all must be stable and non-stub"
+            "These are the three public interfaces spec 15 depends on \u2014 all must be stable and non-stub"
           ],
           "test_spec_refs": [],
           "requirement_refs": [
@@ -1092,7 +1092,7 @@
       "verification": {
         "id": "14.V",
         "checks": [
-          "pytest packages/agentfox/tests/ -q exits with code 0 — full suite including smoke tests",
+          "pytest packages/agentfox/tests/ -q exits with code 0 \u2014 full suite including smoke tests",
           "ruff check packages/agentfox/ exits with code 0",
           "grep -r 'raise NotImplementedError\\|# TODO\\|pass$' packages/agentfox/agentfox/core/models.py packages/agentfox/agentfox/engine/sdk_params.py packages/agentfox/agentfox/core/escalation.py packages/agentfox/agentfox/engine/session_lifecycle.py returns no matches in non-abstract method bodies",
           "python -c 'from agentfox.core.models import VARIANT_ORDER, MODEL_REGISTRY, TIER_DEFAULTS, resolve_model' exits with code 0 (no circular import)",
