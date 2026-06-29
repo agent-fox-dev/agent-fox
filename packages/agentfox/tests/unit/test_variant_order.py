@@ -7,7 +7,6 @@ Requirements: 14-REQ-3.1, 14-REQ-3.2, 14-REQ-3.3
 from __future__ import annotations
 
 import subprocess
-import sys
 
 # ---------------------------------------------------------------------------
 # TS-14-8: VARIANT_ORDER maps canonical labels to correct ordinal values
@@ -56,13 +55,15 @@ class TestVariantOrderImportable:
         """TS-14-9: Import VARIANT_ORDER in a fresh subprocess without ImportError."""
         result = subprocess.run(
             [
-                sys.executable,
+                "uv",
+                "run",
+                "python",
                 "-c",
                 "from agentfox.core.models import VARIANT_ORDER; assert VARIANT_ORDER is not None",
             ],
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=30,
         )
         assert result.returncode == 0, f"Import failed: {result.stderr}"
 

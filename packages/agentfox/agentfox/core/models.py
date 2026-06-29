@@ -38,12 +38,24 @@ class ModelTier(StrEnum):
 class ModelEntry:
     model_id: str
     tier: ModelTier
+    variant: str | None = None
 
+    def __post_init__(self) -> None:
+        if self.variant is not None and not isinstance(self.variant, str):
+            raise TypeError(
+                f"variant must be str or None, got {type(self.variant).__name__}"
+            )
+
+
+# Canonical variant label ordering for upgrade comparisons.
+# Models with variant=None do not participate in variant ordering.
+VARIANT_ORDER: dict[str, int] = {"fast": 0, "standard": 1, "extended": 2}
 
 MODEL_REGISTRY: dict[str, ModelEntry] = {
     "claude-haiku-4-5": ModelEntry("claude-haiku-4-5", ModelTier.SIMPLE),
     "claude-sonnet-4-6": ModelEntry("claude-sonnet-4-6", ModelTier.STANDARD),
-    "claude-opus-4-6": ModelEntry("claude-opus-4-6", ModelTier.ADVANCED),
+    "claude-opus-4-6": ModelEntry("claude-opus-4-6", ModelTier.ADVANCED, variant="standard"),
+    "claude-opus-4-6[1m]": ModelEntry("claude-opus-4-6[1m]", ModelTier.ADVANCED, variant="extended"),
 }
 
 TIER_DEFAULTS: dict[ModelTier, str] = {
