@@ -318,7 +318,7 @@ def _fake_daemon(ctx, om, config):
         time.sleep(0.1)
         if _n["c"] > 1:
             break
-    click.echo("Nightshift stopped. Issues fixed: 0, Total cost: $0.0000")
+    click.echo("Nightshift stopped. Issues fixed: 0, Total cost: $0.00")
     sys.exit(0)
 
 _mock_config = MagicMock()

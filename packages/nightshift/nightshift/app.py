@@ -144,4 +144,4 @@ def _run_daemon(ctx, om, config):  # noqa: C901
     if om.json_mode:
         om.emit({"status": "stopped", "issues_fixed": fixed, "total_cost": cost})
     else:
-        click.echo(f"Nightshift stopped. Issues fixed: {fixed}, Total cost: ${cost:.4f}")
+        click.echo(f"Nightshift stopped. Issues fixed: {fixed}, Total cost: ${cost:.2f}")

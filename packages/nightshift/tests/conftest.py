@@ -72,7 +72,7 @@ def _mock_daemon():
             # Emit JSONL: one JSON object per line (not pretty-printed).
             click.echo(json_mod.dumps({"status": "stopped", "issues_fixed": 0, "total_cost": 0.0}))
         else:
-            click.echo("Nightshift stopped. Issues fixed: 0, Total cost: $0.0000")
+            click.echo("Nightshift stopped. Issues fixed: 0, Total cost: $0.00")
 
     with patch("nightshift.app._run_daemon", side_effect=_fake_run_daemon):
         yield
