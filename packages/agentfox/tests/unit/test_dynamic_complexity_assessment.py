@@ -2,9 +2,13 @@
 
 Task Group 1: ComplexityAssessor class, AssessmentResult, Protocol,
               statelessness, and assessment prompt structure.
+Task Group 2: Error handling and edge cases for ComplexityAssessor.
 
-Test Spec: TS-15-1 through TS-15-12
-Requirements: 15-REQ-1.1 through 15-REQ-1.7, 15-REQ-2.1 through 15-REQ-2.5
+Test Spec: TS-15-1 through TS-15-12, TS-15-E2 through TS-15-E14,
+           TS-15-49 through TS-15-53
+Requirements: 15-REQ-1.1 through 15-REQ-1.7, 15-REQ-2.1 through 15-REQ-2.5,
+              15-REQ-2.E1 through 15-REQ-2.E3, 15-REQ-4.E1,
+              15-REQ-12.1 through 15-REQ-12.5, 15-REQ-12.E1
 """
 
 from __future__ import annotations
@@ -904,3 +908,923 @@ class TestAssessmentTimeoutEnforcement:
         )
 
         assert captured_kwargs.get("model") == "claude-haiku-4-5"
+
+
+# ===========================================================================
+# Task Group 2: Error handling and edge cases for ComplexityAssessor
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# Helpers for anthropic exceptions
+# ---------------------------------------------------------------------------
+
+try:
+    import anthropic
+
+    _HAS_ANTHROPIC = True
+except ImportError:  # pragma: no cover
+    _HAS_ANTHROPIC = False
+
+_needs_anthropic = pytest.mark.skipif(
+    not _HAS_ANTHROPIC,
+    reason="anthropic SDK not installed",
+)
+
+
+def _make_api_timeout_error() -> Exception:
+    """Create an anthropic.APITimeoutError for testing."""
+    return anthropic.APITimeoutError(request=MagicMock())
+
+
+def _make_rate_limit_error() -> Exception:
+    """Create an anthropic.RateLimitError for testing."""
+    exc = anthropic.RateLimitError.__new__(anthropic.RateLimitError)
+    exc.status_code = 429
+    exc.message = "Rate limit exceeded"
+    exc.body = None
+    exc.response = MagicMock(status_code=429, headers={})
+    return exc
+
+
+def _make_bad_request_error(message: str = "context length exceeded") -> Exception:
+    """Create an anthropic.BadRequestError for testing (e.g. context-limit)."""
+    return anthropic.BadRequestError(
+        response=MagicMock(status_code=400, headers={}),
+        message=message,
+        body={},
+    )
+
+
+# ===========================================================================
+# Task 2.1: Parse failure cases (malformed JSON, wrong-case, missing fields)
+# Test Spec: TS-15-E2
+# Requirement: 15-REQ-2.E1
+# ===========================================================================
+
+
+class TestComplexityAssessorParseFailures:
+    """TS-15-E2: Malformed/invalid LLM responses trigger total parse failure.
+
+    On parse failure, assess() should:
+    - Not raise an exception
+    - Log a WARNING with exception details
+    - Return base tier/variant (no partial field salvaging)
+
+    Requirement: 15-REQ-2.E1
+    """
+
+    def test_malformed_json_logs_warning_and_falls_back(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Malformed JSON triggers WARNING and base tier/variant fallback."""
+        mock_client = _make_mock_client("not json at all")
+        assessor = ComplexityAssessor(client=mock_client)
+
+        with caplog.at_level(logging.WARNING, logger="agentfox"):
+            result = asyncio.run(
+                assessor.assess(
+                    node_body="body",
+                    archetype="coder",
+                    mode=None,
+                    base_tier="STANDARD",
+                    base_variant="standard",
+                    previous_failure=None,
+                )
+            )
+
+        # Should not raise; result should reflect base values
+        assert isinstance(result, AssessmentResult)
+        assert result.recommended_tier == "STANDARD"
+        assert result.recommended_variant == "standard"
+
+        warning_logs = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert len(warning_logs) >= 1
+
+    def test_missing_required_field_logs_warning_and_falls_back(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Missing required field (rationale) triggers WARNING and fallback."""
+        # Missing 'rationale' field
+        bad_json = (
+            '{"recommended_tier": "ADVANCED", '
+            '"recommended_variant": "standard", '
+            '"confidence": 0.8}'
+        )
+        mock_client = _make_mock_client(bad_json)
+        assessor = ComplexityAssessor(client=mock_client)
+
+        with caplog.at_level(logging.WARNING, logger="agentfox"):
+            result = asyncio.run(
+                assessor.assess(
+                    node_body="body",
+                    archetype="coder",
+                    mode=None,
+                    base_tier="STANDARD",
+                    base_variant="standard",
+                    previous_failure=None,
+                )
+            )
+
+        assert isinstance(result, AssessmentResult)
+        assert result.recommended_tier == "STANDARD"
+        assert result.recommended_variant == "standard"
+
+        warning_logs = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert len(warning_logs) >= 1
+
+    def test_out_of_range_confidence_logs_warning_and_falls_back(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Confidence=1.5 (out of [0.0, 1.0]) triggers WARNING and fallback."""
+        bad_json = (
+            '{"recommended_tier": "ADVANCED", '
+            '"recommended_variant": "standard", '
+            '"confidence": 1.5, '
+            '"rationale": "r"}'
+        )
+        mock_client = _make_mock_client(bad_json)
+        assessor = ComplexityAssessor(client=mock_client)
+
+        with caplog.at_level(logging.WARNING, logger="agentfox"):
+            result = asyncio.run(
+                assessor.assess(
+                    node_body="body",
+                    archetype="coder",
+                    mode=None,
+                    base_tier="STANDARD",
+                    base_variant="standard",
+                    previous_failure=None,
+                )
+            )
+
+        assert isinstance(result, AssessmentResult)
+        assert result.recommended_tier == "STANDARD"
+        assert result.recommended_variant == "standard"
+
+        warning_logs = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert len(warning_logs) >= 1
+
+    def test_wrong_case_tier_logs_warning_and_falls_back(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Wrong-case tier ('advanced' instead of 'ADVANCED') triggers WARNING."""
+        bad_json = (
+            '{"recommended_tier": "advanced", '
+            '"recommended_variant": "standard", '
+            '"confidence": 0.8, '
+            '"rationale": "r"}'
+        )
+        mock_client = _make_mock_client(bad_json)
+        assessor = ComplexityAssessor(client=mock_client)
+
+        with caplog.at_level(logging.WARNING, logger="agentfox"):
+            result = asyncio.run(
+                assessor.assess(
+                    node_body="body",
+                    archetype="coder",
+                    mode=None,
+                    base_tier="STANDARD",
+                    base_variant="standard",
+                    previous_failure=None,
+                )
+            )
+
+        assert isinstance(result, AssessmentResult)
+        assert result.recommended_tier == "STANDARD"
+        assert result.recommended_variant == "standard"
+
+        warning_logs = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert len(warning_logs) >= 1
+
+    def test_wrong_case_variant_logs_warning_and_falls_back(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Wrong-case variant ('Standard' instead of 'standard') triggers WARNING."""
+        bad_json = (
+            '{"recommended_tier": "ADVANCED", '
+            '"recommended_variant": "Standard", '
+            '"confidence": 0.8, '
+            '"rationale": "r"}'
+        )
+        mock_client = _make_mock_client(bad_json)
+        assessor = ComplexityAssessor(client=mock_client)
+
+        with caplog.at_level(logging.WARNING, logger="agentfox"):
+            result = asyncio.run(
+                assessor.assess(
+                    node_body="body",
+                    archetype="coder",
+                    mode=None,
+                    base_tier="STANDARD",
+                    base_variant="standard",
+                    previous_failure=None,
+                )
+            )
+
+        assert isinstance(result, AssessmentResult)
+        assert result.recommended_tier == "STANDARD"
+        assert result.recommended_variant == "standard"
+
+        warning_logs = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert len(warning_logs) >= 1
+
+    @pytest.mark.parametrize(
+        "bad_response",
+        [
+            pytest.param("not json at all", id="malformed-json"),
+            pytest.param(
+                '{"recommended_tier": "ADVANCED", "recommended_variant": "standard", '
+                '"confidence": 0.8}',
+                id="missing-rationale",
+            ),
+            pytest.param(
+                '{"recommended_tier": "ADVANCED", "recommended_variant": "standard", '
+                '"confidence": 1.5, "rationale": "r"}',
+                id="confidence-out-of-range",
+            ),
+            pytest.param(
+                '{"recommended_tier": "advanced", "recommended_variant": "standard", '
+                '"confidence": 0.8, "rationale": "r"}',
+                id="wrong-case-tier",
+            ),
+            pytest.param(
+                '{"recommended_tier": "ADVANCED", "recommended_variant": "Standard", '
+                '"confidence": 0.8, "rationale": "r"}',
+                id="wrong-case-variant",
+            ),
+        ],
+    )
+    def test_no_partial_field_salvaging_on_any_invalid_response(
+        self,
+        bad_response: str,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """No partial field salvaging: entire response treated as parse failure."""
+        mock_client = _make_mock_client(bad_response)
+        assessor = ComplexityAssessor(client=mock_client)
+
+        with caplog.at_level(logging.WARNING, logger="agentfox"):
+            try:
+                result = asyncio.run(
+                    assessor.assess(
+                        node_body="body",
+                        archetype="coder",
+                        mode=None,
+                        base_tier="STANDARD",
+                        base_variant="standard",
+                        previous_failure=None,
+                    )
+                )
+            except Exception as e:
+                pytest.fail(f"assess() should not raise, got {e}")
+
+        # Result should be fallback to base values, not partial parse
+        assert isinstance(result, AssessmentResult)
+        assert result.recommended_tier == "STANDARD"
+        assert result.recommended_variant == "standard"
+
+        warning_logs = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert len(warning_logs) >= 1, f"No WARNING for response: {bad_response}"
+
+
+# ===========================================================================
+# Task 2.2: Timeout and rate limit error handling
+# Test Spec: TS-15-E3, TS-15-E4
+# Requirements: 15-REQ-2.E2, 15-REQ-2.E3
+# ===========================================================================
+
+
+@_needs_anthropic
+class TestComplexityAssessorTimeoutError:
+    """TS-15-E3: API timeout triggers WARNING and base fallback.
+
+    A 30-second API timeout is treated as an assessment failure:
+    WARNING logged, base tier/variant returned, no exception raised.
+
+    Requirement: 15-REQ-2.E2
+    """
+
+    def test_timeout_error_returns_base_without_raising(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """APITimeoutError does not propagate; returns base tier/variant."""
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock(
+            side_effect=_make_api_timeout_error(),
+        )
+        assessor = ComplexityAssessor(client=mock_client)
+
+        with caplog.at_level(logging.WARNING, logger="agentfox"):
+            try:
+                result = asyncio.run(
+                    assessor.assess(
+                        node_body="body",
+                        archetype="coder",
+                        mode=None,
+                        base_tier="STANDARD",
+                        base_variant="standard",
+                        previous_failure=None,
+                    )
+                )
+            except Exception as e:
+                pytest.fail(f"assess() should not raise on timeout, got {e}")
+
+        assert isinstance(result, AssessmentResult)
+        assert result.recommended_tier == "STANDARD"
+        assert result.recommended_variant == "standard"
+
+    def test_timeout_error_logs_warning_with_timeout_message(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """WARNING log includes 'timeout' or exception details."""
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock(
+            side_effect=_make_api_timeout_error(),
+        )
+        assessor = ComplexityAssessor(client=mock_client)
+
+        with caplog.at_level(logging.WARNING, logger="agentfox"):
+            asyncio.run(
+                assessor.assess(
+                    node_body="body",
+                    archetype="coder",
+                    mode=None,
+                    base_tier="STANDARD",
+                    base_variant="standard",
+                    previous_failure=None,
+                )
+            )
+
+        warning_logs = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert len(warning_logs) >= 1
+
+        log_text = " ".join(r.getMessage() for r in warning_logs)
+        assert (
+            "timeout" in log_text.lower() or "Timeout" in log_text
+        ), f"Expected 'timeout' in warning log, got: {log_text}"
+
+    def test_timeout_no_retry(self) -> None:
+        """API call made exactly once — no retry on timeout."""
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock(
+            side_effect=_make_api_timeout_error(),
+        )
+        assessor = ComplexityAssessor(client=mock_client)
+
+        asyncio.run(
+            assessor.assess(
+                node_body="body",
+                archetype="coder",
+                mode=None,
+                base_tier="STANDARD",
+                base_variant="standard",
+                previous_failure=None,
+            )
+        )
+
+        assert mock_client.messages.create.call_count == 1
+
+
+@_needs_anthropic
+class TestComplexityAssessorRateLimitError:
+    """TS-15-E4: Rate limit error triggers WARNING and base fallback.
+
+    Requirement: 15-REQ-2.E3
+    """
+
+    def test_rate_limit_error_returns_base_without_raising(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """RateLimitError does not propagate; returns base tier/variant."""
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock(
+            side_effect=_make_rate_limit_error(),
+        )
+        assessor = ComplexityAssessor(client=mock_client)
+
+        with caplog.at_level(logging.WARNING, logger="agentfox"):
+            try:
+                result = asyncio.run(
+                    assessor.assess(
+                        node_body="body",
+                        archetype="coder",
+                        mode=None,
+                        base_tier="STANDARD",
+                        base_variant="standard",
+                        previous_failure=None,
+                    )
+                )
+            except Exception as e:
+                pytest.fail(f"assess() should not raise on rate limit, got {e}")
+
+        assert isinstance(result, AssessmentResult)
+        assert result.recommended_tier == "STANDARD"
+        assert result.recommended_variant == "standard"
+
+    def test_rate_limit_error_logs_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """WARNING log emitted on rate limit error."""
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock(
+            side_effect=_make_rate_limit_error(),
+        )
+        assessor = ComplexityAssessor(client=mock_client)
+
+        with caplog.at_level(logging.WARNING, logger="agentfox"):
+            asyncio.run(
+                assessor.assess(
+                    node_body="body",
+                    archetype="coder",
+                    mode=None,
+                    base_tier="STANDARD",
+                    base_variant="standard",
+                    previous_failure=None,
+                )
+            )
+
+        warning_logs = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert len(warning_logs) >= 1
+
+    def test_rate_limit_no_retry(self) -> None:
+        """API call made exactly once — no retry on rate limit."""
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock(
+            side_effect=_make_rate_limit_error(),
+        )
+        assessor = ComplexityAssessor(client=mock_client)
+
+        asyncio.run(
+            assessor.assess(
+                node_body="body",
+                archetype="coder",
+                mode=None,
+                base_tier="STANDARD",
+                base_variant="standard",
+                previous_failure=None,
+            )
+        )
+
+        assert mock_client.messages.create.call_count == 1
+
+
+# ===========================================================================
+# Task 2.3: Network error and context-limit error handling
+# Test Spec: TS-15-49, TS-15-E14
+# Requirements: 15-REQ-12.1, 15-REQ-12.E1
+# ===========================================================================
+
+
+class TestComplexityAssessorNetworkError:
+    """TS-15-49: Network error triggers WARNING and base fallback.
+
+    On any API call failure (network error, etc.), logs WARNING with
+    exception details and returns base_tier/base_variant without raising.
+
+    Requirement: 15-REQ-12.1
+    """
+
+    def test_connection_error_returns_base_without_raising(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """ConnectionError does not propagate; returns base tier/variant."""
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock(
+            side_effect=ConnectionError("Network failure"),
+        )
+        assessor = ComplexityAssessor(client=mock_client)
+
+        with caplog.at_level(logging.WARNING, logger="agentfox"):
+            try:
+                result = asyncio.run(
+                    assessor.assess(
+                        node_body="body",
+                        archetype="coder",
+                        mode=None,
+                        base_tier="STANDARD",
+                        base_variant="standard",
+                        previous_failure=None,
+                    )
+                )
+            except Exception as e:
+                pytest.fail(f"assess() should not raise on network error, got {e}")
+
+        assert isinstance(result, AssessmentResult)
+        assert result.recommended_tier == "STANDARD"
+        assert result.recommended_variant == "standard"
+
+    def test_connection_error_logs_warning_with_details(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """WARNING log contains exception details (Network failure)."""
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock(
+            side_effect=ConnectionError("Network failure"),
+        )
+        assessor = ComplexityAssessor(client=mock_client)
+
+        with caplog.at_level(logging.WARNING, logger="agentfox"):
+            asyncio.run(
+                assessor.assess(
+                    node_body="body",
+                    archetype="coder",
+                    mode=None,
+                    base_tier="STANDARD",
+                    base_variant="standard",
+                    previous_failure=None,
+                )
+            )
+
+        warning_logs = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert len(warning_logs) >= 1
+
+        log_text = " ".join(r.getMessage() for r in warning_logs)
+        assert (
+            "Network failure" in log_text or "ConnectionError" in log_text
+        ), f"Expected exception details in warning log, got: {log_text}"
+
+
+@_needs_anthropic
+class TestComplexityAssessorContextLimitError:
+    """TS-15-E14: Context-limit error treated as standard assessment failure.
+
+    No truncation or retry with shortened body is attempted.
+
+    Requirement: 15-REQ-12.E1
+    """
+
+    def test_context_limit_error_returns_base_without_raising(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """BadRequestError (context limit) does not propagate."""
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock(
+            side_effect=_make_bad_request_error("context length exceeded"),
+        )
+        assessor = ComplexityAssessor(client=mock_client)
+
+        with caplog.at_level(logging.WARNING, logger="agentfox"):
+            try:
+                result = asyncio.run(
+                    assessor.assess(
+                        node_body="very long body " * 10000,
+                        archetype="coder",
+                        mode=None,
+                        base_tier="STANDARD",
+                        base_variant="standard",
+                        previous_failure=None,
+                    )
+                )
+            except Exception as e:
+                pytest.fail(f"assess() should not raise on context limit, got {e}")
+
+        assert isinstance(result, AssessmentResult)
+        assert result.recommended_tier == "STANDARD"
+        assert result.recommended_variant == "standard"
+
+    def test_context_limit_error_logs_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """WARNING log emitted on context-limit error."""
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock(
+            side_effect=_make_bad_request_error("context length exceeded"),
+        )
+        assessor = ComplexityAssessor(client=mock_client)
+
+        with caplog.at_level(logging.WARNING, logger="agentfox"):
+            asyncio.run(
+                assessor.assess(
+                    node_body="very long body " * 10000,
+                    archetype="coder",
+                    mode=None,
+                    base_tier="STANDARD",
+                    base_variant="standard",
+                    previous_failure=None,
+                )
+            )
+
+        warning_logs = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert len(warning_logs) >= 1
+
+    def test_context_limit_no_retry_with_shorter_body(self) -> None:
+        """API call made exactly once — no retry with truncated body."""
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock(
+            side_effect=_make_bad_request_error("context length exceeded"),
+        )
+        assessor = ComplexityAssessor(client=mock_client)
+
+        asyncio.run(
+            assessor.assess(
+                node_body="very long body " * 10000,
+                archetype="coder",
+                mode=None,
+                base_tier="STANDARD",
+                base_variant="standard",
+                previous_failure=None,
+            )
+        )
+
+        # Exactly one call — no truncation retry attempted
+        assert mock_client.messages.create.call_count == 1
+
+
+# ===========================================================================
+# Task 2.4: assess_node() absent/empty node_body path
+# Test Spec: TS-15-E6, TS-15-51
+# Requirements: 15-REQ-4.E1, 15-REQ-12.3
+# ===========================================================================
+
+
+class TestAssessNodeAbsentBody:
+    """TS-15-E6, TS-15-51: assess_node() skips assessment for absent/empty body.
+
+    When node_body is None or empty string:
+    - Skips assessment entirely
+    - Logs DEBUG with 'absent' or 'empty' and node_id
+    - Returns EscalationLadder at base tier/variant
+    - ComplexityAssessor.assess() is never called
+
+    Requirements: 15-REQ-4.E1, 15-REQ-12.3
+    """
+
+    def test_none_body_returns_base_ladder(self) -> None:
+        """node_body=None returns EscalationLadder at base tier/variant."""
+        from agentfox.engine.engine import AssessmentManager
+
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock()
+        manager = AssessmentManager(config=_make_routing_config(), client=mock_client)
+
+        ladder = asyncio.run(
+            manager.assess_node(
+                node_id="n1",
+                archetype="coder",
+                mode=None,
+                node_body=None,
+            )
+        )
+
+        assert ladder is not None
+        # Coder base tier is STANDARD per spec REQ-8.1
+        assert ladder.starting_tier.value == "STANDARD" or str(ladder.starting_tier) == "STANDARD"
+
+    def test_empty_body_returns_base_ladder(self) -> None:
+        """node_body='' returns EscalationLadder at base tier/variant."""
+        from agentfox.engine.engine import AssessmentManager
+
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock()
+        manager = AssessmentManager(config=_make_routing_config(), client=mock_client)
+
+        ladder = asyncio.run(
+            manager.assess_node(
+                node_id="n2",
+                archetype="coder",
+                mode=None,
+                node_body="",
+            )
+        )
+
+        assert ladder is not None
+        assert ladder.starting_tier.value == "STANDARD" or str(ladder.starting_tier) == "STANDARD"
+
+    def test_none_body_logs_debug_with_absent_or_empty(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """DEBUG log mentions 'absent' or 'empty' and node_id for None body."""
+        from agentfox.engine.engine import AssessmentManager
+
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock()
+        manager = AssessmentManager(config=_make_routing_config(), client=mock_client)
+
+        with caplog.at_level(logging.DEBUG, logger="agentfox"):
+            asyncio.run(
+                manager.assess_node(
+                    node_id="n1",
+                    archetype="coder",
+                    mode=None,
+                    node_body=None,
+                )
+            )
+
+        debug_msgs = [
+            r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG
+        ]
+        assert any(
+            ("absent" in m.lower() or "empty" in m.lower()) for m in debug_msgs
+        ), f"Expected 'absent' or 'empty' in DEBUG logs: {debug_msgs}"
+        assert any(
+            "n1" in m for m in debug_msgs
+        ), f"Expected node_id 'n1' in DEBUG logs: {debug_msgs}"
+
+    def test_empty_body_logs_debug_with_absent_or_empty(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """DEBUG log mentions 'absent' or 'empty' and node_id for empty body."""
+        from agentfox.engine.engine import AssessmentManager
+
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock()
+        manager = AssessmentManager(config=_make_routing_config(), client=mock_client)
+
+        with caplog.at_level(logging.DEBUG, logger="agentfox"):
+            asyncio.run(
+                manager.assess_node(
+                    node_id="n2",
+                    archetype="coder",
+                    mode=None,
+                    node_body="",
+                )
+            )
+
+        debug_msgs = [
+            r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG
+        ]
+        assert any(
+            ("absent" in m.lower() or "empty" in m.lower()) for m in debug_msgs
+        ), f"Expected 'absent' or 'empty' in DEBUG logs: {debug_msgs}"
+        assert any(
+            "n2" in m for m in debug_msgs
+        ), f"Expected node_id 'n2' in DEBUG logs: {debug_msgs}"
+
+    def test_no_llm_call_on_absent_body(self) -> None:
+        """ComplexityAssessor.assess() is never called for absent/empty body."""
+        from agentfox.engine.engine import AssessmentManager
+
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock()
+        manager = AssessmentManager(config=_make_routing_config(), client=mock_client)
+
+        for body in [None, ""]:
+            asyncio.run(
+                manager.assess_node(
+                    node_id="n_test",
+                    archetype="coder",
+                    mode=None,
+                    node_body=body,
+                )
+            )
+
+        # LLM create should never be called for absent/empty body
+        mock_client.messages.create.assert_not_called()
+
+
+# ===========================================================================
+# Task 2.5: Successful assessment DEBUG log, explicit override DEBUG log,
+#            and client=None no-log path
+# Test Spec: TS-15-50, TS-15-52, TS-15-53
+# Requirements: 15-REQ-12.2, 15-REQ-12.4, 15-REQ-12.5
+# ===========================================================================
+
+
+class TestSuccessfulAssessmentDebugLog:
+    """TS-15-50: Successful assessment emits structured DEBUG log.
+
+    DEBUG log should contain: node_id, archetype, mode, effective_tier,
+    effective_variant, confidence, and rationale.
+
+    Requirement: 15-REQ-12.2
+    """
+
+    def test_debug_log_contains_required_keys(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Structured DEBUG log emitted on successful assessment."""
+        from agentfox.engine.engine import AssessmentManager
+
+        mock_client = _make_mock_client(
+            '{"recommended_tier": "ADVANCED", "recommended_variant": "extended", '
+            '"confidence": 0.82, "rationale": "complex"}'
+        )
+        config = _make_routing_config(confidence_threshold=0.6)
+        manager = AssessmentManager(config=config, client=mock_client)
+
+        with caplog.at_level(logging.DEBUG, logger="agentfox"):
+            asyncio.run(
+                manager.assess_node(
+                    node_id="n1",
+                    archetype="coder",
+                    mode="fix",
+                    node_body="body",
+                )
+            )
+
+        debug_logs = [r for r in caplog.records if r.levelno == logging.DEBUG]
+        log_text = " ".join(r.getMessage() for r in debug_logs)
+
+        # All required keys should appear in the DEBUG log
+        assert "n1" in log_text, f"node_id 'n1' missing from DEBUG log: {log_text}"
+        assert "coder" in log_text, f"archetype 'coder' missing from DEBUG log: {log_text}"
+        assert (
+            "ADVANCED" in log_text
+        ), f"effective_tier 'ADVANCED' missing from DEBUG log: {log_text}"
+        assert (
+            "extended" in log_text
+        ), f"effective_variant 'extended' missing from DEBUG log: {log_text}"
+        # At least confidence or rationale should be present
+        assert (
+            "0.82" in log_text or "complex" in log_text
+        ), f"confidence/rationale missing from DEBUG log: {log_text}"
+
+
+class TestExplicitOverrideDebugLog:
+    """TS-15-52: Explicit config override emits DEBUG log.
+
+    When explicit config override is detected via is_explicitly_configured(),
+    a DEBUG log with node_id, archetype, mode, and resolved tier is emitted.
+    No LLM call is made.
+
+    Requirement: 15-REQ-12.4
+    """
+
+    def test_explicit_override_debug_log_contains_info(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """DEBUG log with node_id, archetype, mode, and resolved tier on override."""
+        from agentfox.engine.engine import AssessmentManager
+
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock()
+
+        # Create a config with explicit mode-level override for coder/fix
+        config = _make_routing_config()
+
+        manager = AssessmentManager(config=config, client=mock_client)
+
+        # Patch is_explicitly_configured to return True for this test
+        from unittest.mock import patch
+
+        with (
+            patch.object(
+                manager,
+                "is_explicitly_configured",
+                return_value=True,
+            ),
+            caplog.at_level(logging.DEBUG, logger="agentfox"),
+        ):
+            asyncio.run(
+                manager.assess_node(
+                    node_id="n1",
+                    archetype="coder",
+                    mode="fix",
+                    node_body="body",
+                )
+            )
+
+        debug_logs = [r for r in caplog.records if r.levelno == logging.DEBUG]
+        log_text = " ".join(r.getMessage() for r in debug_logs)
+
+        assert "n1" in log_text, f"node_id missing from DEBUG log: {log_text}"
+        assert "coder" in log_text, f"archetype missing from DEBUG log: {log_text}"
+        assert "fix" in log_text, f"mode missing from DEBUG log: {log_text}"
+        # Tier value should appear (either explicit tier name or 'explicit')
+        assert (
+            "ADVANCED" in log_text
+            or "STANDARD" in log_text
+            or "SIMPLE" in log_text
+            or "explicit" in log_text.lower()
+        ), f"resolved tier missing from DEBUG log: {log_text}"
+
+        # No LLM call should have been made
+        mock_client.messages.create.assert_not_called()
+
+
+class TestClientNoneNoLogs:
+    """TS-15-53: Permanently-disabled path (client=None) produces no logs.
+
+    When AssessmentManager is instantiated with client=None, assess_node()
+    should emit zero log entries at any log level.
+
+    Requirement: 15-REQ-12.5
+    """
+
+    def test_no_log_entries_at_any_level(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Client=None path emits zero log entries for assess_node() call."""
+        from agentfox.engine.engine import AssessmentManager
+
+        config = _make_routing_config()
+        manager = AssessmentManager(config=config, client=None)
+
+        with caplog.at_level(logging.DEBUG, logger="agentfox"):
+            asyncio.run(
+                manager.assess_node(
+                    node_id="n1",
+                    archetype="coder",
+                    mode=None,
+                    node_body="body",
+                )
+            )
+
+        # Filter for logs from agentfox loggers only (not unrelated noise)
+        agentfox_logs = [
+            r for r in caplog.records if r.name.startswith("agentfox")
+        ]
+        assert len(agentfox_logs) == 0, (
+            f"Expected zero log entries, got: "
+            f"{[r.getMessage() for r in agentfox_logs]}"
+        )
