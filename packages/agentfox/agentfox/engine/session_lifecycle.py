@@ -28,6 +28,7 @@ from agentfox.engine.sdk_params import (
     clamp_instances,
     resolve_max_budget,
     resolve_model_tier,
+    resolve_model_variant,
     resolve_security_config,
     resolve_session_params,
 )
@@ -274,13 +275,16 @@ class NodeSessionRunner:
         self._spec_name = parsed.spec_name
         self._task_group = parsed.group_number
 
+        # 14-REQ-12.1: Two-step model resolution — resolve variant first, then model.
         # 30-REQ-7.2: Use assessed tier from adaptive routing if provided,
         # otherwise fall back to static resolution (26-REQ-4.4, 97-REQ-5.3).
+        resolved_variant = resolve_model_variant(self._config, self._archetype, mode=self._mode)
         if assessed_tier is not None:
-            self._resolved_model_id = resolve_model(assessed_tier.value)
+            self._resolved_model_id = resolve_model(assessed_tier.value, variant=resolved_variant)
         else:
             self._resolved_model_id = resolve_model(
-                resolve_model_tier(self._config, self._archetype, mode=self._mode)
+                resolve_model_tier(self._config, self._archetype, mode=self._mode),
+                variant=resolved_variant,
             )
         self._resolved_security = resolve_security_config(self._config, self._archetype, mode=self._mode)
 
