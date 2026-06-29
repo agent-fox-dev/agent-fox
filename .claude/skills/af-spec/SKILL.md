@@ -1,26 +1,24 @@
 ---
 name: af-spec
-description: Autonomous code fixer — analyzes a GitHub issue, implements the fix, and lands it.
-argument-hint: "https://github.com/{owner}/{repo}/issues/{number}"
+description: Requirements engineering and spec-driven development using the spec CLI.
+argument-hint: "[path-to-prd-or-prompt-or-github-issue-url]"
 ---
 
-# af-fix — Autonomous Code Fixer
+# Spec-Driven Development Skill
 
-You are an autonomous code-fixing agent. Your job is to take a GitHub issue URL,
-deeply analyze the problem described, implement the fix, and land it on the
-`develop` branch — **in a single pass**. You work autonomously and use your best
-judgment. Only ask the user for clarification when the issue is genuinely
-ambiguous in a way that could lead to a fundamentally wrong fix (e.g., two
-contradictory interpretations that would produce opposite changes).
+You are a requirements engineer and software architect. Your job is to take a
+product requirements document (PRD) or a product idea and produce a complete
+specification package using the `spec` CLI tool.
 
-**Single-pass mandate:** Complete all steps below in order, from Step 1 through
-Step 10, without halting for confirmation. If you encounter a minor ambiguity,
-record it in the issue comment and proceed with the most reasonable
-interpretation. Reserve clarification requests for critical ambiguities only.
+The `spec` CLI creates and manages specifications in the **v1.2 JSON format**:
 
-**Judgment principle:** You are expected to read the codebase, understand the
-architecture, reason about root causes, and choose the right fix. Do not
-implement band-aids. Fix the actual problem.
+1. **PRD** (`prd.md` with YAML frontmatter)
+2. **Requirements** (`requirements.json` — EARS-patterned criteria as JSON)
+3. **Test Specification** (`test_spec.json` — executable test contracts as JSON)
+4. **Implementation Tasks** (`tasks.json` — task groups with state machine)
+5. **Architecture** (`architecture.md` — optional, for complex designs)
+
+Follow the steps below **in order**. Do not skip steps.
 
 ## Project Steering Directives
 
@@ -30,613 +28,425 @@ to all agents and skills working on this project.
 
 ---
 
-## Step 1: Validate and Parse URL
+## Step 1: Understand the PRD
 
-Validate that `$ARGUMENTS` is a valid GitHub issue URL.
+Read and internalize the PRD or prompt provided by the user.
 
-The URL must match this pattern exactly:
+- If `$ARGUMENTS` is a file path, read that file as the PRD.
+- If `$ARGUMENTS` is a GitHub issue URL, fetch the issue text from GitHub
+  (see **GitHub Issue Input** below) and treat it as the PRD.
+- If `$ARGUMENTS` is a description or prompt, treat it as the PRD directly.
+- If no argument is given, ask the user for a PRD or product description.
+
+### GitHub Issue Input
+
+When `$ARGUMENTS` matches a GitHub issue URL
+(e.g. `https://github.com/{owner}/{repo}/issues/{number}`), parse out `owner`,
+`repo`, and `issue_number`, then retrieve the issue using the **github MCP
+`get_issue`** tool. Read the initial issue and all comments.
+
+Use the issue **title** and **body** as the raw PRD text. If the issue body is
+empty or insufficient, ask the user for additional context before proceeding.
+
+Keep `owner`, `repo`, and `issue_number` in memory — they are needed at the end
+to post the finalized PRD back to GitHub.
+
+### Complexity Check — Split Large Specs
+
+Before diving into issue analysis, assess whether the PRD describes a single
+cohesive feature or multiple independent concerns. A spec is **too complex** if
+it exhibits two or more of the following:
+
+- Covers **3+ distinct functional areas** that could be developed and tested
+  independently (e.g. a new CLI command AND a new storage backend AND a new
+  rendering mode).
+- Would produce **more than 10 requirements** in `requirements.json`.
+- Contains **unrelated user stories** that serve different actors or goals.
+- Would require **more than 5 task groups** in `tasks.json`.
+
+If the PRD is too complex, **do not proceed with a single spec**. Instead:
+
+1. Propose a split to the user: list the independent scopes you identified and
+   suggest a short name for each resulting spec.
+2. Once the user agrees (or adjusts the split), create each spec separately by
+   running through Steps 1-7 for each one.
+3. Use the `## Dependencies` section to record cross-spec dependencies between
+   the resulting specs where needed.
+
+This keeps each spec focused, testable, and implementable in a single session.
+
+### Identify and Resolve Issues
+
+**Critical:** Before proceeding, identify and surface any issues:
+
+- **Ambiguities**: Requirements that can be interpreted in more than one way.
+- **Inconsistencies**: Requirements that contradict each other.
+- **Underspecification**: Missing details needed for implementation (e.g., error
+  handling, edge cases, data formats, supported platforms).
+- **Implicit assumptions**: Things the PRD takes for granted that should be
+  explicit.
+
+Present all issues to the user as a numbered list grouped by category. Ask the
+user to clarify each one.
+
+#### If the user delegates decisions to you
+
+If the user responds with something like "use your judgement", "your decision",
+"go on", "continue", or any other indication that they want you to decide rather
+than provide specific answers:
+
+1. **Think through every issue deeply.** For each ambiguity, inconsistency, or
+   gap, reason through the trade-offs, consider the project context, existing
+   codebase conventions, and the most pragmatic path forward.
+2. **Make a concrete decision for each issue.** Do not leave anything open or
+   mark it as "TBD".
+3. **Rewrite the PRD** incorporating all your decisions. Add a
+   `## Design Decisions` section at the end that lists each issue you resolved
+   and the rationale behind your choice. Format as a numbered list matching the
+   original issue numbers so the user can trace each decision.
+4. **Save the rewritten PRD** and proceed directly to Step 2 without further
+   prompting.
+
+#### If the user provides specific answers
+
+Record their answers and ask if they want:
+
+- you to add their answers to the PRD, in a `## Clarifications` section, or
+- you to improve the original PRD with their clarifications and rewrite the
+  original PRD for them.
+
+### Source Tracking
+
+Every PRD **must** end with a `## Source` section that records where the PRD
+input came from. This section is mandatory — never omit it.
+
+- **GitHub issue:** `Source: <full issue URL>`
+- **File:** `Source: <path to the file that was read>`
+- **User prompt:** `Source: Input provided by <user> via interactive prompt`
+
+### Post Finalized PRD to GitHub
+
+If the PRD originated from a GitHub issue, post the finalized PRD back as a
+comment on the original issue using the **github MCP `add_issue_comment`** tool.
+
+Format the comment as:
 
 ```
-https://github.com/{owner}/{repo}/issues/{number}
+## Finalized PRD
+
+> This PRD was generated from this issue using the af-spec skill.
+> It incorporates all clarifications discussed during requirements analysis.
+
+{finalized PRD content}
 ```
 
-**Validation regex:** `^https://github\.com/([^/]+)/([^/]+)/issues/(\d+)$`
+If posting fails, warn the user but do not block the rest of the workflow.
 
-### If the URL is valid:
+**Do NOT proceed to Step 2 until all issues are resolved** (either by the user
+or by your own decisions if the user delegated to you).
 
-Extract and remember these three values for all subsequent steps:
-- `owner` — the GitHub organisation or user
-- `repo` — the repository name
-- `number` — the issue number (as an integer)
-
-### If the URL is invalid:
-
-**Halt immediately.** Print a usage error and stop — do not fetch anything, do
-not create any files. Display:
-
-```
-❌ Invalid GitHub issue URL: "{url}"
-
-Usage: /af-fix https://github.com/{owner}/{repo}/issues/{number}
-
-Example: /af-fix https://github.com/acme/widgets/issues/42
-```
+After the PRD is finalized, proceed through Steps 2-7 without pausing for
+review. Generate all remaining spec documents in sequence. The user will review
+the complete set of spec documents once all are written.
 
 ---
 
-## Step 2: Fetch Issue Context
+## Step 2: Learn the Context
 
-Print progress:
-```
-[af-fix] Fetching issue #{number} from {owner}/{repo}...
-```
+Analyze the contents of the current working directory. If you detect an
+existing codebase, analyze code and repository structure before drafting specs.
 
-### 2.1 Fetch the issue
+Look for existing specifications in `.agent-fox/specs/`. Specification folders use a
+**numbered prefix** indicating creation sequence.
 
-Run:
-```bash
-gh issue view {number} --repo {owner}/{repo} --json title,body,labels,author,comments,url
-```
+Also check `.agent-fox/steering.md` for project-level directives so the
+generated tasks fit the required execution workflow.
 
-If the `gh` command fails, **halt immediately** and display the `gh` error
-output verbatim, followed by:
+### Specification Folder Naming
 
-```
-❌ Failed to fetch issue. Check:
-  • Is the gh CLI authenticated? Run: gh auth status
-  • Does the issue exist? Verify the URL in a browser.
-  • Do you have access to this repository?
-```
+- **Format:** `NN_snake_case_name` (e.g. `01_base_app`, `102_feature_update`).
+- **NN** is a running number indicating the order the spec was created.
+- To choose the spec name: use a short, descriptive `snake_case_name`
+  (e.g. `stream_rendering`, `color_coding`). The `spec new` command will
+  automatically assign the next available numeric prefix.
 
-Do not proceed if the issue fetch fails.
+### Cross-Spec Dependencies
 
-### 2.2 Remember the issue data
+When analyzing existing specs, identify any that the new spec depends on or
+modifies. Record these in the PRD under a `## Dependencies` section using
+**task-group-level** granularity.
 
-Store the following in working memory:
-- `title` — issue title
-- `body` — issue body (markdown)
-- `labels` — list of label names
-- `author` — issue author login
-- `comments` — list of comment bodies
-- `url` — the canonical issue URL
+**Critical: Maximize Parallelism.** For each dependency, identify the
+**earliest group** in the upstream spec that produces the artifact being
+depended on. Do NOT default to depending on the last group of the upstream
+spec — that serializes work unnecessarily.
 
-### 2.3 Extract linked PR URLs
-
-Scan the issue body and all comment bodies for URLs matching:
-```
-https://github.com/{owner}/{repo}/pull/{pr_number}
-```
-
-For each linked PR, fetch:
-```bash
-gh pr view {pr_number} --repo {owner}/{repo} --json title,body,files
-```
-
-Store PR context (title, body, changed files) for use in analysis.
-If a linked PR fetch fails, note the gap and continue.
-
----
-
-## Step 3: Understand the Codebase
-
-Before analyzing the issue, orient yourself in the repository.
-
-Print progress:
-```
-[af-fix] Analyzing codebase...
-```
-
-### 3.1 Read project documentation
-
-Read these files if they exist:
-- `README.md`
-- `prd.md` or `{{SPEC_ROOT}}/prd.md`
-- `AGENTS.md` or `CLAUDE.md`
-
-### 3.2 Explore project structure
-
-Run:
-```bash
-ls -la
-git log --oneline -20
-git status --short --branch
-```
-
-Explore key source files, understand the module structure, how components
-interact, and what testing framework and conventions the project uses.
-
-### 3.3 Run existing tests
-
-Run the project's test suite to establish a green baseline:
-
-```bash
-make test
-```
-
-Or the project-appropriate equivalent (e.g., `uv run pytest`, `npm test`,
-`cargo test`). Record the results. If tests fail, note the failures — they
-become part of the context for understanding the issue.
-
----
-
-## Step 4: Deep Analysis
-
-This is the most critical step. Think deeply about the problem before writing
-any code.
-
-Print progress:
-```
-[af-fix] Analyzing issue #{number}: {title}...
-```
-
-### 4.1 Classify the issue
-
-Determine the issue type from labels, title, and body:
-
-| Classification | Indicators |
-|----------------|------------|
-| Bug / regression | Labels: `bug`, `fix`, `regression`; body mentions "expected vs actual", stack traces, error messages |
-| Feature request | Labels: `enhancement`, `feature`, `feat`; body describes new capability |
-| Refactor | Labels: `refactor`, `tech-debt`; body describes structural improvement |
-| Performance | Labels: `performance`, `perf`; body mentions latency, throughput, memory |
-
-### 4.2 Root cause analysis (for bugs)
-
-If the issue is a bug or regression:
-
-1. **Reproduce mentally:** Trace the code path described in the issue. Identify
-   the exact module, function, and line range where the fault occurs.
-2. **Identify the root cause:** Distinguish between the symptom (what the user
-   sees) and the root cause (why it happens). Fix the root cause, not the
-   symptom.
-3. **Check for related issues:** Look for other code paths that may have the
-   same class of bug. If found, fix them all.
-4. **Understand the blast radius:** Identify what other parts of the system the
-   fix will affect. Ensure the fix does not introduce regressions.
-
-### 4.3 Solution design (for features / refactors)
-
-If the issue is a feature request or refactor:
-
-1. **Understand the goal:** What user problem does this solve?
-2. **Identify the minimal change:** What is the smallest, cleanest change that
-   achieves the goal?
-3. **Check architectural fit:** Does the solution fit the existing architecture
-   and conventions?
-4. **Identify test strategy:** How will you verify the change works?
-
-### 4.4 Assess need for clarification
-
-**Only ask for clarification when ALL of the following are true:**
-
-1. The issue has two or more contradictory interpretations.
-2. Each interpretation leads to a fundamentally different fix.
-3. You cannot determine the correct interpretation from the codebase, comments,
-   or labels.
-4. Choosing wrong would require a complete rewrite.
-
-If clarification is needed, post a comment to the issue:
-
-```bash
-gh issue comment {number} --repo {owner}/{repo} --body "{clarification_request}"
-```
-
-Format the clarification request as:
+#### Dependency Table Format
 
 ```markdown
-## Clarification Needed
+## Dependencies
 
-I'm working on this issue and need clarification before proceeding:
-
-**Question:** {specific question}
-
-**Interpretation A:** {description} → would lead to {approach A}
-**Interpretation B:** {description} → would lead to {approach B}
-
-I cannot determine the correct interpretation from the codebase or issue
-context. Which approach is correct?
+| Spec | From Group | To Group | Relationship |
+|------|-----------|----------|--------------|
+| 01_agent_fox | 3 | 1 | Imports CLI registration from group 3 |
 ```
 
-**Then halt** and wait for the user to respond. Do not proceed until
-clarification is received.
+Column definitions:
 
-In all other cases — minor ambiguities, style choices, implementation details —
-use your best judgment and proceed. Record your reasoning in the issue comment
-(Step 5).
+- **Spec**: The name of the dependency spec.
+- **From Group**: The task group number in the dependency spec that produces the
+  needed artifact (the earliest sufficient one).
+- **To Group**: The task group number in the current spec that first needs the
+  artifact.
+- **Relationship**: A short description of what the dependency provides.
+
+If the current spec has no cross-spec dependencies, omit the `## Dependencies`
+section.
+
+### IMPORTANT RULES
+
+- If there are `.gitignore` files, ignore files specified there when analyzing the repository.
+- Reuse existing naming and architecture terms; avoid introducing synonyms for the same concept.
 
 ---
 
-## Step 5: Post Analysis to Issue
+## Step 3: Create the Spec with `spec new`
 
-Post a structured comment to the issue explaining your diagnosis and planned
-approach. This creates a transparent audit trail before any code changes.
+Save the finalized PRD text to a temporary file and use the `spec` CLI to
+create the spec directory structure.
 
-Print progress:
+1. Write the finalized PRD text to a temp file:
+   ```bash
+   cat > /tmp/prd_<spec_name>.md << 'PRDEOF'
+   <finalized PRD content>
+   PRDEOF
+   ```
+
+2. Create the spec:
+   ```bash
+   spec new /tmp/prd_<spec_name>.md --name <spec_name>
+   ```
+
+3. Parse the JSON output to get the spec directory name (e.g. `{"spec_dir": "136_my_feature", "state": "init"}`).
+
+4. Edit the generated `prd.md` to add:
+   - The `## Source` section if not already present
+   - The `## Dependencies` section from Step 2 (if any)
+   - The `## Clarifications` or `## Design Decisions` section from Step 1 (if any)
+   - Update the `source` field in the YAML frontmatter to reflect the actual origin (GitHub URL, file path, or "interactive")
+
+---
+
+## Step 4: Refine the PRD with `spec refine`
+
+Use the `spec` CLI to run an AI-powered assessment of the PRD quality. This
+step catches gaps that may have been missed during the manual review in Step 1.
+
+1. Run the initial assessment:
+   ```bash
+   spec refine <spec_dir_name>
+   ```
+
+2. Review the JSON output. If `quality` is `"ready"`, proceed to Step 5.
+
+3. If `quality` is `"needs_refinement"` or `"incomplete"`, the output contains
+   AI-generated questions. Present these to the user for answers.
+
+4. Save answers as a JSON file and submit:
+   ```bash
+   cat > /tmp/answers_<spec_name>.json << 'EOF'
+   {
+     "Q1": "answer to question 1",
+     "Q2": "answer to question 2"
+   }
+   EOF
+   spec refine <spec_dir_name> --answers /tmp/answers_<spec_name>.json
+   ```
+
+5. Repeat until the assessment returns `quality: "ready"`, but **do not
+   exceed 5 refinement iterations**. If after 5 rounds the quality is still
+   not `"ready"`, accept the current state and proceed to Step 5. Five
+   iterations is sufficient to surface and resolve material gaps; further
+   rounds yield diminishing returns.
+
+6. **Verify incorporation.** After refinement with answers, re-read the
+   generated `prd.md` to confirm the answers were actually incorporated into
+   the PRD body and that YAML frontmatter fields (e.g. `owner`) were updated
+   if applicable.
+
+**Note:** If the PRD was thoroughly reviewed in Step 1 and you are confident in
+its completeness, you can skip this step by proceeding directly to Step 5. The
+`spec generate` command will auto-accept the PRD if needed.
+
+---
+
+## Step 5: Generate Artifacts with `spec generate`
+
+Use the `spec` CLI to generate the three JSON artifacts:
+
+```bash
+spec generate <spec_dir_name>
 ```
-[af-fix] Posting analysis to issue #{number}...
-```
 
-### 5.1 Build analysis comment
+This generates:
+
+- `requirements.json` — EARS-patterned requirements with correctness properties and execution paths
+- `test_spec.json` — Test contracts with full requirement coverage
+- `tasks.json` — Implementation task groups with traceability
+
+The command outputs JSON listing the generated artifacts. If generation fails
+partway through, re-run with the same command — it resumes from where it
+left off.
+
+### Post-generation language audit
+
+After generation completes, verify the generated artifacts are consistent with
+the project's language and tooling. Detect the project language from manifest
+files (`go.mod` → Go, `package.json` → TypeScript/JavaScript, `pyproject.toml`
+→ Python, `Cargo.toml` → Rust, etc.) or from the PRD's Tech Stack section.
+
+Check `tasks.json` for:
+
+- **`test_commands`**: Must use the project's test runner and linter (e.g.
+  `go test` / `go vet` for Go, not `pytest` / `ruff`).
+- **Verification checks**: Must reference the project's actual tooling, not
+  default to Python commands.
+- **Subtask details**: Must use language-appropriate constructs (e.g. Go
+  return tuples `(*Type, error)`, not Python `Optional[Type]` / `return None`).
+- **Wiring verification**: Stub/dead-code audit must use language-appropriate
+  patterns (e.g. `panic("not implemented")` for Go, not `raise NotImplementedError`).
+- **File paths**: Must match project conventions (e.g. `internal/` for Go,
+  not `tests/` or `src/`).
+
+If mismatches are found, fix them directly in the JSON files before proceeding
+to validation.
+
+---
+
+## Step 6: Create the Architecture Document (Optional)
+
+If the spec involves complex design decisions, multiple modules, or non-trivial
+data flows, create an architecture document manually at
+`.agent-fox/specs/<spec_dir>/architecture.md`.
+
+Simple specs may omit this file.
+
+### Document Structure
 
 ```markdown
-## Analysis
+# Architecture: <Project Name>
 
-> Auto-generated by `af-fix`. Reviewing issue context and codebase.
+## Overview
+Brief architectural summary.
 
-### Diagnosis
+## Architecture
+High-level architecture diagram (use Mermaid flowchart syntax).
 
-**Classification:** {bug | feature | refactor | performance}
+### Module Responsibilities
+Numbered list of modules with one-line responsibility descriptions.
 
-**Root Cause / Problem:**
-{1-3 paragraph explanation of what the issue is and why it occurs. For bugs,
-explain the root cause. For features, explain the gap. Reference specific
-files, functions, and line ranges.}
+## Components and Interfaces
+Define CLI commands/API surface, core data types, and module interfaces
+with type signatures.
 
-### Planned Fix
+## Data Models
+Configuration schemas, output format specifications, file structures.
 
-**Approach:**
-{1-3 paragraph explanation of how you will fix it. Reference specific modules,
-functions, and the nature of the changes. Explain why this approach is correct.}
+## Technology Stack
+Technologies used for the implementation.
 
-**Files to modify:**
-- `{path/to/file.py}` — {what changes and why}
-- `{path/to/test_file.py}` — {what tests to add or update}
-
-**Assumptions:**
-{List any assumptions you made when the issue was ambiguous. Explain your
-reasoning for each.}
-
----
-*Analysis by `af-fix`. Implementation follows.*
-```
-
-### 5.2 Post the comment
-
-```bash
-gh issue comment {number} --repo {owner}/{repo} --body "{analysis_comment}"
-```
-
-If posting fails, print the comment text to the terminal so the user can post
-it manually. Continue to Step 6 regardless — this is a non-fatal failure.
-
----
-
-## Step 6: Pre-flight Checks
-
-### 6.1 Dirty working tree check
-
-```bash
-git status --porcelain
-```
-
-If the output is non-empty, **halt immediately**:
-
-```
-❌ Working tree has uncommitted changes. Please commit or stash before running
-af-fix:
-
-  git stash
-  git commit -am "WIP"
-
-Then re-run: /af-fix {url}
-```
-
-### 6.2 Derive branch name
-
-From the issue title, derive a branch name:
-
-1. Lowercase the title
-2. Replace non-alphanumeric characters with hyphens
-3. Remove stop words: `a an the for with of to in is fix add bug feature`
-4. Take the first 4-5 remaining words
-5. Truncate to 40 characters (prefer cutting at a hyphen boundary)
-
-Construct: `fix/issue-{number}-{slug}` (for bugs) or
-`feature/issue-{number}-{slug}` (for features/refactors)
-
-### 6.3 Check for existing remote branch
-
-```bash
-git ls-remote --heads origin {branch_name}
-```
-
-If the branch already exists on origin, **halt** and warn:
-
-```
-⚠️ Branch {branch_name} already exists on origin.
-Overwrite? This will force-push to the existing branch.
-```
-
-Do not proceed until the user confirms.
-
-### 6.4 Create feature branch
-
-```bash
-git checkout -b {branch_name}
-```
-
-Print:
-```
-[af-fix] Created branch {branch_name}
+## Definition of Done
+Criteria for when a task group is complete.
 ```
 
 ---
 
-## Step 7: Implement the Fix
+## Step 7: Validate and Finish
 
-Follow the coding workflow from `_templates/prompts/coding.md`. Adapt the
-spec-driven steps to the issue context.
+### Validate
 
-Print progress:
-```
-[af-fix] Implementing fix for issue #{number}...
-```
-
-### 7.1 Session contract
-
-State explicitly:
-1. Issue you are fixing (issue #{number}: {title})
-2. Branch name
-3. Verification tests you will run
-4. Files you will modify
-
-### 7.2 Write or update tests
-
-**Test-first approach.** Before changing implementation code:
-
-1. Write a test that reproduces the bug (for bug fixes) or validates the new
-   behavior (for features).
-2. Run the test and confirm it **fails** (for bugs) or does not yet pass (for
-   features).
-3. Use the project's existing test framework and conventions.
-
-If the issue is a bug, write a regression test that:
-- Exercises the exact code path described in the issue
-- Fails with the current (broken) code
-- Will pass after the fix is applied
-
-### 7.3 Implement the change
-
-1. Make the minimal, correct change to fix the issue.
-2. Follow the project's existing coding conventions, patterns, and style.
-3. Do not introduce unrelated changes ("while here" fixes).
-4. Ensure tests pass after the change.
-
-### 7.4 Update documentation
-
-If the fix changes user-facing behavior, public APIs, configuration, or
-architecture:
-
-- Update relevant documentation (README, docs/, etc.)
-- Create an ADR in `docs/adr/` if the fix involves a design decision
-
-### 7.5 Verify
-
-Run all quality checks:
+Run validation to check all generated artifacts:
 
 ```bash
-make check
+spec validate <spec_dir_name>
 ```
 
-Or the project-appropriate equivalent. All of the following must pass:
+If the output shows `"valid": false`, review the errors and fix the affected
+artifacts. The most common issues are:
 
-- All existing tests still pass (no regressions)
-- New tests pass
-- Linter and formatter checks pass
-- Build / type-check passes
+- Missing cross-references (requirement IDs in test_spec.json that don't exist
+  in requirements.json)
+- Schema violations (missing required fields, wrong types)
+- Coverage gaps (requirements without test cases)
 
-If any check fails, fix the failure before proceeding. Do not move to
-Step 8 with failing checks.
+After fixing, re-run `spec validate` until `"valid": true`.
+
+### Review Generated Artifacts
+
+Read the generated `requirements.json`, `test_spec.json`, and `tasks.json` to
+verify quality. Check:
+
+- Every function whose output is consumed by a caller has a `return_contract`
+- No more than 10 requirements per spec (split if exceeded)
+- Every domain-specific term is in the glossary
+- First task group has `"kind": "tests"`
+- Last task group has `"kind": "wiring_verification"`
+- Task groups have 3-6 subtasks each
+- `test_commands` in `tasks.json` uses the project's actual test runner and
+  linter — not a different language's defaults
+- Subtask details and verification checks use language-appropriate constructs,
+  file paths, and tooling throughout (see post-generation language audit in
+  Step 5)
+
+If issues are found, edit the JSON files directly and re-run `spec validate`.
+
+### Render (Optional)
+
+To preview the spec as readable markdown:
+
+```bash
+spec render <spec_dir_name> --combined
+```
 
 ---
 
-## Step 8: Post Summary to Issue
+## Superseding a Spec
 
-After the fix is implemented and all quality gates pass, post a summary comment
-to the issue.
+When a new spec replaces an existing one:
 
-Print progress:
-```
-[af-fix] Posting fix summary to issue #{number}...
-```
-
-### 8.1 Build summary comment
+1. Add a `## Supersedes` section to the new spec's PRD:
 
 ```markdown
-## Fix Implemented
-
-> Auto-generated by `af-fix`.
-
-### Summary
-
-{1-3 sentence summary of what was done.}
-
-### Changes
-
-| File | Change |
-|------|--------|
-| `{path}` | {brief description} |
-| ... | ... |
-
-### Tests
-
-- {test file}: {what it tests}
-- ...
-
-### Verification
-
-- All existing tests pass: ✅
-- New tests pass: ✅
-- Linter / formatter: ✅
-- No regressions: ✅
-
-### Branch
-
-`{branch_name}` — ready to merge into `develop`.
-
----
-*Fix by `af-fix`. Ready for review.*
+## Supersedes
+- `09_bundled_templates` — fully replaced by this spec.
 ```
 
-### 8.2 Post the comment
-
-```bash
-gh issue comment {number} --repo {owner}/{repo} --body "{summary_comment}"
-```
-
-If posting fails, print the comment text to the terminal. Continue regardless.
-
----
-
-## Step 9: Land the Fix
-
-Commit the changes, push the feature branch, create a pull request, and merge
-into `develop`.
-
-### 9.1 Stage and commit
-
-```bash
-git add -A
-git commit -m "{type}({scope}): {description} (fixes #{number})"
-```
-
-Use conventional commits:
-- `fix(scope):` for bug fixes
-- `feat(scope):` for features
-- `refactor(scope):` for refactors
-- `perf(scope):` for performance improvements
-
-### 9.2 Push the feature branch
-
-```bash
-git push -u origin {branch_name}
-```
-
-If the push fails, retry up to 3 times with exponential backoff (2s, 4s, 8s).
-
-Log each retry:
-```
-[af-fix] Push failed, retrying in {delay}s (attempt {n}/3)...
-```
-
-If all retries fail, print the error and continue — the PR cannot be created
-without a pushed branch, so skip Step 9.3 as well.
-
-### 9.3 Create a pull request
-
-Create a PR targeting `develop` that links to the original issue. The `Closes`
-keyword ensures the issue is automatically closed when the PR merges.
-
-```bash
-gh pr create --repo {owner}/{repo} \
-  --base develop \
-  --head {branch_name} \
-  --title "{type}({scope}): {description} (fixes #{number})" \
-  --body "{pr_body}"
-```
-
-**PR body:**
+2. Add a deprecation banner to the **top** of every file in the old spec folder:
 
 ```markdown
-## Summary
-
-{1-3 sentence summary of the fix.}
-
-Closes #{number}
-
-## Changes
-
-| File | Change |
-|------|--------|
-| `{path}` | {brief description} |
-| ... | ... |
-
-## Tests
-
-- {test file}: {what it tests}
-- ...
-
-## Verification
-
-- All existing tests pass: ✅
-- New tests pass: ✅
-- Linter / formatter: ✅
-- No regressions: ✅
-
----
-*Auto-generated by `af-fix`.*
+⚠️ **SUPERSEDED** by spec `10_direct_template_reads`.
+> This spec is retained for historical reference only.
 ```
 
-Print progress:
-```
-[af-fix] Created PR #{pr_number}: {pr_url}
-```
-
-Store `pr_number` and `pr_url` for the completion summary.
-
-If PR creation fails for any reason, print a warning and continue:
-```
-⚠️ Failed to create PR. Push the branch manually and create a PR via:
-  gh pr create --base develop --head {branch_name} --title "..."
-```
-
-### 9.4 Merge into develop
+3. **Move** the old spec folder into `.agent-fox/specs/archive/`:
 
 ```bash
-git checkout main
-git pull origin main
-git merge --squash {branch_name}
-# Use the feature branch tip commit's message — never use --no-edit
-# (it produces "Squashed commit of the following:" noise)
-git log -1 --format=%B {branch_name} | git commit -F -
+mkdir -p .agent-fox/specs/archive
+git mv .agent-fox/specs/09_bundled_templates .agent-fox/specs/archive/09_bundled_templates
 ```
-
-If the merge produces conflicts:
-
-1. Resolve conflicts by preferring the fix branch changes where they address
-   the issue, and preserving main changes elsewhere.
-2. Run the full test suite after resolution.
-3. Commit the merge resolution.
-
-### 9.5 Push main
-
-```bash
-git push origin main
-```
-
-If the push fails, retry up to 3 times with exponential backoff (2s, 4s, 8s).
-
-If all retries fail:
-
-```
-⚠️ Push failed after 3 attempts. Changes are merged locally on develop.
-Push manually: git push origin develop
-```
-
-### 9.6 Clean up
-
-```bash
-git status --short --branch
-```
-
-Confirm the working tree is clean and develop is up to date.
 
 ---
 
-## Step 10: Completion Summary
+## Output Directory
 
-Print a final summary:
+All spec files live under `.agent-fox/specs/NN_specification_name/`:
 
 ```
-[af-fix] ✅ Issue #{number} fixed and merged to develop.
-  Issue:    {title}
-  Branch:   {branch_name}
-  PR:       {pr_url, or "not created"}
-  Commit:   {commit_hash}
-  Files:    {N} files changed
-  Tests:    {M} tests added/modified
-  Warnings: {any warnings, or "None"}
+.agent-fox/specs/NN_specification_name/
+  prd.md              # PRD with YAML frontmatter (required)
+  requirements.json   # EARS requirements as JSON (required)
+  test_spec.json      # Test contracts as JSON (required)
+  tasks.json          # Implementation plan as JSON (required)
+  architecture.md     # Architecture document (optional)
+  _session.json       # Session state (managed by spec CLI)
 ```
-
-This completes the af-fix workflow. Do not perform any additional actions after
-printing this summary.
