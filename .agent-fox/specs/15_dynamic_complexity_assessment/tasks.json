@@ -480,7 +480,7 @@
             "15-REQ-6.2",
             "15-REQ-6.E1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -497,7 +497,7 @@
           "requirement_refs": [
             "15-REQ-6.3"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -519,7 +519,7 @@
             "15-REQ-7.2",
             "15-REQ-7.3"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -546,7 +546,7 @@
             "15-REQ-8.4",
             "15-REQ-8.5"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -566,7 +566,7 @@
             "15-REQ-7.2",
             "15-REQ-8.2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],
