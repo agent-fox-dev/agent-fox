@@ -582,10 +582,19 @@ class DispatchManager:
 
         archetype = self.get_node_archetype(node_id)
         mode = self.get_node_mode(node_id)
+
+        # 15-REQ-9.1: Extract node_body from task graph node
+        node = self.get_node(node_id)
+        node_body = node.body if node else None
+        # 15-REQ-9.2: Extract previous_failure from error_tracker
+        previous_failure = error_tracker.get(node_id) if error_tracker else None
+
         await self._routing.assess_node(
             node_id,
             archetype,
             mode=mode,
+            node_body=node_body,
+            previous_failure=previous_failure,
         )
 
         attempt = attempt_tracker.get(node_id, 0) + 1

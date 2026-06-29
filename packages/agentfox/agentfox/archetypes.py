@@ -69,7 +69,7 @@ class ArchetypeEntry:
 ARCHETYPE_REGISTRY: dict[str, ArchetypeEntry] = {
     "coder": ArchetypeEntry(
         name="coder",
-        default_model_tier="ADVANCED",
+        default_model_tier="STANDARD",  # 15-REQ-8.1
         injection=None,
         task_assignable=True,
         default_max_turns=300,
@@ -77,6 +77,7 @@ ARCHETYPE_REGISTRY: dict[str, ArchetypeEntry] = {
         default_thinking_budget=64000,
         modes={
             "fix": ModeConfig(
+                model_tier="STANDARD",  # 15-REQ-8.1
                 max_turns=300,
                 thinking_mode="adaptive",
                 thinking_budget=64000,
@@ -91,6 +92,7 @@ ARCHETYPE_REGISTRY: dict[str, ArchetypeEntry] = {
         default_max_turns=80,
         modes={
             "pre-review": ModeConfig(
+                model_tier="ADVANCED",  # 15-REQ-8.2
                 injection="auto_pre",
                 allowlist=[],  # no shell access
                 retry_predecessor=True,
@@ -100,6 +102,7 @@ ARCHETYPE_REGISTRY: dict[str, ArchetypeEntry] = {
                 allowlist=["ls", "cat", "git", "grep", "find", "head", "tail", "wc"],
             ),
             "audit-review": ModeConfig(
+                model_tier="ADVANCED",  # 15-REQ-8.2
                 injection="auto_mid",
                 allowlist=["ls", "cat", "git", "grep", "find", "head", "tail", "wc", "uv"],
                 retry_predecessor=True,
@@ -129,6 +132,7 @@ ARCHETYPE_REGISTRY: dict[str, ArchetypeEntry] = {
         default_max_turns=80,
         modes={
             "hunt": ModeConfig(
+                model_tier="SIMPLE",  # 15-REQ-8.4
                 # Read-only analysis allowlist (100-REQ-1.2)
                 allowlist=["ls", "cat", "git", "wc", "head", "tail"],
             ),
@@ -137,6 +141,7 @@ ARCHETYPE_REGISTRY: dict[str, ArchetypeEntry] = {
                 allowlist=["ls", "cat", "git", "wc", "head", "tail"],
             ),
             "extraction": ModeConfig(
+                model_tier="SIMPLE",  # 15-REQ-8.4
                 # No shell access for extraction mode (100-REQ-1.3)
                 allowlist=[],
             ),

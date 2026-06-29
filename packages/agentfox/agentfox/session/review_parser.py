@@ -838,10 +838,60 @@ def parse_triage_output(
             )
         )
 
+    # 15-REQ-11.6: Parse assessed_complexity sub-object with validation
+    assessed_complexity = None
+    raw_ac = data.get("assessed_complexity")
+    if raw_ac is not None and isinstance(raw_ac, dict):
+        try:
+            from agentfox.nightshift.fix_pipeline import AssessedComplexity
+
+            ac_tier = raw_ac.get("tier")
+            ac_variant = raw_ac.get("variant")
+            ac_confidence = raw_ac.get("confidence")
+            ac_rationale = raw_ac.get("rationale")
+
+            # All four fields required (15-REQ-11.E2: no partial salvaging)
+            if ac_tier is None or ac_rationale is None or ac_confidence is None:
+                raise ValueError("Missing required fields in assessed_complexity")
+
+            # Case-sensitive tier validation
+            valid_tiers = {"SIMPLE", "STANDARD", "ADVANCED"}
+            if ac_tier not in valid_tiers:
+                raise ValueError(f"Unrecognised tier value: {ac_tier!r}")
+
+            # Case-sensitive variant validation
+            valid_variants = {None, "fast", "standard", "extended"}
+            if ac_variant not in valid_variants:
+                raise ValueError(f"Unrecognised variant value: {ac_variant!r}")
+
+            # Confidence range check
+            if not isinstance(ac_confidence, (int, float)):
+                raise ValueError(f"confidence must be a number, got {type(ac_confidence)}")
+            ac_confidence = float(ac_confidence)
+            if ac_confidence < 0.0 or ac_confidence > 1.0:
+                raise ValueError(f"confidence out of range [0.0, 1.0]: {ac_confidence}")
+
+            assessed_complexity = AssessedComplexity(
+                tier=ac_tier,
+                variant=ac_variant,
+                confidence=ac_confidence,
+                rationale=str(ac_rationale),
+            )
+        except Exception:
+            # 15-REQ-11.E1: Partial failure — set to None, log WARNING
+            logger.warning(
+                "Invalid assessed_complexity in triage output for %s (session %s)",
+                spec_name,
+                session_id,
+                exc_info=True,
+            )
+            assessed_complexity = None
+
     return TriageResult(
         summary=summary,
         affected_files=affected_files,
         criteria=criteria,
+        assessed_complexity=assessed_complexity,
     )
 
 

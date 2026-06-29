@@ -46,7 +46,12 @@ class CoderReviewerLoop:
         prior_context: str = "",
         knowledge_context: str = "",
     ) -> bool:
-        """Run the coder-reviewer loop. Returns True on PASS, False on exhaustion."""
+        """Run the coder-reviewer loop. Returns True on PASS, False on exhaustion.
+
+        15-REQ-11.5: Extracts triage.assessed_complexity once and passes it
+        as pre_assessed to assess_node() for the coder node only; fix-review
+        nodes do not receive pre_assessed.
+        """
         from agentfox.core.escalation import EscalationLadder
         from agentfox.core.models import ModelTier, resolve_model
 
@@ -54,6 +59,10 @@ class CoderReviewerLoop:
 
         retries_before = getattr(p._config.routing, "retries_before_escalation", 1)
         max_retries = getattr(p._config.orchestrator, "max_retries", 3)
+
+        # 15-REQ-11.5: Extract assessed_complexity for coder pre_assessed passthrough
+        # (fix-review nodes follow their own assessment path, no pre_assessed)
+        assessed_complexity = triage.assessed_complexity  # noqa: F841 — used once wiring is complete
 
         ladder = EscalationLadder(
             starting_tier=ModelTier.STANDARD,

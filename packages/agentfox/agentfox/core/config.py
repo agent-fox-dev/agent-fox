@@ -106,7 +106,8 @@ def _auto_clamp_validator() -> Any:
 class RoutingConfig(BaseModel):
     """Model routing configuration.
 
-    Requirements: 89-REQ-4.1, 89-REQ-4.2
+    Requirements: 89-REQ-4.1, 89-REQ-4.2,
+                  15-REQ-10.1, 15-REQ-10.2, 15-REQ-10.3
     """
 
     model_config = ConfigDict(extra="ignore")
@@ -126,6 +127,21 @@ class RoutingConfig(BaseModel):
         default=2.0,
         description=("Maximum session_timeout as a factor of the original configured value"),
     )
+
+    # 15-REQ-10.1: Assessor model for complexity assessment
+    assessor_model: str = Field(
+        default="claude-haiku-4-5",
+        min_length=1,
+        description="Anthropic model ID for complexity assessment",
+    )
+    # 15-REQ-10.2: Confidence threshold for applying assessment upgrades
+    confidence_threshold: float = Field(
+        default=0.6,
+        ge=0.0,
+        le=1.0,
+        description="Minimum confidence to apply complexity assessment upgrade",
+    )
+
     _auto_clamp = _auto_clamp_validator()
 
 

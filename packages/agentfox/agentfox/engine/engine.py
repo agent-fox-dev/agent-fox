@@ -43,7 +43,7 @@ from agentfox.core.config import (
     RoutingConfig,
 )
 from agentfox.core.errors import PlanError
-from agentfox.core.models import ModelTier
+from agentfox.core.models import ModelTier  # noqa: F401 — used by assess_node() implementation (task group 9)
 from agentfox.engine.audit_helpers import emit_audit_event
 from agentfox.engine.barrier import _count_node_status, run_sync_barrier_sequence
 from agentfox.engine.circuit import CircuitBreaker
@@ -90,52 +90,112 @@ _defer_ready_reviews = defer_ready_reviews
 
 
 class AssessmentManager:
-    """Manages escalation ladders for nodes based on archetype default tiers."""
+    """Manages escalation ladders for nodes based on archetype default tiers.
+
+    Coordinates complexity assessment for nodes, integrating
+    ComplexityAssessor with dispatch logic.
+
+    Requirements: 15-REQ-1.6, 15-REQ-1.7, 15-REQ-4.1, 15-REQ-4.3,
+                  15-REQ-4.4, 15-REQ-6.1
+    """
 
     def __init__(
         self,
-        retries_before_escalation: int,
-        config: AgentFoxConfig,
+        retries_before_escalation: int | None = None,
+        config: Any = None,
+        *,
+        client: Any = None,
     ) -> None:
         self.ladders: dict[str, Any] = {}
-        self.retries_before_escalation = retries_before_escalation
         self._config = config
+        self._assessor: Any = None
+
+        # Resolve retries_before_escalation from config or parameter.
+        if retries_before_escalation is not None:
+            self.retries_before_escalation = retries_before_escalation
+        elif config is not None and hasattr(config, "retries_before_escalation"):
+            self.retries_before_escalation = config.retries_before_escalation
+        else:
+            self.retries_before_escalation = 1
+
+        # 15-REQ-1.7: When client is non-None, instantiate ComplexityAssessor
+        if client is not None:
+            from agentfox.core.complexity import ComplexityAssessor
+
+            assessor_model = getattr(config, "assessor_model", "claude-haiku-4-5")
+            confidence_threshold = getattr(config, "confidence_threshold", 0.6)
+            self._assessor = ComplexityAssessor(
+                client=client,
+                assessor_model=assessor_model,
+                confidence_threshold=confidence_threshold,
+            )
+        # 15-REQ-1.6 / 15-REQ-12.5: client=None → no assessor, no log
+
+    def _get_base_tier_variant(
+        self,
+        archetype: str,
+        mode: str | None,
+    ) -> tuple[str, str | None]:
+        """Resolve the archetype registry default tier and variant.
+
+        Returns (base_tier, base_variant) from the ARCHETYPE_REGISTRY.
+        Falls back to ('STANDARD', 'standard') if resolution fails.
+        """
+        try:
+            from agentfox.archetypes import ARCHETYPE_REGISTRY, resolve_effective_config
+
+            entry = ARCHETYPE_REGISTRY.get(archetype)
+            if entry is not None:
+                resolved = resolve_effective_config(entry, mode=mode)
+                return (resolved.default_model_tier, "standard")
+        except Exception:
+            pass
+        return ("STANDARD", "standard")
+
+    def is_explicitly_configured(
+        self,
+        archetype: str,
+        mode: str | None,
+    ) -> bool:
+        """Check whether a tier is explicitly set for archetype/mode.
+
+        Walks config resolution layers 1–3:
+          Layer 1: mode-level override (skipped when mode is None)
+          Layer 2: per-archetype override
+          Layer 3: legacy dict override
+
+        Returns True if any layer returns a non-None value.
+
+        Stub — returns False until task group 9 implements full logic.
+
+        Requirements: 15-REQ-6.1, 15-REQ-6.2, 15-REQ-6.E1
+        """
+        raise NotImplementedError("is_explicitly_configured() not yet implemented")
 
     async def assess_node(
         self,
         node_id: str,
         archetype: str,
-        *,
         mode: str | None = None,
-    ) -> None:
-        """Create an escalation ladder from the resolved model tier."""
-        if node_id in self.ladders:
-            return
+        node_body: str | None = None,
+        previous_failure: str | None = None,
+        pre_assessed: Any = None,
+    ) -> Any:
+        """Assess node complexity and return an EscalationLadder.
 
-        from agentfox.core.escalation import EscalationLadder
-        from agentfox.engine.sdk_params import resolve_model_tier
+        Evaluates assessment eligibility in order:
+          1. No assessor → base fallback (no log)
+          2. Missing/empty node_body → base fallback with DEBUG log
+          3. Explicit config override → configured tier with DEBUG log
+          4. pre_assessed non-None → adapter + apply_assessment()
+          5. LLM assessment → ComplexityAssessor.assess() + apply_assessment()
 
-        tier_ceiling = ModelTier.ADVANCED
+        Stub — raises NotImplementedError for paths 3-5 until task group 9.
 
-        try:
-            resolved = resolve_model_tier(self._config, archetype, mode=mode)
-            starting_tier = ModelTier(resolved)
-        except Exception:
-            starting_tier = ModelTier.STANDARD
-
-        ladder = EscalationLadder(
-            starting_tier=starting_tier,
-            tier_ceiling=tier_ceiling,
-            retries_before_escalation=self.retries_before_escalation,
-        )
-        self.ladders[node_id] = ladder
-
-        logger.debug(
-            "Created escalation ladder for %s: starting_tier=%s ceiling=%s",
-            node_id,
-            starting_tier,
-            tier_ceiling,
-        )
+        Requirements: 15-REQ-4.1, 15-REQ-4.3, 15-REQ-4.4, 15-REQ-4.E1,
+                      15-REQ-5.1, 15-REQ-12.2, 15-REQ-12.3, 15-REQ-12.5
+        """
+        raise NotImplementedError("assess_node() not yet implemented")
 
 
 class _SignalHandler:
@@ -237,6 +297,7 @@ class Orchestrator:
         self._routing = AssessmentManager(
             retries_before_escalation=self._resolve_retries_before_escalation(_rc),
             config=full_config or AgentFoxConfig(),
+            client=None,
         )
 
         self._state_mgr = StateManager(

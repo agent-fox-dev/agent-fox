@@ -61,6 +61,23 @@ class AcceptanceCriterion:
 
 
 @dataclass(frozen=True)
+class AssessedComplexity:
+    """Complexity assessment embedded in triage output.
+
+    Frozen dataclass with tier, variant, confidence, and rationale fields.
+    Used by the nightshift triage model to provide a pre-assessed complexity
+    signal that bypasses the Haiku LLM call for coder nodes.
+
+    Requirement: 15-REQ-11.1
+    """
+
+    tier: str
+    variant: str | None
+    confidence: float
+    rationale: str
+
+
+@dataclass(frozen=True)
 class TriageResult:
     """Parsed triage output."""
 
@@ -68,6 +85,7 @@ class TriageResult:
     affected_files: list[str] = field(default_factory=list)
     criteria: list[AcceptanceCriterion] = field(default_factory=list)
     issue_body: str = ""
+    assessed_complexity: AssessedComplexity | None = None
 
 
 @dataclass(frozen=True)
