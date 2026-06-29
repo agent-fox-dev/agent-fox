@@ -118,6 +118,8 @@ to a more capable model tier based on past session outcomes.
 | `max_timeout_retries` | int | `2` | >= 0 | Maximum timeout retries before falling through to escalation (0 = disable timeout handling) |
 | `timeout_multiplier` | float | `1.5` | >= 1.0 | Factor by which `max_turns` and `session_timeout` are extended on each timeout retry |
 | `timeout_ceiling_factor` | float | `2.0` | >= 1.0 | Maximum `session_timeout` as a multiple of the original configured value |
+| `assessor_model` | str | `"claude-haiku-4-5"` | min 1 char | Anthropic model ID used for dynamic complexity assessment |
+| `confidence_threshold` | float | `0.6` | 0.0--1.0 | Minimum confidence score to apply a complexity assessment upgrade |
 
 **Example:**
 
@@ -127,6 +129,8 @@ retries_before_escalation = 2
 max_timeout_retries = 3
 timeout_multiplier = 1.5
 timeout_ceiling_factor = 2.0
+assessor_model = "claude-haiku-4-5"
+confidence_threshold = 0.6
 ```
 
 ---
