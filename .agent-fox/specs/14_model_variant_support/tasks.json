@@ -1,0 +1,1485 @@
+{
+  "$schema": null,
+  "spec_id": "14",
+  "spec_name": "model_variant_support",
+  "schema_version": 1,
+  "test_commands": {
+    "spec_tests": "pytest packages/agentfox/tests/unit/ -q -k 'variant'",
+    "all_tests": "pytest packages/agentfox/tests/ -q",
+    "linter": "ruff check packages/agentfox/"
+  },
+  "dependencies": [],
+  "task_groups": [
+    {
+      "id": 1,
+      "kind": "tests",
+      "title": "Write tests for ModelEntry, MODEL_REGISTRY, and VARIANT_ORDER (REQ-1, REQ-2, REQ-3)",
+      "subtasks": [
+        {
+          "id": "1.1",
+          "title": "Write ModelEntry variant field unit tests",
+          "details": [
+            "Create packages/agentfox/tests/unit/test_model_entry_variant.py",
+            "TS-14-1: assert ModelEntry(model_id='claude-opus-4-6', tier='ADVANCED').variant is None",
+            "TS-14-2: assert ModelEntry(model_id='claude-haiku-4-5', tier='SIMPLE', variant=None).variant is None",
+            "TS-14-3: parametrize over ['fast','standard','extended','turbo'] and assert each is accepted",
+            "TS-14-E1: assert TypeError or ValidationError raised for ModelEntry(variant=42)"
+          ],
+          "test_spec_refs": [
+            "TS-14-1",
+            "TS-14-2",
+            "TS-14-3",
+            "TS-14-E1"
+          ],
+          "requirement_refs": [
+            "14-REQ-1.1",
+            "14-REQ-1.2",
+            "14-REQ-1.3",
+            "14-REQ-1.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.2",
+          "title": "Write MODEL_REGISTRY variant registration unit tests",
+          "details": [
+            "Add tests to test_model_entry_variant.py or a dedicated test_model_registry.py",
+            "TS-14-4: find claude-haiku-4-5 entry, assert tier=SIMPLE, variant=None",
+            "TS-14-5: find claude-sonnet-4-6 entry, assert tier=STANDARD, variant=None",
+            "TS-14-6: find claude-opus-4-6 entry, assert tier=ADVANCED, variant='standard'",
+            "TS-14-7: find claude-opus-4-6[1m] entry, assert tier=ADVANCED, variant='extended'"
+          ],
+          "test_spec_refs": [
+            "TS-14-4",
+            "TS-14-5",
+            "TS-14-6",
+            "TS-14-7"
+          ],
+          "requirement_refs": [
+            "14-REQ-2.1",
+            "14-REQ-2.2",
+            "14-REQ-2.3",
+            "14-REQ-2.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.3",
+          "title": "Write VARIANT_ORDER unit tests",
+          "details": [
+            "Create packages/agentfox/tests/unit/test_variant_order.py",
+            "TS-14-8: assert VARIANT_ORDER == {'fast': 0, 'standard': 1, 'extended': 2}",
+            "TS-14-9: perform 'from agentfox.core.models import VARIANT_ORDER' in a subprocess or isolated scope; assert no ImportError",
+            "TS-14-10: assert None not in VARIANT_ORDER"
+          ],
+          "test_spec_refs": [
+            "TS-14-8",
+            "TS-14-9",
+            "TS-14-10"
+          ],
+          "requirement_refs": [
+            "14-REQ-3.1",
+            "14-REQ-3.2",
+            "14-REQ-3.3"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "1.V",
+        "checks": [
+          "pytest packages/agentfox/tests/unit/test_model_entry_variant.py packages/agentfox/tests/unit/test_variant_order.py -q exits non-zero (tests are expected to fail until implementation)",
+          "Test file syntax is valid: python -m py_compile packages/agentfox/tests/unit/test_model_entry_variant.py",
+          "All test IDs TS-14-1 through TS-14-10 and TS-14-E1 are present and collected by pytest --collect-only",
+          "ruff check packages/agentfox/tests/unit/ reports no errors in the new test files"
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "kind": "tests",
+      "title": "Write tests for archetype/mode/PerArchetypeConfig variant fields and resolve_effective_config (REQ-4, REQ-5, REQ-13)",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Write ArchetypeEntry and ModeConfig variant field tests",
+          "details": [
+            "Create packages/agentfox/tests/unit/test_archetype_variant_fields.py",
+            "TS-14-11: construct minimal ArchetypeEntry without default_model_variant; assert it is None",
+            "TS-14-12: construct minimal ModeConfig without model_variant; assert it is None",
+            "TS-14-E2: call resolve_model('ADVANCED', variant=None) with both mode and archetype returning None; assert returns TIER_DEFAULTS['ADVANCED']"
+          ],
+          "test_spec_refs": [
+            "TS-14-11",
+            "TS-14-12",
+            "TS-14-E2"
+          ],
+          "requirement_refs": [
+            "14-REQ-4.1",
+            "14-REQ-4.2",
+            "14-REQ-4.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.2",
+          "title": "Write resolve_effective_config variant merging tests",
+          "details": [
+            "Add tests to test_archetype_variant_fields.py or a dedicated test_resolve_effective_config_variant.py",
+            "TS-14-13 / TS-14-45: mode variant='extended' beats archetype variant='standard'; assert result.default_model_variant == 'extended'",
+            "TS-14-14 / TS-14-46: mode variant=None preserves archetype variant='extended'; assert result.default_model_variant == 'extended'",
+            "TS-14-47: verify symmetry — mode overrides both model_tier and model_variant; assert both in merged result match mode values"
+          ],
+          "test_spec_refs": [
+            "TS-14-13",
+            "TS-14-14",
+            "TS-14-45",
+            "TS-14-46",
+            "TS-14-47"
+          ],
+          "requirement_refs": [
+            "14-REQ-4.3",
+            "14-REQ-4.4",
+            "14-REQ-13.1",
+            "14-REQ-13.2",
+            "14-REQ-13.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.3",
+          "title": "Write PerArchetypeConfig variant field and TOML mapping tests",
+          "details": [
+            "Create packages/agentfox/tests/unit/test_per_archetype_config_variant.py",
+            "TS-14-15: PerArchetypeConfig() without model_variant; assert model_variant is None",
+            "TS-14-16: parse TOML '[archetypes.overrides.coder]\\nmodel_variant = \"extended\"'; assert config.archetypes.overrides['coder'].model_variant == 'extended'",
+            "TS-14-17: parse TOML with '[archetypes.overrides.reviewer.modes.fix-review]\\nmodel_variant = \"standard\"'; assert nested mode model_variant == 'standard'",
+            "TS-14-18: parse TOML with top-level model_variant; assert no error and no field populated at top level"
+          ],
+          "test_spec_refs": [
+            "TS-14-15",
+            "TS-14-16",
+            "TS-14-17",
+            "TS-14-18"
+          ],
+          "requirement_refs": [
+            "14-REQ-5.1",
+            "14-REQ-5.2",
+            "14-REQ-5.3",
+            "14-REQ-5.4"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "2.V",
+        "checks": [
+          "pytest packages/agentfox/tests/unit/test_archetype_variant_fields.py packages/agentfox/tests/unit/test_per_archetype_config_variant.py -q --collect-only shows all TS-14-11 through TS-14-18 and TS-14-45 through TS-14-47 and TS-14-E2",
+          "Test file syntax valid: python -m py_compile on each new test file",
+          "ruff check packages/agentfox/tests/unit/ reports no new errors"
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "kind": "tests",
+      "title": "Write tests for resolve_model_variant() 4-layer resolution (REQ-6)",
+      "subtasks": [
+        {
+          "id": "3.1",
+          "title": "Write Layer 1 and Layer 2 resolution tests for resolve_model_variant()",
+          "details": [
+            "Create packages/agentfox/tests/unit/test_resolve_model_variant.py",
+            "TS-14-19: mock mode PerArchetypeConfig with model_variant='extended' and archetype with 'standard'; call resolve_model_variant; assert returns 'extended'",
+            "TS-14-20: mode config model_variant=None, archetype config model_variant='extended'; assert returns 'extended' from Layer 2"
+          ],
+          "test_spec_refs": [
+            "TS-14-19",
+            "TS-14-20"
+          ],
+          "requirement_refs": [
+            "14-REQ-6.1",
+            "14-REQ-6.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.2",
+          "title": "Write Layer 3 short-circuit and Layer 4 fallback tests for resolve_model_variant()",
+          "details": [
+            "TS-14-21 / TS-14-E3: mock resolve_effective_config; with legacy dict matching archetype and Layers 1+2 None; assert returns None and resolve_effective_config.call_count == 0",
+            "TS-14-22: Layers 1-3 None; mock resolve_effective_config returning ArchetypeEntry(default_model_variant='extended'); assert returns 'extended'",
+            "TS-14-23: all layers return None; assert resolve_model_variant returns None"
+          ],
+          "test_spec_refs": [
+            "TS-14-21",
+            "TS-14-22",
+            "TS-14-23",
+            "TS-14-E3"
+          ],
+          "requirement_refs": [
+            "14-REQ-6.3",
+            "14-REQ-6.4",
+            "14-REQ-6.5",
+            "14-REQ-6.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "3.V",
+        "checks": [
+          "pytest packages/agentfox/tests/unit/test_resolve_model_variant.py -q --collect-only shows TS-14-19 through TS-14-23 and TS-14-E3",
+          "python -m py_compile packages/agentfox/tests/unit/test_resolve_model_variant.py succeeds",
+          "ruff check packages/agentfox/tests/unit/test_resolve_model_variant.py reports no errors"
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "kind": "tests",
+      "title": "Write tests for resolve_model() variant awareness and fallback (REQ-7, REQ-9)",
+      "subtasks": [
+        {
+          "id": "4.1",
+          "title": "Write resolve_model() variant=None and exact-match tests",
+          "details": [
+            "Create packages/agentfox/tests/unit/test_resolve_model_variant_awareness.py",
+            "TS-14-24: parametrize over SIMPLE/STANDARD/ADVANCED; assert resolve_model(tier, variant=None) == TIER_DEFAULTS[tier]",
+            "TS-14-25: assert resolve_model('ADVANCED', variant='extended') == 'claude-opus-4-6[1m]'",
+            "TS-14-27 / TS-14-P1: assert TIER_DEFAULTS['ADVANCED'] == next(e for e in MODEL_REGISTRY if e.tier=='ADVANCED' and e.variant=='standard').model_id",
+            "TS-14-P2: for all tiers, assert resolve_model(tier, variant=None) == TIER_DEFAULTS[tier]"
+          ],
+          "test_spec_refs": [
+            "TS-14-24",
+            "TS-14-25",
+            "TS-14-27",
+            "TS-14-P1",
+            "TS-14-P2"
+          ],
+          "requirement_refs": [
+            "14-REQ-7.1",
+            "14-REQ-7.2",
+            "14-REQ-7.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.2",
+          "title": "Write resolve_model() fallback and no-exception tests",
+          "details": [
+            "TS-14-26 / TS-14-34 / TS-14-E4: resolve_model('SIMPLE', variant='extended'); capture logs; assert result=='claude-haiku-4-5' and DEBUG log emitted",
+            "TS-14-35 / TS-14-E5: resolve_model('ADVANCED', variant='turbo'); assert no exception and result is non-empty string and DEBUG log emitted",
+            "TS-14-36: verify fallback log is DEBUG only — no WARNING or ERROR",
+            "TS-14-E7: resolve_model('SIMPLE', variant='standard'); assert result == TIER_DEFAULTS['SIMPLE'] and DEBUG log emitted",
+            "TS-14-P3: parametrize over all tiers × ['fast','standard','extended','turbo','UNKNOWN','x'*100]; assert no exception and non-empty result"
+          ],
+          "test_spec_refs": [
+            "TS-14-26",
+            "TS-14-34",
+            "TS-14-35",
+            "TS-14-36",
+            "TS-14-E4",
+            "TS-14-E5",
+            "TS-14-E7",
+            "TS-14-P3"
+          ],
+          "requirement_refs": [
+            "14-REQ-7.3",
+            "14-REQ-9.1",
+            "14-REQ-9.2",
+            "14-REQ-9.3",
+            "14-REQ-7.E1",
+            "14-REQ-7.E2",
+            "14-REQ-9.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "4.V",
+        "checks": [
+          "pytest packages/agentfox/tests/unit/test_resolve_model_variant_awareness.py -q --collect-only shows all TS-14-24 through TS-14-27, TS-14-34 through TS-14-36, TS-14-E4, TS-14-E5, TS-14-E7, TS-14-P1, TS-14-P2, TS-14-P3",
+          "python -m py_compile packages/agentfox/tests/unit/test_resolve_model_variant_awareness.py succeeds",
+          "ruff check packages/agentfox/tests/unit/test_resolve_model_variant_awareness.py reports no errors"
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "kind": "tests",
+      "title": "Write tests for EscalationLadder variant preservation (REQ-8)",
+      "subtasks": [
+        {
+          "id": "5.1",
+          "title": "Write EscalationLadder constructor and current_variant property tests",
+          "details": [
+            "Create packages/agentfox/tests/unit/test_escalation_ladder_variant.py",
+            "TS-14-28: assert starting_variant is KEYWORD_ONLY via inspect.signature; assert ladder constructs without error",
+            "TS-14-29: EscalationLadder(..., starting_variant='extended'); assert ladder.current_variant == 'extended'",
+            "TS-14-30: attempt ladder.current_variant = 'standard'; assert AttributeError raised",
+            "TS-14-33: construct with existing positional args only; assert ladder.current_variant is None",
+            "TS-14-P4: parametrize starting_variant over [None,'fast','standard','extended']; escalate 0-3 times; assert current_variant unchanged throughout"
+          ],
+          "test_spec_refs": [
+            "TS-14-28",
+            "TS-14-29",
+            "TS-14-30",
+            "TS-14-33",
+            "TS-14-P4"
+          ],
+          "requirement_refs": [
+            "14-REQ-8.1",
+            "14-REQ-8.2",
+            "14-REQ-8.3",
+            "14-REQ-8.6"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.2",
+          "title": "Write EscalationLadder variant pass-through and fallback delegation tests",
+          "details": [
+            "TS-14-31: mock resolve_model; escalate STANDARD→ADVANCED with starting_variant='extended'; assert resolve_model called with variant='extended'",
+            "TS-14-32: mock resolve_model; EscalationLadder at SIMPLE with starting_variant='extended'; assert resolve_model called with variant='extended' (not substituted)",
+            "TS-14-E6: capture logs; EscalationLadder at ADVANCED with starting_variant='fast'; assert DEBUG log comes from resolve_model module path, not escalation module"
+          ],
+          "test_spec_refs": [
+            "TS-14-31",
+            "TS-14-32",
+            "TS-14-E6"
+          ],
+          "requirement_refs": [
+            "14-REQ-8.4",
+            "14-REQ-8.5",
+            "14-REQ-8.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "5.V",
+        "checks": [
+          "pytest packages/agentfox/tests/unit/test_escalation_ladder_variant.py -q --collect-only shows TS-14-28 through TS-14-33, TS-14-E6, TS-14-P4",
+          "python -m py_compile packages/agentfox/tests/unit/test_escalation_ladder_variant.py succeeds",
+          "ruff check packages/agentfox/tests/unit/test_escalation_ladder_variant.py reports no errors"
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "kind": "tests",
+      "title": "Write tests for pricing, backward compatibility, NodeSessionRunner wiring, and property tests (REQ-10, REQ-11, REQ-12)",
+      "subtasks": [
+        {
+          "id": "6.1",
+          "title": "Write pricing entry and backward compatibility tests",
+          "details": [
+            "Create packages/agentfox/tests/unit/test_pricing_and_compat.py",
+            "TS-14-37: assert 'claude-opus-4-6' and 'claude-opus-4-6[1m]' both in [m['model_id'] for m in _default_pricing_models()]",
+            "TS-14-38: retrieve claude-opus-4-6[1m] entry; assert all four price fields are present and non-None",
+            "TS-14-39: read config.py source text; find claude-opus-4-6[1m]; assert adjacent comment matches r'#.*retrieved.*\\d{4}-\\d{2}-\\d{2}'",
+            "TS-14-40: parametrize over SIMPLE/STANDARD/ADVANCED; assert resolve_model(tier) == TIER_DEFAULTS[tier]",
+            "TS-14-41: parse TOML without model_variant; assert PerArchetypeConfig.model_variant is None",
+            "TS-14-42: run existing test suite via subprocess; assert returncode == 0"
+          ],
+          "test_spec_refs": [
+            "TS-14-37",
+            "TS-14-38",
+            "TS-14-39",
+            "TS-14-40",
+            "TS-14-41",
+            "TS-14-42"
+          ],
+          "requirement_refs": [
+            "14-REQ-10.1",
+            "14-REQ-10.2",
+            "14-REQ-10.3",
+            "14-REQ-11.1",
+            "14-REQ-11.2",
+            "14-REQ-11.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.2",
+          "title": "Write NodeSessionRunner two-step wiring tests",
+          "details": [
+            "Create packages/agentfox/tests/unit/test_node_session_runner_wiring.py",
+            "TS-14-43: mock resolve_model_variant (returns 'extended') and resolve_model; track call_order; assert ['variant','model'] order and resolve_model called with variant='extended'",
+            "TS-14-44: read session_lifecycle.py source; assert 'resolve_model_variant' in source and 'resolve_model' in source; assert no inline MODEL_REGISTRY scanning in the method",
+            "TS-14-E8: mock resolve_model_variant to return None; assert resolve_model called with variant=None"
+          ],
+          "test_spec_refs": [
+            "TS-14-43",
+            "TS-14-44",
+            "TS-14-E8"
+          ],
+          "requirement_refs": [
+            "14-REQ-12.1",
+            "14-REQ-12.2",
+            "14-REQ-12.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.3",
+          "title": "Write remaining property tests (TS-14-P5, TS-14-P6, TS-14-P7)",
+          "details": [
+            "Create packages/agentfox/tests/unit/test_variant_properties.py",
+            "TS-14-P5: parametrize mode_variant × arch_variant over ['fast','standard','extended']; assert merged result.default_model_variant == mode_variant",
+            "TS-14-P6: for each archetype in legacy dict; mock resolve_effective_config; assert result None and mock call_count == 0",
+            "TS-14-P7: assert all canonical labels ['fast','standard','extended'] in VARIANT_ORDER with int values; assert None not in VARIANT_ORDER"
+          ],
+          "test_spec_refs": [
+            "TS-14-P5",
+            "TS-14-P6",
+            "TS-14-P7"
+          ],
+          "requirement_refs": [
+            "14-REQ-4.3",
+            "14-REQ-13.1",
+            "14-REQ-6.3",
+            "14-REQ-6.E1",
+            "14-REQ-3.1",
+            "14-REQ-3.3"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "6.V",
+        "checks": [
+          "pytest packages/agentfox/tests/unit/test_pricing_and_compat.py packages/agentfox/tests/unit/test_node_session_runner_wiring.py packages/agentfox/tests/unit/test_variant_properties.py -q --collect-only shows all TS-14-37 through TS-14-44, TS-14-E8, TS-14-P5, TS-14-P6, TS-14-P7",
+          "python -m py_compile on each new test file succeeds",
+          "ruff check packages/agentfox/tests/unit/ reports no new errors"
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "kind": "standard",
+      "title": "Implement ModelEntry variant field, MODEL_REGISTRY registration, and VARIANT_ORDER (REQ-1, REQ-2, REQ-3)",
+      "subtasks": [
+        {
+          "id": "7.1",
+          "title": "Add optional variant field to ModelEntry dataclass",
+          "details": [
+            "In packages/agentfox/agentfox/core/models.py, add `variant: str | None = None` to ModelEntry",
+            "If ModelEntry is a dataclass, add field with default=None; if Pydantic, add Field(default=None)",
+            "Type annotation must be `str | None` to accept None and arbitrary strings",
+            "No custom validator needed — dataclass/Pydantic native type checking handles TS-14-E1"
+          ],
+          "test_spec_refs": [
+            "TS-14-1",
+            "TS-14-2",
+            "TS-14-3",
+            "TS-14-E1"
+          ],
+          "requirement_refs": [
+            "14-REQ-1.1",
+            "14-REQ-1.2",
+            "14-REQ-1.3",
+            "14-REQ-1.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.2",
+          "title": "Update MODEL_REGISTRY with variant assignments for all four models",
+          "details": [
+            "Update claude-haiku-4-5 entry: variant=None",
+            "Update claude-sonnet-4-6 entry: variant=None",
+            "Update claude-opus-4-6 entry: variant='standard'",
+            "Add claude-opus-4-6[1m] entry: tier=ADVANCED, variant='extended'",
+            "Ensure MODEL_REGISTRY is still a sequence/list of ModelEntry objects"
+          ],
+          "test_spec_refs": [
+            "TS-14-4",
+            "TS-14-5",
+            "TS-14-6",
+            "TS-14-7"
+          ],
+          "requirement_refs": [
+            "14-REQ-2.1",
+            "14-REQ-2.2",
+            "14-REQ-2.3",
+            "14-REQ-2.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.3",
+          "title": "Define VARIANT_ORDER constant in models.py",
+          "details": [
+            "Add VARIANT_ORDER: dict[str, int] = {'fast': 0, 'standard': 1, 'extended': 2} at module level in models.py",
+            "Ensure it is defined before any function that references it",
+            "Confirm no circular import by checking existing import graph — VARIANT_ORDER is a plain dict constant",
+            "Export from __all__ if models.py uses explicit __all__"
+          ],
+          "test_spec_refs": [
+            "TS-14-8",
+            "TS-14-9",
+            "TS-14-10",
+            "TS-14-P7"
+          ],
+          "requirement_refs": [
+            "14-REQ-3.1",
+            "14-REQ-3.2",
+            "14-REQ-3.3"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "7.V",
+        "checks": [
+          "pytest packages/agentfox/tests/unit/test_model_entry_variant.py packages/agentfox/tests/unit/test_variant_order.py -q exits with code 0",
+          "ruff check packages/agentfox/agentfox/core/models.py reports no new errors",
+          "14-REQ-1.1, 14-REQ-1.2, 14-REQ-1.3, 14-REQ-2.1 through 14-REQ-2.4, 14-REQ-3.1, 14-REQ-3.2, 14-REQ-3.3 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 8,
+      "kind": "standard",
+      "title": "Implement ArchetypeEntry, ModeConfig, PerArchetypeConfig variant fields and resolve_effective_config update (REQ-4, REQ-5, REQ-13)",
+      "subtasks": [
+        {
+          "id": "8.1",
+          "title": "Add default_model_variant to ArchetypeEntry and model_variant to ModeConfig",
+          "details": [
+            "In packages/agentfox/agentfox/archetypes.py, add `default_model_variant: str | None = None` to ArchetypeEntry",
+            "Add `model_variant: str | None = None` to ModeConfig",
+            "Fields default to None — no existing call sites break"
+          ],
+          "test_spec_refs": [
+            "TS-14-11",
+            "TS-14-12"
+          ],
+          "requirement_refs": [
+            "14-REQ-4.1",
+            "14-REQ-4.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.2",
+          "title": "Add model_variant to PerArchetypeConfig with TOML key mapping",
+          "details": [
+            "In packages/agentfox/agentfox/core/config.py, add `model_variant: str | None = None` to PerArchetypeConfig",
+            "PerArchetypeConfig is self-referential for modes — the same struct handles both archetype-level and mode-level overrides",
+            "ConfigDict(extra='ignore') already handles silently ignoring unknown keys outside archetypes.overrides",
+            "No additional validation needed for out-of-scope locations"
+          ],
+          "test_spec_refs": [
+            "TS-14-15",
+            "TS-14-16",
+            "TS-14-17",
+            "TS-14-18"
+          ],
+          "requirement_refs": [
+            "14-REQ-5.1",
+            "14-REQ-5.2",
+            "14-REQ-5.3",
+            "14-REQ-5.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.3",
+          "title": "Update resolve_effective_config() to merge model_variant with mode-beats-archetype priority",
+          "details": [
+            "In resolve_effective_config() (agentfox/resolve_effective_config.py or equivalent), mirror the existing model_tier merge logic for model_variant",
+            "If ModeConfig.model_variant is not None, write it onto the merged ArchetypeEntry.default_model_variant",
+            "If ModeConfig.model_variant is None, preserve the archetype-level default_model_variant unchanged",
+            "Ensure the merge is symmetric with model_tier — both fields follow identical priority rules"
+          ],
+          "test_spec_refs": [
+            "TS-14-13",
+            "TS-14-14",
+            "TS-14-45",
+            "TS-14-46",
+            "TS-14-47",
+            "TS-14-P5"
+          ],
+          "requirement_refs": [
+            "14-REQ-4.3",
+            "14-REQ-4.4",
+            "14-REQ-13.1",
+            "14-REQ-13.2",
+            "14-REQ-13.3"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "8.V",
+        "checks": [
+          "pytest packages/agentfox/tests/unit/test_archetype_variant_fields.py packages/agentfox/tests/unit/test_per_archetype_config_variant.py -q exits with code 0",
+          "ruff check packages/agentfox/agentfox/archetypes.py packages/agentfox/agentfox/core/config.py reports no new errors",
+          "14-REQ-4.1 through 14-REQ-4.4, 14-REQ-5.1 through 14-REQ-5.4, 14-REQ-13.1 through 14-REQ-13.3 acceptance criteria met",
+          "All existing tests still pass: pytest packages/agentfox/tests/unit/ -q"
+        ]
+      }
+    },
+    {
+      "id": 9,
+      "kind": "standard",
+      "title": "Implement resolve_model_variant() in sdk_params.py (REQ-6)",
+      "subtasks": [
+        {
+          "id": "9.1",
+          "title": "Implement resolve_model_variant() Layer 1 and Layer 2 (mode and archetype config overrides)",
+          "details": [
+            "In packages/agentfox/agentfox/engine/sdk_params.py, add resolve_model_variant() with the same signature pattern as resolve_model_tier()",
+            "Layer 1: if mode's PerArchetypeConfig.model_variant is not None, return it immediately",
+            "Layer 2: if archetype's PerArchetypeConfig.model_variant is not None, return it",
+            "Follow the existing code structure of resolve_model_tier() for consistency"
+          ],
+          "test_spec_refs": [
+            "TS-14-19",
+            "TS-14-20"
+          ],
+          "requirement_refs": [
+            "14-REQ-6.1",
+            "14-REQ-6.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "9.2",
+          "title": "Implement resolve_model_variant() Layer 3 (legacy dict short-circuit) and Layer 4 (registry default)",
+          "details": [
+            "Layer 3: if config.archetypes.models dict matches the archetype name, return None immediately (early return — never reach Layer 4)",
+            "Layer 4: call resolve_effective_config() and return the merged result's default_model_variant (may be None)",
+            "If all layers return None, the function returns None — resolve_model() will use TIER_DEFAULTS",
+            "Ensure Layer 3 short-circuit exactly mirrors resolve_model_tier() Layer 3 behavior"
+          ],
+          "test_spec_refs": [
+            "TS-14-21",
+            "TS-14-22",
+            "TS-14-23",
+            "TS-14-E3",
+            "TS-14-P6"
+          ],
+          "requirement_refs": [
+            "14-REQ-6.3",
+            "14-REQ-6.4",
+            "14-REQ-6.5",
+            "14-REQ-6.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "9.V",
+        "checks": [
+          "pytest packages/agentfox/tests/unit/test_resolve_model_variant.py -q exits with code 0",
+          "ruff check packages/agentfox/agentfox/engine/sdk_params.py reports no new errors",
+          "14-REQ-6.1 through 14-REQ-6.5 and 14-REQ-6.E1 acceptance criteria met",
+          "All existing sdk_params tests still pass: pytest packages/agentfox/tests/unit/ -q -k 'sdk_params'"
+        ]
+      }
+    },
+    {
+      "id": 10,
+      "kind": "standard",
+      "title": "Implement resolve_model() variant awareness and fallback (REQ-7, REQ-9)",
+      "subtasks": [
+        {
+          "id": "10.1",
+          "title": "Extend resolve_model() with optional variant parameter and registry scan logic",
+          "details": [
+            "In packages/agentfox/agentfox/core/models.py, add `variant: str | None = None` to resolve_model() signature",
+            "When variant is None: return TIER_DEFAULTS[tier] (unchanged backward-compatible path)",
+            "When variant is not None: scan MODEL_REGISTRY for entry matching (tier, variant); if found return entry.model_id",
+            "TIER_DEFAULTS['ADVANCED'] must continue to equal the model_id of MODEL_REGISTRY entry with tier=ADVANCED, variant='standard'"
+          ],
+          "test_spec_refs": [
+            "TS-14-24",
+            "TS-14-25",
+            "TS-14-27",
+            "TS-14-P1",
+            "TS-14-P2"
+          ],
+          "requirement_refs": [
+            "14-REQ-7.1",
+            "14-REQ-7.2",
+            "14-REQ-7.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "10.2",
+          "title": "Implement variant fallback with DEBUG logging in resolve_model()",
+          "details": [
+            "When variant is provided but no MODEL_REGISTRY entry matches (tier, variant): fall back to TIER_DEFAULTS[tier]",
+            "Emit a DEBUG-level log message (format at implementer's discretion) — use logger.debug(...)",
+            "Never raise an exception — always return a non-empty string",
+            "Valid-but-unavailable variants (e.g., 'extended' for SIMPLE) and completely unrecognized strings (e.g., 'turbo') both trigger the same fallback path with no distinction"
+          ],
+          "test_spec_refs": [
+            "TS-14-26",
+            "TS-14-34",
+            "TS-14-35",
+            "TS-14-36",
+            "TS-14-E4",
+            "TS-14-E5",
+            "TS-14-E7",
+            "TS-14-P3"
+          ],
+          "requirement_refs": [
+            "14-REQ-7.3",
+            "14-REQ-9.1",
+            "14-REQ-9.2",
+            "14-REQ-9.3",
+            "14-REQ-7.E1",
+            "14-REQ-7.E2",
+            "14-REQ-9.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "10.V",
+        "checks": [
+          "pytest packages/agentfox/tests/unit/test_resolve_model_variant_awareness.py -q exits with code 0",
+          "ruff check packages/agentfox/agentfox/core/models.py reports no new errors",
+          "14-REQ-7.1 through 14-REQ-7.4, 14-REQ-9.1 through 14-REQ-9.3 acceptance criteria met",
+          "All existing resolve_model tests still pass: pytest packages/agentfox/tests/unit/ -q"
+        ]
+      }
+    },
+    {
+      "id": 11,
+      "kind": "standard",
+      "title": "Implement EscalationLadder variant preservation (REQ-8)",
+      "subtasks": [
+        {
+          "id": "11.1",
+          "title": "Add keyword-only starting_variant parameter and read-only current_variant property to EscalationLadder",
+          "details": [
+            "In packages/agentfox/agentfox/core/escalation.py, add `*, starting_variant: str | None = None` to EscalationLadder.__init__() after existing positional parameters",
+            "Store as private `self._variant: str | None = starting_variant`",
+            "Add `@property def current_variant(self) -> str | None: return self._variant` — no setter",
+            "Existing call sites that do not pass starting_variant continue to work; current_variant returns None"
+          ],
+          "test_spec_refs": [
+            "TS-14-28",
+            "TS-14-29",
+            "TS-14-30",
+            "TS-14-33",
+            "TS-14-P4"
+          ],
+          "requirement_refs": [
+            "14-REQ-8.1",
+            "14-REQ-8.2",
+            "14-REQ-8.3",
+            "14-REQ-8.6"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.2",
+          "title": "Wire variant pass-through in EscalationLadder tier escalation and model resolution",
+          "details": [
+            "Wherever EscalationLadder calls resolve_model() internally, pass variant=self.current_variant as keyword argument",
+            "EscalationLadder must NOT implement any fallback or substitution logic — pass the variant unchanged",
+            "EscalationLadder must NOT emit any log for variant fallback — that is resolve_model()'s responsibility",
+            "Verify that escalating from STANDARD→ADVANCED with starting_variant='extended' results in resolve_model called with variant='extended'"
+          ],
+          "test_spec_refs": [
+            "TS-14-31",
+            "TS-14-32",
+            "TS-14-E6"
+          ],
+          "requirement_refs": [
+            "14-REQ-8.4",
+            "14-REQ-8.5",
+            "14-REQ-8.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "11.V",
+        "checks": [
+          "pytest packages/agentfox/tests/unit/test_escalation_ladder_variant.py -q exits with code 0",
+          "ruff check packages/agentfox/agentfox/core/escalation.py reports no new errors",
+          "14-REQ-8.1 through 14-REQ-8.6 and 14-REQ-8.E1 acceptance criteria met",
+          "All existing EscalationLadder tests still pass: pytest packages/agentfox/tests/unit/ -q -k 'escalation'"
+        ]
+      }
+    },
+    {
+      "id": 12,
+      "kind": "standard",
+      "title": "Implement pricing entry for claude-opus-4-6[1m] and NodeSessionRunner wiring (REQ-10, REQ-12)",
+      "subtasks": [
+        {
+          "id": "12.1",
+          "title": "Add claude-opus-4-6[1m] pricing entry to _default_pricing_models()",
+          "details": [
+            "In packages/agentfox/agentfox/core/config.py, add entry for 'claude-opus-4-6[1m]' in _default_pricing_models()",
+            "Retrieve actual rates from https://www.anthropic.com/pricing at implementation time",
+            "Include all four fields: input_price_per_m, output_price_per_m, cache_read_price_per_m, cache_creation_price_per_m",
+            "Add code comment adjacent to entry: '# Rates retrieved from https://www.anthropic.com/pricing on YYYY-MM-DD' with actual date"
+          ],
+          "test_spec_refs": [
+            "TS-14-37",
+            "TS-14-38",
+            "TS-14-39"
+          ],
+          "requirement_refs": [
+            "14-REQ-10.1",
+            "14-REQ-10.2",
+            "14-REQ-10.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "12.2",
+          "title": "Wire two-step resolve_model_variant() → resolve_model(variant=...) calls in NodeSessionRunner",
+          "details": [
+            "In packages/agentfox/agentfox/engine/session_lifecycle.py, update NodeSessionRunner model resolution",
+            "Step 1: call resolve_model_variant() to get effective variant (or None)",
+            "Step 2: pass result as `variant=` keyword argument to resolve_model()",
+            "Do NOT embed any inline variant scanning of MODEL_REGISTRY or VARIANT_ORDER in NodeSessionRunner",
+            "Import resolve_model_variant from sdk_params if not already imported"
+          ],
+          "test_spec_refs": [
+            "TS-14-43",
+            "TS-14-44",
+            "TS-14-E8"
+          ],
+          "requirement_refs": [
+            "14-REQ-12.1",
+            "14-REQ-12.2",
+            "14-REQ-12.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "12.V",
+        "checks": [
+          "pytest packages/agentfox/tests/unit/test_pricing_and_compat.py packages/agentfox/tests/unit/test_node_session_runner_wiring.py -q exits with code 0",
+          "ruff check packages/agentfox/agentfox/core/config.py packages/agentfox/agentfox/engine/session_lifecycle.py reports no new errors",
+          "14-REQ-10.1 through 14-REQ-10.3, 14-REQ-12.1, 14-REQ-12.2 acceptance criteria met",
+          "All existing tests still pass: pytest packages/agentfox/tests/unit/ -q"
+        ]
+      }
+    },
+    {
+      "id": 13,
+      "kind": "checkpoint",
+      "title": "Backward compatibility and invariant verification (REQ-11, PROP-1 through PROP-7)",
+      "subtasks": [
+        {
+          "id": "13.1",
+          "title": "Run backward compatibility tests and verify TIER_DEFAULTS invariant",
+          "details": [
+            "Execute pytest packages/agentfox/tests/unit/ -q to confirm all pre-existing tests pass without modification",
+            "Verify TS-14-40: resolve_model(tier) without variant returns TIER_DEFAULTS[tier] for all tiers",
+            "Verify TS-14-P1 (dedicated invariant test): TIER_DEFAULTS['ADVANCED'] == MODEL_REGISTRY entry with tier=ADVANCED, variant='standard'",
+            "Verify TS-14-41: TOML without model_variant parses cleanly"
+          ],
+          "test_spec_refs": [
+            "TS-14-40",
+            "TS-14-41",
+            "TS-14-42",
+            "TS-14-P1",
+            "TS-14-P2"
+          ],
+          "requirement_refs": [
+            "14-REQ-11.1",
+            "14-REQ-11.2",
+            "14-REQ-11.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "13.2",
+          "title": "Run full property test suite and variant properties",
+          "details": [
+            "pytest packages/agentfox/tests/unit/test_variant_properties.py -q must pass",
+            "TS-14-P3: resolve_model never raises for any tier × variant combination",
+            "TS-14-P4: EscalationLadder.current_variant immutable across escalations",
+            "TS-14-P5: mode-beats-archetype variant priority holds for all cross-product combinations",
+            "TS-14-P6: legacy dict short-circuit never invokes resolve_effective_config",
+            "TS-14-P7: VARIANT_ORDER has all canonical labels and None absent"
+          ],
+          "test_spec_refs": [
+            "TS-14-P3",
+            "TS-14-P4",
+            "TS-14-P5",
+            "TS-14-P6",
+            "TS-14-P7"
+          ],
+          "requirement_refs": [
+            "14-REQ-9.2",
+            "14-REQ-8.2",
+            "14-REQ-8.3",
+            "14-REQ-4.3",
+            "14-REQ-13.1",
+            "14-REQ-6.3",
+            "14-REQ-3.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "13.3",
+          "title": "Run full unit test suite and linter across all changed files",
+          "details": [
+            "pytest packages/agentfox/tests/unit/ -q must exit with code 0",
+            "ruff check packages/agentfox/ must report no new errors or warnings",
+            "Confirm all 12 requirements have at least one passing test covering them",
+            "Confirm no raise NotImplementedError or bare pass in non-abstract methods in changed files"
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [
+            "14-REQ-11.3"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "13.V",
+        "checks": [
+          "pytest packages/agentfox/tests/unit/ -q exits with code 0 — all unit tests including pre-existing tests pass",
+          "ruff check packages/agentfox/ exits with code 0",
+          "TS-14-P1 (TIER_DEFAULTS ADVANCED invariant) is present and passes",
+          "All 12 requirements (14-REQ-1 through 14-REQ-13) have at least one green test in the unit suite"
+        ]
+      }
+    },
+    {
+      "id": 14,
+      "kind": "wiring_verification",
+      "title": "End-to-end wiring verification and smoke tests",
+      "subtasks": [
+        {
+          "id": "14.1",
+          "title": "Trace execution paths and verify no stubs remain in implementation files",
+          "details": [
+            "Audit models.py, sdk_params.py, escalation.py, session_lifecycle.py, resolve_effective_config.py for raise NotImplementedError, bare pass in non-abstract methods, or TODO stubs",
+            "Verify 14-PATH-1: ArchetypeEntry(default_model_variant='extended') → resolve_model_variant() → resolve_model('ADVANCED', variant='extended') → 'claude-opus-4-6[1m]' chain is fully wired with no stubs",
+            "Verify 14-PATH-4: EscalationLadder(starting_variant='extended').escalate() → resolve_model(variant='extended') → 'claude-opus-4-6[1m]' chain is fully wired",
+            "Verify 14-PATH-5: PerArchetypeConfig(model_variant='extended') → resolve_model_variant() Layer 2 → 'extended' → resolve_model → 'claude-opus-4-6[1m]' chain is fully wired"
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [
+            "14-REQ-7.2",
+            "14-REQ-12.1",
+            "14-REQ-6.1",
+            "14-REQ-8.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "14.2",
+          "title": "Verify return value propagation across module boundaries",
+          "details": [
+            "Confirm NodeSessionRunner stores and uses the return value of resolve_model() — not discards it",
+            "Confirm EscalationLadder passes current_variant (not a hardcoded value) to resolve_model()",
+            "Confirm resolve_model_variant() return value (including None) is forwarded as variant= kwarg to resolve_model() in NodeSessionRunner",
+            "Confirm resolve_effective_config() result's default_model_variant is read (not ignored) in resolve_model_variant() Layer 4"
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [
+            "14-REQ-12.1",
+            "14-REQ-8.4",
+            "14-REQ-6.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "14.3",
+          "title": "Run all smoke tests with real components",
+          "details": [
+            "TS-14-SMOKE-1: ADVANCED archetype with extended variant resolves to claude-opus-4-6[1m] end-to-end",
+            "TS-14-SMOKE-2: SIMPLE tier with extended variant falls back to claude-haiku-4-5 with DEBUG log",
+            "TS-14-SMOKE-3: resolve_model('ADVANCED') without variant returns 'claude-opus-4-6' — backward compatibility",
+            "TS-14-SMOKE-4: EscalationLadder(starting_variant='extended') escalated STANDARD→ADVANCED returns 'claude-opus-4-6[1m]'",
+            "TS-14-SMOKE-5: config.toml model_variant='extended' for coder archetype flows through to 'claude-opus-4-6[1m]'"
+          ],
+          "test_spec_refs": [
+            "TS-14-SMOKE-1",
+            "TS-14-SMOKE-2",
+            "TS-14-SMOKE-3",
+            "TS-14-SMOKE-4",
+            "TS-14-SMOKE-5"
+          ],
+          "requirement_refs": [
+            "14-REQ-7.2",
+            "14-REQ-9.1",
+            "14-REQ-11.1",
+            "14-REQ-8.4",
+            "14-REQ-12.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "14.4",
+          "title": "Verify spec 15 cross-spec entry point readiness",
+          "details": [
+            "Confirm VARIANT_ORDER is importable from agentfox.core.models without circular import (run: python -c 'from agentfox.core.models import VARIANT_ORDER; print(VARIANT_ORDER)')",
+            "Confirm EscalationLadder.starting_variant keyword-only parameter is accessible (inspect.signature check passes)",
+            "Confirm MODEL_REGISTRY with variant fields is importable and iterable by downstream spec 15 code",
+            "These are the three public interfaces spec 15 depends on — all must be stable and non-stub"
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [
+            "14-REQ-3.2",
+            "14-REQ-8.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "14.5",
+          "title": "Final full test suite run and dead-code audit",
+          "details": [
+            "Run: pytest packages/agentfox/tests/ -q and assert exit code 0",
+            "Run: ruff check packages/agentfox/ and assert exit code 0",
+            "Search all changed files for: raise NotImplementedError, bare `pass` in non-abstract method bodies, `# TODO`, `return None` where a real value is expected",
+            "Confirm no test in packages/agentfox/tests/unit/ is marked xfail or skip that was not xfail/skip before this spec"
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [
+            "14-REQ-11.3"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "14.V",
+        "checks": [
+          "pytest packages/agentfox/tests/ -q exits with code 0 — full suite including smoke tests",
+          "ruff check packages/agentfox/ exits with code 0",
+          "grep -r 'raise NotImplementedError\\|# TODO\\|pass$' packages/agentfox/agentfox/core/models.py packages/agentfox/agentfox/engine/sdk_params.py packages/agentfox/agentfox/core/escalation.py packages/agentfox/agentfox/engine/session_lifecycle.py returns no matches in non-abstract method bodies",
+          "python -c 'from agentfox.core.models import VARIANT_ORDER, MODEL_REGISTRY, TIER_DEFAULTS, resolve_model' exits with code 0 (no circular import)",
+          "All five smoke tests TS-14-SMOKE-1 through TS-14-SMOKE-5 pass",
+          "TIER_DEFAULTS invariant test (TS-14-P1) passes: TIER_DEFAULTS['ADVANCED'] equals MODEL_REGISTRY entry model_id for tier=ADVANCED, variant='standard'"
+        ]
+      }
+    }
+  ],
+  "traceability": [
+    {
+      "requirement_id": "14-REQ-1.1",
+      "test_spec_id": "TS-14-1",
+      "task_id": "7.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-1.2",
+      "test_spec_id": "TS-14-2",
+      "task_id": "7.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-1.3",
+      "test_spec_id": "TS-14-3",
+      "task_id": "7.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-1.E1",
+      "test_spec_id": "TS-14-E1",
+      "task_id": "7.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-2.1",
+      "test_spec_id": "TS-14-4",
+      "task_id": "7.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-2.2",
+      "test_spec_id": "TS-14-5",
+      "task_id": "7.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-2.3",
+      "test_spec_id": "TS-14-6",
+      "task_id": "7.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-2.4",
+      "test_spec_id": "TS-14-7",
+      "task_id": "7.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-3.1",
+      "test_spec_id": "TS-14-8",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-3.2",
+      "test_spec_id": "TS-14-9",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-3.3",
+      "test_spec_id": "TS-14-10",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-3.1",
+      "test_spec_id": "TS-14-P7",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-4.1",
+      "test_spec_id": "TS-14-11",
+      "task_id": "8.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-4.2",
+      "test_spec_id": "TS-14-12",
+      "task_id": "8.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-4.3",
+      "test_spec_id": "TS-14-13",
+      "task_id": "8.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-4.4",
+      "test_spec_id": "TS-14-14",
+      "task_id": "8.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-4.E1",
+      "test_spec_id": "TS-14-E2",
+      "task_id": "8.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-5.1",
+      "test_spec_id": "TS-14-15",
+      "task_id": "8.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-5.2",
+      "test_spec_id": "TS-14-16",
+      "task_id": "8.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-5.3",
+      "test_spec_id": "TS-14-17",
+      "task_id": "8.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-5.4",
+      "test_spec_id": "TS-14-18",
+      "task_id": "8.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-6.1",
+      "test_spec_id": "TS-14-19",
+      "task_id": "9.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-6.2",
+      "test_spec_id": "TS-14-20",
+      "task_id": "9.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-6.3",
+      "test_spec_id": "TS-14-21",
+      "task_id": "9.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-6.4",
+      "test_spec_id": "TS-14-22",
+      "task_id": "9.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-6.5",
+      "test_spec_id": "TS-14-23",
+      "task_id": "9.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-6.E1",
+      "test_spec_id": "TS-14-E3",
+      "task_id": "9.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-7.1",
+      "test_spec_id": "TS-14-24",
+      "task_id": "10.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-7.2",
+      "test_spec_id": "TS-14-25",
+      "task_id": "10.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-7.3",
+      "test_spec_id": "TS-14-26",
+      "task_id": "10.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-7.4",
+      "test_spec_id": "TS-14-27",
+      "task_id": "10.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-7.E1",
+      "test_spec_id": "TS-14-E4",
+      "task_id": "10.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-7.E2",
+      "test_spec_id": "TS-14-E5",
+      "task_id": "10.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-8.1",
+      "test_spec_id": "TS-14-28",
+      "task_id": "11.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-8.2",
+      "test_spec_id": "TS-14-29",
+      "task_id": "11.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-8.3",
+      "test_spec_id": "TS-14-30",
+      "task_id": "11.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-8.4",
+      "test_spec_id": "TS-14-31",
+      "task_id": "11.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-8.5",
+      "test_spec_id": "TS-14-32",
+      "task_id": "11.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-8.6",
+      "test_spec_id": "TS-14-33",
+      "task_id": "11.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-8.E1",
+      "test_spec_id": "TS-14-E6",
+      "task_id": "11.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-9.1",
+      "test_spec_id": "TS-14-34",
+      "task_id": "10.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-9.2",
+      "test_spec_id": "TS-14-35",
+      "task_id": "10.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-9.3",
+      "test_spec_id": "TS-14-36",
+      "task_id": "10.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-9.E1",
+      "test_spec_id": "TS-14-E7",
+      "task_id": "10.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-10.1",
+      "test_spec_id": "TS-14-37",
+      "task_id": "12.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-10.2",
+      "test_spec_id": "TS-14-38",
+      "task_id": "12.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-10.3",
+      "test_spec_id": "TS-14-39",
+      "task_id": "12.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-11.1",
+      "test_spec_id": "TS-14-40",
+      "task_id": "13.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-11.2",
+      "test_spec_id": "TS-14-41",
+      "task_id": "13.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-11.3",
+      "test_spec_id": "TS-14-42",
+      "task_id": "13.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-12.1",
+      "test_spec_id": "TS-14-43",
+      "task_id": "12.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-12.2",
+      "test_spec_id": "TS-14-44",
+      "task_id": "12.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-12.E1",
+      "test_spec_id": "TS-14-E8",
+      "task_id": "12.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-13.1",
+      "test_spec_id": "TS-14-45",
+      "task_id": "8.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-13.2",
+      "test_spec_id": "TS-14-46",
+      "task_id": "8.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-13.3",
+      "test_spec_id": "TS-14-47",
+      "task_id": "8.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-7.4",
+      "test_spec_id": "TS-14-P1",
+      "task_id": "10.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-11.1",
+      "test_spec_id": "TS-14-P2",
+      "task_id": "13.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-9.2",
+      "test_spec_id": "TS-14-P3",
+      "task_id": "13.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-8.2",
+      "test_spec_id": "TS-14-P4",
+      "task_id": "13.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-4.3",
+      "test_spec_id": "TS-14-P5",
+      "task_id": "13.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-6.3",
+      "test_spec_id": "TS-14-P6",
+      "task_id": "13.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "14-REQ-3.1",
+      "test_spec_id": "TS-14-P7",
+      "task_id": "13.2",
+      "test_path": null
+    }
+  ]
+}

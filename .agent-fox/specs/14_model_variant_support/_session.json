@@ -1,0 +1,395 @@
+{
+  "state": "generated",
+  "prd_path": "prd.md",
+  "assessment_history": [
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD for \"Model Variant Support\" is well-structured and technically detailed. It clearly articulates the problem, provides a strong implementation roadmap, and covers backward compatibility, design rationale, and key file locations. However, it is missing a formal **Intent** section (as a distinct, concise statement separate from the Problem description), lacks explicit **Non-Goals** to bound scope, and has no **Background** section to contextualize prior art or related specs. The **Goals** section is present but expressed qualitatively rather than with measurable outcomes. These gaps prevent the PRD from being fully ready for artifact generation.",
+      "gaps": [
+        "Missing a formal 'Intent' section \u2014 the 'Problem' block describes the pain point, but there is no concise statement of what this feature aims to achieve from a product perspective.",
+        "No 'Non-Goals' section \u2014 the scope boundaries are implied but never explicitly stated (e.g., no mention of whether dynamic variant auto-selection based on token count is out of scope, or whether UI/UX surfaces for variant selection are excluded).",
+        "No 'Background' section \u2014 there is no reference to related specs (e.g., the 'dynamic complexity assessment' spec mentioned in \u00a73), prior decisions, or historical context that informs why this approach was chosen over alternatives.",
+        "The 'Goal' section is qualitative rather than measurable \u2014 it describes the mechanism (adding a variant dimension) rather than defining success metrics (e.g., cost reduction targets, latency improvement, adoption rate, or correctness of model selection).",
+        "No acceptance criteria or testability statements \u2014 there are detailed requirements but no explicit definition of 'done' or test scenarios for validation.",
+        "No mention of observability or monitoring expectations \u2014 e.g., are there metrics or logs expected beyond the DEBUG log in \u00a79?",
+        "The relationship to the referenced 'dynamic complexity assessment' spec is mentioned but not elaborated \u2014 it is unclear whether this PRD is a dependency of or dependent on that spec."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "Can you provide a concise Intent statement \u2014 a one-to-two sentence summary of what this feature aims to achieve from a product perspective (not the technical mechanism, but the user/system value)?",
+          "context": "A formal Intent section is required by the spec format and must be distinct from the problem description. It anchors all other sections and is used during artifact generation.",
+          "options": [
+            "Enable archetypes and modes to select the most cost- and latency-efficient model within a quality tier, matching context window to actual task needs.",
+            "Reduce unnecessary cost and latency by routing agents to smaller-context models when large context windows are not needed.",
+            "Introduce a variant abstraction that decouples context-window selection from tier selection, giving operators fine-grained control over model economics."
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "What are the explicit Non-Goals for this feature? What is intentionally out of scope?",
+          "context": "Non-Goals prevent scope creep and help implementers make decisions when edge cases arise. The PRD currently has no Non-Goals section.",
+          "options": [
+            "Automatic/dynamic variant selection based on estimated token count at runtime is out of scope.",
+            "Exposing variant selection in any user-facing UI or API surface is out of scope.",
+            "Supporting variants for providers other than Anthropic (e.g., OpenAI, Gemini) is out of scope for this iteration.",
+            "Migrating or deprecating existing configs is out of scope \u2014 backward compatibility is maintained silently."
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "Can you add measurable success criteria to the Goals section? What does a successful rollout of this feature look like quantitatively?",
+          "context": "The current Goal describes the mechanism but not measurable outcomes. Measurable goals allow the team to validate whether the feature delivered its intended value.",
+          "options": [
+            "Reviewer archetype uses standard variant (200k) in >95% of single-diff review sessions after rollout.",
+            "Coder archetype uses extended variant (1M) when operating across >10 files.",
+            "No regression in existing test suite \u2014 all callers of resolve_model() without variant param return identical results.",
+            "Cost per ADVANCED-tier agent session reduced by a target percentage (specify %)."
+          ],
+          "required": false
+        },
+        {
+          "id": "q4",
+          "text": "What is the relationship between this spec and the 'dynamic complexity assessment' spec referenced in \u00a73 (VARIANT_ORDER)? Is this a prerequisite for that spec, or vice versa?",
+          "context": "The PRD references the dynamic complexity assessment spec in the context of upgrade-only semantics, but does not clarify the dependency order. This affects delivery sequencing.",
+          "options": [
+            "This spec is a prerequisite \u2014 dynamic complexity assessment depends on VARIANT_ORDER being defined here.",
+            "The dynamic complexity assessment spec is a prerequisite \u2014 this spec consumes upgrade logic defined there.",
+            "They are independent and can be developed in parallel.",
+            "They will be merged into a single implementation."
+          ],
+          "required": false
+        },
+        {
+          "id": "q5",
+          "text": "Are there any observability or monitoring requirements beyond the DEBUG log on variant fallback (\u00a79)? For example, should variant resolution be included in session telemetry or cost tracking?",
+          "context": "Operational visibility into which variant was selected per session may be important for validating cost savings and debugging routing decisions, but the PRD does not address this.",
+          "options": [
+            "Yes \u2014 the resolved variant should be included in session metadata/telemetry.",
+            "Yes \u2014 variant usage should be tracked in cost reporting alongside model ID.",
+            "No \u2014 DEBUG logging on fallback is sufficient for this iteration.",
+            "Out of scope for this spec; a separate observability spec will handle it."
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD is well-structured and covers the core plumbing requirements clearly. The intent, problem statement, non-goals, data model changes, and design decisions are all solid. However, several gaps remain that could block implementation or cause ambiguity: the resolution behavior when `variant=None` on a multi-variant tier needs sharper specification, the `EscalationLadder` variant-preservation interaction with fallback is underspecified, `TIER_DEFAULTS` behavior in the context of the new registry scan is ambiguous, pricing rates for the new model entry are missing, and there's no guidance on how `session_lifecycle.py` wires together the new resolution calls.",
+      "gaps": [
+        "Requirement 7 states that when variant=None, resolve_model() uses TIER_DEFAULTS \u2014 but Requirement 4 states that None on a multi-variant tier resolves to 'standard'. These two rules need to be reconciled explicitly in resolve_model() behavior.",
+        "Requirement 8 (EscalationLadder) does not specify what happens when the escalated-to tier does not carry the preserved variant (e.g., escalating from SIMPLE/None to STANDARD with a non-None starting_variant). Interaction with Requirement 9 (fallback) needs to be stated.",
+        "session_lifecycle.py (NodeSessionRunner) is listed as a key file but has no corresponding requirement describing how it should call resolve_model_variant() and pass the result into resolve_model().",
+        "Pricing rates (input/output token prices, cache rates) for claude-opus-4-6[1m] are not specified in Requirement 10, leaving implementers to guess or research independently.",
+        "VARIANT_ORDER is defined in Requirement 3 for use by spec 15, but it is not clear which file owns this constant, nor whether it should be exported from models.py or a separate module.",
+        "There is no specification for how ModeConfig.model_variant interacts with ArchetypeEntry.default_model_variant when both are set \u2014 the 4-layer priority in Requirement 6 covers config overrides but not the archetype-vs-mode registry relationship.",
+        "The fallback log message format (DEBUG) is not specified \u2014 format, fields, and logger name are left undefined, which may cause inconsistency across implementations.",
+        "No acceptance test scenarios or integration test requirements are provided beyond the statement that all 11 requirements must have unit test coverage."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "When resolve_model() receives variant=None for a multi-variant tier (e.g., ADVANCED), should it resolve to the 'standard' variant model, or to whatever is stored in TIER_DEFAULTS for that tier? These need to produce the same result \u2014 is TIER_DEFAULTS['ADVANCED'] guaranteed to always point to the 'standard' variant model?",
+          "context": "Requirement 4 says None resolves to 'standard' on multi-variant tiers, but Requirement 7 says None uses TIER_DEFAULTS. If TIER_DEFAULTS is never updated, there's a potential conflict. Clarifying this prevents a subtle behavioral inconsistency.",
+          "options": [
+            "Yes \u2014 TIER_DEFAULTS['ADVANCED'] will always be set to the 'standard' variant model, so both rules produce identical results.",
+            "No \u2014 resolve_model() should prefer scanning MODEL_REGISTRY for the 'standard' variant, and TIER_DEFAULTS is only a true fallback if no 'standard' variant exists.",
+            "TIER_DEFAULTS should be updated as part of this spec to explicitly point to the 'standard' variant for multi-variant tiers."
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "What should EscalationLadder do when the preserved starting_variant is not available in the escalated-to tier? For example, if a future tier has no 'extended' model, should it apply the Requirement 9 fallback (silently use tier default + DEBUG log), or should variant preservation simply be a best-effort hint?",
+          "context": "Requirement 8 says variant is preserved across escalations, and Requirement 9 defines fallback behavior for missing variants. How these interact in the escalation path determines whether EscalationLadder should perform its own fallback or delegate to resolve_model().",
+          "options": [
+            "EscalationLadder delegates entirely to resolve_model() \u2014 it passes the preserved variant through and resolve_model() handles fallback per Requirement 9.",
+            "EscalationLadder checks variant availability before escalating and clears the variant to None if unavailable, letting resolve_model() use TIER_DEFAULTS.",
+            "EscalationLadder preserves the variant string regardless \u2014 it is resolve_model()'s responsibility to fall back silently."
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "Which file should own the VARIANT_ORDER constant, and should it be importable by spec 15's EscalationLadder logic from the start?",
+          "context": "VARIANT_ORDER is defined conceptually in Requirement 3 but has no file assignment. Since spec 15 depends on it, its location affects the import structure of both specs.",
+          "options": [
+            "models.py \u2014 alongside MODEL_REGISTRY and ModelEntry.",
+            "A new variants.py module to keep variant metadata separate from model resolution logic.",
+            "escalation.py \u2014 since it is primarily consumed by EscalationLadder.",
+            "sdk_params.py \u2014 alongside resolve_model_variant()."
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "What are the pricing rates for claude-opus-4-6[1m] that should be added to _default_pricing_models()? Specifically: input token price, output token price, and cache read/write rates if applicable.",
+          "context": "Requirement 10 mandates adding a separate pricing entry for the 1M context variant but provides no rates. Without this, implementers must research or guess, risking incorrect billing calculations.",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "q5",
+          "text": "What changes are required in session_lifecycle.py (NodeSessionRunner) to wire resolve_model_variant() into the model resolution flow? Should it call resolve_model_variant() then pass the result as the variant argument to resolve_model(), or is there a different orchestration pattern intended?",
+          "context": "session_lifecycle.py is listed as a key file but has no corresponding requirement. Without this, implementers may wire the calls inconsistently or miss the integration point entirely.",
+          "options": [
+            "NodeSessionRunner calls resolve_model_variant() first, then passes the result to resolve_model(variant=...) \u2014 two separate calls.",
+            "resolve_model() is refactored to internally call resolve_model_variant() given the same inputs, so NodeSessionRunner only needs to call resolve_model() with extra context.",
+            "A new helper function wraps both calls so NodeSessionRunner has a single call site."
+          ],
+          "required": true
+        },
+        {
+          "id": "q6",
+          "text": "When both ModeConfig.model_variant and ArchetypeEntry.default_model_variant are set (neither is None), which wins at the registry level \u2014 before any config.toml overrides are applied?",
+          "context": "Requirement 6 defines a 4-layer priority for config overrides, but Requirement 4 defines both archetype-level and mode-level variant fields in the registry. The relative priority between these two registry-level fields needs to be explicit.",
+          "options": [
+            "ModeConfig.model_variant wins \u2014 mode-level always overrides archetype-level, even in the registry.",
+            "ArchetypeEntry.default_model_variant wins \u2014 it is the archetype's declared default and modes should only override via config.",
+            "Mode-level registry variant is the resolved value; archetype-level is only used when mode does not specify a variant."
+          ],
+          "required": true
+        },
+        {
+          "id": "q7",
+          "text": "What should the DEBUG fallback log message include? For example: logger name, the requested variant, the resolved tier, the fallback model ID?",
+          "context": "Consistent log format makes observability and debugging easier. Without specifying the format, different implementers may log different fields, making log parsing fragile.",
+          "options": [
+            "Minimal: 'Variant {requested_variant} not found for tier {tier}; falling back to {fallback_model_id}'",
+            "Structured: include archetype name, mode name, requested variant, tier, and resolved model ID.",
+            "Leave format to implementer discretion \u2014 only the log level (DEBUG) matters for this spec."
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD is well-structured and covers the core data model, resolution logic, registry design, backward compatibility, and key design decisions thoroughly. The requirements are numbered, cross-referenced, and include concrete code-level guidance. However, several gaps remain that could cause ambiguity or rework during implementation: the resolve_model_variant() 4-layer priority is described but not fully specified (especially Layer 3 legacy dict behavior and Layer 4 interaction with mode vs. archetype values), the EscalationLadder variant preservation semantics need clarification on initialization vs. runtime mutation, and there is no explicit test scaffolding or example test cases to anchor the \"11 requirements have explicit unit test coverage\" success criterion. A few edge cases (unknown variant strings, TIER_DEFAULTS invariant enforcement mechanism) are also underspecified.",
+      "gaps": [
+        "resolve_model_variant() Layer 4 is ambiguous: it says 'uses mode-level variant if set, then archetype-level variant' but does not clarify whether this mirrors resolve_effective_config() exactly or introduces new logic, nor what happens when both are None at the registry level.",
+        "The 'legacy dict override' layer (Layer 3) in resolve_model_variant() is described as 'variant always None' but the legacy dict format and how it is detected/distinguished from other override types is not explained.",
+        "No example unit test cases or test file location are specified, despite the success criterion stating 'All 11 requirements have explicit unit test coverage'. Implementers have no anchor for what constitutes sufficient coverage.",
+        "Unknown/invalid variant string handling is unspecified: if a caller passes variant='turbo' (not in VARIANT_ORDER or MODEL_REGISTRY), Requirement 9 says fall back to TIER_DEFAULTS, but it's unclear whether this also applies to completely unrecognized strings or only to valid-but-unavailable-in-tier variants.",
+        "The TIER_DEFAULTS invariant ('ADVANCED always points to the standard variant') is stated as a rule but there is no mechanism described (e.g., a runtime assertion, a CI check, or a test) to enforce it.",
+        "EscalationLadder: it is unclear whether starting_variant is set only at construction time or can be updated mid-session (e.g., if a mode changes). The 'never modifies the variant' rule needs to explicitly cover whether the property is read-only.",
+        "Pricing values for claude-opus-4-6[1m] are deferred to implementation time with a URL reference, but no placeholder or rate-sourcing process is described, which could cause inconsistency across implementers or reviewers.",
+        "The config.toml TOML key model_variant is shown in examples under [archetypes.overrides] but it is not specified whether this key is also valid at the top-level archetype config (not just the mode override), or how it maps to PerArchetypeConfig vs ModeConfig fields.",
+        "No explicit mention of how resolve_model_variant() interacts with resolve_effective_config() \u2014 it is unclear if resolve_model_variant() calls resolve_effective_config() internally or operates independently on raw config objects.",
+        "The spec does not define what happens if EscalationLadder reaches the top of the tier ladder (ADVANCED) and the preserved variant is unavailable \u2014 it defers to resolve_model() fallback, but the interaction between escalation-triggered calls and fallback logging is not illustrated."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "How exactly does resolve_model_variant() implement Layer 4 (archetype registry default)? Does it call resolve_effective_config() to get the merged mode+archetype config, then read model_variant from the result? Or does it access ModeConfig and ArchetypeEntry separately and apply mode-beats-archetype priority itself?",
+          "context": "The current description says Layer 4 'uses mode-level variant if set, then archetype-level variant', which duplicates logic that may already exist in resolve_effective_config(). Clarifying this prevents duplicated or divergent priority logic.",
+          "options": [
+            "It calls resolve_effective_config() and reads model_variant from the merged result (mode beats archetype already resolved)",
+            "It accesses ModeConfig.model_variant and ArchetypeEntry.default_model_variant separately and applies mode-beats-archetype priority inline, mirroring resolve_model_tier()'s pattern",
+            "Other \u2014 please describe"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "What is the 'legacy dict override' (Layer 3) and how is it identified at runtime? What dict structure constitutes a legacy override, and is there existing code that handles this pattern for resolve_model_tier() that resolve_model_variant() should mirror?",
+          "context": "Layer 3 is mentioned as 'variant always None \u2014 legacy configs don't know about variants' but without knowing the dict shape or detection logic, implementers cannot correctly skip or short-circuit this layer.",
+          "options": [
+            "It refers to the existing dict-based override path in resolve_model_tier() where overrides are passed as plain dicts rather than PerArchetypeConfig objects; resolve_model_variant() should mirror that exact check",
+            "It refers to a separate legacy configuration format that predates PerArchetypeConfig; please describe the format",
+            "Other \u2014 please describe"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "Should the TIER_DEFAULTS invariant be enforced by an automated mechanism? If so, what kind?",
+          "context": "The invariant that TIER_DEFAULTS['ADVANCED'] always points to the 'standard' variant model is critical for backward compatibility, but without enforcement it can silently break. Knowing the expected enforcement mechanism prevents future regressions.",
+          "options": [
+            "A unit test that asserts TIER_DEFAULTS['ADVANCED'] == MODEL_REGISTRY entry with variant='standard'",
+            "A runtime assertion in resolve_model() or module __init__",
+            "Documentation-only; no automated enforcement in this spec",
+            "Other \u2014 please describe"
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "What should happen when an unrecognized variant string (e.g., 'turbo', a typo, or a future variant not yet in MODEL_REGISTRY) is passed to resolve_model()? Is this treated the same as a valid-but-unavailable variant (fall back + DEBUG log), or should it be distinguished?",
+          "context": "Requirement 9 covers 'variant not available for the resolved tier' but does not distinguish between a valid label unavailable in the tier vs. a completely unknown string. The behavior should be consistent and testable.",
+          "options": [
+            "Treat identically \u2014 any unmatched variant string triggers fallback to TIER_DEFAULTS + DEBUG log, regardless of whether the string is in VARIANT_ORDER",
+            "Validate against VARIANT_ORDER first; unknown strings raise a ValueError (fail fast)",
+            "Unknown strings trigger fallback silently (no log); only valid-but-unavailable variants emit DEBUG log",
+            "Other \u2014 please describe"
+          ],
+          "required": true
+        },
+        {
+          "id": "q5",
+          "text": "Is EscalationLadder.current_variant a read-only property (set only at construction via starting_variant), or can it be updated after construction (e.g., to reflect a mode switch mid-session)?",
+          "context": "The spec says EscalationLadder 'never modifies the variant', but it's unclear whether external code can mutate it. Making this explicit determines whether current_variant needs a setter and whether thread-safety is a concern.",
+          "options": [
+            "Read-only property \u2014 set once at construction, never mutated externally or internally",
+            "Mutable property \u2014 external callers may update current_variant to reflect session state changes",
+            "Other \u2014 please describe"
+          ],
+          "required": true
+        },
+        {
+          "id": "q6",
+          "text": "Where should the unit tests for this spec live, and can you provide 2\u20133 example test case descriptions to anchor the coverage expectation for 'all 11 requirements'?",
+          "context": "The success criterion states all 11 requirements must have explicit unit test coverage, but no test file path or example cases are given. This is needed so reviewers can verify coverage is complete during PR review.",
+          "options": [],
+          "required": false
+        },
+        {
+          "id": "q7",
+          "text": "Is the model_variant key in config.toml valid at the top-level archetype override (e.g., [archetypes.overrides.coder]) only, or also at a standalone mode override outside an archetype block? How does this map to PerArchetypeConfig vs. ModeConfig fields?",
+          "context": "The TOML examples show model_variant under both archetype-level and mode-level keys, but the field mapping to Python dataclasses is not fully spelled out, which could cause confusion during config parsing implementation.",
+          "options": [
+            "model_variant under [archetypes.overrides.<name>] maps to PerArchetypeConfig.model_variant; under [archetypes.overrides.<name>.modes.<mode>] it maps to ModeConfig.model_variant (parsed inside PerArchetypeConfig)",
+            "Both map to PerArchetypeConfig.model_variant with mode key used to filter",
+            "Other \u2014 please describe"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD is well-structured and highly detailed, covering data model changes, resolution logic, fallback behavior, backward compatibility, and dependency relationships clearly. The requirements are mostly implementation-ready. However, several gaps remain that could cause ambiguity during implementation or testing: pricing values are explicitly deferred to implementation time (acceptable, but a placeholder or example structure would help), the test file naming/organization is unspecified, the behavior of `resolve_effective_config()` with respect to the new variant fields is assumed but not described, and a few edge cases in `EscalationLadder` and `resolve_model_variant()` Layer 3 need clarification.",
+      "gaps": [
+        "Pricing rates for `claude-opus-4-6[1m]` are explicitly deferred to implementation time \u2014 no placeholder structure, example, or cross-reference to the existing `claude-opus-4-6` entry is provided to anchor the expected format.",
+        "The test file name(s) and test class/function naming conventions are not specified. Requirement 11 references 11 requirements but the spec has 12 numbered requirements (plus wiring in Req 12), leaving test coverage scope ambiguous.",
+        "The behavior of `resolve_effective_config()` when merging `default_model_variant` from `ArchetypeEntry` and `model_variant` from `ModeConfig` is assumed to mirror `model_tier` priority, but this is never explicitly stated as a required change to `resolve_effective_config()` \u2014 it is unclear whether `resolve_effective_config()` needs to be modified as part of this spec.",
+        "Layer 3 of `resolve_model_variant()` (legacy dict override) always returns `None`, making it a no-op pass-through. The spec says it 'mirrors exactly what `resolve_model_tier()` does for this layer' but does not specify whether the detection/short-circuit should still cause an early return (skipping Layer 4) or fall through to Layer 4 when it returns `None`.",
+        "The `EscalationLadder` constructor signature change (`starting_variant`) and its interaction with existing callers is not covered \u2014 there is no backward compatibility note for callers that construct `EscalationLadder` positionally.",
+        "The `model_variant` TOML key validity scope (only under `archetypes.overrides`) is stated, but there is no specification for how invalid placements should be handled (silently ignored, warning, or error).",
+        "No definition of what constitutes a 'valid' variant label is provided for documentation purposes \u2014 the spec intentionally uses open strings, but a note on expected canonical values (`fast`, `standard`, `extended`) vs. arbitrary strings would help implementers."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "Does `resolve_effective_config()` need to be modified to merge `default_model_variant` (from `ArchetypeEntry`) and `model_variant` (from `ModeConfig`) as part of this spec, or is that merge already handled by its existing generic merge logic?",
+          "context": "The PRD states mode-level variant beats archetype-level variant and that this is resolved inside `resolve_effective_config()`, but it does not explicitly list `resolve_effective_config()` as a file to be changed. Clarifying this avoids implementers missing a required change.",
+          "options": [
+            "Yes, `resolve_effective_config()` must be explicitly updated to handle the new variant fields as part of this spec.",
+            "No, the existing generic merge logic in `resolve_effective_config()` already handles new fields added to `ArchetypeEntry` and `ModeConfig` without modification.",
+            "Partially \u2014 a small targeted change is needed but it is minor and should be called out in Key Files."
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "In `resolve_model_variant()` Layer 3 (legacy dict override), when the legacy dict is detected and always returns `None` for variant \u2014 does this cause an early return (skipping Layer 4), or does the function fall through to Layer 4?",
+          "context": "For `resolve_model_tier()`, the legacy dict layer causes an early return because the dict contains the full answer. For variant, the legacy dict has no variant info, so always returning `None` here may or may not mean 'stop looking' \u2014 this distinction affects whether archetype registry defaults are ever consulted for legacy-dict callers.",
+          "options": [
+            "Early return \u2014 legacy dict detection causes `resolve_model_variant()` to return `None` immediately, skipping Layer 4. Legacy callers never get archetype-level defaults.",
+            "Fall through \u2014 when Layer 3 returns `None`, the function continues to Layer 4 to check archetype registry defaults.",
+            "Match `resolve_model_tier()` behavior exactly \u2014 if `resolve_model_tier()` short-circuits on legacy dict, so does `resolve_model_variant()`."
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "Should the `EscalationLadder.__init__()` signature change (`starting_variant=None`) be backward-compatible (keyword-only, with a default)? Are there any existing callers that construct `EscalationLadder` in a way that would break?",
+          "context": "The PRD adds `starting_variant: str | None = None` as an optional parameter but does not address whether existing call sites need updating or whether the parameter must be keyword-only to avoid positional argument conflicts.",
+          "options": [
+            "The parameter is keyword-only (`*`, `starting_variant=None`) to prevent any positional argument conflict \u2014 no existing callers break.",
+            "The parameter is positional with a default (`starting_variant=None`) and existing callers are unaffected because they do not pass it.",
+            "Existing callers must be audited and updated as part of this spec \u2014 provide a list of affected call sites in the PR."
+          ],
+          "required": false
+        },
+        {
+          "id": "q4",
+          "text": "How should an unrecognized `model_variant` key placed outside the `archetypes.overrides` block in config.toml be handled?",
+          "context": "The PRD states `model_variant` is only valid under `archetypes.overrides`, but does not specify the behavior when it appears elsewhere \u2014 this affects config validation and developer experience.",
+          "options": [
+            "Silently ignored \u2014 Pydantic/TOML parsing ignores unknown keys at other locations.",
+            "Emit a WARNING log at config load time identifying the invalid placement.",
+            "Raise a validation error at config load time (fail fast)."
+          ],
+          "required": false
+        },
+        {
+          "id": "q5",
+          "text": "The Success Criteria mention 'all 11 requirements have explicit unit test coverage' but the spec has 12 numbered requirements. Should Requirement 12 (NodeSessionRunner wiring) also have explicit unit test coverage, and if so, should it be an integration-style test or a pure unit test with mocks?",
+          "context": "This discrepancy could cause the test coverage goal to be under-scoped, leaving the wiring layer untested.",
+          "options": [
+            "Yes, Requirement 12 must have explicit unit test coverage \u2014 update the success criteria to reference '12 requirements'.",
+            "Requirement 12 is covered implicitly by end-to-end or integration tests outside `tests/unit/` and does not need its own unit test.",
+            "A unit test with mocked `resolve_model_variant()` and `resolve_model()` calls is sufficient and should be added to `tests/unit/`."
+          ],
+          "required": true
+        }
+      ]
+    },
+    {
+      "quality": "ready",
+      "summary": "The PRD is now implementation-ready. All five previously identified gaps have been resolved: (1) the pricing entry structure is now anchored with an explicit field template mirroring the existing `claude-opus-4-6` entry; (2) test coverage scope is updated to 12 requirements with a clear description of the Requirement 12 test approach; (3) `resolve_effective_config()` is now an explicitly required change documented as Requirement 13 with its own Key Files entry; (4) Layer 3 early-return behavior is unambiguously specified to always short-circuit and never reach Layer 4; (5) `EscalationLadder.starting_variant` is confirmed keyword-only with a backward-compatibility guarantee. The handling of invalid TOML placement and open-string variant canonicalization are also now documented. The PRD is coherent, internally consistent, and provides sufficient detail for implementation without ambiguity.",
+      "gaps": [],
+      "questions": []
+    }
+  ],
+  "qa_exchanges": [
+    {
+      "assessment_index": 0,
+      "answers": {
+        "q1": "Enable archetypes and modes to select the most cost- and latency-efficient model within a quality tier, matching context window to actual task needs.",
+        "q2": "All listed items are non-goals: (1) no automatic/dynamic variant selection based on estimated token count at runtime, (2) no user-facing UI or API for variant selection, (3) no support for non-Anthropic providers, (4) no migration or deprecation of existing configs \u2014 backward compatibility maintained silently.",
+        "q3": "No regression in existing test suite \u2014 all callers of resolve_model() without variant param return identical results. All 11 requirements have unit test coverage. This is structural plumbing, not a performance optimization \u2014 cost improvements come from the downstream dynamic complexity assessment spec.",
+        "q4": "This spec is a prerequisite \u2014 dynamic complexity assessment (spec 15) depends on VARIANT_ORDER and variant-aware EscalationLadder defined here. They can be developed in parallel but spec 15 requires spec 14 to be complete first.",
+        "q5": "No \u2014 DEBUG logging on fallback is sufficient for this iteration. Observability is out of scope."
+      },
+      "timestamp": "2026-06-29T07:39:03.080857+00:00"
+    },
+    {
+      "assessment_index": 1,
+      "answers": {
+        "q1": "Yes \u2014 TIER_DEFAULTS['ADVANCED'] will always point to the 'standard' variant model (claude-opus-4-6), so both rules produce identical results. This is a documented invariant.",
+        "q2": "EscalationLadder delegates entirely to resolve_model() \u2014 it passes the preserved variant through unchanged. resolve_model() handles fallback per Requirement 9 when the variant is unavailable at the escalated tier.",
+        "q3": "models.py \u2014 alongside MODEL_REGISTRY and ModelEntry. It is a registry-level constant about model metadata.",
+        "q4": "Use the same rate structure as claude-opus-4-6. The actual numeric values should be sourced from https://www.anthropic.com/pricing at implementation time. Fields: input_price_per_m, output_price_per_m, cache_read_price_per_m, cache_creation_price_per_m.",
+        "q5": "NodeSessionRunner calls resolve_model_variant() first, then passes the result to resolve_model(variant=...) \u2014 two separate calls. This keeps each function's responsibility clear.",
+        "q6": "Mode-level registry variant is the resolved value; archetype-level is only used when mode does not specify a variant. This is consistent with how resolve_effective_config() already works for model_tier.",
+        "q7": "Leave format to implementer discretion \u2014 only the log level (DEBUG) matters for this spec."
+      },
+      "timestamp": "2026-06-29T07:40:48.605919+00:00"
+    },
+    {
+      "assessment_index": 2,
+      "answers": {
+        "q1": "It calls resolve_effective_config() and reads default_model_variant from the merged result. This mirrors how resolve_model_tier() works \u2014 mode beats archetype is already resolved by resolve_effective_config().",
+        "q2": "It refers to the existing config.archetypes.models dict in resolve_model_tier() (the archetypes.models.<name> = 'ADVANCED' pattern). resolve_model_variant() should mirror that exact check, but since the legacy dict has no variant field, Layer 3 always returns None for variant.",
+        "q3": "A unit test that asserts TIER_DEFAULTS['ADVANCED'] == the model_id of the MODEL_REGISTRY entry with tier=ADVANCED and variant='standard'.",
+        "q4": "Treat identically \u2014 any unmatched variant string triggers fallback to TIER_DEFAULTS + DEBUG log, regardless of whether the string is in VARIANT_ORDER. No fail-fast, no validation against VARIANT_ORDER.",
+        "q5": "Read-only property \u2014 set once at construction via starting_variant, never mutated externally or internally. The ladder is frozen after construction for variant.",
+        "q6": "Tests should live in packages/agentfox/tests/unit/ alongside existing tests. Example cases: (1) resolve_model('ADVANCED', variant='extended') returns claude-opus-4-6[1m], (2) resolve_model('SIMPLE', variant='extended') falls back to claude-haiku-4-5 with DEBUG log, (3) EscalationLadder preserves variant='extended' across STANDARD\u2192ADVANCED escalation.",
+        "q7": "model_variant under [archetypes.overrides.<name>] maps to PerArchetypeConfig.model_variant; under [archetypes.overrides.<name>.modes.<mode>] it maps to the nested PerArchetypeConfig.model_variant (PerArchetypeConfig is self-referential for modes)."
+      },
+      "timestamp": "2026-06-29T07:42:58.781166+00:00"
+    },
+    {
+      "assessment_index": 3,
+      "answers": {
+        "q1": "Yes, resolve_effective_config() must be updated to handle the new variant fields. It needs a new line mapping model_variant from ModeConfig to default_model_variant on ArchetypeEntry, mirroring the existing model_tier mapping.",
+        "q2": "Match resolve_model_tier() behavior exactly \u2014 if resolve_model_tier() short-circuits on legacy dict detection, so does resolve_model_variant(). Legacy callers never reach Layer 4 for variant.",
+        "q3": "The parameter is keyword-only to prevent positional argument conflicts. No existing callers break.",
+        "q4": "Silently ignored \u2014 Pydantic models already use ConfigDict(extra='ignore') throughout the codebase, so unknown keys are dropped. No additional handling needed.",
+        "q5": "Yes, Requirement 12 must have explicit unit test coverage \u2014 update success criteria to '12 requirements'. A unit test with mocked resolve_model_variant() and resolve_model() is sufficient."
+      },
+      "timestamp": "2026-06-29T07:45:16.227161+00:00"
+    }
+  ],
+  "generated_artifacts": [
+    "requirements",
+    "test_spec",
+    "tasks"
+  ],
+  "mode": "interactive"
+}

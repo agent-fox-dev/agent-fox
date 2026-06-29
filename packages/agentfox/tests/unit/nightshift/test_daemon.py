@@ -441,12 +441,12 @@ class TestFormatIdleText:
     def test_hours_and_minutes(self) -> None:
         from agentfox.nightshift.daemon import _format_idle_text
 
-        assert _format_idle_text("hunt-scan", 14400) == "Idle \u2014 next hunt scan in 4h"
+        assert _format_idle_text("spec-executor", 14400) == "Idle \u2014 next spec check in 4h"
 
     def test_hours_with_remainder(self) -> None:
         from agentfox.nightshift.daemon import _format_idle_text
 
-        assert _format_idle_text("hunt-scan", 5400) == "Idle \u2014 next hunt scan in 1h 30m"
+        assert _format_idle_text("spec-executor", 5400) == "Idle \u2014 next spec check in 1h 30m"
 
     def test_unknown_stream_name_passthrough(self) -> None:
         from agentfox.nightshift.daemon import _format_idle_text

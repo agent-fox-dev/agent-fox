@@ -1,0 +1,1842 @@
+{
+  "$schema": null,
+  "spec_id": "15",
+  "spec_name": "dynamic_complexity_assessment",
+  "schema_version": 1,
+  "test_commands": {
+    "spec_tests": "pytest packages/agentfox/tests/unit/ -q -k 'complexity'",
+    "all_tests": "pytest packages/agentfox/tests/ -q",
+    "linter": "ruff check packages/agentfox/"
+  },
+  "dependencies": [
+    {
+      "depends_on_spec": "14",
+      "from_group": 1,
+      "to_group": 1,
+      "relationship": "Uses variant-aware resolve_model(), VARIANT_ORDER, and EscalationLadder variant support (starting_tier / starting_variant constructor parameters)",
+      "sentinel": true
+    }
+  ],
+  "task_groups": [
+    {
+      "id": 1,
+      "kind": "tests",
+      "title": "Write tests: ComplexityAssessor class, AssessmentResult, Protocol, and statelessness (REQ-1, REQ-2 prompt)",
+      "subtasks": [
+        {
+          "id": "1.1",
+          "title": "Write unit tests for ComplexityRecommendation Protocol and AssessmentResult dataclass",
+          "details": [
+            "Test that ComplexityRecommendation is a Protocol with recommended_tier (str), recommended_variant (str|None), and confidence (float).",
+            "Test that AssessmentResult is a frozen dataclass with all four fields and is immutable.",
+            "Verify instantiation and field access; verify FrozenInstanceError on mutation attempt."
+          ],
+          "test_spec_refs": [
+            "TS-15-1",
+            "TS-15-2"
+          ],
+          "requirement_refs": [
+            "15-REQ-1.1",
+            "15-REQ-1.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.2",
+          "title": "Write unit tests for ComplexityAssessor constructor and assess() signature",
+          "details": [
+            "Test constructor defaults: assessor_model='claude-haiku-4-5', confidence_threshold=0.6.",
+            "Test custom values are accepted and stored.",
+            "Test assess() is a coroutine function accepting all required parameters and returning AssessmentResult."
+          ],
+          "test_spec_refs": [
+            "TS-15-3",
+            "TS-15-4"
+          ],
+          "requirement_refs": [
+            "15-REQ-1.3",
+            "15-REQ-1.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.3",
+          "title": "Write unit tests for ComplexityAssessor statelessness and concurrency safety",
+          "details": [
+            "Test that two concurrent assess() calls with distinct inputs return independent results.",
+            "Test that three concurrent assess() calls all complete without any semaphore or lock blocking.",
+            "Verify mock_client.messages.create call count equals number of concurrent calls."
+          ],
+          "test_spec_refs": [
+            "TS-15-5",
+            "TS-15-12"
+          ],
+          "requirement_refs": [
+            "15-REQ-1.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.4",
+          "title": "Write unit tests for AssessmentManager client injection and absent-client path",
+          "details": [
+            "Test that AssessmentManager(client=None) does not instantiate ComplexityAssessor and assess_node() falls back silently with no log at WARNING or above.",
+            "Test that AssessmentManager(client=mock_client) instantiates ComplexityAssessor with correct model and threshold from RoutingConfig."
+          ],
+          "test_spec_refs": [
+            "TS-15-6",
+            "TS-15-7"
+          ],
+          "requirement_refs": [
+            "15-REQ-1.6",
+            "15-REQ-1.7"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.5",
+          "title": "Write unit tests for assessment prompt structure and previous_failure injection",
+          "details": [
+            "Test prompt contains system role, archetype/mode, base tier/variant, full node_body, and JSON output instruction.",
+            "Test that when previous_failure is provided, the failure context string appears in the API call prompt."
+          ],
+          "test_spec_refs": [
+            "TS-15-8",
+            "TS-15-9"
+          ],
+          "requirement_refs": [
+            "15-REQ-2.1",
+            "15-REQ-2.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.6",
+          "title": "Write unit tests for structured output validation and timeout enforcement",
+          "details": [
+            "Test a valid JSON response is parsed into AssessmentResult with all four fields.",
+            "Test that the API call is made with timeout=30 via the SDK's timeout parameter.",
+            "Test that no concurrency cap is applied across multiple assess() calls."
+          ],
+          "test_spec_refs": [
+            "TS-15-10",
+            "TS-15-11"
+          ],
+          "requirement_refs": [
+            "15-REQ-2.3",
+            "15-REQ-2.4",
+            "15-REQ-2.5"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "1.V",
+        "checks": [
+          "Spec tests for this group pass: pytest -q packages/agentfox/tests/unit/test_dynamic_complexity_assessment.py::test_complexity_assessor_class",
+          "All existing tests still pass: pytest -q",
+          "No linter warnings introduced: ruff check packages/agentfox/agentfox/",
+          "Requirements 15-REQ-1.1 through 15-REQ-1.7 and 15-REQ-2.1 through 15-REQ-2.5 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "kind": "tests",
+      "title": "Write tests: error handling and edge cases for ComplexityAssessor (REQ-2 edge cases, REQ-12)",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Write unit tests for parse failure cases (malformed JSON, wrong-case values, missing fields)",
+          "details": [
+            "Test malformed JSON triggers WARNING log and returns base tier/variant without raising.",
+            "Test missing required field triggers WARNING and fallback.",
+            "Test out-of-range confidence (1.5) triggers WARNING and fallback.",
+            "Test wrong-case tier ('advanced' instead of 'ADVANCED') triggers WARNING and fallback.",
+            "Test wrong-case variant ('Standard' instead of 'standard') triggers WARNING and fallback.",
+            "Verify no partial field salvaging occurs in any case."
+          ],
+          "test_spec_refs": [
+            "TS-15-E2"
+          ],
+          "requirement_refs": [
+            "15-REQ-2.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.2",
+          "title": "Write unit tests for timeout and rate limit error handling",
+          "details": [
+            "Test APITimeoutError triggers WARNING log with 'timeout' in message and returns base values without raising.",
+            "Test RateLimitError triggers WARNING log and returns base values without raising.",
+            "Verify mock_client.messages.create is called exactly once in each case (no retry)."
+          ],
+          "test_spec_refs": [
+            "TS-15-E3",
+            "TS-15-E4"
+          ],
+          "requirement_refs": [
+            "15-REQ-2.E2",
+            "15-REQ-2.E3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.3",
+          "title": "Write unit tests for network error and context-limit error handling",
+          "details": [
+            "Test ConnectionError triggers WARNING log with exception details and returns base tier/variant without raising.",
+            "Test context-limit BadRequestError triggers WARNING log and falls back; verify call_count==1 (no retry with shorter body)."
+          ],
+          "test_spec_refs": [
+            "TS-15-49",
+            "TS-15-E14"
+          ],
+          "requirement_refs": [
+            "15-REQ-12.1",
+            "15-REQ-12.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.4",
+          "title": "Write unit tests for assess_node() absent/empty node_body path",
+          "details": [
+            "Test node_body=None triggers DEBUG log containing 'absent or empty' and returns EscalationLadder at base tier/variant.",
+            "Test node_body='' same as above.",
+            "Verify ComplexityAssessor.assess() is never called in either case."
+          ],
+          "test_spec_refs": [
+            "TS-15-E6",
+            "TS-15-51"
+          ],
+          "requirement_refs": [
+            "15-REQ-4.E1",
+            "15-REQ-12.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.5",
+          "title": "Write unit tests for successful assessment DEBUG log and explicit override DEBUG log",
+          "details": [
+            "Test successful assessment emits structured DEBUG log with node_id, archetype, mode, effective_tier, effective_variant, confidence, rationale.",
+            "Test explicit config override emits DEBUG log with node_id, archetype, mode, resolved tier.",
+            "Test client=None path emits zero log entries at any level."
+          ],
+          "test_spec_refs": [
+            "TS-15-50",
+            "TS-15-52",
+            "TS-15-53"
+          ],
+          "requirement_refs": [
+            "15-REQ-12.2",
+            "15-REQ-12.4",
+            "15-REQ-12.5"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "2.V",
+        "checks": [
+          "Spec tests for this group pass: pytest -q packages/agentfox/tests/unit/test_dynamic_complexity_assessment.py::test_error_handling",
+          "All existing tests still pass: pytest -q",
+          "No linter warnings introduced: ruff check packages/agentfox/agentfox/",
+          "Requirements 15-REQ-2.E1, 15-REQ-2.E2, 15-REQ-2.E3, 15-REQ-12.1 through 15-REQ-12.5, 15-REQ-12.E1 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "kind": "tests",
+      "title": "Write tests: apply_assessment() upgrade-only semantics (REQ-3) and property tests",
+      "subtasks": [
+        {
+          "id": "3.1",
+          "title": "Write unit tests for apply_assessment() signature and basic upgrade/no-change cases",
+          "details": [
+            "Test apply_assessment() returns tuple(str, str|None).",
+            "Test confidence < threshold returns (base_tier, base_variant) unchanged.",
+            "Test effective_tier = max(base_tier, recommended_tier) using ModelTier ordering.",
+            "Test that recommended_tier below base_tier never causes a downgrade."
+          ],
+          "test_spec_refs": [
+            "TS-15-13",
+            "TS-15-14",
+            "TS-15-15"
+          ],
+          "requirement_refs": [
+            "15-REQ-3.1",
+            "15-REQ-3.2",
+            "15-REQ-3.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.2",
+          "title": "Write unit tests for apply_assessment() variant upgrade rules",
+          "details": [
+            "Test base_variant=None: effective_variant is always None regardless of recommended_variant.",
+            "Test recommended_variant=None with non-None base_variant: returns base_variant unchanged.",
+            "Test both non-None: max(base_variant, recommended_variant) in VARIANT_ORDER.",
+            "Test downgrade scenario: recommended_tier < base_tier returns base_tier unchanged."
+          ],
+          "test_spec_refs": [
+            "TS-15-16",
+            "TS-15-17",
+            "TS-15-18",
+            "TS-15-E5"
+          ],
+          "requirement_refs": [
+            "15-REQ-3.4",
+            "15-REQ-3.5",
+            "15-REQ-3.6",
+            "15-REQ-3.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.3",
+          "title": "Write property tests for upgrade-only invariants (PROP-1 through PROP-4)",
+          "details": [
+            "Implement property test TS-15-P1: for any base_tier/recommended_tier pair, effective_tier >= base_tier.",
+            "Implement property test TS-15-P2: for non-None variants, effective_variant >= base_variant in VARIANT_ORDER.",
+            "Implement property test TS-15-P3: base_variant=None always yields effective_variant=None.",
+            "Implement property test TS-15-P4: confidence < threshold always yields (base_tier, base_variant) unchanged.",
+            "Use hypothesis or pytest.mark.parametrize with exhaustive enum combinations."
+          ],
+          "test_spec_refs": [
+            "TS-15-P1",
+            "TS-15-P2",
+            "TS-15-P3",
+            "TS-15-P4"
+          ],
+          "requirement_refs": [
+            "15-REQ-3.2",
+            "15-REQ-3.3",
+            "15-REQ-3.4",
+            "15-REQ-3.6"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "3.V",
+        "checks": [
+          "Spec tests for this group pass: pytest -q packages/agentfox/tests/unit/test_dynamic_complexity_assessment.py::test_apply_assessment",
+          "All existing tests still pass: pytest -q",
+          "No linter warnings introduced: ruff check packages/agentfox/agentfox/",
+          "Requirements 15-REQ-3.1 through 15-REQ-3.6, 15-REQ-3.E1 acceptance criteria met",
+          "Property tests TS-15-P1 through TS-15-P4 pass across all generated inputs"
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "kind": "tests",
+      "title": "Write tests: AssessmentManager integration, session_runner_factory wiring, and EscalationLadder construction (REQ-4, REQ-5)",
+      "subtasks": [
+        {
+          "id": "4.1",
+          "title": "Write unit tests for assess_node() signature, EscalationLadder construction, and priority ordering",
+          "details": [
+            "Test assess_node() method signature includes all required parameters.",
+            "Test EscalationLadder is constructed with starting_tier/starting_variant from effective values, ADVANCED ceiling, and RoutingConfig retry config.",
+            "Test the five assessment eligibility priority paths are evaluated in correct order."
+          ],
+          "test_spec_refs": [
+            "TS-15-19",
+            "TS-15-21",
+            "TS-15-22"
+          ],
+          "requirement_refs": [
+            "15-REQ-4.1",
+            "15-REQ-4.3",
+            "15-REQ-4.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.2",
+          "title": "Write unit tests for session_runner_factory client injection",
+          "details": [
+            "Test that session_runner_factory constructs AssessmentManager with client=anthropic_client.",
+            "Inspect source or patch AssessmentManager constructor to verify client kwarg is passed.",
+            "Verify no other Orchestrator-level files require changes for client injection."
+          ],
+          "test_spec_refs": [
+            "TS-15-20"
+          ],
+          "requirement_refs": [
+            "15-REQ-4.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.3",
+          "title": "Write unit tests for re-assessment on retry with previous_failure",
+          "details": [
+            "Test that second assess_node() call discards first ladder and creates a new one.",
+            "Test previous_failure from error_tracker is passed as argument to ComplexityAssessor.assess().",
+            "Test new ladder shares ADVANCED ceiling and same per-tier retry config as original; only starting_tier/starting_variant differ."
+          ],
+          "test_spec_refs": [
+            "TS-15-23",
+            "TS-15-24",
+            "TS-15-25"
+          ],
+          "requirement_refs": [
+            "15-REQ-5.1",
+            "15-REQ-5.2",
+            "15-REQ-5.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.4",
+          "title": "Write edge case test for re-assessment where confidence gate prevents upgrade",
+          "details": [
+            "Test second assess_node() with below-threshold confidence returns new EscalationLadder at base tier/variant.",
+            "Verify prior retry state is not preserved in the new ladder.",
+            "Test new ladder is a distinct object from the first ladder."
+          ],
+          "test_spec_refs": [
+            "TS-15-E7"
+          ],
+          "requirement_refs": [
+            "15-REQ-5.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.5",
+          "title": "Write property tests for assessment failure invariant and concurrent calls (PROP-6, PROP-9)",
+          "details": [
+            "Implement TS-15-P6: for any failure condition (network error, timeout, rate limit, parse failure, context limit), assess_node() always returns EscalationLadder at base tier/variant without raising.",
+            "Implement TS-15-P9: N concurrent assess_node() calls on same manager return independent results without shared state interference."
+          ],
+          "test_spec_refs": [
+            "TS-15-P6",
+            "TS-15-P9"
+          ],
+          "requirement_refs": [
+            "15-REQ-1.5",
+            "15-REQ-12.1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "4.V",
+        "checks": [
+          "Spec tests for this group pass: pytest -q packages/agentfox/tests/unit/test_dynamic_complexity_assessment.py::test_assessment_manager",
+          "All existing tests still pass: pytest -q",
+          "No linter warnings introduced: ruff check packages/agentfox/agentfox/",
+          "Requirements 15-REQ-4.1 through 15-REQ-4.4, 15-REQ-5.1 through 15-REQ-5.3, 15-REQ-5.E1 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "kind": "tests",
+      "title": "Write tests: explicit config override skip, resolution priority, and ARCHETYPE_REGISTRY defaults (REQ-6, REQ-7, REQ-8)",
+      "subtasks": [
+        {
+          "id": "5.1",
+          "title": "Write unit tests for is_explicitly_configured() layer traversal",
+          "details": [
+            "Test is_explicitly_configured() returns True when layer 2 has non-None value; returns False when all layers are None.",
+            "Test mode=None skips layer 1 and only checks layers 2-3.",
+            "Test is_explicitly_configured() returns True immediately on layer 1 hit without checking layers 2-3 (spy on layer2/layer3 check methods)."
+          ],
+          "test_spec_refs": [
+            "TS-15-26",
+            "TS-15-27",
+            "TS-15-E8"
+          ],
+          "requirement_refs": [
+            "15-REQ-6.1",
+            "15-REQ-6.2",
+            "15-REQ-6.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.2",
+          "title": "Write unit tests for assess_node() skip-on-explicit-override behavior",
+          "details": [
+            "Test that when is_explicitly_configured() returns True, ComplexityAssessor.assess() is never called.",
+            "Test DEBUG log contains node_id, archetype, mode, and resolved tier.",
+            "Test EscalationLadder uses the explicitly configured tier/variant."
+          ],
+          "test_spec_refs": [
+            "TS-15-28"
+          ],
+          "requirement_refs": [
+            "15-REQ-6.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.3",
+          "title": "Write unit tests for five-layer resolution priority ordering",
+          "details": [
+            "Test with explicit override active: config tier used; assessor never called.",
+            "Test with no override, assessor upgrades: ladder starting_tier reflects assessor recommendation.",
+            "Test with no override, below threshold: ladder starting_tier matches registry default floor.",
+            "Test explicit override with SIMPLE config and ADVANCED assessor: ladder uses SIMPLE."
+          ],
+          "test_spec_refs": [
+            "TS-15-29",
+            "TS-15-30",
+            "TS-15-31"
+          ],
+          "requirement_refs": [
+            "15-REQ-7.1",
+            "15-REQ-7.2",
+            "15-REQ-7.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.4",
+          "title": "Write unit tests for ARCHETYPE_REGISTRY default assignments (all 10 combinations)",
+          "details": [
+            "Test coder and coder/fix defaults are STANDARD/standard.",
+            "Test reviewer pre-review and audit-review defaults are ADVANCED/standard; drift-review and fix-review defaults are as specified.",
+            "Test verifier default is STANDARD/standard.",
+            "Test maintainer hunt and extraction defaults are SIMPLE/standard; fix-triage is STANDARD/standard.",
+            "Test all 10 combinations at import time with no migration step required."
+          ],
+          "test_spec_refs": [
+            "TS-15-32",
+            "TS-15-33",
+            "TS-15-34",
+            "TS-15-35",
+            "TS-15-36"
+          ],
+          "requirement_refs": [
+            "15-REQ-8.1",
+            "15-REQ-8.2",
+            "15-REQ-8.3",
+            "15-REQ-8.4",
+            "15-REQ-8.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.5",
+          "title": "Write property tests for explicit override invariant and quality guarantee (PROP-5, PROP-7)",
+          "details": [
+            "Implement TS-15-P5: for any archetype/mode where is_explicitly_configured() returns True, ComplexityAssessor.assess() is never called and config-layer tier is used.",
+            "Implement TS-15-P7: for reviewer pre-review and audit-review with no explicit override and below-threshold assessor, ladder starting_tier is always ADVANCED."
+          ],
+          "test_spec_refs": [
+            "TS-15-P5",
+            "TS-15-P7"
+          ],
+          "requirement_refs": [
+            "15-REQ-6.3",
+            "15-REQ-7.1",
+            "15-REQ-7.2",
+            "15-REQ-8.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "5.V",
+        "checks": [
+          "Spec tests for this group pass: pytest -q packages/agentfox/tests/unit/test_dynamic_complexity_assessment.py::test_config_override_and_registry",
+          "All existing tests still pass: pytest -q",
+          "No linter warnings introduced: ruff check packages/agentfox/agentfox/",
+          "Requirements 15-REQ-6.1 through 15-REQ-6.3, 15-REQ-6.E1, 15-REQ-7.1 through 15-REQ-7.3, 15-REQ-8.1 through 15-REQ-8.5 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "kind": "tests",
+      "title": "Write tests: dispatch integration, RoutingConfig validation, nightshift passthrough, and triage parsing (REQ-9, REQ-10, REQ-11)",
+      "subtasks": [
+        {
+          "id": "6.1",
+          "title": "Write unit tests for DispatchManager.prepare_launch() node_body and previous_failure extraction",
+          "details": [
+            "Test node_body is extracted via self.get_node(node_id).body and passed to assess_node().",
+            "Test previous_failure is extracted from error_tracker['node_id']['previous_error']; None when no entry exists.",
+            "Test assess_node() receives all five parameters: node_id, archetype, mode, node_body, previous_failure."
+          ],
+          "test_spec_refs": [
+            "TS-15-37",
+            "TS-15-38",
+            "TS-15-39",
+            "TS-15-E9"
+          ],
+          "requirement_refs": [
+            "15-REQ-9.1",
+            "15-REQ-9.2",
+            "15-REQ-9.3",
+            "15-REQ-9.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.2",
+          "title": "Write unit tests for RoutingConfig field defaults and eager validation",
+          "details": [
+            "Test assessor_model default is 'claude-haiku-4-5'; custom value accepted.",
+            "Test confidence_threshold default is 0.6; valid custom value accepted.",
+            "Test assessor_model='' raises ValidationError at construction time.",
+            "Test confidence_threshold=1.5 and -0.1 each raise ValidationError at construction time."
+          ],
+          "test_spec_refs": [
+            "TS-15-40",
+            "TS-15-41",
+            "TS-15-42",
+            "TS-15-E10",
+            "TS-15-E11"
+          ],
+          "requirement_refs": [
+            "15-REQ-10.1",
+            "15-REQ-10.2",
+            "15-REQ-10.3",
+            "15-REQ-10.E1",
+            "15-REQ-10.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.3",
+          "title": "Write unit tests for AssessedComplexity dataclass and assessed_complexity_to_recommendation() adapter",
+          "details": [
+            "Test AssessedComplexity is a frozen dataclass with tier, variant, confidence, rationale fields.",
+            "Test TriageResult has assessed_complexity: AssessedComplexity|None = None field.",
+            "Test assessed_complexity_to_recommendation() maps tier->recommended_tier, variant->recommended_variant, copies confidence and rationale."
+          ],
+          "test_spec_refs": [
+            "TS-15-43",
+            "TS-15-44"
+          ],
+          "requirement_refs": [
+            "15-REQ-11.1",
+            "15-REQ-11.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.4",
+          "title": "Write unit tests for nightshift pre_assessed passthrough in assess_node()",
+          "details": [
+            "Test valid pre_assessed bypasses ComplexityAssessor.assess() and ladder reflects upgrade.",
+            "Test pre_assessed=None triggers ComplexityAssessor.assess() call.",
+            "Test coder_reviewer.py passes assessed_complexity as pre_assessed to coder assess_node() but not to fix-review nodes."
+          ],
+          "test_spec_refs": [
+            "TS-15-45",
+            "TS-15-46",
+            "TS-15-47"
+          ],
+          "requirement_refs": [
+            "15-REQ-11.3",
+            "15-REQ-11.4",
+            "15-REQ-11.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.5",
+          "title": "Write unit tests for triage prompt update and partial failure parsing semantics",
+          "details": [
+            "Test triage prompt includes assessed_complexity field request; valid response parsed into AssessedComplexity.",
+            "Test missing assessed_complexity sets field to None and logs WARNING; rest of TriageResult parsed normally.",
+            "Test malformed assessed_complexity (wrong-case tier, out-of-range confidence) sets field to None without partial salvaging.",
+            "Test entire assessed_complexity sub-object is discarded on any validation failure."
+          ],
+          "test_spec_refs": [
+            "TS-15-48",
+            "TS-15-E12",
+            "TS-15-E13"
+          ],
+          "requirement_refs": [
+            "15-REQ-11.6",
+            "15-REQ-11.E1",
+            "15-REQ-11.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.6",
+          "title": "Write property test for nightshift pre-assessed Haiku bypass invariant (PROP-8)",
+          "details": [
+            "Implement TS-15-P8: for any non-None pre_assessed AssessedComplexity passed to assess_node(), mock_client.messages.create is never called.",
+            "Generate various valid AssessedComplexity inputs with different tier/variant/confidence combinations."
+          ],
+          "test_spec_refs": [
+            "TS-15-P8"
+          ],
+          "requirement_refs": [
+            "15-REQ-11.3"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "6.V",
+        "checks": [
+          "Spec tests for this group pass: pytest -q packages/agentfox/tests/unit/test_dynamic_complexity_assessment.py::test_dispatch_nightshift_config",
+          "All existing tests still pass: pytest -q",
+          "No linter warnings introduced: ruff check packages/agentfox/agentfox/",
+          "Requirements 15-REQ-9.1 through 15-REQ-9.3, 15-REQ-9.E1, 15-REQ-10.1 through 15-REQ-10.3, 15-REQ-10.E1, 15-REQ-10.E2, 15-REQ-11.1 through 15-REQ-11.6, 15-REQ-11.E1, 15-REQ-11.E2 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "kind": "checkpoint",
+      "title": "Checkpoint: all spec tests written and passing against stubs",
+      "subtasks": [
+        {
+          "id": "7.1",
+          "title": "Create stub module core/complexity.py with all public symbols",
+          "details": [
+            "Create packages/agentfox/agentfox/core/complexity.py.",
+            "Define ComplexityRecommendation Protocol with required fields.",
+            "Define AssessmentResult frozen dataclass with four fields.",
+            "Define ComplexityAssessor class with stubbed __init__ and async assess() raising NotImplementedError.",
+            "Define apply_assessment() function stub raising NotImplementedError.",
+            "Define assessed_complexity_to_recommendation() function stub raising NotImplementedError."
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [
+            "15-REQ-1.1",
+            "15-REQ-1.2",
+            "15-REQ-1.3",
+            "15-REQ-1.4",
+            "15-REQ-3.1",
+            "15-REQ-11.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.2",
+          "title": "Create stub updates for engine/engine.py, engine/run.py, and engine/dispatch.py",
+          "details": [
+            "Add optional client parameter to AssessmentManager.__init__() stub.",
+            "Add updated assess_node() stub with full new signature.",
+            "Add is_explicitly_configured() stub.",
+            "Update session_runner_factory in engine/run.py to pass client kwarg stub.",
+            "Update DispatchManager.prepare_launch() stub to extract node_body and previous_failure."
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [
+            "15-REQ-4.1",
+            "15-REQ-4.2",
+            "15-REQ-5.1",
+            "15-REQ-6.1",
+            "15-REQ-9.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.3",
+          "title": "Create stub updates for archetypes.py, core/config.py, and nightshift modules",
+          "details": [
+            "Update ARCHETYPE_REGISTRY stubs in archetypes.py with new tier/variant placeholder values.",
+            "Add assessor_model and confidence_threshold fields to RoutingConfig with Pydantic validators.",
+            "Add AssessedComplexity dataclass stub to nightshift/fix_pipeline.py.",
+            "Add assessed_complexity field stub to TriageResult.",
+            "Add stub changes to nightshift/triage.py prompt and parser."
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [
+            "15-REQ-8.1",
+            "15-REQ-10.1",
+            "15-REQ-10.2",
+            "15-REQ-11.1",
+            "15-REQ-11.6"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.4",
+          "title": "Verify all spec tests are collected and fail gracefully against stubs",
+          "details": [
+            "Run pytest --collect-only to verify all test IDs are collected without import errors.",
+            "Confirm tests fail with NotImplementedError or assertion errors, not import/syntax errors.",
+            "Fix any import path issues or missing __init__ files."
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "7.V",
+        "checks": [
+          "pytest --collect-only packages/agentfox/tests/unit/test_dynamic_complexity_assessment.py exits 0 with all test IDs listed",
+          "pytest -q packages/agentfox/tests/unit/test_dynamic_complexity_assessment.py exits with failures only from NotImplementedError or assertion errors, not ImportError or SyntaxError",
+          "ruff check packages/agentfox/agentfox/ reports no errors on stub files",
+          "All stub files are importable without side effects"
+        ]
+      }
+    },
+    {
+      "id": 8,
+      "kind": "standard",
+      "title": "Implement core/complexity.py: ComplexityRecommendation, AssessmentResult, and ComplexityAssessor",
+      "subtasks": [
+        {
+          "id": "8.1",
+          "title": "Implement ComplexityRecommendation Protocol and AssessmentResult frozen dataclass",
+          "details": [
+            "Define ComplexityRecommendation as a typing.Protocol with recommended_tier: str, recommended_variant: str|None, confidence: float.",
+            "Define AssessmentResult as @dataclass(frozen=True) with recommended_tier, recommended_variant, confidence, rationale fields.",
+            "Ensure AssessmentResult satisfies ComplexityRecommendation Protocol structurally."
+          ],
+          "test_spec_refs": [
+            "TS-15-1",
+            "TS-15-2"
+          ],
+          "requirement_refs": [
+            "15-REQ-1.1",
+            "15-REQ-1.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.2",
+          "title": "Implement ComplexityAssessor constructor with dependency injection",
+          "details": [
+            "Implement __init__(self, client, assessor_model='claude-haiku-4-5', confidence_threshold=0.6) storing all three as instance attributes.",
+            "No shared mutable state; each call to assess() uses only its parameters.",
+            "Client handles its own connection pooling; no locking required."
+          ],
+          "test_spec_refs": [
+            "TS-15-3",
+            "TS-15-5"
+          ],
+          "requirement_refs": [
+            "15-REQ-1.3",
+            "15-REQ-1.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.3",
+          "title": "Implement assessment prompt construction and API call with timeout",
+          "details": [
+            "Build system prompt establishing LLM as complexity assessor.",
+            "Include archetype/mode, base_tier/base_variant, full node_body without truncation.",
+            "Append previous_failure section when provided.",
+            "Include JSON output instruction with AssessmentResult schema example.",
+            "Call client.messages.create with timeout=30 and model=self.assessor_model."
+          ],
+          "test_spec_refs": [
+            "TS-15-8",
+            "TS-15-9",
+            "TS-15-11",
+            "TS-15-12"
+          ],
+          "requirement_refs": [
+            "15-REQ-2.1",
+            "15-REQ-2.2",
+            "15-REQ-2.4",
+            "15-REQ-2.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.4",
+          "title": "Implement JSON response parsing and validation in assess()",
+          "details": [
+            "Parse JSON response; validate all four fields present.",
+            "Validate confidence in [0.0, 1.0]; recommended_tier is valid ModelTier (case-sensitive); recommended_variant is None or one of 'fast'/'standard'/'extended' (case-sensitive).",
+            "On any validation failure, log WARNING with exception details and return (base_tier, base_variant).",
+            "Catch all API exceptions (timeout, rate limit, network, context-limit) in one except block; log WARNING; return (base_tier, base_variant) without raising."
+          ],
+          "test_spec_refs": [
+            "TS-15-10",
+            "TS-15-E2",
+            "TS-15-E3",
+            "TS-15-E4",
+            "TS-15-49"
+          ],
+          "requirement_refs": [
+            "15-REQ-2.3",
+            "15-REQ-2.E1",
+            "15-REQ-2.E2",
+            "15-REQ-2.E3",
+            "15-REQ-12.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.5",
+          "title": "Implement apply_assessment() function and assessed_complexity_to_recommendation() adapter",
+          "details": [
+            "Implement confidence gate: return (base_tier, base_variant) if confidence < confidence_threshold.",
+            "Implement tier upgrade: max(base_tier, recommended_tier) using ModelTier ordering.",
+            "Implement variant logic: None base_variant -> always return None; None recommended_variant -> return base_variant; both non-None -> max in VARIANT_ORDER.",
+            "Implement assessed_complexity_to_recommendation(): map tier->recommended_tier, variant->recommended_variant, copy confidence/rationale."
+          ],
+          "test_spec_refs": [
+            "TS-15-13",
+            "TS-15-14",
+            "TS-15-15",
+            "TS-15-16",
+            "TS-15-17",
+            "TS-15-18",
+            "TS-15-44"
+          ],
+          "requirement_refs": [
+            "15-REQ-3.1",
+            "15-REQ-3.2",
+            "15-REQ-3.3",
+            "15-REQ-3.4",
+            "15-REQ-3.5",
+            "15-REQ-3.6",
+            "15-REQ-11.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "8.V",
+        "checks": [
+          "Spec tests for core/complexity.py pass: pytest -q packages/agentfox/tests/unit/test_dynamic_complexity_assessment.py -k 'assessor or apply_assessment or recommendation'",
+          "All existing tests still pass: pytest -q",
+          "No linter warnings introduced: ruff check packages/agentfox/agentfox/core/complexity.py",
+          "Requirements 15-REQ-1.1 through 15-REQ-1.5, 15-REQ-2.1 through 15-REQ-2.5, 15-REQ-3.1 through 15-REQ-3.6, 15-REQ-11.2 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 9,
+      "kind": "standard",
+      "title": "Implement AssessmentManager updates in engine/engine.py",
+      "subtasks": [
+        {
+          "id": "9.1",
+          "title": "Implement AssessmentManager.__init__() with optional client parameter and conditional ComplexityAssessor instantiation",
+          "details": [
+            "Add optional client parameter to __init__(self, config, client=None).",
+            "When client is non-None, instantiate ComplexityAssessor(client, assessor_model, confidence_threshold) and store as self._assessor.",
+            "When client is None, set self._assessor = None (no log emitted)."
+          ],
+          "test_spec_refs": [
+            "TS-15-6",
+            "TS-15-7"
+          ],
+          "requirement_refs": [
+            "15-REQ-1.6",
+            "15-REQ-1.7",
+            "15-REQ-4.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "9.2",
+          "title": "Implement is_explicitly_configured() helper function",
+          "details": [
+            "Walk layer 1 (mode-level override) only when mode is non-None; return True immediately if non-None value found.",
+            "Walk layer 2 (per-archetype override); return True if non-None.",
+            "Walk layer 3 (legacy dict override); return True if non-None.",
+            "Return False if all applicable layers return None."
+          ],
+          "test_spec_refs": [
+            "TS-15-26",
+            "TS-15-27",
+            "TS-15-E8"
+          ],
+          "requirement_refs": [
+            "15-REQ-6.1",
+            "15-REQ-6.2",
+            "15-REQ-6.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "9.3",
+          "title": "Implement assess_node() with full priority evaluation and EscalationLadder construction",
+          "details": [
+            "Implement the five-step evaluation: (1) no assessor -> base fallback; (2) missing/empty body -> DEBUG + base fallback; (3) explicit override -> DEBUG + configured tier; (4) pre_assessed non-None -> adapter + apply_assessment(); (5) LLM assess + apply_assessment().",
+            "Construct EscalationLadder(starting_tier=effective_tier, starting_variant=effective_variant) with ADVANCED ceiling and RoutingConfig retry config.",
+            "Discard existing ladder on each call (no caching); re-assess with previous_failure on retry.",
+            "Emit structured DEBUG log on successful assessment with all required keys."
+          ],
+          "test_spec_refs": [
+            "TS-15-19",
+            "TS-15-21",
+            "TS-15-22",
+            "TS-15-23",
+            "TS-15-24",
+            "TS-15-25"
+          ],
+          "requirement_refs": [
+            "15-REQ-4.1",
+            "15-REQ-4.3",
+            "15-REQ-4.4",
+            "15-REQ-4.E1",
+            "15-REQ-5.1",
+            "15-REQ-5.2",
+            "15-REQ-5.3"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "9.V",
+        "checks": [
+          "Spec tests for AssessmentManager pass: pytest -q packages/agentfox/tests/unit/test_dynamic_complexity_assessment.py -k 'assessment_manager or assess_node'",
+          "All existing tests still pass: pytest -q",
+          "No linter warnings introduced: ruff check packages/agentfox/agentfox/engine/engine.py",
+          "Requirements 15-REQ-1.6, 15-REQ-1.7, 15-REQ-4.1 through 15-REQ-4.4, 15-REQ-4.E1, 15-REQ-5.1 through 15-REQ-5.3, 15-REQ-6.1 through 15-REQ-6.3, 15-REQ-6.E1 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 10,
+      "kind": "standard",
+      "title": "Implement RoutingConfig fields, ARCHETYPE_REGISTRY defaults, and dispatch integration",
+      "subtasks": [
+        {
+          "id": "10.1",
+          "title": "Implement assessor_model and confidence_threshold fields in RoutingConfig",
+          "details": [
+            "Add assessor_model: str = Field(default='claude-haiku-4-5', min_length=1) to RoutingConfig.",
+            "Add confidence_threshold: float = Field(default=0.6, ge=0.0, le=1.0) to RoutingConfig.",
+            "Pydantic v2 validates both eagerly at instantiation; ValidationError raised for empty string or out-of-range float."
+          ],
+          "test_spec_refs": [
+            "TS-15-40",
+            "TS-15-41",
+            "TS-15-42",
+            "TS-15-E10",
+            "TS-15-E11"
+          ],
+          "requirement_refs": [
+            "15-REQ-10.1",
+            "15-REQ-10.2",
+            "15-REQ-10.3",
+            "15-REQ-10.E1",
+            "15-REQ-10.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "10.2",
+          "title": "Update ARCHETYPE_REGISTRY defaults for all 10 archetype/mode combinations",
+          "details": [
+            "Update coder (no mode) and coder/fix to STANDARD/standard.",
+            "Update reviewer pre-review and audit-review to ADVANCED/standard; drift-review to STANDARD/standard; fix-review to ADVANCED/standard.",
+            "Update verifier to STANDARD/standard.",
+            "Update maintainer hunt and extraction to SIMPLE/standard; fix-triage to STANDARD/standard.",
+            "Apply immediately; no migration path needed."
+          ],
+          "test_spec_refs": [
+            "TS-15-32",
+            "TS-15-33",
+            "TS-15-34",
+            "TS-15-35",
+            "TS-15-36"
+          ],
+          "requirement_refs": [
+            "15-REQ-8.1",
+            "15-REQ-8.2",
+            "15-REQ-8.3",
+            "15-REQ-8.4",
+            "15-REQ-8.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "10.3",
+          "title": "Update session_runner_factory in engine/run.py to pass Anthropic client to AssessmentManager",
+          "details": [
+            "In the session_runner_factory closure, pass the already-held Anthropic client as AssessmentManager(config=config, client=anthropic_client).",
+            "No other Orchestrator-level files require changes for client injection."
+          ],
+          "test_spec_refs": [
+            "TS-15-20"
+          ],
+          "requirement_refs": [
+            "15-REQ-4.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "10.4",
+          "title": "Update DispatchManager.prepare_launch() in engine/dispatch.py to extract and pass node_body and previous_failure",
+          "details": [
+            "Extract node_body = self.get_node(node_id).body in prepare_launch().",
+            "Extract previous_failure = error_tracker.get(node_id, {}).get('previous_error') (None if no entry).",
+            "Pass both to self._routing.assess_node(node_id=..., archetype=..., mode=..., node_body=node_body, previous_failure=previous_failure)."
+          ],
+          "test_spec_refs": [
+            "TS-15-37",
+            "TS-15-38",
+            "TS-15-39",
+            "TS-15-E9"
+          ],
+          "requirement_refs": [
+            "15-REQ-9.1",
+            "15-REQ-9.2",
+            "15-REQ-9.3",
+            "15-REQ-9.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "10.V",
+        "checks": [
+          "Spec tests for config, registry, and dispatch pass: pytest -q packages/agentfox/tests/unit/test_dynamic_complexity_assessment.py -k 'config or registry or dispatch'",
+          "All existing tests still pass: pytest -q",
+          "No linter warnings introduced: ruff check packages/agentfox/agentfox/core/config.py packages/agentfox/agentfox/archetypes.py packages/agentfox/agentfox/engine/",
+          "Requirements 15-REQ-8.1 through 15-REQ-8.5, 15-REQ-9.1 through 15-REQ-9.3, 15-REQ-9.E1, 15-REQ-10.1 through 15-REQ-10.3, 15-REQ-10.E1, 15-REQ-10.E2 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 11,
+      "kind": "standard",
+      "title": "Implement nightshift triage integration: AssessedComplexity, TriageResult extension, triage prompt, and coder_reviewer passthrough",
+      "subtasks": [
+        {
+          "id": "11.1",
+          "title": "Implement AssessedComplexity dataclass and extend TriageResult in nightshift/fix_pipeline.py",
+          "details": [
+            "Define AssessedComplexity as @dataclass(frozen=True) with tier: str, variant: str|None, confidence: float, rationale: str.",
+            "Add assessed_complexity: AssessedComplexity | None = None field to TriageResult dataclass."
+          ],
+          "test_spec_refs": [
+            "TS-15-43"
+          ],
+          "requirement_refs": [
+            "15-REQ-11.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.2",
+          "title": "Update triage prompt and parser in nightshift/triage.py with partial failure semantics",
+          "details": [
+            "Update triage prompt template to request assessed_complexity JSON object with tier, variant, confidence, rationale.",
+            "In parser: attempt to extract and validate assessed_complexity sub-object using same case-sensitive rules as REQ-2.",
+            "On any validation failure for assessed_complexity (missing field, wrong-case, out-of-range confidence): set to None, log WARNING, continue parsing rest of TriageResult normally.",
+            "Do not attempt partial field salvaging within the sub-object."
+          ],
+          "test_spec_refs": [
+            "TS-15-48",
+            "TS-15-E12",
+            "TS-15-E13"
+          ],
+          "requirement_refs": [
+            "15-REQ-11.6",
+            "15-REQ-11.E1",
+            "15-REQ-11.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.3",
+          "title": "Update nightshift/coder_reviewer.py to pass pre_assessed to coder assess_node() only",
+          "details": [
+            "Extract triage_result.assessed_complexity once in the nightshift orchestrator.",
+            "Pass it as pre_assessed to assess_node() for the coder node only.",
+            "Fix-review and other reviewer nodes call assess_node() without pre_assessed (or with pre_assessed=None)."
+          ],
+          "test_spec_refs": [
+            "TS-15-45",
+            "TS-15-46",
+            "TS-15-47"
+          ],
+          "requirement_refs": [
+            "15-REQ-11.3",
+            "15-REQ-11.4",
+            "15-REQ-11.5"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "11.V",
+        "checks": [
+          "Spec tests for nightshift integration pass: pytest -q packages/agentfox/tests/unit/test_dynamic_complexity_assessment.py -k 'nightshift or triage or pre_assessed'",
+          "All existing tests still pass: pytest -q",
+          "No linter warnings introduced: ruff check packages/agentfox/agentfox/nightshift/",
+          "Requirements 15-REQ-11.1 through 15-REQ-11.6, 15-REQ-11.E1, 15-REQ-11.E2 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 12,
+      "kind": "checkpoint",
+      "title": "Checkpoint: all unit and property tests passing; linter clean",
+      "subtasks": [
+        {
+          "id": "12.1",
+          "title": "Run full test suite and verify all spec tests pass",
+          "details": [
+            "Run pytest -q packages/agentfox/tests/unit/test_dynamic_complexity_assessment.py and confirm all tests pass.",
+            "Fix any remaining NotImplementedError stubs or missing imports.",
+            "Address any flaky async tests with proper asyncio.run() or pytest-asyncio markers."
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "12.2",
+          "title": "Run property tests and verify invariants hold across all generated inputs",
+          "details": [
+            "Run all property tests (TS-15-P1 through TS-15-P9) to verify invariants.",
+            "If using hypothesis: pytest -q --hypothesis-seed=0 packages/agentfox/tests/unit/test_dynamic_complexity_assessment.py -k property.",
+            "Confirm upgrade-only invariant, confidence gate, None-variant, explicit override, failure fallback, quality guarantee, nightshift bypass, and statelessness properties all hold."
+          ],
+          "test_spec_refs": [
+            "TS-15-P1",
+            "TS-15-P2",
+            "TS-15-P3",
+            "TS-15-P4",
+            "TS-15-P5",
+            "TS-15-P6",
+            "TS-15-P7",
+            "TS-15-P8",
+            "TS-15-P9"
+          ],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "12.3",
+          "title": "Run linter and resolve any warnings or errors",
+          "details": [
+            "Run ruff check packages/agentfox/agentfox/ and resolve all issues.",
+            "Check specifically: unused imports, undefined names, type annotation issues in new files.",
+            "Ensure all new modules have correct __all__ exports if the project conventions require it."
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "12.4",
+          "title": "Verify no regression in existing tests",
+          "details": [
+            "Run pytest -q (all tests, not just spec tests) to confirm no regressions.",
+            "Pay attention to tests exercising the existing AssessmentManager, DispatchManager, and RoutingConfig paths.",
+            "Verify ARCHETYPE_REGISTRY default changes do not break existing tests that assumed old default tiers."
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "12.V",
+        "checks": [
+          "pytest -q packages/agentfox/tests/unit/test_dynamic_complexity_assessment.py exits 0 with all tests passing",
+          "pytest -q (full suite) exits 0 with no regressions",
+          "ruff check packages/agentfox/agentfox/ exits 0 with no errors or warnings",
+          "All 9 property tests pass with no counterexamples found"
+        ]
+      }
+    },
+    {
+      "id": 13,
+      "kind": "wiring_verification",
+      "title": "Wiring verification: end-to-end integration, smoke tests, and stub audit",
+      "subtasks": [
+        {
+          "id": "13.1",
+          "title": "Trace execution paths and verify call chain from prepare_launch() through EscalationLadder",
+          "details": [
+            "Verify PATH-1: DispatchManager.prepare_launch() -> AssessmentManager.assess_node() -> ComplexityAssessor.assess() -> apply_assessment() -> EscalationLadder construction.",
+            "Verify PATH-2: failure path returns EscalationLadder at base tier without propagating exception.",
+            "Verify PATH-3: explicit config override path skips ComplexityAssessor; ladder uses configured tier.",
+            "Confirm no function in the chain returns None where a value is expected."
+          ],
+          "test_spec_refs": [
+            "TS-15-SMOKE-1",
+            "TS-15-SMOKE-2",
+            "TS-15-SMOKE-3"
+          ],
+          "requirement_refs": [
+            "15-REQ-4.4",
+            "15-REQ-9.1",
+            "15-REQ-9.2",
+            "15-REQ-9.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "13.2",
+          "title": "Trace nightshift and retry execution paths",
+          "details": [
+            "Verify PATH-4: nightshift TriageResult.assessed_complexity -> coder_reviewer extracts and passes pre_assessed -> assess_node() -> assessed_complexity_to_recommendation() -> apply_assessment() -> EscalationLadder.",
+            "Verify PATH-5: failed node retry with previous_failure -> ComplexityAssessor prompt includes failure context -> new EscalationLadder at upgraded tier.",
+            "Confirm fix-review nodes call assess_node() without pre_assessed."
+          ],
+          "test_spec_refs": [
+            "TS-15-SMOKE-4",
+            "TS-15-SMOKE-5"
+          ],
+          "requirement_refs": [
+            "15-REQ-5.1",
+            "15-REQ-11.3",
+            "15-REQ-11.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "13.3",
+          "title": "Trace absent-client path and verify session_runner_factory wiring",
+          "details": [
+            "Verify PATH-6: session_runner_factory constructs AssessmentManager with client=None -> _assessor is None -> every assess_node() call returns EscalationLadder at base tier/variant with no log entries.",
+            "Confirm session_runner_factory in engine/run.py passes the configured Anthropic client when one is available.",
+            "Verify return value propagation: EscalationLadder returned from assess_node() is received and used by DispatchManager."
+          ],
+          "test_spec_refs": [
+            "TS-15-SMOKE-6"
+          ],
+          "requirement_refs": [
+            "15-REQ-1.6",
+            "15-REQ-4.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "13.4",
+          "title": "Run all smoke tests with real components",
+          "details": [
+            "Run all six smoke tests (TS-15-SMOKE-1 through TS-15-SMOKE-6) with real components and only Anthropic API mocked.",
+            "Verify expected effects listed in each smoke test: DEBUG/WARNING logs, EscalationLadder tier/variant, call counts.",
+            "Confirm no smoke test raises an unexpected exception."
+          ],
+          "test_spec_refs": [
+            "TS-15-SMOKE-1",
+            "TS-15-SMOKE-2",
+            "TS-15-SMOKE-3",
+            "TS-15-SMOKE-4",
+            "TS-15-SMOKE-5",
+            "TS-15-SMOKE-6"
+          ],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "13.5",
+          "title": "Stub and dead-code audit across all modified files",
+          "details": [
+            "Search for raise NotImplementedError in all new and modified files; confirm none remain in production paths.",
+            "Search for pass in non-abstract methods; confirm none are stub placeholders.",
+            "Search for return None in non-trivial functions that should return values; confirm each is intentional.",
+            "Search for # TODO and # FIXME in modified files; resolve or document any remaining items."
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "13.6",
+          "title": "Cross-spec entry point verification and final full test run",
+          "details": [
+            "Verify spec #14 EscalationLadder constructor accepts starting_tier and starting_variant parameters as expected by this spec's usage in assess_node().",
+            "Verify spec #14 VARIANT_ORDER is imported and used correctly in apply_assessment().",
+            "Verify spec #14 resolve_model() is used where appropriate in config resolution layers.",
+            "Run final full test suite: pytest -q. Confirm zero failures and zero errors."
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [
+            "15-REQ-4.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "13.V",
+        "checks": [
+          "All six smoke tests pass: pytest -q packages/agentfox/tests/unit/test_dynamic_complexity_assessment.py -k 'smoke'",
+          "Full test suite passes: pytest -q exits 0 with no failures",
+          "No raise NotImplementedError found in production code: grep -r 'raise NotImplementedError' packages/agentfox/agentfox/ returns empty",
+          "No ruff lint errors: ruff check packages/agentfox/agentfox/ exits 0",
+          "All 12 requirements (15-REQ-1 through 15-REQ-12) have at least one passing test traced to them in traceability matrix",
+          "EscalationLadder starting_tier and starting_variant parameters confirmed compatible with spec #14 implementation"
+        ]
+      }
+    }
+  ],
+  "traceability": [
+    {
+      "requirement_id": "15-REQ-1.1",
+      "test_spec_id": "TS-15-1",
+      "task_id": "1.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-1.2",
+      "test_spec_id": "TS-15-2",
+      "task_id": "1.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-1.3",
+      "test_spec_id": "TS-15-3",
+      "task_id": "1.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-1.4",
+      "test_spec_id": "TS-15-4",
+      "task_id": "1.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-1.5",
+      "test_spec_id": "TS-15-5",
+      "task_id": "1.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-1.5",
+      "test_spec_id": "TS-15-12",
+      "task_id": "1.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-1.6",
+      "test_spec_id": "TS-15-6",
+      "task_id": "1.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-1.7",
+      "test_spec_id": "TS-15-7",
+      "task_id": "1.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-1.E1",
+      "test_spec_id": "TS-15-E1",
+      "task_id": "1.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-2.1",
+      "test_spec_id": "TS-15-8",
+      "task_id": "1.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-2.2",
+      "test_spec_id": "TS-15-9",
+      "task_id": "1.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-2.3",
+      "test_spec_id": "TS-15-10",
+      "task_id": "1.6",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-2.4",
+      "test_spec_id": "TS-15-11",
+      "task_id": "1.6",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-2.5",
+      "test_spec_id": "TS-15-12",
+      "task_id": "1.6",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-2.E1",
+      "test_spec_id": "TS-15-E2",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-2.E2",
+      "test_spec_id": "TS-15-E3",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-2.E3",
+      "test_spec_id": "TS-15-E4",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-3.1",
+      "test_spec_id": "TS-15-13",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-3.2",
+      "test_spec_id": "TS-15-14",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-3.3",
+      "test_spec_id": "TS-15-15",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-3.4",
+      "test_spec_id": "TS-15-16",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-3.5",
+      "test_spec_id": "TS-15-17",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-3.6",
+      "test_spec_id": "TS-15-18",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-3.E1",
+      "test_spec_id": "TS-15-E5",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-4.1",
+      "test_spec_id": "TS-15-19",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-4.2",
+      "test_spec_id": "TS-15-20",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-4.3",
+      "test_spec_id": "TS-15-21",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-4.4",
+      "test_spec_id": "TS-15-22",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-4.E1",
+      "test_spec_id": "TS-15-E6",
+      "task_id": "2.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-5.1",
+      "test_spec_id": "TS-15-23",
+      "task_id": "4.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-5.2",
+      "test_spec_id": "TS-15-24",
+      "task_id": "4.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-5.3",
+      "test_spec_id": "TS-15-25",
+      "task_id": "4.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-5.E1",
+      "test_spec_id": "TS-15-E7",
+      "task_id": "4.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-6.1",
+      "test_spec_id": "TS-15-26",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-6.2",
+      "test_spec_id": "TS-15-27",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-6.3",
+      "test_spec_id": "TS-15-28",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-6.E1",
+      "test_spec_id": "TS-15-E8",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-7.1",
+      "test_spec_id": "TS-15-29",
+      "task_id": "5.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-7.2",
+      "test_spec_id": "TS-15-30",
+      "task_id": "5.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-7.3",
+      "test_spec_id": "TS-15-31",
+      "task_id": "5.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-8.1",
+      "test_spec_id": "TS-15-32",
+      "task_id": "5.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-8.2",
+      "test_spec_id": "TS-15-33",
+      "task_id": "5.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-8.3",
+      "test_spec_id": "TS-15-34",
+      "task_id": "5.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-8.4",
+      "test_spec_id": "TS-15-35",
+      "task_id": "5.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-8.5",
+      "test_spec_id": "TS-15-36",
+      "task_id": "5.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-9.1",
+      "test_spec_id": "TS-15-37",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-9.2",
+      "test_spec_id": "TS-15-38",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-9.3",
+      "test_spec_id": "TS-15-39",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-9.E1",
+      "test_spec_id": "TS-15-E9",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-10.1",
+      "test_spec_id": "TS-15-40",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-10.2",
+      "test_spec_id": "TS-15-41",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-10.3",
+      "test_spec_id": "TS-15-42",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-10.E1",
+      "test_spec_id": "TS-15-E10",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-10.E2",
+      "test_spec_id": "TS-15-E11",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-11.1",
+      "test_spec_id": "TS-15-43",
+      "task_id": "6.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-11.2",
+      "test_spec_id": "TS-15-44",
+      "task_id": "6.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-11.3",
+      "test_spec_id": "TS-15-45",
+      "task_id": "6.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-11.4",
+      "test_spec_id": "TS-15-46",
+      "task_id": "6.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-11.5",
+      "test_spec_id": "TS-15-47",
+      "task_id": "6.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-11.6",
+      "test_spec_id": "TS-15-48",
+      "task_id": "6.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-11.E1",
+      "test_spec_id": "TS-15-E12",
+      "task_id": "6.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-11.E2",
+      "test_spec_id": "TS-15-E13",
+      "task_id": "6.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-12.1",
+      "test_spec_id": "TS-15-49",
+      "task_id": "2.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-12.2",
+      "test_spec_id": "TS-15-50",
+      "task_id": "2.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-12.3",
+      "test_spec_id": "TS-15-51",
+      "task_id": "2.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-12.4",
+      "test_spec_id": "TS-15-52",
+      "task_id": "2.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-12.5",
+      "test_spec_id": "TS-15-53",
+      "task_id": "2.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "15-REQ-12.E1",
+      "test_spec_id": "TS-15-E14",
+      "task_id": "2.3",
+      "test_path": null
+    }
+  ]
+}

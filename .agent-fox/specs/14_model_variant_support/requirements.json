@@ -1,0 +1,884 @@
+{
+  "$schema": null,
+  "spec_id": "14",
+  "spec_name": "model_variant_support",
+  "schema_version": 1,
+  "introduction": "The Model Variant Support system extends the agent-fox model selection layer to add a `variant` dimension within quality tiers, enabling archetypes and modes to select cost- and latency-efficient model variants (e.g., standard vs. extended context window) without changing the tier abstraction or breaking existing callers.",
+  "glossary": {
+    "0": "Ordinal value for the `fast` variant in `VARIANT_ORDER`.",
+    "1": "Ordinal value for the `standard` variant in `VARIANT_ORDER`.",
+    "2": "Ordinal value for the `extended` variant in `VARIANT_ORDER`.",
+    "ADVANCED": "The highest quality tier, containing multiple variants: `claude-opus-4-6` (standard) and `claude-opus-4-6[1m]` (extended).",
+    "None": "Python's `None` value, used to indicate no variant dimension or no configured override.",
+    "ArchetypeEntry": "A registry data structure in `archetypes.py` defining an archetype's default configuration including model tier and variant.",
+    "ConfigDict": "Pydantic v2 configuration class; when set with `extra='ignore'`, unknown keys in TOML or dict inputs are silently dropped.",
+    "EscalationLadder": "A class in `escalation.py` that manages tier escalation across a sequence of tiers, preserving variant across escalations.",
+    "MODEL_REGISTRY": "The authoritative list of `ModelEntry` objects in `models.py`, mapping model IDs to their tier and variant.",
+    "ModeConfig": "A configuration data structure in `archetypes.py` defining per-mode overrides including model tier and variant.",
+    "ModelEntry": "A dataclass in `models.py` representing a single registered model with fields for model ID, tier, and optional variant.",
+    "NodeSessionRunner": "A class in `session_lifecycle.py` that orchestrates a node's session, responsible for wiring model variant and tier resolution.",
+    "PerArchetypeConfig": "A Pydantic model in `config.py` representing config.toml overrides for a named archetype, used at both archetype-level and mode-level.",
+    "SIMPLE": "The lowest quality tier, currently mapped to `claude-haiku-4-5`.",
+    "STANDARD": "The mid quality tier, currently mapped to `claude-sonnet-4-6`.",
+    "TIER_DEFAULTS": "A dict in `models.py` mapping each tier string (SIMPLE, STANDARD, ADVANCED) to the model ID used when no variant is specified.",
+    "VARIANT_ORDER": "A dict in `models.py` mapping canonical variant label strings to integer ordinal values for upgrade comparisons: `{\"fast\": 0, \"standard\": 1, \"extended\": 2}`.",
+    "\"extended\"": "The variant label for a model with an extended context window (e.g., 1M tokens).",
+    "\"fast\"": "The variant label for a model optimized for speed over context size.",
+    "\"standard\"": "The variant label for a model's default operational profile (e.g., 200k context).",
+    "\"turbo\"": "An example of an unrecognized variant string used to illustrate fallback behavior.",
+    "_default_pricing_models": "The function in `config.py` that returns the list of default model pricing entries.",
+    "archetypes.overrides": "The config.toml section `[archetypes.overrides.<name>]` used to override archetype and mode model configuration.",
+    "claude-haiku-4-5": "The Anthropic SIMPLE-tier model with no variant dimension (`variant=None`).",
+    "claude-opus-4-6": "The Anthropic ADVANCED-tier model with a 200k context window, registered as variant `\"standard\"`.",
+    "claude-opus-4-6[1m]": "The Anthropic ADVANCED-tier model with a 1M context window, registered as variant `\"extended\"`.",
+    "claude-sonnet-4-6": "The Anthropic STANDARD-tier model with no variant dimension (`variant=None`).",
+    "current_variant": "The read-only property on `EscalationLadder` that exposes the variant set at construction time.",
+    "default_model_variant": "The `ArchetypeEntry` field holding the archetype-level default variant label string.",
+    "legacy dict override": "The existing `config.archetypes.models` dict pattern (`archetypes.models.<name> = 'ADVANCED'`) that short-circuits variant resolution at Layer 3.",
+    "model_variant": "The field on `ModeConfig` and `PerArchetypeConfig` holding a variant label string override.",
+    "resolve_effective_config": "The function that merges archetype-level and mode-level configuration, applying mode-beats-archetype priority for fields like `model_tier` and `model_variant`.",
+    "resolve_model": "The function in `models.py` that resolves a tier (and optional variant) to a concrete model ID string.",
+    "resolve_model_tier": "The existing function in `sdk_params.py` that resolves the effective tier string for a given archetype/mode context using a 4-layer priority chain.",
+    "cache_creation_price_per_m": "USD per million cache-creation input tokens, a rate field in the pricing model.",
+    "cache_read_price_per_m": "USD per million cache-read input tokens, a rate field in the pricing model.",
+    "config.archetypes.models": "The legacy dict-based override path in config.toml for per-archetype model tier assignments.",
+    "input_price_per_m": "USD per million input tokens, a rate field in the pricing model.",
+    "model_id": "The string identifier of a registered model (e.g., `claude-opus-4-6`).",
+    "model_id=\"claude-opus-4-6[1m]\"": "The model ID for the 1M-context ADVANCED variant in the pricing entry.",
+    "model_tier": "The model tier string field on config or archetype entries (e.g., `SIMPLE`, `STANDARD`, `ADVANCED`).",
+    "model_variant": "The model variant string field on `ModeConfig` and `PerArchetypeConfig`.",
+    "models.py": "The source file `packages/agentfox/agentfox/core/models.py` containing model registry and resolution logic.",
+    "output_price_per_m": "USD per million output tokens, a rate field in the pricing model.",
+    "resolve_model()": "The function in `models.py` that resolves a tier (and optional variant) to a concrete model ID string.",
+    "resolve_model_variant()": "The new function in `sdk_params.py` that resolves the effective variant string using a 4-layer priority chain.",
+    "resolve_model_variant": "The new function in `sdk_params.py` that resolves the effective variant string for a given archetype/mode context using a 4-layer priority chain.",
+    "starting_variant": "The keyword-only constructor parameter on `EscalationLadder` that sets the immutable variant for the lifetime of the ladder.",
+    "tier=ADVANCED": "Parameter assignment indicating the ADVANCED quality tier.",
+    "tier=SIMPLE": "Parameter assignment indicating the SIMPLE quality tier.",
+    "tier=STANDARD": "Parameter assignment indicating the STANDARD quality tier.",
+    "variant": "The variant dimension of a model entry — a string label or `None`.",
+    "variant: str | None": "Type annotation for the variant field: either a string label or Python None.",
+    "variant=None": "Parameter assignment indicating no variant specified (use tier default).",
+    "variant=\"extended\"": "Parameter assignment indicating the extended context window variant.",
+    "variant=\"standard\"": "Parameter assignment indicating the standard context window variant.",
+    "variant=": "Keyword argument prefix for passing variant to resolve_model().",
+    "model_variant=None": "Default value for model_variant field indicating no variant override.",
+    "resolve_model(tier, variant=None)": "Calling resolve_model with explicit variant=None.",
+    "resolve_model(tier)": "Calling resolve_model without variant (backward-compatible path).",
+    "resolve_model(tier, variant)": "Calling resolve_model with both tier and variant arguments.",
+    "TIER_DEFAULTS['ADVANCED']": "The TIER_DEFAULTS dict entry for the ADVANCED tier.",
+    "variant='standard'": "Variant field value indicating the standard variant.",
+    "{\"fast\", \"standard\", \"extended\"}": "The set of canonical variant label strings."
+  },
+  "requirements": [
+    {
+      "id": "14-REQ-1",
+      "title": "ModelEntry variant field",
+      "user_story": {
+        "role": "developer",
+        "goal": "add an optional `variant` field to `ModelEntry`",
+        "benefit": "each registered model can declare its variant dimension within its quality tier"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "14-REQ-1.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`ModelEntry`",
+          "action": "exposes an optional `variant: str | None` field that defaults to `None`",
+          "return_contract": null
+        },
+        {
+          "id": "14-REQ-1.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`ModelEntry`",
+          "action": "accepts `None` as a valid value for `variant`, indicating the model has no variant dimension",
+          "return_contract": null
+        },
+        {
+          "id": "14-REQ-1.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`ModelEntry`",
+          "action": "accepts canonical string values `\"fast\"`, `\"standard\"`, and `\"extended\"` as well as arbitrary strings for `variant`",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "14-REQ-1.E1",
+          "ears_pattern": "unwanted",
+          "system": "`ModelEntry`",
+          "action": "raises a type error at construction time per standard dataclass/Pydantic validation",
+          "return_contract": "TypeError or ValidationError",
+          "error_condition": "a non-string, non-None value is assigned to `variant`"
+        }
+      ]
+    },
+    {
+      "id": "14-REQ-2",
+      "title": "MODEL_REGISTRY variant registration",
+      "user_story": {
+        "role": "developer",
+        "goal": "register all four current models in `MODEL_REGISTRY` with correct tier and variant assignments",
+        "benefit": "the registry is the single source of truth for model-to-variant mapping"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "14-REQ-2.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`MODEL_REGISTRY`",
+          "action": "contains a `ModelEntry` for `claude-haiku-4-5` with `tier=SIMPLE` and `variant=None`",
+          "return_contract": null
+        },
+        {
+          "id": "14-REQ-2.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`MODEL_REGISTRY`",
+          "action": "contains a `ModelEntry` for `claude-sonnet-4-6` with `tier=STANDARD` and `variant=None`",
+          "return_contract": null
+        },
+        {
+          "id": "14-REQ-2.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`MODEL_REGISTRY`",
+          "action": "contains a `ModelEntry` for `claude-opus-4-6` with `tier=ADVANCED` and `variant=\"standard\"`",
+          "return_contract": null
+        },
+        {
+          "id": "14-REQ-2.4",
+          "ears_pattern": "ubiquitous",
+          "system": "`MODEL_REGISTRY`",
+          "action": "contains a `ModelEntry` for `claude-opus-4-6[1m]` with `tier=ADVANCED` and `variant=\"extended\"`",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "14-REQ-3",
+      "title": "VARIANT_ORDER constant",
+      "user_story": {
+        "role": "developer",
+        "goal": "define `VARIANT_ORDER` in `models.py` mapping canonical variant labels to integer ordinals",
+        "benefit": "downstream specs (spec 15) can perform upgrade comparisons using a stable, importable constant"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "14-REQ-3.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`VARIANT_ORDER`",
+          "action": "maps `\"fast\"` to `0`, `\"standard\"` to `1`, and `\"extended\"` to `2`",
+          "return_contract": null
+        },
+        {
+          "id": "14-REQ-3.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`VARIANT_ORDER`",
+          "action": "is importable from `models.py` without circular import errors",
+          "return_contract": null
+        },
+        {
+          "id": "14-REQ-3.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`VARIANT_ORDER`",
+          "action": "does not include `None` as a key — models with `variant=None` do not participate in variant ordering",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "14-REQ-4",
+      "title": "Archetype and mode variant fields",
+      "user_story": {
+        "role": "developer",
+        "goal": "add `default_model_variant` to `ArchetypeEntry` and `model_variant` to `ModeConfig`",
+        "benefit": "archetypes and modes can declare a preferred variant, with mode-level values taking precedence"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "14-REQ-4.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`ArchetypeEntry`",
+          "action": "exposes `default_model_variant: str | None = None`",
+          "return_contract": null
+        },
+        {
+          "id": "14-REQ-4.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`ModeConfig`",
+          "action": "exposes `model_variant: str | None = None`",
+          "return_contract": null
+        },
+        {
+          "id": "14-REQ-4.3",
+          "ears_pattern": "complex_event",
+          "system": "`resolve_effective_config`",
+          "action": "returns the mode-level `model_variant` value, ignoring the archetype-level value",
+          "return_contract": "the mode's `model_variant` string",
+          "trigger": "merging archetype and mode configuration",
+          "condition": "both `ModeConfig.model_variant` and `ArchetypeEntry.default_model_variant` are non-None"
+        },
+        {
+          "id": "14-REQ-4.4",
+          "ears_pattern": "complex_event",
+          "system": "`resolve_effective_config`",
+          "action": "returns the archetype-level `default_model_variant` value",
+          "return_contract": "the archetype's `default_model_variant` string",
+          "trigger": "merging archetype and mode configuration",
+          "condition": "`ModeConfig.model_variant` is `None` and `ArchetypeEntry.default_model_variant` is non-None"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "14-REQ-4.E1",
+          "ears_pattern": "state_driven",
+          "system": "`resolve_model`",
+          "action": "resolves the model using `TIER_DEFAULTS` (backward-compatible path)",
+          "return_contract": "the model ID from `TIER_DEFAULTS` for the resolved tier",
+          "state": "both `ModeConfig.model_variant` and `ArchetypeEntry.default_model_variant` are `None`"
+        }
+      ]
+    },
+    {
+      "id": "14-REQ-5",
+      "title": "PerArchetypeConfig variant field and TOML mapping",
+      "user_story": {
+        "role": "developer",
+        "goal": "add `model_variant` to `PerArchetypeConfig` and map it from config.toml",
+        "benefit": "operators can override the model variant per-archetype and per-mode via config.toml without code changes"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "14-REQ-5.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`PerArchetypeConfig`",
+          "action": "exposes `model_variant: str | None = None`",
+          "return_contract": null
+        },
+        {
+          "id": "14-REQ-5.2",
+          "ears_pattern": "event_driven",
+          "system": "Pydantic config parser",
+          "action": "populates the archetype-level `PerArchetypeConfig.model_variant` field",
+          "return_contract": "the string value from TOML",
+          "trigger": "parsing `model_variant` under `[archetypes.overrides.<name>]` in config.toml"
+        },
+        {
+          "id": "14-REQ-5.3",
+          "ears_pattern": "event_driven",
+          "system": "Pydantic config parser",
+          "action": "populates the mode-level nested `PerArchetypeConfig.model_variant` field",
+          "return_contract": "the string value from TOML",
+          "trigger": "parsing `model_variant` under `[archetypes.overrides.<name>.modes.<mode>]` in config.toml"
+        },
+        {
+          "id": "14-REQ-5.4",
+          "ears_pattern": "unwanted",
+          "system": "Pydantic config parser",
+          "action": "silently ignores the key via `ConfigDict(extra='ignore')` without emitting a warning",
+          "return_contract": null,
+          "error_condition": "`model_variant` appears at a config.toml location outside `archetypes.overrides`"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "14-REQ-6",
+      "title": "resolve_model_variant() 4-layer resolution",
+      "user_story": {
+        "role": "developer",
+        "goal": "implement `resolve_model_variant()` in `sdk_params.py` following the same 4-layer priority as `resolve_model_tier()`",
+        "benefit": "the effective variant is determined consistently using mode → archetype-config → legacy-dict → registry-default priority"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "14-REQ-6.1",
+          "ears_pattern": "state_driven",
+          "system": "`resolve_model_variant`",
+          "action": "returns that mode-level value immediately (Layer 1, highest priority)",
+          "return_contract": "the mode-level `model_variant` string",
+          "state": "the mode's `PerArchetypeConfig` entry has a non-None `model_variant`"
+        },
+        {
+          "id": "14-REQ-6.2",
+          "ears_pattern": "complex_event",
+          "system": "`resolve_model_variant`",
+          "action": "returns the archetype-level config override value (Layer 2)",
+          "return_contract": "the archetype-level `model_variant` string",
+          "trigger": "resolving the effective variant",
+          "condition": "Layer 1 yields `None` and the archetype's `PerArchetypeConfig` entry has a non-None `model_variant`"
+        },
+        {
+          "id": "14-REQ-6.3",
+          "ears_pattern": "complex_event",
+          "system": "`resolve_model_variant`",
+          "action": "immediately returns `None` without consulting Layer 4 (short-circuit, mirroring `resolve_model_tier` Layer 3 behavior)",
+          "return_contract": "`None`",
+          "trigger": "resolving the effective variant",
+          "condition": "Layers 1 and 2 yield `None` and the legacy `config.archetypes.models` dict matches the archetype"
+        },
+        {
+          "id": "14-REQ-6.4",
+          "ears_pattern": "complex_event",
+          "system": "`resolve_model_variant`",
+          "action": "calls `resolve_effective_config` and returns `default_model_variant` from the merged result (Layer 4, lowest priority)",
+          "return_contract": "the merged `default_model_variant` string, or `None` if unset",
+          "trigger": "resolving the effective variant",
+          "condition": "Layers 1, 2, and 3 all yield `None`"
+        },
+        {
+          "id": "14-REQ-6.5",
+          "ears_pattern": "state_driven",
+          "system": "`resolve_model_variant`",
+          "action": "returns `None`, leaving `resolve_model` to fall back to `TIER_DEFAULTS`",
+          "return_contract": "`None`",
+          "state": "all four layers return `None`"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "14-REQ-6.E1",
+          "ears_pattern": "state_driven",
+          "system": "`resolve_model_variant`",
+          "action": "never calls `resolve_effective_config` and always returns `None`",
+          "return_contract": "`None`",
+          "state": "legacy dict short-circuit is triggered at Layer 3"
+        }
+      ]
+    },
+    {
+      "id": "14-REQ-7",
+      "title": "resolve_model() variant awareness",
+      "user_story": {
+        "role": "developer",
+        "goal": "extend `resolve_model()` with an optional `variant` parameter",
+        "benefit": "callers can request a specific model variant within a tier while existing call sites remain unaffected"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "14-REQ-7.1",
+          "ears_pattern": "state_driven",
+          "system": "`resolve_model`",
+          "action": "returns the model ID from `TIER_DEFAULTS` for the requested tier, identical to current behavior",
+          "return_contract": "the model ID string from `TIER_DEFAULTS`",
+          "state": "`variant=None` (default)"
+        },
+        {
+          "id": "14-REQ-7.2",
+          "ears_pattern": "complex_event",
+          "system": "`resolve_model`",
+          "action": "returns the `model_id` of the matching `ModelEntry`",
+          "return_contract": "the matching model ID string",
+          "trigger": "resolving a model for a tier with a specific variant",
+          "condition": "`variant` is provided and a `MODEL_REGISTRY` entry exists with matching `(tier, variant)`"
+        },
+        {
+          "id": "14-REQ-7.3",
+          "ears_pattern": "complex_event",
+          "system": "`resolve_model`",
+          "action": "applies the fallback defined in Requirement 9: returns `TIER_DEFAULTS` model and emits a DEBUG log",
+          "return_contract": "the model ID string from `TIER_DEFAULTS` for the tier",
+          "trigger": "resolving a model for a tier with an unmatched variant string",
+          "condition": "`variant` is provided but no `MODEL_REGISTRY` entry matches `(tier, variant)`"
+        },
+        {
+          "id": "14-REQ-7.4",
+          "ears_pattern": "ubiquitous",
+          "system": "`TIER_DEFAULTS`",
+          "action": "always maps `ADVANCED` to the `model_id` of the `MODEL_REGISTRY` entry with `tier=ADVANCED` and `variant=\"standard\"` (i.e., `claude-opus-4-6`), enforcing that `variant=None` and `variant=\"standard\"` produce identical results for ADVANCED",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "14-REQ-7.E1",
+          "ears_pattern": "event_driven",
+          "system": "`resolve_model`",
+          "action": "falls back to `TIER_DEFAULTS[SIMPLE]` (`claude-haiku-4-5`) and emits a DEBUG log",
+          "return_contract": "`\"claude-haiku-4-5\"`",
+          "trigger": "called with `variant=\"extended\"` and `tier=SIMPLE`"
+        },
+        {
+          "id": "14-REQ-7.E2",
+          "ears_pattern": "event_driven",
+          "system": "`resolve_model`",
+          "action": "falls back to `TIER_DEFAULTS` for that tier and emits a DEBUG log — no exception is raised",
+          "return_contract": "the model ID string from `TIER_DEFAULTS` for the tier",
+          "trigger": "called with an unrecognized variant string (e.g., `\"turbo\"`) for any tier"
+        }
+      ]
+    },
+    {
+      "id": "14-REQ-8",
+      "title": "EscalationLadder variant preservation",
+      "user_story": {
+        "role": "developer",
+        "goal": "add `starting_variant` to `EscalationLadder` and expose it as read-only `current_variant`",
+        "benefit": "the variant is preserved intact across tier escalations without mutating the ladder"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "14-REQ-8.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`EscalationLadder`",
+          "action": "accepts `starting_variant: str | None = None` as a keyword-only parameter in `__init__`",
+          "return_contract": null
+        },
+        {
+          "id": "14-REQ-8.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`EscalationLadder`",
+          "action": "exposes `current_variant` as a read-only property that returns the value passed to `starting_variant` at construction time",
+          "return_contract": "the `starting_variant` string or `None`"
+        },
+        {
+          "id": "14-REQ-8.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`EscalationLadder`",
+          "action": "never mutates `current_variant` after construction — no setter is provided",
+          "return_contract": null
+        },
+        {
+          "id": "14-REQ-8.4",
+          "ears_pattern": "event_driven",
+          "system": "`EscalationLadder`",
+          "action": "passes `variant=\"extended\"` unchanged to `resolve_model` when resolving the ADVANCED tier model",
+          "return_contract": null,
+          "trigger": "escalating from STANDARD to ADVANCED with `starting_variant=\"extended\"`"
+        },
+        {
+          "id": "14-REQ-8.5",
+          "ears_pattern": "event_driven",
+          "system": "`EscalationLadder`",
+          "action": "passes the variant through unchanged to `resolve_model`, which handles the fallback per Requirement 9 — `EscalationLadder` does not perform its own fallback",
+          "return_contract": null,
+          "trigger": "escalating to a tier where the preserved variant is unavailable"
+        },
+        {
+          "id": "14-REQ-8.6",
+          "ears_pattern": "ubiquitous",
+          "system": "`EscalationLadder`",
+          "action": "can be constructed with all existing positional argument patterns unchanged — `starting_variant` keyword-only parameter does not break existing call sites",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "14-REQ-8.E1",
+          "ears_pattern": "complex_event",
+          "system": "`EscalationLadder`",
+          "action": "passes the variant through to `resolve_model` unchanged; the fallback log is emitted by `resolve_model`, not by `EscalationLadder`",
+          "return_contract": "the model ID returned by `resolve_model` after applying its fallback",
+          "trigger": "resolving the model at the top of the ladder",
+          "condition": "ladder reaches ADVANCED (top tier) and the preserved variant is unavailable in ADVANCED"
+        }
+      ]
+    },
+    {
+      "id": "14-REQ-9",
+      "title": "Variant fallback behavior",
+      "user_story": {
+        "role": "developer",
+        "goal": "define a uniform fallback for any unmatched variant string in `resolve_model()`",
+        "benefit": "the system never raises errors for missing variants and always returns a usable model while leaving a DEBUG trace"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "14-REQ-9.1",
+          "ears_pattern": "unwanted",
+          "system": "`resolve_model`",
+          "action": "returns the model ID from `TIER_DEFAULTS` for the tier and emits a DEBUG-level log message",
+          "return_contract": "the model ID string from `TIER_DEFAULTS` for the tier",
+          "error_condition": "the requested `(tier, variant)` pair has no matching entry in `MODEL_REGISTRY`"
+        },
+        {
+          "id": "14-REQ-9.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`resolve_model`",
+          "action": "never raises an exception for an unmatched or unrecognized variant string — fallback is always applied",
+          "return_contract": null
+        },
+        {
+          "id": "14-REQ-9.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`resolve_model`",
+          "action": "emits the fallback log at DEBUG level only — no WARNING or ERROR level log is emitted for variant fallback",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "14-REQ-9.E1",
+          "ears_pattern": "unwanted",
+          "system": "`resolve_model`",
+          "action": "applies the same fallback as for completely unrecognized strings — no distinction is made between valid-but-unavailable and unknown variant strings",
+          "return_contract": "the model ID string from `TIER_DEFAULTS` for the tier",
+          "error_condition": "variant string is a valid canonical label (in `VARIANT_ORDER`) but is not registered for the requested tier"
+        }
+      ]
+    },
+    {
+      "id": "14-REQ-10",
+      "title": "Pricing entry for claude-opus-4-6[1m]",
+      "user_story": {
+        "role": "developer",
+        "goal": "add `claude-opus-4-6[1m]` as a separate entry in `_default_pricing_models()`",
+        "benefit": "cost tracking correctly accounts for the 1M-context variant's distinct pricing rates"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "14-REQ-10.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`_default_pricing_models`",
+          "action": "returns a list that includes a distinct entry with `model_id=\"claude-opus-4-6[1m]\"` alongside the existing `claude-opus-4-6` entry",
+          "return_contract": null
+        },
+        {
+          "id": "14-REQ-10.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`_default_pricing_models`",
+          "action": "includes `input_price_per_m`, `output_price_per_m`, `cache_read_price_per_m`, and `cache_creation_price_per_m` fields for the `claude-opus-4-6[1m]` entry, sourced from Anthropic's public pricing page",
+          "return_contract": null
+        },
+        {
+          "id": "14-REQ-10.3",
+          "ears_pattern": "ubiquitous",
+          "system": "source code adjacent to the `claude-opus-4-6[1m]` pricing entry",
+          "action": "records the date on which rates were retrieved from Anthropic's pricing page as a code comment",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "14-REQ-11",
+      "title": "Backward compatibility for variant-less callers",
+      "user_story": {
+        "role": "developer",
+        "goal": "ensure all existing callers of `resolve_model()` that omit `variant` continue to receive identical results",
+        "benefit": "no regressions are introduced for archetypes and modes that do not configure a variant"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "14-REQ-11.1",
+          "ears_pattern": "state_driven",
+          "system": "`resolve_model`",
+          "action": "returns the same model ID as before this spec was implemented, for all tiers",
+          "return_contract": "unchanged model ID string identical to pre-spec behavior",
+          "state": "called without the `variant` parameter (default `None`)"
+        },
+        {
+          "id": "14-REQ-11.2",
+          "ears_pattern": "state_driven",
+          "system": "config parser",
+          "action": "loads without error and behaves identically to the pre-spec configuration",
+          "return_contract": null,
+          "state": "config.toml contains no `model_variant` keys"
+        },
+        {
+          "id": "14-REQ-11.3",
+          "ears_pattern": "ubiquitous",
+          "system": "existing test suite",
+          "action": "passes without modification after this spec is merged",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "14-REQ-12",
+      "title": "NodeSessionRunner two-step model resolution wiring",
+      "user_story": {
+        "role": "developer",
+        "goal": "wire `resolve_model_variant()` → `resolve_model(variant=...)` as two explicit sequential calls in `NodeSessionRunner`",
+        "benefit": "each function retains single responsibility and both steps are independently testable"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "14-REQ-12.1",
+          "ears_pattern": "event_driven",
+          "system": "`NodeSessionRunner`",
+          "action": "first calls `resolve_model_variant()` to obtain the effective variant string (or `None`), then passes the result as the `variant=` keyword argument to `resolve_model()`",
+          "return_contract": null,
+          "trigger": "initializing or selecting a model for a session node"
+        },
+        {
+          "id": "14-REQ-12.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`NodeSessionRunner`",
+          "action": "does not embed variant-resolution logic directly — all resolution is delegated to `resolve_model_variant()` and `resolve_model()`",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "14-REQ-12.E1",
+          "ears_pattern": "state_driven",
+          "system": "`NodeSessionRunner`",
+          "action": "passes `variant=None` to `resolve_model()`, which uses `TIER_DEFAULTS` (backward-compatible path)",
+          "return_contract": "the model ID string from `TIER_DEFAULTS` for the resolved tier",
+          "state": "`resolve_model_variant()` returns `None`"
+        }
+      ]
+    },
+    {
+      "id": "14-REQ-13",
+      "title": "resolve_effective_config() variant merging",
+      "user_story": {
+        "role": "developer",
+        "goal": "update `resolve_effective_config()` to merge `model_variant` from `ModeConfig` onto `ArchetypeEntry.default_model_variant`",
+        "benefit": "`resolve_model_variant()` Layer 4 receives the correctly merged mode-beats-archetype variant value"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "14-REQ-13.1",
+          "ears_pattern": "event_driven",
+          "system": "`resolve_effective_config`",
+          "action": "writes the mode's `model_variant` value onto the merged result's `default_model_variant` field, overriding the archetype-level value",
+          "return_contract": "merged `ArchetypeEntry` with `default_model_variant` equal to the mode's `model_variant`",
+          "trigger": "merging a `ModeConfig` that has `model_variant` set onto an `ArchetypeEntry`"
+        },
+        {
+          "id": "14-REQ-13.2",
+          "ears_pattern": "event_driven",
+          "system": "`resolve_effective_config`",
+          "action": "preserves the archetype-level `default_model_variant` in the merged result",
+          "return_contract": "merged `ArchetypeEntry` with `default_model_variant` equal to the archetype's original value",
+          "trigger": "merging a `ModeConfig` that has `model_variant=None` onto an `ArchetypeEntry` with `default_model_variant` set"
+        },
+        {
+          "id": "14-REQ-13.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`resolve_effective_config`",
+          "action": "mirrors the existing `model_tier` merging pattern — `model_variant` priority logic is symmetric with `model_tier` priority logic",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    }
+  ],
+  "correctness_properties": [
+    {
+      "id": "14-PROP-1",
+      "title": "TIER_DEFAULTS ADVANCED invariant",
+      "for_any": "state of `MODEL_REGISTRY` and `TIER_DEFAULTS`",
+      "invariant": "`TIER_DEFAULTS['ADVANCED']` equals the `model_id` of the `MODEL_REGISTRY` entry with `tier=ADVANCED` and `variant='standard'`",
+      "validates": [
+        "14-REQ-7.4",
+        "14-REQ-2.3",
+        "14-REQ-7.1"
+      ]
+    },
+    {
+      "id": "14-PROP-2",
+      "title": "Variant=None backward compatibility",
+      "for_any": "tier in `TIER_DEFAULTS`",
+      "invariant": "`resolve_model(tier, variant=None)` returns the same value as the pre-spec `resolve_model(tier)` for all tiers",
+      "validates": [
+        "14-REQ-11.1",
+        "14-REQ-7.1"
+      ]
+    },
+    {
+      "id": "14-PROP-3",
+      "title": "No exception on unmatched variant",
+      "for_any": "tier string and variant string",
+      "invariant": "`resolve_model(tier, variant)` never raises an exception regardless of the variant value — it always returns a non-empty model ID string",
+      "validates": [
+        "14-REQ-9.1",
+        "14-REQ-9.2"
+      ]
+    },
+    {
+      "id": "14-PROP-4",
+      "title": "EscalationLadder current_variant immutability",
+      "for_any": "`EscalationLadder` instance constructed with any `starting_variant` value",
+      "invariant": "`current_variant` returns the same value before and after any number of tier escalations",
+      "validates": [
+        "14-REQ-8.2",
+        "14-REQ-8.3"
+      ]
+    },
+    {
+      "id": "14-PROP-5",
+      "title": "Mode-beats-archetype variant priority",
+      "for_any": "`ModeConfig` with non-None `model_variant` and `ArchetypeEntry` with non-None `default_model_variant`",
+      "invariant": "`resolve_effective_config` returns a merged result where `default_model_variant` equals the mode's `model_variant`, not the archetype's",
+      "validates": [
+        "14-REQ-4.3",
+        "14-REQ-13.1"
+      ]
+    },
+    {
+      "id": "14-PROP-6",
+      "title": "Legacy dict short-circuit always returns None variant",
+      "for_any": "archetype matched by the legacy `config.archetypes.models` dict",
+      "invariant": "`resolve_model_variant` returns `None` and never invokes `resolve_effective_config` when the legacy dict matches",
+      "validates": [
+        "14-REQ-6.3",
+        "14-REQ-6.E1"
+      ]
+    },
+    {
+      "id": "14-PROP-7",
+      "title": "VARIANT_ORDER completeness for canonical labels",
+      "for_any": "canonical variant label in `{\"fast\", \"standard\", \"extended\"}`",
+      "invariant": "`VARIANT_ORDER` contains an integer entry for every canonical variant label, and `None` is absent from `VARIANT_ORDER`",
+      "validates": [
+        "14-REQ-3.3"
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "14-PATH-1",
+      "title": "Archetype requests ADVANCED extended variant model",
+      "steps": [
+        {
+          "actor": "Archetype/Mode definition",
+          "action": "declares `default_model_variant=\"extended\"` on an ADVANCED-tier archetype"
+        },
+        {
+          "actor": "`NodeSessionRunner`",
+          "action": "calls `resolve_model_variant()` to obtain `\"extended\"` from Layer 4 via `resolve_effective_config`"
+        },
+        {
+          "actor": "`NodeSessionRunner`",
+          "action": "calls `resolve_model(tier=\"ADVANCED\", variant=\"extended\")`"
+        },
+        {
+          "actor": "`resolve_model`",
+          "action": "scans `MODEL_REGISTRY`, finds `claude-opus-4-6[1m]` matching `(ADVANCED, \"extended\")`, and returns `\"claude-opus-4-6[1m]\"`"
+        },
+        {
+          "actor": "`NodeSessionRunner`",
+          "action": "uses `claude-opus-4-6[1m]` as the session model"
+        }
+      ]
+    },
+    {
+      "id": "14-PATH-2",
+      "title": "Variant fallback for SIMPLE tier with extended variant request",
+      "steps": [
+        {
+          "actor": "Archetype/Mode definition",
+          "action": "declares `model_variant=\"extended\"` on a SIMPLE-tier mode"
+        },
+        {
+          "actor": "`NodeSessionRunner`",
+          "action": "calls `resolve_model_variant()`, which returns `\"extended\"`"
+        },
+        {
+          "actor": "`NodeSessionRunner`",
+          "action": "calls `resolve_model(tier=\"SIMPLE\", variant=\"extended\")`"
+        },
+        {
+          "actor": "`resolve_model`",
+          "action": "scans `MODEL_REGISTRY`, finds no SIMPLE entry with `variant=\"extended\"`, emits a DEBUG log, and returns `TIER_DEFAULTS[SIMPLE]` = `\"claude-haiku-4-5\"`"
+        },
+        {
+          "actor": "`NodeSessionRunner`",
+          "action": "uses `claude-haiku-4-5` as the session model"
+        }
+      ]
+    },
+    {
+      "id": "14-PATH-3",
+      "title": "Backward-compatible resolution without variant",
+      "steps": [
+        {
+          "actor": "Existing caller",
+          "action": "calls `resolve_model(tier=\"ADVANCED\")` without specifying a variant"
+        },
+        {
+          "actor": "`resolve_model`",
+          "action": "receives `variant=None` (default) and returns `TIER_DEFAULTS[\"ADVANCED\"]` = `\"claude-opus-4-6\"`"
+        },
+        {
+          "actor": "Caller",
+          "action": "receives `\"claude-opus-4-6\"`, identical to pre-spec behavior"
+        }
+      ]
+    },
+    {
+      "id": "14-PATH-4",
+      "title": "EscalationLadder preserves extended variant across STANDARD→ADVANCED escalation",
+      "steps": [
+        {
+          "actor": "Caller",
+          "action": "constructs `EscalationLadder(starting_tier=\"STANDARD\", starting_variant=\"extended\")`"
+        },
+        {
+          "actor": "`EscalationLadder`",
+          "action": "stores `current_variant=\"extended\"` as a read-only property"
+        },
+        {
+          "actor": "`EscalationLadder`",
+          "action": "escalates to ADVANCED tier, passes `variant=\"extended\"` unchanged to `resolve_model`"
+        },
+        {
+          "actor": "`resolve_model`",
+          "action": "finds `claude-opus-4-6[1m]` for `(ADVANCED, \"extended\")` and returns it"
+        },
+        {
+          "actor": "Caller",
+          "action": "receives `\"claude-opus-4-6[1m]\"` as the escalated model"
+        }
+      ]
+    },
+    {
+      "id": "14-PATH-5",
+      "title": "config.toml archetype override sets extended variant",
+      "steps": [
+        {
+          "actor": "Operator",
+          "action": "sets `model_variant = \"extended\"` under `[archetypes.overrides.coder]` in config.toml"
+        },
+        {
+          "actor": "Pydantic config parser",
+          "action": "parses the TOML and populates `PerArchetypeConfig.model_variant = \"extended\"` for the `coder` archetype"
+        },
+        {
+          "actor": "`resolve_model_variant`",
+          "action": "reads `model_variant` from the archetype's `PerArchetypeConfig` at Layer 2 and returns `\"extended\"`"
+        },
+        {
+          "actor": "`NodeSessionRunner`",
+          "action": "calls `resolve_model(tier=\"ADVANCED\", variant=\"extended\")` and receives `\"claude-opus-4-6[1m]\"`"
+        }
+      ]
+    }
+  ],
+  "error_handling": [
+    {
+      "id": "14-ERR-1",
+      "condition": "requested `(tier, variant)` pair has no matching entry in `MODEL_REGISTRY`",
+      "behavior": "returns the model ID from `TIER_DEFAULTS` for the tier and emits a DEBUG-level log message; no exception is raised",
+      "requirement_id": "14-REQ-9.1"
+    },
+    {
+      "id": "14-ERR-2",
+      "condition": "completely unrecognized variant string (e.g., `\"turbo\"`) passed to `resolve_model`",
+      "behavior": "treated identically to a valid-but-unavailable variant: falls back to `TIER_DEFAULTS` for the tier with a DEBUG log",
+      "requirement_id": "14-REQ-9.E1"
+    },
+    {
+      "id": "14-ERR-3",
+      "condition": "`model_variant` key appears in config.toml outside the `archetypes.overrides` block",
+      "behavior": "silently ignored by Pydantic `ConfigDict(extra='ignore')`; no warning or error is emitted",
+      "requirement_id": "14-REQ-5.4"
+    },
+    {
+      "id": "14-ERR-4",
+      "condition": "legacy dict override (`config.archetypes.models`) is detected at Layer 3 of `resolve_model_variant`",
+      "behavior": "immediately returns `None` without consulting Layer 4; legacy callers always receive `None` as the resolved variant",
+      "requirement_id": "14-REQ-6.E1"
+    },
+    {
+      "id": "14-ERR-5",
+      "condition": "`EscalationLadder` reaches ADVANCED and the preserved variant is unavailable in ADVANCED",
+      "behavior": "passes the variant unchanged to `resolve_model`, which applies `TIER_DEFAULTS` fallback and emits a DEBUG log; `EscalationLadder` itself emits no log",
+      "requirement_id": "14-REQ-8.E1"
+    }
+  ]
+}

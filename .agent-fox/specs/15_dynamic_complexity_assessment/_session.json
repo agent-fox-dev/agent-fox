@@ -1,0 +1,643 @@
+{
+  "state": "generated",
+  "prd_path": "prd.md",
+  "assessment_history": [
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD for `dynamic_complexity_assessment` is technically rich and detailed, with thorough coverage of requirements, design decisions, tech stack, and file-level implementation guidance. However, it is structured around a \"Problem\" + \"Goal\" framing rather than the expected spec format (Intent, Goals, Non-Goals, Background). The \"Goals\" section is not expressed as measurable outcomes, the \"Non-Goals\" section is entirely absent, and the \"Background\" section is only partially implied within the \"Problem\" statement. These gaps must be addressed before the spec is ready for artifact generation.",
+      "gaps": [
+        "Missing 'Intent' section: The PRD has a 'Goal' block but lacks a dedicated, concise Intent statement that clearly articulates what the feature aims to achieve in one or two sentences, independent of implementation details.",
+        "Missing 'Non-Goals' section: There is no explicit boundary definition. It is unclear what the feature deliberately does not cover (e.g., downgrade logic, persistent storage of assessments, fine-tuning the assessor model, cost tracking/reporting, support for non-Anthropic LLMs, etc.).",
+        "Goals are not measurable: The 'Goal' section describes the mechanism ('Add an LLM-assessed complexity step...') rather than stating measurable outcomes (e.g., 'Reduce Opus usage for simple coder tasks by X%', 'Ensure quality-critical reviews always run at ADVANCED tier').",
+        "Background section is absent: The 'Problem' statement provides some context but does not constitute a formal Background section. There is no mention of prior art, historical decisions that led to static assignment, data/evidence motivating the change, or references to related specs beyond the dependency table.",
+        "Success metrics are undefined: No acceptance criteria or measurable targets are stated (e.g., expected cost reduction, latency budget for the Haiku assessment call, confidence threshold justification).",
+        "Latency/performance requirements for the assessment call are not specified: The Haiku call adds latency to every dispatch. No timeout value, SLA, or maximum acceptable overhead is defined beyond the implicit 'never block dispatch' in error handling.",
+        "Testing and observability expectations are absent: There is no mention of unit/integration test expectations, logging schema for assessment outcomes, or how operators will know the assessor is working correctly in production."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "Can you provide a single concise Intent statement for this feature \u2014 what is the core purpose in one or two sentences, stated independently of implementation?",
+          "context": "The spec format requires a dedicated Intent section. A clear intent statement anchors all other requirements and helps reviewers verify alignment. The current 'Goal' block mixes intent with mechanism.",
+          "options": [
+            "Dynamically adjust LLM model tier and variant per task group based on assessed complexity, optimising cost without sacrificing quality.",
+            "Replace static model-tier assignments with a lightweight, LLM-driven complexity signal that upgrades model selection only when task complexity warrants it.",
+            "Other (please specify)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "What are the explicit Non-Goals for this feature \u2014 what is deliberately out of scope?",
+          "context": "Without a Non-Goals section, implementers and reviewers cannot determine scope boundaries. Common candidates include: downgrade logic, persistent assessment storage, cost dashboards, support for non-Anthropic models, or automatic threshold tuning.",
+          "options": [
+            "Downgrading model tiers (assessor is upgrade-only by design)",
+            "Persisting assessment results to a database",
+            "Cost tracking or reporting dashboards",
+            "Supporting non-Anthropic LLM providers for assessment",
+            "Automatic or ML-driven tuning of the confidence threshold",
+            "All of the above",
+            "Other (please specify)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "What measurable outcomes define success for this feature? Please express goals as quantifiable targets.",
+          "context": "Goals must be measurable to serve as acceptance criteria. Examples: 'Reduce ADVANCED-tier calls for simple coder tasks by \u226530%', 'Assessment call adds <500ms p95 latency to dispatch', 'Quality-critical roles (pre-review, audit-review) run at ADVANCED in \u226595% of dispatches'.",
+          "options": [
+            "Reduce Opus/ADVANCED tier usage for coder tasks on simple work by a target percentage (please specify %)",
+            "Assessment Haiku call completes within a defined latency budget (please specify ms)",
+            "All quality-critical review modes (pre-review, audit-review) run at ADVANCED tier 100% of the time",
+            "Confidence threshold of 0.6 results in <X% false upgrades in staging (please specify X)",
+            "Other (please specify)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "Can you provide a Background section covering: (a) why static model assignment was originally chosen, (b) any data or observations that motivate this change, and (c) references to prior discussions or related work beyond spec #14?",
+          "context": "The Background section gives reviewers and future maintainers the context to understand why decisions were made. The current 'Problem' block is a good start but lacks historical context, evidence, and references.",
+          "options": [
+            "Static assignment was a simplicity choice at initial design; cost data from production prompted this change",
+            "No formal prior art; this is a greenfield improvement based on observed inefficiency",
+            "Other (please specify)"
+          ],
+          "required": false
+        },
+        {
+          "id": "q5",
+          "text": "Is there a latency budget or timeout requirement for the complexity assessment Haiku call?",
+          "context": "The assessment call is injected into the dispatch critical path. Without a defined timeout or latency budget, implementers cannot make informed decisions about retry behaviour, circuit-breaking, or acceptable overhead.",
+          "options": [
+            "Under 500ms p95",
+            "Under 1000ms p95",
+            "Under 2000ms p95",
+            "No hard requirement \u2014 error handling (silent fallback) is sufficient",
+            "Other (please specify)"
+          ],
+          "required": false
+        },
+        {
+          "id": "q6",
+          "text": "Are there observability or testing expectations for this feature (e.g., structured logs of assessment outcomes, unit test coverage targets, integration test scenarios)?",
+          "context": "The PRD describes error handling (log WARNING on failure) but does not specify what successful assessment outcomes should log, whether assessment decisions should be traceable, or what test coverage is expected.",
+          "options": [
+            "Structured log entry per assessment (tier, variant, confidence, rationale, node_id)",
+            "Unit tests for ComplexityAssessor, apply_assessment(), and AssessmentManager integration",
+            "Integration test covering upgrade-only semantics and confidence gate",
+            "No explicit requirements \u2014 standard project conventions apply",
+            "Other (please specify)"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD is well-structured, detailed, and covers most aspects of the Dynamic Complexity Assessment feature thoroughly. The intent, background, goals, non-goals, tech stack, and detailed requirements are clearly articulated. However, several gaps exist that could create ambiguity during implementation: the `AssessmentResult` dataclass structure is not defined, the exact mechanism for passing pre-computed nightshift assessments into `assess_node()` is underspecified, the \"skip on explicit override\" detection logic is not described, the escalation ladder's \"starting point\" modification is unclear, and a few edge cases in variant/tier upgrade logic lack precise definition.",
+      "gaps": [
+        "AssessmentResult dataclass fields are never formally defined \u2014 the prompt JSON shape is shown but the internal dataclass structure (field names, types, optionality) is missing from Requirement 1.",
+        "Requirement 4 says 'use the effective tier/variant as the escalation ladder's starting point' but does not clarify whether this replaces the ladder's floor, its initial rung, or both \u2014 nor how this interacts with EscalationLadder's existing API from spec #14.",
+        "Requirement 6 describes skipping assessment when an explicit config override exists (layers 1\u20133), but does not specify how assess_node() detects which resolution layer was used \u2014 no API or flag is defined for this check.",
+        "Requirement 11 (nightshift passthrough) says the orchestrator passes a pre-computed AssessedComplexity to assess_node(), but assess_node()'s signature in Requirement 4 does not include a parameter for this \u2014 the interface between TriageResult and assess_node() is undefined.",
+        "The VARIANT_ORDER referenced in Requirement 3 is not defined or referenced in this PRD \u2014 it is imported from spec #14 but its values and ordering are not documented here, making the upgrade logic unverifiable in isolation.",
+        "The 'Assessor Can Upgrade To' column in the default assignments table (Requirement 8) implies a ceiling, but no mechanism for enforcing an upgrade ceiling is defined anywhere in the requirements.",
+        "Requirement 5 says re-assessment replaces 'the current idempotent behavior (early return if ladder exists)' but does not specify what happens to an existing ladder when re-assessment recommends a different tier \u2014 is the ladder replaced or mutated?",
+        "The structured output parsing for nightshift (Requirement 11) is not specified \u2014 it is unclear how AssessedComplexity is extracted from the triage model's JSON output, what prompt changes are required, or how parsing failures are handled.",
+        "No acceptance criteria or test scenarios are provided beyond the list of areas to cover \u2014 specific pass/fail conditions for the 12 requirement-mapped unit tests are absent."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What are the exact fields, types, and optionality of the AssessmentResult dataclass returned by ComplexityAssessor.assess()?",
+          "context": "Requirement 1 mentions a structured assessment result dataclass, and Requirement 2 shows the JSON shape, but the internal dataclass definition (field names, types, defaults) is never formally stated. Implementors need this to write both the class and its tests.",
+          "options": [
+            "recommended_tier: str, recommended_variant: str | None, confidence: float, rationale: str \u2014 all required",
+            "tier: ModelTier, variant: str | None, confidence: float, rationale: str \u2014 all required",
+            "Same as JSON shape but with typed enums for tier and variant"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "How does assess_node() detect whether an explicit config override (layers 1\u20133) was used, so it knows to skip the LLM assessment?",
+          "context": "Requirement 6 mandates skipping the assessment when layers 1\u20133 apply, but the PRD does not define any API, flag, or return value from the config resolution system that signals which layer was active. Without this, the skip logic cannot be implemented deterministically.",
+          "options": [
+            "The config resolver returns a flag/enum indicating the resolution source alongside the resolved value",
+            "assess_node() calls a separate is_explicitly_configured(archetype, mode) helper that checks layers 1\u20133",
+            "The resolved value is compared against the registry default \u2014 if they differ, skip assessment"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "How does the EscalationLadder consume the effective tier/variant from the assessment \u2014 does it replace the floor, the initial rung, or both? Does EscalationLadder need a new constructor parameter?",
+          "context": "Requirement 4 says to use the effective tier/variant as 'the escalation ladder's starting point', but EscalationLadder's API from spec #14 is not described here. This is a critical integration point and ambiguity here could lead to divergent implementations.",
+          "options": [
+            "A new constructor parameter (e.g., start_tier, start_variant) sets the ladder's initial rung without changing the ceiling",
+            "The effective tier/variant replaces both the floor and the initial rung of the ladder",
+            "The ladder is initialised normally and then advanced to the effective tier/variant via an existing step() or seek() method"
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "What is the interface for passing a pre-computed AssessedComplexity from nightshift TriageResult into assess_node()? Does assess_node() gain a new parameter, or is there a separate code path?",
+          "context": "Requirement 11 says the nightshift orchestrator passes a pre-computed AssessedComplexity to assess_node() to skip the Haiku call, but assess_node()'s signature in Requirement 4 only shows node_body and previous_failure. The integration point is undefined.",
+          "options": [
+            "assess_node() gains an optional pre_assessed: AssessedComplexity | None parameter; if provided, it skips the Haiku call and applies it directly",
+            "A separate assess_node_from_triage() method is added for the nightshift path",
+            "TriageResult is passed directly and assess_node() checks for assessed_complexity internally"
+          ],
+          "required": true
+        },
+        {
+          "id": "q5",
+          "text": "Does the 'Assessor Can Upgrade To' column in the default assignments table represent a hard ceiling enforced at runtime, or is it informational only?",
+          "context": "The table in Requirement 8 lists maximum upgrade targets per agent/mode, but no mechanism for enforcing a per-archetype upgrade ceiling is defined in the requirements. If it is a hard ceiling, the implementation needs additional logic; if informational, that should be stated explicitly.",
+          "options": [
+            "It is a hard ceiling \u2014 apply_assessment() must not upgrade beyond the listed max, and ARCHETYPE_REGISTRY stores the ceiling",
+            "It is informational only \u2014 the assessor recommends based on the prompt, and upgrade-only semantics naturally limit how far it can go",
+            "It is a soft guideline included in the prompt to bias recommendations, not enforced in code"
+          ],
+          "required": true
+        },
+        {
+          "id": "q6",
+          "text": "When a node is re-assessed on retry and the new assessment recommends a different (higher) tier, what happens to the existing EscalationLadder \u2014 is it replaced with a new one, or mutated in place?",
+          "context": "Requirement 5 says re-assessment replaces the current idempotent early-return behaviour, but does not define what happens to an already-instantiated EscalationLadder. This affects whether retry state (e.g., number of attempts at current tier) is preserved.",
+          "options": [
+            "The existing ladder is discarded and a new one is created from the new effective tier/variant",
+            "The ladder is mutated in place by calling a seek() or escalate_to() method to the new tier",
+            "The ladder is replaced only if the new tier is higher than the current rung; otherwise the existing ladder is kept"
+          ],
+          "required": false
+        },
+        {
+          "id": "q7",
+          "text": "How are parsing failures handled in the nightshift triage path \u2014 if the triage model returns malformed or missing complexity assessment JSON, what is the fallback?",
+          "context": "Requirement 12 covers assessor API call failures but the nightshift path is different: the triage model may return a valid response overall but with a missing or malformed assessed_complexity field. The fallback behaviour for this case is not specified.",
+          "options": [
+            "assessed_complexity is None in TriageResult; assess_node() then falls back to the standard Haiku assessment call",
+            "assessed_complexity is None; assess_node() falls back to the registry default with no Haiku call",
+            "A WARNING is logged and the nightshift pipeline falls back to the standard Haiku assessment call"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "This is a well-structured and detailed PRD with strong coverage of core requirements, design rationale, and non-goals. The intent, background, problem statement, and most technical requirements are clearly articulated. However, several gaps remain that could create ambiguity during implementation: the exact prompt template for the assessor is not specified, the `apply_assessment()` interface for dual-dataclass compatibility is underspecified, the nightshift triage prompt changes lack detail, and a few behavioral edge cases (e.g., what happens when `node_body` is `None` or empty) are not addressed. Resolving these will make this PRD implementation-ready.",
+      "gaps": [
+        "The exact prompt template (or its structure/sections) for ComplexityAssessor.assess() is not defined \u2014 only its inputs are listed. Implementers must infer the prompt design from context.",
+        "apply_assessment() is described as accepting 'either [AssessmentResult or AssessedComplexity] via a compatible interface', but the compatible interface is never defined. It's unclear whether this is a Protocol, duck typing, a Union type hint, or a shared base class.",
+        "The behavior when node_body is None or empty string is not specified \u2014 it's unclear whether assessment should be skipped, a fallback triggered, or a prompt sent with empty body.",
+        "The nightshift triage prompt changes are described at a high level but the structure of the updated triage JSON output (including the assessed_complexity nested object shape) is not shown.",
+        "The VARIANT_ORDER referenced from spec #14 is not reproduced or summarized here, requiring readers to cross-reference another spec to understand upgrade logic.",
+        "There is no specification of what model (tier/variant) the nightshift triage model runs at \u2014 it's described as 'already running at STANDARD tier' but this is not formally defined in this PRD.",
+        "The test file locations and naming conventions are not specified, only the logical groupings of tests.",
+        "There is no mention of how AssessmentManager receives the Anthropic client to pass to ComplexityAssessor \u2014 the dependency injection path is not shown.",
+        "The 'ceiling remains ADVANCED' on the EscalationLadder is stated but the behavior if the assessor somehow recommends beyond ADVANCED is not explicitly addressed (though upgrade-only semantics imply it's bounded).",
+        "No explicit definition of what constitutes a 'malformed JSON response' vs. a structurally valid but semantically invalid response (e.g., confidence outside 0.0\u20131.0 range, unrecognized tier value)."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What is the structure and content of the ComplexityAssessor prompt? Please provide the prompt template (or a representative example), including how archetype, mode, base tier/variant, node body, and previous_failure are incorporated.",
+          "context": "Requirement 2 lists the inputs to the prompt but does not define the actual prompt text or structure. Without this, different implementers may produce very different prompts, leading to inconsistent assessment quality and making tests hard to pin down.",
+          "options": [
+            "Provide a full prompt template with placeholders",
+            "Provide a representative example prompt",
+            "Specify the sections/headings required (role, context, instructions, format) and leave exact wording to the implementer",
+            "Leave entirely to implementer discretion"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "How should apply_assessment() accept both AssessmentResult and AssessedComplexity? What is the 'compatible interface' \u2014 a shared Protocol, a Union type hint, duck typing, or a common base class?",
+          "context": "Design Decision 9 notes that apply_assessment() accepts either dataclass 'via a compatible interface', but this interface is never defined. This is critical for type safety and for writing the function signature correctly.",
+          "options": [
+            "Define a shared Protocol (e.g., ComplexityRecommendation) with tier/variant/confidence fields and have apply_assessment() accept that",
+            "Use a Union[AssessmentResult, AssessedComplexity] type hint with explicit field mapping inside the function",
+            "Use duck typing (no formal type constraint) and document the required fields",
+            "Create a common base dataclass that both inherit from"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "What should happen when node_body is None or an empty string? Should assessment be skipped (fallback to base tier/variant), or should the assessor be called with an empty/minimal body?",
+          "context": "Requirement 4 shows node_body as a parameter to assess_node() and Requirement 1 shows it as input to assess(). Requirement 9 says to extract it from node.body, but it's possible the body is absent. This edge case needs a defined behavior.",
+          "options": [
+            "Skip assessment and fall back to base tier/variant (treat as a no-op, same as an assessment failure)",
+            "Call the assessor with the empty/None body \u2014 let the model respond as best it can",
+            "Log a WARNING and fall back to base tier/variant (distinguishable from an error fallback)",
+            "Raise a validation error upstream in prepare_launch() before reaching assess_node()"
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "Can you show the updated nightshift triage JSON output shape, including the assessed_complexity nested object? Should it exactly mirror AssessedComplexity (tier, variant, confidence, rationale) or have a different field structure?",
+          "context": "Requirement 11 describes the triage prompt update and parsing behavior but does not show what the updated JSON output looks like. Implementers need to know the exact field names and types expected from the triage model's response.",
+          "options": [
+            "Mirror AssessedComplexity exactly: {\"tier\": \"ADVANCED\", \"variant\": \"standard\", \"confidence\": 0.8, \"rationale\": \"...\"}",
+            "Use recommended_ prefixed names to match AssessmentResult: {\"recommended_tier\": ..., \"recommended_variant\": ..., ...}",
+            "Use a different field naming convention \u2014 please specify"
+          ],
+          "required": true
+        },
+        {
+          "id": "q5",
+          "text": "How does AssessmentManager (or its owner) obtain the Anthropic client to pass to ComplexityAssessor? Is it injected via AssessmentManager's constructor, retrieved from a shared singleton, or passed call-by-call?",
+          "context": "Requirement 1 specifies that ComplexityAssessor receives an existing client via its constructor, and Design Decision 7 confirms this pattern. But the Key Files section shows ComplexityAssessor is instantiated inside AssessmentManager, and it's not stated how the client reaches there.",
+          "options": [
+            "AssessmentManager receives the Anthropic client in its constructor and passes it to ComplexityAssessor at instantiation",
+            "ComplexityAssessor is instantiated once at app startup and injected into AssessmentManager",
+            "A shared module-level client instance is imported and passed",
+            "The client is retrieved from a dependency injection container"
+          ],
+          "required": true
+        },
+        {
+          "id": "q6",
+          "text": "What validation should be applied to the assessor's JSON response fields? Specifically: what happens if confidence is outside [0.0, 1.0], recommended_tier is not a known ModelTier value, or recommended_variant is an unrecognized string?",
+          "context": "Requirement 12 covers malformed JSON and missing required fields, but does not address semantically invalid values. Pydantic v2 validators could enforce this, but the behavior (treat as parse failure \u2192 fallback, or clamp/coerce) needs to be specified.",
+          "options": [
+            "Treat any out-of-range or unrecognized value as a parse failure \u2192 log WARNING and fall back to base tier/variant",
+            "Clamp confidence to [0.0, 1.0] and coerce unrecognized tier/variant to base values",
+            "Use Pydantic v2 validation with strict mode \u2014 any validation error triggers the error handling path in Requirement 12",
+            "Log a WARNING for individual bad fields but use the valid fields where possible"
+          ],
+          "required": false
+        },
+        {
+          "id": "q7",
+          "text": "Should VARIANT_ORDER be reproduced or summarized in this PRD, or is a cross-reference to spec #14 sufficient for implementers?",
+          "context": "VARIANT_ORDER is central to the variant upgrade logic in apply_assessment() but is only defined in spec #14. If implementers work from this PRD alone, they need at least the ordering (e.g., standard \u2192 extended) to implement and test the variant upgrade logic correctly.",
+          "options": [
+            "Reproduce the VARIANT_ORDER constant value inline in this PRD",
+            "Add a brief summary (e.g., 'VARIANT_ORDER = [\"standard\", \"extended\"]') as a reference note",
+            "Cross-reference to spec #14 is sufficient \u2014 implementers are expected to read both specs"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "This is a well-structured and thorough PRD with clear intent, strong non-goals, detailed requirements, and good design rationale. The spec covers the complexity assessor lifecycle, upgrade-only semantics, nightshift integration, error handling, and observability at a high level of detail. A few gaps remain: the Protocol adapter mechanism for `AssessedComplexity` is deferred to the implementer without a recommended approach, the `EscalationLadder` constructor interface (specifically `starting_tier`/`starting_variant`) is referenced but not defined here, the `is_explicitly_configured()` helper's interaction with modes that have no explicit config is underspecified, and there is no mention of how the Orchestrator obtains or passes the Anthropic client to `AssessmentManager`. Additionally, the testing section references \"all 12 requirements\" but the test bullet points don't clearly map to each requirement by number, which may cause coverage gaps. Minor: the `AssessedComplexity` Protocol adapter mechanism is left open \u2014 this is a potential source of implementation ambiguity.",
+      "gaps": [
+        "The Protocol adapter mechanism for AssessedComplexity (using tier/variant instead of recommended_tier/recommended_variant) is explicitly deferred to the implementer with no preferred approach specified \u2014 property aliases, __getattr__, or overloading apply_assessment() are all mentioned but none recommended, risking inconsistent implementation.",
+        "The EscalationLadder constructor parameters (starting_tier, starting_variant) are referenced throughout but their full interface and defaults are not defined in this spec \u2014 implementers must infer from spec #14 (model_variant_support), which may not be readily available.",
+        "The is_explicitly_configured() helper behaviour when mode is None is underspecified: it is unclear whether a None mode should check mode-level overrides, skip that layer, or always return False for the mode-level check.",
+        "The Orchestrator's mechanism for obtaining and passing the Anthropic client to AssessmentManager is mentioned in design decision #7 but not specified in the Key Files or requirements \u2014 no file reference is given for the Orchestrator, and the change to its constructor or factory is not described.",
+        "The test section says 'unit tests are required for all 12 requirements' but the bullet points do not map requirements to test cases by number, and some requirements (e.g., Req 7 resolution priority, Req 8 default assignments, Req 9 dispatch integration, Req 10 config) have no explicit test bullet points.",
+        "The 30-second timeout implementation mechanism is not specified \u2014 it is unclear whether this is enforced via asyncio.wait_for, httpx timeout config on the Anthropic client, or another mechanism.",
+        "There is no specification of what happens if RoutingConfig fields (assessor_model, confidence_threshold) are missing or invalid at startup \u2014 e.g., whether validation errors are raised eagerly or at first use.",
+        "The structured DEBUG log format for successful assessments is described in prose but no log schema or key names are specified, which may lead to inconsistent log structures across implementations."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What is the preferred adapter mechanism for making AssessedComplexity satisfy the ComplexityRecommendation Protocol?",
+          "context": "The spec lists three options (property aliases, __getattr__, or overloading apply_assessment()) but does not recommend one. This is a concrete implementation decision that will affect how the two dataclasses interact and should be resolved to avoid divergent implementations.",
+          "options": [
+            "Add @property aliases (recommended_tier, recommended_variant) directly to AssessedComplexity",
+            "Use a wrapper/adapter function that converts AssessedComplexity to AssessmentResult before passing to apply_assessment()",
+            "Overload apply_assessment() to accept both types via Union type hint",
+            "Use __getattr__ on AssessedComplexity to proxy the renamed attributes"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "How should is_explicitly_configured() behave when mode is None?",
+          "context": "The helper walks layers 1\u20133. Layer 1 is mode-level overrides. When no mode is provided (mode=None), it is ambiguous whether layer 1 should be skipped entirely, treated as a non-match (returning False for that layer), or whether mode=None has its own override slot.",
+          "options": [
+            "Skip layer 1 (mode-level check) entirely when mode is None and proceed to layers 2\u20133",
+            "Check layer 1 with mode=None as a key (i.e., None is a valid mode key in the config)",
+            "Always return False for layer 1 when mode is None and continue to layers 2\u20133"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "Which file contains the Orchestrator that needs to be updated to pass the Anthropic client to AssessmentManager, and what is the constructor/factory change required?",
+          "context": "Design decision #7 states the Orchestrator passes the client when creating AssessmentManager, but no Key File entry or requirement references the Orchestrator file. Without this, the client injection chain is incomplete.",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "How should the 30-second assessment timeout be implemented?",
+          "context": "The spec mandates a 30-second timeout on the assessment API call but does not specify the mechanism. The choice affects whether the timeout is enforced at the asyncio level, the HTTP client level, or via SDK parameters, each with different failure modes.",
+          "options": [
+            "asyncio.wait_for() wrapping the assess() coroutine call",
+            "httpx timeout config passed to the Anthropic client constructor",
+            "Anthropic SDK timeout parameter on the individual API call",
+            "Any mechanism \u2014 leave to implementer"
+          ],
+          "required": false
+        },
+        {
+          "id": "q5",
+          "text": "Should RoutingConfig validation errors for assessor_model or confidence_threshold be raised eagerly at startup, or only at first use?",
+          "context": "If confidence_threshold is set to a value outside [0.0, 1.0] or assessor_model is an empty string, the system should fail in a predictable way. Pydantic v2 validators can enforce this at config load time, which is the safer approach.",
+          "options": [
+            "Raise a Pydantic ValidationError at config load time (eager, recommended)",
+            "Raise at first assessment call",
+            "Log a WARNING and use the default value as fallback"
+          ],
+          "required": false
+        },
+        {
+          "id": "q6",
+          "text": "Should the structured DEBUG log for successful assessments use a fixed set of key names, and if so, what are they?",
+          "context": "The Observability section lists the fields (node_id, archetype, mode, effective_tier, effective_variant, confidence, rationale) but does not specify log key names. Consistent naming is important for log aggregation and filtering.",
+          "options": [
+            "Use snake_case keys matching the field names listed: node_id, archetype, mode, effective_tier, effective_variant, confidence, rationale",
+            "Use a nested dict structure: {node: {id, archetype, mode}, assessment: {tier, variant, confidence, rationale}}",
+            "Leave key naming to the implementer"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "This is a well-structured and unusually detailed PRD. It clearly defines the problem, goals, non-goals, architecture, and individual requirements with code-level specificity. The design decisions section is thorough and anticipates common implementation questions. However, several gaps remain that could cause ambiguity or rework during implementation: the retry trigger mechanism is underspecified, the nightshift orchestrator file's role in passing `pre_assessed` needs clarification, the triage prompt update lacks guidance on validation scope, the `is_explicitly_configured()` helper's exact layer-checking logic is partially ambiguous, and the observability section doesn't address what happens when assessment is skipped (explicit override path). A few edge cases in `apply_assessment()` variant logic also need tightening.",
+      "gaps": [
+        "Retry trigger mechanism is underspecified: Requirement 5 says assess_node() re-assesses on retry with previous_failure, but it's unclear who sets previous_failure and where the failure reason string originates (e.g., exception message, structured error object, last attempt log). DispatchManager.prepare_launch() in Requirement 9 is told to pass previous_failure but not how it obtains it.",
+        "Nightshift orchestrator file (coder_reviewer.py) is listed in Key Files but Requirement 11 doesn't specify where in the orchestrator flow pre_assessed is extracted from TriageResult and passed to assess_node() \u2014 the interface summary helps but the exact call site / method is not identified.",
+        "apply_assessment() variant upgrade logic has an underspecified edge case: what happens when recommendation.recommended_variant is None but base_variant is non-None? The spec says 'take max(base_variant, recommendation.recommended_variant)' but None is not in VARIANT_ORDER \u2014 this case needs an explicit rule (e.g., treat None recommended_variant as 'no variant preference, keep base_variant').",
+        "Observability section does not specify what is logged when assessment is skipped due to an explicit config override (Requirement 6). Only absent/empty node_body skip is mentioned as DEBUG. The explicit-override skip path is silent.",
+        "The triage parsing failure handling (Requirement 11) says 'the same validation rules as Requirement 2 apply' but does not clarify whether partial triage responses (valid outer JSON, malformed assessed_complexity sub-object) still parse the rest of TriageResult successfully \u2014 this is implied but not stated explicitly.",
+        "Requirement 2 validation specifies that recommended_variant must be null, 'fast', 'standard', or 'extended', but does not state whether the string comparison is case-sensitive. Given ModelTier comparisons use exact string matching, this should be made explicit.",
+        "The confidence_threshold default of 0.6 and the assessor_model default of 'claude-haiku-4-5' are stated but there is no guidance on what model ID format is expected or validated beyond 'non-empty string' \u2014 a typo in the model ID would only fail at runtime (API call), not at config load.",
+        "The spec does not address concurrency: if multiple nodes are assessed simultaneously by the same AssessmentManager instance, are there any shared-state concerns with ComplexityAssessor? (Likely fine since it's stateless, but worth confirming explicitly.)",
+        "Re-assessment on retry (Requirement 5) says 'retry state is not preserved' and 'attempt count at old tier is reset' \u2014 but it's unclear whether the new EscalationLadder uses the same ceiling (ADVANCED) and same retry-per-tier config as the original. This should be stated explicitly."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "Where does the `previous_failure` string originate, and who is responsible for constructing and passing it to `assess_node()`? For example, is it the exception message from the last failed attempt, a structured summary, or something stored on the node/task graph?",
+          "context": "Requirement 5 specifies re-assessment on retry with previous_failure as context, and Requirement 9 says DispatchManager.prepare_launch() passes it \u2014 but neither specifies the source of this string, which is critical for implementers of both dispatch.py and the retry flow.",
+          "options": [
+            "The last exception/error message string from the failed attempt, stored on the node in the task graph",
+            "A structured failure summary constructed by the dispatch layer from the node's last attempt metadata",
+            "A human-readable string passed in from the orchestrator that initiated the retry",
+            "Other (please describe)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "In `apply_assessment()`, when `recommendation.recommended_variant` is `None` but `base_variant` is non-`None`, what should happen to the variant? Should it remain unchanged at `base_variant`, or should `None` be treated as the lowest variant (equivalent to 'fast')?",
+          "context": "The spec defines VARIANT_ORDER as fast < standard < extended, and states that max(base_variant, recommended_variant) is taken \u2014 but None is not in this ordering. An assessor returning recommended_variant=None when the base has a variant is an ambiguous case that needs a deterministic rule.",
+          "options": [
+            "Keep base_variant unchanged (treat None recommended_variant as 'no preference')",
+            "Treat None as lower than 'fast', so max(base_variant, None) = base_variant (same outcome, but explicit)",
+            "Treat None as 'no variant preference' and always return base_variant in this case",
+            "Other (please describe)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "Should skipping assessment due to an explicit config override (layers 1\u20133) produce a log entry? If so, at what level and with what fields?",
+          "context": "The Observability section specifies DEBUG logging for skipped assessments due to absent/empty node_body, and WARNING for failures \u2014 but the explicit-override skip path has no defined log behaviour, creating an invisible gap in assessment traceability.",
+          "options": [
+            "Yes \u2014 log at DEBUG level, similar to the absent node_body skip, with node_id/archetype/mode and the resolved tier/variant",
+            "Yes \u2014 log at DEBUG level but with a distinct message indicating override source (layer 1, 2, or 3)",
+            "No \u2014 explicit overrides are deterministic and do not need a log entry",
+            "Other (please describe)"
+          ],
+          "required": false
+        },
+        {
+          "id": "q4",
+          "text": "In the nightshift orchestrator (`coder_reviewer.py`), at what point in the orchestration flow is `TriageResult.assessed_complexity` extracted and passed as `pre_assessed` to `assess_node()`? Is it passed once per session/issue, or per node dispatched?",
+          "context": "Requirement 11 defines the interface but doesn't pinpoint the call site in the nightshift orchestrator. Knowing whether pre_assessed is per-node or per-session affects how the orchestrator wires the triage result into the dispatch flow.",
+          "options": [
+            "Per-node: assessed_complexity from TriageResult is passed to assess_node() for every node dispatched in the nightshift session",
+            "Once per session: only the first node (e.g., the coder node) receives pre_assessed; subsequent nodes fall back to Haiku",
+            "Conditionally: pre_assessed is passed only to specific archetypes (e.g., coder), not reviewers or verifiers",
+            "Other (please describe)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q5",
+          "text": "When a triage response has valid outer JSON but a malformed or missing `assessed_complexity` sub-object, should the rest of `TriageResult` be parsed and used normally, with only `assessed_complexity` set to `None`?",
+          "context": "Requirement 11 implies this ('assessed_complexity is set to None in the TriageResult and a WARNING is logged') but does not explicitly state that the rest of the triage result is unaffected. Confirming this prevents implementers from treating it as a full triage parse failure.",
+          "options": [
+            "Yes \u2014 partial failure: only assessed_complexity is None, the rest of TriageResult is parsed and used normally",
+            "No \u2014 if assessed_complexity is malformed, the entire triage response is treated as a failure",
+            "Other (please describe)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q6",
+          "text": "Should `assessor_model` in `RoutingConfig` have any validation beyond non-empty string \u2014 for example, a prefix check (e.g., must start with 'claude-') or an allowlist of known model IDs?",
+          "context": "Currently, a typo in assessor_model would only fail at runtime during the first API call, not at config load. Stricter validation could catch this earlier, but may limit flexibility for future model IDs.",
+          "options": [
+            "Non-empty string only (current spec) \u2014 runtime failure is acceptable for invalid model IDs",
+            "Prefix check (e.g., must start with 'claude-') validated at config load",
+            "Allowlist of known Haiku/Sonnet model IDs validated at config load",
+            "Other (please describe)"
+          ],
+          "required": false
+        },
+        {
+          "id": "q7",
+          "text": "Is `ComplexityAssessor` effectively stateless between calls (no shared mutable state), making concurrent use by multiple simultaneous `assess_node()` calls safe without additional locking?",
+          "context": "The spec doesn't address concurrency. If AssessmentManager is a singleton and multiple nodes are assessed in parallel, implementers need to know whether ComplexityAssessor is safe to call concurrently.",
+          "options": [
+            "Yes \u2014 ComplexityAssessor is stateless; the Anthropic client handles its own connection pooling and concurrent calls are safe",
+            "No \u2014 there is shared state that requires locking (please describe)",
+            "Not applicable \u2014 assess_node() calls are always sequential in this architecture"
+          ],
+          "required": false
+        },
+        {
+          "id": "q8",
+          "text": "When a retry re-assessment creates a new `EscalationLadder`, does it use the same ceiling (ADVANCED) and the same per-tier retry configuration as the original ladder?",
+          "context": "Requirement 5 states the existing ladder is discarded and a new one created from the new effective tier/variant, but doesn't confirm whether the new ladder's ceiling and retry-per-tier config are identical to the original. This matters for implementers of the ladder construction in assess_node().",
+          "options": [
+            "Yes \u2014 same ceiling (ADVANCED) and same per-tier retry config as the original; only starting_tier/starting_variant differ",
+            "No \u2014 the retry ladder config may differ on re-assessment (please describe)",
+            "The EscalationLadder always uses a fixed ceiling and retry config from RoutingConfig, so this is implicit"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "This is a well-structured and thorough PRD with strong coverage of requirements, design decisions, testing expectations, and observability. The spec demonstrates mature engineering thinking: upgrade-only semantics, silent fallback, explicit config priority, and nightshift triage integration are all clearly specified. The majority of implementation details are present and unambiguous. A small number of gaps remain around rollout safety, prompt content specificity, and a few edge cases in the integration layer that could cause implementation ambiguity or risk.",
+      "gaps": [
+        "Assessor prompt content is underspecified: the spec says 'exact wording is left to the implementer' but provides no constraints on how task body length should be handled. Long node bodies could exceed token limits silently \u2014 there is no truncation strategy, max-token budget, or token-limit handling described for the assessment prompt.",
+        "No rate limiting or concurrency cap on assessment calls: under high dispatch load, concurrent assess_node() calls could each independently call the Haiku API, potentially triggering rate limits. The spec notes the client handles connection pooling but does not address whether any concurrency cap or queuing strategy applies to assessment calls.",
+        "The confidence_threshold default of 0.6 is stated but the rationale for this specific value is not documented. Implementers and reviewers have no basis for evaluating whether 0.6 is calibrated or arbitrary, and there is no guidance on how to tune it manually.",
+        "No explicit contract on what happens when AssessmentManager is constructed without a client (client=None): the spec says client is optional but does not state whether ComplexityAssessor is instantiated with None, whether assess_node() skips assessment silently, or whether it raises at init time. This is a potential silent failure mode.",
+        "The EscalationLadder construction details are incomplete: the spec says 'the same per-tier retry configuration from RoutingConfig is used' but does not specify which constructor parameters carry this config or how the ladder is constructed in the re-assessment path. An implementer unfamiliar with spec #14 internals may not know how to wire this correctly.",
+        "No definition of what constitutes the 'node_body' in practice: the spec says 'The full Node.body text' but does not describe its typical size, structure (plain text, markdown, JSON?), or whether it can be a multi-thousand-token blob. This matters for prompt construction and token budget management.",
+        "The triage prompt update is mentioned but not specified: the spec says the triage prompt template is updated to request assessed_complexity but provides no example of the instruction wording, which could lead to inconsistent model output formats across implementations."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "How should long node bodies be handled in the assessment prompt? Is there a maximum token budget, truncation strategy, or should the full body always be included regardless of length?",
+          "context": "The assessment prompt includes the full Node.body text, but no token limit or truncation policy is specified. A very long body could silently exceed the Haiku context window, causing a failed or degraded assessment. Clarifying this prevents both silent failures and inconsistent implementations.",
+          "options": [
+            "Always include the full body; treat context-limit errors as assessment failures and fall back silently",
+            "Truncate node_body to a fixed character/token limit (e.g. 4,000 tokens) before including in the prompt",
+            "Include a summary or first N characters of node_body with a note that it was truncated",
+            "No truncation \u2014 the implementer decides based on the chosen assessor_model's context window"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "What is the expected behaviour when AssessmentManager is constructed with client=None? Should ComplexityAssessor still be instantiated (and fail at call time), or should assess_node() skip assessment silently when no client is available?",
+          "context": "The spec describes client as an optional parameter but does not define the contract for the None case. Without a clear contract, different implementers may handle this differently \u2014 one may skip assessment silently (safe), another may raise at init time (breaking), another may raise at first call (non-obvious). This is particularly relevant for test environments or configurations that don't use the assessor.",
+          "options": [
+            "If client is None, ComplexityAssessor is not instantiated; assess_node() falls back to base tier/variant silently (treat as permanently disabled)",
+            "If client is None, ComplexityAssessor is instantiated with None and raises at first assess() call \u2014 treated as an assessment failure with WARNING log and fallback",
+            "If client is None, AssessmentManager.__init__() raises immediately with a clear configuration error",
+            "The assessor_model config field being set controls whether assessment is enabled; client=None implies assessment is disabled"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "Should any concurrency limit or rate-limit protection be applied to assessment API calls under high dispatch load?",
+          "context": "Multiple concurrent dispatch events could each independently trigger assess_node() \u2192 ComplexityAssessor.assess(), resulting in a burst of Haiku API calls. The spec notes the Anthropic client handles connection pooling but does not address rate limit exposure. Under heavy load, this could cause widespread assessment failures and WARNING-log noise, defeating the purpose of the feature.",
+          "options": [
+            "No cap \u2014 each assess_node() call proceeds independently; rate limit errors are treated as assessment failures and fall back silently",
+            "Apply a semaphore or concurrency cap (e.g. max N concurrent assessment calls) configurable via RoutingConfig",
+            "Assessment calls are fire-and-forget with a short timeout; no cap needed given the 30s timeout",
+            "Out of scope \u2014 rate limit handling is the responsibility of the Anthropic SDK retry logic"
+          ],
+          "required": false
+        },
+        {
+          "id": "q4",
+          "text": "What is the rationale for the 0.6 confidence_threshold default, and is there any initial guidance for manual tuning?",
+          "context": "The spec treats confidence_threshold as a static config value but does not explain why 0.6 was chosen. Operators who want to tune it (e.g. to reduce false upgrades or increase upgrade sensitivity) have no calibration guidance. Even a brief note \u2014 e.g. 'chosen conservatively to minimise false upgrades; increase toward 0.8 to be more selective' \u2014 would reduce configuration guesswork.",
+          "options": [
+            "Add a brief note explaining the rationale (e.g. conservative baseline chosen to prefer stability over cost savings)",
+            "Leave as-is \u2014 the value is configurable and users can tune by observing structured logs",
+            "Document a recommended tuning range (e.g. 0.5\u20130.8) in the config comments"
+          ],
+          "required": false
+        },
+        {
+          "id": "q5",
+          "text": "Can you provide example wording or constraints for the triage prompt update that requests the assessed_complexity nested object?",
+          "context": "Requirement 11 states the triage prompt template is updated to request assessed_complexity as part of structured JSON output, but provides no example instruction text. The output schema is defined, but without prompt guidance the triage model may produce the field inconsistently (wrong field names, wrong nesting, missing entirely). A brief example instruction or at minimum a description of the instruction style would ensure consistent output.",
+          "options": [
+            "Provide example instruction text to include in the triage prompt (e.g. 'As part of your JSON response, include an assessed_complexity object with tier, variant, confidence, and rationale fields...')",
+            "Leave exact wording to the implementer \u2014 the JSON schema in Requirement 11 is sufficient as a guide",
+            "Specify only the structural constraint: the instruction must include the full assessed_complexity JSON schema as a reference"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "ready",
+      "summary": "The PRD is now comprehensive and implementation-ready. All five gaps identified in the previous assessment have been resolved: the node body token/truncation policy is clearly documented (always include full body; context errors fall back silently), the absent-client contract is unambiguous (no instantiation, silent permanent fallback, no log), the concurrency/rate-limit posture is explicit (no cap; rate limit errors are standard failures), the confidence threshold has operational tuning guidance, and the triage prompt specification appropriately delegates wording to the implementer while anchoring on the normative JSON schema. The PRD now has no outstanding ambiguities that would cause divergent implementations.",
+      "gaps": [],
+      "questions": []
+    }
+  ],
+  "qa_exchanges": [
+    {
+      "assessment_index": 0,
+      "answers": {
+        "q1": "Replace static model-tier assignments with a lightweight, LLM-driven complexity signal that upgrades model selection only when task complexity warrants it.",
+        "q2": "All of the above: (1) no downgrading, (2) no persistent assessment storage, (3) no cost dashboards, (4) no non-Anthropic support, (5) no automatic threshold tuning.",
+        "q3": "Correctness-focused: (1) All quality-critical review modes (pre-review, audit-review) run at ADVANCED tier 100% of the time via registry defaults. (2) Unit test coverage for all 12 requirements. (3) Assessment call failure never blocks dispatch. This is infrastructure \u2014 cost reduction is an expected outcome, not a measurable acceptance criterion at this stage.",
+        "q4": "Static assignment was a simplicity choice at initial design. There was a complexity_assessments database table created in migration v3 with predicted_tier and confidence fields, but it was dropped in migration v14 because no production code ever inserted rows. This spec revives the concept with an in-memory, LLM-based approach instead of a database-backed prediction model.",
+        "q5": "No hard latency requirement \u2014 error handling (silent fallback) is sufficient. The Haiku call is cheap and fast by nature. A timeout of 30 seconds (matching general API timeout defaults) with silent fallback on timeout is adequate.",
+        "q6": "Unit tests for ComplexityAssessor, apply_assessment(), and AssessmentManager integration. Structured DEBUG log entry per assessment (tier, variant, confidence, node_id). Standard project conventions apply for test organization."
+      },
+      "timestamp": "2026-06-29T07:57:19.167879+00:00"
+    },
+    {
+      "assessment_index": 1,
+      "answers": {
+        "q1": "recommended_tier: str, recommended_variant: str | None, confidence: float, rationale: str \u2014 all required fields, plain strings for tier (matching ModelTier values).",
+        "q2": "assess_node() calls a separate is_explicitly_configured() helper that checks whether any of layers 1-3 returned a non-None value for the given archetype/mode. This mirrors the existing pattern \u2014 resolve_model_tier() already walks these layers, so we check if any hit before reaching Layer 4.",
+        "q3": "The effective tier/variant replaces the EscalationLadder's starting_tier and starting_variant constructor parameters. EscalationLadder's API from spec 14 already accepts these. The ceiling remains ADVANCED.",
+        "q4": "assess_node() gains an optional pre_assessed: AssessedComplexity | None parameter. If provided, it skips the Haiku call and applies the pre-computed assessment via apply_assessment() directly.",
+        "q5": "It is informational only \u2014 the assessor's recommendations are naturally bounded by upgrade-only semantics and the tier ceiling on the EscalationLadder. The table documents expected behavior, not enforced ceilings.",
+        "q6": "The existing ladder is discarded and a new one is created from the new effective tier/variant. Retry state (attempt count at the old tier) is not preserved \u2014 the re-assessment effectively resets the ladder at the new starting point.",
+        "q7": "assessed_complexity is None in TriageResult when parsing fails. assess_node() then falls back to the standard Haiku assessment call. A WARNING is logged for the parsing failure."
+      },
+      "timestamp": "2026-06-29T07:59:30.554754+00:00"
+    },
+    {
+      "assessment_index": 2,
+      "answers": {
+        "q1": "Specify the sections/headings required (role, context, instructions, format) and leave exact wording to the implementer. The prompt must include: system role as 'complexity assessor for an AI coding pipeline', the agent role (archetype + mode), current base tier/variant, the task group body, optional failure context, and instruction to respond with JSON matching the AssessmentResult schema.",
+        "q2": "Define a shared Protocol (e.g., ComplexityRecommendation) with recommended_tier: str, recommended_variant: str | None, confidence: float attributes. apply_assessment() accepts this Protocol. Both AssessmentResult and AssessedComplexity satisfy it structurally.",
+        "q3": "Skip assessment and fall back to base tier/variant. Treat missing/empty node_body as a no-op \u2014 the assessor has no signal to work with, so the base tier is the safest choice. Log a DEBUG message.",
+        "q4": "Mirror AssessedComplexity exactly: {\"tier\": \"ADVANCED\", \"variant\": \"standard\", \"confidence\": 0.8, \"rationale\": \"...\"}. Same field names, same types. This avoids mapping logic between triage output and AssessedComplexity dataclass.",
+        "q5": "AssessmentManager receives the Anthropic client in its constructor and passes it to ComplexityAssessor at instantiation. The Orchestrator passes the client when creating AssessmentManager.",
+        "q6": "Treat any out-of-range or unrecognized value as a parse failure \u2014 log WARNING and fall back to base tier/variant. Don't try to salvage partial fields.",
+        "q7": "Add a brief summary as a reference note: VARIANT_ORDER defines fast (0) < standard (1) < extended (2). None-variant models do not participate in variant upgrades."
+      },
+      "timestamp": "2026-06-29T08:02:21.069017+00:00"
+    },
+    {
+      "assessment_index": 3,
+      "answers": {
+        "q1": "Use a wrapper/adapter function that converts AssessedComplexity to AssessmentResult before passing to apply_assessment(). This keeps both dataclasses clean and the conversion explicit.",
+        "q2": "Skip layer 1 (mode-level check) entirely when mode is None and proceed to layers 2-3. This mirrors how resolve_model_tier() handles mode=None.",
+        "q3": "The Orchestrator is in packages/agentfox/agentfox/engine/engine.py. AssessmentManager.__init__() already receives a config parameter. Add an optional client parameter to AssessmentManager.__init__() and pass the Anthropic client from the infrastructure setup in engine/run.py (session_runner_factory closure), which already has access to the client.",
+        "q4": "Any mechanism \u2014 leave to implementer. The Anthropic SDK timeout parameter on the individual API call is the most natural fit.",
+        "q5": "Raise a Pydantic ValidationError at config load time (eager). confidence_threshold should be clamped to [0.0, 1.0] with the existing Clamped annotation pattern used throughout RoutingConfig.",
+        "q6": "Use snake_case keys matching the field names: node_id, archetype, mode, effective_tier, effective_variant, confidence, rationale. Consistent with the project's existing structured logging patterns."
+      },
+      "timestamp": "2026-06-29T08:05:21.573341+00:00"
+    },
+    {
+      "assessment_index": 4,
+      "answers": {
+        "q1": "The last error string from the failed attempt, stored on the error_tracker dict in the dispatch layer. DispatchManager.prepare_launch() already has access to error_tracker and extracts the previous_error string from it \u2014 this is the same value currently used for error feedback in retries.",
+        "q2": "Keep base_variant unchanged \u2014 treat None recommended_variant as 'no preference'. apply_assessment() only upgrades variant when recommendation.recommended_variant is non-None AND higher in VARIANT_ORDER than base_variant.",
+        "q3": "Yes \u2014 log at DEBUG level with node_id, archetype, mode, and the resolved tier indicating it was explicitly configured. Consistent with absent node_body skip logging.",
+        "q4": "Per-node: the nightshift fix pipeline dispatches a single coder node per issue. assessed_complexity from TriageResult is passed to assess_node() for that coder node. Subsequent reviewer nodes (fix-review) use their own assessment path.",
+        "q5": "Yes \u2014 partial failure: only assessed_complexity is None, the rest of TriageResult is parsed and used normally.",
+        "q6": "Non-empty string only \u2014 runtime failure is acceptable. Model IDs change frequently and an allowlist would require maintenance.",
+        "q7": "Yes \u2014 ComplexityAssessor is stateless. The Anthropic client handles its own connection pooling. Concurrent calls are safe.",
+        "q8": "Yes \u2014 same ceiling (ADVANCED) and same per-tier retry config from RoutingConfig. Only starting_tier and starting_variant differ."
+      },
+      "timestamp": "2026-06-29T08:09:05.820724+00:00"
+    },
+    {
+      "assessment_index": 5,
+      "answers": {
+        "q1": "Always include the full body. Treat context-limit errors as assessment failures and fall back silently. Node bodies are typically 500-2000 tokens \u2014 well within Haiku's context window.",
+        "q2": "If client is None, ComplexityAssessor is not instantiated. assess_node() falls back to base tier/variant silently \u2014 treat as permanently disabled. No error, no warning.",
+        "q3": "No cap \u2014 each assess_node() call proceeds independently. Rate limit errors are treated as assessment failures with silent fallback. The Anthropic SDK handles retries internally.",
+        "q4": "Add a brief note: 0.6 is a conservative baseline chosen to prefer stability over cost savings. Higher values (0.7-0.8) are more selective. Lower values (0.4-0.5) upgrade more aggressively.",
+        "q5": "Leave exact wording to the implementer \u2014 the JSON schema in Requirement 11 is sufficient as a guide."
+      },
+      "timestamp": "2026-06-29T08:13:06.082314+00:00"
+    }
+  ],
+  "generated_artifacts": [
+    "requirements",
+    "test_spec",
+    "tasks"
+  ],
+  "mode": "interactive"
+}

@@ -1,0 +1,996 @@
+{
+  "$schema": null,
+  "spec_id": "15",
+  "spec_name": "dynamic_complexity_assessment",
+  "schema_version": 1,
+  "introduction": "The Dynamic Complexity Assessment system replaces static model-tier assignments with a lightweight, LLM-driven complexity signal that upgrades model selection only when task complexity warrants it, ensuring quality-critical tasks always run at full strength while avoiding unnecessary cost for simple work.",
+  "glossary": {
+    "ARCHETYPE_REGISTRY": "Registry in archetypes.py mapping archetype names to their default model tier and variant assignments.",
+    "AssessedComplexity": "Frozen dataclass embedded in TriageResult (nightshift/fix_pipeline.py) containing tier, variant, confidence, and rationale from the nightshift triage model.",
+    "AssessmentManager": "Class in engine/engine.py that coordinates complexity assessment for nodes, integrating ComplexityAssessor with dispatch logic.",
+    "AssessmentResult": "Frozen dataclass returned by ComplexityAssessor.assess(), containing recommended_tier, recommended_variant, confidence, and rationale.",
+    "ComplexityAssessor": "Class in core/complexity.py responsible for calling the Anthropic LLM to assess task complexity and return a structured recommendation.",
+    "ComplexityAssessor.assess()": "Async method on ComplexityAssessor that sends a prompt to the configured LLM and returns an AssessmentResult.",
+    "ComplexityRecommendation": "Protocol (shared interface) satisfied by both AssessmentResult and AssessedComplexity (via adapter), accepted by apply_assessment().",
+    "DispatchManager": "Class in engine/dispatch.py that manages the dispatch of nodes to agents, including complexity assessment via AssessmentManager.",
+    "EscalationLadder": "Object representing the ordered sequence of model tiers/variants a node may escalate through during retries, with a configured starting_tier and starting_variant.",
+    "ModelTier": "Enum in the codebase representing model capability tiers: SIMPLE, STANDARD, and ADVANCED.",
+    "RoutingConfig": "Pydantic configuration model in core/config.py under the [routing] section, containing assessor_model and confidence_threshold among other routing settings.",
+    "TriageResult": "Dataclass in nightshift/fix_pipeline.py representing the structured output of the nightshift triage model, extended to include assessed_complexity.",
+    "VARIANT_ORDER": "Ordered sequence of model variants from spec #14: fast (0) < standard (1) < extended (2), used for variant upgrade comparisons.",
+    "apply_assessment": "Function in core/complexity.py that enforces upgrade-only semantics when applying a ComplexityRecommendation to a base tier/variant.",
+    "apply_assessment()": "Function in core/complexity.py that enforces upgrade-only semantics when applying a ComplexityRecommendation to a base tier/variant.",
+    "archetype": "A named agent role (e.g. coder, reviewer, verifier, maintainer) that determines the base model tier and dispatch behaviour.",
+    "assess_node": "Async method on AssessmentManager that orchestrates complexity assessment for a single node and returns an EscalationLadder.",
+    "assessed_complexity_to_recommendation": "Adapter function in core/complexity.py that converts an AssessedComplexity to an AssessmentResult for use with apply_assessment().",
+    "assessed_complexity_to_recommendation()": "Adapter function in core/complexity.py that converts an AssessedComplexity to an AssessmentResult for use with apply_assessment().",
+    "assessor_model": "Configuration value in RoutingConfig specifying the Anthropic model ID used for complexity assessment (default: claude-haiku-4-5).",
+    "base_tier": "The configured floor tier for a given archetype/mode before any assessment upgrade is applied.",
+    "base_variant": "The configured floor variant for a given archetype/mode before any assessment upgrade is applied.",
+    "coder_reviewer.py": "Nightshift orchestrator module (nightshift/coder_reviewer.py) that coordinates coder and reviewer nodes for the fix pipeline.",
+    "confidence_threshold": "Configuration value (float, 0.0–1.0) in RoutingConfig; assessments with confidence below this value are ignored and base tier/variant is used.",
+    "error_tracker": "Dict in the dispatch layer that stores per-node failure information including the last error string used as previous_failure.",
+    "fix_pipeline.py": "Module (nightshift/fix_pipeline.py) containing TriageResult, AssessedComplexity, and related nightshift data structures.",
+    "is_explicitly_configured": "Helper function that walks config resolution layers 1–3 to determine whether a tier has been explicitly set for a given archetype/mode.",
+    "mode": "An optional sub-mode within an archetype (e.g. fix, pre-review, audit-review) that further refines model tier selection.",
+    "nightshift": "The automated overnight fix pipeline that triages issues and dispatches coder/reviewer nodes.",
+    "node_body": "The full text content of a task graph Node, representing the work to be assessed for complexity.",
+    "pre_assessed": "Optional AssessedComplexity parameter passed to assess_node() from the nightshift orchestrator, bypassing the Haiku LLM call when present.",
+    "prepare_launch": "Method on DispatchManager in engine/dispatch.py responsible for extracting node_body and previous_failure and invoking assess_node().",
+    "previous_failure": "String representing the last error from a failed node attempt, sourced from error_tracker and passed to assess_node() for re-assessment context.",
+    "session_runner_factory": "Closure in engine/run.py that constructs AssessmentManager and supplies the configured Anthropic client.",
+    "starting_tier": "Constructor parameter on EscalationLadder (from spec #14) that sets the initial tier from which the ladder begins escalation.",
+    "starting_variant": "Constructor parameter on EscalationLadder (from spec #14) that sets the initial variant from which the ladder begins escalation."
+  },
+  "requirements": [
+    {
+      "id": "15-REQ-1",
+      "title": "ComplexityAssessor class and stateless assessment interface",
+      "user_story": {
+        "role": "dispatch system",
+        "goal": "assess the complexity of a task node by calling a lightweight LLM and receiving a structured recommendation",
+        "benefit": "model tier selection can be upgraded dynamically based on task complexity without blocking dispatch"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "15-REQ-1.1",
+          "ears_pattern": "ubiquitous",
+          "system": "core/complexity.py",
+          "action": "defines the ComplexityRecommendation Protocol with required fields recommended_tier (str), recommended_variant (str or None), and confidence (float)",
+          "return_contract": null
+        },
+        {
+          "id": "15-REQ-1.2",
+          "ears_pattern": "ubiquitous",
+          "system": "core/complexity.py",
+          "action": "defines the AssessmentResult frozen dataclass with fields: recommended_tier (str), recommended_variant (str or None), confidence (float), and rationale (str)",
+          "return_contract": null
+        },
+        {
+          "id": "15-REQ-1.3",
+          "ears_pattern": "ubiquitous",
+          "system": "ComplexityAssessor",
+          "action": "accepts an existing Anthropic client instance, configurable assessor_model (default: 'claude-haiku-4-5'), and confidence_threshold (default: 0.6) via its constructor",
+          "return_contract": null
+        },
+        {
+          "id": "15-REQ-1.4",
+          "ears_pattern": "ubiquitous",
+          "system": "ComplexityAssessor.assess()",
+          "action": "exposes an async method accepting node_body, archetype, mode, base_tier, base_variant, and optional previous_failure string, and returns an AssessmentResult",
+          "return_contract": "AssessmentResult dataclass instance with all four fields populated"
+        },
+        {
+          "id": "15-REQ-1.5",
+          "ears_pattern": "ubiquitous",
+          "system": "ComplexityAssessor",
+          "action": "maintains no shared mutable state between calls; concurrent assess() invocations are safe without additional locking",
+          "return_contract": null
+        },
+        {
+          "id": "15-REQ-1.6",
+          "ears_pattern": "event_driven",
+          "system": "AssessmentManager",
+          "action": "does not instantiate ComplexityAssessor; assess_node() falls back to base_tier/base_variant silently with no log entry emitted",
+          "return_contract": "EscalationLadder constructed from base tier/variant",
+          "trigger": "instantiated with client=None"
+        },
+        {
+          "id": "15-REQ-1.7",
+          "ears_pattern": "ubiquitous",
+          "system": "AssessmentManager.__init__()",
+          "action": "accepts an optional client parameter alongside the existing config parameter; when client is non-None, instantiates ComplexityAssessor passing the client, assessor_model, and confidence_threshold from RoutingConfig",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "15-REQ-1.E1",
+          "ears_pattern": "unwanted",
+          "system": "AssessmentManager",
+          "action": "skips ComplexityAssessor instantiation; every assess_node() call silently returns base tier/variant with no warning or error log",
+          "return_contract": "EscalationLadder at base tier/variant",
+          "error_condition": "client=None is passed to __init__()"
+        }
+      ]
+    },
+    {
+      "id": "15-REQ-2",
+      "title": "Assessment prompt structure and structured output validation",
+      "user_story": {
+        "role": "ComplexityAssessor",
+        "goal": "send a well-structured prompt to the LLM and parse and validate the JSON response into an AssessmentResult",
+        "benefit": "only valid, complete assessments are used for upgrade decisions, preventing unexpected tier/variant combinations"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "15-REQ-2.1",
+          "ears_pattern": "ubiquitous",
+          "system": "ComplexityAssessor",
+          "action": "constructs a prompt containing: system role establishing the LLM as a complexity assessor, agent role with archetype and mode, current base_tier/base_variant, full node_body text without truncation, and output instruction requesting JSON matching the AssessmentResult schema",
+          "return_contract": null
+        },
+        {
+          "id": "15-REQ-2.2",
+          "ears_pattern": "event_driven",
+          "system": "ComplexityAssessor",
+          "action": "appends failure context to the prompt describing why the previous attempt failed",
+          "return_contract": null,
+          "trigger": "previous_failure string is provided"
+        },
+        {
+          "id": "15-REQ-2.3",
+          "ears_pattern": "ubiquitous",
+          "system": "ComplexityAssessor",
+          "action": "validates that the LLM JSON response contains all four required fields (recommended_tier, recommended_variant, confidence, rationale); confidence is a float in [0.0, 1.0]; recommended_tier is a recognised ModelTier value (case-sensitive); recommended_variant is null, 'fast', 'standard', or 'extended' (case-sensitive)",
+          "return_contract": "AssessmentResult dataclass on success"
+        },
+        {
+          "id": "15-REQ-2.4",
+          "ears_pattern": "ubiquitous",
+          "system": "ComplexityAssessor",
+          "action": "enforces a 30-second timeout on the assessment API call via the Anthropic SDK's timeout parameter on the individual API call",
+          "return_contract": null
+        },
+        {
+          "id": "15-REQ-2.5",
+          "ears_pattern": "ubiquitous",
+          "system": "ComplexityAssessor",
+          "action": "performs no concurrency capping; each assess_node() call proceeds independently; rate limit errors from the Anthropic API are treated as assessment failures per the error-handling policy",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "15-REQ-2.E1",
+          "ears_pattern": "unwanted",
+          "system": "ComplexityAssessor",
+          "action": "treats the entire response as a parse failure; no partial field salvaging; falls back silently to base_tier/base_variant and logs WARNING with exception details",
+          "return_contract": "base_tier/base_variant unchanged",
+          "error_condition": "LLM response is malformed JSON, missing required fields, contains out-of-range confidence, or contains unrecognised/wrong-case tier or variant values"
+        },
+        {
+          "id": "15-REQ-2.E2",
+          "ears_pattern": "unwanted",
+          "system": "ComplexityAssessor",
+          "action": "treats timeout as any other failure; falls back silently to base_tier/base_variant and logs WARNING with exception details",
+          "return_contract": "base_tier/base_variant unchanged",
+          "error_condition": "API call times out after 30 seconds"
+        },
+        {
+          "id": "15-REQ-2.E3",
+          "ears_pattern": "unwanted",
+          "system": "ComplexityAssessor",
+          "action": "treats rate limit error as assessment failure; falls back silently to base_tier/base_variant and logs WARNING with exception details",
+          "return_contract": "base_tier/base_variant unchanged",
+          "error_condition": "Anthropic API returns a rate limit error"
+        }
+      ]
+    },
+    {
+      "id": "15-REQ-3",
+      "title": "Upgrade-only semantics via apply_assessment()",
+      "user_story": {
+        "role": "dispatch system",
+        "goal": "apply a complexity recommendation only as an upgrade, never downgrading below the configured base tier or variant",
+        "benefit": "registry defaults act as a guaranteed quality floor that the assessor can only raise, never lower"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "15-REQ-3.1",
+          "ears_pattern": "ubiquitous",
+          "system": "apply_assessment()",
+          "action": "accepts recommendation (ComplexityRecommendation), base_tier (str), base_variant (str or None), and confidence_threshold (float); returns a tuple of (effective_tier, effective_variant)",
+          "return_contract": "tuple[str, str | None] where effective_tier >= base_tier in ModelTier ordering"
+        },
+        {
+          "id": "15-REQ-3.2",
+          "ears_pattern": "event_driven",
+          "system": "apply_assessment()",
+          "action": "returns (base_tier, base_variant) unchanged; no upgrade is applied",
+          "return_contract": "(base_tier, base_variant) tuple",
+          "trigger": "recommendation.confidence < confidence_threshold"
+        },
+        {
+          "id": "15-REQ-3.3",
+          "ears_pattern": "ubiquitous",
+          "system": "apply_assessment()",
+          "action": "resolves effective tier as max(base_tier, recommendation.recommended_tier) using ModelTier ordering, never returning a tier below base_tier",
+          "return_contract": "effective_tier >= base_tier in ModelTier ordering"
+        },
+        {
+          "id": "15-REQ-3.4",
+          "ears_pattern": "state_driven",
+          "system": "apply_assessment()",
+          "action": "never changes the variant field; always returns None as the effective variant regardless of recommendation.recommended_variant",
+          "return_contract": "effective_variant = None",
+          "state": "base_variant is None (single-variant tier)"
+        },
+        {
+          "id": "15-REQ-3.5",
+          "ears_pattern": "state_driven",
+          "system": "apply_assessment()",
+          "action": "treats None recommendation as 'no preference'; returns base_variant unchanged",
+          "return_contract": "effective_variant = base_variant",
+          "state": "recommendation.recommended_variant is None and base_variant is non-None"
+        },
+        {
+          "id": "15-REQ-3.6",
+          "ears_pattern": "state_driven",
+          "system": "apply_assessment()",
+          "action": "resolves effective variant as max(base_variant, recommendation.recommended_variant) using VARIANT_ORDER, never returning a variant below base_variant",
+          "return_contract": "effective_variant >= base_variant in VARIANT_ORDER",
+          "state": "both base_variant and recommendation.recommended_variant are non-None"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "15-REQ-3.E1",
+          "ears_pattern": "unwanted",
+          "system": "apply_assessment()",
+          "action": "returns base_tier unchanged; upgrade-only logic prevents any downgrade",
+          "return_contract": "effective_tier = base_tier",
+          "error_condition": "recommendation.recommended_tier is below base_tier in ModelTier ordering"
+        }
+      ]
+    },
+    {
+      "id": "15-REQ-4",
+      "title": "AssessmentManager integration and client injection",
+      "user_story": {
+        "role": "engine orchestrator",
+        "goal": "integrate complexity assessment into the dispatch pipeline via AssessmentManager with dependency-injected Anthropic client",
+        "benefit": "assessment is seamlessly wired into dispatch without requiring AssessmentManager to manage its own API client lifecycle"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "15-REQ-4.1",
+          "ears_pattern": "ubiquitous",
+          "system": "AssessmentManager.assess_node()",
+          "action": "accepts node_id (str), archetype (str), mode (str or None), node_body (str or None), previous_failure (str or None, default None), and pre_assessed (AssessedComplexity or None, default None); returns an EscalationLadder",
+          "return_contract": "EscalationLadder with starting_tier and starting_variant set to effective tier/variant"
+        },
+        {
+          "id": "15-REQ-4.2",
+          "ears_pattern": "ubiquitous",
+          "system": "session_runner_factory",
+          "action": "supplies the configured Anthropic client to AssessmentManager via its optional client parameter when constructing the AssessmentManager instance",
+          "return_contract": null
+        },
+        {
+          "id": "15-REQ-4.3",
+          "ears_pattern": "ubiquitous",
+          "system": "AssessmentManager.assess_node()",
+          "action": "constructs and returns a new EscalationLadder using starting_tier=effective_tier and starting_variant=effective_variant, with ADVANCED ceiling and the same per-tier retry configuration from RoutingConfig",
+          "return_contract": "EscalationLadder instance"
+        },
+        {
+          "id": "15-REQ-4.4",
+          "ears_pattern": "ubiquitous",
+          "system": "AssessmentManager.assess_node()",
+          "action": "evaluates assessment eligibility in order: (1) no assessor → base fallback, (2) missing/empty node_body → base fallback with DEBUG log, (3) explicit config override → configured tier/variant with DEBUG log, (4) pre_assessed non-None → adapter + apply_assessment(), (5) LLM assessment → ComplexityAssessor.assess() + apply_assessment()",
+          "return_contract": "EscalationLadder at effective tier/variant"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "15-REQ-4.E1",
+          "ears_pattern": "unwanted",
+          "system": "AssessmentManager.assess_node()",
+          "action": "skips assessment entirely; falls back to base tier/variant; logs DEBUG message indicating assessment was skipped due to absent or empty body",
+          "return_contract": "EscalationLadder at base tier/variant",
+          "error_condition": "node_body is None or empty string"
+        }
+      ]
+    },
+    {
+      "id": "15-REQ-5",
+      "title": "Re-assessment on retry with failure context",
+      "user_story": {
+        "role": "dispatch system",
+        "goal": "re-assess a failed node with the failure reason as additional context and construct a fresh EscalationLadder from the new assessment",
+        "benefit": "proactive escalation can be recommended based on failure mode rather than waiting for the ladder to exhaust retries at the current tier"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "15-REQ-5.1",
+          "ears_pattern": "event_driven",
+          "system": "AssessmentManager.assess_node()",
+          "action": "discards any existing EscalationLadder for the node; re-assesses with previous_failure appended as context; constructs a new EscalationLadder from the re-assessed effective tier/variant",
+          "return_contract": "new EscalationLadder with starting_tier/starting_variant from re-assessment",
+          "trigger": "a node fails and is re-dispatched with a previous_failure string"
+        },
+        {
+          "id": "15-REQ-5.2",
+          "ears_pattern": "ubiquitous",
+          "system": "AssessmentManager.assess_node()",
+          "action": "sources previous_failure from the last error string stored in error_tracker in the dispatch layer; passes it to ComplexityAssessor.assess() as the previous_failure argument",
+          "return_contract": null
+        },
+        {
+          "id": "15-REQ-5.3",
+          "ears_pattern": "ubiquitous",
+          "system": "new EscalationLadder on retry",
+          "action": "uses the same ADVANCED ceiling and the same per-tier retry configuration from RoutingConfig as the original ladder; only starting_tier and starting_variant differ",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "15-REQ-5.E1",
+          "ears_pattern": "unwanted",
+          "system": "AssessmentManager.assess_node()",
+          "action": "returns new EscalationLadder at base tier/variant; prior retry state is not preserved",
+          "return_contract": "EscalationLadder at base tier/variant",
+          "error_condition": "re-assessment recommends same or lower tier than base due to confidence gate or upgrade-only logic"
+        }
+      ]
+    },
+    {
+      "id": "15-REQ-6",
+      "title": "Skip assessment when explicit config override exists",
+      "user_story": {
+        "role": "dispatch system",
+        "goal": "bypass LLM assessment when the model tier is already explicitly configured via config resolution layers 1–3",
+        "benefit": "explicitly configured tiers are respected without incurring unnecessary assessment API calls"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "15-REQ-6.1",
+          "ears_pattern": "ubiquitous",
+          "system": "is_explicitly_configured()",
+          "action": "walks config resolution layers 1 (mode-level override), 2 (per-archetype override), and 3 (legacy dict override) in order; returns True if any layer returns a non-None value for the given archetype/mode; returns False if all three return None",
+          "return_contract": "bool"
+        },
+        {
+          "id": "15-REQ-6.2",
+          "ears_pattern": "state_driven",
+          "system": "is_explicitly_configured()",
+          "action": "skips layer 1 (mode-level override check) entirely and proceeds directly to layers 2–3; a None mode never causes layer 1 to return True",
+          "return_contract": "bool based on layers 2–3 only",
+          "state": "mode is None"
+        },
+        {
+          "id": "15-REQ-6.3",
+          "ears_pattern": "event_driven",
+          "system": "AssessmentManager.assess_node()",
+          "action": "skips LLM assessment; uses the explicitly configured tier/variant as the EscalationLadder starting point; logs DEBUG entry with node_id, archetype, mode, and resolved tier",
+          "return_contract": "EscalationLadder at explicitly configured tier/variant",
+          "trigger": "is_explicitly_configured() returns True for the given archetype/mode"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "15-REQ-6.E1",
+          "ears_pattern": "event_driven",
+          "system": "is_explicitly_configured()",
+          "action": "returns True immediately if layer 1 yields a non-None value, without checking layers 2–3",
+          "return_contract": "True",
+          "trigger": "layer 1 check is performed with a non-None mode"
+        }
+      ]
+    },
+    {
+      "id": "15-REQ-7",
+      "title": "Config resolution priority ordering",
+      "user_story": {
+        "role": "dispatch system",
+        "goal": "resolve model tier and variant according to a strict five-layer priority order, with explicit overrides always winning over dynamic assessment and registry defaults",
+        "benefit": "operators retain full control via explicit configuration while the assessor provides dynamic upgrades only in the absence of explicit settings"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "15-REQ-7.1",
+          "ears_pattern": "ubiquitous",
+          "system": "model resolution pipeline",
+          "action": "resolves model tier/variant in strict priority order: (1) mode-level config override, (2) per-archetype config override, (3) legacy dict override, (4) LLM assessment upgrade, (5) archetype registry default",
+          "return_contract": null
+        },
+        {
+          "id": "15-REQ-7.2",
+          "ears_pattern": "ubiquitous",
+          "system": "LLM assessment upgrade (layer 4)",
+          "action": "may only upgrade from the archetype registry default floor; it never overrides explicit config overrides set at layers 1–3",
+          "return_contract": null
+        },
+        {
+          "id": "15-REQ-7.3",
+          "ears_pattern": "ubiquitous",
+          "system": "archetype registry default (layer 5)",
+          "action": "serves as the base floor tier/variant used by apply_assessment() when no explicit override exists at layers 1–3 and no LLM assessment upgrade applies",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "15-REQ-8",
+      "title": "Revised default model assignments in ARCHETYPE_REGISTRY",
+      "user_story": {
+        "role": "system operator",
+        "goal": "have all archetype/mode combinations use updated default tier and variant assignments that reflect quality guarantees and cost-efficiency goals",
+        "benefit": "quality-critical modes default to ADVANCED tier while cost-sensitive modes default to STANDARD or SIMPLE, forming the assessment floor"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "15-REQ-8.1",
+          "ears_pattern": "ubiquitous",
+          "system": "ARCHETYPE_REGISTRY",
+          "action": "assigns coder default to STANDARD / standard; coder (fix) default to STANDARD / standard",
+          "return_contract": null
+        },
+        {
+          "id": "15-REQ-8.2",
+          "ears_pattern": "ubiquitous",
+          "system": "ARCHETYPE_REGISTRY",
+          "action": "assigns reviewer (pre-review) default to ADVANCED / standard; reviewer (drift-review) default to STANDARD / standard; reviewer (audit-review) default to ADVANCED / standard; reviewer (fix-review) default to ADVANCED / standard",
+          "return_contract": null
+        },
+        {
+          "id": "15-REQ-8.3",
+          "ears_pattern": "ubiquitous",
+          "system": "ARCHETYPE_REGISTRY",
+          "action": "assigns verifier default to STANDARD / standard",
+          "return_contract": null
+        },
+        {
+          "id": "15-REQ-8.4",
+          "ears_pattern": "ubiquitous",
+          "system": "ARCHETYPE_REGISTRY",
+          "action": "assigns maintainer (hunt) default to SIMPLE / standard; maintainer (fix-triage) default to STANDARD / standard; maintainer (extraction) default to SIMPLE / standard",
+          "return_contract": null
+        },
+        {
+          "id": "15-REQ-8.5",
+          "ears_pattern": "ubiquitous",
+          "system": "ARCHETYPE_REGISTRY",
+          "action": "applies new defaults immediately with no migration path; all 10 archetype/mode combinations reflect the new assignments at system startup",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "15-REQ-9",
+      "title": "Dispatch integration via DispatchManager.prepare_launch()",
+      "user_story": {
+        "role": "DispatchManager",
+        "goal": "extract node_body and previous_failure from the task graph and error_tracker and pass them to assess_node() before launching a node",
+        "benefit": "complexity assessment receives the correct task content and failure context without the dispatch layer requiring knowledge of assessment internals"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "15-REQ-9.1",
+          "ears_pattern": "ubiquitous",
+          "system": "DispatchManager.prepare_launch()",
+          "action": "extracts node_body from the task graph node via self.get_node(node_id).body and passes it to assess_node()",
+          "return_contract": null
+        },
+        {
+          "id": "15-REQ-9.2",
+          "ears_pattern": "ubiquitous",
+          "system": "DispatchManager.prepare_launch()",
+          "action": "extracts previous_failure from the error_tracker dict (the same previous_error string used for error feedback in retries); passes None if no prior failure exists for the node",
+          "return_contract": null
+        },
+        {
+          "id": "15-REQ-9.3",
+          "ears_pattern": "ubiquitous",
+          "system": "DispatchManager.prepare_launch()",
+          "action": "passes both node_body and previous_failure to self._routing.assess_node() along with node_id, archetype, and mode",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "15-REQ-9.E1",
+          "ears_pattern": "event_driven",
+          "system": "DispatchManager.prepare_launch()",
+          "action": "passes previous_failure=None to assess_node()",
+          "return_contract": null,
+          "trigger": "no prior failure entry exists in error_tracker for the node"
+        }
+      ]
+    },
+    {
+      "id": "15-REQ-10",
+      "title": "RoutingConfig configuration fields with eager validation",
+      "user_story": {
+        "role": "system operator",
+        "goal": "configure the assessor model and confidence threshold via RoutingConfig with validation at startup",
+        "benefit": "invalid configuration values are caught immediately at load time, preventing silent misconfiguration from reaching production"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "15-REQ-10.1",
+          "ears_pattern": "ubiquitous",
+          "system": "RoutingConfig",
+          "action": "adds assessor_model field (str, default 'claude-haiku-4-5') under the [routing] section in config.toml; validated at config load time as a non-empty string",
+          "return_contract": null
+        },
+        {
+          "id": "15-REQ-10.2",
+          "ears_pattern": "ubiquitous",
+          "system": "RoutingConfig",
+          "action": "adds confidence_threshold field (float, default 0.6) under the [routing] section; validated at config load time using Field(ge=0.0, le=1.0) or equivalent Clamped annotation",
+          "return_contract": null
+        },
+        {
+          "id": "15-REQ-10.3",
+          "ears_pattern": "ubiquitous",
+          "system": "RoutingConfig",
+          "action": "validates both fields eagerly at config load time using Pydantic v2; validation errors raise ValidationError at startup before any dispatch occurs",
+          "return_contract": "ValidationError raised at startup for invalid values"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "15-REQ-10.E1",
+          "ears_pattern": "unwanted",
+          "system": "RoutingConfig",
+          "action": "raises ValidationError at config load time; system does not start",
+          "return_contract": "ValidationError with descriptive message",
+          "error_condition": "assessor_model is set to an empty string"
+        },
+        {
+          "id": "15-REQ-10.E2",
+          "ears_pattern": "unwanted",
+          "system": "RoutingConfig",
+          "action": "raises ValidationError at config load time; system does not start",
+          "return_contract": "ValidationError with descriptive message",
+          "error_condition": "confidence_threshold is set to a value outside [0.0, 1.0]"
+        }
+      ]
+    },
+    {
+      "id": "15-REQ-11",
+      "title": "Nightshift triage integration and AssessedComplexity passthrough",
+      "user_story": {
+        "role": "nightshift orchestrator",
+        "goal": "embed a complexity assessment in the triage output and pass it directly to assess_node() for the coder node, bypassing the Haiku LLM call",
+        "benefit": "the triage model's deeper context about the issue is leveraged for complexity assessment without a redundant Haiku call"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "15-REQ-11.1",
+          "ears_pattern": "ubiquitous",
+          "system": "nightshift/fix_pipeline.py",
+          "action": "defines the AssessedComplexity frozen dataclass with fields: tier (str), variant (str or None), confidence (float), and rationale (str); adds assessed_complexity (AssessedComplexity or None, default None) to TriageResult",
+          "return_contract": null
+        },
+        {
+          "id": "15-REQ-11.2",
+          "ears_pattern": "ubiquitous",
+          "system": "assessed_complexity_to_recommendation()",
+          "action": "converts an AssessedComplexity to an AssessmentResult by mapping tier→recommended_tier, variant→recommended_variant, and copying confidence and rationale unchanged",
+          "return_contract": "AssessmentResult with recommended_tier, recommended_variant, confidence, rationale"
+        },
+        {
+          "id": "15-REQ-11.3",
+          "ears_pattern": "event_driven",
+          "system": "AssessmentManager.assess_node()",
+          "action": "converts pre_assessed via assessed_complexity_to_recommendation(); applies result via apply_assessment(); skips the ComplexityAssessor LLM call entirely",
+          "return_contract": "EscalationLadder at upgraded tier/variant if confidence >= threshold",
+          "trigger": "pre_assessed is a valid AssessedComplexity"
+        },
+        {
+          "id": "15-REQ-11.4",
+          "ears_pattern": "event_driven",
+          "system": "AssessmentManager.assess_node()",
+          "action": "falls back to the standard ComplexityAssessor LLM call for assessment",
+          "return_contract": "EscalationLadder from LLM assessment or base fallback",
+          "trigger": "pre_assessed is None"
+        },
+        {
+          "id": "15-REQ-11.5",
+          "ears_pattern": "ubiquitous",
+          "system": "nightshift/coder_reviewer.py",
+          "action": "extracts TriageResult.assessed_complexity once and passes it as pre_assessed to assess_node() for the coder node only; fix-review nodes do not receive pre_assessed and follow their own assessment path",
+          "return_contract": null
+        },
+        {
+          "id": "15-REQ-11.6",
+          "ears_pattern": "ubiquitous",
+          "system": "triage prompt and parser (nightshift/triage.py)",
+          "action": "updates the triage prompt to request an assessed_complexity nested JSON object with fields tier, variant, confidence, and rationale; parses the response into AssessedComplexity applying the same field-level validation rules as Requirement 2 (case-sensitive string matching, float range check)",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "15-REQ-11.E1",
+          "ears_pattern": "unwanted",
+          "system": "nightshift/triage.py parser",
+          "action": "applies partial failure semantics: sets TriageResult.assessed_complexity = None and logs WARNING; rest of TriageResult is parsed and used normally",
+          "return_contract": "TriageResult with assessed_complexity=None",
+          "error_condition": "triage response contains valid outer JSON but assessed_complexity field is missing, malformed, or contains out-of-range or unrecognised values"
+        },
+        {
+          "id": "15-REQ-11.E2",
+          "ears_pattern": "unwanted",
+          "system": "nightshift/triage.py parser",
+          "action": "treats the entire assessed_complexity sub-object as invalid and sets it to None; does not attempt to recover individual valid fields from the sub-object",
+          "return_contract": "TriageResult with assessed_complexity=None",
+          "error_condition": "no partial field salvaging is attempted within a malformed assessed_complexity sub-object"
+        }
+      ]
+    },
+    {
+      "id": "15-REQ-12",
+      "title": "Error handling with silent fallback and structured logging",
+      "user_story": {
+        "role": "dispatch system",
+        "goal": "handle all assessment failures silently by falling back to base tier/variant without blocking or delaying dispatch",
+        "benefit": "the complexity assessor never becomes a hard dependency on dispatch availability; nodes are always dispatched even when assessment fails"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "15-REQ-12.1",
+          "ears_pattern": "ubiquitous",
+          "system": "ComplexityAssessor",
+          "action": "on any API call failure (network error, rate limit, timeout, malformed JSON, or validation failure), logs a WARNING with exception details and returns base_tier/base_variant unchanged without raising",
+          "return_contract": "base_tier/base_variant tuple"
+        },
+        {
+          "id": "15-REQ-12.2",
+          "ears_pattern": "ubiquitous",
+          "system": "AssessmentManager.assess_node()",
+          "action": "on successful assessment, emits a structured DEBUG log entry with keys: node_id, archetype, mode, effective_tier, effective_variant, confidence, and rationale",
+          "return_contract": null
+        },
+        {
+          "id": "15-REQ-12.3",
+          "ears_pattern": "event_driven",
+          "system": "AssessmentManager.assess_node()",
+          "action": "skips assessment and logs DEBUG message indicating body is absent or empty for the node_id",
+          "return_contract": "EscalationLadder at base tier/variant",
+          "trigger": "node_body is None or empty string"
+        },
+        {
+          "id": "15-REQ-12.4",
+          "ears_pattern": "event_driven",
+          "system": "AssessmentManager.assess_node()",
+          "action": "logs DEBUG entry with node_id, archetype, mode, and resolved tier indicating assessment was skipped due to explicit configuration",
+          "return_contract": "EscalationLadder at configured tier/variant",
+          "trigger": "explicit config override detected via is_explicitly_configured()"
+        },
+        {
+          "id": "15-REQ-12.5",
+          "ears_pattern": "ubiquitous",
+          "system": "AssessmentManager",
+          "action": "the permanently-disabled path (client=None) produces no log entry; it is treated as a configuration state rather than a per-call event",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "15-REQ-12.E1",
+          "ears_pattern": "unwanted",
+          "system": "ComplexityAssessor",
+          "action": "treats context-limit error as a standard assessment failure; logs WARNING with exception details; falls back silently to base tier/variant; no truncation or retry with shortened body is attempted",
+          "return_contract": "base_tier/base_variant unchanged",
+          "error_condition": "node_body causes a context-limit error on the Anthropic API"
+        }
+      ]
+    }
+  ],
+  "correctness_properties": [
+    {
+      "id": "15-PROP-1",
+      "title": "Upgrade-only invariant: effective tier never below base tier",
+      "for_any": "archetype/mode combination with base_tier B and recommendation.recommended_tier R",
+      "invariant": "apply_assessment() returns effective_tier >= B in `ModelTier` ordering; if R < B, effective_tier = B",
+      "validates": [
+        "15-REQ-3.3",
+        "15-REQ-3.E1"
+      ]
+    },
+    {
+      "id": "15-PROP-2",
+      "title": "Upgrade-only invariant: effective variant never below base variant",
+      "for_any": "non-None base_variant BV and non-None recommendation.recommended_variant RV",
+      "invariant": "apply_assessment() returns effective_variant >= BV in `VARIANT_ORDER`; if RV < BV, effective_variant = BV",
+      "validates": [
+        "15-REQ-3.6",
+        "15-REQ-3.E1"
+      ]
+    },
+    {
+      "id": "15-PROP-3",
+      "title": "None base_variant is never changed by assessment",
+      "for_any": "any assessment recommendation applied to a base_variant of None",
+      "invariant": "apply_assessment() always returns effective_variant = None when base_variant is None, regardless of recommendation.recommended_variant",
+      "validates": [
+        "15-REQ-3.4"
+      ]
+    },
+    {
+      "id": "15-PROP-4",
+      "title": "Confidence gate: below-threshold recommendations are ignored",
+      "for_any": "any AssessmentResult with confidence C and configured confidence_threshold T",
+      "invariant": "if C < T, apply_assessment() returns (base_tier, base_variant) unchanged; no tier or variant upgrade is applied",
+      "validates": [
+        "15-REQ-3.2"
+      ]
+    },
+    {
+      "id": "15-PROP-5",
+      "title": "Explicit config override always wins over assessment",
+      "for_any": "any archetype/mode combination where is_explicitly_configured() returns True",
+      "invariant": "the EscalationLadder's starting_tier and starting_variant are set from config layers 1–3; the `ComplexityAssessor` LLM call is never made; the assessed tier/variant is never applied",
+      "validates": [
+        "15-REQ-6.3",
+        "15-REQ-7.1",
+        "15-REQ-7.2"
+      ]
+    },
+    {
+      "id": "15-PROP-6",
+      "title": "Assessment failure never blocks dispatch",
+      "for_any": "any assessment failure condition (network error, timeout, rate limit, parse failure, context-limit error)",
+      "invariant": "assess_node() always returns an EscalationLadder at base tier/variant without raising an exception; dispatch continues unblocked",
+      "validates": [
+        "15-REQ-12.1",
+        "15-REQ-2.E1",
+        "15-REQ-2.E2",
+        "15-REQ-2.E3",
+        "15-REQ-12.E1"
+      ]
+    },
+    {
+      "id": "15-PROP-7",
+      "title": "Quality guarantee: pre-review and audit-review always default to ADVANCED",
+      "for_any": "reviewer archetype with mode pre-review or audit-review, with no explicit config override",
+      "invariant": "the `ARCHETYPE_REGISTRY` floor for these modes is ADVANCED / standard; the `EscalationLadder` starting_tier is never below ADVANCED for these modes when using registry defaults",
+      "validates": [
+        "15-REQ-8.2"
+      ]
+    },
+    {
+      "id": "15-PROP-8",
+      "title": "Nightshift pre-assessed path bypasses Haiku call",
+      "for_any": "any assess_node() call with a non-None pre_assessed AssessedComplexity",
+      "invariant": "`ComplexityAssessor.assess()` is never called; the result is derived solely from `assessed_complexity_to_recommendation()` + `apply_assessment()` applied to the pre_assessed value",
+      "validates": [
+        "15-REQ-11.3"
+      ]
+    },
+    {
+      "id": "15-PROP-9",
+      "title": "Statelessness: concurrent assessment calls do not interfere",
+      "for_any": "any set of concurrent assess_node() invocations on the same AssessmentManager instance",
+      "invariant": "`ComplexityAssessor` maintains no shared mutable state between calls; each call's result depends only on its own inputs; no locking is required",
+      "validates": [
+        "15-REQ-1.5"
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "15-PATH-1",
+      "title": "Successful LLM complexity assessment upgrades coder node tier",
+      "steps": [
+        {
+          "actor": "DispatchManager",
+          "action": "prepare_launch() extracts node_body from task graph node and previous_failure=None from error_tracker; calls assess_node() with archetype='coder', mode=None, node_body, previous_failure=None"
+        },
+        {
+          "actor": "AssessmentManager",
+          "action": "assess_node() detects client is present; node_body is non-empty; is_explicitly_configured() returns False; pre_assessed is None; calls ComplexityAssessor.assess()"
+        },
+        {
+          "actor": "ComplexityAssessor",
+          "action": "constructs prompt with system role, archetype/mode, base_tier=STANDARD/standard, full node_body; sends to assessor_model with 30-second timeout; receives and validates JSON response"
+        },
+        {
+          "actor": "ComplexityAssessor",
+          "action": "returns AssessmentResult with recommended_tier='ADVANCED', recommended_variant='extended', confidence=0.82, rationale='Complex multi-module refactor'"
+        },
+        {
+          "actor": "AssessmentManager",
+          "action": "calls apply_assessment() with recommendation, base_tier='STANDARD', base_variant='standard', confidence_threshold=0.6; confidence 0.82 >= 0.6 passes gate; effective_tier='ADVANCED', effective_variant='extended'"
+        },
+        {
+          "actor": "AssessmentManager",
+          "action": "constructs EscalationLadder with starting_tier='ADVANCED', starting_variant='extended'; emits structured DEBUG log with node_id, archetype, mode, effective_tier, effective_variant, confidence, rationale; returns ladder"
+        }
+      ]
+    },
+    {
+      "id": "15-PATH-2",
+      "title": "Assessment API failure falls back silently to base tier",
+      "steps": [
+        {
+          "actor": "DispatchManager",
+          "action": "prepare_launch() calls assess_node() with node_body and archetype='coder'"
+        },
+        {
+          "actor": "AssessmentManager",
+          "action": "assess_node() confirms client present, body non-empty, no explicit override, no pre_assessed; calls ComplexityAssessor.assess()"
+        },
+        {
+          "actor": "ComplexityAssessor",
+          "action": "API call fails with network error after timeout; catches exception; logs WARNING with exception details"
+        },
+        {
+          "actor": "AssessmentManager",
+          "action": "receives base tier/variant from assessor fallback; constructs EscalationLadder at base tier/variant (STANDARD/standard for coder); returns ladder without blocking dispatch"
+        }
+      ]
+    },
+    {
+      "id": "15-PATH-3",
+      "title": "Explicit config override skips assessment",
+      "steps": [
+        {
+          "actor": "DispatchManager",
+          "action": "prepare_launch() calls assess_node() with archetype='coder', mode='fix', node_body, previous_failure=None"
+        },
+        {
+          "actor": "AssessmentManager",
+          "action": "assess_node() checks is_explicitly_configured('coder', 'fix'); returns True because layer 1 (mode-level override) has a non-None value"
+        },
+        {
+          "actor": "AssessmentManager",
+          "action": "logs DEBUG entry with node_id, archetype='coder', mode='fix', and resolved tier from config override; skips ComplexityAssessor call"
+        },
+        {
+          "actor": "AssessmentManager",
+          "action": "constructs EscalationLadder at the explicitly configured tier/variant; returns ladder"
+        }
+      ]
+    },
+    {
+      "id": "15-PATH-4",
+      "title": "Nightshift pre-assessed triage bypasses Haiku call",
+      "steps": [
+        {
+          "actor": "nightshift triage model",
+          "action": "produces TriageResult with assessed_complexity=AssessedComplexity(tier='ADVANCED', variant='standard', confidence=0.8, rationale='Complex multi-module refactor')"
+        },
+        {
+          "actor": "nightshift/coder_reviewer.py",
+          "action": "extracts TriageResult.assessed_complexity; passes it as pre_assessed to assess_node() for the coder node"
+        },
+        {
+          "actor": "AssessmentManager",
+          "action": "assess_node() detects pre_assessed is non-None; calls assessed_complexity_to_recommendation() to convert AssessedComplexity to AssessmentResult"
+        },
+        {
+          "actor": "AssessmentManager",
+          "action": "calls apply_assessment() with the converted recommendation; skips ComplexityAssessor LLM call entirely; constructs EscalationLadder at upgraded tier/variant"
+        },
+        {
+          "actor": "AssessmentManager",
+          "action": "emits structured DEBUG log with effective_tier, effective_variant, confidence, rationale; returns EscalationLadder"
+        }
+      ]
+    },
+    {
+      "id": "15-PATH-5",
+      "title": "Failed node re-assessed with failure context for proactive escalation",
+      "steps": [
+        {
+          "actor": "DispatchManager",
+          "action": "prepare_launch() detects node has a prior failure; extracts previous_failure string from error_tracker; calls assess_node() with previous_failure set"
+        },
+        {
+          "actor": "AssessmentManager",
+          "action": "assess_node() discards any existing EscalationLadder; calls ComplexityAssessor.assess() with previous_failure appended as context"
+        },
+        {
+          "actor": "ComplexityAssessor",
+          "action": "constructs prompt including failure context section; sends to assessor_model; receives AssessmentResult recommending higher tier based on failure mode"
+        },
+        {
+          "actor": "AssessmentManager",
+          "action": "applies upgrade-only semantics via apply_assessment(); constructs new EscalationLadder at re-assessed starting_tier/starting_variant with same ceiling and retry config; prior retry state not preserved"
+        }
+      ]
+    },
+    {
+      "id": "15-PATH-6",
+      "title": "Absent client disables assessment for all nodes silently",
+      "steps": [
+        {
+          "actor": "session_runner_factory",
+          "action": "constructs AssessmentManager with client=None (e.g. in offline/test environment)"
+        },
+        {
+          "actor": "AssessmentManager",
+          "action": "__init__() skips ComplexityAssessor instantiation; no log entry is emitted"
+        },
+        {
+          "actor": "DispatchManager",
+          "action": "prepare_launch() calls assess_node() for a node"
+        },
+        {
+          "actor": "AssessmentManager",
+          "action": "assess_node() detects no assessor; immediately constructs EscalationLadder at base tier/variant; returns without logging any warning or error"
+        }
+      ]
+    }
+  ],
+  "error_handling": [
+    {
+      "id": "15-ERR-1",
+      "condition": "ComplexityAssessor API call fails with network error, rate limit, or timeout",
+      "behavior": "logs WARNING with exception details; returns base_tier/base_variant unchanged; never raises; dispatch continues unblocked",
+      "requirement_id": "15-REQ-12.1"
+    },
+    {
+      "id": "15-ERR-2",
+      "condition": "LLM response is malformed JSON or missing required fields",
+      "behavior": "treats as total parse failure; no partial field salvaging; logs WARNING; returns base_tier/base_variant unchanged",
+      "requirement_id": "15-REQ-2.E1"
+    },
+    {
+      "id": "15-ERR-3",
+      "condition": "LLM response confidence is outside [0.0, 1.0] or recommended_tier/recommended_variant contain unrecognised or wrong-case values",
+      "behavior": "treats as total parse failure; no partial field salvaging; logs WARNING; returns base_tier/base_variant unchanged",
+      "requirement_id": "15-REQ-2.E1"
+    },
+    {
+      "id": "15-ERR-4",
+      "condition": "Assessment API call exceeds 30-second SDK timeout",
+      "behavior": "treats timeout as any other failure; logs WARNING with exception details; returns base_tier/base_variant unchanged; dispatch continues",
+      "requirement_id": "15-REQ-2.E2"
+    },
+    {
+      "id": "15-ERR-5",
+      "condition": "node_body is None or empty string when assess_node() is called",
+      "behavior": "skips assessment entirely; logs DEBUG message indicating body absent or empty for the node_id; returns EscalationLadder at base tier/variant",
+      "requirement_id": "15-REQ-4.E1"
+    },
+    {
+      "id": "15-ERR-6",
+      "condition": "RoutingConfig loaded with assessor_model as empty string",
+      "behavior": "raises ValidationError at config load time; system does not start",
+      "requirement_id": "15-REQ-10.E1"
+    },
+    {
+      "id": "15-ERR-7",
+      "condition": "RoutingConfig loaded with confidence_threshold outside [0.0, 1.0]",
+      "behavior": "raises ValidationError at config load time; system does not start",
+      "requirement_id": "15-REQ-10.E2"
+    },
+    {
+      "id": "15-ERR-8",
+      "condition": "Triage response contains valid outer JSON but assessed_complexity is missing, malformed, or contains invalid values",
+      "behavior": "partial failure: sets TriageResult.assessed_complexity=None; logs WARNING; rest of TriageResult is parsed and used normally; triage does not fail entirely",
+      "requirement_id": "15-REQ-11.E1"
+    },
+    {
+      "id": "15-ERR-9",
+      "condition": "node_body is exceptionally large and causes a context-limit error on the Anthropic API",
+      "behavior": "treats context-limit error as standard assessment failure; logs WARNING; falls back silently to base tier/variant; no truncation or retry with shortened body attempted",
+      "requirement_id": "15-REQ-12.E1"
+    },
+    {
+      "id": "15-ERR-10",
+      "condition": "AssessmentManager instantiated with client=None",
+      "behavior": "ComplexityAssessor not instantiated; every assess_node() call silently returns EscalationLadder at base tier/variant; no log entry emitted",
+      "requirement_id": "15-REQ-1.E1"
+    }
+  ]
+}

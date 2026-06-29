@@ -21,7 +21,7 @@ _ARCHETYPES = [
     "triage",
     "fix_coder",
     "fix_reviewer",
-    "hunt_critic",
+    "maintainer",
     "batch_triage",
     "staleness_check",
 ]

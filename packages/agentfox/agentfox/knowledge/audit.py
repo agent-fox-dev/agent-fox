@@ -76,7 +76,6 @@ class AuditEventType(StrEnum):
     VERDICT_NORMALIZED = "review.verdict_normalized"
     NIGHT_SHIFT_START = "night_shift.start"
     NIGHT_SHIFT_STOP = "night_shift.stop"
-    HUNT_SCAN_COMPLETE = "night_shift.hunt_scan_complete"
     ISSUE_CREATED = "night_shift.issue_created"
     ISSUE_SUPERSEDED = "night_shift.issue_superseded"
     ISSUE_OBSOLETE = "night_shift.issue_obsolete"

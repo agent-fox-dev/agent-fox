@@ -190,7 +190,7 @@ def test_smoke_auxiliary_costs_in_audit_events() -> None:
     emit_auxiliary_cost(
         sink,
         "smoke-run-1",
-        "hunt_critic",
+        "maintainer",
         mock_response,
         "claude-opus-4-5",
         mock_pricing,
@@ -200,7 +200,7 @@ def test_smoke_auxiliary_costs_in_audit_events() -> None:
     assert len(rows) >= 1, "emit_auxiliary_cost must write a session.complete row to DuckDB"
 
     payload = json.loads(rows[0][0]) if isinstance(rows[0][0], str) else rows[0][0]
-    assert payload.get("archetype") == "hunt_critic", (
+    assert payload.get("archetype") == "maintainer", (
         f"Expected archetype='hunt_critic' in payload, got: {payload.get('archetype')}"
     )
     assert payload.get("cost", 0) > 0, f"cost must be > 0 after auxiliary cost emission, got {payload.get('cost')}"

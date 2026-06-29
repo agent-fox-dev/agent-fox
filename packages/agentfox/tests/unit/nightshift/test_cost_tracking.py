@@ -560,14 +560,14 @@ class TestEmitAuxiliaryCost:
             emit_auxiliary_cost(
                 mock_sink,
                 "run-1",
-                "hunt_critic",
+                "maintainer",
                 mock_response,
                 "claude-opus-4-5",
                 mock_pricing,
             )
 
         payload = mock_emit.call_args.kwargs.get("payload", {})
-        assert payload.get("archetype") == "hunt_critic"
+        assert payload.get("archetype") == "maintainer"
         assert payload.get("input_tokens") == 100
         assert payload.get("output_tokens") == 50
         assert isinstance(payload.get("cost"), float)
@@ -601,7 +601,7 @@ class TestEmitAuxiliaryCostNoopNoneSink:
         emit_auxiliary_cost(
             None,
             "run-1",
-            "hunt_critic",
+            "maintainer",
             mock_response,
             "claude-opus-4-5",
             mock_pricing,

@@ -34,14 +34,12 @@ logger = logging.getLogger(__name__)
 
 _STREAM_DISPLAY_NAMES: dict[str, str] = {
     "fix-pipeline": "fix check",
-    "hunt-scan": "hunt scan",
     "spec-executor": "spec check",
 }
 
 _STREAM_ACTIVE_LABELS: dict[str, str] = {
     "spec-executor": "spec sessions",
     "fix-pipeline": "fix pipeline",
-    "hunt-scan": "hunt scan",
 }
 
 
@@ -74,7 +72,7 @@ def _format_active_text(
     when the next idle check is scheduled.
     """
     # Display active streams in priority order for a consistent label.
-    _prio = ["spec-executor", "fix-pipeline", "hunt-scan"]
+    _prio = ["spec-executor", "fix-pipeline"]
     sorted_active = [s for s in _prio if s in active_streams] + sorted(s for s in active_streams if s not in _prio)
     labels = [_STREAM_ACTIVE_LABELS.get(s, s) for s in sorted_active]
     running_part = ", ".join(labels)
@@ -164,7 +162,6 @@ class DaemonRunner:
     _PRIORITY_ORDER = [
         "spec-executor",
         "fix-pipeline",
-        "hunt-scan",
     ]
 
     def __init__(
@@ -192,7 +189,6 @@ class DaemonRunner:
         known_stream_names = {
             "specs": "spec-executor",
             "fixes": "fix-pipeline",
-            "hunts": "hunt-scan",
         }
         enabled_cfg = getattr(getattr(config, "night_shift", None), "enabled_streams", None)
         if enabled_cfg:

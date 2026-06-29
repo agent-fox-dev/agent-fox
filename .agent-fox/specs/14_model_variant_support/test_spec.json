@@ -1,0 +1,899 @@
+{
+  "$schema": null,
+  "spec_id": "14",
+  "spec_name": "model_variant_support",
+  "schema_version": 1,
+  "test_cases": [
+    {
+      "id": "TS-14-1",
+      "requirement_id": "14-REQ-1.1",
+      "kind": "unit",
+      "description": "Verify that ModelEntry exposes an optional variant field defaulting to None.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/models.py contains the updated ModelEntry dataclass"
+      ],
+      "input": "ModelEntry(model_id='claude-opus-4-6', tier='ADVANCED')",
+      "expected": "ModelEntry instance with variant attribute equal to None",
+      "assertion_pseudocode": "entry = ModelEntry(model_id='claude-opus-4-6', tier='ADVANCED')\nassert entry.variant is None"
+    },
+    {
+      "id": "TS-14-2",
+      "requirement_id": "14-REQ-1.2",
+      "kind": "unit",
+      "description": "Verify that ModelEntry accepts None as a valid variant value.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/models.py contains the updated ModelEntry dataclass"
+      ],
+      "input": "ModelEntry(model_id='claude-haiku-4-5', tier='SIMPLE', variant=None)",
+      "expected": "ModelEntry instance created without error with variant=None",
+      "assertion_pseudocode": "entry = ModelEntry(model_id='claude-haiku-4-5', tier='SIMPLE', variant=None)\nassert entry.variant is None"
+    },
+    {
+      "id": "TS-14-3",
+      "requirement_id": "14-REQ-1.3",
+      "kind": "unit",
+      "description": "Verify that ModelEntry accepts canonical variant strings and arbitrary strings.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/models.py contains the updated ModelEntry dataclass"
+      ],
+      "input": "ModelEntry instances with variant='fast', variant='standard', variant='extended', variant='turbo'",
+      "expected": "All four instances created without error with the respective variant values",
+      "assertion_pseudocode": "for v in ['fast', 'standard', 'extended', 'turbo']:\n    entry = ModelEntry(model_id='test-model', tier='ADVANCED', variant=v)\n    assert entry.variant == v"
+    },
+    {
+      "id": "TS-14-4",
+      "requirement_id": "14-REQ-2.1",
+      "kind": "unit",
+      "description": "Verify that MODEL_REGISTRY contains claude-haiku-4-5 with tier=SIMPLE and variant=None.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/models.py with updated MODEL_REGISTRY is importable"
+      ],
+      "input": "MODEL_REGISTRY lookup for claude-haiku-4-5",
+      "expected": "ModelEntry with tier='SIMPLE' and variant=None",
+      "assertion_pseudocode": "from agentfox.core.models import MODEL_REGISTRY\nentry = next(e for e in MODEL_REGISTRY if e.model_id == 'claude-haiku-4-5')\nassert entry.tier == 'SIMPLE'\nassert entry.variant is None"
+    },
+    {
+      "id": "TS-14-5",
+      "requirement_id": "14-REQ-2.2",
+      "kind": "unit",
+      "description": "Verify that MODEL_REGISTRY contains claude-sonnet-4-6 with tier=STANDARD and variant=None.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/models.py with updated MODEL_REGISTRY is importable"
+      ],
+      "input": "MODEL_REGISTRY lookup for claude-sonnet-4-6",
+      "expected": "ModelEntry with tier='STANDARD' and variant=None",
+      "assertion_pseudocode": "from agentfox.core.models import MODEL_REGISTRY\nentry = next(e for e in MODEL_REGISTRY if e.model_id == 'claude-sonnet-4-6')\nassert entry.tier == 'STANDARD'\nassert entry.variant is None"
+    },
+    {
+      "id": "TS-14-6",
+      "requirement_id": "14-REQ-2.3",
+      "kind": "unit",
+      "description": "Verify that MODEL_REGISTRY contains claude-opus-4-6 with tier=ADVANCED and variant='standard'.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/models.py with updated MODEL_REGISTRY is importable"
+      ],
+      "input": "MODEL_REGISTRY lookup for claude-opus-4-6",
+      "expected": "ModelEntry with tier='ADVANCED' and variant='standard'",
+      "assertion_pseudocode": "from agentfox.core.models import MODEL_REGISTRY\nentry = next(e for e in MODEL_REGISTRY if e.model_id == 'claude-opus-4-6')\nassert entry.tier == 'ADVANCED'\nassert entry.variant == 'standard'"
+    },
+    {
+      "id": "TS-14-7",
+      "requirement_id": "14-REQ-2.4",
+      "kind": "unit",
+      "description": "Verify that MODEL_REGISTRY contains claude-opus-4-6[1m] with tier=ADVANCED and variant='extended'.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/models.py with updated MODEL_REGISTRY is importable"
+      ],
+      "input": "MODEL_REGISTRY lookup for claude-opus-4-6[1m]",
+      "expected": "ModelEntry with tier='ADVANCED' and variant='extended'",
+      "assertion_pseudocode": "from agentfox.core.models import MODEL_REGISTRY\nentry = next(e for e in MODEL_REGISTRY if e.model_id == 'claude-opus-4-6[1m]')\nassert entry.tier == 'ADVANCED'\nassert entry.variant == 'extended'"
+    },
+    {
+      "id": "TS-14-8",
+      "requirement_id": "14-REQ-3.1",
+      "kind": "unit",
+      "description": "Verify that VARIANT_ORDER maps fast to 0, standard to 1, and extended to 2.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/models.py with VARIANT_ORDER is importable"
+      ],
+      "input": "VARIANT_ORDER constant",
+      "expected": "{'fast': 0, 'standard': 1, 'extended': 2}",
+      "assertion_pseudocode": "from agentfox.core.models import VARIANT_ORDER\nassert VARIANT_ORDER['fast'] == 0\nassert VARIANT_ORDER['standard'] == 1\nassert VARIANT_ORDER['extended'] == 2"
+    },
+    {
+      "id": "TS-14-9",
+      "requirement_id": "14-REQ-3.2",
+      "kind": "unit",
+      "description": "Verify that VARIANT_ORDER is importable from models.py without causing circular import errors.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/models.py with VARIANT_ORDER defined"
+      ],
+      "input": "import statement: from agentfox.core.models import VARIANT_ORDER",
+      "expected": "Import succeeds without ImportError or circular import traceback",
+      "assertion_pseudocode": "# executed in a fresh Python subprocess or isolated import scope\nfrom agentfox.core.models import VARIANT_ORDER\nassert VARIANT_ORDER is not None"
+    },
+    {
+      "id": "TS-14-10",
+      "requirement_id": "14-REQ-3.3",
+      "kind": "unit",
+      "description": "Verify that None is not a key in VARIANT_ORDER.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/models.py with VARIANT_ORDER is importable"
+      ],
+      "input": "VARIANT_ORDER constant",
+      "expected": "None is absent from VARIANT_ORDER keys",
+      "assertion_pseudocode": "from agentfox.core.models import VARIANT_ORDER\nassert None not in VARIANT_ORDER"
+    },
+    {
+      "id": "TS-14-11",
+      "requirement_id": "14-REQ-4.1",
+      "kind": "unit",
+      "description": "Verify that ArchetypeEntry exposes default_model_variant as an optional field defaulting to None.",
+      "preconditions": [
+        "packages/agentfox/agentfox/archetypes.py with updated ArchetypeEntry is importable"
+      ],
+      "input": "ArchetypeEntry constructed without specifying default_model_variant",
+      "expected": "ArchetypeEntry instance with default_model_variant equal to None",
+      "assertion_pseudocode": "entry = ArchetypeEntry(...)  # minimal required fields only\nassert entry.default_model_variant is None"
+    },
+    {
+      "id": "TS-14-12",
+      "requirement_id": "14-REQ-4.2",
+      "kind": "unit",
+      "description": "Verify that ModeConfig exposes model_variant as an optional field defaulting to None.",
+      "preconditions": [
+        "packages/agentfox/agentfox/archetypes.py with updated ModeConfig is importable"
+      ],
+      "input": "ModeConfig constructed without specifying model_variant",
+      "expected": "ModeConfig instance with model_variant equal to None",
+      "assertion_pseudocode": "mode = ModeConfig(...)  # minimal required fields only\nassert mode.model_variant is None"
+    },
+    {
+      "id": "TS-14-13",
+      "requirement_id": "14-REQ-4.3",
+      "kind": "unit",
+      "description": "Verify that resolve_effective_config returns the mode-level model_variant when both mode and archetype specify non-None variants.",
+      "preconditions": [
+        "resolve_effective_config is importable",
+        "ArchetypeEntry with default_model_variant='standard' is defined",
+        "ModeConfig with model_variant='extended' is defined"
+      ],
+      "input": "ArchetypeEntry(default_model_variant='standard') merged with ModeConfig(model_variant='extended')",
+      "expected": "Merged result has default_model_variant equal to 'extended'",
+      "assertion_pseudocode": "archetype = ArchetypeEntry(..., default_model_variant='standard')\nmode = ModeConfig(..., model_variant='extended')\nresult = resolve_effective_config(archetype, mode)\nassert result.default_model_variant == 'extended'"
+    },
+    {
+      "id": "TS-14-14",
+      "requirement_id": "14-REQ-4.4",
+      "kind": "unit",
+      "description": "Verify that resolve_effective_config returns the archetype-level default_model_variant when the mode has model_variant=None.",
+      "preconditions": [
+        "resolve_effective_config is importable",
+        "ArchetypeEntry with default_model_variant='extended' is defined",
+        "ModeConfig with model_variant=None is defined"
+      ],
+      "input": "ArchetypeEntry(default_model_variant='extended') merged with ModeConfig(model_variant=None)",
+      "expected": "Merged result has default_model_variant equal to 'extended'",
+      "assertion_pseudocode": "archetype = ArchetypeEntry(..., default_model_variant='extended')\nmode = ModeConfig(..., model_variant=None)\nresult = resolve_effective_config(archetype, mode)\nassert result.default_model_variant == 'extended'"
+    },
+    {
+      "id": "TS-14-15",
+      "requirement_id": "14-REQ-5.1",
+      "kind": "unit",
+      "description": "Verify that PerArchetypeConfig exposes model_variant as an optional field defaulting to None.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/config.py with updated PerArchetypeConfig is importable"
+      ],
+      "input": "PerArchetypeConfig() constructed without specifying model_variant",
+      "expected": "PerArchetypeConfig instance with model_variant equal to None",
+      "assertion_pseudocode": "config = PerArchetypeConfig()\nassert config.model_variant is None"
+    },
+    {
+      "id": "TS-14-16",
+      "requirement_id": "14-REQ-5.2",
+      "kind": "unit",
+      "description": "Verify that parsing model_variant under [archetypes.overrides.<name>] in config.toml populates the archetype-level PerArchetypeConfig.model_variant.",
+      "preconditions": [
+        "Pydantic config parser is importable",
+        "config.toml content: [archetypes.overrides.coder] model_variant = 'extended'"
+      ],
+      "input": "TOML string with [archetypes.overrides.coder] model_variant = 'extended'",
+      "expected": "Parsed PerArchetypeConfig for 'coder' archetype has model_variant == 'extended'",
+      "assertion_pseudocode": "toml_content = '[archetypes.overrides.coder]\\nmodel_variant = \"extended\"'\nconfig = parse_config(toml_content)\nassert config.archetypes.overrides['coder'].model_variant == 'extended'"
+    },
+    {
+      "id": "TS-14-17",
+      "requirement_id": "14-REQ-5.3",
+      "kind": "unit",
+      "description": "Verify that parsing model_variant under [archetypes.overrides.<name>.modes.<mode>] populates the nested mode-level PerArchetypeConfig.model_variant.",
+      "preconditions": [
+        "Pydantic config parser is importable",
+        "config.toml content: [archetypes.overrides.reviewer.modes.fix-review] model_variant = 'standard'"
+      ],
+      "input": "TOML string with [archetypes.overrides.reviewer.modes.fix-review] model_variant = 'standard'",
+      "expected": "Parsed nested PerArchetypeConfig for reviewer/fix-review mode has model_variant == 'standard'",
+      "assertion_pseudocode": "toml_content = '[archetypes.overrides.reviewer.modes.fix-review]\\nmodel_variant = \"standard\"'\nconfig = parse_config(toml_content)\nassert config.archetypes.overrides['reviewer'].modes['fix-review'].model_variant == 'standard'"
+    },
+    {
+      "id": "TS-14-18",
+      "requirement_id": "14-REQ-5.4",
+      "kind": "unit",
+      "description": "Verify that model_variant appearing outside archetypes.overrides in config.toml is silently ignored.",
+      "preconditions": [
+        "Pydantic config parser with ConfigDict(extra='ignore') is importable"
+      ],
+      "input": "TOML content with model_variant at a top-level or non-archetypes.overrides location",
+      "expected": "Config parses without error and no model_variant field is populated at the top level",
+      "assertion_pseudocode": "toml_content = 'model_variant = \"extended\"'  # top-level, outside archetypes.overrides\nconfig = parse_config(toml_content)  # must not raise\nassert not hasattr(config, 'model_variant') or config.model_variant is None"
+    },
+    {
+      "id": "TS-14-19",
+      "requirement_id": "14-REQ-6.1",
+      "kind": "unit",
+      "description": "Verify that resolve_model_variant returns the mode-level model_variant immediately when the mode's PerArchetypeConfig has a non-None value (Layer 1).",
+      "preconditions": [
+        "sdk_params.py with resolve_model_variant is importable",
+        "Mode's PerArchetypeConfig has model_variant='extended'"
+      ],
+      "input": "Context where mode-level PerArchetypeConfig.model_variant='extended'",
+      "expected": "'extended' is returned without consulting lower-priority layers",
+      "assertion_pseudocode": "# mock archetype and mode config objects\nmode_config = PerArchetypeConfig(model_variant='extended')\narchetype_config = PerArchetypeConfig(model_variant='standard')\nresult = resolve_model_variant(archetype='coder', mode='code', mode_per_archetype_config=mode_config, archetype_per_archetype_config=archetype_config, ...)\nassert result == 'extended'"
+    },
+    {
+      "id": "TS-14-20",
+      "requirement_id": "14-REQ-6.2",
+      "kind": "unit",
+      "description": "Verify that resolve_model_variant returns the archetype-level config override when Layer 1 yields None and Layer 2 has a non-None value.",
+      "preconditions": [
+        "sdk_params.py with resolve_model_variant is importable",
+        "Mode-level PerArchetypeConfig.model_variant=None",
+        "Archetype-level PerArchetypeConfig.model_variant='extended'"
+      ],
+      "input": "Context where mode config has model_variant=None but archetype config has model_variant='extended'",
+      "expected": "'extended' is returned from the archetype-level Layer 2",
+      "assertion_pseudocode": "mode_config = PerArchetypeConfig(model_variant=None)\narchetype_config = PerArchetypeConfig(model_variant='extended')\nresult = resolve_model_variant(archetype='coder', mode='code', mode_per_archetype_config=mode_config, archetype_per_archetype_config=archetype_config, ...)\nassert result == 'extended'"
+    },
+    {
+      "id": "TS-14-21",
+      "requirement_id": "14-REQ-6.3",
+      "kind": "unit",
+      "description": "Verify that resolve_model_variant immediately returns None (short-circuit) when the legacy config.archetypes.models dict matches the archetype at Layer 3.",
+      "preconditions": [
+        "sdk_params.py with resolve_model_variant is importable",
+        "Layers 1 and 2 yield None",
+        "config.archetypes.models dict contains the archetype name"
+      ],
+      "input": "Context where legacy dict matches archetype 'coder' and Layers 1 and 2 are None",
+      "expected": "None is returned immediately; resolve_effective_config is never called",
+      "assertion_pseudocode": "# mock resolve_effective_config to track calls\nwith mock(resolve_effective_config) as mocked_rec:\n    result = resolve_model_variant(archetype='coder', config=config_with_legacy_dict_matching_coder, ...)\n    assert result is None\n    assert mocked_rec.call_count == 0"
+    },
+    {
+      "id": "TS-14-22",
+      "requirement_id": "14-REQ-6.4",
+      "kind": "unit",
+      "description": "Verify that resolve_model_variant calls resolve_effective_config and returns default_model_variant from the merged result when Layers 1, 2, and 3 all yield None.",
+      "preconditions": [
+        "sdk_params.py with resolve_model_variant is importable",
+        "Layers 1, 2, 3 all yield None",
+        "resolve_effective_config returns ArchetypeEntry with default_model_variant='extended'"
+      ],
+      "input": "Context where all higher-priority layers yield None and registry default is 'extended'",
+      "expected": "'extended' is returned via resolve_effective_config Layer 4",
+      "assertion_pseudocode": "with mock(resolve_effective_config, return_value=ArchetypeEntry(default_model_variant='extended')):\n    result = resolve_model_variant(archetype='coder', mode='code', ...no legacy match, no config overrides...)\n    assert result == 'extended'"
+    },
+    {
+      "id": "TS-14-23",
+      "requirement_id": "14-REQ-6.5",
+      "kind": "unit",
+      "description": "Verify that resolve_model_variant returns None when all four layers return None.",
+      "preconditions": [
+        "sdk_params.py with resolve_model_variant is importable",
+        "All four layers yield None (no config overrides, no legacy match, no registry default)"
+      ],
+      "input": "Context with no variant configuration anywhere",
+      "expected": "None is returned",
+      "assertion_pseudocode": "result = resolve_model_variant(archetype='coder', mode='code', ...all layers None...)\nassert result is None"
+    },
+    {
+      "id": "TS-14-24",
+      "requirement_id": "14-REQ-7.1",
+      "kind": "unit",
+      "description": "Verify that resolve_model with variant=None returns the TIER_DEFAULTS model ID, identical to pre-spec behavior.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/models.py with updated resolve_model is importable",
+        "TIER_DEFAULTS is populated"
+      ],
+      "input": "resolve_model('ADVANCED', variant=None) and resolve_model('SIMPLE', variant=None) and resolve_model('STANDARD', variant=None)",
+      "expected": "Returns the same model IDs as TIER_DEFAULTS for each tier",
+      "assertion_pseudocode": "from agentfox.core.models import resolve_model, TIER_DEFAULTS\nfor tier in ['SIMPLE', 'STANDARD', 'ADVANCED']:\n    assert resolve_model(tier, variant=None) == TIER_DEFAULTS[tier]"
+    },
+    {
+      "id": "TS-14-25",
+      "requirement_id": "14-REQ-7.2",
+      "kind": "unit",
+      "description": "Verify that resolve_model returns the matching model_id when a (tier, variant) pair exists in MODEL_REGISTRY.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/models.py with updated resolve_model is importable",
+        "MODEL_REGISTRY contains (ADVANCED, 'extended') → claude-opus-4-6[1m]"
+      ],
+      "input": "resolve_model('ADVANCED', variant='extended')",
+      "expected": "'claude-opus-4-6[1m]'",
+      "assertion_pseudocode": "from agentfox.core.models import resolve_model\nresult = resolve_model('ADVANCED', variant='extended')\nassert result == 'claude-opus-4-6[1m]'"
+    },
+    {
+      "id": "TS-14-26",
+      "requirement_id": "14-REQ-7.3",
+      "kind": "unit",
+      "description": "Verify that resolve_model falls back to TIER_DEFAULTS and emits a DEBUG log when the variant is not matched in MODEL_REGISTRY for the tier.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/models.py with updated resolve_model is importable",
+        "Python logging is configured to capture DEBUG-level messages"
+      ],
+      "input": "resolve_model('ADVANCED', variant='fast') where no ADVANCED/fast entry exists in MODEL_REGISTRY",
+      "expected": "Returns TIER_DEFAULTS['ADVANCED'] = 'claude-opus-4-6' and a DEBUG log is emitted",
+      "assertion_pseudocode": "from agentfox.core.models import resolve_model, TIER_DEFAULTS\nwith capture_logs(level='DEBUG') as logs:\n    result = resolve_model('ADVANCED', variant='fast')\nassert result == TIER_DEFAULTS['ADVANCED']\nassert any('DEBUG' in log.levelname for log in logs)"
+    },
+    {
+      "id": "TS-14-27",
+      "requirement_id": "14-REQ-7.4",
+      "kind": "unit",
+      "description": "Verify the TIER_DEFAULTS ADVANCED invariant: TIER_DEFAULTS['ADVANCED'] equals the model_id of the MODEL_REGISTRY entry with tier=ADVANCED and variant='standard'.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/models.py with updated MODEL_REGISTRY and TIER_DEFAULTS is importable"
+      ],
+      "input": "TIER_DEFAULTS['ADVANCED'] and MODEL_REGISTRY entry with tier=ADVANCED and variant='standard'",
+      "expected": "Both values equal 'claude-opus-4-6'",
+      "assertion_pseudocode": "from agentfox.core.models import TIER_DEFAULTS, MODEL_REGISTRY\nstandard_advanced = next(e for e in MODEL_REGISTRY if e.tier == 'ADVANCED' and e.variant == 'standard')\nassert TIER_DEFAULTS['ADVANCED'] == standard_advanced.model_id"
+    },
+    {
+      "id": "TS-14-28",
+      "requirement_id": "14-REQ-8.1",
+      "kind": "unit",
+      "description": "Verify that EscalationLadder accepts starting_variant as a keyword-only parameter in __init__.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/escalation.py with updated EscalationLadder is importable"
+      ],
+      "input": "EscalationLadder(...existing positional args..., starting_variant='extended')",
+      "expected": "EscalationLadder instance created without error",
+      "assertion_pseudocode": "ladder = EscalationLadder(...existing_args..., starting_variant='extended')\nassert ladder is not None\n# Also verify it cannot be passed positionally (if signature uses bare *)\nimport inspect\nsig = inspect.signature(EscalationLadder.__init__)\nassert sig.parameters['starting_variant'].kind == inspect.Parameter.KEYWORD_ONLY"
+    },
+    {
+      "id": "TS-14-29",
+      "requirement_id": "14-REQ-8.2",
+      "kind": "unit",
+      "description": "Verify that EscalationLadder.current_variant is a read-only property returning the value passed as starting_variant.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/escalation.py with updated EscalationLadder is importable"
+      ],
+      "input": "EscalationLadder(..., starting_variant='extended')",
+      "expected": "current_variant property returns 'extended'",
+      "assertion_pseudocode": "ladder = EscalationLadder(..., starting_variant='extended')\nassert ladder.current_variant == 'extended'"
+    },
+    {
+      "id": "TS-14-30",
+      "requirement_id": "14-REQ-8.3",
+      "kind": "unit",
+      "description": "Verify that EscalationLadder.current_variant has no setter and raises AttributeError when assignment is attempted.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/escalation.py with updated EscalationLadder is importable"
+      ],
+      "input": "Attempt to assign ladder.current_variant = 'standard' after construction",
+      "expected": "AttributeError is raised; the assignment fails",
+      "assertion_pseudocode": "ladder = EscalationLadder(..., starting_variant='extended')\ntry:\n    ladder.current_variant = 'standard'\n    assert False, 'Expected AttributeError'\nexcept AttributeError:\n    pass"
+    },
+    {
+      "id": "TS-14-31",
+      "requirement_id": "14-REQ-8.4",
+      "kind": "unit",
+      "description": "Verify that EscalationLadder passes variant='extended' unchanged to resolve_model when escalating from STANDARD to ADVANCED.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/escalation.py with updated EscalationLadder is importable",
+        "resolve_model is mockable"
+      ],
+      "input": "EscalationLadder with starting_variant='extended', escalating from STANDARD to ADVANCED",
+      "expected": "resolve_model is called with variant='extended' after escalation",
+      "assertion_pseudocode": "with mock(resolve_model) as mocked_rm:\n    ladder = EscalationLadder(starting_tier='STANDARD', starting_variant='extended')\n    ladder.escalate()  # escalates to ADVANCED\n    ladder.resolve_current_model()\n    call_kwargs = mocked_rm.call_args\n    assert call_kwargs['variant'] == 'extended'"
+    },
+    {
+      "id": "TS-14-32",
+      "requirement_id": "14-REQ-8.5",
+      "kind": "unit",
+      "description": "Verify that EscalationLadder passes the variant through unchanged to resolve_model when escalating to a tier where the variant is unavailable, without performing its own fallback.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/escalation.py with updated EscalationLadder is importable",
+        "resolve_model is mockable to simulate fallback behavior"
+      ],
+      "input": "EscalationLadder with starting_variant='extended' escalated to SIMPLE (where extended is unavailable)",
+      "expected": "EscalationLadder calls resolve_model with variant='extended'; resolve_model handles the fallback",
+      "assertion_pseudocode": "with mock(resolve_model) as mocked_rm:\n    ladder = EscalationLadder(starting_tier='SIMPLE', starting_variant='extended')\n    ladder.resolve_current_model()\n    call_kwargs = mocked_rm.call_args\n    assert call_kwargs['variant'] == 'extended'  # passed through unchanged\n    # EscalationLadder itself does not log or substitute a fallback"
+    },
+    {
+      "id": "TS-14-33",
+      "requirement_id": "14-REQ-8.6",
+      "kind": "unit",
+      "description": "Verify that existing EscalationLadder call sites that do not pass starting_variant continue to work without modification.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/escalation.py with updated EscalationLadder is importable"
+      ],
+      "input": "EscalationLadder constructed with all existing positional arguments, no starting_variant keyword",
+      "expected": "EscalationLadder is created without error and current_variant is None",
+      "assertion_pseudocode": "ladder = EscalationLadder(...existing_positional_args...)  # no starting_variant\nassert ladder.current_variant is None"
+    },
+    {
+      "id": "TS-14-34",
+      "requirement_id": "14-REQ-9.1",
+      "kind": "unit",
+      "description": "Verify that resolve_model returns TIER_DEFAULTS model and emits a DEBUG log for any (tier, variant) pair not in MODEL_REGISTRY.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/models.py with updated resolve_model is importable",
+        "Python logging capture is enabled at DEBUG level"
+      ],
+      "input": "resolve_model('SIMPLE', variant='extended')",
+      "expected": "Returns 'claude-haiku-4-5' (TIER_DEFAULTS['SIMPLE']) and a DEBUG-level log is emitted",
+      "assertion_pseudocode": "from agentfox.core.models import resolve_model, TIER_DEFAULTS\nwith capture_logs(level='DEBUG') as logs:\n    result = resolve_model('SIMPLE', variant='extended')\nassert result == TIER_DEFAULTS['SIMPLE']\nassert result == 'claude-haiku-4-5'\nassert any(log.levelno == logging.DEBUG for log in logs)"
+    },
+    {
+      "id": "TS-14-35",
+      "requirement_id": "14-REQ-9.2",
+      "kind": "unit",
+      "description": "Verify that resolve_model never raises an exception for any variant string, including unrecognized ones.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/models.py with updated resolve_model is importable"
+      ],
+      "input": "resolve_model('ADVANCED', variant='turbo')",
+      "expected": "Returns a non-empty model ID string without raising any exception",
+      "assertion_pseudocode": "from agentfox.core.models import resolve_model\ntry:\n    result = resolve_model('ADVANCED', variant='turbo')\n    assert isinstance(result, str) and len(result) > 0\nexcept Exception as e:\n    assert False, f'Unexpected exception: {e}'"
+    },
+    {
+      "id": "TS-14-36",
+      "requirement_id": "14-REQ-9.3",
+      "kind": "unit",
+      "description": "Verify that the variant fallback log is emitted at DEBUG level only, not WARNING or ERROR.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/models.py with updated resolve_model is importable",
+        "Python logging capture is enabled at DEBUG level"
+      ],
+      "input": "resolve_model('SIMPLE', variant='extended')",
+      "expected": "Exactly a DEBUG-level log is emitted; no WARNING or ERROR logs are emitted for the fallback",
+      "assertion_pseudocode": "with capture_logs(level='DEBUG') as logs:\n    resolve_model('SIMPLE', variant='extended')\nfallback_logs = [l for l in logs if 'variant' in l.message.lower() or 'fallback' in l.message.lower()]\nassert all(l.levelno == logging.DEBUG for l in fallback_logs)\nassert not any(l.levelno in (logging.WARNING, logging.ERROR) for l in logs)"
+    },
+    {
+      "id": "TS-14-37",
+      "requirement_id": "14-REQ-10.1",
+      "kind": "unit",
+      "description": "Verify that _default_pricing_models returns a list containing a distinct entry with model_id='claude-opus-4-6[1m]' alongside the claude-opus-4-6 entry.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/config.py with updated _default_pricing_models is importable"
+      ],
+      "input": "_default_pricing_models() call",
+      "expected": "Result list contains entries for both 'claude-opus-4-6' and 'claude-opus-4-6[1m]'",
+      "assertion_pseudocode": "from agentfox.core.config import _default_pricing_models\nmodels = _default_pricing_models()\nmodel_ids = [m['model_id'] for m in models]\nassert 'claude-opus-4-6' in model_ids\nassert 'claude-opus-4-6[1m]' in model_ids"
+    },
+    {
+      "id": "TS-14-38",
+      "requirement_id": "14-REQ-10.2",
+      "kind": "unit",
+      "description": "Verify that the claude-opus-4-6[1m] pricing entry contains all required pricing fields.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/config.py with updated _default_pricing_models is importable"
+      ],
+      "input": "_default_pricing_models() call",
+      "expected": "claude-opus-4-6[1m] entry has non-None numeric values for input_price_per_m, output_price_per_m, cache_read_price_per_m, and cache_creation_price_per_m",
+      "assertion_pseudocode": "from agentfox.core.config import _default_pricing_models\nmodels = _default_pricing_models()\nentry = next(m for m in models if m['model_id'] == 'claude-opus-4-6[1m]')\nassert 'input_price_per_m' in entry and entry['input_price_per_m'] is not None\nassert 'output_price_per_m' in entry and entry['output_price_per_m'] is not None\nassert 'cache_read_price_per_m' in entry and entry['cache_read_price_per_m'] is not None\nassert 'cache_creation_price_per_m' in entry and entry['cache_creation_price_per_m'] is not None"
+    },
+    {
+      "id": "TS-14-39",
+      "requirement_id": "14-REQ-10.3",
+      "kind": "unit",
+      "description": "Verify that the source code for the claude-opus-4-6[1m] pricing entry contains a code comment recording the date rates were retrieved.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/config.py source file is readable"
+      ],
+      "input": "Source text of packages/agentfox/agentfox/core/config.py",
+      "expected": "A comment adjacent to the claude-opus-4-6[1m] entry records the retrieval date (e.g., '# Rates retrieved from https://www.anthropic.com/pricing on YYYY-MM-DD')",
+      "assertion_pseudocode": "import ast, re\nsource = open('packages/agentfox/agentfox/core/config.py').read()\n# Find the section around claude-opus-4-6[1m]\nidx = source.find('claude-opus-4-6[1m]')\nsnippet = source[max(0, idx-200):idx+200]\nassert re.search(r'#.*retrieved.*\\d{4}-\\d{2}-\\d{2}', snippet)"
+    },
+    {
+      "id": "TS-14-40",
+      "requirement_id": "14-REQ-11.1",
+      "kind": "unit",
+      "description": "Verify that resolve_model called without the variant parameter returns the same model ID as TIER_DEFAULTS for all tiers.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/models.py with updated resolve_model and TIER_DEFAULTS is importable"
+      ],
+      "input": "resolve_model('SIMPLE'), resolve_model('STANDARD'), resolve_model('ADVANCED') — no variant argument",
+      "expected": "Each call returns the same value as TIER_DEFAULTS[tier]",
+      "assertion_pseudocode": "from agentfox.core.models import resolve_model, TIER_DEFAULTS\nfor tier in ['SIMPLE', 'STANDARD', 'ADVANCED']:\n    assert resolve_model(tier) == TIER_DEFAULTS[tier]"
+    },
+    {
+      "id": "TS-14-41",
+      "requirement_id": "14-REQ-11.2",
+      "kind": "unit",
+      "description": "Verify that a config.toml without model_variant keys loads without error and behaves identically to pre-spec configuration.",
+      "preconditions": [
+        "Pydantic config parser is importable",
+        "config.toml without any model_variant keys"
+      ],
+      "input": "TOML content with [archetypes.overrides.coder] model_tier = 'ADVANCED' and no model_variant key",
+      "expected": "Config parses without error; PerArchetypeConfig.model_variant is None",
+      "assertion_pseudocode": "toml_content = '[archetypes.overrides.coder]\\nmodel_tier = \"ADVANCED\"'\nconfig = parse_config(toml_content)\nassert config.archetypes.overrides['coder'].model_variant is None"
+    },
+    {
+      "id": "TS-14-42",
+      "requirement_id": "14-REQ-11.3",
+      "kind": "unit",
+      "description": "Verify that the existing test suite passes without modification after the spec is merged.",
+      "preconditions": [
+        "All changes from this spec are merged into the codebase",
+        "pytest is installed and the existing test suite exists under packages/agentfox/tests/unit/"
+      ],
+      "input": "Run existing test suite: pytest packages/agentfox/tests/unit/ -x --ignore=new_variant_tests/",
+      "expected": "All pre-existing tests pass with exit code 0; no test failures or errors",
+      "assertion_pseudocode": "result = run_subprocess(['pytest', 'packages/agentfox/tests/unit/', '-x', '--tb=short'])\nassert result.returncode == 0"
+    },
+    {
+      "id": "TS-14-43",
+      "requirement_id": "14-REQ-12.1",
+      "kind": "unit",
+      "description": "Verify that NodeSessionRunner calls resolve_model_variant() first and then passes the result as variant= to resolve_model(), in that order.",
+      "preconditions": [
+        "packages/agentfox/agentfox/engine/session_lifecycle.py with updated NodeSessionRunner is importable",
+        "resolve_model_variant and resolve_model are mockable"
+      ],
+      "input": "NodeSessionRunner initializes or selects a model for a session node",
+      "expected": "resolve_model_variant is called before resolve_model; resolve_model receives variant= keyword argument equal to the return value of resolve_model_variant",
+      "assertion_pseudocode": "call_order = []\nwith mock(resolve_model_variant, side_effect=lambda *a, **kw: (call_order.append('variant'), 'extended')[1]):\n    with mock(resolve_model, side_effect=lambda *a, **kw: (call_order.append('model'), 'claude-opus-4-6[1m]')[1]) as mocked_rm:\n        runner = NodeSessionRunner(...)\n        runner.resolve_model_for_session()\n        assert call_order == ['variant', 'model']\n        assert mocked_rm.call_args[1]['variant'] == 'extended'"
+    },
+    {
+      "id": "TS-14-44",
+      "requirement_id": "14-REQ-12.2",
+      "kind": "unit",
+      "description": "Verify that NodeSessionRunner does not embed any variant-resolution logic directly — all resolution is delegated to resolve_model_variant() and resolve_model().",
+      "preconditions": [
+        "packages/agentfox/agentfox/engine/session_lifecycle.py source file is readable"
+      ],
+      "input": "Source code of NodeSessionRunner model resolution method",
+      "expected": "The method contains calls to resolve_model_variant and resolve_model and does not contain inline variant scanning of MODEL_REGISTRY or VARIANT_ORDER",
+      "assertion_pseudocode": "source = open('packages/agentfox/agentfox/engine/session_lifecycle.py').read()\nassert 'resolve_model_variant' in source\nassert 'resolve_model' in source\n# No inline registry scanning\nassert 'MODEL_REGISTRY' not in source or 'variant' not in source.split('MODEL_REGISTRY')[1][:100]"
+    },
+    {
+      "id": "TS-14-45",
+      "requirement_id": "14-REQ-13.1",
+      "kind": "unit",
+      "description": "Verify that resolve_effective_config writes the mode's model_variant onto the merged result's default_model_variant, overriding the archetype-level value.",
+      "preconditions": [
+        "resolve_effective_config is importable",
+        "ModeConfig with model_variant='extended' is defined",
+        "ArchetypeEntry with default_model_variant='standard' is defined"
+      ],
+      "input": "resolve_effective_config(archetype=ArchetypeEntry(default_model_variant='standard'), mode=ModeConfig(model_variant='extended'))",
+      "expected": "Merged ArchetypeEntry has default_model_variant == 'extended'",
+      "assertion_pseudocode": "archetype = ArchetypeEntry(..., default_model_variant='standard')\nmode = ModeConfig(..., model_variant='extended')\nresult = resolve_effective_config(archetype, mode)\nassert result.default_model_variant == 'extended'"
+    },
+    {
+      "id": "TS-14-46",
+      "requirement_id": "14-REQ-13.2",
+      "kind": "unit",
+      "description": "Verify that resolve_effective_config preserves the archetype-level default_model_variant when the mode's model_variant is None.",
+      "preconditions": [
+        "resolve_effective_config is importable",
+        "ModeConfig with model_variant=None is defined",
+        "ArchetypeEntry with default_model_variant='extended' is defined"
+      ],
+      "input": "resolve_effective_config(archetype=ArchetypeEntry(default_model_variant='extended'), mode=ModeConfig(model_variant=None))",
+      "expected": "Merged ArchetypeEntry has default_model_variant == 'extended'",
+      "assertion_pseudocode": "archetype = ArchetypeEntry(..., default_model_variant='extended')\nmode = ModeConfig(..., model_variant=None)\nresult = resolve_effective_config(archetype, mode)\nassert result.default_model_variant == 'extended'"
+    },
+    {
+      "id": "TS-14-47",
+      "requirement_id": "14-REQ-13.3",
+      "kind": "unit",
+      "description": "Verify that model_variant merging in resolve_effective_config mirrors the existing model_tier merging pattern symmetrically.",
+      "preconditions": [
+        "resolve_effective_config is importable",
+        "ArchetypeEntry with both default_model_tier and default_model_variant set",
+        "ModeConfig with both model_tier and model_variant set"
+      ],
+      "input": "resolve_effective_config with mode overriding both model_tier and model_variant",
+      "expected": "Both default_model_tier and default_model_variant in the merged result reflect the mode-level values",
+      "assertion_pseudocode": "archetype = ArchetypeEntry(..., default_model_tier='STANDARD', default_model_variant='standard')\nmode = ModeConfig(..., model_tier='ADVANCED', model_variant='extended')\nresult = resolve_effective_config(archetype, mode)\nassert result.default_model_tier == 'ADVANCED'\nassert result.default_model_variant == 'extended'"
+    }
+  ],
+  "property_tests": [
+    {
+      "id": "TS-14-P1",
+      "property_id": "14-PROP-1",
+      "validates": [
+        "14-REQ-7.4",
+        "14-REQ-2.3",
+        "14-REQ-7.1"
+      ],
+      "description": "Assert that TIER_DEFAULTS['ADVANCED'] always equals the model_id of the MODEL_REGISTRY entry with tier=ADVANCED and variant='standard'.",
+      "for_any_strategy": "No generation needed — this is a deterministic invariant test on fixed module-level constants",
+      "invariant_check": "from agentfox.core.models import TIER_DEFAULTS, MODEL_REGISTRY\nstandard_entry = next(e for e in MODEL_REGISTRY if e.tier == 'ADVANCED' and e.variant == 'standard')\nassert TIER_DEFAULTS['ADVANCED'] == standard_entry.model_id"
+    },
+    {
+      "id": "TS-14-P2",
+      "property_id": "14-PROP-2",
+      "validates": [
+        "14-REQ-11.1",
+        "14-REQ-7.1"
+      ],
+      "description": "For every tier in TIER_DEFAULTS, resolve_model(tier, variant=None) returns the same value as TIER_DEFAULTS[tier].",
+      "for_any_strategy": "tier drawn from ['SIMPLE', 'STANDARD', 'ADVANCED'] (all valid tiers)",
+      "invariant_check": "from agentfox.core.models import resolve_model, TIER_DEFAULTS\nfor tier in ['SIMPLE', 'STANDARD', 'ADVANCED']:\n    assert resolve_model(tier, variant=None) == TIER_DEFAULTS[tier]"
+    },
+    {
+      "id": "TS-14-P3",
+      "property_id": "14-PROP-3",
+      "validates": [
+        "14-REQ-9.1",
+        "14-REQ-9.2"
+      ],
+      "description": "For any tier string and any variant string, resolve_model never raises an exception and always returns a non-empty string.",
+      "for_any_strategy": "tier drawn from ['SIMPLE', 'STANDARD', 'ADVANCED']; variant drawn from arbitrary strings including 'fast', 'standard', 'extended', 'turbo', '', 'x'*100",
+      "invariant_check": "from agentfox.core.models import resolve_model\nfor tier in ['SIMPLE', 'STANDARD', 'ADVANCED']:\n    for variant in ['fast', 'standard', 'extended', 'turbo', 'UNKNOWN_VARIANT', 'x'*100]:\n        try:\n            result = resolve_model(tier, variant=variant)\n            assert isinstance(result, str) and len(result) > 0\n        except Exception as e:\n            assert False, f'resolve_model raised {type(e).__name__}: {e}'"
+    },
+    {
+      "id": "TS-14-P4",
+      "property_id": "14-PROP-4",
+      "validates": [
+        "14-REQ-8.2",
+        "14-REQ-8.3"
+      ],
+      "description": "For any EscalationLadder instance, current_variant returns the same value before and after any number of tier escalations.",
+      "for_any_strategy": "starting_variant drawn from [None, 'fast', 'standard', 'extended', 'turbo']; number of escalation steps drawn from 0..5",
+      "invariant_check": "for starting_variant in [None, 'fast', 'standard', 'extended']:\n    ladder = EscalationLadder(..., starting_variant=starting_variant)\n    initial = ladder.current_variant\n    for _ in range(3):\n        if ladder.can_escalate():\n            ladder.escalate()\n        assert ladder.current_variant == initial, f'current_variant changed from {initial} to {ladder.current_variant}'"
+    },
+    {
+      "id": "TS-14-P5",
+      "property_id": "14-PROP-5",
+      "validates": [
+        "14-REQ-4.3",
+        "14-REQ-13.1"
+      ],
+      "description": "For any ModeConfig with non-None model_variant and any ArchetypeEntry with non-None default_model_variant, resolve_effective_config returns a merged result where default_model_variant equals the mode's model_variant.",
+      "for_any_strategy": "mode_variant drawn from ['fast', 'standard', 'extended']; archetype_variant drawn from ['fast', 'standard', 'extended']",
+      "invariant_check": "for mode_variant in ['fast', 'standard', 'extended']:\n    for arch_variant in ['fast', 'standard', 'extended']:\n        archetype = ArchetypeEntry(..., default_model_variant=arch_variant)\n        mode = ModeConfig(..., model_variant=mode_variant)\n        result = resolve_effective_config(archetype, mode)\n        assert result.default_model_variant == mode_variant"
+    },
+    {
+      "id": "TS-14-P6",
+      "property_id": "14-PROP-6",
+      "validates": [
+        "14-REQ-6.3",
+        "14-REQ-6.E1"
+      ],
+      "description": "For any archetype matched by the legacy config.archetypes.models dict, resolve_model_variant returns None and never invokes resolve_effective_config.",
+      "for_any_strategy": "archetype name drawn from names present in the legacy config.archetypes.models dict",
+      "invariant_check": "for archetype_name in legacy_dict_archetypes:\n    with mock(resolve_effective_config) as mocked_rec:\n        result = resolve_model_variant(archetype=archetype_name, config=config_with_legacy_dict, ...)\n        assert result is None\n        assert mocked_rec.call_count == 0"
+    },
+    {
+      "id": "TS-14-P7",
+      "property_id": "14-PROP-7",
+      "validates": [
+        "14-REQ-3.3"
+      ],
+      "description": "VARIANT_ORDER contains an integer entry for every canonical variant label and None is absent from VARIANT_ORDER.",
+      "for_any_strategy": "canonical labels fixed as {'fast', 'standard', 'extended'}",
+      "invariant_check": "from agentfox.core.models import VARIANT_ORDER\nfor label in ['fast', 'standard', 'extended']:\n    assert label in VARIANT_ORDER\n    assert isinstance(VARIANT_ORDER[label], int)\nassert None not in VARIANT_ORDER"
+    }
+  ],
+  "edge_case_tests": [
+    {
+      "id": "TS-14-E1",
+      "requirement_id": "14-REQ-1.E1",
+      "kind": "unit",
+      "description": "Verify that ModelEntry raises a TypeError or ValidationError when a non-string, non-None value is assigned to variant.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/models.py with updated ModelEntry is importable"
+      ],
+      "input": "ModelEntry(model_id='test', tier='ADVANCED', variant=42)",
+      "expected": "TypeError or ValidationError is raised at construction time",
+      "assertion_pseudocode": "try:\n    entry = ModelEntry(model_id='test', tier='ADVANCED', variant=42)\n    assert False, 'Expected TypeError or ValidationError'\nexcept (TypeError, ValidationError):\n    pass"
+    },
+    {
+      "id": "TS-14-E2",
+      "requirement_id": "14-REQ-4.E1",
+      "kind": "unit",
+      "description": "Verify that resolve_model uses TIER_DEFAULTS (backward-compatible path) when both ModeConfig.model_variant and ArchetypeEntry.default_model_variant are None.",
+      "preconditions": [
+        "resolve_model is importable",
+        "TIER_DEFAULTS is populated",
+        "ArchetypeEntry with default_model_variant=None and ModeConfig with model_variant=None are defined"
+      ],
+      "input": "resolve_model('ADVANCED', variant=None) — effective variant is None because both mode and archetype return None",
+      "expected": "Returns TIER_DEFAULTS['ADVANCED'] = 'claude-opus-4-6'",
+      "assertion_pseudocode": "from agentfox.core.models import resolve_model, TIER_DEFAULTS\nresult = resolve_model('ADVANCED', variant=None)\nassert result == TIER_DEFAULTS['ADVANCED']\nassert result == 'claude-opus-4-6'"
+    },
+    {
+      "id": "TS-14-E3",
+      "requirement_id": "14-REQ-6.E1",
+      "kind": "unit",
+      "description": "Verify that resolve_model_variant never calls resolve_effective_config and always returns None when the legacy dict short-circuit is triggered at Layer 3.",
+      "preconditions": [
+        "sdk_params.py with resolve_model_variant is importable",
+        "config.archetypes.models dict contains the archetype name",
+        "resolve_effective_config is mockable"
+      ],
+      "input": "Legacy dict matches archetype 'coder'; Layers 1 and 2 are None",
+      "expected": "Returns None; resolve_effective_config call count is 0",
+      "assertion_pseudocode": "with mock(resolve_effective_config) as mocked_rec:\n    result = resolve_model_variant(archetype='coder', config=config_with_legacy_dict, ...)\n    assert result is None\n    assert mocked_rec.call_count == 0"
+    },
+    {
+      "id": "TS-14-E4",
+      "requirement_id": "14-REQ-7.E1",
+      "kind": "unit",
+      "description": "Verify that resolve_model('SIMPLE', variant='extended') falls back to TIER_DEFAULTS['SIMPLE'] and emits a DEBUG log.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/models.py with updated resolve_model is importable",
+        "Python logging capture enabled at DEBUG level"
+      ],
+      "input": "resolve_model('SIMPLE', variant='extended')",
+      "expected": "Returns 'claude-haiku-4-5' and emits a DEBUG log",
+      "assertion_pseudocode": "from agentfox.core.models import resolve_model\nwith capture_logs(level='DEBUG') as logs:\n    result = resolve_model('SIMPLE', variant='extended')\nassert result == 'claude-haiku-4-5'\nassert any(log.levelno == logging.DEBUG for log in logs)"
+    },
+    {
+      "id": "TS-14-E5",
+      "requirement_id": "14-REQ-7.E2",
+      "kind": "unit",
+      "description": "Verify that resolve_model with an unrecognized variant string falls back to TIER_DEFAULTS and emits a DEBUG log without raising an exception.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/models.py with updated resolve_model is importable",
+        "Python logging capture enabled at DEBUG level"
+      ],
+      "input": "resolve_model('ADVANCED', variant='turbo')",
+      "expected": "Returns TIER_DEFAULTS['ADVANCED'] and emits a DEBUG log; no exception is raised",
+      "assertion_pseudocode": "from agentfox.core.models import resolve_model, TIER_DEFAULTS\nwith capture_logs(level='DEBUG') as logs:\n    result = resolve_model('ADVANCED', variant='turbo')\nassert result == TIER_DEFAULTS['ADVANCED']\nassert any(log.levelno == logging.DEBUG for log in logs)"
+    },
+    {
+      "id": "TS-14-E6",
+      "requirement_id": "14-REQ-8.E1",
+      "kind": "unit",
+      "description": "Verify that when EscalationLadder reaches ADVANCED with an unavailable preserved variant, it passes the variant unchanged to resolve_model, which handles the fallback and emits the DEBUG log — EscalationLadder does not log.",
+      "preconditions": [
+        "EscalationLadder and resolve_model are importable",
+        "resolve_model is mockable",
+        "Python logging capture enabled at DEBUG level"
+      ],
+      "input": "EscalationLadder at top (ADVANCED) with starting_variant='fast' (unavailable for ADVANCED)",
+      "expected": "resolve_model called with variant='fast'; fallback DEBUG log emitted by resolve_model, not EscalationLadder",
+      "assertion_pseudocode": "with capture_logs(level='DEBUG') as logs:\n    with mock(resolve_model, wraps=resolve_model) as mocked_rm:\n        ladder = EscalationLadder(starting_tier='ADVANCED', starting_variant='fast')\n        result = ladder.resolve_current_model()\n        assert mocked_rm.call_args[1]['variant'] == 'fast'\n# All DEBUG logs come from resolve_model module path\nassert all('escalation' not in log.name for log in logs if log.levelno == logging.DEBUG)"
+    },
+    {
+      "id": "TS-14-E7",
+      "requirement_id": "14-REQ-9.E1",
+      "kind": "unit",
+      "description": "Verify that a valid canonical variant label that is unavailable for the requested tier triggers the same fallback as an unrecognized string.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/models.py with updated resolve_model is importable",
+        "SIMPLE tier has no 'standard' variant in MODEL_REGISTRY (variant=None for haiku)",
+        "Python logging capture enabled at DEBUG level"
+      ],
+      "input": "resolve_model('SIMPLE', variant='standard')",
+      "expected": "Returns TIER_DEFAULTS['SIMPLE'] = 'claude-haiku-4-5' and emits a DEBUG log",
+      "assertion_pseudocode": "from agentfox.core.models import resolve_model, TIER_DEFAULTS\nwith capture_logs(level='DEBUG') as logs:\n    result = resolve_model('SIMPLE', variant='standard')\nassert result == TIER_DEFAULTS['SIMPLE']\nassert result == 'claude-haiku-4-5'\nassert any(log.levelno == logging.DEBUG for log in logs)"
+    },
+    {
+      "id": "TS-14-E8",
+      "requirement_id": "14-REQ-12.E1",
+      "kind": "unit",
+      "description": "Verify that when resolve_model_variant returns None, NodeSessionRunner passes variant=None to resolve_model, which uses TIER_DEFAULTS.",
+      "preconditions": [
+        "session_lifecycle.py with updated NodeSessionRunner is importable",
+        "resolve_model_variant is mocked to return None",
+        "resolve_model is mocked to track call arguments"
+      ],
+      "input": "NodeSessionRunner resolves model when resolve_model_variant returns None",
+      "expected": "resolve_model is called with variant=None; returns TIER_DEFAULTS model ID",
+      "assertion_pseudocode": "with mock(resolve_model_variant, return_value=None):\n    with mock(resolve_model, return_value='claude-opus-4-6') as mocked_rm:\n        runner = NodeSessionRunner(...)\n        runner.resolve_model_for_session()\n        assert mocked_rm.call_args[1]['variant'] is None"
+    }
+  ],
+  "smoke_tests": [
+    {
+      "id": "TS-14-SMOKE-1",
+      "execution_path_id": "14-PATH-1",
+      "description": "Smoke test the end-to-end path where an ADVANCED-tier archetype with default_model_variant='extended' resolves to claude-opus-4-6[1m] through NodeSessionRunner.",
+      "trigger": "NodeSessionRunner.resolve_model_for_session() called for an archetype with default_model_variant='extended' and tier=ADVANCED",
+      "real_components": [
+        "agentfox.core.models.MODEL_REGISTRY",
+        "agentfox.core.models.resolve_model",
+        "agentfox.engine.sdk_params.resolve_model_variant",
+        "agentfox.engine.session_lifecycle.NodeSessionRunner"
+      ],
+      "mockable": [
+        "resolve_effective_config (returns ArchetypeEntry with default_model_variant='extended', default_model_tier='ADVANCED')"
+      ],
+      "expected_effects": [
+        "resolve_model_variant returns 'extended'",
+        "resolve_model('ADVANCED', variant='extended') returns 'claude-opus-4-6[1m]'",
+        "NodeSessionRunner uses 'claude-opus-4-6[1m]' as the session model",
+        "No DEBUG fallback log is emitted"
+      ]
+    },
+    {
+      "id": "TS-14-SMOKE-2",
+      "execution_path_id": "14-PATH-2",
+      "description": "Smoke test the fallback path where a SIMPLE-tier mode with model_variant='extended' resolves to claude-haiku-4-5 with a DEBUG log.",
+      "trigger": "NodeSessionRunner.resolve_model_for_session() called for a SIMPLE-tier mode with model_variant='extended'",
+      "real_components": [
+        "agentfox.core.models.MODEL_REGISTRY",
+        "agentfox.core.models.TIER_DEFAULTS",
+        "agentfox.core.models.resolve_model",
+        "agentfox.engine.sdk_params.resolve_model_variant",
+        "agentfox.engine.session_lifecycle.NodeSessionRunner"
+      ],
+      "mockable": [
+        "resolve_effective_config (returns ArchetypeEntry with default_model_tier='SIMPLE', default_model_variant='extended')"
+      ],
+      "expected_effects": [
+        "resolve_model_variant returns 'extended'",
+        "resolve_model('SIMPLE', variant='extended') returns 'claude-haiku-4-5'",
+        "A DEBUG-level log is emitted by resolve_model indicating fallback",
+        "NodeSessionRunner uses 'claude-haiku-4-5' as the session model"
+      ]
+    },
+    {
+      "id": "TS-14-SMOKE-3",
+      "execution_path_id": "14-PATH-3",
+      "description": "Smoke test the backward-compatible path where an existing caller invokes resolve_model without variant and receives claude-opus-4-6.",
+      "trigger": "resolve_model('ADVANCED') called without variant argument",
+      "real_components": [
+        "agentfox.core.models.MODEL_REGISTRY",
+        "agentfox.core.models.TIER_DEFAULTS",
+        "agentfox.core.models.resolve_model"
+      ],
+      "mockable": [],
+      "expected_effects": [
+        "resolve_model receives variant=None by default",
+        "Returns TIER_DEFAULTS['ADVANCED'] = 'claude-opus-4-6'",
+        "No DEBUG fallback log is emitted",
+        "Result is identical to pre-spec behavior"
+      ]
+    },
+    {
+      "id": "TS-14-SMOKE-4",
+      "execution_path_id": "14-PATH-4",
+      "description": "Smoke test that EscalationLadder preserves variant='extended' across a STANDARD→ADVANCED escalation, resulting in claude-opus-4-6[1m].",
+      "trigger": "EscalationLadder constructed with starting_tier='STANDARD' and starting_variant='extended', then escalated to ADVANCED",
+      "real_components": [
+        "agentfox.core.escalation.EscalationLadder",
+        "agentfox.core.models.resolve_model",
+        "agentfox.core.models.MODEL_REGISTRY"
+      ],
+      "mockable": [],
+      "expected_effects": [
+        "ladder.current_variant == 'extended' before and after escalation",
+        "After escalation, resolve_model is called with variant='extended' and tier='ADVANCED'",
+        "Returns 'claude-opus-4-6[1m]'",
+        "No fallback DEBUG log is emitted"
+      ]
+    },
+    {
+      "id": "TS-14-SMOKE-5",
+      "execution_path_id": "14-PATH-5",
+      "description": "Smoke test the config.toml override path where model_variant='extended' under [archetypes.overrides.coder] causes resolve_model to return claude-opus-4-6[1m].",
+      "trigger": "config.toml with model_variant='extended' under [archetypes.overrides.coder] is parsed and NodeSessionRunner resolves the coder archetype model",
+      "real_components": [
+        "agentfox.core.config.PerArchetypeConfig",
+        "agentfox.engine.sdk_params.resolve_model_variant",
+        "agentfox.core.models.resolve_model",
+        "agentfox.engine.session_lifecycle.NodeSessionRunner"
+      ],
+      "mockable": [
+        "TOML config parser (provide inline TOML string with [archetypes.overrides.coder] model_tier='ADVANCED' model_variant='extended')"
+      ],
+      "expected_effects": [
+        "PerArchetypeConfig for 'coder' has model_variant='extended'",
+        "resolve_model_variant returns 'extended' via Layer 2 (archetype config override)",
+        "resolve_model('ADVANCED', variant='extended') returns 'claude-opus-4-6[1m]'",
+        "NodeSessionRunner uses 'claude-opus-4-6[1m]'"
+      ]
+    }
+  ],
+  "coverage": {
+    "requirements_covered": [],
+    "properties_covered": [],
+    "paths_covered": [],
+    "gaps": []
+  }
+}

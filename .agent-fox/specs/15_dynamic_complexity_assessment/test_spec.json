@@ -1,0 +1,1100 @@
+{
+  "$schema": null,
+  "spec_id": "15",
+  "spec_name": "dynamic_complexity_assessment",
+  "schema_version": 1,
+  "test_cases": [
+    {
+      "id": "TS-15-1",
+      "requirement_id": "15-REQ-1.1",
+      "kind": "unit",
+      "description": "Verifies that ComplexityRecommendation Protocol is defined in core/complexity.py with required fields recommended_tier (str), recommended_variant (str or None), and confidence (float).",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/complexity.py exists",
+        "Python 3.12+ environment"
+      ],
+      "input": "Import ComplexityRecommendation from core/complexity.py and inspect its protocol definition",
+      "expected": "ComplexityRecommendation is a Protocol class with attributes recommended_tier: str, recommended_variant: str | None, and confidence: float",
+      "assertion_pseudocode": "import inspect\nfrom core.complexity import ComplexityRecommendation\nassert hasattr(ComplexityRecommendation, '__protocol_attrs__') or is_protocol(ComplexityRecommendation)\nannotations = get_protocol_annotations(ComplexityRecommendation)\nassert 'recommended_tier' in annotations and annotations['recommended_tier'] == str\nassert 'recommended_variant' in annotations\nassert 'confidence' in annotations"
+    },
+    {
+      "id": "TS-15-2",
+      "requirement_id": "15-REQ-1.2",
+      "kind": "unit",
+      "description": "Verifies that AssessmentResult is a frozen dataclass with all four required fields and correct types.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/complexity.py exists"
+      ],
+      "input": "Import AssessmentResult from core/complexity.py",
+      "expected": "AssessmentResult is a frozen dataclass with recommended_tier (str), recommended_variant (str | None), confidence (float), rationale (str); instantiation with these fields succeeds and the instance is immutable",
+      "assertion_pseudocode": "from core.complexity import AssessmentResult\nimport dataclasses\nassert dataclasses.is_dataclass(AssessmentResult)\nassert AssessmentResult.__dataclass_params__.frozen == True\nfields = {f.name: f for f in dataclasses.fields(AssessmentResult)}\nassert set(fields.keys()) == {'recommended_tier', 'recommended_variant', 'confidence', 'rationale'}\nresult = AssessmentResult(recommended_tier='ADVANCED', recommended_variant='standard', confidence=0.8, rationale='test')\nassert result.recommended_tier == 'ADVANCED'\nassert result.recommended_variant == 'standard'\nassert result.confidence == 0.8\nassert result.rationale == 'test'\ntry:\n    result.recommended_tier = 'SIMPLE'\n    assert False, 'Should be frozen'\nexcept (dataclasses.FrozenInstanceError, AttributeError):\n    pass"
+    },
+    {
+      "id": "TS-15-3",
+      "requirement_id": "15-REQ-1.3",
+      "kind": "unit",
+      "description": "Verifies that ComplexityAssessor constructor accepts an Anthropic client, configurable assessor_model defaulting to 'claude-haiku-4-5', and confidence_threshold defaulting to 0.6.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/complexity.py exists",
+        "Anthropic SDK installed"
+      ],
+      "input": "Instantiate ComplexityAssessor with a mock Anthropic client, then with explicit assessor_model and confidence_threshold",
+      "expected": "Default assessor_model is 'claude-haiku-4-5' and default confidence_threshold is 0.6; custom values are accepted and stored",
+      "assertion_pseudocode": "from core.complexity import ComplexityAssessor\nmock_client = Mock()\nassessor = ComplexityAssessor(client=mock_client)\nassert assessor.assessor_model == 'claude-haiku-4-5'\nassert assessor.confidence_threshold == 0.6\nassert assessor.client is mock_client\n\ncustom_assessor = ComplexityAssessor(client=mock_client, assessor_model='claude-sonnet-4-5', confidence_threshold=0.8)\nassert custom_assessor.assessor_model == 'claude-sonnet-4-5'\nassert custom_assessor.confidence_threshold == 0.8"
+    },
+    {
+      "id": "TS-15-4",
+      "requirement_id": "15-REQ-1.4",
+      "kind": "unit",
+      "description": "Verifies that ComplexityAssessor.assess() is an async method accepting the correct parameters and returning an AssessmentResult dataclass.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/complexity.py exists",
+        "Mock Anthropic client configured to return a valid JSON response"
+      ],
+      "input": "Call assess(node_body='Fix the bug', archetype='coder', mode='fix', base_tier='STANDARD', base_variant='standard', previous_failure=None)",
+      "expected": "Returns an AssessmentResult with all four fields populated; the method is a coroutine",
+      "assertion_pseudocode": "import asyncio, inspect\nfrom core.complexity import ComplexityAssessor, AssessmentResult\nmock_client = Mock()\nmock_client.messages.create = AsyncMock(return_value=make_anthropic_response('{\"recommended_tier\": \"ADVANCED\", \"recommended_variant\": \"standard\", \"confidence\": 0.75, \"rationale\": \"Complex task\"}'))\nassessor = ComplexityAssessor(client=mock_client)\nassert inspect.iscoroutinefunction(assessor.assess)\nresult = asyncio.run(assessor.assess(node_body='Fix the bug', archetype='coder', mode='fix', base_tier='STANDARD', base_variant='standard', previous_failure=None))\nassert isinstance(result, AssessmentResult)\nassert result.recommended_tier == 'ADVANCED'\nassert result.recommended_variant == 'standard'\nassert result.confidence == 0.75\nassert result.rationale == 'Complex task'"
+    },
+    {
+      "id": "TS-15-5",
+      "requirement_id": "15-REQ-1.5",
+      "kind": "unit",
+      "description": "Verifies that ComplexityAssessor maintains no shared mutable state between concurrent assess() calls.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/complexity.py exists",
+        "Mock Anthropic client configured to return different valid responses for different calls"
+      ],
+      "input": "Two concurrent assess() calls with different inputs on the same ComplexityAssessor instance",
+      "expected": "Both calls return independent results corresponding to their inputs; no state interference occurs",
+      "assertion_pseudocode": "import asyncio\nfrom core.complexity import ComplexityAssessor, AssessmentResult\ncall_count = [0]\nasync def mock_create(**kwargs):\n    call_count[0] += 1\n    if call_count[0] == 1:\n        return make_anthropic_response('{\"recommended_tier\": \"ADVANCED\", \"recommended_variant\": \"extended\", \"confidence\": 0.9, \"rationale\": \"Complex\"}')\n    else:\n        return make_anthropic_response('{\"recommended_tier\": \"STANDARD\", \"recommended_variant\": \"standard\", \"confidence\": 0.7, \"rationale\": \"Simple\"}')\nmock_client = Mock()\nmock_client.messages.create = mock_create\nassessor = ComplexityAssessor(client=mock_client)\ntask1 = asyncio.create_task(assessor.assess('body1', 'coder', None, 'STANDARD', 'standard', None))\ntask2 = asyncio.create_task(assessor.assess('body2', 'reviewer', 'fix-review', 'STANDARD', 'standard', None))\nresult1, result2 = asyncio.run(asyncio.gather(task1, task2))\nassert isinstance(result1, AssessmentResult)\nassert isinstance(result2, AssessmentResult)\nassert result1 != result2"
+    },
+    {
+      "id": "TS-15-6",
+      "requirement_id": "15-REQ-1.6",
+      "kind": "unit",
+      "description": "Verifies that when AssessmentManager is instantiated with client=None, ComplexityAssessor is not created and assess_node() falls back to base tier/variant silently with no log entry.",
+      "preconditions": [
+        "packages/agentfox/agentfox/engine/engine.py exists",
+        "RoutingConfig with valid defaults"
+      ],
+      "input": "AssessmentManager(config=routing_config, client=None); call assess_node(node_id='n1', archetype='coder', mode=None, node_body='some body')",
+      "expected": "Returns EscalationLadder at base tier/variant for coder; no WARNING or ERROR log emitted; no ComplexityAssessor attribute on manager",
+      "assertion_pseudocode": "from engine.engine import AssessmentManager\nfrom core.config import RoutingConfig\nimport logging\nrouting_config = RoutingConfig()\nmanager = AssessmentManager(config=routing_config, client=None)\nassert not hasattr(manager, '_assessor') or manager._assessor is None\nwith capture_logs() as logs:\n    ladder = asyncio.run(manager.assess_node(node_id='n1', archetype='coder', mode=None, node_body='some body'))\nassert ladder.starting_tier == 'STANDARD'\nassert ladder.starting_variant == 'standard'\nwarning_logs = [l for l in logs if l.levelno >= logging.WARNING]\nassert len(warning_logs) == 0\nall_logs = [l for l in logs]\nassert all(l.levelno < logging.WARNING for l in all_logs if 'n1' in l.getMessage())"
+    },
+    {
+      "id": "TS-15-7",
+      "requirement_id": "15-REQ-1.7",
+      "kind": "unit",
+      "description": "Verifies that AssessmentManager.__init__() accepts optional client parameter and instantiates ComplexityAssessor when client is non-None.",
+      "preconditions": [
+        "packages/agentfox/agentfox/engine/engine.py exists",
+        "RoutingConfig with assessor_model='claude-haiku-4-5' and confidence_threshold=0.6"
+      ],
+      "input": "AssessmentManager(config=routing_config, client=mock_anthropic_client)",
+      "expected": "AssessmentManager stores a ComplexityAssessor instance configured with the provided client and RoutingConfig values",
+      "assertion_pseudocode": "from engine.engine import AssessmentManager\nfrom core.complexity import ComplexityAssessor\nfrom core.config import RoutingConfig\nmock_client = Mock()\nrouting_config = RoutingConfig(assessor_model='claude-haiku-4-5', confidence_threshold=0.6)\nmanager = AssessmentManager(config=routing_config, client=mock_client)\nassert manager._assessor is not None\nassert isinstance(manager._assessor, ComplexityAssessor)\nassert manager._assessor.client is mock_client\nassert manager._assessor.assessor_model == 'claude-haiku-4-5'\nassert manager._assessor.confidence_threshold == 0.6"
+    },
+    {
+      "id": "TS-15-8",
+      "requirement_id": "15-REQ-2.1",
+      "kind": "unit",
+      "description": "Verifies that ComplexityAssessor constructs a prompt containing all required sections: system role, archetype/mode, base tier/variant, full node_body, and JSON output instruction.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/complexity.py exists",
+        "Mock Anthropic client that captures the prompt sent to it"
+      ],
+      "input": "assess(node_body='Implement auth module', archetype='coder', mode='fix', base_tier='STANDARD', base_variant='standard', previous_failure=None)",
+      "expected": "The captured API call includes a system role message, archetype/mode string, base tier/variant, full node_body text, and instruction to respond with JSON matching AssessmentResult schema",
+      "assertion_pseudocode": "from core.complexity import ComplexityAssessor\ncaptured_calls = []\nasync def mock_create(**kwargs):\n    captured_calls.append(kwargs)\n    return make_anthropic_response('{\"recommended_tier\": \"STANDARD\", \"recommended_variant\": \"standard\", \"confidence\": 0.7, \"rationale\": \"ok\"}')\nmock_client = Mock()\nmock_client.messages.create = mock_create\nassessor = ComplexityAssessor(client=mock_client)\nasyncio.run(assessor.assess('Implement auth module', 'coder', 'fix', 'STANDARD', 'standard', None))\ncall_kwargs = captured_calls[0]\nprompt_text = str(call_kwargs)  # serialize to search\nassert 'complexity assessor' in prompt_text.lower() or 'system' in call_kwargs\nassert 'coder' in prompt_text\nassert 'fix' in prompt_text\nassert 'STANDARD' in prompt_text\nassert 'standard' in prompt_text\nassert 'Implement auth module' in prompt_text\nassert 'recommended_tier' in prompt_text or 'JSON' in prompt_text"
+    },
+    {
+      "id": "TS-15-9",
+      "requirement_id": "15-REQ-2.2",
+      "kind": "unit",
+      "description": "Verifies that when previous_failure is provided, ComplexityAssessor appends failure context to the prompt.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/complexity.py exists",
+        "Mock Anthropic client that captures the prompt"
+      ],
+      "input": "assess(node_body='Fix auth', archetype='coder', mode='fix', base_tier='STANDARD', base_variant='standard', previous_failure='TypeError: cannot unpack non-sequence NoneType')",
+      "expected": "The API call prompt contains the previous_failure text as failure context",
+      "assertion_pseudocode": "from core.complexity import ComplexityAssessor\ncaptured_calls = []\nasync def mock_create(**kwargs):\n    captured_calls.append(kwargs)\n    return make_anthropic_response('{\"recommended_tier\": \"ADVANCED\", \"recommended_variant\": \"standard\", \"confidence\": 0.8, \"rationale\": \"retry\"}')\nmock_client = Mock()\nmock_client.messages.create = mock_create\nassessor = ComplexityAssessor(client=mock_client)\nasyncio.run(assessor.assess('Fix auth', 'coder', 'fix', 'STANDARD', 'standard', 'TypeError: cannot unpack non-sequence NoneType'))\nprompt_text = str(captured_calls[0])\nassert 'TypeError: cannot unpack non-sequence NoneType' in prompt_text"
+    },
+    {
+      "id": "TS-15-10",
+      "requirement_id": "15-REQ-2.3",
+      "kind": "unit",
+      "description": "Verifies that ComplexityAssessor validates the LLM JSON response for all four required fields, confidence range, case-sensitive tier, and case-sensitive variant values.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/complexity.py exists",
+        "Mock Anthropic client returning a valid JSON response"
+      ],
+      "input": "Valid JSON response: {\"recommended_tier\": \"ADVANCED\", \"recommended_variant\": \"extended\", \"confidence\": 0.82, \"rationale\": \"Complex\"}",
+      "expected": "Returns AssessmentResult with all four fields populated correctly",
+      "assertion_pseudocode": "from core.complexity import ComplexityAssessor, AssessmentResult\nmock_client = Mock()\nvalid_json = '{\"recommended_tier\": \"ADVANCED\", \"recommended_variant\": \"extended\", \"confidence\": 0.82, \"rationale\": \"Complex\"}'\nmock_client.messages.create = AsyncMock(return_value=make_anthropic_response(valid_json))\nassessor = ComplexityAssessor(client=mock_client)\nresult = asyncio.run(assessor.assess('body', 'coder', None, 'STANDARD', 'standard', None))\nassert isinstance(result, AssessmentResult)\nassert result.recommended_tier == 'ADVANCED'\nassert result.recommended_variant == 'extended'\nassert result.confidence == 0.82\nassert result.rationale == 'Complex'"
+    },
+    {
+      "id": "TS-15-11",
+      "requirement_id": "15-REQ-2.4",
+      "kind": "unit",
+      "description": "Verifies that ComplexityAssessor enforces a 30-second timeout on the Anthropic API call via the SDK's timeout parameter.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/complexity.py exists",
+        "Mock Anthropic client that captures call arguments"
+      ],
+      "input": "assess() called normally",
+      "expected": "The Anthropic messages.create call is made with timeout=30 (or equivalent SDK parameter)",
+      "assertion_pseudocode": "from core.complexity import ComplexityAssessor\ncaptured_kwargs = {}\nasync def mock_create(**kwargs):\n    captured_kwargs.update(kwargs)\n    return make_anthropic_response('{\"recommended_tier\": \"STANDARD\", \"recommended_variant\": \"standard\", \"confidence\": 0.7, \"rationale\": \"ok\"}')\nmock_client = Mock()\nmock_client.messages.create = mock_create\nassessor = ComplexityAssessor(client=mock_client)\nasyncio.run(assessor.assess('body', 'coder', None, 'STANDARD', 'standard', None))\nassert captured_kwargs.get('timeout') == 30 or captured_kwargs.get('timeout', 0) == 30.0"
+    },
+    {
+      "id": "TS-15-12",
+      "requirement_id": "15-REQ-2.5",
+      "kind": "unit",
+      "description": "Verifies that ComplexityAssessor applies no concurrency cap and each assess_node() call proceeds independently.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/complexity.py exists",
+        "Mock Anthropic client that can handle concurrent calls"
+      ],
+      "input": "Three concurrent assess() calls",
+      "expected": "All three complete independently without any semaphore or lock blocking",
+      "assertion_pseudocode": "from core.complexity import ComplexityAssessor\nfrom unittest.mock import AsyncMock\nmock_client = Mock()\nmock_client.messages.create = AsyncMock(return_value=make_anthropic_response('{\"recommended_tier\": \"STANDARD\", \"recommended_variant\": \"standard\", \"confidence\": 0.7, \"rationale\": \"ok\"}'))\nassessor = ComplexityAssessor(client=mock_client)\ntasks = [assessor.assess('body', 'coder', None, 'STANDARD', 'standard', None) for _ in range(3)]\nresults = asyncio.run(asyncio.gather(*tasks))\nassert len(results) == 3\nassert all(r.recommended_tier in ('SIMPLE','STANDARD','ADVANCED') for r in results)\nassert mock_client.messages.create.call_count == 3"
+    },
+    {
+      "id": "TS-15-13",
+      "requirement_id": "15-REQ-3.1",
+      "kind": "unit",
+      "description": "Verifies that apply_assessment() accepts the correct parameters and returns a tuple of (effective_tier, effective_variant).",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/complexity.py exists"
+      ],
+      "input": "recommendation with recommended_tier='ADVANCED', recommended_variant='extended', confidence=0.8; base_tier='STANDARD', base_variant='standard', confidence_threshold=0.6",
+      "expected": "Returns tuple ('ADVANCED', 'extended') where effective_tier >= base_tier in ModelTier ordering",
+      "assertion_pseudocode": "from core.complexity import apply_assessment, AssessmentResult\nrec = AssessmentResult(recommended_tier='ADVANCED', recommended_variant='extended', confidence=0.8, rationale='Complex')\nresult = apply_assessment(recommendation=rec, base_tier='STANDARD', base_variant='standard', confidence_threshold=0.6)\nassert isinstance(result, tuple)\nassert len(result) == 2\nassert result[0] == 'ADVANCED'\nassert result[1] == 'extended'"
+    },
+    {
+      "id": "TS-15-14",
+      "requirement_id": "15-REQ-3.2",
+      "kind": "unit",
+      "description": "Verifies that apply_assessment() returns (base_tier, base_variant) unchanged when confidence is below the threshold.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/complexity.py exists"
+      ],
+      "input": "recommendation with confidence=0.5, confidence_threshold=0.6; base_tier='STANDARD', base_variant='standard'",
+      "expected": "Returns ('STANDARD', 'standard') unchanged; no upgrade applied",
+      "assertion_pseudocode": "from core.complexity import apply_assessment, AssessmentResult\nrec = AssessmentResult(recommended_tier='ADVANCED', recommended_variant='extended', confidence=0.5, rationale='Complex')\nresult = apply_assessment(recommendation=rec, base_tier='STANDARD', base_variant='standard', confidence_threshold=0.6)\nassert result == ('STANDARD', 'standard')"
+    },
+    {
+      "id": "TS-15-15",
+      "requirement_id": "15-REQ-3.3",
+      "kind": "unit",
+      "description": "Verifies that apply_assessment() resolves effective tier as max(base_tier, recommended_tier) using ModelTier ordering, never below base_tier.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/complexity.py exists",
+        "ModelTier ordering: SIMPLE < STANDARD < ADVANCED"
+      ],
+      "input": "base_tier='STANDARD', recommended_tier='ADVANCED', confidence=0.9 >= threshold",
+      "expected": "effective_tier = 'ADVANCED'; when recommended_tier='SIMPLE' and base_tier='STANDARD', effective_tier='STANDARD'",
+      "assertion_pseudocode": "from core.complexity import apply_assessment, AssessmentResult\n# upgrade case\nrec_up = AssessmentResult(recommended_tier='ADVANCED', recommended_variant='standard', confidence=0.9, rationale='r')\nassert apply_assessment(rec_up, 'STANDARD', 'standard', 0.6)[0] == 'ADVANCED'\n# no-downgrade case\nrec_down = AssessmentResult(recommended_tier='SIMPLE', recommended_variant='standard', confidence=0.9, rationale='r')\nassert apply_assessment(rec_down, 'STANDARD', 'standard', 0.6)[0] == 'STANDARD'\n# same tier\nrec_same = AssessmentResult(recommended_tier='STANDARD', recommended_variant='standard', confidence=0.9, rationale='r')\nassert apply_assessment(rec_same, 'STANDARD', 'standard', 0.6)[0] == 'STANDARD'"
+    },
+    {
+      "id": "TS-15-16",
+      "requirement_id": "15-REQ-3.4",
+      "kind": "unit",
+      "description": "Verifies that when base_variant is None, apply_assessment() never changes the variant and always returns None as effective_variant.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/complexity.py exists"
+      ],
+      "input": "base_variant=None, recommendation.recommended_variant='extended', confidence=0.9 >= threshold",
+      "expected": "effective_variant = None regardless of recommended_variant",
+      "assertion_pseudocode": "from core.complexity import apply_assessment, AssessmentResult\nrec = AssessmentResult(recommended_tier='ADVANCED', recommended_variant='extended', confidence=0.9, rationale='r')\nresult = apply_assessment(recommendation=rec, base_tier='STANDARD', base_variant=None, confidence_threshold=0.6)\nassert result[1] is None\n# also test with recommended_variant=None\nrec2 = AssessmentResult(recommended_tier='ADVANCED', recommended_variant=None, confidence=0.9, rationale='r')\nresult2 = apply_assessment(recommendation=rec2, base_tier='STANDARD', base_variant=None, confidence_threshold=0.6)\nassert result2[1] is None"
+    },
+    {
+      "id": "TS-15-17",
+      "requirement_id": "15-REQ-3.5",
+      "kind": "unit",
+      "description": "Verifies that when recommendation.recommended_variant is None and base_variant is non-None, apply_assessment() treats None as no preference and returns base_variant unchanged.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/complexity.py exists"
+      ],
+      "input": "base_variant='standard', recommendation.recommended_variant=None, confidence=0.9 >= threshold",
+      "expected": "effective_variant = 'standard' (unchanged)",
+      "assertion_pseudocode": "from core.complexity import apply_assessment, AssessmentResult\nrec = AssessmentResult(recommended_tier='ADVANCED', recommended_variant=None, confidence=0.9, rationale='r')\nresult = apply_assessment(recommendation=rec, base_tier='STANDARD', base_variant='standard', confidence_threshold=0.6)\nassert result[1] == 'standard'"
+    },
+    {
+      "id": "TS-15-18",
+      "requirement_id": "15-REQ-3.6",
+      "kind": "unit",
+      "description": "Verifies that when both base_variant and recommended_variant are non-None, apply_assessment() takes max(base_variant, recommended_variant) in VARIANT_ORDER.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/complexity.py exists",
+        "VARIANT_ORDER: fast(0) < standard(1) < extended(2)"
+      ],
+      "input": "base_variant='standard', recommended_variant='extended', confidence=0.9; then base_variant='extended', recommended_variant='fast', confidence=0.9",
+      "expected": "First: effective_variant='extended'; Second: effective_variant='extended' (no downgrade)",
+      "assertion_pseudocode": "from core.complexity import apply_assessment, AssessmentResult\n# upgrade variant\nrec1 = AssessmentResult(recommended_tier='ADVANCED', recommended_variant='extended', confidence=0.9, rationale='r')\nassert apply_assessment(rec1, 'STANDARD', 'standard', 0.6)[1] == 'extended'\n# no downgrade variant\nrec2 = AssessmentResult(recommended_tier='ADVANCED', recommended_variant='fast', confidence=0.9, rationale='r')\nassert apply_assessment(rec2, 'STANDARD', 'extended', 0.6)[1] == 'extended'\n# same variant\nrec3 = AssessmentResult(recommended_tier='ADVANCED', recommended_variant='standard', confidence=0.9, rationale='r')\nassert apply_assessment(rec3, 'STANDARD', 'standard', 0.6)[1] == 'standard'"
+    },
+    {
+      "id": "TS-15-19",
+      "requirement_id": "15-REQ-4.1",
+      "kind": "unit",
+      "description": "Verifies that AssessmentManager.assess_node() has the correct signature accepting all required parameters and returns an EscalationLadder.",
+      "preconditions": [
+        "packages/agentfox/agentfox/engine/engine.py exists",
+        "Mock Anthropic client returning valid assessment"
+      ],
+      "input": "assess_node(node_id='n1', archetype='coder', mode=None, node_body='body', previous_failure=None, pre_assessed=None)",
+      "expected": "Returns an EscalationLadder instance with starting_tier and starting_variant set to effective values",
+      "assertion_pseudocode": "from engine.engine import AssessmentManager\nfrom core.config import RoutingConfig\nimport inspect\nrouting_config = RoutingConfig()\nmock_client = Mock()\nmock_client.messages.create = AsyncMock(return_value=make_anthropic_response('{\"recommended_tier\": \"ADVANCED\", \"recommended_variant\": \"extended\", \"confidence\": 0.9, \"rationale\": \"complex\"}'))\nmanager = AssessmentManager(config=routing_config, client=mock_client)\nsig = inspect.signature(manager.assess_node)\nparams = list(sig.parameters.keys())\nassert 'node_id' in params\nassert 'archetype' in params\nassert 'mode' in params\nassert 'node_body' in params\nassert 'previous_failure' in params\nassert 'pre_assessed' in params\nladder = asyncio.run(manager.assess_node(node_id='n1', archetype='coder', mode=None, node_body='body', previous_failure=None, pre_assessed=None))\nassert ladder is not None\nassert hasattr(ladder, 'starting_tier')\nassert hasattr(ladder, 'starting_variant')"
+    },
+    {
+      "id": "TS-15-20",
+      "requirement_id": "15-REQ-4.2",
+      "kind": "unit",
+      "description": "Verifies that session_runner_factory passes the configured Anthropic client to AssessmentManager via its optional client parameter.",
+      "preconditions": [
+        "packages/agentfox/agentfox/engine/run.py exists",
+        "AssessmentManager is constructed inside session_runner_factory"
+      ],
+      "input": "Inspect session_runner_factory to verify AssessmentManager construction with client argument",
+      "expected": "AssessmentManager is constructed with client=anthropic_client inside session_runner_factory closure",
+      "assertion_pseudocode": "import ast, inspect\nfrom engine import run\nsource = inspect.getsource(run.session_runner_factory)\n# check that AssessmentManager is called with a client keyword argument\nassert 'AssessmentManager' in source\nassert 'client=' in source or 'client =' in source\n# integration: mock factory creation and verify client is passed\nmock_client = Mock()\nwith patch('engine.engine.AssessmentManager') as MockManager:\n    run.session_runner_factory(client=mock_client, ...)\n    MockManager.assert_called_once()\n    call_kwargs = MockManager.call_args.kwargs\n    assert call_kwargs.get('client') is mock_client"
+    },
+    {
+      "id": "TS-15-21",
+      "requirement_id": "15-REQ-4.3",
+      "kind": "unit",
+      "description": "Verifies that assess_node() constructs and returns an EscalationLadder with starting_tier and starting_variant from effective values, ADVANCED ceiling, and same per-tier retry config.",
+      "preconditions": [
+        "packages/agentfox/agentfox/engine/engine.py exists",
+        "Mock client returning ADVANCED/extended recommendation with confidence=0.9"
+      ],
+      "input": "assess_node() for archetype='coder', node_body='complex task'",
+      "expected": "Returned EscalationLadder has starting_tier='ADVANCED', starting_variant='extended', ceiling=ADVANCED, and same per-tier retry config from RoutingConfig",
+      "assertion_pseudocode": "from engine.engine import AssessmentManager\nfrom core.config import RoutingConfig\nmock_client = Mock()\nmock_client.messages.create = AsyncMock(return_value=make_anthropic_response('{\"recommended_tier\": \"ADVANCED\", \"recommended_variant\": \"extended\", \"confidence\": 0.9, \"rationale\": \"complex\"}'))\nrouting_config = RoutingConfig()\nmanager = AssessmentManager(config=routing_config, client=mock_client)\nladder = asyncio.run(manager.assess_node(node_id='n1', archetype='coder', mode=None, node_body='complex task'))\nassert ladder.starting_tier == 'ADVANCED'\nassert ladder.starting_variant == 'extended'\nassert ladder.ceiling == 'ADVANCED'\n# per-tier retry config matches RoutingConfig\nassert ladder_retry_matches_config(ladder, routing_config)"
+    },
+    {
+      "id": "TS-15-22",
+      "requirement_id": "15-REQ-4.4",
+      "kind": "unit",
+      "description": "Verifies that assess_node() evaluates assessment eligibility in the correct order: no assessor, missing body, explicit override, pre_assessed, then LLM.",
+      "preconditions": [
+        "packages/agentfox/agentfox/engine/engine.py exists",
+        "Mock client and configuration supporting all paths"
+      ],
+      "input": "Five separate assess_node() calls exercising each priority path",
+      "expected": "Each path produces correct EscalationLadder; LLM call is only made in path 5",
+      "assertion_pseudocode": "from engine.engine import AssessmentManager\nfrom core.config import RoutingConfig\nrouting_config = RoutingConfig()\nmock_client = Mock()\nmock_client.messages.create = AsyncMock(return_value=make_anthropic_response('{\"recommended_tier\": \"ADVANCED\", \"recommended_variant\": \"extended\", \"confidence\": 0.9, \"rationale\": \"test\"}'))\n\n# Path 1: no assessor\nmanager_no_client = AssessmentManager(config=routing_config, client=None)\nladder1 = asyncio.run(manager_no_client.assess_node('n1', 'coder', None, 'body'))\nassert ladder1.starting_tier == base_tier_for('coder', None)\n\n# Path 2: missing body\nmanager = AssessmentManager(config=routing_config, client=mock_client)\nladder2 = asyncio.run(manager.assess_node('n2', 'coder', None, None))\nassert ladder2.starting_tier == base_tier_for('coder', None)\n\n# Path 3: explicit override (mock is_explicitly_configured to return True)\nwith patch.object(manager, '_is_explicitly_configured', return_value=True):\n    ladder3 = asyncio.run(manager.assess_node('n3', 'coder', 'fix', 'body'))\nassert ladder3.starting_tier is not None  # uses configured tier\n\n# Path 4: pre_assessed non-None\nfrom nightshift.fix_pipeline import AssessedComplexity\npre = AssessedComplexity(tier='ADVANCED', variant='standard', confidence=0.85, rationale='pre')\nladder4 = asyncio.run(manager.assess_node('n4', 'coder', None, 'body', pre_assessed=pre))\nmock_client.messages.create.assert_not_called()  # no LLM call for pre_assessed path\nassert ladder4.starting_tier == 'ADVANCED'\n\n# Path 5: LLM call\nmock_client.messages.create.reset_mock()\nladder5 = asyncio.run(manager.assess_node('n5', 'coder', None, 'body'))\nmock_client.messages.create.assert_called_once()"
+    },
+    {
+      "id": "TS-15-23",
+      "requirement_id": "15-REQ-5.1",
+      "kind": "unit",
+      "description": "Verifies that assess_node() discards the existing EscalationLadder on retry, re-assesses with previous_failure context, and returns a new EscalationLadder.",
+      "preconditions": [
+        "packages/agentfox/agentfox/engine/engine.py exists",
+        "Mock client configured to return ADVANCED/extended on retry"
+      ],
+      "input": "First assess_node() call; then assess_node() with previous_failure='TypeError: NoneType'",
+      "expected": "Second call returns a new EscalationLadder; prompt includes failure context; prior retry state not preserved",
+      "assertion_pseudocode": "from engine.engine import AssessmentManager\nfrom core.config import RoutingConfig\nrouting_config = RoutingConfig()\ncall_count = [0]\nasync def mock_create(**kwargs):\n    call_count[0] += 1\n    return make_anthropic_response('{\"recommended_tier\": \"ADVANCED\", \"recommended_variant\": \"extended\", \"confidence\": 0.9, \"rationale\": \"escalate\"}')\nmock_client = Mock()\nmock_client.messages.create = mock_create\nmanager = AssessmentManager(config=routing_config, client=mock_client)\nladder1 = asyncio.run(manager.assess_node('n1', 'coder', None, 'body'))\nassert call_count[0] == 1\nladder2 = asyncio.run(manager.assess_node('n1', 'coder', None, 'body', previous_failure='TypeError: NoneType'))\nassert call_count[0] == 2\nassert ladder2 is not ladder1\nassert ladder2.starting_tier == 'ADVANCED'\nassert ladder2.starting_variant == 'extended'"
+    },
+    {
+      "id": "TS-15-24",
+      "requirement_id": "15-REQ-5.2",
+      "kind": "unit",
+      "description": "Verifies that assess_node() sources previous_failure from error_tracker and passes it to ComplexityAssessor.assess() as the previous_failure argument.",
+      "preconditions": [
+        "packages/agentfox/agentfox/engine/engine.py and engine/dispatch.py exist",
+        "error_tracker dict populated with a prior failure for node_id"
+      ],
+      "input": "DispatchManager.prepare_launch() called for a node with an existing entry in error_tracker",
+      "expected": "assess_node() is called with previous_failure equal to the error string from error_tracker",
+      "assertion_pseudocode": "from engine.dispatch import DispatchManager\nfrom engine.engine import AssessmentManager\nfrom unittest.mock import patch, AsyncMock\nmock_routing = Mock()\nmock_routing.assess_node = AsyncMock(return_value=make_mock_ladder())\ndispatch = DispatchManager(routing=mock_routing, ...)\nerror_tracker = {'n1': {'previous_error': 'TypeError: NoneType'}}\nget_node_mock = Mock(return_value=Mock(body='some body'))\ndispatch.get_node = get_node_mock\nasyncio.run(dispatch.prepare_launch(node_id='n1', archetype='coder', mode=None, error_tracker=error_tracker))\nmock_routing.assess_node.assert_called_once()\ncall_kwargs = mock_routing.assess_node.call_args.kwargs\nassert call_kwargs.get('previous_failure') == 'TypeError: NoneType'"
+    },
+    {
+      "id": "TS-15-25",
+      "requirement_id": "15-REQ-5.3",
+      "kind": "unit",
+      "description": "Verifies that the new EscalationLadder on retry uses the same ADVANCED ceiling and per-tier retry config as the original, with only starting_tier/starting_variant differing.",
+      "preconditions": [
+        "packages/agentfox/agentfox/engine/engine.py exists",
+        "RoutingConfig with specific per-tier retry counts"
+      ],
+      "input": "assess_node() called twice for same node; second with previous_failure",
+      "expected": "Both ladders share the same ceiling=ADVANCED and per-tier retry configuration; only starting_tier and starting_variant differ",
+      "assertion_pseudocode": "from engine.engine import AssessmentManager\nfrom core.config import RoutingConfig\nrouting_config = RoutingConfig()\nmock_client = Mock()\nmock_client.messages.create = AsyncMock(return_value=make_anthropic_response('{\"recommended_tier\": \"ADVANCED\", \"recommended_variant\": \"extended\", \"confidence\": 0.9, \"rationale\": \"r\"}'))\nmanager = AssessmentManager(config=routing_config, client=mock_client)\nladder1 = asyncio.run(manager.assess_node('n1', 'coder', None, 'body'))\nladder2 = asyncio.run(manager.assess_node('n1', 'coder', None, 'body', previous_failure='error'))\nassert ladder1.ceiling == ladder2.ceiling == 'ADVANCED'\nassert ladders_share_retry_config(ladder1, ladder2, routing_config)"
+    },
+    {
+      "id": "TS-15-26",
+      "requirement_id": "15-REQ-6.1",
+      "kind": "unit",
+      "description": "Verifies that is_explicitly_configured() walks layers 1-3 and returns True when any layer has a non-None value, False when all return None.",
+      "preconditions": [
+        "packages/agentfox/agentfox/engine/engine.py exists",
+        "RoutingConfig with and without explicit overrides"
+      ],
+      "input": "is_explicitly_configured('coder', 'fix') with layer 2 set; then is_explicitly_configured('verifier', None) with all layers empty",
+      "expected": "Returns True when any of layers 1-3 is non-None; returns False when all three are None",
+      "assertion_pseudocode": "from engine.engine import AssessmentManager\nfrom core.config import RoutingConfig\n# Config with explicit per-archetype override for coder\nrouting_config_with_override = RoutingConfig(archetype_overrides={'coder': 'ADVANCED'})\nmanager = AssessmentManager(config=routing_config_with_override, client=Mock())\nassert manager.is_explicitly_configured('coder', None) == True\n\n# Config with no overrides\nrouting_config_no_override = RoutingConfig()\nmanager2 = AssessmentManager(config=routing_config_no_override, client=Mock())\nassert manager2.is_explicitly_configured('verifier', None) == False"
+    },
+    {
+      "id": "TS-15-27",
+      "requirement_id": "15-REQ-6.2",
+      "kind": "unit",
+      "description": "Verifies that is_explicitly_configured() skips layer 1 when mode is None and proceeds to layers 2-3 only.",
+      "preconditions": [
+        "packages/agentfox/agentfox/engine/engine.py exists",
+        "RoutingConfig with mode-level override for archetype/mode but no per-archetype override"
+      ],
+      "input": "is_explicitly_configured('coder', None) where only layer 1 has a value for mode='fix'",
+      "expected": "Returns False because layer 1 is skipped when mode=None, and layers 2-3 have no override for coder",
+      "assertion_pseudocode": "from engine.engine import AssessmentManager\nfrom core.config import RoutingConfig\n# Config with mode-level override only for coder/fix, no per-archetype override\nrouting_config = RoutingConfig(mode_overrides={'coder': {'fix': 'ADVANCED'}})\nmanager = AssessmentManager(config=routing_config, client=Mock())\n# mode=None skips layer 1; layers 2-3 have no coder override -> returns False\nassert manager.is_explicitly_configured('coder', None) == False\n# mode='fix' uses layer 1 -> returns True\nassert manager.is_explicitly_configured('coder', 'fix') == True"
+    },
+    {
+      "id": "TS-15-28",
+      "requirement_id": "15-REQ-6.3",
+      "kind": "unit",
+      "description": "Verifies that when is_explicitly_configured() returns True, assess_node() skips LLM assessment, uses configured tier/variant, and logs DEBUG with node_id/archetype/mode/resolved tier.",
+      "preconditions": [
+        "packages/agentfox/agentfox/engine/engine.py exists",
+        "RoutingConfig with explicit override for coder/fix"
+      ],
+      "input": "assess_node(node_id='n1', archetype='coder', mode='fix', node_body='some body')",
+      "expected": "ComplexityAssessor.assess() is never called; EscalationLadder uses configured tier/variant; DEBUG log contains node_id, archetype, mode, resolved tier",
+      "assertion_pseudocode": "from engine.engine import AssessmentManager\nfrom core.config import RoutingConfig\nimport logging\nmock_client = Mock()\nmock_client.messages.create = AsyncMock()\nrouting_config = RoutingConfig(mode_overrides={'coder': {'fix': 'ADVANCED'}})\nmanager = AssessmentManager(config=routing_config, client=mock_client)\nwith capture_logs(level=logging.DEBUG) as logs:\n    ladder = asyncio.run(manager.assess_node('n1', 'coder', 'fix', 'some body'))\nmock_client.messages.create.assert_not_called()\ndebug_logs = [l for l in logs if l.levelno == logging.DEBUG]\nassert any('n1' in l.getMessage() and 'coder' in l.getMessage() and 'fix' in l.getMessage() for l in debug_logs)\nassert ladder.starting_tier is not None"
+    },
+    {
+      "id": "TS-15-29",
+      "requirement_id": "15-REQ-7.1",
+      "kind": "unit",
+      "description": "Verifies the five-layer resolution priority: explicit config (layers 1-3) always wins over assessment (layer 4) and registry default (layer 5).",
+      "preconditions": [
+        "packages/agentfox/agentfox/engine/engine.py and archetypes.py exist",
+        "RoutingConfig with explicit override; registry defaults configured"
+      ],
+      "input": "assess_node() for archetype with (a) explicit config override active; (b) no override, assessor upgrades; (c) no override, assessor below threshold",
+      "expected": "(a) uses config tier; (b) uses assessor's upgraded tier; (c) uses registry default",
+      "assertion_pseudocode": "from engine.engine import AssessmentManager\nfrom core.config import RoutingConfig\nmock_client = Mock()\nmock_client.messages.create = AsyncMock(return_value=make_anthropic_response('{\"recommended_tier\": \"ADVANCED\", \"recommended_variant\": \"extended\", \"confidence\": 0.9, \"rationale\": \"r\"}'))\n\n# (a) explicit override wins\nconfig_override = RoutingConfig(mode_overrides={'coder': {'fix': 'SIMPLE'}})\nmgr_a = AssessmentManager(config=config_override, client=mock_client)\nladder_a = asyncio.run(mgr_a.assess_node('n1', 'coder', 'fix', 'body'))\nassert ladder_a.starting_tier == 'SIMPLE'  # override tier\nmock_client.messages.create.assert_not_called()\n\n# (b) no override, assessor upgrades\nconfig_no_override = RoutingConfig(confidence_threshold=0.6)\nmgr_b = AssessmentManager(config=config_no_override, client=mock_client)\nladder_b = asyncio.run(mgr_b.assess_node('n2', 'coder', None, 'body'))\nassert ladder_b.starting_tier == 'ADVANCED'\n\n# (c) no override, below threshold\nmock_client.messages.create = AsyncMock(return_value=make_anthropic_response('{\"recommended_tier\": \"ADVANCED\", \"recommended_variant\": \"extended\", \"confidence\": 0.3, \"rationale\": \"r\"}'))\nladder_c = asyncio.run(mgr_b.assess_node('n3', 'coder', None, 'body'))\nassert ladder_c.starting_tier == 'STANDARD'  # registry default"
+    },
+    {
+      "id": "TS-15-30",
+      "requirement_id": "15-REQ-7.2",
+      "kind": "unit",
+      "description": "Verifies that LLM assessment (layer 4) only upgrades from the archetype registry default floor and never overrides explicit config at layers 1-3.",
+      "preconditions": [
+        "packages/agentfox/agentfox/engine/engine.py exists",
+        "Mock assessor returning ADVANCED; explicit config set to SIMPLE"
+      ],
+      "input": "assess_node() with explicit config override; assessor mock would return ADVANCED",
+      "expected": "EscalationLadder uses config's SIMPLE tier; assessor's ADVANCED recommendation is never applied",
+      "assertion_pseudocode": "from engine.engine import AssessmentManager\nfrom core.config import RoutingConfig\nmock_client = Mock()\nmock_client.messages.create = AsyncMock(return_value=make_anthropic_response('{\"recommended_tier\": \"ADVANCED\", \"recommended_variant\": \"extended\", \"confidence\": 0.99, \"rationale\": \"r\"}'))\nconfig = RoutingConfig(mode_overrides={'coder': {'fix': 'SIMPLE'}})\nmanager = AssessmentManager(config=config, client=mock_client)\nladder = asyncio.run(manager.assess_node('n1', 'coder', 'fix', 'body'))\nassert ladder.starting_tier == 'SIMPLE'\nmock_client.messages.create.assert_not_called()"
+    },
+    {
+      "id": "TS-15-31",
+      "requirement_id": "15-REQ-7.3",
+      "kind": "unit",
+      "description": "Verifies that the archetype registry default (layer 5) serves as the base floor used by apply_assessment() when no explicit override exists and no LLM upgrade applies.",
+      "preconditions": [
+        "packages/agentfox/agentfox/archetypes.py with updated ARCHETYPE_REGISTRY",
+        "AssessmentManager with mock assessor returning below-threshold confidence"
+      ],
+      "input": "assess_node() for 'coder'/None with assessor confidence=0.3 (below threshold=0.6)",
+      "expected": "EscalationLadder starts at STANDARD/standard (coder registry default)",
+      "assertion_pseudocode": "from engine.engine import AssessmentManager\nfrom core.config import RoutingConfig\nmock_client = Mock()\nmock_client.messages.create = AsyncMock(return_value=make_anthropic_response('{\"recommended_tier\": \"ADVANCED\", \"recommended_variant\": \"extended\", \"confidence\": 0.3, \"rationale\": \"r\"}'))\nconfig = RoutingConfig(confidence_threshold=0.6)\nmanager = AssessmentManager(config=config, client=mock_client)\nladder = asyncio.run(manager.assess_node('n1', 'coder', None, 'body'))\nassert ladder.starting_tier == 'STANDARD'\nassert ladder.starting_variant == 'standard'"
+    },
+    {
+      "id": "TS-15-32",
+      "requirement_id": "15-REQ-8.1",
+      "kind": "unit",
+      "description": "Verifies ARCHETYPE_REGISTRY assigns coder default to STANDARD/standard and coder (fix) default to STANDARD/standard.",
+      "preconditions": [
+        "packages/agentfox/agentfox/archetypes.py with updated ARCHETYPE_REGISTRY"
+      ],
+      "input": "Read ARCHETYPE_REGISTRY entries for archetype='coder' (no mode) and archetype='coder', mode='fix'",
+      "expected": "Both entries have tier=STANDARD and variant=standard",
+      "assertion_pseudocode": "from archetypes import ARCHETYPE_REGISTRY\ncoder_default = ARCHETYPE_REGISTRY.get_default('coder', mode=None)\nassert coder_default.tier == 'STANDARD'\nassert coder_default.variant == 'standard'\ncoder_fix_default = ARCHETYPE_REGISTRY.get_default('coder', mode='fix')\nassert coder_fix_default.tier == 'STANDARD'\nassert coder_fix_default.variant == 'standard'"
+    },
+    {
+      "id": "TS-15-33",
+      "requirement_id": "15-REQ-8.2",
+      "kind": "unit",
+      "description": "Verifies ARCHETYPE_REGISTRY assigns correct defaults for all reviewer modes: pre-review=ADVANCED/standard, drift-review=STANDARD/standard, audit-review=ADVANCED/standard, fix-review=ADVANCED/standard.",
+      "preconditions": [
+        "packages/agentfox/agentfox/archetypes.py with updated ARCHETYPE_REGISTRY"
+      ],
+      "input": "Read ARCHETYPE_REGISTRY for reviewer with each mode",
+      "expected": "pre-review: ADVANCED/standard; drift-review: STANDARD/standard; audit-review: ADVANCED/standard; fix-review: ADVANCED/standard",
+      "assertion_pseudocode": "from archetypes import ARCHETYPE_REGISTRY\npre = ARCHETYPE_REGISTRY.get_default('reviewer', mode='pre-review')\nassert pre.tier == 'ADVANCED' and pre.variant == 'standard'\ndrift = ARCHETYPE_REGISTRY.get_default('reviewer', mode='drift-review')\nassert drift.tier == 'STANDARD' and drift.variant == 'standard'\naudit = ARCHETYPE_REGISTRY.get_default('reviewer', mode='audit-review')\nassert audit.tier == 'ADVANCED' and audit.variant == 'standard'\nfix_review = ARCHETYPE_REGISTRY.get_default('reviewer', mode='fix-review')\nassert fix_review.tier == 'ADVANCED' and fix_review.variant == 'standard'"
+    },
+    {
+      "id": "TS-15-34",
+      "requirement_id": "15-REQ-8.3",
+      "kind": "unit",
+      "description": "Verifies ARCHETYPE_REGISTRY assigns verifier default to STANDARD/standard.",
+      "preconditions": [
+        "packages/agentfox/agentfox/archetypes.py with updated ARCHETYPE_REGISTRY"
+      ],
+      "input": "Read ARCHETYPE_REGISTRY for archetype='verifier'",
+      "expected": "verifier default: tier=STANDARD, variant=standard",
+      "assertion_pseudocode": "from archetypes import ARCHETYPE_REGISTRY\nverifier_default = ARCHETYPE_REGISTRY.get_default('verifier', mode=None)\nassert verifier_default.tier == 'STANDARD'\nassert verifier_default.variant == 'standard'"
+    },
+    {
+      "id": "TS-15-35",
+      "requirement_id": "15-REQ-8.4",
+      "kind": "unit",
+      "description": "Verifies ARCHETYPE_REGISTRY assigns maintainer defaults: hunt=SIMPLE/standard, fix-triage=STANDARD/standard, extraction=SIMPLE/standard.",
+      "preconditions": [
+        "packages/agentfox/agentfox/archetypes.py with updated ARCHETYPE_REGISTRY"
+      ],
+      "input": "Read ARCHETYPE_REGISTRY for maintainer with modes hunt, fix-triage, extraction",
+      "expected": "hunt: SIMPLE/standard; fix-triage: STANDARD/standard; extraction: SIMPLE/standard",
+      "assertion_pseudocode": "from archetypes import ARCHETYPE_REGISTRY\nhunt = ARCHETYPE_REGISTRY.get_default('maintainer', mode='hunt')\nassert hunt.tier == 'SIMPLE' and hunt.variant == 'standard'\nfix_triage = ARCHETYPE_REGISTRY.get_default('maintainer', mode='fix-triage')\nassert fix_triage.tier == 'STANDARD' and fix_triage.variant == 'standard'\nextraction = ARCHETYPE_REGISTRY.get_default('maintainer', mode='extraction')\nassert extraction.tier == 'SIMPLE' and extraction.variant == 'standard'"
+    },
+    {
+      "id": "TS-15-36",
+      "requirement_id": "15-REQ-8.5",
+      "kind": "unit",
+      "description": "Verifies that all 10 archetype/mode combinations in ARCHETYPE_REGISTRY reflect new defaults immediately at import time with no migration needed.",
+      "preconditions": [
+        "packages/agentfox/agentfox/archetypes.py with updated ARCHETYPE_REGISTRY"
+      ],
+      "input": "Import ARCHETYPE_REGISTRY and check all 10 combinations",
+      "expected": "All 10 combinations match expected tier/variant without any migration step",
+      "assertion_pseudocode": "from archetypes import ARCHETYPE_REGISTRY\nexpected = [\n    ('coder', None, 'STANDARD', 'standard'),\n    ('coder', 'fix', 'STANDARD', 'standard'),\n    ('reviewer', 'pre-review', 'ADVANCED', 'standard'),\n    ('reviewer', 'drift-review', 'STANDARD', 'standard'),\n    ('reviewer', 'audit-review', 'ADVANCED', 'standard'),\n    ('reviewer', 'fix-review', 'ADVANCED', 'standard'),\n    ('verifier', None, 'STANDARD', 'standard'),\n    ('maintainer', 'hunt', 'SIMPLE', 'standard'),\n    ('maintainer', 'fix-triage', 'STANDARD', 'standard'),\n    ('maintainer', 'extraction', 'SIMPLE', 'standard'),\n]\nfor archetype, mode, exp_tier, exp_variant in expected:\n    entry = ARCHETYPE_REGISTRY.get_default(archetype, mode=mode)\n    assert entry.tier == exp_tier, f'{archetype}/{mode}: expected {exp_tier}, got {entry.tier}'\n    assert entry.variant == exp_variant, f'{archetype}/{mode}: expected {exp_variant}, got {entry.variant}'"
+    },
+    {
+      "id": "TS-15-37",
+      "requirement_id": "15-REQ-9.1",
+      "kind": "unit",
+      "description": "Verifies that DispatchManager.prepare_launch() extracts node_body from the task graph node via self.get_node(node_id).body and passes it to assess_node().",
+      "preconditions": [
+        "packages/agentfox/agentfox/engine/dispatch.py exists",
+        "Mock task graph with node having body='Fix the auth bug'"
+      ],
+      "input": "prepare_launch(node_id='n1', archetype='coder', mode=None) with mock node body",
+      "expected": "assess_node() is called with node_body='Fix the auth bug'",
+      "assertion_pseudocode": "from engine.dispatch import DispatchManager\nfrom unittest.mock import Mock, AsyncMock, patch\nmock_node = Mock()\nmock_node.body = 'Fix the auth bug'\ndispatch = DispatchManager(routing=Mock(), ...)\ndispatch.get_node = Mock(return_value=mock_node)\ndispatch._routing.assess_node = AsyncMock(return_value=make_mock_ladder())\nasyncio.run(dispatch.prepare_launch(node_id='n1', archetype='coder', mode=None, error_tracker={}))\ndispatch._routing.assess_node.assert_called_once()\ncall_kwargs = dispatch._routing.assess_node.call_args.kwargs\nassert call_kwargs.get('node_body') == 'Fix the auth bug'"
+    },
+    {
+      "id": "TS-15-38",
+      "requirement_id": "15-REQ-9.2",
+      "kind": "unit",
+      "description": "Verifies that DispatchManager.prepare_launch() extracts previous_failure from error_tracker and passes None if no prior failure exists.",
+      "preconditions": [
+        "packages/agentfox/agentfox/engine/dispatch.py exists",
+        "error_tracker with and without entry for node_id"
+      ],
+      "input": "(a) error_tracker={'n1': {'previous_error': 'SomeError'}}; (b) error_tracker={}",
+      "expected": "(a) assess_node() called with previous_failure='SomeError'; (b) assess_node() called with previous_failure=None",
+      "assertion_pseudocode": "from engine.dispatch import DispatchManager\nmock_node = Mock(body='task body')\ndispatch = DispatchManager(routing=Mock(), ...)\ndispatch.get_node = Mock(return_value=mock_node)\ndispatch._routing.assess_node = AsyncMock(return_value=make_mock_ladder())\n\n# (a) with prior failure\nasyncio.run(dispatch.prepare_launch('n1', 'coder', None, {'n1': {'previous_error': 'SomeError'}}))\nkwargs_a = dispatch._routing.assess_node.call_args.kwargs\nassert kwargs_a.get('previous_failure') == 'SomeError'\n\n# (b) no prior failure\ndispatch._routing.assess_node.reset_mock()\nasyncio.run(dispatch.prepare_launch('n1', 'coder', None, {}))\nkwargs_b = dispatch._routing.assess_node.call_args.kwargs\nassert kwargs_b.get('previous_failure') is None"
+    },
+    {
+      "id": "TS-15-39",
+      "requirement_id": "15-REQ-9.3",
+      "kind": "unit",
+      "description": "Verifies that DispatchManager.prepare_launch() passes both node_body and previous_failure to assess_node() along with node_id, archetype, and mode.",
+      "preconditions": [
+        "packages/agentfox/agentfox/engine/dispatch.py exists",
+        "Mock task graph node and error_tracker"
+      ],
+      "input": "prepare_launch(node_id='n1', archetype='reviewer', mode='pre-review') with node body and prior failure",
+      "expected": "assess_node() called with node_id='n1', archetype='reviewer', mode='pre-review', node_body=<body>, previous_failure=<error>",
+      "assertion_pseudocode": "from engine.dispatch import DispatchManager\nmock_node = Mock(body='Review spec changes')\ndispatch = DispatchManager(routing=Mock(), ...)\ndispatch.get_node = Mock(return_value=mock_node)\ndispatch._routing.assess_node = AsyncMock(return_value=make_mock_ladder())\nerror_tracker = {'n1': {'previous_error': 'ReviewFailed'}}\nasyncio.run(dispatch.prepare_launch('n1', 'reviewer', 'pre-review', error_tracker))\ncall_kwargs = dispatch._routing.assess_node.call_args.kwargs\nassert call_kwargs.get('node_id') == 'n1'\nassert call_kwargs.get('archetype') == 'reviewer'\nassert call_kwargs.get('mode') == 'pre-review'\nassert call_kwargs.get('node_body') == 'Review spec changes'\nassert call_kwargs.get('previous_failure') == 'ReviewFailed'"
+    },
+    {
+      "id": "TS-15-40",
+      "requirement_id": "15-REQ-10.1",
+      "kind": "unit",
+      "description": "Verifies that RoutingConfig adds assessor_model field defaulting to 'claude-haiku-4-5' under [routing] section.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/config.py exists"
+      ],
+      "input": "Instantiate RoutingConfig() without specifying assessor_model",
+      "expected": "assessor_model == 'claude-haiku-4-5'",
+      "assertion_pseudocode": "from core.config import RoutingConfig\nconfig = RoutingConfig()\nassert config.assessor_model == 'claude-haiku-4-5'\nassert isinstance(config.assessor_model, str)"
+    },
+    {
+      "id": "TS-15-41",
+      "requirement_id": "15-REQ-10.2",
+      "kind": "unit",
+      "description": "Verifies that RoutingConfig adds confidence_threshold field defaulting to 0.6 with Field(ge=0.0, le=1.0) validation.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/config.py exists"
+      ],
+      "input": "Instantiate RoutingConfig() without specifying confidence_threshold; then with valid value 0.75",
+      "expected": "Default confidence_threshold is 0.6; custom value 0.75 is accepted",
+      "assertion_pseudocode": "from core.config import RoutingConfig\nconfig = RoutingConfig()\nassert config.confidence_threshold == 0.6\nconfig2 = RoutingConfig(confidence_threshold=0.75)\nassert config2.confidence_threshold == 0.75"
+    },
+    {
+      "id": "TS-15-42",
+      "requirement_id": "15-REQ-10.3",
+      "kind": "unit",
+      "description": "Verifies that RoutingConfig validates both fields eagerly at config load time using Pydantic v2, raising ValidationError for invalid values.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/config.py exists",
+        "Pydantic v2 installed"
+      ],
+      "input": "Attempt to instantiate RoutingConfig with assessor_model='' and then with confidence_threshold=1.5",
+      "expected": "Both raise pydantic.ValidationError immediately at construction time",
+      "assertion_pseudocode": "from core.config import RoutingConfig\nfrom pydantic import ValidationError\ntry:\n    RoutingConfig(assessor_model='')\n    assert False, 'Should raise ValidationError'\nexcept ValidationError as e:\n    assert 'assessor_model' in str(e)\ntry:\n    RoutingConfig(confidence_threshold=1.5)\n    assert False, 'Should raise ValidationError'\nexcept ValidationError as e:\n    assert 'confidence_threshold' in str(e)"
+    },
+    {
+      "id": "TS-15-43",
+      "requirement_id": "15-REQ-11.1",
+      "kind": "unit",
+      "description": "Verifies that AssessedComplexity is a frozen dataclass with tier, variant, confidence, rationale fields, and TriageResult has assessed_complexity field.",
+      "preconditions": [
+        "packages/agentfox/agentfox/nightshift/fix_pipeline.py exists"
+      ],
+      "input": "Import and inspect AssessedComplexity and TriageResult from nightshift/fix_pipeline.py",
+      "expected": "AssessedComplexity is frozen dataclass with four fields; TriageResult has assessed_complexity: AssessedComplexity | None = None",
+      "assertion_pseudocode": "import dataclasses\nfrom nightshift.fix_pipeline import AssessedComplexity, TriageResult\nassert dataclasses.is_dataclass(AssessedComplexity)\nassert AssessedComplexity.__dataclass_params__.frozen == True\nac_fields = {f.name for f in dataclasses.fields(AssessedComplexity)}\nassert ac_fields == {'tier', 'variant', 'confidence', 'rationale'}\nac = AssessedComplexity(tier='ADVANCED', variant='standard', confidence=0.8, rationale='complex')\nassert ac.tier == 'ADVANCED'\ntr_fields = {f.name for f in dataclasses.fields(TriageResult)}\nassert 'assessed_complexity' in tr_fields\ntr = TriageResult(..., assessed_complexity=None)\nassert tr.assessed_complexity is None"
+    },
+    {
+      "id": "TS-15-44",
+      "requirement_id": "15-REQ-11.2",
+      "kind": "unit",
+      "description": "Verifies that assessed_complexity_to_recommendation() correctly maps tier->recommended_tier, variant->recommended_variant, and copies confidence and rationale.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/complexity.py and nightshift/fix_pipeline.py exist"
+      ],
+      "input": "AssessedComplexity(tier='ADVANCED', variant='standard', confidence=0.8, rationale='complex refactor')",
+      "expected": "Returns AssessmentResult(recommended_tier='ADVANCED', recommended_variant='standard', confidence=0.8, rationale='complex refactor')",
+      "assertion_pseudocode": "from core.complexity import assessed_complexity_to_recommendation, AssessmentResult\nfrom nightshift.fix_pipeline import AssessedComplexity\nac = AssessedComplexity(tier='ADVANCED', variant='standard', confidence=0.8, rationale='complex refactor')\nresult = assessed_complexity_to_recommendation(ac)\nassert isinstance(result, AssessmentResult)\nassert result.recommended_tier == 'ADVANCED'\nassert result.recommended_variant == 'standard'\nassert result.confidence == 0.8\nassert result.rationale == 'complex refactor'"
+    },
+    {
+      "id": "TS-15-45",
+      "requirement_id": "15-REQ-11.3",
+      "kind": "unit",
+      "description": "Verifies that assess_node() with valid pre_assessed bypasses ComplexityAssessor LLM call and applies recommendation via adapter + apply_assessment().",
+      "preconditions": [
+        "packages/agentfox/agentfox/engine/engine.py exists",
+        "AssessmentManager with mock client"
+      ],
+      "input": "assess_node(pre_assessed=AssessedComplexity(tier='ADVANCED', variant='standard', confidence=0.85, rationale='pre'))",
+      "expected": "ComplexityAssessor.assess() is never called; returned ladder reflects ADVANCED/standard upgrade",
+      "assertion_pseudocode": "from engine.engine import AssessmentManager\nfrom core.config import RoutingConfig\nfrom nightshift.fix_pipeline import AssessedComplexity\nmock_client = Mock()\nmock_client.messages.create = AsyncMock()\nconfig = RoutingConfig(confidence_threshold=0.6)\nmanager = AssessmentManager(config=config, client=mock_client)\npre = AssessedComplexity(tier='ADVANCED', variant='standard', confidence=0.85, rationale='pre')\nladder = asyncio.run(manager.assess_node('n1', 'coder', None, 'body', pre_assessed=pre))\nmock_client.messages.create.assert_not_called()\nassert ladder.starting_tier == 'ADVANCED'\nassert ladder.starting_variant == 'standard'"
+    },
+    {
+      "id": "TS-15-46",
+      "requirement_id": "15-REQ-11.4",
+      "kind": "unit",
+      "description": "Verifies that assess_node() with pre_assessed=None falls back to the standard ComplexityAssessor LLM call.",
+      "preconditions": [
+        "packages/agentfox/agentfox/engine/engine.py exists",
+        "Mock client returning valid assessment"
+      ],
+      "input": "assess_node(pre_assessed=None, node_body='body')",
+      "expected": "ComplexityAssessor.assess() is called once; ladder reflects LLM result",
+      "assertion_pseudocode": "from engine.engine import AssessmentManager\nfrom core.config import RoutingConfig\nmock_client = Mock()\nmock_client.messages.create = AsyncMock(return_value=make_anthropic_response('{\"recommended_tier\": \"ADVANCED\", \"recommended_variant\": \"extended\", \"confidence\": 0.9, \"rationale\": \"r\"}'))\nconfig = RoutingConfig(confidence_threshold=0.6)\nmanager = AssessmentManager(config=config, client=mock_client)\nladder = asyncio.run(manager.assess_node('n1', 'coder', None, 'body', pre_assessed=None))\nmock_client.messages.create.assert_called_once()\nassert ladder.starting_tier == 'ADVANCED'"
+    },
+    {
+      "id": "TS-15-47",
+      "requirement_id": "15-REQ-11.5",
+      "kind": "unit",
+      "description": "Verifies that nightshift/coder_reviewer.py passes TriageResult.assessed_complexity as pre_assessed to assess_node() for the coder node only, not for fix-review nodes.",
+      "preconditions": [
+        "packages/agentfox/agentfox/nightshift/coder_reviewer.py exists",
+        "Mock TriageResult with assessed_complexity; mock assess_node"
+      ],
+      "input": "Nightshift orchestrator runs with a TriageResult containing assessed_complexity",
+      "expected": "Coder assess_node() call receives pre_assessed=assessed_complexity; fix-review assess_node() call receives pre_assessed=None or no pre_assessed",
+      "assertion_pseudocode": "from nightshift.coder_reviewer import run_coder_reviewer\nfrom nightshift.fix_pipeline import AssessedComplexity, TriageResult\nfrom unittest.mock import AsyncMock, patch, call\npre = AssessedComplexity(tier='ADVANCED', variant='standard', confidence=0.85, rationale='pre')\ntriage_result = TriageResult(..., assessed_complexity=pre)\nassess_calls = []\nasync def mock_assess_node(*args, **kwargs):\n    assess_calls.append(kwargs)\n    return make_mock_ladder()\nwith patch('engine.engine.AssessmentManager.assess_node', side_effect=mock_assess_node):\n    asyncio.run(run_coder_reviewer(triage_result=triage_result))\ncoder_call = next(c for c in assess_calls if c.get('archetype') == 'coder')\nassert coder_call.get('pre_assessed') == pre\nreview_calls = [c for c in assess_calls if c.get('archetype') == 'reviewer']\nfor rc in review_calls:\n    assert rc.get('pre_assessed') is None or 'pre_assessed' not in rc"
+    },
+    {
+      "id": "TS-15-48",
+      "requirement_id": "15-REQ-11.6",
+      "kind": "unit",
+      "description": "Verifies that nightshift/triage.py updates the triage prompt to request assessed_complexity and parses the response applying case-sensitive validation rules.",
+      "preconditions": [
+        "packages/agentfox/agentfox/nightshift/triage.py exists",
+        "Mock LLM response with valid assessed_complexity object"
+      ],
+      "input": "Triage response with assessed_complexity={\"tier\": \"ADVANCED\", \"variant\": \"standard\", \"confidence\": 0.8, \"rationale\": \"complex\"}",
+      "expected": "TriageResult.assessed_complexity is AssessedComplexity(tier='ADVANCED', variant='standard', confidence=0.8, rationale='complex')",
+      "assertion_pseudocode": "from nightshift.triage import parse_triage_response, build_triage_prompt\nfrom nightshift.fix_pipeline import AssessedComplexity\nprompt = build_triage_prompt(...)\nassert 'assessed_complexity' in prompt\nresponse_json = '{... \"assessed_complexity\": {\"tier\": \"ADVANCED\", \"variant\": \"standard\", \"confidence\": 0.8, \"rationale\": \"complex\"} ...}'\ntriage_result = parse_triage_response(response_json)\nassert isinstance(triage_result.assessed_complexity, AssessedComplexity)\nassert triage_result.assessed_complexity.tier == 'ADVANCED'\nassert triage_result.assessed_complexity.variant == 'standard'\nassert triage_result.assessed_complexity.confidence == 0.8\nassert triage_result.assessed_complexity.rationale == 'complex'"
+    },
+    {
+      "id": "TS-15-49",
+      "requirement_id": "15-REQ-12.1",
+      "kind": "unit",
+      "description": "Verifies that ComplexityAssessor logs WARNING with exception details and returns base tier/variant without raising on any API failure.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/complexity.py exists",
+        "Mock Anthropic client that raises a network error"
+      ],
+      "input": "Mock client raises ConnectionError on messages.create",
+      "expected": "assess() logs WARNING containing exception details; returns (base_tier, base_variant) without raising",
+      "assertion_pseudocode": "from core.complexity import ComplexityAssessor\nimport logging\nmock_client = Mock()\nmock_client.messages.create = AsyncMock(side_effect=ConnectionError('Network failure'))\nassessor = ComplexityAssessor(client=mock_client)\nwith capture_logs(level=logging.WARNING) as logs:\n    result = asyncio.run(assessor.assess('body', 'coder', None, 'STANDARD', 'standard', None))\nwarning_logs = [l for l in logs if l.levelno == logging.WARNING]\nassert len(warning_logs) >= 1\nassert 'Network failure' in warning_logs[0].getMessage() or 'ConnectionError' in warning_logs[0].getMessage()\n# assess() should return base tier/variant\nassert result is not None  # returns assessment result with base values OR exception is caught upstream"
+    },
+    {
+      "id": "TS-15-50",
+      "requirement_id": "15-REQ-12.2",
+      "kind": "unit",
+      "description": "Verifies that assess_node() emits a structured DEBUG log on successful assessment with the required keys.",
+      "preconditions": [
+        "packages/agentfox/agentfox/engine/engine.py exists",
+        "Mock client returning ADVANCED/extended with confidence=0.82, rationale='complex'"
+      ],
+      "input": "assess_node(node_id='n1', archetype='coder', mode='fix', node_body='body')",
+      "expected": "DEBUG log contains keys: node_id='n1', archetype='coder', mode='fix', effective_tier='ADVANCED', effective_variant='extended', confidence=0.82, rationale='complex'",
+      "assertion_pseudocode": "from engine.engine import AssessmentManager\nfrom core.config import RoutingConfig\nimport logging\nmock_client = Mock()\nmock_client.messages.create = AsyncMock(return_value=make_anthropic_response('{\"recommended_tier\": \"ADVANCED\", \"recommended_variant\": \"extended\", \"confidence\": 0.82, \"rationale\": \"complex\"}'))\nconfig = RoutingConfig(confidence_threshold=0.6)\nmanager = AssessmentManager(config=config, client=mock_client)\nwith capture_logs(level=logging.DEBUG) as logs:\n    asyncio.run(manager.assess_node('n1', 'coder', 'fix', 'body'))\ndebug_logs = [l for l in logs if l.levelno == logging.DEBUG]\nlog_text = ' '.join(l.getMessage() for l in debug_logs)\nassert 'n1' in log_text\nassert 'coder' in log_text\nassert 'ADVANCED' in log_text\nassert 'extended' in log_text\nassert '0.82' in log_text or 'complex' in log_text"
+    },
+    {
+      "id": "TS-15-51",
+      "requirement_id": "15-REQ-12.3",
+      "kind": "unit",
+      "description": "Verifies that assess_node() with None or empty node_body logs DEBUG message indicating body absent and returns EscalationLadder at base tier/variant.",
+      "preconditions": [
+        "packages/agentfox/agentfox/engine/engine.py exists",
+        "AssessmentManager with mock client"
+      ],
+      "input": "assess_node(node_id='n1', node_body=None); assess_node(node_id='n2', node_body='')",
+      "expected": "Both: DEBUG log contains 'absent or empty' and node_id; EscalationLadder at base tier/variant (STANDARD/standard for coder)",
+      "assertion_pseudocode": "from engine.engine import AssessmentManager\nfrom core.config import RoutingConfig\nimport logging\nconfig = RoutingConfig()\nmanager = AssessmentManager(config=config, client=Mock())\n\nfor node_id, body in [('n1', None), ('n2', '')]:\n    with capture_logs(level=logging.DEBUG) as logs:\n        ladder = asyncio.run(manager.assess_node(node_id, 'coder', None, body))\n    debug_msgs = [l.getMessage() for l in logs if l.levelno == logging.DEBUG]\n    assert any('absent' in m.lower() or 'empty' in m.lower() for m in debug_msgs)\n    assert any(node_id in m for m in debug_msgs)\n    assert ladder.starting_tier == 'STANDARD'\n    assert ladder.starting_variant == 'standard'"
+    },
+    {
+      "id": "TS-15-52",
+      "requirement_id": "15-REQ-12.4",
+      "kind": "unit",
+      "description": "Verifies that assess_node() logs DEBUG entry with node_id, archetype, mode, and resolved tier when explicit config override is detected.",
+      "preconditions": [
+        "packages/agentfox/agentfox/engine/engine.py exists",
+        "RoutingConfig with explicit mode-level override"
+      ],
+      "input": "assess_node(node_id='n1', archetype='coder', mode='fix', node_body='body') with explicit override active",
+      "expected": "DEBUG log contains node_id='n1', archetype='coder', mode='fix', and resolved tier; no LLM call made",
+      "assertion_pseudocode": "from engine.engine import AssessmentManager\nfrom core.config import RoutingConfig\nimport logging\nmock_client = Mock()\nmock_client.messages.create = AsyncMock()\nconfig = RoutingConfig(mode_overrides={'coder': {'fix': 'ADVANCED'}})\nmanager = AssessmentManager(config=config, client=mock_client)\nwith capture_logs(level=logging.DEBUG) as logs:\n    ladder = asyncio.run(manager.assess_node('n1', 'coder', 'fix', 'body'))\ndebug_logs = [l for l in logs if l.levelno == logging.DEBUG]\nlog_text = ' '.join(l.getMessage() for l in debug_logs)\nassert 'n1' in log_text\nassert 'coder' in log_text\nassert 'fix' in log_text\nassert 'ADVANCED' in log_text or 'explicit' in log_text.lower()\nmock_client.messages.create.assert_not_called()"
+    },
+    {
+      "id": "TS-15-53",
+      "requirement_id": "15-REQ-12.5",
+      "kind": "unit",
+      "description": "Verifies that the permanently-disabled path (client=None) produces no log entry at any level when assess_node() is called.",
+      "preconditions": [
+        "packages/agentfox/agentfox/engine/engine.py exists",
+        "AssessmentManager instantiated with client=None"
+      ],
+      "input": "AssessmentManager(config=routing_config, client=None); assess_node('n1', 'coder', None, 'body')",
+      "expected": "No log entries emitted at any log level for this assess_node() call",
+      "assertion_pseudocode": "from engine.engine import AssessmentManager\nfrom core.config import RoutingConfig\nimport logging\nconfig = RoutingConfig()\nmanager = AssessmentManager(config=config, client=None)\nwith capture_logs(level=logging.DEBUG) as logs:\n    ladder = asyncio.run(manager.assess_node('n1', 'coder', None, 'body'))\nall_logs = [l for l in logs]\nassert len(all_logs) == 0\nassert ladder.starting_tier == 'STANDARD'"
+    }
+  ],
+  "property_tests": [
+    {
+      "id": "TS-15-P1",
+      "property_id": "15-PROP-1",
+      "validates": [
+        "15-REQ-3.3",
+        "15-REQ-3.E1"
+      ],
+      "description": "For any base_tier and recommended_tier, apply_assessment() never returns an effective_tier below base_tier in ModelTier ordering.",
+      "for_any_strategy": "Generate random pairs of (base_tier, recommended_tier) from ModelTier enum values [SIMPLE, STANDARD, ADVANCED]; random confidence above threshold; random variant inputs",
+      "invariant_check": "effective_tier = apply_assessment(rec, base_tier, base_variant, threshold)[0]; assert tier_order(effective_tier) >= tier_order(base_tier); if tier_order(recommended_tier) < tier_order(base_tier): assert effective_tier == base_tier"
+    },
+    {
+      "id": "TS-15-P2",
+      "property_id": "15-PROP-2",
+      "validates": [
+        "15-REQ-3.6",
+        "15-REQ-3.E1"
+      ],
+      "description": "For any non-None base_variant and non-None recommended_variant, apply_assessment() never returns a variant below base_variant in VARIANT_ORDER.",
+      "for_any_strategy": "Generate random pairs of (base_variant, recommended_variant) from ['fast','standard','extended']; random confidence above threshold; both non-None",
+      "invariant_check": "effective_variant = apply_assessment(rec, 'STANDARD', base_variant, 0.6)[1]; assert variant_order(effective_variant) >= variant_order(base_variant)"
+    },
+    {
+      "id": "TS-15-P3",
+      "property_id": "15-PROP-3",
+      "validates": [
+        "15-REQ-3.4"
+      ],
+      "description": "For any assessment recommendation, when base_variant is None, apply_assessment() always returns None as the effective variant.",
+      "for_any_strategy": "Generate any AssessmentResult with recommended_variant from [None, 'fast', 'standard', 'extended']; any confidence; any base_tier; base_variant=None",
+      "invariant_check": "result = apply_assessment(rec, base_tier, None, 0.0); assert result[1] is None"
+    },
+    {
+      "id": "TS-15-P4",
+      "property_id": "15-PROP-4",
+      "validates": [
+        "15-REQ-3.2"
+      ],
+      "description": "For any AssessmentResult with confidence below confidence_threshold, apply_assessment() returns (base_tier, base_variant) unchanged.",
+      "for_any_strategy": "Generate confidence C in [0.0, 1.0) and threshold T in (C, 1.0] so C < T; any base_tier and base_variant; any recommended_tier and recommended_variant",
+      "invariant_check": "result = apply_assessment(rec, base_tier, base_variant, confidence_threshold); assert result == (base_tier, base_variant)"
+    },
+    {
+      "id": "TS-15-P5",
+      "property_id": "15-PROP-5",
+      "validates": [
+        "15-REQ-6.3",
+        "15-REQ-7.1",
+        "15-REQ-7.2"
+      ],
+      "description": "For any archetype/mode where is_explicitly_configured() returns True, assess_node() never calls ComplexityAssessor.assess() and uses config-layer tier.",
+      "for_any_strategy": "Generate archetype/mode pairs; configure RoutingConfig with non-None override for each; provide any node_body; any previous_failure",
+      "invariant_check": "with spy on assessor.assess: ladder = asyncio.run(manager.assess_node(node_id, archetype, mode, body)); assert assessor.assess not called; assert ladder.starting_tier == config_tier_for(archetype, mode)"
+    },
+    {
+      "id": "TS-15-P6",
+      "property_id": "15-PROP-6",
+      "validates": [
+        "15-REQ-12.1",
+        "15-REQ-2.E1",
+        "15-REQ-2.E2",
+        "15-REQ-2.E3",
+        "15-REQ-12.E1"
+      ],
+      "description": "For any assessment failure condition, assess_node() always returns an EscalationLadder at base tier/variant without raising.",
+      "for_any_strategy": "Generate failure conditions: network errors, timeouts, rate limits, malformed JSON responses, context-limit errors; any archetype/mode/node_body",
+      "invariant_check": "mock_client.messages.create = AsyncMock(side_effect=failure_condition); try: ladder = asyncio.run(manager.assess_node(...)); except Exception: fail('Should not raise'); assert ladder.starting_tier == base_tier; assert ladder.starting_variant == base_variant"
+    },
+    {
+      "id": "TS-15-P7",
+      "property_id": "15-PROP-7",
+      "validates": [
+        "15-REQ-8.2"
+      ],
+      "description": "For reviewer archetype with pre-review or audit-review mode, ARCHETYPE_REGISTRY floor is always ADVANCED/standard with no explicit override.",
+      "for_any_strategy": "Use fixed inputs: archetype='reviewer', mode in ['pre-review', 'audit-review']; no config override; assessor returns below-threshold confidence",
+      "invariant_check": "ladder = asyncio.run(manager.assess_node(node_id, 'reviewer', mode, 'body', pre_assessed=None)) with below-threshold assessor; assert ladder.starting_tier == 'ADVANCED'; assert ladder.starting_variant == 'standard'"
+    },
+    {
+      "id": "TS-15-P8",
+      "property_id": "15-PROP-8",
+      "validates": [
+        "15-REQ-11.3"
+      ],
+      "description": "For any assess_node() call with a non-None pre_assessed AssessedComplexity, ComplexityAssessor.assess() is never called.",
+      "for_any_strategy": "Generate any AssessedComplexity with valid tier/variant/confidence/rationale; any archetype/mode/node_body; AssessmentManager with mock client",
+      "invariant_check": "with call_count_spy on mock_client.messages.create: ladder = asyncio.run(manager.assess_node(node_id, archetype, mode, body, pre_assessed=ac)); assert mock_client.messages.create.call_count == 0"
+    },
+    {
+      "id": "TS-15-P9",
+      "property_id": "15-PROP-9",
+      "validates": [
+        "15-REQ-1.5"
+      ],
+      "description": "Concurrent assess_node() calls on the same AssessmentManager instance do not interfere with each other; each result depends only on its own inputs.",
+      "for_any_strategy": "Generate N concurrent assess() calls with distinct node bodies and distinct expected responses; use AsyncMock returning different results per call input",
+      "invariant_check": "tasks = [assess_node(node_id=i, body=body_i) for i in range(N)]; results = asyncio.run(asyncio.gather(*tasks)); for i, result in enumerate(results): assert result.starting_tier corresponds to body_i input; assert no shared mutable state leaked between results"
+    }
+  ],
+  "edge_case_tests": [
+    {
+      "id": "TS-15-E1",
+      "requirement_id": "15-REQ-1.E1",
+      "kind": "unit",
+      "description": "Verifies that when client=None is passed to AssessmentManager, every assess_node() call silently returns EscalationLadder at base tier/variant with no warning or error log.",
+      "preconditions": [
+        "packages/agentfox/agentfox/engine/engine.py exists",
+        "RoutingConfig with valid defaults",
+        "AssessmentManager instantiated with client=None"
+      ],
+      "input": "AssessmentManager(config=RoutingConfig(), client=None); call assess_node() for multiple nodes",
+      "expected": "All calls return EscalationLadder at base tier/variant; no log entries at WARNING or ERROR level; no ComplexityAssessor instantiated",
+      "assertion_pseudocode": "from engine.engine import AssessmentManager\nfrom core.config import RoutingConfig\nimport logging\nconfig = RoutingConfig()\nmanager = AssessmentManager(config=config, client=None)\nassert not hasattr(manager, '_assessor') or manager._assessor is None\nfor archetype, mode, exp_tier, exp_variant in [('coder', None, 'STANDARD', 'standard'), ('reviewer', 'pre-review', 'ADVANCED', 'standard')]:\n    with capture_logs(level=logging.WARNING) as logs:\n        ladder = asyncio.run(manager.assess_node(f'n_{archetype}', archetype, mode, 'body'))\n    assert ladder.starting_tier == exp_tier\n    assert ladder.starting_variant == exp_variant\n    assert len([l for l in logs if l.levelno >= logging.WARNING]) == 0"
+    },
+    {
+      "id": "TS-15-E2",
+      "requirement_id": "15-REQ-2.E1",
+      "kind": "unit",
+      "description": "Verifies that malformed JSON, missing required fields, out-of-range confidence, and wrong-case tier/variant all trigger total parse failure with WARNING log and base tier/variant fallback.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/complexity.py exists",
+        "Mock Anthropic client configured to return various invalid responses"
+      ],
+      "input": "Multiple invalid LLM responses: malformed JSON, missing 'rationale' field, confidence=1.5, tier='advanced' (lowercase), variant='Standard' (wrong case)",
+      "expected": "Each invalid response results in WARNING log and assess() indicates fallback; no exception raised to caller; no partial salvaging",
+      "assertion_pseudocode": "from core.complexity import ComplexityAssessor\nimport logging\ninvalid_responses = [\n    'not json at all',\n    '{\"recommended_tier\": \"ADVANCED\", \"recommended_variant\": \"standard\", \"confidence\": 0.8}',  # missing rationale\n    '{\"recommended_tier\": \"ADVANCED\", \"recommended_variant\": \"standard\", \"confidence\": 1.5, \"rationale\": \"r\"}',  # out of range\n    '{\"recommended_tier\": \"advanced\", \"recommended_variant\": \"standard\", \"confidence\": 0.8, \"rationale\": \"r\"}',  # wrong case tier\n    '{\"recommended_tier\": \"ADVANCED\", \"recommended_variant\": \"Standard\", \"confidence\": 0.8, \"rationale\": \"r\"}',  # wrong case variant\n]\nfor bad_response in invalid_responses:\n    mock_client = Mock()\n    mock_client.messages.create = AsyncMock(return_value=make_anthropic_response(bad_response))\n    assessor = ComplexityAssessor(client=mock_client)\n    with capture_logs(level=logging.WARNING) as logs:\n        try:\n            result = asyncio.run(assessor.assess('body', 'coder', None, 'STANDARD', 'standard', None))\n        except Exception as e:\n            assert False, f'Should not raise, got {e}'\n    assert len([l for l in logs if l.levelno == logging.WARNING]) >= 1, f'No warning for: {bad_response}'"
+    },
+    {
+      "id": "TS-15-E3",
+      "requirement_id": "15-REQ-2.E2",
+      "kind": "unit",
+      "description": "Verifies that a 30-second API timeout is treated as an assessment failure: WARNING logged, base tier/variant returned, no exception raised.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/complexity.py exists",
+        "Mock Anthropic client configured to raise a timeout exception"
+      ],
+      "input": "Mock client raises anthropic.APITimeoutError (or equivalent SDK timeout exception) on messages.create",
+      "expected": "assess() logs WARNING with timeout details; returns base values without raising",
+      "assertion_pseudocode": "from core.complexity import ComplexityAssessor\nimport anthropic, logging\nmock_client = Mock()\nmock_client.messages.create = AsyncMock(side_effect=anthropic.APITimeoutError(request=Mock()))\nassessor = ComplexityAssessor(client=mock_client)\nwith capture_logs(level=logging.WARNING) as logs:\n    try:\n        result = asyncio.run(assessor.assess('body', 'coder', None, 'STANDARD', 'standard', None))\n    except Exception as e:\n        assert False, f'Should not raise, got {e}'\nwarning_logs = [l for l in logs if l.levelno == logging.WARNING]\nassert len(warning_logs) >= 1\nassert 'timeout' in warning_logs[0].getMessage().lower() or 'Timeout' in warning_logs[0].getMessage()"
+    },
+    {
+      "id": "TS-15-E4",
+      "requirement_id": "15-REQ-2.E3",
+      "kind": "unit",
+      "description": "Verifies that a rate limit error from the Anthropic API triggers silent fallback and WARNING log.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/complexity.py exists",
+        "Mock Anthropic client raising RateLimitError"
+      ],
+      "input": "Mock client raises anthropic.RateLimitError on messages.create",
+      "expected": "assess() logs WARNING with rate limit error details; returns base values without raising",
+      "assertion_pseudocode": "from core.complexity import ComplexityAssessor\nimport anthropic, logging\nmock_client = Mock()\nmock_client.messages.create = AsyncMock(side_effect=anthropic.RateLimitError(response=Mock(), message='Rate limit exceeded', body={}))\nassessor = ComplexityAssessor(client=mock_client)\nwith capture_logs(level=logging.WARNING) as logs:\n    try:\n        result = asyncio.run(assessor.assess('body', 'coder', None, 'STANDARD', 'standard', None))\n    except Exception:\n        assert False, 'Should not raise'\nwarning_logs = [l for l in logs if l.levelno == logging.WARNING]\nassert len(warning_logs) >= 1"
+    },
+    {
+      "id": "TS-15-E5",
+      "requirement_id": "15-REQ-3.E1",
+      "kind": "unit",
+      "description": "Verifies that apply_assessment() prevents downgrade: when recommended_tier is below base_tier, effective_tier equals base_tier.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/complexity.py exists"
+      ],
+      "input": "base_tier='ADVANCED', recommended_tier='SIMPLE', confidence=0.9 >= threshold",
+      "expected": "effective_tier = 'ADVANCED' (no downgrade); upgrade-only enforced",
+      "assertion_pseudocode": "from core.complexity import apply_assessment, AssessmentResult\nrec = AssessmentResult(recommended_tier='SIMPLE', recommended_variant='fast', confidence=0.9, rationale='r')\nresult = apply_assessment(recommendation=rec, base_tier='ADVANCED', base_variant='standard', confidence_threshold=0.6)\nassert result[0] == 'ADVANCED'\nassert result[1] == 'standard'  # no variant downgrade either"
+    },
+    {
+      "id": "TS-15-E6",
+      "requirement_id": "15-REQ-4.E1",
+      "kind": "unit",
+      "description": "Verifies that assess_node() with node_body=None or empty string skips assessment, logs DEBUG, and returns EscalationLadder at base tier/variant.",
+      "preconditions": [
+        "packages/agentfox/agentfox/engine/engine.py exists",
+        "AssessmentManager with mock client"
+      ],
+      "input": "assess_node(node_id='n1', archetype='coder', mode=None, node_body=None) and assess_node(..., node_body='')",
+      "expected": "Both: DEBUG log about absent/empty body; EscalationLadder at STANDARD/standard (coder default); no LLM call",
+      "assertion_pseudocode": "from engine.engine import AssessmentManager\nfrom core.config import RoutingConfig\nimport logging\nmock_client = Mock()\nmock_client.messages.create = AsyncMock()\nmanager = AssessmentManager(config=RoutingConfig(), client=mock_client)\nfor body in [None, '']:\n    with capture_logs(level=logging.DEBUG) as logs:\n        ladder = asyncio.run(manager.assess_node('n1', 'coder', None, body))\n    assert ladder.starting_tier == 'STANDARD'\n    assert ladder.starting_variant == 'standard'\n    debug_msgs = [l.getMessage() for l in logs if l.levelno == logging.DEBUG]\n    assert any('absent' in m.lower() or 'empty' in m.lower() for m in debug_msgs)\n    mock_client.messages.create.assert_not_called()"
+    },
+    {
+      "id": "TS-15-E7",
+      "requirement_id": "15-REQ-5.E1",
+      "kind": "unit",
+      "description": "Verifies that when re-assessment recommends same or lower tier than base (due to confidence gate or upgrade-only logic), new ladder is at base tier/variant without preserving prior retry state.",
+      "preconditions": [
+        "packages/agentfox/agentfox/engine/engine.py exists",
+        "Mock client returning low-confidence recommendation"
+      ],
+      "input": "assess_node() second call with previous_failure; assessor returns confidence=0.3 < threshold=0.6",
+      "expected": "New EscalationLadder at base tier/variant; prior retry state not preserved in new ladder",
+      "assertion_pseudocode": "from engine.engine import AssessmentManager\nfrom core.config import RoutingConfig\nmock_client = Mock()\nmock_client.messages.create = AsyncMock(return_value=make_anthropic_response('{\"recommended_tier\": \"ADVANCED\", \"recommended_variant\": \"extended\", \"confidence\": 0.3, \"rationale\": \"r\"}'))\nconfig = RoutingConfig(confidence_threshold=0.6)\nmanager = AssessmentManager(config=config, client=mock_client)\nladder1 = asyncio.run(manager.assess_node('n1', 'coder', None, 'body'))\nladder2 = asyncio.run(manager.assess_node('n1', 'coder', None, 'body', previous_failure='error'))\nassert ladder2 is not ladder1\nassert ladder2.starting_tier == 'STANDARD'  # base tier, no upgrade\nassert ladder2.starting_variant == 'standard'\nassert not ladders_share_retry_state(ladder1, ladder2)"
+    },
+    {
+      "id": "TS-15-E8",
+      "requirement_id": "15-REQ-6.E1",
+      "kind": "unit",
+      "description": "Verifies that is_explicitly_configured() returns True immediately when layer 1 yields a non-None value for a non-None mode, without checking layers 2-3.",
+      "preconditions": [
+        "packages/agentfox/agentfox/engine/engine.py exists",
+        "RoutingConfig with mode-level override for coder/fix"
+      ],
+      "input": "is_explicitly_configured('coder', 'fix') with layer 1 configured",
+      "expected": "Returns True; layers 2-3 are not consulted (verifiable via spy/mock on layer check methods)",
+      "assertion_pseudocode": "from engine.engine import AssessmentManager\nfrom core.config import RoutingConfig\nconfig = RoutingConfig(mode_overrides={'coder': {'fix': 'ADVANCED'}})\nmanager = AssessmentManager(config=config, client=Mock())\nlayer2_spy = Mock(wraps=manager._check_layer2)\nlayer3_spy = Mock(wraps=manager._check_layer3)\nmanager._check_layer2 = layer2_spy\nmanager._check_layer3 = layer3_spy\nresult = manager.is_explicitly_configured('coder', 'fix')\nassert result == True\n# layer 2 and 3 not called because layer 1 already returned True\nassert layer2_spy.call_count == 0\nassert layer3_spy.call_count == 0"
+    },
+    {
+      "id": "TS-15-E9",
+      "requirement_id": "15-REQ-9.E1",
+      "kind": "unit",
+      "description": "Verifies that DispatchManager.prepare_launch() passes previous_failure=None when no prior failure entry exists in error_tracker.",
+      "preconditions": [
+        "packages/agentfox/agentfox/engine/dispatch.py exists",
+        "Empty error_tracker dict"
+      ],
+      "input": "prepare_launch(node_id='n1', error_tracker={})",
+      "expected": "assess_node() called with previous_failure=None",
+      "assertion_pseudocode": "from engine.dispatch import DispatchManager\nmock_node = Mock(body='some body')\ndispatch = DispatchManager(routing=Mock(), ...)\ndispatch.get_node = Mock(return_value=mock_node)\ndispatch._routing.assess_node = AsyncMock(return_value=make_mock_ladder())\nasyncio.run(dispatch.prepare_launch('n1', 'coder', None, {}))\ncall_kwargs = dispatch._routing.assess_node.call_args.kwargs\nassert call_kwargs.get('previous_failure') is None"
+    },
+    {
+      "id": "TS-15-E10",
+      "requirement_id": "15-REQ-10.E1",
+      "kind": "unit",
+      "description": "Verifies that RoutingConfig raises ValidationError at load time when assessor_model is set to an empty string.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/config.py exists",
+        "Pydantic v2 installed"
+      ],
+      "input": "RoutingConfig(assessor_model='')",
+      "expected": "pydantic.ValidationError raised at instantiation time with message referencing assessor_model",
+      "assertion_pseudocode": "from core.config import RoutingConfig\nfrom pydantic import ValidationError\ntry:\n    config = RoutingConfig(assessor_model='')\n    assert False, 'ValidationError should have been raised'\nexcept ValidationError as e:\n    error_fields = [err['loc'] for err in e.errors()]\n    assert any('assessor_model' in str(loc) for loc in error_fields)"
+    },
+    {
+      "id": "TS-15-E11",
+      "requirement_id": "15-REQ-10.E2",
+      "kind": "unit",
+      "description": "Verifies that RoutingConfig raises ValidationError at load time when confidence_threshold is outside [0.0, 1.0].",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/config.py exists",
+        "Pydantic v2 installed"
+      ],
+      "input": "RoutingConfig(confidence_threshold=1.5) and RoutingConfig(confidence_threshold=-0.1)",
+      "expected": "Both raise pydantic.ValidationError at instantiation time referencing confidence_threshold",
+      "assertion_pseudocode": "from core.config import RoutingConfig\nfrom pydantic import ValidationError\nfor bad_threshold in [1.5, -0.1, 2.0]:\n    try:\n        config = RoutingConfig(confidence_threshold=bad_threshold)\n        assert False, f'ValidationError should have been raised for {bad_threshold}'\n    except ValidationError as e:\n        error_fields = [err['loc'] for err in e.errors()]\n        assert any('confidence_threshold' in str(loc) for loc in error_fields), f'Field not mentioned for {bad_threshold}'"
+    },
+    {
+      "id": "TS-15-E12",
+      "requirement_id": "15-REQ-11.E1",
+      "kind": "unit",
+      "description": "Verifies partial failure semantics: malformed or missing assessed_complexity in triage response sets TriageResult.assessed_complexity=None, logs WARNING, while rest of TriageResult is parsed normally.",
+      "preconditions": [
+        "packages/agentfox/agentfox/nightshift/triage.py exists"
+      ],
+      "input": "Triage response with valid outer JSON but (a) missing assessed_complexity field; (b) assessed_complexity with confidence=2.0 (invalid); (c) assessed_complexity with tier='advanced' (wrong case)",
+      "expected": "Each: TriageResult.assessed_complexity=None; WARNING logged; other TriageResult fields parsed correctly",
+      "assertion_pseudocode": "from nightshift.triage import parse_triage_response\nimport logging\nbase_valid_fields = '{\"issue\": \"fix auth\", \"priority\": \"high\"}'\npartial_responses = [\n    base_valid_fields + '{}',  # missing assessed_complexity\n    base_valid_fields.rstrip('}') + ', \"assessed_complexity\": {\"tier\": \"ADVANCED\", \"variant\": \"standard\", \"confidence\": 2.0, \"rationale\": \"r\"}}',\n    base_valid_fields.rstrip('}') + ', \"assessed_complexity\": {\"tier\": \"advanced\", \"variant\": \"standard\", \"confidence\": 0.8, \"rationale\": \"r\"}}',\n]\nfor resp in partial_responses:\n    with capture_logs(level=logging.WARNING) as logs:\n        result = parse_triage_response(resp)\n    assert result.assessed_complexity is None, f'Expected None for: {resp}'\n    warning_logs = [l for l in logs if l.levelno == logging.WARNING]\n    assert len(warning_logs) >= 1, f'No warning for: {resp}'\n    assert result.issue == 'fix auth'  # other fields parsed normally"
+    },
+    {
+      "id": "TS-15-E13",
+      "requirement_id": "15-REQ-11.E2",
+      "kind": "unit",
+      "description": "Verifies that no partial field salvaging is attempted within a malformed assessed_complexity sub-object; the entire sub-object is set to None.",
+      "preconditions": [
+        "packages/agentfox/agentfox/nightshift/triage.py exists"
+      ],
+      "input": "Triage response where assessed_complexity has tier='ADVANCED' (valid) but confidence=2.0 (invalid)",
+      "expected": "TriageResult.assessed_complexity=None (whole sub-object discarded, not partially constructed with just the valid tier)",
+      "assertion_pseudocode": "from nightshift.triage import parse_triage_response\nfrom nightshift.fix_pipeline import AssessedComplexity\nresponse = '{\"issue\": \"fix\", \"assessed_complexity\": {\"tier\": \"ADVANCED\", \"variant\": \"standard\", \"confidence\": 2.0, \"rationale\": \"r\"}}'\nresult = parse_triage_response(response)\nassert result.assessed_complexity is None\n# Verify it's not a partially constructed AssessedComplexity\nassert not isinstance(result.assessed_complexity, AssessedComplexity)"
+    },
+    {
+      "id": "TS-15-E14",
+      "requirement_id": "15-REQ-12.E1",
+      "kind": "unit",
+      "description": "Verifies that a context-limit error from the Anthropic API is treated as a standard assessment failure: WARNING logged, base tier/variant returned, no truncation attempted.",
+      "preconditions": [
+        "packages/agentfox/agentfox/core/complexity.py exists",
+        "Mock Anthropic client configured to raise context-limit error"
+      ],
+      "input": "Mock client raises anthropic.BadRequestError with context limit message on messages.create",
+      "expected": "assess() logs WARNING; returns base tier/variant without raising; no shortened body retry attempted",
+      "assertion_pseudocode": "from core.complexity import ComplexityAssessor\nimport anthropic, logging\nmock_client = Mock()\ncontext_limit_error = anthropic.BadRequestError(response=Mock(status_code=400), message='context length exceeded', body={})\nmock_client.messages.create = AsyncMock(side_effect=context_limit_error)\nassessor = ComplexityAssessor(client=mock_client)\nwith capture_logs(level=logging.WARNING) as logs:\n    try:\n        result = asyncio.run(assessor.assess('very long body ' * 10000, 'coder', None, 'STANDARD', 'standard', None))\n    except Exception as e:\n        assert False, f'Should not raise, got {e}'\nwarning_logs = [l for l in logs if l.levelno == logging.WARNING]\nassert len(warning_logs) >= 1\nassert mock_client.messages.create.call_count == 1  # no retry with shorter body"
+    }
+  ],
+  "smoke_tests": [
+    {
+      "id": "TS-15-SMOKE-1",
+      "execution_path_id": "15-PATH-1",
+      "description": "End-to-end smoke test: DispatchManager triggers assess_node() for a complex coder node; ComplexityAssessor upgrades tier from STANDARD/standard to ADVANCED/extended; EscalationLadder is constructed and returned.",
+      "trigger": "prepare_launch(node_id='smoke-1', archetype='coder', mode=None, node_body='Implement multi-module auth refactor...', previous_failure=None)",
+      "real_components": [
+        "engine/dispatch.py DispatchManager.prepare_launch()",
+        "engine/engine.py AssessmentManager.assess_node()",
+        "core/complexity.py ComplexityAssessor.assess()",
+        "core/complexity.py apply_assessment()",
+        "archetypes.py ARCHETYPE_REGISTRY"
+      ],
+      "mockable": [
+        "anthropic.AsyncAnthropic.messages.create (return ADVANCED/extended/0.82/'Complex multi-module refactor')"
+      ],
+      "expected_effects": [
+        "ComplexityAssessor.assess() called once with node_body and archetype='coder'",
+        "apply_assessment() upgrades tier from STANDARD to ADVANCED, variant from standard to extended",
+        "EscalationLadder has starting_tier='ADVANCED', starting_variant='extended', ceiling=ADVANCED",
+        "Structured DEBUG log emitted with node_id='smoke-1', effective_tier='ADVANCED', effective_variant='extended', confidence=0.82"
+      ]
+    },
+    {
+      "id": "TS-15-SMOKE-2",
+      "execution_path_id": "15-PATH-2",
+      "description": "Smoke test for API failure path: ComplexityAssessor fails with network error; assess_node() silently falls back to base tier/variant and dispatch continues.",
+      "trigger": "prepare_launch(node_id='smoke-2', archetype='coder', mode=None, node_body='Fix auth bug', previous_failure=None)",
+      "real_components": [
+        "engine/dispatch.py DispatchManager.prepare_launch()",
+        "engine/engine.py AssessmentManager.assess_node()",
+        "core/complexity.py ComplexityAssessor.assess()"
+      ],
+      "mockable": [
+        "anthropic.AsyncAnthropic.messages.create (raise ConnectionError('Network failure'))"
+      ],
+      "expected_effects": [
+        "WARNING log emitted with exception details",
+        "EscalationLadder returned at base tier=STANDARD, variant=standard (coder default)",
+        "No exception propagated to DispatchManager",
+        "Dispatch continues without blocking"
+      ]
+    },
+    {
+      "id": "TS-15-SMOKE-3",
+      "execution_path_id": "15-PATH-3",
+      "description": "Smoke test for explicit config override: when mode-level config override exists for coder/fix, LLM assessment is skipped and configured tier is used.",
+      "trigger": "prepare_launch(node_id='smoke-3', archetype='coder', mode='fix', node_body='One-line config fix', previous_failure=None) with RoutingConfig having mode_override coder/fix=ADVANCED",
+      "real_components": [
+        "engine/dispatch.py DispatchManager.prepare_launch()",
+        "engine/engine.py AssessmentManager.assess_node()",
+        "engine/engine.py is_explicitly_configured()",
+        "core/config.py RoutingConfig"
+      ],
+      "mockable": [
+        "anthropic.AsyncAnthropic.messages.create (should not be called)"
+      ],
+      "expected_effects": [
+        "is_explicitly_configured('coder', 'fix') returns True",
+        "ComplexityAssessor.assess() is never called",
+        "EscalationLadder has starting_tier from config override",
+        "DEBUG log emitted with node_id='smoke-3', archetype='coder', mode='fix', resolved tier"
+      ]
+    },
+    {
+      "id": "TS-15-SMOKE-4",
+      "execution_path_id": "15-PATH-4",
+      "description": "Smoke test for nightshift pre-assessed path: TriageResult with valid AssessedComplexity is passed to assess_node() for coder node; Haiku LLM call is skipped entirely.",
+      "trigger": "nightshift coder_reviewer runs with TriageResult(assessed_complexity=AssessedComplexity(tier='ADVANCED', variant='standard', confidence=0.8, rationale='Complex multi-module refactor'))",
+      "real_components": [
+        "nightshift/coder_reviewer.py nightshift orchestrator",
+        "engine/engine.py AssessmentManager.assess_node()",
+        "core/complexity.py assessed_complexity_to_recommendation()",
+        "core/complexity.py apply_assessment()"
+      ],
+      "mockable": [
+        "anthropic.AsyncAnthropic.messages.create (should not be called for coder node)",
+        "nightshift triage model (return pre-built TriageResult)"
+      ],
+      "expected_effects": [
+        "assessed_complexity_to_recommendation() called with AssessedComplexity",
+        "apply_assessment() called with converted recommendation",
+        "ComplexityAssessor.assess() NOT called",
+        "Coder EscalationLadder has starting_tier='ADVANCED', starting_variant='standard'",
+        "Fix-review node assess_node() called without pre_assessed"
+      ]
+    },
+    {
+      "id": "TS-15-SMOKE-5",
+      "execution_path_id": "15-PATH-5",
+      "description": "Smoke test for re-assessment on retry: failed coder node is re-dispatched with previous_failure; assessor recommends ADVANCED/extended; new EscalationLadder created at higher tier.",
+      "trigger": "prepare_launch(node_id='smoke-5', archetype='coder', mode=None, node_body='Complex refactor', previous_failure='TypeError: cannot unpack non-sequence NoneType') with error_tracker populated",
+      "real_components": [
+        "engine/dispatch.py DispatchManager.prepare_launch()",
+        "engine/engine.py AssessmentManager.assess_node()",
+        "core/complexity.py ComplexityAssessor.assess()"
+      ],
+      "mockable": [
+        "anthropic.AsyncAnthropic.messages.create (return ADVANCED/extended/0.9/'Failure suggests complex cross-module issue')"
+      ],
+      "expected_effects": [
+        "ComplexityAssessor.assess() called with previous_failure='TypeError: cannot unpack non-sequence NoneType'",
+        "Prompt includes failure context",
+        "New EscalationLadder created with starting_tier='ADVANCED', starting_variant='extended'",
+        "Prior ladder discarded; retry state not preserved"
+      ]
+    },
+    {
+      "id": "TS-15-SMOKE-6",
+      "execution_path_id": "15-PATH-6",
+      "description": "Smoke test for absent client: AssessmentManager constructed with client=None; all assess_node() calls silently fall back to base tier/variant with no log entries.",
+      "trigger": "session_runner_factory constructs AssessmentManager with client=None; multiple prepare_launch() calls for different archetypes",
+      "real_components": [
+        "engine/run.py session_runner_factory",
+        "engine/engine.py AssessmentManager.__init__()",
+        "engine/engine.py AssessmentManager.assess_node()",
+        "engine/dispatch.py DispatchManager.prepare_launch()"
+      ],
+      "mockable": [
+        "No Anthropic client provided (client=None)"
+      ],
+      "expected_effects": [
+        "AssessmentManager._assessor is None",
+        "Each assess_node() returns EscalationLadder at base tier/variant per ARCHETYPE_REGISTRY",
+        "No WARNING, ERROR, or DEBUG log entries emitted for assessment calls",
+        "Dispatch proceeds normally for all nodes"
+      ]
+    }
+  ],
+  "coverage": {
+    "requirements_covered": [],
+    "properties_covered": [],
+    "paths_covered": [],
+    "gaps": []
+  }
+}
