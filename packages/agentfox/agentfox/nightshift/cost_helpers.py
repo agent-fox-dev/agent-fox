@@ -170,7 +170,7 @@ async def nightshift_ai_call(
     from agentfox.core.config import PricingConfig
     from agentfox.core.models import resolve_model
 
-    model_entry = resolve_model(model_tier)
+    model_id = resolve_model(model_tier)
 
     try:
         text, response = await ai_call(
@@ -181,9 +181,9 @@ async def nightshift_ai_call(
             context=context,
         )
     except Exception as exc:
-        emit_auxiliary_cost_fail(sink, run_id, cost_label, exc, model_entry.model_id)
+        emit_auxiliary_cost_fail(sink, run_id, cost_label, exc, model_id)
         raise
 
     pricing = getattr(config, "pricing", PricingConfig())
-    emit_auxiliary_cost(sink, run_id, cost_label, response, model_entry.model_id, pricing)
+    emit_auxiliary_cost(sink, run_id, cost_label, response, model_id, pricing)
     return text, response

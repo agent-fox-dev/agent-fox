@@ -410,14 +410,14 @@ async def ai_call(
     from agentfox.core.models import resolve_model
     from agentfox.core.token_tracker import track_response_usage
 
-    model_entry = resolve_model(model_tier)
+    model_id = resolve_model(model_tier)
 
     async def _call() -> Any:
         client = create_async_anthropic_client()
         try:
             return await cached_messages_create(
                 client,
-                model=model_entry.model_id,
+                model=model_id,
                 max_tokens=max_tokens,
                 messages=messages,
                 system=system,
@@ -427,7 +427,7 @@ async def ai_call(
             await client.close()
 
     response = await retry_api_call_async(_call, context=context)
-    track_response_usage(response, model_entry.model_id, context)
+    track_response_usage(response, model_id, context)
     return extract_response_text(response), response
 
 
@@ -450,13 +450,13 @@ def ai_call_sync(
     from agentfox.core.models import resolve_model
     from agentfox.core.token_tracker import track_response_usage
 
-    model_entry = resolve_model(model_tier)
+    model_id = resolve_model(model_tier)
     client = create_anthropic_client()
 
     def _call() -> Any:
         return cached_messages_create_sync(
             client,
-            model=model_entry.model_id,
+            model=model_id,
             max_tokens=max_tokens,
             messages=messages,
             system=system,
@@ -464,5 +464,5 @@ def ai_call_sync(
         )
 
     response = retry_api_call(_call, context=context)
-    track_response_usage(response, model_entry.model_id, context)
+    track_response_usage(response, model_id, context)
     return extract_response_text(response), response

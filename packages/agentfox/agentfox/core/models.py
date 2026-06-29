@@ -65,28 +65,65 @@ TIER_DEFAULTS: dict[ModelTier, str] = {
 }
 
 
-def resolve_model(name: str) -> ModelEntry:
-    """Resolve a tier name or model ID to a ModelEntry.
+def resolve_model(name: str, *, variant: str | None = None) -> str:
+    """Resolve a tier name or model ID to a model ID string.
 
     Accepts either a tier name (e.g. "SIMPLE", "STANDARD", "ADVANCED")
     or a specific model ID (e.g. "claude-sonnet-4-6").
 
+    When *variant* is ``None`` (the default), returns the model ID from
+    :data:`TIER_DEFAULTS` for the requested tier — identical to pre-variant
+    behavior.
+
+    When *variant* is provided, scans :data:`MODEL_REGISTRY` for a
+    ``(tier, variant)`` match.  If no match is found, falls back to the
+    tier default and emits a DEBUG-level log.  No exception is ever raised
+    for an unmatched or unrecognized variant string.
+
+    Args:
+        name: A tier name (e.g. ``"ADVANCED"``) or a model ID string.
+        variant: Optional variant label (e.g. ``"extended"``).
+
+    Returns:
+        A model ID string (e.g. ``"claude-opus-4-6[1m]"``).
+
     Raises:
-        ConfigError: If the name is not a recognized tier or model ID.
+        ConfigError: If *name* is not a recognized tier or model ID.
+
+    Requirements: 14-REQ-7.1, 14-REQ-7.2, 14-REQ-7.3, 14-REQ-7.4,
+                  14-REQ-9.1, 14-REQ-9.2, 14-REQ-9.3
     """
     from agentfox.core.errors import ConfigError
 
     # Try as a tier name first
     try:
         tier = ModelTier(name)
-        model_id = TIER_DEFAULTS[tier]
-        return MODEL_REGISTRY[model_id]
     except ValueError:
-        pass
+        tier = None
+
+    if tier is not None:
+        if variant is None:
+            # Backward-compatible path: return TIER_DEFAULTS model ID.
+            return TIER_DEFAULTS[tier]
+
+        # Scan MODEL_REGISTRY for an entry matching (tier, variant).
+        for entry in MODEL_REGISTRY.values():
+            if entry.tier == tier and entry.variant == variant:
+                return entry.model_id
+
+        # Fallback: no match found for (tier, variant).
+        logger.debug(
+            "No model found for tier=%s variant=%s; "
+            "falling back to tier default %s",
+            tier,
+            variant,
+            TIER_DEFAULTS[tier],
+        )
+        return TIER_DEFAULTS[tier]
 
     # Try as a direct model ID
     if name in MODEL_REGISTRY:
-        return MODEL_REGISTRY[name]
+        return name
 
     valid_options = sorted(MODEL_REGISTRY.keys())
     raise ConfigError(

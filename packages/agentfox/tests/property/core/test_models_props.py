@@ -21,7 +21,6 @@ from agentfox.core.errors import (
 )
 from agentfox.core.models import (
     MODEL_REGISTRY,
-    ModelEntry,
     ModelTier,
     calculate_cost,
     resolve_model,
@@ -65,17 +64,18 @@ class TestModelRegistryCompleteness:
     """TS-01-P4: Model registry completeness.
 
     Property 5: For any tier in ModelTier, resolve_model(tier.value) returns
-    a ModelEntry with matching tier.
+    a model ID string for a registered model with matching tier.
     """
 
     @pytest.mark.parametrize("tier", list(ModelTier))
     def test_every_tier_resolves(self, tier: ModelTier) -> None:
-        """Every tier resolves to a valid model entry."""
-        entry = resolve_model(tier.value)
+        """Every tier resolves to a valid model ID string."""
+        model_id = resolve_model(tier.value)
 
-        assert isinstance(entry, ModelEntry)
-        assert entry.tier == tier
-        assert entry.model_id != ""
+        assert isinstance(model_id, str)
+        assert model_id != ""
+        assert model_id in MODEL_REGISTRY
+        assert MODEL_REGISTRY[model_id].tier == tier
 
 
 class TestErrorHierarchyCatches:

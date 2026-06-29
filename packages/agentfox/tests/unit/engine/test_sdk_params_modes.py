@@ -537,7 +537,7 @@ class TestIntegrationSmoke:
             knowledge_db=_MOCK_KB,
         )
 
-        expected_model_id = resolve_model("SIMPLE").model_id
+        expected_model_id = resolve_model("SIMPLE")
         assert runner._resolved_model_id == expected_model_id
 
     def test_smoke2_empty_allowlist_mode_blocks_bash(self, monkeypatch: object) -> None:

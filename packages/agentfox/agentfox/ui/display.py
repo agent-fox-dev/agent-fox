@@ -222,8 +222,7 @@ def _resolve_coding_model_display() -> str:
 
     tier = ARCHETYPE_REGISTRY["coder"].default_model_tier
     try:
-        entry = resolve_model(tier)
-        return entry.model_id
+        return resolve_model(tier)
     except Exception:
         return tier
 

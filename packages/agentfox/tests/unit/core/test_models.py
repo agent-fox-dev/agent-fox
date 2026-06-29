@@ -10,8 +10,7 @@ import pytest
 from agentfox.core.config import PricingConfig
 from agentfox.core.errors import ConfigError
 from agentfox.core.models import (
-    ModelEntry,
-    ModelTier,
+    MODEL_REGISTRY,
     calculate_cost,
     resolve_model,
 )
@@ -21,36 +20,35 @@ class TestModelResolutionByTier:
     """TS-01-9: Model resolution by tier name."""
 
     def test_resolve_simple_tier(self) -> None:
-        """SIMPLE tier resolves to a valid model entry."""
-        entry = resolve_model("SIMPLE")
+        """SIMPLE tier resolves to a valid model ID string."""
+        model_id = resolve_model("SIMPLE")
 
-        assert isinstance(entry, ModelEntry)
-        assert entry.tier == ModelTier.SIMPLE
-        assert entry.model_id != ""
+        assert isinstance(model_id, str)
+        assert model_id != ""
+        assert model_id in MODEL_REGISTRY
 
     def test_resolve_standard_tier(self) -> None:
-        """STANDARD tier resolves to a valid model entry."""
-        entry = resolve_model("STANDARD")
+        """STANDARD tier resolves to a valid model ID string."""
+        model_id = resolve_model("STANDARD")
 
-        assert isinstance(entry, ModelEntry)
-        assert entry.tier == ModelTier.STANDARD
-        assert entry.model_id != ""
+        assert isinstance(model_id, str)
+        assert model_id != ""
+        assert model_id in MODEL_REGISTRY
 
     def test_resolve_advanced_tier(self) -> None:
-        """ADVANCED tier resolves to a valid model entry."""
-        entry = resolve_model("ADVANCED")
+        """ADVANCED tier resolves to a valid model ID string."""
+        model_id = resolve_model("ADVANCED")
 
-        assert isinstance(entry, ModelEntry)
-        assert entry.tier == ModelTier.ADVANCED
-        assert entry.model_id != ""
+        assert isinstance(model_id, str)
+        assert model_id != ""
+        assert model_id in MODEL_REGISTRY
 
     def test_resolve_by_model_id(self) -> None:
-        """A specific model ID resolves to its entry."""
-        entry = resolve_model("claude-sonnet-4-6")
+        """A specific model ID resolves to itself."""
+        model_id = resolve_model("claude-sonnet-4-6")
 
-        assert isinstance(entry, ModelEntry)
-        assert entry.model_id == "claude-sonnet-4-6"
-        assert entry.tier == ModelTier.STANDARD
+        assert isinstance(model_id, str)
+        assert model_id == "claude-sonnet-4-6"
 
 
 class TestCostCalculation:
@@ -58,31 +56,31 @@ class TestCostCalculation:
 
     def test_cost_standard_model(self) -> None:
         """Cost calculation returns correct USD value for Sonnet."""
-        model = resolve_model("STANDARD")
+        model_id = resolve_model("STANDARD")
         pricing = PricingConfig()
 
         # Sonnet: $3.00/M input, $15.00/M output
         # 1M input + 500K output = (1.0 * 3.00) + (0.5 * 15.00) = $10.50
-        cost = calculate_cost(1_000_000, 500_000, model.model_id, pricing)
+        cost = calculate_cost(1_000_000, 500_000, model_id, pricing)
 
         assert abs(cost - 10.50) < 0.01
 
     def test_cost_zero_tokens(self) -> None:
         """Zero tokens produces zero cost."""
-        model = resolve_model("STANDARD")
+        model_id = resolve_model("STANDARD")
         pricing = PricingConfig()
 
-        cost = calculate_cost(0, 0, model.model_id, pricing)
+        cost = calculate_cost(0, 0, model_id, pricing)
 
         assert cost == 0.0
 
     def test_cost_input_only(self) -> None:
         """Cost with only input tokens is correct."""
-        model = resolve_model("SIMPLE")
+        model_id = resolve_model("SIMPLE")
         pricing = PricingConfig()
 
         # Haiku: $1.00/M input
-        cost = calculate_cost(1_000_000, 0, model.model_id, pricing)
+        cost = calculate_cost(1_000_000, 0, model_id, pricing)
 
         assert abs(cost - 1.00) < 0.01
 

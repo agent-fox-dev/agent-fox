@@ -365,12 +365,12 @@ class NightShiftEngine:
         from agentfox.core.config import PricingConfig
         from agentfox.core.models import calculate_cost, resolve_model
 
-        model_entry = resolve_model("ADVANCED")
+        model_id = resolve_model("ADVANCED")
         pricing = getattr(self._config, "pricing", PricingConfig())
         return calculate_cost(
             getattr(metrics, "input_tokens", 0),
             getattr(metrics, "output_tokens", 0),
-            model_entry.model_id,
+            model_id,
             pricing,
             cache_read_input_tokens=getattr(metrics, "cache_read_input_tokens", 0),
             cache_creation_input_tokens=getattr(metrics, "cache_creation_input_tokens", 0),

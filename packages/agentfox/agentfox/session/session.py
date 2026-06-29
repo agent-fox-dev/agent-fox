@@ -117,7 +117,7 @@ async def run_session(
     """
     # Resolve the coding model (archetype override or config default)
     effective_archetype = archetype or "coder"
-    model_entry = resolve_model(model_id or resolve_model_tier(config, effective_archetype))
+    resolved_model_id = resolve_model(model_id or resolve_model_tier(config, effective_archetype))
 
     # Resolve security config (archetype override or config default)
     effective_security = security_config if security_config is not None else config.security
@@ -137,7 +137,7 @@ async def run_session(
             _execute_query(
                 task_prompt=task_prompt,
                 system_prompt=system_prompt,
-                model_id=model_entry.model_id,
+                model_id=resolved_model_id,
                 cwd=str(workspace.path),
                 config=config,
                 backend=backend,

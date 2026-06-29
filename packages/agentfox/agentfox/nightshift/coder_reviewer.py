@@ -74,8 +74,7 @@ class CoderReviewerLoop:
 
         for attempt in range(max_retries + 1):
             tier = ladder.current_tier
-            model_entry = resolve_model(tier.value)
-            model_id: str | None = model_entry.model_id
+            model_id: str | None = resolve_model(tier.value)
 
             await self._run_coder_phase(
                 spec,

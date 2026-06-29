@@ -277,11 +277,11 @@ class NodeSessionRunner:
         # 30-REQ-7.2: Use assessed tier from adaptive routing if provided,
         # otherwise fall back to static resolution (26-REQ-4.4, 97-REQ-5.3).
         if assessed_tier is not None:
-            self._resolved_model_id = resolve_model(assessed_tier.value).model_id
+            self._resolved_model_id = resolve_model(assessed_tier.value)
         else:
             self._resolved_model_id = resolve_model(
                 resolve_model_tier(self._config, self._archetype, mode=self._mode)
-            ).model_id
+            )
         self._resolved_security = resolve_security_config(self._config, self._archetype, mode=self._mode)
 
     def _build_prompts(
