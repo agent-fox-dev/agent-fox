@@ -25,6 +25,7 @@ from agentfox.core.complexity import (
     AssessmentResult,
     ComplexityAssessor,
     ComplexityRecommendation,
+    apply_assessment,
 )
 
 # ---------------------------------------------------------------------------
@@ -1827,4 +1828,774 @@ class TestClientNoneNoLogs:
         assert len(agentfox_logs) == 0, (
             f"Expected zero log entries, got: "
             f"{[r.getMessage() for r in agentfox_logs]}"
+        )
+
+
+# ===========================================================================
+# Task Group 3: apply_assessment() upgrade-only semantics (REQ-3)
+#               and property tests (PROP-1 through PROP-4)
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# Tier and variant ordering constants for tests
+# ---------------------------------------------------------------------------
+
+# Canonical tier ordering: SIMPLE(0) < STANDARD(1) < ADVANCED(2)
+_TIER_ORDER: dict[str, int] = {"SIMPLE": 0, "STANDARD": 1, "ADVANCED": 2}
+_ALL_TIERS: list[str] = ["SIMPLE", "STANDARD", "ADVANCED"]
+
+# Canonical variant ordering: fast(0) < standard(1) < extended(2)
+_VARIANT_ORDER: dict[str, int] = {"fast": 0, "standard": 1, "extended": 2}
+_ALL_VARIANTS: list[str] = ["fast", "standard", "extended"]
+
+
+# ===========================================================================
+# Task 3.1: apply_assessment() signature and basic upgrade/no-change cases
+# Test Spec: TS-15-13, TS-15-14, TS-15-15
+# Requirements: 15-REQ-3.1, 15-REQ-3.2, 15-REQ-3.3
+# ===========================================================================
+
+
+class TestApplyAssessmentSignatureAndReturn:
+    """TS-15-13: apply_assessment() accepts correct parameters and returns tuple.
+
+    Requirement: 15-REQ-3.1
+    """
+
+    def test_returns_tuple_of_two_elements(self) -> None:
+        """apply_assessment() returns a 2-tuple."""
+        rec = AssessmentResult(
+            recommended_tier="ADVANCED",
+            recommended_variant="extended",
+            confidence=0.8,
+            rationale="Complex",
+        )
+        result = apply_assessment(
+            recommendation=rec,
+            base_tier="STANDARD",
+            base_variant="standard",
+            confidence_threshold=0.6,
+        )
+        assert isinstance(result, tuple)
+        assert len(result) == 2
+
+    def test_first_element_is_str(self) -> None:
+        """Effective tier is a string."""
+        rec = AssessmentResult(
+            recommended_tier="ADVANCED",
+            recommended_variant="extended",
+            confidence=0.8,
+            rationale="Complex",
+        )
+        result = apply_assessment(
+            recommendation=rec,
+            base_tier="STANDARD",
+            base_variant="standard",
+            confidence_threshold=0.6,
+        )
+        assert isinstance(result[0], str)
+
+    def test_second_element_is_str_or_none(self) -> None:
+        """Effective variant is str or None."""
+        rec = AssessmentResult(
+            recommended_tier="ADVANCED",
+            recommended_variant="extended",
+            confidence=0.8,
+            rationale="Complex",
+        )
+        result = apply_assessment(
+            recommendation=rec,
+            base_tier="STANDARD",
+            base_variant="standard",
+            confidence_threshold=0.6,
+        )
+        assert result[1] is None or isinstance(result[1], str)
+
+    def test_upgrade_case_returns_advanced(self) -> None:
+        """Upgrade: STANDARD -> ADVANCED with high confidence."""
+        rec = AssessmentResult(
+            recommended_tier="ADVANCED",
+            recommended_variant="extended",
+            confidence=0.8,
+            rationale="Complex",
+        )
+        result = apply_assessment(
+            recommendation=rec,
+            base_tier="STANDARD",
+            base_variant="standard",
+            confidence_threshold=0.6,
+        )
+        assert result[0] == "ADVANCED"
+        assert result[1] == "extended"
+
+
+class TestApplyAssessmentConfidenceGate:
+    """TS-15-14: Below-threshold confidence returns base unchanged.
+
+    Requirement: 15-REQ-3.2
+    """
+
+    def test_below_threshold_returns_base_unchanged(self) -> None:
+        """Confidence 0.5 < threshold 0.6 returns (base_tier, base_variant)."""
+        rec = AssessmentResult(
+            recommended_tier="ADVANCED",
+            recommended_variant="extended",
+            confidence=0.5,
+            rationale="Complex",
+        )
+        result = apply_assessment(
+            recommendation=rec,
+            base_tier="STANDARD",
+            base_variant="standard",
+            confidence_threshold=0.6,
+        )
+        assert result == ("STANDARD", "standard")
+
+    def test_exactly_at_threshold_applies_upgrade(self) -> None:
+        """Confidence == threshold passes the gate (>= semantics)."""
+        rec = AssessmentResult(
+            recommended_tier="ADVANCED",
+            recommended_variant="extended",
+            confidence=0.6,
+            rationale="Complex",
+        )
+        result = apply_assessment(
+            recommendation=rec,
+            base_tier="STANDARD",
+            base_variant="standard",
+            confidence_threshold=0.6,
+        )
+        # At threshold, upgrade should be applied
+        assert result[0] == "ADVANCED"
+
+    def test_zero_confidence_returns_base(self) -> None:
+        """Confidence 0.0 with threshold 0.6 returns base unchanged."""
+        rec = AssessmentResult(
+            recommended_tier="ADVANCED",
+            recommended_variant="extended",
+            confidence=0.0,
+            rationale="No confidence",
+        )
+        result = apply_assessment(
+            recommendation=rec,
+            base_tier="STANDARD",
+            base_variant="standard",
+            confidence_threshold=0.6,
+        )
+        assert result == ("STANDARD", "standard")
+
+    def test_below_threshold_with_none_variant(self) -> None:
+        """Below-threshold confidence returns (base_tier, None) when base_variant is None."""
+        rec = AssessmentResult(
+            recommended_tier="ADVANCED",
+            recommended_variant="extended",
+            confidence=0.3,
+            rationale="r",
+        )
+        result = apply_assessment(
+            recommendation=rec,
+            base_tier="STANDARD",
+            base_variant=None,
+            confidence_threshold=0.6,
+        )
+        assert result == ("STANDARD", None)
+
+
+class TestApplyAssessmentTierUpgrade:
+    """TS-15-15: effective_tier = max(base_tier, recommended_tier).
+
+    Requirement: 15-REQ-3.3
+    """
+
+    def test_upgrade_standard_to_advanced(self) -> None:
+        """Recommended ADVANCED upgrades from STANDARD base."""
+        rec = AssessmentResult(
+            recommended_tier="ADVANCED",
+            recommended_variant="standard",
+            confidence=0.9,
+            rationale="r",
+        )
+        result = apply_assessment(rec, "STANDARD", "standard", 0.6)
+        assert result[0] == "ADVANCED"
+
+    def test_no_downgrade_from_standard_to_simple(self) -> None:
+        """Recommended SIMPLE does not downgrade from STANDARD base."""
+        rec = AssessmentResult(
+            recommended_tier="SIMPLE",
+            recommended_variant="standard",
+            confidence=0.9,
+            rationale="r",
+        )
+        result = apply_assessment(rec, "STANDARD", "standard", 0.6)
+        assert result[0] == "STANDARD"
+
+    def test_same_tier_stays_same(self) -> None:
+        """Recommended STANDARD with STANDARD base stays STANDARD."""
+        rec = AssessmentResult(
+            recommended_tier="STANDARD",
+            recommended_variant="standard",
+            confidence=0.9,
+            rationale="r",
+        )
+        result = apply_assessment(rec, "STANDARD", "standard", 0.6)
+        assert result[0] == "STANDARD"
+
+    def test_upgrade_simple_to_advanced(self) -> None:
+        """Recommended ADVANCED upgrades from SIMPLE base."""
+        rec = AssessmentResult(
+            recommended_tier="ADVANCED",
+            recommended_variant="standard",
+            confidence=0.9,
+            rationale="r",
+        )
+        result = apply_assessment(rec, "SIMPLE", "standard", 0.6)
+        assert result[0] == "ADVANCED"
+
+    def test_upgrade_simple_to_standard(self) -> None:
+        """Recommended STANDARD upgrades from SIMPLE base."""
+        rec = AssessmentResult(
+            recommended_tier="STANDARD",
+            recommended_variant="standard",
+            confidence=0.9,
+            rationale="r",
+        )
+        result = apply_assessment(rec, "SIMPLE", "standard", 0.6)
+        assert result[0] == "STANDARD"
+
+    def test_no_downgrade_from_advanced_to_simple(self) -> None:
+        """Recommended SIMPLE does not downgrade from ADVANCED base."""
+        rec = AssessmentResult(
+            recommended_tier="SIMPLE",
+            recommended_variant="standard",
+            confidence=0.9,
+            rationale="r",
+        )
+        result = apply_assessment(rec, "ADVANCED", "standard", 0.6)
+        assert result[0] == "ADVANCED"
+
+    def test_no_downgrade_from_advanced_to_standard(self) -> None:
+        """Recommended STANDARD does not downgrade from ADVANCED base."""
+        rec = AssessmentResult(
+            recommended_tier="STANDARD",
+            recommended_variant="standard",
+            confidence=0.9,
+            rationale="r",
+        )
+        result = apply_assessment(rec, "ADVANCED", "standard", 0.6)
+        assert result[0] == "ADVANCED"
+
+
+# ===========================================================================
+# Task 3.2: apply_assessment() variant upgrade rules
+# Test Spec: TS-15-16, TS-15-17, TS-15-18, TS-15-E5
+# Requirements: 15-REQ-3.4, 15-REQ-3.5, 15-REQ-3.6, 15-REQ-3.E1
+# ===========================================================================
+
+
+class TestApplyAssessmentNoneBaseVariant:
+    """TS-15-16: base_variant=None → effective_variant always None.
+
+    When base_variant is None (single-variant tier), apply_assessment()
+    never changes the variant field; always returns None regardless of
+    recommendation.recommended_variant.
+
+    Requirement: 15-REQ-3.4
+    """
+
+    def test_none_base_variant_with_extended_recommended(self) -> None:
+        """base_variant=None, recommended_variant='extended' → effective_variant=None."""
+        rec = AssessmentResult(
+            recommended_tier="ADVANCED",
+            recommended_variant="extended",
+            confidence=0.9,
+            rationale="r",
+        )
+        result = apply_assessment(
+            recommendation=rec,
+            base_tier="STANDARD",
+            base_variant=None,
+            confidence_threshold=0.6,
+        )
+        assert result[1] is None
+
+    def test_none_base_variant_with_none_recommended(self) -> None:
+        """base_variant=None, recommended_variant=None → effective_variant=None."""
+        rec = AssessmentResult(
+            recommended_tier="ADVANCED",
+            recommended_variant=None,
+            confidence=0.9,
+            rationale="r",
+        )
+        result = apply_assessment(
+            recommendation=rec,
+            base_tier="STANDARD",
+            base_variant=None,
+            confidence_threshold=0.6,
+        )
+        assert result[1] is None
+
+    def test_none_base_variant_with_fast_recommended(self) -> None:
+        """base_variant=None, recommended_variant='fast' → effective_variant=None."""
+        rec = AssessmentResult(
+            recommended_tier="STANDARD",
+            recommended_variant="fast",
+            confidence=0.9,
+            rationale="r",
+        )
+        result = apply_assessment(
+            recommendation=rec,
+            base_tier="STANDARD",
+            base_variant=None,
+            confidence_threshold=0.6,
+        )
+        assert result[1] is None
+
+    def test_none_base_variant_with_standard_recommended(self) -> None:
+        """base_variant=None, recommended_variant='standard' → effective_variant=None."""
+        rec = AssessmentResult(
+            recommended_tier="STANDARD",
+            recommended_variant="standard",
+            confidence=0.9,
+            rationale="r",
+        )
+        result = apply_assessment(
+            recommendation=rec,
+            base_tier="STANDARD",
+            base_variant=None,
+            confidence_threshold=0.6,
+        )
+        assert result[1] is None
+
+
+class TestApplyAssessmentNoneRecommendedVariant:
+    """TS-15-17: recommended_variant=None treated as no preference.
+
+    When recommended_variant is None and base_variant is non-None,
+    returns base_variant unchanged.
+
+    Requirement: 15-REQ-3.5
+    """
+
+    def test_none_recommended_keeps_standard_base(self) -> None:
+        """recommended_variant=None with base_variant='standard' → 'standard'."""
+        rec = AssessmentResult(
+            recommended_tier="ADVANCED",
+            recommended_variant=None,
+            confidence=0.9,
+            rationale="r",
+        )
+        result = apply_assessment(
+            recommendation=rec,
+            base_tier="STANDARD",
+            base_variant="standard",
+            confidence_threshold=0.6,
+        )
+        assert result[1] == "standard"
+
+    def test_none_recommended_keeps_extended_base(self) -> None:
+        """recommended_variant=None with base_variant='extended' → 'extended'."""
+        rec = AssessmentResult(
+            recommended_tier="ADVANCED",
+            recommended_variant=None,
+            confidence=0.9,
+            rationale="r",
+        )
+        result = apply_assessment(
+            recommendation=rec,
+            base_tier="STANDARD",
+            base_variant="extended",
+            confidence_threshold=0.6,
+        )
+        assert result[1] == "extended"
+
+    def test_none_recommended_keeps_fast_base(self) -> None:
+        """recommended_variant=None with base_variant='fast' → 'fast'."""
+        rec = AssessmentResult(
+            recommended_tier="ADVANCED",
+            recommended_variant=None,
+            confidence=0.9,
+            rationale="r",
+        )
+        result = apply_assessment(
+            recommendation=rec,
+            base_tier="STANDARD",
+            base_variant="fast",
+            confidence_threshold=0.6,
+        )
+        assert result[1] == "fast"
+
+
+class TestApplyAssessmentVariantUpgrade:
+    """TS-15-18: Both non-None variants → max(base, recommended) in VARIANT_ORDER.
+
+    VARIANT_ORDER: fast(0) < standard(1) < extended(2)
+
+    Requirement: 15-REQ-3.6
+    """
+
+    def test_upgrade_standard_to_extended(self) -> None:
+        """base_variant='standard', recommended_variant='extended' → 'extended'."""
+        rec = AssessmentResult(
+            recommended_tier="ADVANCED",
+            recommended_variant="extended",
+            confidence=0.9,
+            rationale="r",
+        )
+        result = apply_assessment(rec, "STANDARD", "standard", 0.6)
+        assert result[1] == "extended"
+
+    def test_no_downgrade_extended_to_fast(self) -> None:
+        """base_variant='extended', recommended_variant='fast' → 'extended'."""
+        rec = AssessmentResult(
+            recommended_tier="ADVANCED",
+            recommended_variant="fast",
+            confidence=0.9,
+            rationale="r",
+        )
+        result = apply_assessment(rec, "STANDARD", "extended", 0.6)
+        assert result[1] == "extended"
+
+    def test_same_variant_standard(self) -> None:
+        """base_variant='standard', recommended_variant='standard' → 'standard'."""
+        rec = AssessmentResult(
+            recommended_tier="ADVANCED",
+            recommended_variant="standard",
+            confidence=0.9,
+            rationale="r",
+        )
+        result = apply_assessment(rec, "STANDARD", "standard", 0.6)
+        assert result[1] == "standard"
+
+    def test_upgrade_fast_to_standard(self) -> None:
+        """base_variant='fast', recommended_variant='standard' → 'standard'."""
+        rec = AssessmentResult(
+            recommended_tier="STANDARD",
+            recommended_variant="standard",
+            confidence=0.9,
+            rationale="r",
+        )
+        result = apply_assessment(rec, "STANDARD", "fast", 0.6)
+        assert result[1] == "standard"
+
+    def test_upgrade_fast_to_extended(self) -> None:
+        """base_variant='fast', recommended_variant='extended' → 'extended'."""
+        rec = AssessmentResult(
+            recommended_tier="STANDARD",
+            recommended_variant="extended",
+            confidence=0.9,
+            rationale="r",
+        )
+        result = apply_assessment(rec, "STANDARD", "fast", 0.6)
+        assert result[1] == "extended"
+
+    def test_no_downgrade_standard_to_fast(self) -> None:
+        """base_variant='standard', recommended_variant='fast' → 'standard'."""
+        rec = AssessmentResult(
+            recommended_tier="STANDARD",
+            recommended_variant="fast",
+            confidence=0.9,
+            rationale="r",
+        )
+        result = apply_assessment(rec, "STANDARD", "standard", 0.6)
+        assert result[1] == "standard"
+
+
+class TestApplyAssessmentDowngradePrevention:
+    """TS-15-E5: Upgrade-only — recommended below base never downgrades.
+
+    Requirement: 15-REQ-3.E1
+    """
+
+    def test_advanced_base_with_simple_recommended(self) -> None:
+        """base_tier='ADVANCED', recommended_tier='SIMPLE' → effective='ADVANCED'."""
+        rec = AssessmentResult(
+            recommended_tier="SIMPLE",
+            recommended_variant="fast",
+            confidence=0.9,
+            rationale="r",
+        )
+        result = apply_assessment(
+            recommendation=rec,
+            base_tier="ADVANCED",
+            base_variant="standard",
+            confidence_threshold=0.6,
+        )
+        assert result[0] == "ADVANCED"
+        assert result[1] == "standard"  # No variant downgrade either
+
+    def test_standard_base_with_simple_recommended(self) -> None:
+        """base_tier='STANDARD', recommended_tier='SIMPLE' → effective='STANDARD'."""
+        rec = AssessmentResult(
+            recommended_tier="SIMPLE",
+            recommended_variant="fast",
+            confidence=0.9,
+            rationale="r",
+        )
+        result = apply_assessment(
+            recommendation=rec,
+            base_tier="STANDARD",
+            base_variant="extended",
+            confidence_threshold=0.6,
+        )
+        assert result[0] == "STANDARD"
+        assert result[1] == "extended"  # Variant also not downgraded
+
+    def test_advanced_base_with_standard_recommended(self) -> None:
+        """base_tier='ADVANCED', recommended_tier='STANDARD' → effective='ADVANCED'."""
+        rec = AssessmentResult(
+            recommended_tier="STANDARD",
+            recommended_variant="fast",
+            confidence=0.9,
+            rationale="r",
+        )
+        result = apply_assessment(
+            recommendation=rec,
+            base_tier="ADVANCED",
+            base_variant="extended",
+            confidence_threshold=0.6,
+        )
+        assert result[0] == "ADVANCED"
+        assert result[1] == "extended"
+
+
+# ===========================================================================
+# Task 3.3: Property tests for upgrade-only invariants (PROP-1 through PROP-4)
+# Test Spec: TS-15-P1, TS-15-P2, TS-15-P3, TS-15-P4
+# Requirements: 15-REQ-3.2, 15-REQ-3.3, 15-REQ-3.4, 15-REQ-3.6
+# ===========================================================================
+
+
+class TestApplyAssessmentPropertyTierUpgradeOnly:
+    """TS-15-P1: For any base_tier and recommended_tier, effective_tier >= base_tier.
+
+    Property: 15-PROP-1
+    Validates: 15-REQ-3.3, 15-REQ-3.E1
+    """
+
+    @pytest.mark.parametrize(
+        "base_tier,recommended_tier",
+        [
+            (bt, rt)
+            for bt in _ALL_TIERS
+            for rt in _ALL_TIERS
+        ],
+        ids=[
+            f"base={bt}-rec={rt}"
+            for bt in _ALL_TIERS
+            for rt in _ALL_TIERS
+        ],
+    )
+    def test_effective_tier_never_below_base(
+        self, base_tier: str, recommended_tier: str
+    ) -> None:
+        """effective_tier >= base_tier in ModelTier ordering for all combinations."""
+        rec = AssessmentResult(
+            recommended_tier=recommended_tier,
+            recommended_variant="standard",
+            confidence=0.9,
+            rationale="property test",
+        )
+        result = apply_assessment(rec, base_tier, "standard", 0.6)
+        effective_tier = result[0]
+
+        assert _TIER_ORDER[effective_tier] >= _TIER_ORDER[base_tier], (
+            f"effective_tier={effective_tier} < base_tier={base_tier}"
+        )
+
+    @pytest.mark.parametrize(
+        "base_tier,recommended_tier",
+        [
+            (bt, rt)
+            for bt in _ALL_TIERS
+            for rt in _ALL_TIERS
+            if _TIER_ORDER[rt] < _TIER_ORDER[bt]
+        ],
+        ids=[
+            f"base={bt}-rec={rt}"
+            for bt in _ALL_TIERS
+            for rt in _ALL_TIERS
+            if _TIER_ORDER[rt] < _TIER_ORDER[bt]
+        ],
+    )
+    def test_downgrade_attempt_yields_base_tier(
+        self, base_tier: str, recommended_tier: str
+    ) -> None:
+        """When recommended_tier < base_tier, effective_tier == base_tier."""
+        rec = AssessmentResult(
+            recommended_tier=recommended_tier,
+            recommended_variant="standard",
+            confidence=0.9,
+            rationale="property test",
+        )
+        result = apply_assessment(rec, base_tier, "standard", 0.6)
+        assert result[0] == base_tier
+
+
+class TestApplyAssessmentPropertyVariantUpgradeOnly:
+    """TS-15-P2: For non-None variants, effective_variant >= base_variant in VARIANT_ORDER.
+
+    Property: 15-PROP-2
+    Validates: 15-REQ-3.6, 15-REQ-3.E1
+    """
+
+    @pytest.mark.parametrize(
+        "base_variant,recommended_variant",
+        [
+            (bv, rv)
+            for bv in _ALL_VARIANTS
+            for rv in _ALL_VARIANTS
+        ],
+        ids=[
+            f"base={bv}-rec={rv}"
+            for bv in _ALL_VARIANTS
+            for rv in _ALL_VARIANTS
+        ],
+    )
+    def test_effective_variant_never_below_base(
+        self, base_variant: str, recommended_variant: str
+    ) -> None:
+        """effective_variant >= base_variant in VARIANT_ORDER for all combinations."""
+        rec = AssessmentResult(
+            recommended_tier="STANDARD",
+            recommended_variant=recommended_variant,
+            confidence=0.9,
+            rationale="property test",
+        )
+        result = apply_assessment(rec, "STANDARD", base_variant, 0.6)
+        effective_variant = result[1]
+
+        assert effective_variant is not None
+        assert _VARIANT_ORDER[effective_variant] >= _VARIANT_ORDER[base_variant], (
+            f"effective_variant={effective_variant} < base_variant={base_variant}"
+        )
+
+
+class TestApplyAssessmentPropertyNoneBaseVariant:
+    """TS-15-P3: base_variant=None always yields effective_variant=None.
+
+    Property: 15-PROP-3
+    Validates: 15-REQ-3.4
+    """
+
+    @pytest.mark.parametrize(
+        "recommended_variant",
+        [None, "fast", "standard", "extended"],
+        ids=["none", "fast", "standard", "extended"],
+    )
+    @pytest.mark.parametrize(
+        "base_tier",
+        _ALL_TIERS,
+    )
+    @pytest.mark.parametrize(
+        "confidence",
+        [0.0, 0.5, 0.6, 0.9, 1.0],
+        ids=["conf_0.0", "conf_0.5", "conf_0.6", "conf_0.9", "conf_1.0"],
+    )
+    def test_none_base_variant_always_yields_none(
+        self,
+        recommended_variant: str | None,
+        base_tier: str,
+        confidence: float,
+    ) -> None:
+        """effective_variant is always None when base_variant is None."""
+        rec = AssessmentResult(
+            recommended_tier="ADVANCED",
+            recommended_variant=recommended_variant,
+            confidence=confidence,
+            rationale="property test",
+        )
+        # Use threshold=0.0 so confidence gate never triggers
+        # (we want to test variant behavior specifically)
+        result = apply_assessment(rec, base_tier, None, 0.0)
+        assert result[1] is None, (
+            f"Expected None variant for base_variant=None, "
+            f"got {result[1]} with recommended_variant={recommended_variant}"
+        )
+
+
+class TestApplyAssessmentPropertyConfidenceGate:
+    """TS-15-P4: confidence < threshold → (base_tier, base_variant) unchanged.
+
+    Property: 15-PROP-4
+    Validates: 15-REQ-3.2
+    """
+
+    @pytest.mark.parametrize(
+        "base_tier,base_variant",
+        [
+            (bt, bv)
+            for bt in _ALL_TIERS
+            for bv in [None, "fast", "standard", "extended"]
+        ],
+        ids=[
+            f"base={bt}/{bv}"
+            for bt in _ALL_TIERS
+            for bv in ["none", "fast", "standard", "extended"]
+        ],
+    )
+    @pytest.mark.parametrize(
+        "recommended_tier,recommended_variant",
+        [
+            ("ADVANCED", "extended"),
+            ("SIMPLE", "fast"),
+            ("STANDARD", None),
+        ],
+        ids=["rec-adv-ext", "rec-simple-fast", "rec-std-none"],
+    )
+    def test_below_threshold_returns_base_unchanged(
+        self,
+        base_tier: str,
+        base_variant: str | None,
+        recommended_tier: str,
+        recommended_variant: str | None,
+    ) -> None:
+        """When confidence < threshold, result is always (base_tier, base_variant)."""
+        # Use confidence=0.3 which is below any reasonable threshold
+        rec = AssessmentResult(
+            recommended_tier=recommended_tier,
+            recommended_variant=recommended_variant,
+            confidence=0.3,
+            rationale="property test",
+        )
+        result = apply_assessment(rec, base_tier, base_variant, 0.6)
+        assert result == (base_tier, base_variant), (
+            f"Expected ({base_tier}, {base_variant}), got {result} "
+            f"with below-threshold confidence"
+        )
+
+    @pytest.mark.parametrize(
+        "confidence,threshold",
+        [
+            (0.0, 0.1),
+            (0.1, 0.2),
+            (0.3, 0.6),
+            (0.5, 0.6),
+            (0.59, 0.6),
+            (0.8, 0.9),
+            (0.99, 1.0),
+        ],
+        ids=[
+            "0.0<0.1",
+            "0.1<0.2",
+            "0.3<0.6",
+            "0.5<0.6",
+            "0.59<0.6",
+            "0.8<0.9",
+            "0.99<1.0",
+        ],
+    )
+    def test_various_below_threshold_pairs(
+        self, confidence: float, threshold: float
+    ) -> None:
+        """Confidence gate holds for various (confidence, threshold) pairs."""
+        rec = AssessmentResult(
+            recommended_tier="ADVANCED",
+            recommended_variant="extended",
+            confidence=confidence,
+            rationale="property test",
+        )
+        result = apply_assessment(rec, "STANDARD", "standard", threshold)
+        assert result == ("STANDARD", "standard"), (
+            f"Expected base values with confidence={confidence} < threshold={threshold}, "
+            f"got {result}"
         )

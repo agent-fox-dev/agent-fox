@@ -283,7 +283,7 @@
             "15-REQ-3.2",
             "15-REQ-3.3"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -307,7 +307,7 @@
             "15-REQ-3.6",
             "15-REQ-3.E1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -332,7 +332,7 @@
             "15-REQ-3.4",
             "15-REQ-3.6"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],
