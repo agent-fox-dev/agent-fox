@@ -370,7 +370,7 @@
             "15-REQ-4.3",
             "15-REQ-4.4"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -387,7 +387,7 @@
           "requirement_refs": [
             "15-REQ-4.2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -408,7 +408,7 @@
             "15-REQ-5.2",
             "15-REQ-5.3"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -425,7 +425,7 @@
           "requirement_refs": [
             "15-REQ-5.E1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -443,7 +443,7 @@
             "15-REQ-1.5",
             "15-REQ-12.1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],

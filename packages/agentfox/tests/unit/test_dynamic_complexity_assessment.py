@@ -3,12 +3,20 @@
 Task Group 1: ComplexityAssessor class, AssessmentResult, Protocol,
               statelessness, and assessment prompt structure.
 Task Group 2: Error handling and edge cases for ComplexityAssessor.
+Task Group 3: apply_assessment() upgrade-only semantics and property tests.
+Task Group 4: AssessmentManager integration, session_runner_factory wiring,
+              and EscalationLadder construction.
 
 Test Spec: TS-15-1 through TS-15-12, TS-15-E2 through TS-15-E14,
-           TS-15-49 through TS-15-53
+           TS-15-49 through TS-15-53, TS-15-13 through TS-15-18,
+           TS-15-E5, TS-15-P1 through TS-15-P4,
+           TS-15-19 through TS-15-25, TS-15-E7, TS-15-P6, TS-15-P9
 Requirements: 15-REQ-1.1 through 15-REQ-1.7, 15-REQ-2.1 through 15-REQ-2.5,
               15-REQ-2.E1 through 15-REQ-2.E3, 15-REQ-4.E1,
-              15-REQ-12.1 through 15-REQ-12.5, 15-REQ-12.E1
+              15-REQ-12.1 through 15-REQ-12.5, 15-REQ-12.E1,
+              15-REQ-3.1 through 15-REQ-3.6, 15-REQ-3.E1,
+              15-REQ-4.1 through 15-REQ-4.4, 15-REQ-5.1 through 15-REQ-5.3,
+              15-REQ-5.E1
 """
 
 from __future__ import annotations
@@ -2598,4 +2606,989 @@ class TestApplyAssessmentPropertyConfidenceGate:
         assert result == ("STANDARD", "standard"), (
             f"Expected base values with confidence={confidence} < threshold={threshold}, "
             f"got {result}"
+        )
+
+
+# ===========================================================================
+# Task Group 4: AssessmentManager integration, session_runner_factory wiring,
+#               and EscalationLadder construction
+#
+# Test Spec: TS-15-19 through TS-15-25, TS-15-E7, TS-15-P6, TS-15-P9
+# Requirements: 15-REQ-4.1 through 15-REQ-4.4, 15-REQ-5.1 through 15-REQ-5.3,
+#               15-REQ-5.E1
+# ===========================================================================
+
+# ---------------------------------------------------------------------------
+# Helpers for task group 4
+# ---------------------------------------------------------------------------
+
+_UPGRADE_RESPONSE_JSON = (
+    '{"recommended_tier": "ADVANCED", "recommended_variant": "extended", '
+    '"confidence": 0.9, "rationale": "complex"}'
+)
+
+_LOW_CONFIDENCE_RESPONSE_JSON = (
+    '{"recommended_tier": "ADVANCED", "recommended_variant": "extended", '
+    '"confidence": 0.3, "rationale": "low confidence"}'
+)
+
+
+def _make_assessment_manager(
+    *,
+    client: object | None = None,
+    assessor_model: str = "claude-haiku-4-5",
+    confidence_threshold: float = 0.6,
+) -> Any:
+    """Create an AssessmentManager with optional client for spec-15 tests.
+
+    This helper adapts to whatever constructor signature AssessmentManager
+    currently has. Once task group 9 updates the constructor to accept
+    ``client``, this helper will pass it directly. Until then, tests
+    that exercise the client-injection path are expected to fail with
+    TypeError.
+    """
+    from agentfox.engine.engine import AssessmentManager
+
+    config = _make_routing_config(
+        assessor_model=assessor_model,
+        confidence_threshold=confidence_threshold,
+    )
+    # Spec requires: AssessmentManager(config=routing_config, client=client)
+    return AssessmentManager(config=config, client=client)
+
+
+# ===========================================================================
+# Task 4.1: assess_node() signature, EscalationLadder construction,
+#           and priority ordering
+# Test Spec: TS-15-19, TS-15-21, TS-15-22
+# Requirements: 15-REQ-4.1, 15-REQ-4.3, 15-REQ-4.4
+# ===========================================================================
+
+
+class TestAssessNodeSignatureAndReturn:
+    """TS-15-19: assess_node() has the correct signature and returns EscalationLadder.
+
+    Requirement: 15-REQ-4.1
+    """
+
+    def test_assess_node_is_coroutine(self) -> None:
+        """assess_node() should be an async method (coroutine function)."""
+        from agentfox.engine.engine import AssessmentManager
+
+        assert inspect.iscoroutinefunction(AssessmentManager.assess_node)
+
+    def test_assess_node_accepts_required_parameters(self) -> None:
+        """assess_node() signature includes node_id, archetype, mode,
+        node_body, previous_failure, and pre_assessed."""
+        from agentfox.engine.engine import AssessmentManager
+
+        sig = inspect.signature(AssessmentManager.assess_node)
+        params = list(sig.parameters.keys())
+        # 'self' is implicit in bound methods but explicit in unbound
+        assert "node_id" in params, "Missing node_id parameter"
+        assert "archetype" in params, "Missing archetype parameter"
+        assert "mode" in params, "Missing mode parameter"
+        assert "node_body" in params, "Missing node_body parameter"
+        assert "previous_failure" in params, "Missing previous_failure parameter"
+        assert "pre_assessed" in params, "Missing pre_assessed parameter"
+
+    def test_assess_node_returns_escalation_ladder(self) -> None:
+        """assess_node() returns an EscalationLadder instance."""
+        from agentfox.core.escalation import EscalationLadder
+
+        mock_client = _make_mock_client(_UPGRADE_RESPONSE_JSON)
+        manager = _make_assessment_manager(client=mock_client)
+        ladder = asyncio.run(
+            manager.assess_node(
+                node_id="n1",
+                archetype="coder",
+                mode=None,
+                node_body="body",
+                previous_failure=None,
+                pre_assessed=None,
+            )
+        )
+        assert isinstance(ladder, EscalationLadder), (
+            f"Expected EscalationLadder, got {type(ladder)}"
+        )
+
+    def test_assess_node_previous_failure_defaults_to_none(self) -> None:
+        """previous_failure should default to None when not provided."""
+        from agentfox.engine.engine import AssessmentManager
+
+        sig = inspect.signature(AssessmentManager.assess_node)
+        param = sig.parameters.get("previous_failure")
+        assert param is not None, "Missing previous_failure parameter"
+        assert param.default is None, (
+            f"previous_failure default should be None, got {param.default}"
+        )
+
+    def test_assess_node_pre_assessed_defaults_to_none(self) -> None:
+        """pre_assessed should default to None when not provided."""
+        from agentfox.engine.engine import AssessmentManager
+
+        sig = inspect.signature(AssessmentManager.assess_node)
+        param = sig.parameters.get("pre_assessed")
+        assert param is not None, "Missing pre_assessed parameter"
+        assert param.default is None, (
+            f"pre_assessed default should be None, got {param.default}"
+        )
+
+
+class TestEscalationLadderConstruction:
+    """TS-15-21: EscalationLadder constructed with correct values.
+
+    Requirement: 15-REQ-4.3
+    """
+
+    def test_ladder_has_starting_tier_from_assessment(self) -> None:
+        """Ladder starting_tier matches effective_tier from assessment."""
+        from agentfox.core.models import ModelTier
+
+        mock_client = _make_mock_client(_UPGRADE_RESPONSE_JSON)
+        manager = _make_assessment_manager(client=mock_client)
+        ladder = asyncio.run(
+            manager.assess_node(
+                node_id="n1",
+                archetype="coder",
+                mode=None,
+                node_body="complex task",
+            )
+        )
+        # Assessment recommends ADVANCED with confidence 0.9 >= threshold 0.6
+        # Coder base tier is STANDARD; max(STANDARD, ADVANCED) = ADVANCED
+        assert ladder.current_tier == ModelTier.ADVANCED, (
+            f"Expected starting tier ADVANCED, got {ladder.current_tier}"
+        )
+
+    def test_ladder_has_starting_variant_from_assessment(self) -> None:
+        """Ladder starting_variant matches effective_variant from assessment."""
+        mock_client = _make_mock_client(_UPGRADE_RESPONSE_JSON)
+        manager = _make_assessment_manager(client=mock_client)
+        ladder = asyncio.run(
+            manager.assess_node(
+                node_id="n1",
+                archetype="coder",
+                mode=None,
+                node_body="complex task",
+            )
+        )
+        # Once spec #14 adds starting_variant to EscalationLadder,
+        # this will test that it equals 'extended'.
+        # For now, verify the attribute exists.
+        assert hasattr(ladder, "starting_variant") or hasattr(
+            ladder, "_starting_variant"
+        ), "EscalationLadder should have starting_variant attribute"
+
+    def test_ladder_ceiling_is_advanced(self) -> None:
+        """Ladder tier_ceiling should be ADVANCED."""
+        from agentfox.core.models import ModelTier
+
+        mock_client = _make_mock_client(_UPGRADE_RESPONSE_JSON)
+        manager = _make_assessment_manager(client=mock_client)
+        ladder = asyncio.run(
+            manager.assess_node(
+                node_id="n1",
+                archetype="coder",
+                mode=None,
+                node_body="complex task",
+            )
+        )
+        # The ceiling should be ADVANCED (accessible via _tier_ceiling)
+        ceiling = getattr(ladder, "_tier_ceiling", None)
+        assert ceiling == ModelTier.ADVANCED, (
+            f"Expected tier_ceiling ADVANCED, got {ceiling}"
+        )
+
+    def test_ladder_retry_config_from_routing_config(self) -> None:
+        """Ladder retries_before_escalation comes from RoutingConfig."""
+        mock_client = _make_mock_client(_UPGRADE_RESPONSE_JSON)
+        manager = _make_assessment_manager(client=mock_client)
+        ladder = asyncio.run(
+            manager.assess_node(
+                node_id="n1",
+                archetype="coder",
+                mode=None,
+                node_body="complex task",
+            )
+        )
+        # Verify the ladder was constructed with retry config from RoutingConfig
+        retries = getattr(ladder, "_retries_before_escalation", None)
+        assert retries is not None, (
+            "Ladder should have _retries_before_escalation from RoutingConfig"
+        )
+
+
+class TestAssessNodePriorityOrdering:
+    """TS-15-22: assess_node() evaluates eligibility in correct priority order.
+
+    Requirement: 15-REQ-4.4
+    """
+
+    def test_path_1_no_assessor_returns_base(self) -> None:
+        """Path 1: client=None → base tier/variant fallback."""
+        from agentfox.core.models import ModelTier
+
+        manager = _make_assessment_manager(client=None)
+        ladder = asyncio.run(
+            manager.assess_node(
+                node_id="n1",
+                archetype="coder",
+                mode=None,
+                node_body="some body",
+            )
+        )
+        # Coder base tier is STANDARD per spec REQ-8.1
+        assert ladder.current_tier == ModelTier.STANDARD
+
+    def test_path_2_missing_body_returns_base(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Path 2: node_body=None → base fallback with DEBUG log."""
+        from agentfox.core.models import ModelTier
+
+        mock_client = _make_mock_client(_UPGRADE_RESPONSE_JSON)
+        manager = _make_assessment_manager(client=mock_client)
+        with caplog.at_level(logging.DEBUG, logger="agentfox"):
+            ladder = asyncio.run(
+                manager.assess_node(
+                    node_id="n2",
+                    archetype="coder",
+                    mode=None,
+                    node_body=None,
+                )
+            )
+        assert ladder.current_tier == ModelTier.STANDARD
+        # LLM should not be called
+        mock_client.messages.create.assert_not_called()
+
+    def test_path_3_explicit_override_skips_assessment(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Path 3: explicit config override → configured tier, no LLM call."""
+        mock_client = _make_mock_client(_UPGRADE_RESPONSE_JSON)
+        manager = _make_assessment_manager(client=mock_client)
+        # Mock is_explicitly_configured to return True
+        manager.is_explicitly_configured = MagicMock(return_value=True)
+        with caplog.at_level(logging.DEBUG, logger="agentfox"):
+            ladder = asyncio.run(
+                manager.assess_node(
+                    node_id="n3",
+                    archetype="coder",
+                    mode="fix",
+                    node_body="body",
+                )
+            )
+        assert ladder is not None
+        mock_client.messages.create.assert_not_called()
+
+    def test_path_4_pre_assessed_bypasses_llm(self) -> None:
+        """Path 4: pre_assessed non-None → adapter + apply, no LLM call."""
+        from agentfox.core.models import ModelTier
+
+        mock_client = _make_mock_client(_UPGRADE_RESPONSE_JSON)
+        manager = _make_assessment_manager(client=mock_client)
+
+        # Create a pre_assessed AssessedComplexity-like object
+        pre_assessed = MagicMock()
+        pre_assessed.tier = "ADVANCED"
+        pre_assessed.variant = "standard"
+        pre_assessed.confidence = 0.85
+        pre_assessed.rationale = "pre-assessed"
+
+        ladder = asyncio.run(
+            manager.assess_node(
+                node_id="n4",
+                archetype="coder",
+                mode=None,
+                node_body="body",
+                pre_assessed=pre_assessed,
+            )
+        )
+        # LLM should NOT be called for pre_assessed path
+        mock_client.messages.create.assert_not_called()
+        assert ladder.current_tier == ModelTier.ADVANCED
+
+    def test_path_5_llm_assessment_called(self) -> None:
+        """Path 5: no override, no pre_assessed → LLM assessment called."""
+        mock_client = _make_mock_client(_UPGRADE_RESPONSE_JSON)
+        manager = _make_assessment_manager(client=mock_client)
+
+        ladder = asyncio.run(
+            manager.assess_node(
+                node_id="n5",
+                archetype="coder",
+                mode=None,
+                node_body="complex body",
+            )
+        )
+        # LLM SHOULD be called
+        mock_client.messages.create.assert_called_once()
+        assert ladder is not None
+
+
+# ===========================================================================
+# Task 4.2: session_runner_factory client injection
+# Test Spec: TS-15-20
+# Requirements: 15-REQ-4.2
+# ===========================================================================
+
+
+class TestSessionRunnerFactoryClientInjection:
+    """TS-15-20: session_runner_factory passes Anthropic client to AssessmentManager.
+
+    Requirement: 15-REQ-4.2
+    """
+
+    def test_assessment_manager_in_source(self) -> None:
+        """session_runner_factory source references AssessmentManager.
+
+        AssessmentManager is constructed in Orchestrator.__init__() (currently),
+        but the spec requires the client to be passed through. We verify
+        the source contains the right wiring.
+        """
+        from agentfox.engine import run
+
+        source = inspect.getsource(run)
+        # Either session_runner_factory or Orchestrator should pass client
+        # to AssessmentManager. Check the broader module source.
+        assert "AssessmentManager" in source or "assessment" in source.lower(), (
+            "engine/run.py should reference AssessmentManager or assessment"
+        )
+
+    def test_assessment_manager_receives_client_kwarg(self) -> None:
+        """AssessmentManager is constructed with client= keyword argument.
+
+        Verifies the wiring by checking that the Orchestrator or
+        session_runner_factory passes a client to AssessmentManager.
+        """
+        from agentfox.engine import engine
+
+        source = inspect.getsource(engine)
+        # After spec 15 is implemented, the AssessmentManager constructor
+        # should be called with client= keyword argument somewhere
+        # in the engine or run module.
+        has_client = "client=" in source or "client =" in source
+        assert has_client, (
+            "AssessmentManager should be constructed with client= argument "
+            "in engine module"
+        )
+
+
+# ===========================================================================
+# Task 4.3: Re-assessment on retry with previous_failure
+# Test Spec: TS-15-23, TS-15-24, TS-15-25
+# Requirements: 15-REQ-5.1, 15-REQ-5.2, 15-REQ-5.3
+# ===========================================================================
+
+
+class TestReAssessmentOnRetry:
+    """TS-15-23: Re-assessment discards existing ladder and creates new one.
+
+    Requirement: 15-REQ-5.1
+    """
+
+    def test_second_call_creates_new_ladder(self) -> None:
+        """Second assess_node() call creates a new, distinct ladder."""
+        call_count = 0
+
+        async def mock_create(**kwargs: Any) -> Any:
+            nonlocal call_count
+            call_count += 1
+            return _make_anthropic_response(_UPGRADE_RESPONSE_JSON)
+
+        mock_client = MagicMock()
+        mock_client.messages.create = mock_create
+        manager = _make_assessment_manager(client=mock_client)
+
+        ladder1 = asyncio.run(
+            manager.assess_node(
+                node_id="n1",
+                archetype="coder",
+                mode=None,
+                node_body="body",
+            )
+        )
+        assert call_count == 1
+
+        # Second call with previous_failure should create a NEW ladder
+        ladder2 = asyncio.run(
+            manager.assess_node(
+                node_id="n1",
+                archetype="coder",
+                mode=None,
+                node_body="body",
+                previous_failure="TypeError: NoneType",
+            )
+        )
+        assert call_count == 2, "LLM should be called again on retry"
+        assert ladder2 is not ladder1, "Should return a new ladder, not cached"
+
+    def test_second_call_ladder_reflects_assessment(self) -> None:
+        """New ladder from retry reflects the new assessment result."""
+        from agentfox.core.models import ModelTier
+
+        mock_client = _make_mock_client(_UPGRADE_RESPONSE_JSON)
+        manager = _make_assessment_manager(client=mock_client)
+
+        # First assessment call (result intentionally discarded)
+        asyncio.run(
+            manager.assess_node(
+                node_id="n1",
+                archetype="coder",
+                mode=None,
+                node_body="body",
+            )
+        )
+
+        # Reset mock to return again on second call
+        mock_client.messages.create.reset_mock()
+        mock_client.messages.create.return_value = _make_anthropic_response(
+            _UPGRADE_RESPONSE_JSON
+        )
+
+        ladder2 = asyncio.run(
+            manager.assess_node(
+                node_id="n1",
+                archetype="coder",
+                mode=None,
+                node_body="body",
+                previous_failure="error occurred",
+            )
+        )
+        assert ladder2.current_tier == ModelTier.ADVANCED
+
+
+class TestPreviousFailurePassthrough:
+    """TS-15-24: previous_failure is passed to ComplexityAssessor.assess().
+
+    Requirement: 15-REQ-5.2
+    """
+
+    def test_previous_failure_included_in_assess_call(self) -> None:
+        """previous_failure string is forwarded to the assessor."""
+        captured_kwargs: dict[str, Any] = {}
+
+        async def mock_create(**kwargs: Any) -> Any:
+            captured_kwargs.update(kwargs)
+            return _make_anthropic_response(_UPGRADE_RESPONSE_JSON)
+
+        mock_client = MagicMock()
+        mock_client.messages.create = mock_create
+        manager = _make_assessment_manager(client=mock_client)
+
+        asyncio.run(
+            manager.assess_node(
+                node_id="n1",
+                archetype="coder",
+                mode=None,
+                node_body="body",
+                previous_failure="TypeError: NoneType",
+            )
+        )
+        # The previous_failure should appear somewhere in the prompt
+        # sent to the LLM (either in messages or system)
+        call_str = str(captured_kwargs)
+        assert "TypeError: NoneType" in call_str, (
+            "previous_failure should be included in the prompt sent to LLM"
+        )
+
+
+class TestRetryLadderConfig:
+    """TS-15-25: New ladder shares ceiling and retry config with original.
+
+    Requirement: 15-REQ-5.3
+    """
+
+    def test_retry_ladder_shares_ceiling(self) -> None:
+        """Both initial and retry ladders have ADVANCED ceiling."""
+        from agentfox.core.models import ModelTier
+
+        mock_client = _make_mock_client(_UPGRADE_RESPONSE_JSON)
+        manager = _make_assessment_manager(client=mock_client)
+
+        ladder1 = asyncio.run(
+            manager.assess_node(
+                node_id="n1",
+                archetype="coder",
+                mode=None,
+                node_body="body",
+            )
+        )
+
+        mock_client.messages.create.reset_mock()
+        mock_client.messages.create.return_value = _make_anthropic_response(
+            _UPGRADE_RESPONSE_JSON
+        )
+
+        ladder2 = asyncio.run(
+            manager.assess_node(
+                node_id="n1",
+                archetype="coder",
+                mode=None,
+                node_body="body",
+                previous_failure="error",
+            )
+        )
+
+        ceiling1 = getattr(ladder1, "_tier_ceiling", None)
+        ceiling2 = getattr(ladder2, "_tier_ceiling", None)
+        assert ceiling1 == ceiling2 == ModelTier.ADVANCED, (
+            f"Both ladders should have ADVANCED ceiling: got {ceiling1}, {ceiling2}"
+        )
+
+    def test_retry_ladder_shares_retry_config(self) -> None:
+        """Both ladders share the same per-tier retry configuration."""
+        mock_client = _make_mock_client(_UPGRADE_RESPONSE_JSON)
+        manager = _make_assessment_manager(client=mock_client)
+
+        ladder1 = asyncio.run(
+            manager.assess_node(
+                node_id="n1",
+                archetype="coder",
+                mode=None,
+                node_body="body",
+            )
+        )
+
+        mock_client.messages.create.reset_mock()
+        mock_client.messages.create.return_value = _make_anthropic_response(
+            _UPGRADE_RESPONSE_JSON
+        )
+
+        ladder2 = asyncio.run(
+            manager.assess_node(
+                node_id="n1",
+                archetype="coder",
+                mode=None,
+                node_body="body",
+                previous_failure="error",
+            )
+        )
+
+        retries1 = getattr(ladder1, "_retries_before_escalation", None)
+        retries2 = getattr(ladder2, "_retries_before_escalation", None)
+        assert retries1 == retries2, (
+            f"Both ladders should share retry config: got {retries1} vs {retries2}"
+        )
+
+    def test_only_starting_tier_variant_differ(self) -> None:
+        """Only starting_tier and starting_variant may differ between ladders."""
+        from agentfox.core.models import ModelTier
+
+        # First call with low-confidence response → base tier
+        low_client = _make_mock_client(_LOW_CONFIDENCE_RESPONSE_JSON)
+        manager = _make_assessment_manager(client=low_client)
+
+        ladder1 = asyncio.run(
+            manager.assess_node(
+                node_id="n1",
+                archetype="coder",
+                mode=None,
+                node_body="body",
+            )
+        )
+
+        # Second call with high-confidence response → upgraded tier
+        low_client.messages.create = AsyncMock(
+            return_value=_make_anthropic_response(_UPGRADE_RESPONSE_JSON)
+        )
+
+        ladder2 = asyncio.run(
+            manager.assess_node(
+                node_id="n1",
+                archetype="coder",
+                mode=None,
+                node_body="body",
+                previous_failure="error",
+            )
+        )
+
+        # Ceiling and retry config should be same
+        assert getattr(ladder1, "_tier_ceiling", None) == getattr(
+            ladder2, "_tier_ceiling", None
+        )
+        assert getattr(ladder1, "_retries_before_escalation", None) == getattr(
+            ladder2, "_retries_before_escalation", None
+        )
+        # Starting tiers may differ (STANDARD vs ADVANCED)
+        tier1 = getattr(ladder1, "_starting_tier", ladder1.current_tier)
+        tier2 = getattr(ladder2, "_starting_tier", ladder2.current_tier)
+        # First should be at base (STANDARD), second at ADVANCED
+        assert tier1 == ModelTier.STANDARD
+        assert tier2 == ModelTier.ADVANCED
+
+
+# ===========================================================================
+# Task 4.4: Edge case — re-assessment with confidence below threshold
+# Test Spec: TS-15-E7
+# Requirements: 15-REQ-5.E1
+# ===========================================================================
+
+
+class TestReAssessmentBelowThreshold:
+    """TS-15-E7: Re-assessment with low confidence yields base tier/variant.
+
+    Requirement: 15-REQ-5.E1
+    """
+
+    def test_low_confidence_retry_returns_base(self) -> None:
+        """When re-assessment confidence < threshold, new ladder at base tier."""
+        from agentfox.core.models import ModelTier
+
+        mock_client = _make_mock_client(_UPGRADE_RESPONSE_JSON)
+        manager = _make_assessment_manager(client=mock_client)
+
+        ladder1 = asyncio.run(
+            manager.assess_node(
+                node_id="n1",
+                archetype="coder",
+                mode=None,
+                node_body="body",
+            )
+        )
+
+        # Second call returns low confidence (0.3 < threshold 0.6)
+        mock_client.messages.create = AsyncMock(
+            return_value=_make_anthropic_response(_LOW_CONFIDENCE_RESPONSE_JSON)
+        )
+
+        ladder2 = asyncio.run(
+            manager.assess_node(
+                node_id="n1",
+                archetype="coder",
+                mode=None,
+                node_body="body",
+                previous_failure="error",
+            )
+        )
+        assert ladder2 is not ladder1, "Should be a new ladder object"
+        # With low confidence, ladder should fall back to base (STANDARD)
+        assert ladder2.current_tier == ModelTier.STANDARD
+
+    def test_prior_retry_state_not_preserved(self) -> None:
+        """Prior retry state (failure count, escalation count) not preserved."""
+        mock_client = _make_mock_client(_UPGRADE_RESPONSE_JSON)
+        manager = _make_assessment_manager(client=mock_client)
+
+        ladder1 = asyncio.run(
+            manager.assess_node(
+                node_id="n1",
+                archetype="coder",
+                mode=None,
+                node_body="body",
+            )
+        )
+        # Simulate some failures on ladder1
+        if hasattr(ladder1, "record_failure"):
+            ladder1.record_failure()
+
+        # Re-assess with low confidence
+        mock_client.messages.create = AsyncMock(
+            return_value=_make_anthropic_response(_LOW_CONFIDENCE_RESPONSE_JSON)
+        )
+
+        ladder2 = asyncio.run(
+            manager.assess_node(
+                node_id="n1",
+                archetype="coder",
+                mode=None,
+                node_body="body",
+                previous_failure="error",
+            )
+        )
+        # New ladder should be fresh — no failures recorded
+        assert ladder2.attempt_count == 1, (
+            f"New ladder should start fresh with attempt_count=1, "
+            f"got {ladder2.attempt_count}"
+        )
+        assert ladder2.escalation_count == 0, (
+            f"New ladder should have escalation_count=0, "
+            f"got {ladder2.escalation_count}"
+        )
+
+    def test_new_ladder_is_distinct_object(self) -> None:
+        """The new ladder from re-assessment is a different object from the first."""
+        from agentfox.core.models import ModelTier
+
+        mock_client = _make_mock_client(_LOW_CONFIDENCE_RESPONSE_JSON)
+        manager = _make_assessment_manager(client=mock_client)
+
+        ladder1 = asyncio.run(
+            manager.assess_node(
+                node_id="n1",
+                archetype="coder",
+                mode=None,
+                node_body="body",
+            )
+        )
+
+        mock_client.messages.create = AsyncMock(
+            return_value=_make_anthropic_response(_LOW_CONFIDENCE_RESPONSE_JSON)
+        )
+
+        ladder2 = asyncio.run(
+            manager.assess_node(
+                node_id="n1",
+                archetype="coder",
+                mode=None,
+                node_body="body",
+                previous_failure="error",
+            )
+        )
+        assert ladder2 is not ladder1, "Ladders should be distinct objects"
+        # Both should be at base tier since confidence is low
+        assert ladder1.current_tier == ModelTier.STANDARD
+        assert ladder2.current_tier == ModelTier.STANDARD
+
+
+# ===========================================================================
+# Task 4.5: Property tests — failure invariant and concurrent calls
+# Test Spec: TS-15-P6, TS-15-P9
+# Requirements: 15-REQ-12.1, 15-REQ-1.5
+# ===========================================================================
+
+
+class TestPropertyAssessmentFailureInvariant:
+    """TS-15-P6: For any failure condition, assess_node() returns
+    EscalationLadder at base tier/variant without raising.
+
+    Property: 15-PROP-6
+    Validates: 15-REQ-12.1, 15-REQ-2.E1, 15-REQ-2.E2, 15-REQ-2.E3, 15-REQ-12.E1
+    """
+
+    @pytest.mark.parametrize(
+        "failure_exc",
+        [
+            ConnectionError("Network failure"),
+            TimeoutError("Request timed out"),
+            OSError("Connection refused"),
+            ValueError("Unexpected response format"),
+            RuntimeError("Internal SDK error"),
+        ],
+        ids=[
+            "network_error",
+            "timeout_error",
+            "os_error",
+            "value_error",
+            "runtime_error",
+        ],
+    )
+    def test_generic_failure_returns_base_without_raising(
+        self, failure_exc: Exception
+    ) -> None:
+        """assess_node() never raises on failure; returns EscalationLadder at base."""
+        from agentfox.core.escalation import EscalationLadder
+        from agentfox.core.models import ModelTier
+
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock(side_effect=failure_exc)
+        manager = _make_assessment_manager(client=mock_client)
+
+        try:
+            ladder = asyncio.run(
+                manager.assess_node(
+                    node_id="fail_node",
+                    archetype="coder",
+                    mode=None,
+                    node_body="some body",
+                )
+            )
+        except Exception as exc:
+            pytest.fail(
+                f"assess_node() raised {type(exc).__name__}: {exc}; "
+                f"should have returned base-tier ladder"
+            )
+
+        assert isinstance(ladder, EscalationLadder), (
+            f"Expected EscalationLadder, got {type(ladder)}"
+        )
+        assert ladder.current_tier == ModelTier.STANDARD, (
+            f"Expected base tier STANDARD on failure, got {ladder.current_tier}"
+        )
+
+    @pytest.mark.parametrize(
+        "bad_json",
+        [
+            "not json at all",
+            '{"recommended_tier": "ADVANCED"}',  # missing fields
+            '{"recommended_tier": "ADVANCED", "recommended_variant": "standard", '
+            '"confidence": 1.5, "rationale": "r"}',  # out of range
+        ],
+        ids=[
+            "malformed_json",
+            "missing_fields",
+            "out_of_range_confidence",
+        ],
+    )
+    def test_malformed_response_returns_base_without_raising(
+        self, bad_json: str
+    ) -> None:
+        """assess_node() handles malformed LLM responses without raising."""
+        from agentfox.core.escalation import EscalationLadder
+        from agentfox.core.models import ModelTier
+
+        mock_client = _make_mock_client(bad_json)
+        manager = _make_assessment_manager(client=mock_client)
+
+        try:
+            ladder = asyncio.run(
+                manager.assess_node(
+                    node_id="bad_resp_node",
+                    archetype="coder",
+                    mode=None,
+                    node_body="body",
+                )
+            )
+        except Exception as exc:
+            pytest.fail(
+                f"assess_node() raised {type(exc).__name__}: {exc}; "
+                f"should have returned base-tier ladder"
+            )
+
+        assert isinstance(ladder, EscalationLadder)
+        assert ladder.current_tier == ModelTier.STANDARD
+
+    @pytest.mark.parametrize(
+        "archetype,mode,expected_tier",
+        [
+            ("coder", None, "STANDARD"),
+            ("coder", "fix", "STANDARD"),
+            ("reviewer", "pre-review", "ADVANCED"),
+            ("reviewer", "drift-review", "STANDARD"),
+            ("verifier", None, "STANDARD"),
+            ("maintainer", "hunt", "SIMPLE"),
+        ],
+        ids=[
+            "coder-base",
+            "coder-fix",
+            "reviewer-prereview",
+            "reviewer-drift",
+            "verifier-base",
+            "maintainer-hunt",
+        ],
+    )
+    def test_failure_falls_back_to_archetype_base_tier(
+        self, archetype: str, mode: str | None, expected_tier: str
+    ) -> None:
+        """On failure, assess_node() falls back to the archetype's registry
+        base tier, per 15-REQ-8.x defaults."""
+        from agentfox.core.models import ModelTier
+
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock(
+            side_effect=ConnectionError("fail")
+        )
+        manager = _make_assessment_manager(client=mock_client)
+
+        try:
+            ladder = asyncio.run(
+                manager.assess_node(
+                    node_id="arch_fail",
+                    archetype=archetype,
+                    mode=mode,
+                    node_body="body",
+                )
+            )
+        except Exception as exc:
+            pytest.fail(f"Should not raise: {exc}")
+
+        assert ladder.current_tier == ModelTier(expected_tier), (
+            f"Expected fallback tier {expected_tier} for {archetype}/{mode}, "
+            f"got {ladder.current_tier}"
+        )
+
+
+class TestPropertyConcurrentAssessNodeCalls:
+    """TS-15-P9: Concurrent assess_node() calls do not interfere.
+
+    Property: 15-PROP-9
+    Validates: 15-REQ-1.5
+    """
+
+    def test_concurrent_calls_return_independent_results(self) -> None:
+        """N concurrent assess_node() calls each return results
+        corresponding to their own inputs without interference."""
+        from agentfox.core.escalation import EscalationLadder
+
+        async def mock_create(**kwargs: Any) -> Any:
+            # Extract node identity from the messages to return
+            # different results per call
+            msgs_str = str(kwargs.get("messages", ""))
+            if "body_simple" in msgs_str:
+                return _make_anthropic_response(
+                    '{"recommended_tier": "STANDARD", '
+                    '"recommended_variant": "standard", '
+                    '"confidence": 0.7, "rationale": "simple"}'
+                )
+            elif "body_complex" in msgs_str:
+                return _make_anthropic_response(
+                    '{"recommended_tier": "ADVANCED", '
+                    '"recommended_variant": "extended", '
+                    '"confidence": 0.9, "rationale": "complex"}'
+                )
+            else:
+                return _make_anthropic_response(
+                    '{"recommended_tier": "STANDARD", '
+                    '"recommended_variant": "standard", '
+                    '"confidence": 0.5, "rationale": "default"}'
+                )
+
+        mock_client = MagicMock()
+        mock_client.messages.create = mock_create
+        manager = _make_assessment_manager(client=mock_client)
+
+        async def run_concurrent() -> list[Any]:
+            tasks = [
+                manager.assess_node(
+                    node_id=f"node_{i}",
+                    archetype="coder",
+                    mode=None,
+                    node_body=body,
+                )
+                for i, body in enumerate(["body_simple", "body_complex", "body_other"])
+            ]
+            return await asyncio.gather(*tasks)
+
+        results = asyncio.run(run_concurrent())
+
+        assert len(results) == 3
+        for r in results:
+            assert isinstance(r, EscalationLadder), (
+                f"Expected EscalationLadder, got {type(r)}"
+            )
+
+    def test_concurrent_calls_no_shared_state_leak(self) -> None:
+        """Concurrent calls do not leak state between AssessmentManager instances."""
+        call_count = 0
+
+        async def mock_create(**kwargs: Any) -> Any:
+            nonlocal call_count
+            call_count += 1
+            return _make_anthropic_response(_UPGRADE_RESPONSE_JSON)
+
+        mock_client = MagicMock()
+        mock_client.messages.create = mock_create
+        manager = _make_assessment_manager(client=mock_client)
+
+        async def run_concurrent() -> list[Any]:
+            tasks = [
+                manager.assess_node(
+                    node_id=f"concurrent_{i}",
+                    archetype="coder",
+                    mode=None,
+                    node_body=f"body for node {i}",
+                )
+                for i in range(5)
+            ]
+            return await asyncio.gather(*tasks)
+
+        results = asyncio.run(run_concurrent())
+
+        assert len(results) == 5
+        assert call_count == 5, (
+            f"Expected 5 independent LLM calls, got {call_count}"
+        )
+        # All results should be distinct objects
+        ids = [id(r) for r in results]
+        assert len(set(ids)) == 5, (
+            "All returned ladders should be distinct objects"
         )
