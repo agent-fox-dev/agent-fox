@@ -13,22 +13,13 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import duckdb
-from agentfox.knowledge.migrations import run_migrations
 from agentfox.spec.verification_checklist import (
     RequirementMapping,
-    SubtaskAuditEntry,
     VerificationChecklist,
     build_verification_checklist,
     render_checklist_markdown,
     scan_requirement_test_coverage,
 )
-
-
-def _make_conn() -> duckdb.DuckDBPyConnection:
-    conn = duckdb.connect(":memory:")
-    run_migrations(conn)
-    return conn
 
 
 def _make_requirement(
@@ -164,8 +155,7 @@ class TestSubtaskAudit:
                 }
             ],
         )
-        conn = _make_conn()
-        checklist = build_verification_checklist(spec_dir, conn)
+        checklist = build_verification_checklist(spec_dir)
         unchecked = [e for e in checklist.task_audit if not e.checked]
         assert unchecked == []
 
@@ -211,42 +201,12 @@ class TestSubtaskAudit:
                 }
             ],
         )
-        conn = _make_conn()
-        checklist = build_verification_checklist(spec_dir, conn)
+        checklist = build_verification_checklist(spec_dir)
         unchecked = [e for e in checklist.task_audit if not e.checked]
         assert len(unchecked) == 2
         ids = {e.subtask_id for e in unchecked}
         assert "1.2" in ids
         assert "1.V" in ids
-
-    def test_errata_always_false_after_table_drop(self, tmp_path: Path) -> None:
-        """has_errata is always False after the errata table was dropped (spec 10)."""
-        spec_dir = tmp_path / "10_my_spec"
-        _write_spec(
-            spec_dir,
-            task_groups=[
-                {
-                    "id": 1,
-                    "kind": "standard",
-                    "title": "Write failing tests",
-                    "subtasks": [
-                        {
-                            "id": "1.1",
-                            "title": "Skipped subtask",
-                            "state": "pending",
-                            "details": [],
-                            "test_spec_refs": [],
-                            "requirement_refs": [],
-                            "optional": False,
-                        },
-                    ],
-                    "verification": {"id": "", "checks": []},
-                }
-            ],
-        )
-        conn = _make_conn()
-        checklist = build_verification_checklist(spec_dir, conn)
-        assert checklist.has_errata is False
 
     def test_multiple_groups_audited(self, tmp_path: Path) -> None:
         spec_dir = tmp_path / "10_my_spec"
@@ -298,8 +258,7 @@ class TestSubtaskAudit:
                 },
             ],
         )
-        conn = _make_conn()
-        checklist = build_verification_checklist(spec_dir, conn)
+        checklist = build_verification_checklist(spec_dir)
         groups = {e.group_number for e in checklist.task_audit}
         assert 1 in groups
         assert 2 in groups
@@ -347,8 +306,7 @@ class TestSubtaskAudit:
                 }
             ],
         )
-        conn = _make_conn()
-        checklist = build_verification_checklist(spec_dir, conn)
+        checklist = build_verification_checklist(spec_dir)
         unchecked = [e for e in checklist.task_audit if not e.checked and not e.skipped]
         assert unchecked == []
 
@@ -473,8 +431,7 @@ class TestRenderChecklistMarkdown:
                 }
             ],
         )
-        conn = _make_conn()
-        checklist = build_verification_checklist(spec_dir, conn)
+        checklist = build_verification_checklist(spec_dir)
         md = render_checklist_markdown(checklist)
         assert "## Verification Checklist" in md
         assert "Task Completion Audit" in md
@@ -489,7 +446,6 @@ class TestRenderChecklistMarkdown:
                 RequirementMapping("10-REQ-1.1", True, ["test_core.py"]),
                 RequirementMapping("10-REQ-1.2", False, []),
             ],
-            has_errata=False,
         )
         md = render_checklist_markdown(checklist)
         assert "Requirement-to-Test Coverage" in md
@@ -497,24 +453,11 @@ class TestRenderChecklistMarkdown:
         assert "10-REQ-1.2" in md
         assert "UNCOVERED" in md
 
-    def test_renders_errata_notice(self, tmp_path: Path) -> None:
-        checklist = VerificationChecklist(
-            spec_name="10_my_spec",
-            task_audit=[
-                SubtaskAuditEntry(1, "1.1", "Do stuff", False, False),
-            ],
-            requirement_coverage=[],
-            has_errata=True,
-        )
-        md = render_checklist_markdown(checklist)
-        assert "errata" in md.lower()
-
     def test_empty_checklist_renders_cleanly(self) -> None:
         checklist = VerificationChecklist(
             spec_name="10_my_spec",
             task_audit=[],
             requirement_coverage=[],
-            has_errata=False,
         )
         md = render_checklist_markdown(checklist)
         assert "## Verification Checklist" in md
@@ -589,8 +532,7 @@ class TestBuildVerificationChecklist:
             "# 10-REQ-1.1\ndef test_x():\n    pass\n",
             encoding="utf-8",
         )
-        conn = _make_conn()
-        checklist = build_verification_checklist(spec_dir, conn, tests_dir=tests_dir)
+        checklist = build_verification_checklist(spec_dir, tests_dir=tests_dir)
         assert checklist.spec_name == "10_my_spec"
         assert len(checklist.task_audit) > 0
         assert len(checklist.requirement_coverage) == 1
@@ -599,6 +541,5 @@ class TestBuildVerificationChecklist:
     def test_missing_tasks_file_returns_empty_audit(self, tmp_path: Path) -> None:
         spec_dir = tmp_path / "10_my_spec"
         spec_dir.mkdir()
-        conn = _make_conn()
-        checklist = build_verification_checklist(spec_dir, conn)
+        checklist = build_verification_checklist(spec_dir)
         assert checklist.task_audit == []

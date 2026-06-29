@@ -827,7 +827,7 @@ def test_req_134_1_1():
 '''
         )
 
-        checklist = build_verification_checklist(v12_spec_dir, knowledge_conn, tests_dir=tests_dir)
+        checklist = build_verification_checklist(v12_spec_dir, tests_dir=tests_dir)
 
         # Task audit: tasks.json has 2 groups with subtasks
         assert len(checklist.task_audit) >= 3

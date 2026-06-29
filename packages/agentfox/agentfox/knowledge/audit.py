@@ -91,9 +91,6 @@ class AuditEventType(StrEnum):
     SLEEP_COMPUTE_COMPLETE = "SLEEP_COMPUTE_COMPLETE"
     KNOWLEDGE_RETRIEVAL = "knowledge.retrieval"  # 113-REQ-7.1
     PREFLIGHT_SKIP = "preflight.skip"
-    ERRATA_GENERATED = "errata.generated"
-    ADR_VALIDATION_FAILED = "adr.validation_failed"  # 117-REQ-7.2
-    ADR_INGESTED = "adr.ingested"  # 117-REQ-7.4
     WORKSPACE_HEALTH_CHECK = "workspace.health_check"  # 118-REQ-1.1
     WORKSPACE_FORCE_CLEAN = "workspace.force_clean"  # 118-REQ-2.1
     DEVELOP_SYNC = "develop.sync"  # 118-REQ-5.1

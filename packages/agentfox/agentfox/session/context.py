@@ -421,7 +421,7 @@ def assemble_context(
             )
 
             tests_dir = project_root / "tests" if project_root is not None else None
-            checklist = build_verification_checklist(spec_dir, conn, tests_dir=tests_dir)
+            checklist = build_verification_checklist(spec_dir, tests_dir=tests_dir)
             checklist_md = render_checklist_markdown(checklist)
             sections.append(checklist_md)
         except Exception:

@@ -1,8 +1,8 @@
 """Verification checklist builder for the verifier archetype.
 
-Builds a structured checklist from tasks.json checkboxes, requirements.json
-acceptance criteria, and errata — injected into the verifier's session
-context so it can enforce task completion and requirement coverage.
+Builds a structured checklist from tasks.json checkboxes and requirements.json
+acceptance criteria — injected into the verifier's session context so it can
+enforce task completion and requirement coverage.
 """
 
 from __future__ import annotations
@@ -11,7 +11,6 @@ import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -43,20 +42,17 @@ class VerificationChecklist:
     spec_name: str
     task_audit: list[SubtaskAuditEntry]
     requirement_coverage: list[RequirementMapping]
-    has_errata: bool
 
 
 def build_verification_checklist(
     spec_dir: Path,
-    conn: Any,
     *,
     tests_dir: Path | None = None,
 ) -> VerificationChecklist:
-    """Build a verification checklist from spec files and DB state.
+    """Build a verification checklist from spec files.
 
     Args:
         spec_dir: Path to the spec directory (e.g. .agent-fox/specs/10_my_spec).
-        conn: DuckDB connection for errata queries.
         tests_dir: Path to the tests directory for requirement-to-test scanning.
 
     Returns:
@@ -65,14 +61,12 @@ def build_verification_checklist(
     spec_name = spec_dir.name
 
     task_audit = _audit_task_checkboxes(spec_dir)
-    has_errata = _check_errata_exist(conn, spec_name)
     requirement_coverage = scan_requirement_test_coverage(spec_dir, tests_dir)
 
     return VerificationChecklist(
         spec_name=spec_name,
         task_audit=task_audit,
         requirement_coverage=requirement_coverage,
-        has_errata=has_errata,
     )
 
 
@@ -109,19 +103,6 @@ def _audit_task_checkboxes(spec_dir: Path) -> list[SubtaskAuditEntry]:
                 )
             )
     return entries
-
-
-def _check_errata_exist(conn: Any, spec_name: str) -> bool:
-    """Check if any errata exist for this spec in the DB."""
-    try:
-        row = conn.execute(
-            "SELECT COUNT(*) FROM errata WHERE spec_name = ?",
-            [spec_name],
-        ).fetchone()
-        return row is not None and row[0] > 0
-    except Exception:
-        logger.debug("Could not query errata for %s", spec_name)
-        return False
 
 
 def scan_requirement_test_coverage(
@@ -247,14 +228,6 @@ def render_checklist_markdown(checklist: VerificationChecklist) -> str:
         lines.append("No tasks found.")
     lines.append("")
 
-    # Errata notice
-    if checklist.has_errata:
-        lines.append(
-            "**Note:** Errata exist for this spec. Check `docs/errata/` "
-            "and the errata DB table for documented deviations."
-        )
-        lines.append("")
-
     # Requirement-to-test coverage
     lines.append("### Requirement-to-Test Coverage")
     lines.append("")
@@ -285,8 +258,7 @@ def render_checklist_markdown(checklist: VerificationChecklist) -> str:
     # Enforcement rules
     lines.append("### Enforcement Rules")
     lines.append("")
-    lines.append("- Any **UNCHECKED** subtask without a corresponding erratum → FAIL verdict.")
+    lines.append("- Any **UNCHECKED** subtask → FAIL verdict.")
     lines.append("- Any **UNCOVERED** requirement without test coverage → FAIL verdict.")
-    lines.append("- Errata document intentional deviations — verify they are legitimate.")
 
     return "\n".join(lines)

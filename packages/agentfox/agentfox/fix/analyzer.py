@@ -284,8 +284,6 @@ def query_oracle_context(config: AgentFoxConfig) -> str:
         if isinstance(metadata, dict):
             if metadata.get("spec"):
                 provenance_parts.append(f"spec: {metadata['spec']}")
-            if metadata.get("adr"):
-                provenance_parts.append(f"ADR: {metadata['adr']}")
             if metadata.get("commit_sha"):
                 provenance_parts.append(f"commit: {metadata['commit_sha']}")
 
