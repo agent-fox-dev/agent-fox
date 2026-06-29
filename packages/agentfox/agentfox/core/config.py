@@ -289,6 +289,10 @@ class PerArchetypeConfig(BaseModel):
         default=None,
         description="Model tier override (SIMPLE, STANDARD, ADVANCED). None = use registry default.",
     )
+    model_variant: str | None = Field(
+        default=None,
+        description="Model variant override (fast, standard, extended). None = use registry default.",
+    )
     max_turns: int | None = Field(
         default=None,
         description="Max turns override. 0 = unlimited. None = use registry default.",

@@ -41,6 +41,7 @@ class ModeConfig:
     injection: str | None = None
     allowlist: list[str] | None = None
     model_tier: str | None = None
+    model_variant: str | None = None
     max_turns: int | None = None
     thinking_mode: str | None = None
     thinking_budget: int | None = None
@@ -54,6 +55,7 @@ class ArchetypeEntry:
     name: str
     templates: list[str] = field(default_factory=list)  # 97-REQ-1.3 (reserved; profiles used in practice)
     default_model_tier: str = "STANDARD"
+    default_model_variant: str | None = None
     injection: str | None = None  # "auto_pre" | "auto_post" | "manual" | None
     task_assignable: bool = True
     retry_predecessor: bool = False
@@ -181,6 +183,7 @@ def resolve_effective_config(
     # ModeConfig field names map to ArchetypeEntry field names as follows:
     #   templates       -> templates        (direct 1:1)
     #   model_tier      -> default_model_tier
+    #   model_variant   -> default_model_variant
     #   max_turns       -> default_max_turns
     #   thinking_mode   -> default_thinking_mode
     #   thinking_budget -> default_thinking_budget
@@ -193,6 +196,9 @@ def resolve_effective_config(
         injection=(mode_cfg.injection if mode_cfg.injection is not None else entry.injection),
         default_allowlist=(mode_cfg.allowlist if mode_cfg.allowlist is not None else entry.default_allowlist),
         default_model_tier=(mode_cfg.model_tier if mode_cfg.model_tier is not None else entry.default_model_tier),
+        default_model_variant=(
+            mode_cfg.model_variant if mode_cfg.model_variant is not None else entry.default_model_variant
+        ),
         default_max_turns=(mode_cfg.max_turns if mode_cfg.max_turns is not None else entry.default_max_turns),
         default_thinking_mode=(
             mode_cfg.thinking_mode if mode_cfg.thinking_mode is not None else entry.default_thinking_mode
