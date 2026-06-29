@@ -136,7 +136,7 @@ class DaemonState:
     total_sessions: int = 0
     issues_created: int = 0
     issues_fixed: int = 0
-    hunt_scans_completed: int = 0
+    issue_checks_completed: int = 0
     specs_executed: int = 0
     uptime_seconds: float = 0.0
 

@@ -224,7 +224,7 @@ class TestProgressDisplayCreated:
         ):
             mock_engine = MagicMock()
             mock_engine.state = MagicMock()
-            mock_engine.state.hunt_scans_completed = 0
+            mock_engine.state.issue_checks_completed = 0
             mock_engine.state.issues_fixed = 0
             MockEngine.return_value = mock_engine
 
@@ -332,7 +332,7 @@ class TestPropDisplayLifecycle:
 
             mock_engine = MagicMock()
             mock_engine.state = MagicMock()
-            mock_engine.state.hunt_scans_completed = 0
+            mock_engine.state.issue_checks_completed = 0
             mock_engine.state.issues_fixed = 0
             MockEngine.return_value = mock_engine
 

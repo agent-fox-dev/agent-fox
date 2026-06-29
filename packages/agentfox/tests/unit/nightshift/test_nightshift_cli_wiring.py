@@ -77,7 +77,7 @@ class TestCliUsesDaemonRunner:
             mock_engine = MagicMock()
             mock_engine.state = MagicMock()
             mock_engine.state.issues_fixed = 1
-            mock_engine.state.hunt_scans_completed = 0
+            mock_engine.state.issue_checks_completed = 0
             mock_engine_cls.return_value = mock_engine
 
             runner = CliRunner()
@@ -118,7 +118,7 @@ class TestCliUsesDaemonRunner:
             mock_engine = MagicMock()
             mock_engine.state = MagicMock()
             mock_engine.state.issues_fixed = 0
-            mock_engine.state.hunt_scans_completed = 0
+            mock_engine.state.issue_checks_completed = 0
             mock_engine.run = AsyncMock()
             mock_engine_cls.return_value = mock_engine
 
@@ -165,7 +165,7 @@ class TestCliSpinnerCallbackWiring:
             mock_engine = MagicMock()
             mock_engine.state = MagicMock()
             mock_engine.state.issues_fixed = 0
-            mock_engine.state.hunt_scans_completed = 0
+            mock_engine.state.issue_checks_completed = 0
             mock_engine_cls.return_value = mock_engine
 
             runner = CliRunner()
@@ -240,7 +240,7 @@ class TestCredentialPreflightCheck:
             mock_engine = MagicMock()
             mock_engine.state = MagicMock()
             mock_engine.state.issues_fixed = 0
-            mock_engine.state.hunt_scans_completed = 0
+            mock_engine.state.issue_checks_completed = 0
             mock_engine_cls.return_value = mock_engine
 
             runner = CliRunner()

@@ -48,7 +48,7 @@ class NightShiftState:
     total_sessions: int = 0
     issues_created: int = 0
     issues_fixed: int = 0
-    hunt_scans_completed: int = 0
+    issue_checks_completed: int = 0
     is_shutting_down: bool = False
 
 
@@ -187,7 +187,7 @@ class NightShiftEngine:
             return
 
         if not issues:
-            self.state.hunt_scans_completed += 1
+            self.state.issue_checks_completed += 1
             return
 
         # Local sort fallback: ensure ascending issue number order
@@ -201,7 +201,7 @@ class NightShiftEngine:
         # ``_processed_issues`` set covers issues handled in earlier runs.
         issues = [i for i in issues if i.number not in seen and i.number not in self._processed_issues]
         if not issues:
-            self.state.hunt_scans_completed += 1
+            self.state.issue_checks_completed += 1
             return
 
         # Build dependency graph from explicit references and GitHub metadata
@@ -358,7 +358,7 @@ class NightShiftEngine:
                             exc_info=True,
                         )
 
-        self.state.hunt_scans_completed += 1
+        self.state.issue_checks_completed += 1
 
     def _calculate_fix_cost(self, metrics: object) -> float:
         """Calculate USD cost from FixMetrics token counts."""

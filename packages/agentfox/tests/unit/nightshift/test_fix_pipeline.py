@@ -1134,10 +1134,9 @@ class TestFixPipelineDbTelemetry:
 
 
 class TestScanCounterIncrement:
-    """Verify hunt_scans_completed is incremented by _run_issue_check.
+    """Verify issue_checks_completed is incremented by _run_issue_check.
 
-    Without this, the shutdown summary always reports 'Scans completed: 0'
-    when only the fix-pipeline stream ran (no hunt scans).
+    Without this, the shutdown summary always reports 'Scans completed: 0'.
     """
 
     @pytest.mark.asyncio
@@ -1155,11 +1154,11 @@ class TestScanCounterIncrement:
         mock_platform.list_issues_by_label = AsyncMock(return_value=[])
 
         engine = NightShiftEngine(config=config, platform=mock_platform)
-        assert engine.state.hunt_scans_completed == 0
+        assert engine.state.issue_checks_completed == 0
 
         await engine._run_issue_check()
 
-        assert engine.state.hunt_scans_completed == 1
+        assert engine.state.issue_checks_completed == 1
 
     @pytest.mark.asyncio
     async def test_scan_counter_incremented_when_issues_processed(
@@ -1184,7 +1183,7 @@ class TestScanCounterIncrement:
 
         engine = NightShiftEngine(config=config, platform=mock_platform)
         engine._process_fix = AsyncMock()  # type: ignore[assignment]
-        assert engine.state.hunt_scans_completed == 0
+        assert engine.state.issue_checks_completed == 0
 
         with patch(
             "agentfox.nightshift.engine.fetch_github_relationships",
@@ -1192,7 +1191,7 @@ class TestScanCounterIncrement:
         ):
             await engine._run_issue_check()
 
-        assert engine.state.hunt_scans_completed == 1
+        assert engine.state.issue_checks_completed == 1
 
     @pytest.mark.asyncio
     async def test_scan_counter_not_incremented_on_api_error(self) -> None:
@@ -1209,12 +1208,12 @@ class TestScanCounterIncrement:
         mock_platform.list_issues_by_label = AsyncMock(side_effect=RuntimeError("API down"))
 
         engine = NightShiftEngine(config=config, platform=mock_platform)
-        assert engine.state.hunt_scans_completed == 0
+        assert engine.state.issue_checks_completed == 0
 
         await engine._run_issue_check()
 
         # Platform error path returns early without counting the scan
-        assert engine.state.hunt_scans_completed == 0
+        assert engine.state.issue_checks_completed == 0
 
     @pytest.mark.asyncio
     async def test_scan_counter_accumulates_across_calls(self) -> None:
@@ -1235,7 +1234,7 @@ class TestScanCounterIncrement:
         for _ in range(3):
             await engine._run_issue_check()
 
-        assert engine.state.hunt_scans_completed == 3
+        assert engine.state.issue_checks_completed == 3
 
 
 # ---------------------------------------------------------------------------

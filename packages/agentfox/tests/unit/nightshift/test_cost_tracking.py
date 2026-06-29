@@ -192,7 +192,7 @@ class TestCliCreatesSinkDispatcher:
             mock_runner_cls.return_value = mock_runner
 
             mock_engine = MagicMock()
-            mock_engine.state.hunt_scans_completed = 0
+            mock_engine.state.issue_checks_completed = 0
             mock_engine.state.issues_fixed = 0
             mock_engine_cls.return_value = mock_engine
 
@@ -713,7 +713,7 @@ class TestCliDuckDBUnavailable:
             mock_runner_cls.return_value = mock_runner
 
             mock_engine = MagicMock()
-            mock_engine.state.hunt_scans_completed = 0
+            mock_engine.state.issue_checks_completed = 0
             mock_engine.state.issues_fixed = 0
             mock_engine_cls.return_value = mock_engine
 
