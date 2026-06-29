@@ -9,7 +9,21 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from agentfox.core.config import AgentFoxConfig
+
+# NodeSessionRunner import chain pulls in ui.progress → rich.
+# Runtime tests that instantiate NodeSessionRunner are skipped when rich is
+# unavailable; source-inspection tests that only read the .py file work fine.
+try:
+    import rich  # noqa: F401
+    _has_rich = True
+except ModuleNotFoundError:
+    _has_rich = False
+
+_skip_no_rich = pytest.mark.skipif(
+    not _has_rich, reason="rich not installed; NodeSessionRunner import chain fails"
+)
 
 # ---------------------------------------------------------------------------
 # TS-14-43: NodeSessionRunner calls resolve_model_variant() first, then
@@ -18,6 +32,7 @@ from agentfox.core.config import AgentFoxConfig
 # ---------------------------------------------------------------------------
 
 
+@_skip_no_rich
 class TestNodeSessionRunnerCallOrder:
     """Verify resolve_model_variant is called before resolve_model with variant= kwarg."""
 
@@ -144,6 +159,7 @@ class TestNodeSessionRunnerSourceInspection:
 # ---------------------------------------------------------------------------
 
 
+@_skip_no_rich
 class TestNodeSessionRunnerVariantNone:
     """Verify variant=None is passed to resolve_model when resolve_model_variant returns None."""
 

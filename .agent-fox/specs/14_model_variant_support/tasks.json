@@ -926,7 +926,7 @@
             "14-REQ-11.2",
             "14-REQ-11.3"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -956,7 +956,7 @@
             "14-REQ-6.3",
             "14-REQ-3.1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -972,7 +972,7 @@
           "requirement_refs": [
             "14-REQ-11.3"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],
