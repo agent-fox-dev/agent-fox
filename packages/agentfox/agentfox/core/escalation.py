@@ -10,7 +10,7 @@ Requirements: 30-REQ-2.1, 30-REQ-2.2, 30-REQ-2.3, 30-REQ-2.4,
 
 from __future__ import annotations
 
-from agentfox.core.models import ModelTier
+from agentfox.core.models import ModelTier, resolve_model
 
 # Canonical tier ordering used for escalation.
 _TIER_ORDER: list[ModelTier] = [
@@ -41,10 +41,13 @@ class EscalationLadder:
         starting_tier: ModelTier,
         tier_ceiling: ModelTier,
         retries_before_escalation: int,
+        *,
+        starting_variant: str | None = None,
     ) -> None:
         self._starting_tier = starting_tier
         self._tier_ceiling = tier_ceiling
         self._retries_before_escalation = retries_before_escalation
+        self._variant = starting_variant
 
         # Build the list of tiers available for escalation (starting..ceiling).
         start_idx = _TIER_INDEX[starting_tier]
@@ -68,6 +71,16 @@ class EscalationLadder:
         return self._available_tiers[self._tier_idx]
 
     @property
+    def current_variant(self) -> str | None:
+        """The model variant set at construction time (read-only).
+
+        This value is preserved unchanged across tier escalations.
+
+        Requirements: 14-REQ-8.2, 14-REQ-8.3
+        """
+        return self._variant
+
+    @property
     def is_exhausted(self) -> bool:
         """True if all retries and escalation steps have been used."""
         return self._exhausted
@@ -81,6 +94,16 @@ class EscalationLadder:
     def escalation_count(self) -> int:
         """Number of times the tier was escalated."""
         return self._escalation_count
+
+    def resolve_current_model(self) -> str:
+        """Resolve the current tier and variant to a concrete model ID.
+
+        Delegates entirely to :func:`resolve_model` — this method does not
+        perform any variant fallback or emit any log messages itself.
+
+        Requirements: 14-REQ-8.4, 14-REQ-8.5, 14-REQ-8.E1
+        """
+        return resolve_model(self.current_tier, variant=self.current_variant)
 
     def record_failure(self) -> None:
         """Record a failed attempt.

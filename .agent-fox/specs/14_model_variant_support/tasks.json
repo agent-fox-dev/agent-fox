@@ -803,7 +803,7 @@
             "14-REQ-8.3",
             "14-REQ-8.6"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -825,7 +825,7 @@
             "14-REQ-8.5",
             "14-REQ-8.E1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],
