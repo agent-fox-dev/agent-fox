@@ -1345,7 +1345,8 @@
             "15-REQ-9.3"
           ],
           "state": "pending",
-          "optional": false
+          "optional": false,
+          "done": true
         },
         {
           "id": "13.2",
@@ -1365,7 +1366,8 @@
             "15-REQ-11.5"
           ],
           "state": "pending",
-          "optional": false
+          "optional": false,
+          "done": true
         },
         {
           "id": "13.3",
@@ -1383,7 +1385,8 @@
             "15-REQ-4.2"
           ],
           "state": "pending",
-          "optional": false
+          "optional": false,
+          "done": true
         },
         {
           "id": "13.4",
@@ -1403,7 +1406,8 @@
           ],
           "requirement_refs": [],
           "state": "pending",
-          "optional": false
+          "optional": false,
+          "done": true
         },
         {
           "id": "13.5",
@@ -1417,7 +1421,8 @@
           "test_spec_refs": [],
           "requirement_refs": [],
           "state": "pending",
-          "optional": false
+          "optional": false,
+          "done": true
         },
         {
           "id": "13.6",
@@ -1433,7 +1438,8 @@
             "15-REQ-4.2"
           ],
           "state": "pending",
-          "optional": false
+          "optional": false,
+          "done": true
         }
       ],
       "verification": {
@@ -1446,7 +1452,8 @@
           "All 12 requirements (15-REQ-1 through 15-REQ-12) have at least one passing test traced to them in traceability matrix",
           "EscalationLadder starting_tier and starting_variant parameters confirmed compatible with spec #14 implementation"
         ]
-      }
+      },
+      "done": true
     }
   ],
   "traceability": [

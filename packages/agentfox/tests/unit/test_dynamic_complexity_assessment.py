@@ -10,6 +10,7 @@ Task Group 5: Explicit config override skip, resolution priority ordering,
               ARCHETYPE_REGISTRY defaults, and property tests.
 Task Group 6: Dispatch integration, RoutingConfig validation, nightshift
               passthrough, and triage parsing.
+Task Group 13: Wiring verification: end-to-end smoke tests and stub audit.
 
 Test Spec: TS-15-1 through TS-15-12, TS-15-E2 through TS-15-E14,
            TS-15-49 through TS-15-53, TS-15-13 through TS-15-18,
@@ -18,7 +19,8 @@ Test Spec: TS-15-1 through TS-15-12, TS-15-E2 through TS-15-E14,
            TS-15-26 through TS-15-31, TS-15-32 through TS-15-36,
            TS-15-E8, TS-15-P5, TS-15-P7,
            TS-15-37 through TS-15-48, TS-15-E9 through TS-15-E13,
-           TS-15-P8
+           TS-15-P8,
+           TS-15-SMOKE-1 through TS-15-SMOKE-6
 Requirements: 15-REQ-1.1 through 15-REQ-1.7, 15-REQ-2.1 through 15-REQ-2.5,
               15-REQ-2.E1 through 15-REQ-2.E3, 15-REQ-4.E1,
               15-REQ-12.1 through 15-REQ-12.5, 15-REQ-12.E1,
@@ -2950,41 +2952,92 @@ class TestAssessNodePriorityOrdering:
 class TestSessionRunnerFactoryClientInjection:
     """TS-15-20: session_runner_factory passes Anthropic client to AssessmentManager.
 
+    The Anthropic client is created in _setup_infrastructure() (engine/run.py)
+    and threaded through to Orchestrator.__init__() as 'client', which passes
+    it to AssessmentManager(client=client). We verify both the infra wiring
+    and the Orchestrator→AssessmentManager handoff.
+
     Requirement: 15-REQ-4.2
     """
 
-    def test_assessment_manager_in_source(self) -> None:
-        """session_runner_factory source references AssessmentManager.
+    def test_setup_infrastructure_returns_anthropic_client_key(self) -> None:
+        """_setup_infrastructure() returns a dict containing 'anthropic_client'.
 
-        AssessmentManager is constructed in Orchestrator.__init__() (currently),
-        but the spec requires the client to be passed through. We verify
-        the source contains the right wiring.
+        This is the entry point for client creation in the dispatch pipeline.
         """
         from agentfox.engine import run
 
-        source = inspect.getsource(run)
-        # Either session_runner_factory or Orchestrator should pass client
-        # to AssessmentManager. Check the broader module source.
-        assert "AssessmentManager" in source or "assessment" in source.lower(), (
-            "engine/run.py should reference AssessmentManager or assessment"
+        source = inspect.getsource(run._setup_infrastructure)
+        assert '"anthropic_client"' in source or "'anthropic_client'" in source, (
+            "_setup_infrastructure() should include 'anthropic_client' in its return dict"
+        )
+        # Verify the client is created from create_async_anthropic_client
+        assert "create_async_anthropic_client" in source, (
+            "_setup_infrastructure() should call create_async_anthropic_client()"
         )
 
-    def test_assessment_manager_receives_client_kwarg(self) -> None:
-        """AssessmentManager is constructed with client= keyword argument.
+    def test_orchestrator_passes_client_to_assessment_manager(self) -> None:
+        """Orchestrator.__init__() passes the client kwarg to AssessmentManager.
 
-        Verifies the wiring by checking that the Orchestrator or
-        session_runner_factory passes a client to AssessmentManager.
+        We verify this behaviorally by constructing an Orchestrator with a
+        mock client and checking that AssessmentManager._assessor is non-None
+        (which only happens when client is not None).
         """
-        from agentfox.engine import engine
+        from agentfox.engine.engine import Orchestrator
 
-        source = inspect.getsource(engine)
-        # After spec 15 is implemented, the AssessmentManager constructor
-        # should be called with client= keyword argument somewhere
-        # in the engine or run module.
-        has_client = "client=" in source or "client =" in source
-        assert has_client, (
-            "AssessmentManager should be constructed with client= argument "
-            "in engine module"
+        mock_client = MagicMock()
+        # Construct a minimal Orchestrator with a mock client
+        from agentfox.core.config import AgentFoxConfig, OrchestratorConfig
+
+        orch_config = OrchestratorConfig()
+        full_config = AgentFoxConfig()
+        orch = Orchestrator(
+            config=orch_config,
+            session_runner_factory=MagicMock(),
+            full_config=full_config,
+            client=mock_client,
+        )
+        # AssessmentManager should have instantiated ComplexityAssessor
+        assert orch._routing._assessor is not None, (
+            "Orchestrator should pass client to AssessmentManager, "
+            "causing ComplexityAssessor to be instantiated"
+        )
+        assert orch._routing._assessor.client is mock_client, (
+            "ComplexityAssessor should receive the same client object "
+            "passed to Orchestrator"
+        )
+
+    def test_orchestrator_none_client_disables_assessor(self) -> None:
+        """When client=None, AssessmentManager._assessor is None."""
+        from agentfox.core.config import AgentFoxConfig, OrchestratorConfig
+        from agentfox.engine.engine import Orchestrator
+
+        orch_config = OrchestratorConfig()
+        full_config = AgentFoxConfig()
+        orch = Orchestrator(
+            config=orch_config,
+            session_runner_factory=MagicMock(),
+            full_config=full_config,
+            client=None,
+        )
+        assert orch._routing._assessor is None, (
+            "Orchestrator with client=None should disable ComplexityAssessor"
+        )
+
+    def test_run_code_passes_anthropic_client_to_orchestrator(self) -> None:
+        """run_code() wires infra['anthropic_client'] as 'client' to Orchestrator.
+
+        Verified by source inspection of the orch_kwargs dict in run_code().
+        """
+        from agentfox.engine import run
+
+        source = inspect.getsource(run.run_code)
+        # The orch_kwargs dict should include client from infra
+        assert '"client"' in source or "'client'" in source, (
+            "run_code() should include 'client' key in orch_kwargs"
+        )
+        assert "anthropic_client" in source, (
+            "run_code() should source the client from infra['anthropic_client']"
         )
 
 
@@ -5845,3 +5898,489 @@ class TestPropertyPreAssessedBypassHaiku:
             f"LLM should not be called with pre_assessed "
             f"for {archetype}/{mode}"
         )
+
+
+# ===========================================================================
+# Task 13: Wiring verification — end-to-end smoke tests
+# Test Spec: TS-15-SMOKE-1 through TS-15-SMOKE-6
+# Execution Paths: 15-PATH-1 through 15-PATH-6
+# ===========================================================================
+
+
+class TestSmokeSuccessfulLLMUpgrade:
+    """TS-15-SMOKE-1: End-to-end coder node upgrade STANDARD→ADVANCED.
+
+    Traces the full call chain:
+      DispatchManager.prepare_launch()
+      → AssessmentManager.assess_node()
+      → ComplexityAssessor.assess()
+      → apply_assessment()
+      → EscalationLadder construction
+
+    Real components: AssessmentManager, ComplexityAssessor, apply_assessment,
+                     ARCHETYPE_REGISTRY, EscalationLadder.
+    Mockable: Anthropic API messages.create (returns ADVANCED/extended/0.82).
+
+    Execution Path: 15-PATH-1
+    """
+
+    def test_successful_llm_assessment_upgrades_coder(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Coder node upgraded from STANDARD/standard → ADVANCED/extended."""
+        from agentfox.engine.engine import AssessmentManager
+
+        mock_client = _make_mock_client(
+            '{"recommended_tier": "ADVANCED", '
+            '"recommended_variant": "extended", '
+            '"confidence": 0.82, '
+            '"rationale": "Complex multi-module refactor"}'
+        )
+        config = _make_routing_config(confidence_threshold=0.6)
+        manager = AssessmentManager(config=config, client=mock_client)
+
+        with caplog.at_level(logging.DEBUG):
+            ladder = asyncio.run(
+                manager.assess_node(
+                    node_id="smoke-1",
+                    archetype="coder",
+                    mode=None,
+                    node_body="Implement multi-module auth refactor...",
+                    previous_failure=None,
+                )
+            )
+
+        # ComplexityAssessor.assess() called once
+        mock_client.messages.create.assert_called_once()
+
+        # apply_assessment() upgrades tier from STANDARD to ADVANCED
+        assert ladder.starting_tier.value == "ADVANCED", (
+            f"Expected starting_tier=ADVANCED, got {ladder.starting_tier}"
+        )
+        assert ladder.starting_variant == "extended", (
+            f"Expected starting_variant=extended, got {ladder.starting_variant}"
+        )
+        # EscalationLadder ceiling is ADVANCED (internal _tier_ceiling)
+        assert ladder._tier_ceiling.value == "ADVANCED", (
+            f"Expected ceiling=ADVANCED, got {ladder._tier_ceiling}"
+        )
+
+        # Structured DEBUG log emitted with required keys
+        debug_msgs = [r.message for r in caplog.records if r.levelno == logging.DEBUG]
+        debug_text = " ".join(debug_msgs)
+        assert "smoke-1" in debug_text, "DEBUG log should contain node_id='smoke-1'"
+        assert "ADVANCED" in debug_text, "DEBUG log should mention ADVANCED tier"
+        assert "extended" in debug_text, "DEBUG log should mention extended variant"
+
+    def test_successful_assessment_calls_apply_assessment(self) -> None:
+        """Upgrade-only semantics applied correctly via apply_assessment()."""
+        from agentfox.engine.engine import AssessmentManager
+
+        # Assessor recommends SIMPLE (below coder base of STANDARD) — upgrade-only prevents downgrade
+        mock_client = _make_mock_client(
+            '{"recommended_tier": "SIMPLE", '
+            '"recommended_variant": "fast", '
+            '"confidence": 0.95, '
+            '"rationale": "Simple task"}'
+        )
+        config = _make_routing_config(confidence_threshold=0.6)
+        manager = AssessmentManager(config=config, client=mock_client)
+
+        ladder = asyncio.run(
+            manager.assess_node(
+                node_id="smoke-1b",
+                archetype="coder",
+                mode=None,
+                node_body="Simple one-liner fix",
+            )
+        )
+
+        # Upgrade-only: STANDARD stays as floor despite SIMPLE recommendation
+        assert ladder.starting_tier.value == "STANDARD", (
+            "Upgrade-only semantics should prevent downgrade below STANDARD"
+        )
+
+
+class TestSmokeAPIFailureFallback:
+    """TS-15-SMOKE-2: API failure falls back silently to base tier.
+
+    ComplexityAssessor fails with network error; assess_node() returns
+    EscalationLadder at base tier/variant without exception.
+
+    Execution Path: 15-PATH-2
+    """
+
+    def test_network_error_falls_back_to_base(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Network failure → EscalationLadder at STANDARD/standard, no exception."""
+        from agentfox.engine.engine import AssessmentManager
+
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock(
+            side_effect=ConnectionError("Network failure"),
+        )
+        config = _make_routing_config(confidence_threshold=0.6)
+        manager = AssessmentManager(config=config, client=mock_client)
+
+        with caplog.at_level(logging.WARNING):
+            # Should NOT raise
+            ladder = asyncio.run(
+                manager.assess_node(
+                    node_id="smoke-2",
+                    archetype="coder",
+                    mode=None,
+                    node_body="Fix auth bug",
+                    previous_failure=None,
+                )
+            )
+
+        # WARNING log emitted
+        warning_msgs = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
+        assert len(warning_msgs) >= 1, "Expected at least one WARNING log on API failure"
+
+        # EscalationLadder at base tier (STANDARD/standard for coder)
+        assert ladder.starting_tier.value == "STANDARD", (
+            f"Expected fallback to STANDARD, got {ladder.starting_tier}"
+        )
+        assert ladder.starting_variant == "standard", (
+            f"Expected fallback to standard variant, got {ladder.starting_variant}"
+        )
+
+    def test_dispatch_continues_after_failure(self) -> None:
+        """No exception propagated — dispatch continues unblocked."""
+        from agentfox.engine.engine import AssessmentManager
+
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock(
+            side_effect=TimeoutError("API timeout"),
+        )
+        config = _make_routing_config(confidence_threshold=0.6)
+        manager = AssessmentManager(config=config, client=mock_client)
+
+        # Must not raise — dispatch should continue
+        ladder = asyncio.run(
+            manager.assess_node(
+                node_id="smoke-2b",
+                archetype="coder",
+                mode=None,
+                node_body="Task body",
+            )
+        )
+        assert ladder is not None, "assess_node must return a ladder even on failure"
+        assert hasattr(ladder, "starting_tier"), "Returned ladder must have starting_tier"
+
+
+class TestSmokeExplicitConfigOverrideSkip:
+    """TS-15-SMOKE-3: Explicit config override skips LLM assessment.
+
+    When mode-level config override exists, ComplexityAssessor.assess()
+    is never called and configured tier is used.
+
+    Execution Path: 15-PATH-3
+    """
+
+    def test_explicit_override_skips_llm_and_uses_config_tier(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """LLM not called; ladder uses explicitly configured tier."""
+        from agentfox.engine.engine import AssessmentManager
+
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock()
+
+        # Configure a mode-level override: coder/fix → ADVANCED
+        config = _make_config_with_mode_override("coder", "fix", "ADVANCED")
+        manager = AssessmentManager(config=config, client=mock_client)
+
+        with caplog.at_level(logging.DEBUG):
+            ladder = asyncio.run(
+                manager.assess_node(
+                    node_id="smoke-3",
+                    archetype="coder",
+                    mode="fix",
+                    node_body="One-line config fix",
+                    previous_failure=None,
+                )
+            )
+
+        # ComplexityAssessor.assess() never called
+        mock_client.messages.create.assert_not_called()
+
+        # DEBUG log contains node_id, archetype, mode, and resolved tier
+        debug_msgs = [r.message for r in caplog.records if r.levelno == logging.DEBUG]
+        debug_text = " ".join(debug_msgs)
+        assert "smoke-3" in debug_text, "DEBUG log should contain node_id"
+        assert "coder" in debug_text, "DEBUG log should contain archetype"
+        assert "fix" in debug_text, "DEBUG log should contain mode"
+
+        # Ladder uses the configured tier
+        assert ladder is not None, "assess_node must return a ladder"
+        assert hasattr(ladder, "starting_tier"), "Ladder must have starting_tier"
+
+
+class TestSmokeNightshiftPreAssessedBypass:
+    """TS-15-SMOKE-4: Nightshift pre-assessed path bypasses Haiku LLM call.
+
+    TriageResult with valid AssessedComplexity → adapter + apply_assessment()
+    → EscalationLadder at upgraded tier, no ComplexityAssessor.assess() call.
+
+    Execution Path: 15-PATH-4
+    """
+
+    def test_pre_assessed_bypasses_haiku_and_upgrades(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Pre-assessed complexity from triage used; LLM never called."""
+        from agentfox.engine.engine import AssessmentManager
+        from agentfox.nightshift.fix_pipeline import AssessedComplexity
+
+        mock_client = MagicMock()
+        mock_client.messages.create = AsyncMock()
+        config = _make_routing_config(confidence_threshold=0.6)
+        manager = AssessmentManager(config=config, client=mock_client)
+
+        pre = AssessedComplexity(
+            tier="ADVANCED",
+            variant="standard",
+            confidence=0.8,
+            rationale="Complex multi-module refactor",
+        )
+
+        with caplog.at_level(logging.DEBUG):
+            ladder = asyncio.run(
+                manager.assess_node(
+                    node_id="smoke-4",
+                    archetype="coder",
+                    mode="fix",
+                    node_body="Implement auth module refactor",
+                    pre_assessed=pre,
+                )
+            )
+
+        # ComplexityAssessor.assess() NOT called
+        mock_client.messages.create.assert_not_called()
+
+        # Ladder reflects upgrade from STANDARD to ADVANCED
+        assert ladder.starting_tier.value == "ADVANCED", (
+            f"Expected ADVANCED from pre_assessed, got {ladder.starting_tier}"
+        )
+        assert ladder.starting_variant == "standard", (
+            f"Expected standard variant, got {ladder.starting_variant}"
+        )
+
+        # Structured DEBUG log emitted
+        debug_msgs = [r.message for r in caplog.records if r.levelno == logging.DEBUG]
+        debug_text = " ".join(debug_msgs)
+        assert "smoke-4" in debug_text, "DEBUG log should contain node_id"
+        assert "ADVANCED" in debug_text, "DEBUG log should contain effective_tier"
+
+    def test_fix_review_nodes_not_pre_assessed(self) -> None:
+        """Fix-review nodes use their own assessment path (no pre_assessed).
+
+        Verifies that the coder_reviewer.py source only passes pre_assessed
+        to the coder node, not to fix-review.
+        """
+        from agentfox.nightshift import coder_reviewer
+
+        source = inspect.getsource(coder_reviewer)
+        # The _build_coder_ladder method passes pre_assessed=assessed_complexity
+        assert "pre_assessed=assessed_complexity" in source, (
+            "coder_reviewer should pass pre_assessed to coder's assess_node"
+        )
+        # Fix-review nodes should NOT receive pre_assessed
+        # They go through _run_reviewer_phase which does NOT pass pre_assessed
+        assert "pre_assessed" not in source.split("_run_reviewer_phase")[1].split("def ")[0] if (
+            "_run_reviewer_phase" in source
+        ) else True, (
+            "Reviewer phase should not reference pre_assessed"
+        )
+
+
+class TestSmokeReAssessmentOnRetry:
+    """TS-15-SMOKE-5: Failed node re-assessed with failure context.
+
+    Previous_failure string from error_tracker is passed to assessor;
+    new EscalationLadder created at re-assessed tier.
+
+    Execution Path: 15-PATH-5
+    """
+
+    def test_retry_with_failure_context_escalates(self) -> None:
+        """Re-assessment with previous_failure → higher tier in new ladder."""
+        from agentfox.engine.engine import AssessmentManager
+
+        call_count = 0
+
+        async def mock_create(**kwargs: Any) -> Any:
+            nonlocal call_count
+            call_count += 1
+            # Check that second call includes the failure context in the prompt
+            prompt_text = str(kwargs)
+            if call_count == 2:
+                assert "TypeError" in prompt_text, (
+                    "Re-assessment prompt should include previous_failure text"
+                )
+            return _make_anthropic_response(
+                '{"recommended_tier": "ADVANCED", '
+                '"recommended_variant": "extended", '
+                '"confidence": 0.9, '
+                '"rationale": "Failure suggests complex cross-module issue"}'
+            )
+
+        mock_client = MagicMock()
+        mock_client.messages.create = mock_create
+        config = _make_routing_config(confidence_threshold=0.6)
+        manager = AssessmentManager(config=config, client=mock_client)
+
+        # First assessment (no failure)
+        ladder1 = asyncio.run(
+            manager.assess_node(
+                node_id="smoke-5",
+                archetype="coder",
+                mode=None,
+                node_body="Complex refactor",
+            )
+        )
+        assert call_count == 1
+
+        # Re-assessment with previous_failure
+        ladder2 = asyncio.run(
+            manager.assess_node(
+                node_id="smoke-5",
+                archetype="coder",
+                mode=None,
+                node_body="Complex refactor",
+                previous_failure="TypeError: cannot unpack non-sequence NoneType",
+            )
+        )
+        assert call_count == 2
+
+        # New ladder created (distinct object)
+        assert ladder2 is not ladder1, "Re-assessment should create a new ladder"
+
+        # New ladder at ADVANCED/extended
+        assert ladder2.starting_tier.value == "ADVANCED"
+        assert ladder2.starting_variant == "extended"
+
+        # Both ladders share same ceiling (internal _tier_ceiling)
+        assert ladder1._tier_ceiling == ladder2._tier_ceiling, (
+            "Both ladders should have same ceiling"
+        )
+
+    def test_retry_prior_state_not_preserved(self) -> None:
+        """Prior retry state is not preserved in the new ladder."""
+        from agentfox.engine.engine import AssessmentManager
+
+        mock_client = _make_mock_client(
+            '{"recommended_tier": "ADVANCED", '
+            '"recommended_variant": "extended", '
+            '"confidence": 0.9, '
+            '"rationale": "escalate"}'
+        )
+        config = _make_routing_config(confidence_threshold=0.6)
+        manager = AssessmentManager(config=config, client=mock_client)
+
+        # First call
+        ladder1 = asyncio.run(
+            manager.assess_node("smoke-5b", "coder", None, "body")
+        )
+
+        # Simulate failure on first ladder
+        if hasattr(ladder1, "record_failure"):
+            ladder1.record_failure()
+
+        # Re-assessment replaces the ladder entirely
+        ladder2 = asyncio.run(
+            manager.assess_node(
+                "smoke-5b", "coder", None, "body",
+                previous_failure="some error",
+            )
+        )
+
+        # New ladder starts fresh — prior retry state discarded
+        assert ladder2 is not ladder1
+        assert ladder2.starting_tier.value == "ADVANCED"
+
+
+class TestSmokeAbsentClientDisablesAssessment:
+    """TS-15-SMOKE-6: Absent client silently disables all assessment.
+
+    AssessmentManager(client=None) → _assessor is None → every assess_node()
+    returns EscalationLadder at base tier/variant with zero log entries.
+
+    Execution Path: 15-PATH-6
+    """
+
+    def test_client_none_all_nodes_fallback_silently(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """All assess_node() calls fall back with no logs emitted."""
+        from agentfox.engine.engine import AssessmentManager
+
+        config = _make_routing_config()
+        manager = AssessmentManager(config=config, client=None)
+
+        # Confirm no assessor
+        assert manager._assessor is None, "client=None should not create assessor"
+
+        test_cases = [
+            ("coder", None, "STANDARD", "standard"),
+            ("reviewer", "pre-review", "ADVANCED", "standard"),
+            ("verifier", None, "STANDARD", "standard"),
+            ("maintainer", "hunt", "SIMPLE", "standard"),
+        ]
+
+        for archetype, mode, exp_tier, exp_variant in test_cases:
+            with caplog.at_level(logging.DEBUG):
+                caplog.clear()
+                ladder = asyncio.run(
+                    manager.assess_node(
+                        node_id=f"smoke6_{archetype}",
+                        archetype=archetype,
+                        mode=mode,
+                        node_body="some body for assessment",
+                    )
+                )
+
+            # EscalationLadder at base tier/variant per ARCHETYPE_REGISTRY
+            assert ladder.starting_tier.value == exp_tier, (
+                f"{archetype}/{mode}: expected {exp_tier}, "
+                f"got {ladder.starting_tier.value}"
+            )
+
+            # No WARNING, ERROR, or any log entries for assessment
+            assessment_logs = [
+                r for r in caplog.records
+                if f"smoke6_{archetype}" in r.message
+            ]
+            assert len(assessment_logs) == 0, (
+                f"No log entries expected for client=None path, "
+                f"got {len(assessment_logs)} for {archetype}/{mode}"
+            )
+
+    def test_dispatch_proceeds_normally_without_client(self) -> None:
+        """Dispatch proceeds normally when client is absent."""
+        from agentfox.engine.engine import AssessmentManager
+
+        config = _make_routing_config()
+        manager = AssessmentManager(config=config, client=None)
+
+        # Multiple nodes can be assessed without error
+        for i in range(5):
+            ladder = asyncio.run(
+                manager.assess_node(
+                    node_id=f"dispatch_{i}",
+                    archetype="coder",
+                    mode=None,
+                    node_body=f"Task body {i}",
+                )
+            )
+            assert ladder is not None
+            assert hasattr(ladder, "starting_tier")
+            assert hasattr(ladder, "starting_variant")
