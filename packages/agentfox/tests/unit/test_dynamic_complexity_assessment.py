@@ -3720,56 +3720,74 @@ class TestIsExplicitlyConfiguredLayers:
     """
 
     def test_returns_true_when_per_archetype_override_set(self) -> None:
-        """Returns True when layer 2 (per-archetype override) has non-None value."""
-        mock_client = MagicMock()
-        manager = _make_assessment_manager(client=mock_client)
+        """Returns True when layer 2 (per-archetype override) has non-None value.
 
-        # Patch the config to have a per-archetype override for 'coder'
-        # The manager's is_explicitly_configured should check config layers
-        # When the implementation exists, it will consult config layers 1-3
+        Uses AgentFoxConfig with archetypes.overrides['coder'].model_tier set
+        to verify that layer 2 causes is_explicitly_configured() to return True.
+        """
+        from agentfox.engine.engine import AssessmentManager
+
+        mock_client = MagicMock()
+        # Build a real AgentFoxConfig with per-archetype override at layer 2
+        config = _make_config_with_archetype_override("coder", "ADVANCED")
+        manager = AssessmentManager(config=config, client=mock_client)
+
         result = manager.is_explicitly_configured("coder", None)
-        # Without any override configured, should return False
-        assert isinstance(result, bool)
+        assert result is True, (
+            "Expected True when per-archetype override (layer 2) has a non-None model_tier"
+        )
 
     def test_returns_false_when_all_layers_none(self) -> None:
         """Returns False when no overrides exist at any layer for the archetype."""
-        mock_client = MagicMock()
-        manager = _make_assessment_manager(client=mock_client)
+        from agentfox.engine.engine import AssessmentManager
 
-        # With default config, verifier should have no explicit overrides
+        mock_client = MagicMock()
+        # Use a full AgentFoxConfig with no overrides — all layers return None
+        from agentfox.core.config import AgentFoxConfig
+        config = AgentFoxConfig()
+        manager = AssessmentManager(config=config, client=mock_client)
+
+        # 'verifier' has no explicit config override in a default AgentFoxConfig
         result = manager.is_explicitly_configured("verifier", None)
         assert result is False, (
-            "Expected False when no explicit override exists for verifier"
+            "Expected False when no explicit override exists for verifier in any layer"
         )
 
     def test_returns_true_with_mode_level_override(self) -> None:
-        """Returns True when layer 1 (mode-level override) has a non-None value."""
+        """Returns True when layer 1 (mode-level override) has a non-None value.
+
+        Uses AgentFoxConfig with archetypes.overrides['coder'].modes['fix'].model_tier
+        set to verify that layer 1 causes is_explicitly_configured() to return True.
+        """
         from agentfox.engine.engine import AssessmentManager
 
         mock_client = MagicMock()
-        # Create manager with a config that has mode-level override for coder/fix
-        config = _make_routing_config()
+        # Build a real AgentFoxConfig with a mode-level override at layer 1
+        config = _make_config_with_mode_override("coder", "fix", "ADVANCED")
         manager = AssessmentManager(config=config, client=mock_client)
 
-        # Mock or configure to have a mode-level override
-        # The test will fail until is_explicitly_configured() is implemented
-        # to walk config layers
         result = manager.is_explicitly_configured("coder", "fix")
-        # This should return True when a mode-level override for coder/fix exists
-        assert isinstance(result, bool)
+        assert result is True, (
+            "Expected True when mode-level override (layer 1) for coder/fix has model_tier"
+        )
 
     def test_returns_true_with_legacy_dict_override(self) -> None:
-        """Returns True when layer 3 (legacy dict override) has a non-None value."""
+        """Returns True when layer 3 (legacy dict override) has a non-None value.
+
+        Uses AgentFoxConfig with archetypes.models['coder'] set (legacy layer 3)
+        to verify is_explicitly_configured() returns True.
+        """
         from agentfox.engine.engine import AssessmentManager
 
         mock_client = MagicMock()
-        config = _make_routing_config()
+        # Build a real AgentFoxConfig with a legacy dict override at layer 3
+        config = _make_config_with_legacy_override("coder", "ADVANCED")
         manager = AssessmentManager(config=config, client=mock_client)
 
-        # When the implementation checks layer 3 (config.archetypes.models),
-        # having a value there should return True
         result = manager.is_explicitly_configured("coder", None)
-        assert isinstance(result, bool)
+        assert result is True, (
+            "Expected True when legacy dict override (layer 3) has a non-None value for coder"
+        )
 
 
 class TestIsExplicitlyConfiguredModeNone:
@@ -3784,38 +3802,41 @@ class TestIsExplicitlyConfiguredModeNone:
     def test_mode_none_skips_layer_1(self) -> None:
         """mode=None skips layer 1; returns False when only layer 1 has override.
 
-        When only a mode-level override exists for coder/fix but no per-archetype
-        or legacy override exists, is_explicitly_configured('coder', None) should
-        return False because layer 1 is skipped.
+        Set up a config with only a mode-level override for coder/fix (layer 1).
+        With mode=None, layer 1 is skipped and layers 2-3 have no override,
+        so is_explicitly_configured('coder', None) must return False.
         """
         from agentfox.engine.engine import AssessmentManager
 
         mock_client = MagicMock()
-        config = _make_routing_config()
+        # Only a mode-level override for 'fix' — no per-archetype or legacy override
+        config = _make_config_with_mode_override("coder", "fix", "ADVANCED")
         manager = AssessmentManager(config=config, client=mock_client)
 
-        # With mode=None, only layers 2-3 are checked
-        # If only layer 1 has an override for mode='fix',
-        # then mode=None should return False
+        # mode=None → layer 1 is skipped entirely; layers 2-3 have no value → False
         result = manager.is_explicitly_configured("coder", None)
-        assert result is False or isinstance(result, bool)
+        assert result is False, (
+            "Expected False when mode=None and only a mode-level (layer 1) override exists"
+        )
 
     def test_mode_fix_hits_layer_1(self) -> None:
         """mode='fix' checks layer 1 and returns True if override exists.
 
-        When a mode-level override exists for coder/fix, passing mode='fix'
-        should return True because layer 1 is consulted.
+        When a mode-level override exists for coder/fix and mode='fix' is passed,
+        is_explicitly_configured() must return True because layer 1 is consulted.
         """
         from agentfox.engine.engine import AssessmentManager
 
         mock_client = MagicMock()
-        config = _make_routing_config()
+        # Configure a mode-level override at layer 1 for coder/fix
+        config = _make_config_with_mode_override("coder", "fix", "ADVANCED")
         manager = AssessmentManager(config=config, client=mock_client)
 
-        # With mode='fix', layer 1 should be checked
-        # The test verifies the method exists and returns a bool
+        # mode='fix' → layer 1 is checked and finds the override → True
         result = manager.is_explicitly_configured("coder", "fix")
-        assert isinstance(result, bool)
+        assert result is True, (
+            "Expected True when mode='fix' and a mode-level (layer 1) override exists for coder/fix"
+        )
 
 
 class TestIsExplicitlyConfiguredEarlyReturn:
@@ -3830,40 +3851,59 @@ class TestIsExplicitlyConfiguredEarlyReturn:
     def test_layer_1_hit_skips_layers_2_and_3(self) -> None:
         """Returns True immediately when layer 1 yields a non-None value.
 
-        Layers 2 and 3 should not be consulted (verified via spy if
-        available on internal check methods).
+        Configured with only a mode-level override (layer 1) for coder/fix,
+        and no per-archetype (layer 2) or legacy (layer 3) override.
+        is_explicitly_configured('coder', 'fix') must return True,
+        proving it found the answer at layer 1 without needing layers 2-3.
         """
         from agentfox.engine.engine import AssessmentManager
 
         mock_client = MagicMock()
-        config = _make_routing_config()
+        # Layer 1 only — no layer 2 or 3 override
+        config = _make_config_with_mode_override("coder", "fix", "ADVANCED")
         manager = AssessmentManager(config=config, client=mock_client)
 
-        # When layer 1 has a value for coder/fix, it should return True immediately
-        # without consulting layers 2-3.
-        # Test will fail until implementation exists that walks layers.
+        # Layer 1 has value → True without consulting layers 2-3
         result = manager.is_explicitly_configured("coder", "fix")
-        assert isinstance(result, bool)
+        assert result is True, (
+            "Expected True immediately when layer 1 (mode-level override) has a value"
+        )
+
+        # Cross-check: same config with mode=None should return False
+        # (layer 1 skipped, no layer 2/3 override present)
+        result_mode_none = manager.is_explicitly_configured("coder", None)
+        assert result_mode_none is False, (
+            "Expected False when mode=None skips layer 1 and layers 2-3 have no override"
+        )
 
     def test_layer_1_hit_returns_true_not_false(self) -> None:
-        """When layer 1 has a value, result is True regardless of layers 2-3."""
+        """When layer 1 has a value, result is True regardless of layers 2-3.
+
+        The fix-review mode has model_tier='ADVANCED' in the ARCHETYPE_REGISTRY,
+        but that is a registry default (layers 4-5), not a config override (layers 1-3).
+        Without an explicit config override, is_explicitly_configured must return False.
+        With an explicit config override for the same mode, it must return True.
+        """
+        from agentfox.core.config import AgentFoxConfig
         from agentfox.engine.engine import AssessmentManager
 
         mock_client = MagicMock()
-        config = _make_routing_config()
-        manager = AssessmentManager(config=config, client=mock_client)
 
-        # This verifies that is_explicitly_configured returns True
-        # when the mode-level override has a value, even if layers 2-3
-        # are empty. Since the current fix-review mode has model_tier="ADVANCED"
-        # in the ARCHETYPE_REGISTRY, this is a registry default, not a config
-        # override. The test framework needs a config with explicit override.
-        # The test is expected to fail until the implementation
-        # properly distinguishes config overrides from registry defaults.
-        result = manager.is_explicitly_configured("reviewer", "fix-review")
-        # fix-review has model_tier="ADVANCED" in registry, but that's layer 4-5
-        # not layer 1-3; should return False without explicit config override
-        assert isinstance(result, bool)
+        # No explicit override — registry default (layer 4-5) does not count
+        config_no_override = AgentFoxConfig()
+        manager_no = AssessmentManager(config=config_no_override, client=mock_client)
+        result_no = manager_no.is_explicitly_configured("reviewer", "fix-review")
+        assert result_no is False, (
+            "Expected False when registry default (not a config override) is the only source"
+        )
+
+        # With explicit mode-level override at layer 1 — must return True
+        config_with_override = _make_config_with_mode_override("reviewer", "fix-review", "ADVANCED")
+        manager_yes = AssessmentManager(config=config_with_override, client=mock_client)
+        result_yes = manager_yes.is_explicitly_configured("reviewer", "fix-review")
+        assert result_yes is True, (
+            "Expected True when an explicit mode-level config override (layer 1) is present"
+        )
 
 
 # ===========================================================================
@@ -4662,6 +4702,82 @@ class TestPropertyQualityGuaranteeReviewer:
 # ===========================================================================
 
 
+async def _call_prepare_launch_behavioral(
+    node_body: str | None,
+    error_tracker: dict[str, str | None],
+    archetype: str = "coder",
+    mode: str | None = None,
+    node_id: str = "n1",
+) -> MagicMock:
+    """Run DispatchManager.prepare_launch() with controlled mocks.
+
+    Returns the mock_routing object so tests can inspect assess_node calls.
+    The workspace health check is patched to return a clean report so it
+    does not interfere with dispatch.
+    """
+    from unittest.mock import patch as _patch
+
+    from agentfox.engine.dispatch import DispatchManager
+
+    mock_routing = MagicMock()
+    mock_routing.assess_node = AsyncMock(return_value=MagicMock())
+    mock_routing.ladders = {}
+
+    mock_node = MagicMock()
+    mock_node.body = node_body
+    mock_node.archetype = archetype
+    mock_node.mode = mode
+    mock_node.instances = 1
+
+    mock_graph = MagicMock()
+    mock_graph.nodes = {node_id: mock_node}
+
+    mock_circuit = MagicMock()
+    mock_decision = MagicMock()
+    mock_decision.allowed = True
+    mock_circuit.check_launch = MagicMock(return_value=mock_decision)
+
+    mock_config = MagicMock()
+    mock_config.max_retries = 3
+
+    dispatch = DispatchManager(
+        session_runner_factory=MagicMock(),
+        inter_session_delay=0.0,
+        parallel=1,
+        graph=mock_graph,
+        routing=mock_routing,
+        circuit=mock_circuit,
+        config=mock_config,
+    )
+    dispatch._result_handler = None
+
+    # Patch workspace health check to return a clean report (no issues)
+    try:
+        from agentfox.workspace.health import HealthReport
+
+        clean_report = HealthReport(untracked_files=[], dirty_index_files=[])
+
+        with _patch("agentfox.workspace.health.check_workspace_health", AsyncMock(return_value=clean_report)):
+            await dispatch.prepare_launch(
+                node_id,
+                state=MagicMock(),
+                attempt_tracker={},
+                error_tracker=error_tracker,
+            )
+    except Exception:
+        # If patching fails, call without patch — workspace health fail-open means
+        # prepare_launch still proceeds. Any exception from the health check is
+        # caught internally and logged as a warning.
+        await dispatch.prepare_launch(
+            node_id,
+            state=MagicMock(),
+            attempt_tracker={},
+            error_tracker=error_tracker,
+        )
+
+    return mock_routing
+
+
 class TestPreparelaunchNodeBody:
     """TS-15-37: prepare_launch() extracts node_body from task graph node.
 
@@ -4670,48 +4786,43 @@ class TestPreparelaunchNodeBody:
 
     def test_node_body_extracted_and_passed(self) -> None:
         """node_body is extracted via self.get_node(node_id).body and
-        passed to assess_node().
+        passed to assess_node() — behavioral verification.
         """
-        from agentfox.engine.dispatch import DispatchManager
-
-        # We inspect the source to verify that prepare_launch extracts
-        # the node body and passes it to assess_node.
-        source = inspect.getsource(DispatchManager.prepare_launch)
-        # The implementation should reference node body extraction
-        # and pass it to assess_node
-        assert "node_body" in source or "body" in source, (
-            "prepare_launch() should extract node body from the task graph"
+        node_body = "Fix the auth bug"
+        mock_routing = asyncio.run(
+            _call_prepare_launch_behavioral(
+                node_body=node_body,
+                error_tracker={},
+            )
+        )
+        mock_routing.assess_node.assert_called_once()
+        call_kwargs = mock_routing.assess_node.call_args
+        # node_body should be passed as a keyword argument (or positional)
+        passed_body = (
+            call_kwargs.kwargs.get("node_body")
+            if call_kwargs.kwargs
+            else call_kwargs.args[3] if len(call_kwargs.args) > 3 else None
+        )
+        assert passed_body == node_body, (
+            f"Expected assess_node to receive node_body='{node_body}', got {passed_body!r}"
         )
 
     def test_node_body_forwarded_to_assess_node(self) -> None:
-        """assess_node() receives node_body from prepare_launch()."""
-        from agentfox.engine.dispatch import DispatchManager
-
-        # Create a mock dispatch manager with the required wiring
-        dispatch = MagicMock(spec=DispatchManager)
-        mock_node = MagicMock()
-        mock_node.body = "Fix the auth bug"
-        dispatch.get_node = MagicMock(return_value=mock_node)
-        dispatch._routing = MagicMock()
-        dispatch._routing.assess_node = AsyncMock(return_value=MagicMock())
-
-        # Call the real prepare_launch (via class method, passing dispatch as self)
-        # This test verifies the wiring — expected to fail until implementation
-        # updates prepare_launch to extract and pass node_body.
-        #
-        # Once implemented, we verify:
-        call_kwargs = {}
-        original_assess = dispatch._routing.assess_node
-
-        async def capture_assess(**kwargs: Any) -> Any:
-            call_kwargs.update(kwargs)
-            return await original_assess(**kwargs)
-
-        dispatch._routing.assess_node = capture_assess
-
-        # The test will fail until prepare_launch is updated to pass node_body
-        # to assess_node — currently it only passes node_id, archetype, mode.
-        assert "body" in dir(mock_node), "Mock node should have body attribute"
+        """assess_node() receives node_body from prepare_launch() — behavioral."""
+        node_body = "Complex multi-module refactor"
+        mock_routing = asyncio.run(
+            _call_prepare_launch_behavioral(
+                node_body=node_body,
+                error_tracker={},
+            )
+        )
+        mock_routing.assess_node.assert_called_once()
+        # Verify node_body was in the call — check both kwargs and positional args
+        call_args = mock_routing.assess_node.call_args
+        all_args = str(call_args)
+        assert node_body in all_args, (
+            f"Expected node_body='{node_body}' in assess_node call, got: {call_args}"
+        )
 
 
 class TestPrepareLaunchPreviousFailure:
@@ -4721,26 +4832,35 @@ class TestPrepareLaunchPreviousFailure:
     """
 
     def test_previous_failure_from_error_tracker(self) -> None:
-        """previous_failure extracted from error_tracker when entry exists."""
-        from agentfox.engine.dispatch import DispatchManager
-
-        source = inspect.getsource(DispatchManager.prepare_launch)
-        # Implementation should extract previous_failure and pass to assess_node
-        assert "previous_failure" in source or "previous_error" in source, (
-            "prepare_launch() should extract previous_failure from error_tracker"
+        """previous_failure extracted from error_tracker when entry exists — behavioral."""
+        error_tracker = {"n1": "TypeError: cannot unpack non-sequence NoneType"}
+        mock_routing = asyncio.run(
+            _call_prepare_launch_behavioral(
+                node_body="Fix the bug",
+                error_tracker=error_tracker,
+            )
+        )
+        mock_routing.assess_node.assert_called_once()
+        call_args = mock_routing.assess_node.call_args
+        # previous_failure should be the error string from error_tracker
+        passed_failure = call_args.kwargs.get("previous_failure") if call_args.kwargs else None
+        assert passed_failure == "TypeError: cannot unpack non-sequence NoneType", (
+            f"Expected previous_failure from error_tracker, got {passed_failure!r}"
         )
 
     def test_previous_failure_none_when_no_entry(self) -> None:
-        """When error_tracker has no entry for node, previous_failure=None."""
-        from agentfox.engine.dispatch import DispatchManager
-
-        # Once implemented, prepare_launch with empty error_tracker should
-        # pass previous_failure=None to assess_node.
-        # This test verifies the conceptual path.
-        source = inspect.getsource(DispatchManager.prepare_launch)
-        # The previous_error extraction should handle missing entries gracefully
-        assert "error_tracker" in source, (
-            "prepare_launch() should reference error_tracker parameter"
+        """When error_tracker has no entry for node, previous_failure=None — behavioral."""
+        mock_routing = asyncio.run(
+            _call_prepare_launch_behavioral(
+                node_body="Fix the bug",
+                error_tracker={},  # empty: no prior failure
+            )
+        )
+        mock_routing.assess_node.assert_called_once()
+        call_args = mock_routing.assess_node.call_args
+        passed_failure = call_args.kwargs.get("previous_failure") if call_args.kwargs else "NOT_IN_KWARGS"
+        assert passed_failure is None, (
+            f"Expected previous_failure=None when no entry in error_tracker, got {passed_failure!r}"
         )
 
 
@@ -4755,25 +4875,41 @@ class TestPrepareLaunchFullParams:
 
     def test_assess_node_receives_five_params(self) -> None:
         """assess_node() called with node_id, archetype, mode, node_body,
-        previous_failure from prepare_launch()."""
-        from agentfox.engine.dispatch import DispatchManager
-
-        # Verify the current assess_node call in prepare_launch
-        source = inspect.getsource(DispatchManager.prepare_launch)
-        assert "assess_node" in source, (
-            "prepare_launch() must call assess_node()"
+        previous_failure from prepare_launch() — behavioral verification.
+        """
+        error_tracker = {"n1": "ReviewFailed"}
+        mock_routing = asyncio.run(
+            _call_prepare_launch_behavioral(
+                node_body="Review spec changes",
+                error_tracker=error_tracker,
+                archetype="reviewer",
+                mode="pre-review",
+            )
         )
-        # After implementation, the call should include node_body and
-        # previous_failure. Until then, it only passes node_id, archetype, mode.
+        mock_routing.assess_node.assert_called_once()
+        call_args = mock_routing.assess_node.call_args
+        # Verify all five core parameters are present
+        all_call_repr = str(call_args)
+        assert "n1" in all_call_repr, "node_id='n1' should be in assess_node call"
+        assert "reviewer" in all_call_repr, "archetype='reviewer' should be in assess_node call"
+        assert "pre-review" in all_call_repr, "mode='pre-review' should be in assess_node call"
+        assert "Review spec changes" in all_call_repr, "node_body should be in assess_node call"
+        assert "ReviewFailed" in all_call_repr, "previous_failure should be in assess_node call"
 
     def test_assess_node_called_with_correct_archetype_and_mode(self) -> None:
-        """assess_node() receives the archetype and mode from the task graph."""
-        from agentfox.engine.dispatch import DispatchManager
-
-        source = inspect.getsource(DispatchManager.prepare_launch)
-        # Verify archetype and mode are used in the assess_node call
-        assert "archetype" in source, "archetype should be passed to assess_node"
-        assert "mode" in source, "mode should be passed to assess_node"
+        """assess_node() receives the archetype and mode from the task graph — behavioral."""
+        mock_routing = asyncio.run(
+            _call_prepare_launch_behavioral(
+                node_body="body",
+                error_tracker={},
+                archetype="reviewer",
+                mode="pre-review",
+            )
+        )
+        mock_routing.assess_node.assert_called_once()
+        call_repr = str(mock_routing.assess_node.call_args)
+        assert "reviewer" in call_repr, "archetype='reviewer' must be passed to assess_node"
+        assert "pre-review" in call_repr, "mode='pre-review' must be passed to assess_node"
 
 
 class TestPrepareLaunchNoFailureEntry:
@@ -4783,26 +4919,40 @@ class TestPrepareLaunchNoFailureEntry:
     """
 
     def test_empty_error_tracker_yields_none(self) -> None:
-        """When error_tracker is empty dict, assess_node gets previous_failure=None."""
-        from agentfox.engine.dispatch import DispatchManager
-
-        # Verify error_tracker handling exists in prepare_launch
-        source = inspect.getsource(DispatchManager.prepare_launch)
-        # The current code extracts previous_error from error_tracker.get()
-        # After implementation, this should also forward as previous_failure=None
-        assert "error_tracker" in source, (
-            "prepare_launch should handle error_tracker parameter"
+        """When error_tracker is empty dict, assess_node gets previous_failure=None — behavioral."""
+        mock_routing = asyncio.run(
+            _call_prepare_launch_behavioral(
+                node_body="some body",
+                error_tracker={},  # empty: no prior failure for any node
+            )
+        )
+        mock_routing.assess_node.assert_called_once()
+        call_args = mock_routing.assess_node.call_args
+        passed_failure = call_args.kwargs.get("previous_failure") if call_args.kwargs else "MISSING"
+        assert passed_failure is None, (
+            f"Empty error_tracker should yield previous_failure=None, got {passed_failure!r}"
         )
 
     def test_missing_node_in_error_tracker_yields_none(self) -> None:
-        """When node_id not in error_tracker, previous_failure=None."""
-        from agentfox.engine.dispatch import DispatchManager
+        """When node_id not in error_tracker, previous_failure=None — behavioral.
 
-        # The implementation should use error_tracker.get(node_id) which
-        # returns None for missing keys.
-        source = inspect.getsource(DispatchManager.prepare_launch)
-        # Verify error_tracker.get pattern is used
-        assert "error_tracker" in source
+        The dispatch uses error_tracker.get(node_id) which returns None for absent keys.
+        """
+        # error_tracker has an entry for a DIFFERENT node, not 'n1'
+        error_tracker: dict[str, str | None] = {"other_node": "SomeError"}
+        mock_routing = asyncio.run(
+            _call_prepare_launch_behavioral(
+                node_body="task body",
+                error_tracker=error_tracker,
+                node_id="n1",
+            )
+        )
+        mock_routing.assess_node.assert_called_once()
+        call_args = mock_routing.assess_node.call_args
+        passed_failure = call_args.kwargs.get("previous_failure") if call_args.kwargs else "MISSING"
+        assert passed_failure is None, (
+            f"Missing node in error_tracker should yield previous_failure=None, got {passed_failure!r}"
+        )
 
 
 # ===========================================================================

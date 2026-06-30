@@ -869,7 +869,7 @@
             "Append previous_failure section when provided (non-None).",
             "Include JSON output instruction with AssessmentResult schema example: {recommended_tier, recommended_variant, confidence, rationale}.",
             "Call self.client.messages.create(model=self.assessor_model, max_tokens=1024, messages=[...], timeout=30). The client is an Anthropic AsyncAnthropic instance.",
-            "Extract response text from response.content[0].text — this is how the Anthropic SDK returns message content.",
+            "Extract response text from response.content[0].text \u2014 this is how the Anthropic SDK returns message content.",
             "Tests in test file expect: mock_client.messages.create called as AsyncMock with timeout=30 kwarg."
           ],
           "test_spec_refs": [
@@ -892,7 +892,7 @@
           "title": "Implement JSON response parsing and validation in assess()",
           "details": [
             "Parse the response text as JSON (json.loads). Validate all four fields present: recommended_tier, recommended_variant, confidence, rationale.",
-            "Validate confidence in [0.0, 1.0]; recommended_tier is valid ModelTier value — use {t.value for t in ModelTier} from core/models.py:31 (values: 'SIMPLE', 'STANDARD', 'ADVANCED'). String comparison is CASE-SENSITIVE.",
+            "Validate confidence in [0.0, 1.0]; recommended_tier is valid ModelTier value \u2014 use {t.value for t in ModelTier} from core/models.py:31 (values: 'SIMPLE', 'STANDARD', 'ADVANCED'). String comparison is CASE-SENSITIVE.",
             "Validate recommended_variant is None/null or one of 'fast'/'standard'/'extended' (case-sensitive).",
             "On ANY validation failure, log WARNING with exception details and return AssessmentResult(recommended_tier=base_tier, recommended_variant=base_variant, confidence=0.0, rationale='fallback').",
             "Wrap the entire API call + parsing in try/except. Catch all exceptions (anthropic.APITimeoutError, anthropic.RateLimitError, anthropic.BadRequestError, ConnectionError, json.JSONDecodeError, ValueError, Exception). Log WARNING; return fallback AssessmentResult with base_tier/base_variant, confidence=0.0.",
@@ -920,10 +920,10 @@
           "title": "Implement apply_assessment() function and assessed_complexity_to_recommendation() adapter",
           "details": [
             "Replace NotImplementedError in apply_assessment() (core/complexity.py:112) and assessed_complexity_to_recommendation() (core/complexity.py:129).",
-            "apply_assessment() — confidence gate: if recommendation.confidence < confidence_threshold, return (base_tier, base_variant) unchanged.",
-            "apply_assessment() — tier upgrade: use ModelTier ordering from core/models.py:31 (SIMPLE < STANDARD < ADVANCED). Compute max(base_tier, recommended_tier) — compare using list(ModelTier).index() or direct enum comparison.",
-            "apply_assessment() — variant upgrade: if base_variant is None, always return None. If recommended_variant is None, return base_variant unchanged. If both non-None, use VARIANT_ORDER dict from core/models.py:52 ({'fast': 0, 'standard': 1, 'extended': 2}) to compute max.",
-            "assessed_complexity_to_recommendation() — trivial adapter: return AssessmentResult(recommended_tier=ac.tier, recommended_variant=ac.variant, confidence=ac.confidence, rationale=ac.rationale). Import AssessedComplexity type from nightshift/fix_pipeline.py for the parameter type hint."
+            "apply_assessment() \u2014 confidence gate: if recommendation.confidence < confidence_threshold, return (base_tier, base_variant) unchanged.",
+            "apply_assessment() \u2014 tier upgrade: use ModelTier ordering from core/models.py:31 (SIMPLE < STANDARD < ADVANCED). Compute max(base_tier, recommended_tier) \u2014 compare using list(ModelTier).index() or direct enum comparison.",
+            "apply_assessment() \u2014 variant upgrade: if base_variant is None, always return None. If recommended_variant is None, return base_variant unchanged. If both non-None, use VARIANT_ORDER dict from core/models.py:52 ({'fast': 0, 'standard': 1, 'extended': 2}) to compute max.",
+            "assessed_complexity_to_recommendation() \u2014 trivial adapter: return AssessmentResult(recommended_tier=ac.tier, recommended_variant=ac.variant, confidence=ac.confidence, rationale=ac.rationale). Import AssessedComplexity type from nightshift/fix_pipeline.py for the parameter type hint."
           ],
           "test_spec_refs": [
             "TS-15-13",
@@ -1012,13 +1012,13 @@
           "title": "Implement assess_node() with full priority evaluation and EscalationLadder construction",
           "details": [
             "Replace NotImplementedError in assess_node() (engine/engine.py:198).",
-            "Step 1 — No assessor (self._assessor is None): Get base tier/variant via self._get_base_tier_variant(archetype, mode). Construct EscalationLadder at base values. Return immediately with NO log entry.",
-            "Step 2 — Missing/empty body (node_body is None or ''): Log DEBUG 'Skipping complexity assessment: node_body is absent or empty for node {node_id}'. Return EscalationLadder at base tier/variant.",
-            "Step 3 — Explicit config override (self.is_explicitly_configured(archetype, mode) returns True): Log DEBUG with node_id, archetype, mode, resolved tier. Return EscalationLadder at configured tier/variant from _get_base_tier_variant().",
-            "Step 4 — pre_assessed non-None: Import assessed_complexity_to_recommendation from core/complexity.py. Convert via adapter, then apply via apply_assessment(recommendation, base_tier, base_variant, self._assessor.confidence_threshold).",
-            "Step 5 — LLM assessment: Call await self._assessor.assess(node_body, archetype, mode, base_tier, base_variant, previous_failure). Apply result via apply_assessment().",
+            "Step 1 \u2014 No assessor (self._assessor is None): Get base tier/variant via self._get_base_tier_variant(archetype, mode). Construct EscalationLadder at base values. Return immediately with NO log entry.",
+            "Step 2 \u2014 Missing/empty body (node_body is None or ''): Log DEBUG 'Skipping complexity assessment: node_body is absent or empty for node {node_id}'. Return EscalationLadder at base tier/variant.",
+            "Step 3 \u2014 Explicit config override (self.is_explicitly_configured(archetype, mode) returns True): Log DEBUG with node_id, archetype, mode, resolved tier. Return EscalationLadder at configured tier/variant from _get_base_tier_variant().",
+            "Step 4 \u2014 pre_assessed non-None: Import assessed_complexity_to_recommendation from core/complexity.py. Convert via adapter, then apply via apply_assessment(recommendation, base_tier, base_variant, self._assessor.confidence_threshold).",
+            "Step 5 \u2014 LLM assessment: Call await self._assessor.assess(node_body, archetype, mode, base_tier, base_variant, previous_failure). Apply result via apply_assessment().",
             "After steps 4-5: Emit structured DEBUG log with keys: node_id, archetype, mode, effective_tier, effective_variant, confidence, rationale.",
-            "Construct EscalationLadder: from core/escalation.py — EscalationLadder(starting_tier=ModelTier(effective_tier), tier_ceiling=ModelTier.ADVANCED, retries_before_escalation=self.retries_before_escalation, starting_variant=effective_variant).",
+            "Construct EscalationLadder: from core/escalation.py \u2014 EscalationLadder(starting_tier=ModelTier(effective_tier), tier_ceiling=ModelTier.ADVANCED, retries_before_escalation=self.retries_before_escalation, starting_variant=effective_variant).",
             "Store ladder in self.ladders[node_id] and return it."
           ],
           "test_spec_refs": [
@@ -1118,7 +1118,7 @@
             "In run_code() (engine/run.py:320), add the client to orch_kwargs: 'client': infra.get('anthropic_client').",
             "Add a 'client' parameter to Orchestrator.__init__() (engine/engine.py:250).",
             "In Orchestrator.__init__(), pass client to AssessmentManager: replace client=None at line 301 with client=client.",
-            "Key reference: create_async_anthropic_client() at core/client.py:352 returns anthropic.AsyncAnthropic() — this is a lightweight client that handles its own connection pooling."
+            "Key reference: create_async_anthropic_client() at core/client.py:352 returns anthropic.AsyncAnthropic() \u2014 this is a lightweight client that handles its own connection pooling."
           ],
           "test_spec_refs": [
             "TS-15-20"
@@ -1126,7 +1126,7 @@
           "requirement_refs": [
             "15-REQ-4.2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -1161,7 +1161,8 @@
           "No linter warnings introduced: ruff check packages/agentfox/agentfox/core/config.py packages/agentfox/agentfox/archetypes.py packages/agentfox/agentfox/engine/",
           "Requirements 15-REQ-8.1 through 15-REQ-8.5, 15-REQ-9.1 through 15-REQ-9.3, 15-REQ-9.E1, 15-REQ-10.1 through 15-REQ-10.3, 15-REQ-10.E1, 15-REQ-10.E2 acceptance criteria met"
         ]
-      }
+      },
+      "state": "done"
     },
     {
       "id": 11,
@@ -1212,7 +1213,7 @@
           "details": [
             "EXTRACTION (ALREADY DONE): coder_reviewer.py:65 already extracts assessed_complexity from triage result. The variable is assigned but marked noqa: F841.",
             "PASSTHROUGH (PENDING): Replace the hardcoded EscalationLadder construction at coder_reviewer.py:67-71 with a call to self._pipeline._routing.assess_node() (or equivalent AssessmentManager access), passing pre_assessed=assessed_complexity for the coder node.",
-            "Fix-review and other reviewer nodes must NOT receive pre_assessed — they follow their own assessment path.",
+            "Fix-review and other reviewer nodes must NOT receive pre_assessed \u2014 they follow their own assessment path.",
             "Remove the # noqa: F841 comment from line 65 once the variable is used."
           ],
           "test_spec_refs": [
