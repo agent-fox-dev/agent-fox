@@ -1344,7 +1344,7 @@
             "15-REQ-9.2",
             "15-REQ-9.3"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false,
           "done": true
         },
@@ -1365,7 +1365,7 @@
             "15-REQ-11.3",
             "15-REQ-11.5"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false,
           "done": true
         },
@@ -1384,7 +1384,7 @@
             "15-REQ-1.6",
             "15-REQ-4.2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false,
           "done": true
         },
@@ -1405,7 +1405,7 @@
             "TS-15-SMOKE-6"
           ],
           "requirement_refs": [],
-          "state": "pending",
+          "state": "done",
           "optional": false,
           "done": true
         },
@@ -1420,7 +1420,7 @@
           ],
           "test_spec_refs": [],
           "requirement_refs": [],
-          "state": "pending",
+          "state": "done",
           "optional": false,
           "done": true
         },
@@ -1437,7 +1437,7 @@
           "requirement_refs": [
             "15-REQ-4.2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false,
           "done": true
         }
