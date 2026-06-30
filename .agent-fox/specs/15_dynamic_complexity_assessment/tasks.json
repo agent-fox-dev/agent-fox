@@ -884,7 +884,7 @@
             "15-REQ-2.4",
             "15-REQ-2.5"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -912,7 +912,7 @@
             "15-REQ-2.E3",
             "15-REQ-12.1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -943,7 +943,7 @@
             "15-REQ-3.6",
             "15-REQ-11.2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],
