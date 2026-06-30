@@ -66,6 +66,11 @@ class EscalationLadder:
         self._exhausted = False
 
     @property
+    def starting_tier(self) -> ModelTier:
+        """The tier this ladder was constructed with."""
+        return self._starting_tier
+
+    @property
     def current_tier(self) -> ModelTier:
         """The model tier to use for the next attempt."""
         return self._available_tiers[self._tier_idx]

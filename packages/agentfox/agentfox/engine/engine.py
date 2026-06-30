@@ -190,12 +190,41 @@ class AssessmentManager:
           4. pre_assessed non-None → adapter + apply_assessment()
           5. LLM assessment → ComplexityAssessor.assess() + apply_assessment()
 
-        Stub — raises NotImplementedError for paths 3-5 until task group 9.
+        Paths 3-5 raise NotImplementedError until task group 9.
 
         Requirements: 15-REQ-4.1, 15-REQ-4.3, 15-REQ-4.4, 15-REQ-4.E1,
                       15-REQ-5.1, 15-REQ-12.2, 15-REQ-12.3, 15-REQ-12.5
         """
-        raise NotImplementedError("assess_node() not yet implemented")
+        from agentfox.core.escalation import EscalationLadder
+
+        # Path 1: No assessor (client=None) → base fallback, no log
+        if self._assessor is None:
+            base_tier, base_variant = self._get_base_tier_variant(archetype, mode)
+            ladder = EscalationLadder(
+                starting_tier=ModelTier(base_tier),
+                tier_ceiling=ModelTier.ADVANCED,
+                retries_before_escalation=self.retries_before_escalation,
+                starting_variant=base_variant,
+            )
+            self.ladders[node_id] = ladder
+            return ladder
+
+        # Path 2: Missing/empty node_body → base fallback with DEBUG log
+        if not node_body:
+            label = "absent" if node_body is None else "empty"
+            logger.debug("Node %s has %s body; falling back to base tier", node_id, label)
+            base_tier, base_variant = self._get_base_tier_variant(archetype, mode)
+            ladder = EscalationLadder(
+                starting_tier=ModelTier(base_tier),
+                tier_ceiling=ModelTier.ADVANCED,
+                retries_before_escalation=self.retries_before_escalation,
+                starting_variant=base_variant,
+            )
+            self.ladders[node_id] = ladder
+            return ladder
+
+        # Paths 3-5: full assessment (task group 9)
+        raise NotImplementedError("assess_node() paths 3-5 not yet implemented")
 
 
 class _SignalHandler:
