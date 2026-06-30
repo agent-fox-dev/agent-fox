@@ -1004,7 +1004,7 @@
             "15-REQ-6.2",
             "15-REQ-6.E1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -1038,7 +1038,7 @@
             "15-REQ-5.2",
             "15-REQ-5.3"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],

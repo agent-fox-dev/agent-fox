@@ -118,12 +118,21 @@ class AssessmentManager:
         else:
             self.retries_before_escalation = 1
 
-        # 15-REQ-1.7: When client is non-None, instantiate ComplexityAssessor
+        # 15-REQ-1.7: When client is non-None, instantiate ComplexityAssessor.
+        # Handle both AgentFoxConfig (config.routing.assessor_model) and
+        # RoutingConfig (config.assessor_model) for assessor configuration.
         if client is not None:
             from agentfox.core.complexity import ComplexityAssessor
 
-            assessor_model = getattr(config, "assessor_model", "claude-haiku-4-5")
-            confidence_threshold = getattr(config, "confidence_threshold", 0.6)
+            if hasattr(config, "routing"):
+                # AgentFoxConfig case: assessor fields live under config.routing
+                routing = config.routing
+                assessor_model = getattr(routing, "assessor_model", "claude-haiku-4-5")
+                confidence_threshold = getattr(routing, "confidence_threshold", 0.6)
+            else:
+                # RoutingConfig or test mock: fields directly on config
+                assessor_model = getattr(config, "assessor_model", "claude-haiku-4-5")
+                confidence_threshold = getattr(config, "confidence_threshold", 0.6)
             self._assessor = ComplexityAssessor(
                 client=client,
                 assessor_model=assessor_model,
@@ -152,6 +161,30 @@ class AssessmentManager:
             pass
         return ("STANDARD", "standard")
 
+    def _resolve_configured_tier_variant(
+        self,
+        archetype: str,
+        mode: str | None,
+        base_tier: str,
+        base_variant: str | None,
+    ) -> tuple[str, str | None]:
+        """Resolve the explicitly configured tier/variant via layers 1-3.
+
+        When AgentFoxConfig is available, uses resolve_model_tier() and
+        resolve_model_variant() which include config layers 1-3. Falls back
+        to base_tier/base_variant when full config is not available.
+        """
+        try:
+            if hasattr(self._config, "archetypes"):
+                from agentfox.engine.sdk_params import resolve_model_tier, resolve_model_variant
+
+                tier = resolve_model_tier(self._config, archetype, mode=mode)
+                variant = resolve_model_variant(self._config, archetype, mode=mode)
+                return (tier, variant)
+        except Exception:
+            pass
+        return (base_tier, base_variant)
+
     def is_explicitly_configured(
         self,
         archetype: str,
@@ -165,12 +198,40 @@ class AssessmentManager:
           Layer 3: legacy dict override
 
         Returns True if any layer returns a non-None value.
+        Returns False if all three layers return None (no explicit override).
 
-        Stub — returns False until task group 9 implements full logic.
+        Mirrors the layer-resolution logic of resolve_model_tier() in
+        engine/sdk_params.py without falling through to registry defaults.
 
         Requirements: 15-REQ-6.1, 15-REQ-6.2, 15-REQ-6.E1
         """
-        raise NotImplementedError("is_explicitly_configured() not yet implemented")
+        config = self._config
+
+        # Need AgentFoxConfig to check archetype overrides.
+        # RoutingConfig and other non-full-config objects have no archetypes.
+        if not hasattr(config, "archetypes"):
+            return False
+
+        archetypes_cfg = config.archetypes
+        override = archetypes_cfg.overrides.get(archetype)
+
+        # Layer 1: mode-level override (skipped entirely when mode is None)
+        # 15-REQ-6.2: None mode never causes layer 1 to return True
+        if mode is not None and override is not None:
+            mode_override = override.modes.get(mode)
+            if mode_override is not None and mode_override.model_tier:
+                # 15-REQ-6.E1: Return True immediately without checking layers 2-3
+                return True
+
+        # Layer 2: per-archetype override (unified table)
+        if override is not None and override.model_tier:
+            return True
+
+        # Layer 3: legacy dict override
+        if archetypes_cfg.models.get(archetype):
+            return True
+
+        return False
 
     async def assess_node(
         self,
@@ -223,8 +284,86 @@ class AssessmentManager:
             self.ladders[node_id] = ladder
             return ladder
 
-        # Paths 3-5: full assessment (task group 9)
-        raise NotImplementedError("assess_node() paths 3-5 not yet implemented")
+        # Resolve base tier/variant from the registry (used as floor for all paths).
+        base_tier, base_variant = self._get_base_tier_variant(archetype, mode)
+
+        # Path 3: Explicit config override → skip LLM, use resolved tier/variant.
+        # 15-REQ-6.3, 15-REQ-12.4
+        if self.is_explicitly_configured(archetype, mode):
+            # Resolve the configured tier (layers 1-3) via full resolution if possible.
+            configured_tier, configured_variant = self._resolve_configured_tier_variant(
+                archetype, mode, base_tier, base_variant
+            )
+            logger.debug(
+                "Skipping complexity assessment for node %s: archetype=%s mode=%s "
+                "has explicit config override; resolved tier=%s",
+                node_id,
+                archetype,
+                mode,
+                configured_tier,
+            )
+            ladder = EscalationLadder(
+                starting_tier=ModelTier(configured_tier),
+                tier_ceiling=ModelTier.ADVANCED,
+                retries_before_escalation=self.retries_before_escalation,
+                starting_variant=configured_variant,
+            )
+            self.ladders[node_id] = ladder
+            return ladder
+
+        # Path 4: pre_assessed non-None → adapter + apply_assessment, no LLM call.
+        # Path 5: LLM assessment → ComplexityAssessor.assess() + apply_assessment.
+        # 15-REQ-11.3, 15-REQ-11.4
+        from agentfox.core.complexity import apply_assessment
+
+        if pre_assessed is not None:
+            # 15-REQ-11.3, 15-PROP-8: bypass LLM, use pre_assessed via adapter
+            from agentfox.core.complexity import assessed_complexity_to_recommendation
+
+            recommendation = assessed_complexity_to_recommendation(pre_assessed)
+            confidence = recommendation.confidence
+            rationale = recommendation.rationale
+        else:
+            # 15-REQ-11.4: Standard LLM assessment path
+            recommendation = await self._assessor.assess(
+                node_body=node_body,
+                archetype=archetype,
+                mode=mode,
+                base_tier=base_tier,
+                base_variant=base_variant,
+                previous_failure=previous_failure,
+            )
+            confidence = recommendation.confidence
+            rationale = recommendation.rationale
+
+        effective_tier, effective_variant = apply_assessment(
+            recommendation,
+            base_tier,
+            base_variant,
+            self._assessor.confidence_threshold,
+        )
+
+        # 15-REQ-12.2: Emit structured DEBUG log on successful assessment.
+        logger.debug(
+            "Complexity assessment for node %s: archetype=%s mode=%s "
+            "effective_tier=%s effective_variant=%s confidence=%s rationale=%s",
+            node_id,
+            archetype,
+            mode,
+            effective_tier,
+            effective_variant,
+            confidence,
+            rationale,
+        )
+
+        ladder = EscalationLadder(
+            starting_tier=ModelTier(effective_tier),
+            tier_ceiling=ModelTier.ADVANCED,
+            retries_before_escalation=self.retries_before_escalation,
+            starting_variant=effective_variant,
+        )
+        self.ladders[node_id] = ladder
+        return ladder
 
 
 class _SignalHandler:
@@ -296,6 +435,7 @@ class Orchestrator:
         full_config: AgentFoxConfig | None = None,
         platform: Any | None = None,
         knowledge_provider: Any | None = None,
+        client: Any | None = None,
     ) -> None:
         self._config = config
         self._watch = watch
@@ -323,10 +463,12 @@ class Orchestrator:
 
         _rc = routing_config or RoutingConfig()
         self._routing_config = _rc
+        # 15-REQ-4.2: Pass the configured Anthropic client to AssessmentManager so
+        # complexity assessment is enabled when a real client is available.
         self._routing = AssessmentManager(
             retries_before_escalation=self._resolve_retries_before_escalation(_rc),
             config=full_config or AgentFoxConfig(),
-            client=None,
+            client=client,
         )
 
         self._state_mgr = StateManager(

@@ -76,6 +76,18 @@ class EscalationLadder:
         return self._available_tiers[self._tier_idx]
 
     @property
+    def starting_variant(self) -> str | None:
+        """The variant this ladder was constructed with (read-only).
+
+        Mirrors starting_tier for variant: the initial variant value passed
+        at construction time. Variant is preserved unchanged across tier
+        escalations (same as current_variant).
+
+        Requirements: 15-REQ-4.1, 15-REQ-4.3
+        """
+        return self._variant
+
+    @property
     def current_variant(self) -> str | None:
         """The model variant set at construction time (read-only).
 

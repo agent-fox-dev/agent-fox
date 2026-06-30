@@ -162,6 +162,17 @@ def _setup_infrastructure(
     except Exception:
         logger.debug("create_platform_safe failed; proceeding without platform", exc_info=True)
 
+    # 15-REQ-4.2: Create an AsyncAnthropic client for AssessmentManager so
+    # complexity assessment is enabled at runtime. Falls back to None on failure
+    # (assessment silently disabled, as per 15-REQ-1.6).
+    anthropic_client = None
+    try:
+        from agentfox.core.client import create_async_anthropic_client
+
+        anthropic_client = create_async_anthropic_client()
+    except Exception:
+        logger.debug("Failed to create Anthropic client for complexity assessment", exc_info=True)
+
     return {
         "sink_dispatcher": sink_dispatcher,
         "knowledge_db": knowledge_db,
@@ -170,6 +181,7 @@ def _setup_infrastructure(
         "session_runner_factory": session_runner_factory,
         "audit_dir": AUDIT_DIR,
         "platform": platform,
+        "anthropic_client": anthropic_client,
     }
 
 
@@ -334,6 +346,9 @@ async def run_code(
             "knowledge_db_conn": infra["knowledge_db"].connection,
             "platform": infra.get("platform"),
             "knowledge_provider": infra.get("knowledge_provider"),
+            # 15-REQ-4.2: Supply Anthropic client so AssessmentManager can run
+            # complexity assessment. None disables assessment silently.
+            "client": infra.get("anthropic_client"),
         }
 
         orchestrator = Orchestrator(orch_config, **orch_kwargs)
