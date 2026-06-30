@@ -12,11 +12,11 @@ Requirements: 15-REQ-1.1, 15-REQ-1.2, 15-REQ-1.3, 15-REQ-1.4,
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
+from agentfox.core.json_extraction import extract_json_object
 from agentfox.core.models import VARIANT_ORDER, ModelTier
 
 logger = logging.getLogger(__name__)
@@ -160,9 +160,11 @@ class ComplexityAssessor:
 
             # Extract response text (15-REQ-2.3)
             response_text = response.content[0].text
+            if not response_text or not response_text.strip():
+                raise ValueError("LLM returned empty response text")
 
             # Parse and validate JSON response
-            data = json.loads(response_text)
+            data = extract_json_object(response_text)
 
             # Validate all four required fields are present
             for field_name in ("recommended_tier", "recommended_variant", "confidence", "rationale"):
@@ -181,16 +183,12 @@ class ComplexityAssessor:
 
             # Validate recommended_tier is a recognised ModelTier value (case-sensitive)
             if rec_tier not in _VALID_TIERS:
-                raise ValueError(
-                    f"recommended_tier must be one of {sorted(_VALID_TIERS)!r}, "
-                    f"got {rec_tier!r}"
-                )
+                raise ValueError(f"recommended_tier must be one of {sorted(_VALID_TIERS)!r}, got {rec_tier!r}")
 
             # Validate recommended_variant (case-sensitive)
             if rec_variant is not None and rec_variant not in _VALID_VARIANTS:
                 raise ValueError(
-                    f"recommended_variant must be null, 'fast', 'standard', or 'extended', "
-                    f"got {rec_variant!r}"
+                    f"recommended_variant must be null, 'fast', 'standard', or 'extended', got {rec_variant!r}"
                 )
 
             return AssessmentResult(
@@ -203,13 +201,14 @@ class ComplexityAssessor:
         except Exception as exc:
             # Any failure: log WARNING with exception details and fall back silently
             # (15-REQ-2.E1, 15-REQ-2.E2, 15-REQ-2.E3, 15-REQ-12.1, 15-REQ-12.E1)
+            response_repr = repr(response_text) if "response_text" in dir() else "<unavailable>"
             logger.warning(
-                "Complexity assessment failed (%s: %s); "
-                "falling back to base tier=%s variant=%s",
+                "Complexity assessment failed (%s: %s); falling back to base tier=%s variant=%s; response_text=%s",
                 type(exc).__name__,
                 exc,
                 base_tier,
                 base_variant,
+                response_repr,
                 exc_info=True,
             )
             return AssessmentResult(
@@ -273,9 +272,7 @@ def apply_assessment(
         # 15-REQ-3.6: both non-None → max in VARIANT_ORDER
         base_var_order = VARIANT_ORDER.get(base_variant, 0)
         rec_var_order = VARIANT_ORDER.get(recommendation.recommended_variant, 0)
-        effective_variant = (
-            base_variant if base_var_order >= rec_var_order else recommendation.recommended_variant
-        )
+        effective_variant = base_variant if base_var_order >= rec_var_order else recommendation.recommended_variant
 
     return (effective_tier, effective_variant)
 
