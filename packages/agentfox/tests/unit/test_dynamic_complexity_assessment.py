@@ -5479,6 +5479,17 @@ class TestTriagePromptAssessedComplexity:
             "to parse the triage response sub-object"
         )
 
+    def test_triage_task_prompt_requests_assessed_complexity(self) -> None:
+        """The triage task prompt in _run_triage() should request assessed_complexity."""
+        from agentfox.nightshift import fix_pipeline
+
+        source = inspect.getsource(fix_pipeline.FixPipeline._run_triage)
+        # 15-REQ-11.6: The prompt must request an assessed_complexity JSON object
+        assert "assessed_complexity" in source, (
+            "_run_triage() prompt should request assessed_complexity "
+            "JSON sub-object with tier/variant/confidence/rationale"
+        )
+
     def test_valid_assessed_complexity_parsed(self) -> None:
         """Valid assessed_complexity in response parses to AssessedComplexity."""
         from agentfox.nightshift.fix_pipeline import AssessedComplexity

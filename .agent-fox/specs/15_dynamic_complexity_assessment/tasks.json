@@ -1204,7 +1204,7 @@
             "15-REQ-11.E1",
             "15-REQ-11.E2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -1226,7 +1226,7 @@
             "15-REQ-11.4",
             "15-REQ-11.5"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],
@@ -1238,7 +1238,8 @@
           "No linter warnings introduced: ruff check packages/agentfox/agentfox/nightshift/",
           "Requirements 15-REQ-11.1 through 15-REQ-11.6, 15-REQ-11.E1, 15-REQ-11.E2 acceptance criteria met"
         ]
-      }
+      },
+      "state": "done"
     },
     {
       "id": 12,

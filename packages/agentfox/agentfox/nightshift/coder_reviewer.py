@@ -52,8 +52,7 @@ class CoderReviewerLoop:
         as pre_assessed to assess_node() for the coder node only; fix-review
         nodes do not receive pre_assessed.
         """
-        from agentfox.core.escalation import EscalationLadder
-        from agentfox.core.models import ModelTier, resolve_model
+        from agentfox.core.models import resolve_model
 
         p = self._pipeline
 
@@ -62,12 +61,13 @@ class CoderReviewerLoop:
 
         # 15-REQ-11.5: Extract assessed_complexity for coder pre_assessed passthrough
         # (fix-review nodes follow their own assessment path, no pre_assessed)
-        assessed_complexity = triage.assessed_complexity  # noqa: F841 — used once wiring is complete
+        assessed_complexity = triage.assessed_complexity
 
-        ladder = EscalationLadder(
-            starting_tier=ModelTier.STANDARD,
-            tier_ceiling=ModelTier.ADVANCED,
-            retries_before_escalation=retries_before,
+        # Build the coder EscalationLadder via AssessmentManager.assess_node()
+        # so that pre_assessed complexity from triage can upgrade the starting
+        # tier without a redundant Haiku LLM call (15-REQ-11.3, 15-REQ-11.5).
+        ladder = await self._build_coder_ladder(
+            spec, assessed_complexity, retries_before,
         )
 
         review_feedback: FixReviewResult | None = None
@@ -117,6 +117,58 @@ class CoderReviewerLoop:
             review_feedback = review_result
 
         return False  # pragma: no cover
+
+    async def _build_coder_ladder(
+        self,
+        spec: InMemorySpec,
+        assessed_complexity: Any,
+        retries_before: int,
+    ) -> Any:
+        """Build coder EscalationLadder via AssessmentManager.assess_node().
+
+        When an Anthropic client is available, uses AssessmentManager so that
+        pre_assessed complexity from triage can upgrade the starting tier
+        (15-REQ-11.3, 15-REQ-11.5).  Falls back to a base-tier ladder when
+        the client cannot be created.
+
+        Fix-review nodes are NOT handled here — they follow their own
+        assessment path without pre_assessed.
+        """
+        from agentfox.core.escalation import EscalationLadder
+        from agentfox.core.models import ModelTier
+
+        p = self._pipeline
+        node_id = f"fix-issue-{spec.issue_number}:0:coder"
+
+        try:
+            from agentfox.core.client import create_async_anthropic_client
+            from agentfox.engine.engine import AssessmentManager
+
+            client = create_async_anthropic_client()
+            manager = AssessmentManager(
+                config=p._config,
+                client=client,
+            )
+            ladder = await manager.assess_node(
+                node_id=node_id,
+                archetype="coder",
+                mode="fix",
+                node_body=spec.task_prompt or spec.title,
+                pre_assessed=assessed_complexity,
+            )
+            return ladder
+        except Exception:
+            logger.debug(
+                "Could not run complexity assessment for coder node %s; "
+                "falling back to base ladder",
+                node_id,
+                exc_info=True,
+            )
+            return EscalationLadder(
+                starting_tier=ModelTier.STANDARD,
+                tier_ceiling=ModelTier.ADVANCED,
+                retries_before_escalation=retries_before,
+            )
 
     async def _run_coder_phase(
         self,
