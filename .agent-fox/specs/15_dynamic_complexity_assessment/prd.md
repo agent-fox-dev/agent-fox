@@ -97,7 +97,7 @@ class AssessmentResult:
 - Returns an `AssessmentResult` dataclass instance.
 - Is stateless between calls (no shared mutable state). The Anthropic client handles its own connection pooling. Concurrent calls from multiple simultaneous `assess_node()` invocations are safe without additional locking.
 
-**Dependency injection**: `AssessmentManager` receives the Anthropic client via an optional `client` parameter in its `__init__()` and passes it to `ComplexityAssessor` at instantiation. The client is supplied from the `session_runner_factory` closure in `engine/run.py`, which already has access to the configured Anthropic client (see Requirement 4).
+**Dependency injection**: `AssessmentManager` receives the Anthropic client via an optional `client` parameter in its `__init__()` and passes it to `ComplexityAssessor` at instantiation. The client is created in `_setup_infrastructure()` in `engine/run.py` using `create_async_anthropic_client()` from `core/client.py`, returned in the infra dict, and passed through `Orchestrator.__init__()` to `AssessmentManager` (see Requirement 4).
 
 **Absent client behaviour**: If `client=None` is passed to `AssessmentManager.__init__()`, `ComplexityAssessor` is **not** instantiated. `assess_node()` detects the absent assessor and falls back to base tier/variant silently — no error, no warning. This is the correct behaviour for environments (e.g. test environments, offline configurations) that do not require the assessor. There is no log entry for the no-client path; it is treated as permanently disabled rather than a per-call failure.
 
@@ -162,7 +162,7 @@ Rules:
 
 `AssessmentManager` is defined in `engine/engine.py`. Its `__init__()` gains an optional `client` parameter alongside the existing `config` parameter. When `client` is non-`None`, `AssessmentManager` instantiates `ComplexityAssessor` at init time, passing the client along with `assessor_model` and `confidence_threshold` from `RoutingConfig`. When `client` is `None`, `ComplexityAssessor` is not instantiated and `assess_node()` falls back to base tier/variant silently for every call (see Requirement 1 — Absent client behaviour).
 
-**Client injection chain**: The Anthropic client is supplied by the `session_runner_factory` closure in `packages/agentfox/agentfox/engine/run.py`, which already holds a reference to the configured client. `run.py` passes the client when constructing `AssessmentManager`. No other Orchestrator-level file changes are required for client injection.
+**Client injection chain**: The Anthropic client is created in `_setup_infrastructure()` in `packages/agentfox/agentfox/engine/run.py` using `create_async_anthropic_client()` from `core/client.py` and returned in the infra dict. `run_code()` passes the client from the infra dict to `Orchestrator.__init__()` via a `client` kwarg. `Orchestrator.__init__()` passes the client to `AssessmentManager(client=client)`. Changes required: `_setup_infrastructure()` (create client), `run_code()` (pass client in orch_kwargs), and `Orchestrator.__init__()` (accept and forward client).
 
 Modify `AssessmentManager.assess_node()` in `engine/engine.py` with the following updated signature:
 
@@ -300,7 +300,9 @@ Add `assessed_complexity: AssessedComplexity | None = None` to `TriageResult` in
 
 Field names, types, and valid values for `assessed_complexity` match those of `AssessedComplexity` exactly: `tier` is a valid `ModelTier` string (case-sensitive), `variant` is `null` or a valid variant string (case-sensitive), `confidence` is a float in `[0.0, 1.0]`, and `rationale` is a non-empty string. The same validation rules as Requirement 2 apply to these fields.
 
-**Triage prompt update**: The triage prompt template is updated to request a complexity assessment as part of its structured JSON output. Exact wording is left to the implementer. The JSON output schema defined above (field names, types, and valid values) is the normative specification for the model's output format.
+**Triage prompt update**: The triage task prompt in `fix_pipeline.py._run_triage()` is updated to request a complexity assessment as part of its structured JSON output. The triage response parser in `session/review_parser.py.parse_triage_output()` is updated to extract and validate the `assessed_complexity` sub-object. Exact prompt wording is left to the implementer. The JSON output schema defined above (field names, types, and valid values) is the normative specification for the model's output format.
+
+> **Note**: `nightshift/triage.py` handles *batch* triage (ordering multiple issues) and has a different `TriageResult` class. Per-issue triage uses `fix_pipeline.py` for the prompt and `session/review_parser.py` for parsing.
 
 **Parsing failures (partial failure semantics)**: If the triage response is valid outer JSON but the `assessed_complexity` field is missing, malformed, or contains out-of-range/unrecognised values, the parsing is treated as a **partial failure**: only `assessed_complexity` is set to `None` in the `TriageResult`, and a `WARNING` is logged. The rest of `TriageResult` is parsed and used normally — a malformed `assessed_complexity` sub-object does not cause a full triage parse failure. The same field-level validation rules as Requirement 2 apply (case-sensitive string matching, range checks). No partial field salvaging within the `assessed_complexity` object is attempted.
 
@@ -374,12 +376,13 @@ Unit tests are required for all 12 requirements, organised according to standard
 
 - **New**: `packages/agentfox/agentfox/core/complexity.py` — `ComplexityRecommendation` Protocol, `ComplexityAssessor`, `AssessmentResult`, `apply_assessment()`, `assessed_complexity_to_recommendation()`
 - `packages/agentfox/agentfox/engine/engine.py` — `AssessmentManager.__init__()` (optional `client` parameter, conditional `ComplexityAssessor` instantiation), `AssessmentManager.assess_node()` (updated signature, absent-client fast-path, `is_explicitly_configured()` helper)
-- `packages/agentfox/agentfox/engine/run.py` — `session_runner_factory` closure passes Anthropic client when constructing `AssessmentManager`
+- `packages/agentfox/agentfox/engine/run.py` — `_setup_infrastructure()` creates Anthropic client; `run_code()` passes it to `Orchestrator`; `Orchestrator.__init__()` forwards to `AssessmentManager`
 - `packages/agentfox/agentfox/engine/dispatch.py` — `DispatchManager.prepare_launch()` (extract `node_body` from task graph node; extract `previous_failure` from `error_tracker`; pass both to `assess_node()`)
 - `packages/agentfox/agentfox/archetypes.py` — `ARCHETYPE_REGISTRY` default changes
 - `packages/agentfox/agentfox/core/config.py` — `RoutingConfig` new fields with eager Pydantic validation
 - `packages/agentfox/agentfox/nightshift/fix_pipeline.py` — `TriageResult` extension, `AssessedComplexity` dataclass
-- `packages/agentfox/agentfox/nightshift/triage.py` — triage prompt and parser changes (including partial `assessed_complexity` parsing failure handling)
+- `packages/agentfox/agentfox/nightshift/fix_pipeline.py` — `_run_triage()` prompt update to request `assessed_complexity` field
+- `packages/agentfox/agentfox/session/review_parser.py` — `parse_triage_output()` parser changes for `assessed_complexity` extraction with partial failure semantics (already implemented)
 - `packages/agentfox/agentfox/nightshift/coder_reviewer.py` — nightshift orchestrator: extracts `TriageResult.assessed_complexity` and passes it as `pre_assessed` to `assess_node()` for the coder node only
 
 ## Design Decisions

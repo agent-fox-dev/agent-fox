@@ -70,6 +70,7 @@ ARCHETYPE_REGISTRY: dict[str, ArchetypeEntry] = {
     "coder": ArchetypeEntry(
         name="coder",
         default_model_tier="STANDARD",  # 15-REQ-8.1
+        default_model_variant="standard",  # 15-REQ-8.1
         injection=None,
         task_assignable=True,
         default_max_turns=300,
@@ -78,6 +79,7 @@ ARCHETYPE_REGISTRY: dict[str, ArchetypeEntry] = {
         modes={
             "fix": ModeConfig(
                 model_tier="STANDARD",  # 15-REQ-8.1
+                model_variant="standard",  # 15-REQ-8.1
                 max_turns=300,
                 thinking_mode="adaptive",
                 thinking_budget=64000,
@@ -87,28 +89,33 @@ ARCHETYPE_REGISTRY: dict[str, ArchetypeEntry] = {
     "reviewer": ArchetypeEntry(
         name="reviewer",
         default_model_tier="STANDARD",
+        default_model_variant="standard",  # 15-REQ-8.2
         injection=None,  # mode-specific injection
         task_assignable=True,
         default_max_turns=80,
         modes={
             "pre-review": ModeConfig(
                 model_tier="ADVANCED",  # 15-REQ-8.2
+                model_variant="standard",  # 15-REQ-8.2
                 injection="auto_pre",
                 allowlist=[],  # no shell access
                 retry_predecessor=True,
             ),
             "drift-review": ModeConfig(
+                model_variant="standard",  # 15-REQ-8.2
                 injection="auto_pre",
                 allowlist=["ls", "cat", "git", "grep", "find", "head", "tail", "wc"],
             ),
             "audit-review": ModeConfig(
                 model_tier="ADVANCED",  # 15-REQ-8.2
+                model_variant="standard",  # 15-REQ-8.2
                 injection="auto_mid",
                 allowlist=["ls", "cat", "git", "grep", "find", "head", "tail", "wc", "uv"],
                 retry_predecessor=True,
             ),
             "fix-review": ModeConfig(
                 model_tier="ADVANCED",
+                model_variant="standard",  # 15-REQ-8.2
                 allowlist=["ls", "cat", "git", "grep", "find", "head", "tail", "wc", "uv", "make"],
                 max_turns=120,
             ),
@@ -117,6 +124,7 @@ ARCHETYPE_REGISTRY: dict[str, ArchetypeEntry] = {
     "verifier": ArchetypeEntry(
         name="verifier",
         default_model_tier="STANDARD",  # Changed from ADVANCED (98-REQ-6.1)
+        default_model_variant="standard",  # 15-REQ-8.3
         injection="auto_post",
         task_assignable=True,
         retry_predecessor=True,
@@ -127,21 +135,25 @@ ARCHETYPE_REGISTRY: dict[str, ArchetypeEntry] = {
     "maintainer": ArchetypeEntry(
         name="maintainer",
         default_model_tier="STANDARD",
+        default_model_variant="standard",  # 15-REQ-8.4
         injection=None,
         task_assignable=False,
         default_max_turns=80,
         modes={
             "hunt": ModeConfig(
                 model_tier="SIMPLE",  # 15-REQ-8.4
+                model_variant="standard",  # 15-REQ-8.4
                 # Read-only analysis allowlist (100-REQ-1.2)
                 allowlist=["ls", "cat", "git", "wc", "head", "tail"],
             ),
             "fix-triage": ModeConfig(
+                model_variant="standard",  # 15-REQ-8.4
                 # Read-only analysis for single-issue triage (fixes #383)
                 allowlist=["ls", "cat", "git", "wc", "head", "tail"],
             ),
             "extraction": ModeConfig(
                 model_tier="SIMPLE",  # 15-REQ-8.4
+                model_variant="standard",  # 15-REQ-8.4
                 # No shell access for extraction mode (100-REQ-1.3)
                 allowlist=[],
             ),

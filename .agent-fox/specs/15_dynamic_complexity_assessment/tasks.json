@@ -838,7 +838,7 @@
             "15-REQ-1.1",
             "15-REQ-1.2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -857,18 +857,20 @@
             "15-REQ-1.3",
             "15-REQ-1.5"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
           "id": "8.3",
           "title": "Implement assessment prompt construction and API call with timeout",
           "details": [
-            "Build system prompt establishing LLM as complexity assessor.",
-            "Include archetype/mode, base_tier/base_variant, full node_body without truncation.",
-            "Append previous_failure section when provided.",
-            "Include JSON output instruction with AssessmentResult schema example.",
-            "Call client.messages.create with timeout=30 and model=self.assessor_model."
+            "Replace the NotImplementedError in ComplexityAssessor.assess() (core/complexity.py:89) with the real implementation.",
+            "Build system prompt establishing LLM as complexity assessor. Include archetype/mode (or 'default' if mode is None), base_tier/base_variant, full node_body without truncation.",
+            "Append previous_failure section when provided (non-None).",
+            "Include JSON output instruction with AssessmentResult schema example: {recommended_tier, recommended_variant, confidence, rationale}.",
+            "Call self.client.messages.create(model=self.assessor_model, max_tokens=1024, messages=[...], timeout=30). The client is an Anthropic AsyncAnthropic instance.",
+            "Extract response text from response.content[0].text — this is how the Anthropic SDK returns message content.",
+            "Tests in test file expect: mock_client.messages.create called as AsyncMock with timeout=30 kwarg."
           ],
           "test_spec_refs": [
             "TS-15-8",
@@ -889,10 +891,12 @@
           "id": "8.4",
           "title": "Implement JSON response parsing and validation in assess()",
           "details": [
-            "Parse JSON response; validate all four fields present.",
-            "Validate confidence in [0.0, 1.0]; recommended_tier is valid ModelTier (case-sensitive); recommended_variant is None or one of 'fast'/'standard'/'extended' (case-sensitive).",
-            "On any validation failure, log WARNING with exception details and return (base_tier, base_variant).",
-            "Catch all API exceptions (timeout, rate limit, network, context-limit) in one except block; log WARNING; return (base_tier, base_variant) without raising."
+            "Parse the response text as JSON (json.loads). Validate all four fields present: recommended_tier, recommended_variant, confidence, rationale.",
+            "Validate confidence in [0.0, 1.0]; recommended_tier is valid ModelTier value — use {t.value for t in ModelTier} from core/models.py:31 (values: 'SIMPLE', 'STANDARD', 'ADVANCED'). String comparison is CASE-SENSITIVE.",
+            "Validate recommended_variant is None/null or one of 'fast'/'standard'/'extended' (case-sensitive).",
+            "On ANY validation failure, log WARNING with exception details and return AssessmentResult(recommended_tier=base_tier, recommended_variant=base_variant, confidence=0.0, rationale='fallback').",
+            "Wrap the entire API call + parsing in try/except. Catch all exceptions (anthropic.APITimeoutError, anthropic.RateLimitError, anthropic.BadRequestError, ConnectionError, json.JSONDecodeError, ValueError, Exception). Log WARNING; return fallback AssessmentResult with base_tier/base_variant, confidence=0.0.",
+            "IMPORTANT: assess() returns AssessmentResult, NOT a tuple. The upgrade-only logic is in apply_assessment(), called by assess_node()."
           ],
           "test_spec_refs": [
             "TS-15-10",
@@ -915,10 +919,11 @@
           "id": "8.5",
           "title": "Implement apply_assessment() function and assessed_complexity_to_recommendation() adapter",
           "details": [
-            "Implement confidence gate: return (base_tier, base_variant) if confidence < confidence_threshold.",
-            "Implement tier upgrade: max(base_tier, recommended_tier) using ModelTier ordering.",
-            "Implement variant logic: None base_variant -> always return None; None recommended_variant -> return base_variant; both non-None -> max in VARIANT_ORDER.",
-            "Implement assessed_complexity_to_recommendation(): map tier->recommended_tier, variant->recommended_variant, copy confidence/rationale."
+            "Replace NotImplementedError in apply_assessment() (core/complexity.py:112) and assessed_complexity_to_recommendation() (core/complexity.py:129).",
+            "apply_assessment() — confidence gate: if recommendation.confidence < confidence_threshold, return (base_tier, base_variant) unchanged.",
+            "apply_assessment() — tier upgrade: use ModelTier ordering from core/models.py:31 (SIMPLE < STANDARD < ADVANCED). Compute max(base_tier, recommended_tier) — compare using list(ModelTier).index() or direct enum comparison.",
+            "apply_assessment() — variant upgrade: if base_variant is None, always return None. If recommended_variant is None, return base_variant unchanged. If both non-None, use VARIANT_ORDER dict from core/models.py:52 ({'fast': 0, 'standard': 1, 'extended': 2}) to compute max.",
+            "assessed_complexity_to_recommendation() — trivial adapter: return AssessmentResult(recommended_tier=ac.tier, recommended_variant=ac.variant, confidence=ac.confidence, rationale=ac.rationale). Import AssessedComplexity type from nightshift/fix_pipeline.py for the parameter type hint."
           ],
           "test_spec_refs": [
             "TS-15-13",
@@ -974,17 +979,20 @@
             "15-REQ-1.7",
             "15-REQ-4.2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
           "id": "9.2",
           "title": "Implement is_explicitly_configured() helper function",
           "details": [
-            "Walk layer 1 (mode-level override) only when mode is non-None; return True immediately if non-None value found.",
-            "Walk layer 2 (per-archetype override); return True if non-None.",
-            "Walk layer 3 (legacy dict override); return True if non-None.",
-            "Return False if all applicable layers return None."
+            "Replace NotImplementedError in is_explicitly_configured() (engine/engine.py:173).",
+            "This mirrors resolve_model_tier() from engine/sdk_params.py. Walk config resolution layers 1-3 using self._config (the AgentFoxConfig).",
+            "Layer 1 (mode-level override): Skip entirely when mode is None. Check config.routing.mode_overrides or equivalent for a model_tier setting for this archetype/mode combination. Return True if found.",
+            "Layer 2 (per-archetype override): Check config.routing for per-archetype model tier override. Return True if non-None.",
+            "Layer 3 (legacy dict override): Check config.routing.model_tiers dict (if it exists) for archetype key. Return True if non-None.",
+            "Return False if all applicable layers return None.",
+            "Reference: resolve_model_tier() in engine/sdk_params.py shows the exact layer resolution logic to mirror."
           ],
           "test_spec_refs": [
             "TS-15-26",
@@ -1003,10 +1011,15 @@
           "id": "9.3",
           "title": "Implement assess_node() with full priority evaluation and EscalationLadder construction",
           "details": [
-            "Implement the five-step evaluation: (1) no assessor -> base fallback; (2) missing/empty body -> DEBUG + base fallback; (3) explicit override -> DEBUG + configured tier; (4) pre_assessed non-None -> adapter + apply_assessment(); (5) LLM assess + apply_assessment().",
-            "Construct EscalationLadder(starting_tier=effective_tier, starting_variant=effective_variant) with ADVANCED ceiling and RoutingConfig retry config.",
-            "Discard existing ladder on each call (no caching); re-assess with previous_failure on retry.",
-            "Emit structured DEBUG log on successful assessment with all required keys."
+            "Replace NotImplementedError in assess_node() (engine/engine.py:198).",
+            "Step 1 — No assessor (self._assessor is None): Get base tier/variant via self._get_base_tier_variant(archetype, mode). Construct EscalationLadder at base values. Return immediately with NO log entry.",
+            "Step 2 — Missing/empty body (node_body is None or ''): Log DEBUG 'Skipping complexity assessment: node_body is absent or empty for node {node_id}'. Return EscalationLadder at base tier/variant.",
+            "Step 3 — Explicit config override (self.is_explicitly_configured(archetype, mode) returns True): Log DEBUG with node_id, archetype, mode, resolved tier. Return EscalationLadder at configured tier/variant from _get_base_tier_variant().",
+            "Step 4 — pre_assessed non-None: Import assessed_complexity_to_recommendation from core/complexity.py. Convert via adapter, then apply via apply_assessment(recommendation, base_tier, base_variant, self._assessor.confidence_threshold).",
+            "Step 5 — LLM assessment: Call await self._assessor.assess(node_body, archetype, mode, base_tier, base_variant, previous_failure). Apply result via apply_assessment().",
+            "After steps 4-5: Emit structured DEBUG log with keys: node_id, archetype, mode, effective_tier, effective_variant, confidence, rationale.",
+            "Construct EscalationLadder: from core/escalation.py — EscalationLadder(starting_tier=ModelTier(effective_tier), tier_ceiling=ModelTier.ADVANCED, retries_before_escalation=self.retries_before_escalation, starting_variant=effective_variant).",
+            "Store ladder in self.ladders[node_id] and return it."
           ],
           "test_spec_refs": [
             "TS-15-19",
@@ -1066,7 +1079,7 @@
             "15-REQ-10.E1",
             "15-REQ-10.E2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -1093,15 +1106,19 @@
             "15-REQ-8.4",
             "15-REQ-8.5"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
           "id": "10.3",
-          "title": "Update session_runner_factory in engine/run.py to pass Anthropic client to AssessmentManager",
+          "title": "Wire Anthropic client from _setup_infrastructure() through Orchestrator to AssessmentManager",
           "details": [
-            "In the session_runner_factory closure, pass the already-held Anthropic client as AssessmentManager(config=config, client=anthropic_client).",
-            "No other Orchestrator-level files require changes for client injection."
+            "IMPORTANT: The spec's original reference to session_runner_factory is incorrect. session_runner_factory creates NodeSessionRunner objects, not AssessmentManager. The Orchestrator creates AssessmentManager.",
+            "In _setup_infrastructure() (engine/run.py:90), create an AsyncAnthropic client using create_async_anthropic_client() from core/client.py:352. Add it to the returned infra dict as 'anthropic_client'.",
+            "In run_code() (engine/run.py:320), add the client to orch_kwargs: 'client': infra.get('anthropic_client').",
+            "Add a 'client' parameter to Orchestrator.__init__() (engine/engine.py:250).",
+            "In Orchestrator.__init__(), pass client to AssessmentManager: replace client=None at line 301 with client=client.",
+            "Key reference: create_async_anthropic_client() at core/client.py:352 returns anthropic.AsyncAnthropic() — this is a lightweight client that handles its own connection pooling."
           ],
           "test_spec_refs": [
             "TS-15-20"
@@ -1132,7 +1149,7 @@
             "15-REQ-9.3",
             "15-REQ-9.E1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],
@@ -1164,17 +1181,17 @@
           "requirement_refs": [
             "15-REQ-11.1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
           "id": "11.2",
-          "title": "Update triage prompt and parser in nightshift/triage.py with partial failure semantics",
+          "title": "Update triage prompt to request assessed_complexity (parser already done)",
           "details": [
-            "Update triage prompt template to request assessed_complexity JSON object with tier, variant, confidence, rationale.",
-            "In parser: attempt to extract and validate assessed_complexity sub-object using same case-sensitive rules as REQ-2.",
-            "On any validation failure for assessed_complexity (missing field, wrong-case, out-of-range confidence): set to None, log WARNING, continue parsing rest of TriageResult normally.",
-            "Do not attempt partial field salvaging within the sub-object."
+            "IMPORTANT: The spec's reference to nightshift/triage.py is incorrect. That file handles batch triage (issue ordering) with a different TriageResult class. Per-issue triage uses fix_pipeline.py and session/review_parser.py.",
+            "PARSER (ALREADY DONE): session/review_parser.py:841-895 already has full assessed_complexity parsing with case-sensitive tier/variant validation, confidence range check, and partial failure semantics (sets to None + WARNING on error).",
+            "PROMPT (PENDING): Update the triage_task string in fix_pipeline.py._run_triage() at line 866-870 to include an instruction requesting an 'assessed_complexity' JSON object with fields: tier (SIMPLE/STANDARD/ADVANCED), variant (null/fast/standard/extended), confidence (0.0-1.0 float), and rationale (string).",
+            "The prompt should instruct the triage model to assess the complexity of the fix and recommend a model tier/variant for the coder agent."
           ],
           "test_spec_refs": [
             "TS-15-48",
@@ -1191,11 +1208,12 @@
         },
         {
           "id": "11.3",
-          "title": "Update nightshift/coder_reviewer.py to pass pre_assessed to coder assess_node() only",
+          "title": "Wire assessed_complexity passthrough in coder_reviewer.py (extraction already done)",
           "details": [
-            "Extract triage_result.assessed_complexity once in the nightshift orchestrator.",
-            "Pass it as pre_assessed to assess_node() for the coder node only.",
-            "Fix-review and other reviewer nodes call assess_node() without pre_assessed (or with pre_assessed=None)."
+            "EXTRACTION (ALREADY DONE): coder_reviewer.py:65 already extracts assessed_complexity from triage result. The variable is assigned but marked noqa: F841.",
+            "PASSTHROUGH (PENDING): Replace the hardcoded EscalationLadder construction at coder_reviewer.py:67-71 with a call to self._pipeline._routing.assess_node() (or equivalent AssessmentManager access), passing pre_assessed=assessed_complexity for the coder node.",
+            "Fix-review and other reviewer nodes must NOT receive pre_assessed — they follow their own assessment path.",
+            "Remove the # noqa: F841 comment from line 65 once the variable is used."
           ],
           "test_spec_refs": [
             "TS-15-45",
