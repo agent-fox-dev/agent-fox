@@ -1256,7 +1256,7 @@
           ],
           "test_spec_refs": [],
           "requirement_refs": [],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -1279,7 +1279,7 @@
             "TS-15-P9"
           ],
           "requirement_refs": [],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -1292,7 +1292,7 @@
           ],
           "test_spec_refs": [],
           "requirement_refs": [],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -1305,7 +1305,7 @@
           ],
           "test_spec_refs": [],
           "requirement_refs": [],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],

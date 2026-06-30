@@ -39,7 +39,7 @@ async def test_orchestrator_dispatch_creates_ladder_without_pipeline() -> None:
     config = AgentFoxConfig()
     manager = AssessmentManager(retries_before_escalation=1, config=config)
 
-    # Dispatch a node with archetype "coder" (config default: ADVANCED)
+    # Dispatch a node with archetype "coder" (config default: STANDARD per spec 15)
     await manager.assess_node("test_spec:1", "coder")
 
     # Verify: ladder exists and was created at config-resolved tier
@@ -49,8 +49,10 @@ async def test_orchestrator_dispatch_creates_ladder_without_pipeline() -> None:
 
     ladder = manager.ladders["test_spec:1"]
 
-    # 89-REQ-1.1: starting tier is config-resolved (ADVANCED for coder with default config)
-    assert ladder.current_tier == ModelTier.ADVANCED, f"Expected ADVANCED (config default), got {ladder.current_tier}"
+    # 89-REQ-1.1: starting tier is config-resolved (STANDARD for coder with default config, spec 15)
+    assert ladder.current_tier == ModelTier.STANDARD, (
+        f"Expected STANDARD (config default, spec 15), got {ladder.current_tier}"
+    )
 
     # 89-REQ-1.2: tier ceiling is always ADVANCED
     assert ladder._tier_ceiling == ModelTier.ADVANCED, f"Expected ADVANCED ceiling, got {ladder._tier_ceiling}"

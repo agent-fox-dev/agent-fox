@@ -77,13 +77,13 @@ class TestHuntModeConfig:
         assert actual == expected, f"Hunt mode allowlist mismatch: expected {expected}, got {actual} (100-REQ-1.2)"
 
     def test_hunt_model_tier(self) -> None:
-        """TS-100-2: Hunt mode model tier is STANDARD."""
+        """TS-100-2: Hunt mode model tier is SIMPLE (spec 15)."""
         from agentfox.archetypes import ARCHETYPE_REGISTRY, resolve_effective_config
 
         entry = ARCHETYPE_REGISTRY["maintainer"]
         cfg = resolve_effective_config(entry, "hunt")
-        assert cfg.default_model_tier == "STANDARD", (
-            f"Expected STANDARD tier, got {cfg.default_model_tier!r} (100-REQ-1.2)"
+        assert cfg.default_model_tier == "SIMPLE", (
+            f"Expected SIMPLE tier (spec 15), got {cfg.default_model_tier!r} (100-REQ-1.2)"
         )
 
     def test_hunt_not_task_assignable(self) -> None:
@@ -115,13 +115,13 @@ class TestExtractionModeConfig:
         )
 
     def test_extraction_model_tier(self) -> None:
-        """TS-100-3: Extraction mode model tier is STANDARD."""
+        """TS-100-3: Extraction mode model tier is SIMPLE (spec 15)."""
         from agentfox.archetypes import ARCHETYPE_REGISTRY, resolve_effective_config
 
         entry = ARCHETYPE_REGISTRY["maintainer"]
         cfg = resolve_effective_config(entry, "extraction")
-        assert cfg.default_model_tier == "STANDARD", (
-            f"Expected STANDARD tier, got {cfg.default_model_tier!r} (100-REQ-1.3)"
+        assert cfg.default_model_tier == "SIMPLE", (
+            f"Expected SIMPLE tier (spec 15), got {cfg.default_model_tier!r} (100-REQ-1.3)"
         )
 
 

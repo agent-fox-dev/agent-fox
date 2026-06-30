@@ -35,8 +35,8 @@ async def test_ladder_from_archetype_default() -> None:
     await manager.assess_node("some_spec:1", "coder")
 
     ladder = manager.ladders["some_spec:1"]
-    # Default config has models.coding = "ADVANCED"
-    assert ladder.current_tier == ModelTier.ADVANCED
+    # Default config: coder registry default is STANDARD (spec 15)
+    assert ladder.current_tier == ModelTier.STANDARD
 
 
 # ---------------------------------------------------------------------------
@@ -188,9 +188,9 @@ def test_no_duration_imports(source_path: str) -> None:
 
 @pytest.mark.asyncio
 async def test_unknown_archetype_defaults_to_coder() -> None:
-    """assess_node with unknown archetype creates ladder at ADVANCED (coder fallback).
+    """assess_node with unknown archetype creates ladder at STANDARD (coder fallback).
 
-    Updated by issue #597: coder's registry default is now ADVANCED.
+    Coder's registry default is STANDARD (spec 15).
     """
     from agentfox.engine.engine import AssessmentManager
 
@@ -199,8 +199,8 @@ async def test_unknown_archetype_defaults_to_coder() -> None:
     await manager.assess_node("spec:1", "nonexistent_archetype")
 
     ladder = manager.ladders["spec:1"]
-    # Unknown archetype falls back to coder default (ADVANCED since issue #597)
-    assert ladder.current_tier == ModelTier.ADVANCED
+    # Unknown archetype falls back to coder default (STANDARD per spec 15)
+    assert ladder.current_tier == ModelTier.STANDARD
 
 
 # ---------------------------------------------------------------------------
@@ -291,14 +291,14 @@ def test_prop_escalation_preserved(retries: int, start: ModelTier) -> None:
     ["xyz", "unknown", "foo_bar", "not_in_registry_at_all"],
 )
 def test_prop_unknown_archetype_fallback(name: str) -> None:
-    """Any archetype name not in the registry yields coder defaults (ADVANCED).
+    """Any archetype name not in the registry yields coder defaults (STANDARD).
 
-    Updated by issue #597: coder's registry default is now ADVANCED.
+    Coder's registry default is STANDARD (spec 15).
     """
     from agentfox.archetypes import ARCHETYPE_REGISTRY, get_archetype
 
     assert name not in ARCHETYPE_REGISTRY, f"'{name}' must not be in registry for this test"
     entry = get_archetype(name)
-    assert entry.default_model_tier == "ADVANCED", (
-        f"Unknown archetype '{name}' should fall back to ADVANCED (coder default), got {entry.default_model_tier!r}"
+    assert entry.default_model_tier == "STANDARD", (
+        f"Unknown archetype '{name}' should fall back to STANDARD (coder default), got {entry.default_model_tier!r}"
     )

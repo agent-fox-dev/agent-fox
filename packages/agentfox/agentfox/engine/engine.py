@@ -156,7 +156,7 @@ class AssessmentManager:
             entry = ARCHETYPE_REGISTRY.get(archetype)
             if entry is not None:
                 resolved = resolve_effective_config(entry, mode=mode)
-                return (resolved.default_model_tier, "standard")
+                return (resolved.default_model_tier, resolved.default_model_variant or "standard")
         except Exception:
             pass
         return ("STANDARD", "standard")
@@ -250,8 +250,6 @@ class AssessmentManager:
           3. Explicit config override → configured tier with DEBUG log
           4. pre_assessed non-None → adapter + apply_assessment()
           5. LLM assessment → ComplexityAssessor.assess() + apply_assessment()
-
-        Paths 3-5 raise NotImplementedError until task group 9.
 
         Requirements: 15-REQ-4.1, 15-REQ-4.3, 15-REQ-4.4, 15-REQ-4.E1,
                       15-REQ-5.1, 15-REQ-12.2, 15-REQ-12.3, 15-REQ-12.5

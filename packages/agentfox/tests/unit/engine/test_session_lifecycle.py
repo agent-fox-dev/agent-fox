@@ -54,10 +54,10 @@ class TestClampInstances:
 class TestResolveModelTier:
     """Tests for NodeSessionRunner._resolve_model_tier."""
 
-    def test_default_coder_uses_advanced_tier(self) -> None:
-        """Coder archetype defaults to ADVANCED tier (from archetype registry)."""
+    def test_default_coder_uses_standard_tier(self) -> None:
+        """Coder archetype defaults to STANDARD tier (from archetype registry, spec 15)."""
         runner = NodeSessionRunner("spec:1", AgentFoxConfig(), knowledge_db=_MOCK_KB)
-        assert runner._resolved_model_id == "claude-opus-4-6"
+        assert runner._resolved_model_id == "claude-sonnet-4-6"
 
     def test_config_override_takes_priority(self) -> None:
         """Config override in archetypes.models takes priority over registry."""

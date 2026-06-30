@@ -29,8 +29,8 @@ _VALID_TIERS = {"SIMPLE", "STANDARD", "ADVANCED"}
 
 # Expected allowlists per mode
 _MAINTAINER_MODE_EXPECTED: dict[str, tuple[list[str], str]] = {
-    "hunt": (["ls", "cat", "git", "wc", "head", "tail"], "STANDARD"),
-    "extraction": ([], "STANDARD"),
+    "hunt": (["ls", "cat", "git", "wc", "head", "tail"], "SIMPLE"),
+    "extraction": ([], "SIMPLE"),
 }
 
 

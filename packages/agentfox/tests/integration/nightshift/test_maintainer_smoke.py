@@ -23,8 +23,8 @@ class TestNightshiftTriageViaMaintainer:
     MUST NOT be mocked per the test spec.
     """
 
-    def test_resolve_model_tier_maintainer_hunt_returns_standard(self) -> None:
-        """TS-100-SMOKE-1: Model tier for maintainer:hunt resolves to STANDARD.
+    def test_resolve_model_tier_maintainer_hunt_returns_simple(self) -> None:
+        """TS-100-SMOKE-1: Model tier for maintainer:hunt resolves to SIMPLE (spec 15).
 
         Uses real config and registry — resolve_model_tier is not mocked.
         Requirements: 100-REQ-5.1, 100-REQ-2.2
@@ -35,8 +35,8 @@ class TestNightshiftTriageViaMaintainer:
         config = AgentFoxConfig()
         tier = resolve_model_tier(config, "maintainer", mode="hunt")
 
-        assert tier == "STANDARD", (
-            f"Nightshift triage must resolve STANDARD tier via maintainer:hunt, got {tier!r} (100-REQ-5.1)"
+        assert tier == "SIMPLE", (
+            f"Nightshift triage must resolve SIMPLE tier via maintainer:hunt (spec 15), got {tier!r} (100-REQ-5.1)"
         )
 
     def test_resolve_security_config_maintainer_hunt_returns_hunt_allowlist(self) -> None:
@@ -106,8 +106,8 @@ class TestNightshiftTriageViaMaintainer:
             asyncio.run(run_batch_triage(issues, edges, config))
 
         assert captured_tier, "nightshift_ai_call must have been called"
-        # The tier resolved from maintainer:hunt (STANDARD) must be passed to the AI call
-        assert captured_tier[0] == "STANDARD", (
-            f"Tier passed to nightshift_ai_call must be STANDARD (from maintainer:hunt), "
+        # The tier resolved from maintainer:hunt (SIMPLE per spec 15) must be passed to the AI call
+        assert captured_tier[0] == "SIMPLE", (
+            f"Tier passed to nightshift_ai_call must be SIMPLE (from maintainer:hunt, spec 15), "
             f"got {captured_tier[0]!r} (100-REQ-5.1)"
         )

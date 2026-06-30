@@ -38,9 +38,9 @@ pytestmark = pytest.mark.property
 # Expected config values per reviewer mode:
 # (allowlist_must_contain, injection, model_tier)
 _REVIEWER_MODE_EXPECTATIONS = {
-    "pre-review": ([], "auto_pre", "STANDARD"),
+    "pre-review": ([], "auto_pre", "ADVANCED"),
     "drift-review": (["ls", "cat", "git", "grep", "find", "head", "tail", "wc"], "auto_pre", "STANDARD"),
-    "audit-review": (["ls", "cat", "git", "grep", "find", "head", "tail", "wc", "uv"], "auto_mid", "STANDARD"),
+    "audit-review": (["ls", "cat", "git", "grep", "find", "head", "tail", "wc", "uv"], "auto_mid", "ADVANCED"),
     "fix-review": (["ls", "cat", "git", "grep", "find", "head", "tail", "wc", "uv", "make"], None, "ADVANCED"),
 }
 
@@ -297,9 +297,9 @@ class TestCoderFixModeEquivalence:
         cfg = resolve_effective_config(entry, "fix")
 
         # Matches former fix_coder archetype configuration.
-        # Updated by issue #597: coder defaults to ADVANCED (registry), so fix mode inherits ADVANCED.
-        assert cfg.default_model_tier == "ADVANCED", (
-            f"coder:fix tier should be ADVANCED, got {cfg.default_model_tier!r}"
+        # Spec 15 sets coder default to STANDARD, so fix mode inherits STANDARD.
+        assert cfg.default_model_tier == "STANDARD", (
+            f"coder:fix tier should be STANDARD (spec 15), got {cfg.default_model_tier!r}"
         )
         assert cfg.default_max_turns == 300, f"coder:fix max_turns should be 300, got {cfg.default_max_turns}"
         assert cfg.default_thinking_mode == "adaptive", (

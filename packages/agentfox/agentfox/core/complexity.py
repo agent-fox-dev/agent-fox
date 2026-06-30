@@ -148,6 +148,7 @@ class ComplexityAssessor:
 
         messages = [{"role": "user", "content": user_message}]
 
+        response_text = None  # initialised before try so the except handler can always access it
         try:
             # Call the Anthropic API with 30-second timeout (15-REQ-2.4)
             response = await self.client.messages.create(
@@ -201,7 +202,7 @@ class ComplexityAssessor:
         except Exception as exc:
             # Any failure: log WARNING with exception details and fall back silently
             # (15-REQ-2.E1, 15-REQ-2.E2, 15-REQ-2.E3, 15-REQ-12.1, 15-REQ-12.E1)
-            response_repr = repr(response_text) if "response_text" in dir() else "<unavailable>"
+            response_repr = repr(response_text) if response_text is not None else "<unavailable>"
             logger.warning(
                 "Complexity assessment failed (%s: %s); falling back to base tier=%s variant=%s; response_text=%s",
                 type(exc).__name__,

@@ -17,11 +17,11 @@ from agentfox.engine.sdk_params import resolve_model_tier
 class TestReviewerModelTier609:
     """Reviewer model tier defaults for issue #609."""
 
-    def test_audit_review_returns_standard_bare_config(self) -> None:
-        """TS-NS-2: audit-review mode returns STANDARD with no config override."""
+    def test_audit_review_returns_advanced_bare_config(self) -> None:
+        """TS-NS-2: audit-review mode returns ADVANCED with no config override (spec 15)."""
         config = AgentFoxConfig()
         result = resolve_model_tier(config, "reviewer", mode="audit-review")
-        assert result == "STANDARD"
+        assert result == "ADVANCED"
 
     def test_drift_review_returns_standard_bare_config(self) -> None:
         """TS-NS-3: drift-review mode returns STANDARD with no config override."""

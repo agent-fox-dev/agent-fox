@@ -49,7 +49,7 @@ class TestReviewerEntryWithModes:
 
 
 class TestPreReviewModeConfig:
-    """Verify pre-review has no shell, auto_pre injection, STANDARD tier."""
+    """Verify pre-review has no shell, auto_pre injection, ADVANCED tier (spec 15)."""
 
     def test_pre_review_config(self) -> None:
         """TS-98-2: pre-review mode has empty allowlist, auto_pre injection, STANDARD tier."""
@@ -59,8 +59,8 @@ class TestPreReviewModeConfig:
         cfg = resolve_effective_config(entry, "pre-review")
         assert cfg.default_allowlist == [], f"pre-review allowlist should be empty, got {cfg.default_allowlist}"
         assert cfg.injection == "auto_pre", f"pre-review injection should be 'auto_pre', got {cfg.injection!r}"
-        assert cfg.default_model_tier == "STANDARD", (
-            f"pre-review tier should be STANDARD, got {cfg.default_model_tier!r}"
+        assert cfg.default_model_tier == "ADVANCED", (
+            f"pre-review tier should be ADVANCED (spec 15), got {cfg.default_model_tier!r}"
         )
 
 
@@ -147,19 +147,18 @@ class TestCoderFixMode:
     """Verify coder fix mode matches former fix_coder configuration."""
 
     def test_coder_fix_mode(self) -> None:
-        """TS-98-6: coder fix mode has ADVANCED tier, 300 turns, adaptive 64k.
+        """TS-98-6: coder fix mode has STANDARD tier, 300 turns, adaptive 64k.
 
-        Updated by issue #597: coder's default tier moved from STANDARD to ADVANCED
-        in the registry. The fix mode inherits this value since it doesn't override
-        model_tier at the mode level.
+        Spec 15 sets coder default to STANDARD. The fix mode inherits this
+        value since it doesn't override model_tier at the mode level.
         """
         from agentfox.archetypes import ARCHETYPE_REGISTRY, resolve_effective_config
 
         entry = ARCHETYPE_REGISTRY["coder"]
         assert "fix" in entry.modes, f"coder should have 'fix' mode, got modes: {set(entry.modes.keys())}"
         cfg = resolve_effective_config(entry, "fix")
-        assert cfg.default_model_tier == "ADVANCED", (
-            f"coder:fix tier should be ADVANCED, got {cfg.default_model_tier!r}"
+        assert cfg.default_model_tier == "STANDARD", (
+            f"coder:fix tier should be STANDARD (spec 15), got {cfg.default_model_tier!r}"
         )
         assert cfg.default_max_turns == 300, f"coder:fix max_turns should be 300, got {cfg.default_max_turns}"
         assert cfg.default_thinking_mode == "adaptive", (

@@ -49,17 +49,17 @@ class TestTriageArchetypeRegistered:
         assert "uv" not in (cfg.default_allowlist or [])
         assert "make" not in (cfg.default_allowlist or [])
 
-    def test_maintainer_model_tier_standard(self) -> None:
-        """Post-migration: maintainer:hunt uses STANDARD tier (see errata for ADVANCED→STANDARD).
+    def test_maintainer_model_tier_simple(self) -> None:
+        """Post-migration: maintainer:hunt uses SIMPLE tier (spec 15).
 
         NOTE: The original triage archetype used ADVANCED tier (82-REQ-1.1).
-        Spec 100 defines maintainer:hunt with STANDARD tier. See errata for rationale.
+        Spec 100 set STANDARD, then spec 15 lowered it to SIMPLE.
         """
         from agentfox.archetypes import ARCHETYPE_REGISTRY, resolve_effective_config
 
         entry = ARCHETYPE_REGISTRY["maintainer"]
         cfg = resolve_effective_config(entry, "hunt")
-        assert cfg.default_model_tier == "STANDARD"
+        assert cfg.default_model_tier == "SIMPLE"
 
 
 # ---------------------------------------------------------------------------

@@ -83,14 +83,14 @@ class TestResolveModelTierModeFallback:
         """Falls back to archetype registry default when no override exists.
 
         With models.coding deprecated and defaulting to None (issue #597),
-        resolve_model_tier falls through to the coder's registry default (ADVANCED).
+        resolve_model_tier falls through to the coder's registry default (STANDARD per spec 15).
         """
         from agentfox.engine.sdk_params import resolve_model_tier
 
         config = AgentFoxConfig()
-        # models.coding is None → step 4 skipped → step 5: registry default "ADVANCED"
+        # models.coding is None → step 4 skipped → step 5: registry default "STANDARD" (spec 15)
         result = resolve_model_tier(config, "coder", mode="some-mode")
-        assert result == "ADVANCED"
+        assert result == "STANDARD"
 
     def test_falls_back_to_registry_when_no_global_model_key(self) -> None:
         """Falls back to registry default for archetypes without a global model key."""

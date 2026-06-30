@@ -65,20 +65,18 @@ class TestVerifierDefaultStandard:
 # ---------------------------------------------------------------------------
 
 
-class TestCoderDefaultAdvanced:
-    """TS-57-4: Verify Coder archetype defaults to ADVANCED.
+class TestCoderDefaultStandard:
+    """TS-57-4: Verify Coder archetype defaults to STANDARD.
 
-    The coder's registry default_model_tier is ADVANCED (issue #597).
-    Previously the effective ADVANCED tier came from the deprecated
-    [models] coding = "ADVANCED" config field; now it comes from the registry.
+    Spec 15 moved coder from ADVANCED to STANDARD as the registry default.
     """
 
-    def test_coder_default_tier_is_advanced(self) -> None:
-        """ARCHETYPE_REGISTRY["coder"].default_model_tier must be ADVANCED."""
+    def test_coder_default_tier_is_standard(self) -> None:
+        """ARCHETYPE_REGISTRY["coder"].default_model_tier must be STANDARD (spec 15)."""
         from agentfox.archetypes import ARCHETYPE_REGISTRY
 
         entry = ARCHETYPE_REGISTRY["coder"]
-        assert entry.default_model_tier == "ADVANCED"
+        assert entry.default_model_tier == "STANDARD"
 
 
 # ---------------------------------------------------------------------------
@@ -88,10 +86,9 @@ class TestCoderDefaultAdvanced:
 
 
 class TestRemainingArchetypesStandard:
-    """reviewer and verifier default to STANDARD tier; coder defaults to ADVANCED.
+    """reviewer, verifier, and coder default to STANDARD tier.
 
-    Updated by issue #597: coder's ADVANCED tier is now explicit in the registry
-    rather than supplied by the deprecated [models] coding config field.
+    Spec 15 moved coder from ADVANCED to STANDARD.
     """
 
     @pytest.mark.parametrize("name", ["reviewer", "verifier"])
@@ -250,8 +247,8 @@ class TestUnknownArchetypeFallback:
 
         entry = get_archetype("unknown_archetype_xyz")
         assert entry.name == "coder"
-        # Coder registry default is ADVANCED (issue #597 — moved from deprecated models.coding)
-        assert entry.default_model_tier == "ADVANCED"
+        # Coder registry default is STANDARD (spec 15)
+        assert entry.default_model_tier == "STANDARD"
 
 
 # ---------------------------------------------------------------------------
@@ -265,7 +262,7 @@ class TestPipelineFailureFallback:
 
     @pytest.mark.asyncio
     async def test_pipeline_failure_uses_default_with_advanced_ceiling(self) -> None:
-        """Coder node with default config: starting=ADVANCED (config default), ceiling=ADVANCED."""
+        """Coder node with default config: starting=STANDARD (registry default), ceiling=ADVANCED."""
         from agentfox.core.config import AgentFoxConfig
         from agentfox.engine.engine import AssessmentManager
 
@@ -277,8 +274,8 @@ class TestPipelineFailureFallback:
         await mgr.assess_node("spec:1", "coder")
 
         ladder = mgr.ladders["spec:1"]
-        # starting_tier = config.models.coding (ADVANCED), ceiling = ADVANCED
-        assert ladder.current_tier == ModelTier.ADVANCED
+        # starting_tier = STANDARD (spec 15), ceiling = ADVANCED
+        assert ladder.current_tier == ModelTier.STANDARD
         assert ladder._tier_ceiling == ModelTier.ADVANCED
 
 

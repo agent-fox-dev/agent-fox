@@ -106,7 +106,7 @@ class TestBannerVersionModel:
         with patch("agentfox.ui.display._get_git_revision", return_value="abc1234"):
             output = _capture_banner(ThemeConfig())
 
-        expected = f"agent-fox v{__version__} (abc1234).  model: claude-opus-4-6"
+        expected = f"agent-fox v{__version__} (abc1234).  model: claude-sonnet-4-6"
         assert expected in output, f"Expected {expected!r} in banner output, got:\n{output}"
 
     def test_version_and_model_line_without_revision(self) -> None:
@@ -114,7 +114,7 @@ class TestBannerVersionModel:
         with patch("agentfox.ui.display._get_git_revision", return_value=None):
             output = _capture_banner(ThemeConfig())
 
-        expected = f"agent-fox v{__version__}  model: claude-opus-4-6"
+        expected = f"agent-fox v{__version__}  model: claude-sonnet-4-6"
         assert expected in output, f"Expected {expected!r} in banner output, got:\n{output}"
 
 

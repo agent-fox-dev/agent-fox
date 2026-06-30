@@ -121,8 +121,8 @@ class TestRunnerUsesArchetype:
             mode="pre-review",
             knowledge_db=_MOCK_KB,
         )
-        # Reviewer base default model tier is STANDARD
-        assert runner._resolved_model_id == "claude-sonnet-4-6"
+        # Reviewer pre-review mode now defaults to ADVANCED (spec 15)
+        assert runner._resolved_model_id == "claude-opus-4-6"
 
     def test_runner_model_tier_config_override(self) -> None:
         from agentfox.core.config import AgentFoxConfig, ArchetypesConfig

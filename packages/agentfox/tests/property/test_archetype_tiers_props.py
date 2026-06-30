@@ -27,10 +27,9 @@ _TIER_ORDER: dict[ModelTier, int] = {
 
 # "triage" was removed in spec 100 and absorbed into maintainer:hunt (STANDARD tier).
 # "maintainer" is now in the registry with STANDARD tier.
-# "coder" moved from STANDARD to ADVANCED in issue #597 (registry now reflects
-# the effective default that was previously supplied by the deprecated [models] coding field).
-_ADVANCED_ARCHETYPES: set[str] = {"coder"}
-_STANDARD_ARCHETYPES = {"reviewer", "verifier", "maintainer"}
+# Spec 15 moved coder from ADVANCED to STANDARD.
+_ADVANCED_ARCHETYPES: set[str] = set()
+_STANDARD_ARCHETYPES = {"coder", "reviewer", "verifier", "maintainer"}
 
 
 # ---------------------------------------------------------------------------

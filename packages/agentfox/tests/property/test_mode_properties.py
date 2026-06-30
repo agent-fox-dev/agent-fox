@@ -205,9 +205,8 @@ class TestResolutionPriorityChain:
         from agentfox.core.config import AgentFoxConfig, ArchetypesConfig, PerArchetypeConfig
         from agentfox.engine.sdk_params import resolve_model_tier
 
-        # With models.coding deprecated (issue #597), the fallback is the coder
-        # archetype's registry default_model_tier, which is "ADVANCED".
-        coder_registry_default = "ADVANCED"
+        # Coder's registry default_model_tier is "STANDARD" (spec 15).
+        coder_registry_default = "STANDARD"
         arch_name = "coder"
         mode_name = "test-mode"
 
@@ -232,7 +231,7 @@ class TestResolutionPriorityChain:
         # 2. config archetype-level override
         # 3. legacy archetypes.models dict (not set here)
         # 4. global [models] config (deprecated; models.coding is None by default)
-        # 5. archetype registry default (ADVANCED for coder)
+        # 5. archetype registry default (STANDARD for coder, spec 15)
         mode_in_arch = arch_name in arch_overrides and mode_name in arch_overrides[arch_name].modes
         if config_mode_tier is not None and mode_in_arch:
             expected = config_mode_tier

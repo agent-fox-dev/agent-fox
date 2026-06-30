@@ -238,9 +238,10 @@ class TestCoderFixModeSessionSetup:
             knowledge_db=_MOCK_KB,
         )
 
-        # Coder registry default is ADVANCED → claude-opus-4-6
-        assert runner._resolved_model_id == "claude-opus-4-6", (
-            f"coder:fix mode should resolve to ADVANCED (Opus) via registry default, got {runner._resolved_model_id!r}"
+        # Coder registry default is STANDARD → claude-sonnet-4-6 (spec 15)
+        assert runner._resolved_model_id == "claude-sonnet-4-6", (
+            f"coder:fix mode should resolve to STANDARD (Sonnet) via registry default (spec 15), "
+            f"got {runner._resolved_model_id!r}"
         )
 
     def test_coder_fix_mode_uses_fix_profile(self) -> None:

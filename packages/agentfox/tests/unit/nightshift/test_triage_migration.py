@@ -122,16 +122,16 @@ class TestTriageUsesMaintainerHunt:
 
 
 class TestNightshiftModelTierResolution:
-    """Verify nightshift resolves STANDARD tier for maintainer:hunt."""
+    """Verify nightshift resolves SIMPLE tier for maintainer:hunt (spec 15)."""
 
-    def test_resolve_model_tier_returns_standard(self) -> None:
-        """TS-100-11: resolve_model_tier(config, 'maintainer', mode='hunt') returns 'STANDARD'."""
+    def test_resolve_model_tier_returns_simple(self) -> None:
+        """TS-100-11: resolve_model_tier(config, 'maintainer', mode='hunt') returns 'SIMPLE' (spec 15)."""
         from agentfox.core.config import AgentFoxConfig
         from agentfox.engine.sdk_params import resolve_model_tier
 
         config = AgentFoxConfig()
         tier = resolve_model_tier(config, "maintainer", mode="hunt")
-        assert tier == "STANDARD", f"Expected STANDARD tier for maintainer:hunt, got {tier!r} (100-REQ-5.1)"
+        assert tier == "SIMPLE", f"Expected SIMPLE tier for maintainer:hunt (spec 15), got {tier!r} (100-REQ-5.1)"
 
     def test_resolve_security_config_returns_hunt_allowlist(self) -> None:
         """TS-100-11: resolve_security_config for maintainer:hunt returns hunt allowlist."""
@@ -147,11 +147,11 @@ class TestNightshiftModelTierResolution:
             f"Hunt mode allowlist mismatch: expected {expected_allowlist}, got {actual_allowlist} (100-REQ-5.2)"
         )
 
-    def test_resolve_model_tier_extraction_returns_standard(self) -> None:
-        """TS-100-11: resolve_model_tier for maintainer:extraction also returns STANDARD."""
+    def test_resolve_model_tier_extraction_returns_simple(self) -> None:
+        """TS-100-11: resolve_model_tier for maintainer:extraction returns SIMPLE (spec 15)."""
         from agentfox.core.config import AgentFoxConfig
         from agentfox.engine.sdk_params import resolve_model_tier
 
         config = AgentFoxConfig()
         tier = resolve_model_tier(config, "maintainer", mode="extraction")
-        assert tier == "STANDARD", f"Expected STANDARD tier for maintainer:extraction, got {tier!r}"
+        assert tier == "SIMPLE", f"Expected SIMPLE tier for maintainer:extraction (spec 15), got {tier!r}"
