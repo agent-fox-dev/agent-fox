@@ -12,8 +12,9 @@ Treat this file as executable workflow policy.
 - Choose exactly one task group per session; do not begin the next even if
   the current one finishes early.
 - Never modify spec files (`requirements.json`, `test_spec.json`,
-  `tasks.json` content other than checkbox states). If the implementation
-  must diverge, create errata in `docs/errata/`.
+  `tasks.json`) directly. Use `afspec update-subtask <spec-dir> <subtask-id>
+  done` to mark subtasks complete. If the implementation must diverge, create
+  errata in `docs/errata/`.
 
 ## Quick Triage
 
@@ -155,4 +156,4 @@ summary before committing.
 - Session summary: what was attempted, what succeeded, what remains.
 - List of files created or modified.
 - Test results from quality-gate commands.
-- Task checkbox states updated in `tasks.json`.
+- Subtask states updated via `afspec update-subtask`.

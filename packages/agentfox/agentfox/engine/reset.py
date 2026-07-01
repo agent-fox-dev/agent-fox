@@ -7,7 +7,6 @@ Requirements: 07-REQ-4.1, 07-REQ-4.2, 07-REQ-5.1, 07-REQ-5.2,
 from __future__ import annotations
 
 import logging
-import re
 import shutil
 import subprocess
 from collections.abc import Callable
@@ -953,28 +952,26 @@ def find_affected_tasks(
 
 
 # ---------------------------------------------------------------------------
-# Spec file synchronization (tasks.md checkboxes)
+# Spec file synchronization (subtask states via afspec)
 # ---------------------------------------------------------------------------
-
-# Pattern matching a top-level task group line: "- [...] N."
-_TOP_LEVEL_RE = re.compile(r"^- \[.\] \d+\.", re.MULTILINE)
-
-# Pattern matching any checkbox with [x] or [-] (at any indent level)
-_CHECKBOX_RE = re.compile(r"^(\s*- \[)[x\-](\] )", re.MULTILINE)
 
 
 def reset_tasks_md_checkboxes(
     affected_task_ids: list[str],
     specs_dir: Path,
 ) -> None:
-    """Reset tasks.md checkboxes for affected task groups to ``[ ]``.
+    """Reset subtask states for affected task groups to pending.
 
     For each affected task ID (format: spec_name:group_number),
-    finds the corresponding tasks.md, locates the top-level
-    checkbox for that group number, and replaces ``[x]`` or ``[-]``
-    with ``[ ]``. Skips missing files silently.
+    loads the spec via afspec, resets subtask states for the
+    specified groups, and saves back via afspec.save().
+
+    Skips specs whose directory is missing or whose tasks.json
+    cannot be loaded.
     """
-    # Group task IDs by spec name
+    import afspec
+    from afspec.mutate import reset_subtask_states
+
     spec_groups: dict[str, list[int]] = {}
     for task_id in affected_task_ids:
         parsed = parse_node_id(task_id)
@@ -983,42 +980,21 @@ def reset_tasks_md_checkboxes(
         spec_groups.setdefault(parsed.spec_name, []).append(parsed.group_number)
 
     for spec_name, group_nums in spec_groups.items():
-        tasks_md = specs_dir / spec_name / "tasks.md"
-        if not tasks_md.exists():
-            logger.info("Skipping missing tasks.md for spec %s", spec_name)
+        spec_dir = specs_dir / spec_name
+        if not spec_dir.is_dir():
+            logger.info("Skipping missing spec directory for %s", spec_name)
             continue
 
-        text = tasks_md.read_text()
-        for group_num in group_nums:
-            text = _reset_group_checkboxes(text, group_num)
+        try:
+            spec = afspec.load_spec(spec_dir)
+        except Exception:
+            logger.info("Skipping unloadable spec %s", spec_name, exc_info=True)
+            continue
 
-        tasks_md.write_text(text)
+        updated_tasks = reset_subtask_states(spec.tasks, group_nums)
+        spec = spec.model_copy(update={"tasks": updated_tasks})
 
-
-def _reset_group_checkboxes(text: str, group_num: int) -> str:
-    """Reset all checkboxes within a task group section to ``[ ]``.
-
-    Identifies the section belonging to *group_num* (from its top-level
-    ``- [...] N.`` line to the next top-level line or EOF) and resets
-    every ``[x]`` or ``[-]`` checkbox within that section.
-    """
-    # Find the top-level line for this group
-    group_start_re = re.compile(rf"^- \[[x\- ]\] {group_num}\.", re.MULTILINE)
-    match = group_start_re.search(text)
-    if not match:
-        return text
-
-    section_start = match.start()
-
-    # Find the next top-level group line after this one
-    next_match = _TOP_LEVEL_RE.search(text, match.end())
-    section_end = next_match.start() if next_match else len(text)
-
-    # Extract the section, reset all [x]/[-] checkboxes, reassemble
-    before = text[:section_start]
-    section = text[section_start:section_end]
-    after = text[section_end:]
-
-    section = _CHECKBOX_RE.sub(r"\1 \2", section)
-
-    return before + section + after
+        try:
+            afspec.save(spec, spec_dir)
+        except Exception:
+            logger.warning("Failed to save reset spec %s", spec_name, exc_info=True)

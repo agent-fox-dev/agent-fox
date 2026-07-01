@@ -25,6 +25,7 @@ from afspec import (
     load_spec,
     save,
 )
+from afspec.exceptions import LifecycleError
 from afspec.mutate import (
     add_criterion,
     add_requirement,
@@ -36,7 +37,9 @@ from afspec.mutate import (
     next_requirement_id,
     next_test_case_id,
     remove_requirement,
+    reset_subtask_states,
     set_glossary_entry,
+    transition_subtask,
 )
 
 
@@ -317,3 +320,146 @@ def test_smoke_programmatic_construction(tmp_path: Path) -> None:
     save(final, tmp_path)
     reloaded = load_spec(tmp_path)
     assert reloaded.requirements.spec_id == "99"
+
+
+# ---------------------------------------------------------------------------
+# transition_subtask tests
+# ---------------------------------------------------------------------------
+
+
+def _make_tasks_with_subtasks() -> Tasks:
+    return Tasks(
+        spec_id="01",
+        spec_name="test_spec",
+        task_groups=[
+            TaskGroup(
+                id=1,
+                title="Group 1",
+                subtasks=[
+                    Subtask(id="1.1", title="First", state=SubtaskState.IN_PROGRESS),
+                    Subtask(id="1.2", title="Second", state=SubtaskState.PENDING),
+                ],
+            ),
+            TaskGroup(
+                id=2,
+                title="Group 2",
+                subtasks=[
+                    Subtask(id="2.1", title="Third", state=SubtaskState.PENDING),
+                ],
+            ),
+        ],
+    )
+
+
+class TestTransitionSubtask:
+    def test_valid_transition(self) -> None:
+        tasks = _make_tasks_with_subtasks()
+        updated = transition_subtask(tasks, "1.1", SubtaskState.DONE)
+        subtask = updated.task_groups[0].subtasks[0]
+        assert subtask.state == SubtaskState.DONE
+
+    def test_other_subtasks_unchanged(self) -> None:
+        tasks = _make_tasks_with_subtasks()
+        updated = transition_subtask(tasks, "1.1", SubtaskState.DONE)
+        assert updated.task_groups[0].subtasks[1].state == SubtaskState.PENDING
+        assert updated.task_groups[1].subtasks[0].state == SubtaskState.PENDING
+
+    def test_subtask_not_found(self) -> None:
+        tasks = _make_tasks_with_subtasks()
+        with pytest.raises(KeyError, match="9.9"):
+            transition_subtask(tasks, "9.9", SubtaskState.DONE)
+
+    def test_illegal_transition(self) -> None:
+        tasks = _make_tasks_with_subtasks()
+        with pytest.raises(LifecycleError):
+            transition_subtask(tasks, "1.2", SubtaskState.DONE)
+
+    def test_cross_group_lookup(self) -> None:
+        tasks = _make_tasks_with_subtasks()
+        updated = transition_subtask(tasks, "2.1", SubtaskState.QUEUED)
+        assert updated.task_groups[1].subtasks[0].state == SubtaskState.QUEUED
+
+
+# ---------------------------------------------------------------------------
+# reset_subtask_states tests
+# ---------------------------------------------------------------------------
+
+
+class TestResetSubtaskStates:
+    def test_resets_done_to_pending(self) -> None:
+        tasks = Tasks(
+            task_groups=[
+                TaskGroup(
+                    id=1,
+                    subtasks=[
+                        Subtask(id="1.1", title="A", state=SubtaskState.DONE),
+                        Subtask(id="1.2", title="B", state=SubtaskState.DONE),
+                    ],
+                ),
+            ],
+        )
+        updated = reset_subtask_states(tasks, [1])
+        assert all(s.state == SubtaskState.PENDING for s in updated.task_groups[0].subtasks)
+
+    def test_resets_in_progress_to_pending(self) -> None:
+        tasks = Tasks(
+            task_groups=[
+                TaskGroup(
+                    id=1,
+                    subtasks=[
+                        Subtask(id="1.1", title="A", state=SubtaskState.IN_PROGRESS),
+                    ],
+                ),
+            ],
+        )
+        updated = reset_subtask_states(tasks, [1])
+        assert updated.task_groups[0].subtasks[0].state == SubtaskState.PENDING
+
+    def test_skips_dropped(self) -> None:
+        tasks = Tasks(
+            task_groups=[
+                TaskGroup(
+                    id=1,
+                    subtasks=[
+                        Subtask(id="1.1", title="A", state=SubtaskState.DROPPED),
+                    ],
+                ),
+            ],
+        )
+        updated = reset_subtask_states(tasks, [1])
+        assert updated.task_groups[0].subtasks[0].state == SubtaskState.DROPPED
+
+    def test_skips_already_pending(self) -> None:
+        tasks = Tasks(
+            task_groups=[
+                TaskGroup(
+                    id=1,
+                    subtasks=[
+                        Subtask(id="1.1", title="A", state=SubtaskState.PENDING),
+                    ],
+                ),
+            ],
+        )
+        updated = reset_subtask_states(tasks, [1])
+        assert updated.task_groups[0].subtasks[0].state == SubtaskState.PENDING
+
+    def test_only_affects_specified_groups(self) -> None:
+        tasks = Tasks(
+            task_groups=[
+                TaskGroup(
+                    id=1,
+                    subtasks=[
+                        Subtask(id="1.1", title="A", state=SubtaskState.DONE),
+                    ],
+                ),
+                TaskGroup(
+                    id=2,
+                    subtasks=[
+                        Subtask(id="2.1", title="B", state=SubtaskState.DONE),
+                    ],
+                ),
+            ],
+        )
+        updated = reset_subtask_states(tasks, [1])
+        assert updated.task_groups[0].subtasks[0].state == SubtaskState.PENDING
+        assert updated.task_groups[1].subtasks[0].state == SubtaskState.DONE

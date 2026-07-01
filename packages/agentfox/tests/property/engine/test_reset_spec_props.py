@@ -89,27 +89,36 @@ def _setup_for_property(
         updated_at="2026-03-01T10:00:00Z",
     )
 
-    # Create specs dirs with tasks.md for each spec
+    # Create specs dirs with tasks.json (v1.2) for each spec
+    from afspec import Subtask, SubtaskState, TaskGroup, Tasks, save
+    from afspec.constructors import create_spec
+
     specs_dir = tmp_path / ".agent-fox" / "specs"
     seen_specs: set[str] = set()
     for nid, props in nodes.items():
-        spec = props.get("spec_name", nid.split(":")[0])
-        if spec not in seen_specs:
-            seen_specs.add(spec)
-            spec_dir = specs_dir / spec
+        spec_name = props.get("spec_name", nid.split(":")[0])
+        if spec_name not in seen_specs:
+            seen_specs.add(spec_name)
+            spec_dir = specs_dir / spec_name
             spec_dir.mkdir(parents=True, exist_ok=True)
-            # Build tasks.md with checkbox entries
-            groups = set()
+            groups_set: set[int] = set()
             for nid2, p2 in nodes.items():
                 s2 = p2.get("spec_name", nid2.split(":")[0])
-                if s2 == spec:
-                    gn = p2.get("group_number", 1)
-                    groups.add(gn)
-            lines = []
-            for g in sorted(groups):
-                status = "[x]"  # Start as checked
-                lines.append(f"- {status} {g}. Task group {g}")
-            (spec_dir / "tasks.md").write_text("\n".join(lines) + "\n")
+                if s2 == spec_name:
+                    groups_set.add(p2.get("group_number", 1))
+            task_groups = [
+                TaskGroup(
+                    id=g,
+                    title=f"Task group {g}",
+                    subtasks=[Subtask(id=f"{g}.1", title="Subtask", state=SubtaskState.DONE)],
+                )
+                for g in sorted(groups_set)
+            ]
+            spec = create_spec(spec_id="01", spec_name=spec_name)
+            spec = spec.model_copy(
+                update={"tasks": Tasks(spec_id="01", spec_name=spec_name, task_groups=task_groups)}
+            )
+            save(spec, spec_dir)
 
     return state, db_conn, wt_dir, tmp_path
 
@@ -278,12 +287,14 @@ class TestArtifactSynchronization:
             if spec == target_spec:
                 assert state.node_states[nid] == "pending", f"State node {nid} should be pending"
 
-        # Check tasks.md - no [x] or [-] for reset spec
-        tasks_md = tmp_path / ".agent-fox" / "specs" / target_spec / "tasks.md"
-        if tasks_md.exists():
-            content = tasks_md.read_text()
-            # Top-level checkboxes should not have [x] or [-]
-            for line in content.split("\n"):
-                if line.startswith("- ["):
-                    assert "[x]" not in line, f"Found [x] in: {line}"
-                    assert "[-]" not in line, f"Found [-] in: {line}"
+        # Check tasks.json - all subtask states pending for reset spec
+        from afspec import SubtaskState, load_spec
+
+        spec_dir = tmp_path / ".agent-fox" / "specs" / target_spec
+        if spec_dir.is_dir():
+            reloaded = load_spec(spec_dir)
+            for group in reloaded.tasks.task_groups:
+                for subtask in group.subtasks:
+                    assert subtask.state == SubtaskState.PENDING, (
+                        f"Subtask {subtask.id} should be pending, got {subtask.state}"
+                    )

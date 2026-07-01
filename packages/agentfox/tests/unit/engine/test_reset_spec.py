@@ -229,10 +229,13 @@ class TestWorktreesAndBranchesCleaned:
 
 
 class TestTasksMdCheckboxesReset:
-    """TS-50-5: Top-level checkboxes in tasks.md are reset."""
+    """TS-50-5: Subtask states in tasks.json are reset to pending."""
 
     def test_checkboxes_reset_to_unchecked(self, tmp_path: Path) -> None:
-        """Completed/in-progress checkboxes are reset to [ ]."""
+        """Completed/in-progress subtask states are reset to pending."""
+        from afspec import Subtask, SubtaskState, TaskGroup, Tasks, load_spec, save
+        from afspec.constructors import create_spec
+
         nodes = {
             "alpha:1": {"spec_name": "alpha", "group_number": 1},
             "alpha:2": {"spec_name": "alpha", "group_number": 2},
@@ -240,26 +243,35 @@ class TestTasksMdCheckboxesReset:
         node_states = {"alpha:1": "completed", "alpha:2": "completed"}
         state, db_conn, wt_dir, repo = _setup(tmp_path, nodes, node_states)
 
-        # Create tasks.md with checked boxes
         specs_dir = repo / ".agent-fox" / "specs"
         alpha_dir = specs_dir / "alpha"
         alpha_dir.mkdir(parents=True)
-        tasks_md = alpha_dir / "tasks.md"
-        tasks_md.write_text(
-            "# Tasks\n\n- [x] 1. Task One\n  - [x] 1.1 Subtask\n- [x] 2. Task Two\n  - [-] 2.1 Subtask\n"
+        spec = create_spec(spec_id="01", spec_name="alpha")
+        spec = spec.model_copy(
+            update={
+                "tasks": Tasks(
+                    spec_id="01",
+                    spec_name="alpha",
+                    task_groups=[
+                        TaskGroup(id=1, title="Task One", subtasks=[
+                            Subtask(id="1.1", title="Subtask", state=SubtaskState.DONE),
+                        ]),
+                        TaskGroup(id=2, title="Task Two", subtasks=[
+                            Subtask(id="2.1", title="Subtask", state=SubtaskState.IN_PROGRESS),
+                        ]),
+                    ],
+                ),
+            }
         )
+        save(spec, alpha_dir)
 
         with patch("agentfox.engine.reset._load_state_or_raise", return_value=state):
             reset_spec("alpha", wt_dir, repo, db_conn=db_conn)
 
-        content = tasks_md.read_text()
-        assert "- [ ] 1. Task One" in content
-        assert "- [ ] 2. Task Two" in content
-        # No completed top-level checkboxes remain
-        lines = content.split("\n")
-        top_level = [ln for ln in lines if ln.startswith("- [")]
-        for line in top_level:
-            assert "[x]" not in line
+        reloaded = load_spec(alpha_dir)
+        for group in reloaded.tasks.task_groups:
+            for subtask in group.subtasks:
+                assert subtask.state == SubtaskState.PENDING
 
 
 # ---------------------------------------------------------------------------

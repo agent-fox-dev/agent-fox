@@ -324,30 +324,31 @@ class TestBackwardCompatDeserProperty:
 
 
 class TestArtifactSyncProperty:
-    """TS-35-P5: tasks.md checkboxes are consistent after reset."""
+    """TS-35-P5: subtask states are consistent after reset."""
 
     @given(
-        n_tasks=st.integers(min_value=1, max_value=10),
+        n_tasks=st.integers(min_value=1, max_value=5),
         statuses=st.lists(
-            st.sampled_from(["completed", "in_progress", "failed"]),
+            st.sampled_from(["done", "in_progress", "queued"]),
             min_size=1,
-            max_size=10,
+            max_size=5,
         ),
     )
     @settings(
         max_examples=50,
         suppress_health_check=[HealthCheck.too_slow],
     )
-    def test_checkboxes_consistent(
+    def test_subtask_states_consistent(
         self,
         n_tasks: int,
         statuses: list[str],
         tmp_path_factory,
     ) -> None:
-        """All affected task checkboxes are [ ] after reset."""
+        """All affected subtask states are pending after reset."""
+        from afspec import Subtask, SubtaskState, TaskGroup, Tasks, load_spec, save
+        from afspec.constructors import create_spec
         from agentfox.engine.reset import reset_tasks_md_checkboxes
 
-        # Use min of n_tasks and len(statuses) for consistency
         actual_n = min(n_tasks, len(statuses))
         task_ids = [f"propspec:{i + 1}" for i in range(actual_n)]
 
@@ -356,22 +357,30 @@ class TestArtifactSyncProperty:
         spec_dir = specs_dir / "propspec"
         spec_dir.mkdir(parents=True)
 
-        # Build tasks.md with mixed checkbox states
-        checkbox_map = {"completed": "[x]", "in_progress": "[-]", "failed": "[x]"}
-        lines = ["# Tasks\n"]
+        state_map = {
+            "done": SubtaskState.DONE,
+            "in_progress": SubtaskState.IN_PROGRESS,
+            "queued": SubtaskState.QUEUED,
+        }
+        groups = []
         for i in range(actual_n):
-            status = statuses[i]
-            cb = checkbox_map.get(status, "[x]")
-            lines.append(f"- {cb} {i + 1}. Task group {i + 1}\n")
-            lines.append(f"  - {cb} {i + 1}.1 Subtask\n")
+            state = state_map[statuses[i]]
+            groups.append(
+                TaskGroup(
+                    id=i + 1,
+                    title=f"Group {i + 1}",
+                    subtasks=[Subtask(id=f"{i + 1}.1", title="Subtask", state=state)],
+                )
+            )
 
-        tasks_md = spec_dir / "tasks.md"
-        tasks_md.write_text("".join(lines))
+        spec = create_spec(spec_id="01", spec_name="propspec")
+        spec = spec.model_copy(
+            update={"tasks": Tasks(spec_id="01", spec_name="propspec", task_groups=groups)}
+        )
+        save(spec, spec_dir)
 
-        # Run reset
         reset_tasks_md_checkboxes(task_ids, specs_dir)
 
-        # Verify tasks.md checkboxes
-        text = tasks_md.read_text()
+        reloaded = load_spec(spec_dir)
         for i in range(actual_n):
-            assert f"- [ ] {i + 1}." in text
+            assert reloaded.tasks.task_groups[i].subtasks[0].state == SubtaskState.PENDING

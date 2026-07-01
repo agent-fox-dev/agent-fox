@@ -20,6 +20,7 @@ from afspec.models import (
     Requirements,
     SmokeTest,
     Subtask,
+    SubtaskState,
     TaskDependency,
     TaskGroup,
     Tasks,
@@ -226,6 +227,49 @@ def add_traceability_entry(t: Tasks, e: TraceabilityEntry) -> Tasks:
 def add_dependency(t: Tasks, d: TaskDependency) -> Tasks:
     """Add a dependency entry."""
     return t.model_copy(update={"dependencies": [*t.dependencies, d]})
+
+
+def transition_subtask(tasks: Tasks, subtask_id: str, target: SubtaskState) -> Tasks:
+    """Transition a subtask to a new state.
+
+    Finds the subtask by ID across all task groups, validates the
+    transition via the state machine, and returns a new Tasks with
+    the updated state.
+
+    Raises ``KeyError`` if *subtask_id* is not found.
+    Raises ``LifecycleError`` if the transition is illegal.
+    """
+    for group in tasks.task_groups:
+        for i, subtask in enumerate(group.subtasks):
+            if subtask.id == subtask_id:
+                updated = subtask.transition_to(target)
+                new_subtasks = [*group.subtasks[:i], updated, *group.subtasks[i + 1 :]]
+                new_group = group.model_copy(update={"subtasks": new_subtasks})
+                new_groups = [new_group if g.id == group.id else g for g in tasks.task_groups]
+                return tasks.model_copy(update={"task_groups": new_groups})
+    raise KeyError(f"Subtask not found: {subtask_id}")
+
+
+def reset_subtask_states(tasks: Tasks, group_ids: list[int]) -> Tasks:
+    """Reset all subtasks in the specified groups to pending.
+
+    Skips subtasks that are already pending or dropped.
+    Returns a new Tasks with the updated states.
+    """
+    target_set = set(group_ids)
+    new_groups = []
+    for group in tasks.task_groups:
+        if group.id not in target_set:
+            new_groups.append(group)
+            continue
+        new_subtasks = []
+        for subtask in group.subtasks:
+            if subtask.state in (SubtaskState.PENDING, SubtaskState.DROPPED):
+                new_subtasks.append(subtask)
+            else:
+                new_subtasks.append(subtask.model_copy(update={"state": SubtaskState.PENDING}))
+        new_groups.append(group.model_copy(update={"subtasks": new_subtasks}))
+    return tasks.model_copy(update={"task_groups": new_groups})
 
 
 # ---------------------------------------------------------------------------

@@ -577,127 +577,130 @@ class TestJsonOutput:
 
 
 class TestResetTasksMdCheckboxes:
-    """TS-35-17: tasks.md checkboxes reset to [ ] for affected groups."""
+    """TS-35-17: subtask states reset to pending for affected groups."""
+
+    @staticmethod
+    def _make_spec(specs_dir: Path, spec_name: str, groups: list) -> Path:
+        """Create a v1.2 spec directory with the given task groups."""
+        from afspec import Tasks, save
+        from afspec.constructors import create_spec
+
+        spec = create_spec(spec_id="01", spec_name=spec_name)
+        spec = spec.model_copy(
+            update={
+                "tasks": Tasks(
+                    spec_id="01",
+                    spec_name=spec_name,
+                    task_groups=groups,
+                ),
+            }
+        )
+        spec_dir = specs_dir / spec_name
+        spec_dir.mkdir(parents=True)
+        save(spec, spec_dir)
+        return spec_dir
 
     def test_checkboxes_reset(self, tmp_path: Path) -> None:
-        """Top-level checkboxes for affected groups are set to [ ]."""
+        """Subtask states for affected groups are set to pending."""
+        from afspec import Subtask, SubtaskState, TaskGroup, load_spec
         from agentfox.engine.reset import reset_tasks_md_checkboxes
 
         specs_dir = tmp_path / ".specs"
-        spec_dir = specs_dir / "myspec"
-        spec_dir.mkdir(parents=True)
-        tasks_md = spec_dir / "tasks.md"
-        tasks_md.write_text(
-            "# Tasks\n\n"
-            "- [x] 1. First task group\n"
-            "  - [x] 1.1 Subtask\n"
-            "- [-] 2. Second task group\n"
-            "  - [ ] 2.1 Subtask\n"
-            "- [ ] 3. Third task group\n"
-        )
+        self._make_spec(specs_dir, "myspec", [
+            TaskGroup(id=1, title="First", subtasks=[
+                Subtask(id="1.1", title="Subtask", state=SubtaskState.DONE),
+            ]),
+            TaskGroup(id=2, title="Second", subtasks=[
+                Subtask(id="2.1", title="Subtask", state=SubtaskState.IN_PROGRESS),
+            ]),
+            TaskGroup(id=3, title="Third", subtasks=[
+                Subtask(id="3.1", title="Subtask", state=SubtaskState.PENDING),
+            ]),
+        ])
 
         reset_tasks_md_checkboxes(["myspec:1", "myspec:2"], specs_dir)
 
-        text = tasks_md.read_text()
-        assert "- [ ] 1." in text
-        assert "- [ ] 2." in text
-        assert "- [ ] 3." in text
+        spec = load_spec(specs_dir / "myspec")
+        assert spec.tasks.task_groups[0].subtasks[0].state == SubtaskState.PENDING
+        assert spec.tasks.task_groups[1].subtasks[0].state == SubtaskState.PENDING
+        assert spec.tasks.task_groups[2].subtasks[0].state == SubtaskState.PENDING
 
     def test_subtask_checkboxes_are_reset(self, tmp_path: Path) -> None:
-        """Sub-task checkboxes within a task group are reset (fixes #163)."""
+        """All subtasks within a task group are reset."""
+        from afspec import Subtask, SubtaskState, TaskGroup, load_spec
         from agentfox.engine.reset import reset_tasks_md_checkboxes
 
         specs_dir = tmp_path / ".specs"
-        spec_dir = specs_dir / "myspec"
-        spec_dir.mkdir(parents=True)
-        tasks_md = spec_dir / "tasks.md"
-        tasks_md.write_text(
-            "# Tasks\n\n"
-            "- [x] 1. First task group\n"
-            "  - [x] 1.1 Subtask one\n"
-            "  - [x] 1.2 Subtask two\n"
-            "  - [x] 1.V Verify task group 1\n"
-        )
+        self._make_spec(specs_dir, "myspec", [
+            TaskGroup(id=1, title="First", subtasks=[
+                Subtask(id="1.1", title="Subtask one", state=SubtaskState.DONE),
+                Subtask(id="1.2", title="Subtask two", state=SubtaskState.DONE),
+            ]),
+        ])
 
         reset_tasks_md_checkboxes(["myspec:1"], specs_dir)
 
-        text = tasks_md.read_text()
-        assert "- [ ] 1. First task group" in text
-        assert "  - [ ] 1.1 Subtask one" in text
-        assert "  - [ ] 1.2 Subtask two" in text
-        assert "  - [ ] 1.V Verify task group 1" in text
+        spec = load_spec(specs_dir / "myspec")
+        assert all(s.state == SubtaskState.PENDING for s in spec.tasks.task_groups[0].subtasks)
 
     def test_subtask_in_progress_checkboxes_are_reset(self, tmp_path: Path) -> None:
-        """In-progress [-] sub-task checkboxes are also reset (fixes #163)."""
+        """In-progress subtasks are also reset."""
+        from afspec import Subtask, SubtaskState, TaskGroup, load_spec
         from agentfox.engine.reset import reset_tasks_md_checkboxes
 
         specs_dir = tmp_path / ".specs"
-        spec_dir = specs_dir / "myspec"
-        spec_dir.mkdir(parents=True)
-        tasks_md = spec_dir / "tasks.md"
-        tasks_md.write_text(
-            "# Tasks\n\n"
-            "- [-] 1. First task group\n"
-            "  - [x] 1.1 Done subtask\n"
-            "  - [-] 1.2 In-progress subtask\n"
-            "  - [ ] 1.3 Pending subtask\n"
-        )
+        self._make_spec(specs_dir, "myspec", [
+            TaskGroup(id=1, title="First", subtasks=[
+                Subtask(id="1.1", title="Done", state=SubtaskState.DONE),
+                Subtask(id="1.2", title="In-progress", state=SubtaskState.IN_PROGRESS),
+                Subtask(id="1.3", title="Pending", state=SubtaskState.PENDING),
+            ]),
+        ])
 
         reset_tasks_md_checkboxes(["myspec:1"], specs_dir)
 
-        text = tasks_md.read_text()
-        assert "- [ ] 1. First task group" in text
-        assert "  - [ ] 1.1 Done subtask" in text
-        assert "  - [ ] 1.2 In-progress subtask" in text
-        assert "  - [ ] 1.3 Pending subtask" in text
+        spec = load_spec(specs_dir / "myspec")
+        assert all(s.state == SubtaskState.PENDING for s in spec.tasks.task_groups[0].subtasks)
 
     def test_subtask_reset_does_not_affect_other_groups(self, tmp_path: Path) -> None:
-        """Resetting group 1 sub-tasks does not touch group 2 sub-tasks."""
+        """Resetting group 1 does not touch group 2."""
+        from afspec import Subtask, SubtaskState, TaskGroup, load_spec
         from agentfox.engine.reset import reset_tasks_md_checkboxes
 
         specs_dir = tmp_path / ".specs"
-        spec_dir = specs_dir / "myspec"
-        spec_dir.mkdir(parents=True)
-        tasks_md = spec_dir / "tasks.md"
-        tasks_md.write_text(
-            "# Tasks\n\n"
-            "- [x] 1. First task group\n"
-            "  - [x] 1.1 Subtask one\n"
-            "- [x] 2. Second task group\n"
-            "  - [x] 2.1 Subtask one\n"
-        )
+        self._make_spec(specs_dir, "myspec", [
+            TaskGroup(id=1, title="First", subtasks=[
+                Subtask(id="1.1", title="Subtask", state=SubtaskState.DONE),
+            ]),
+            TaskGroup(id=2, title="Second", subtasks=[
+                Subtask(id="2.1", title="Subtask", state=SubtaskState.DONE),
+            ]),
+        ])
 
         reset_tasks_md_checkboxes(["myspec:1"], specs_dir)
 
-        text = tasks_md.read_text()
-        assert "- [ ] 1. First task group" in text
-        assert "  - [ ] 1.1 Subtask one" in text
-        assert "- [x] 2. Second task group" in text
-        assert "  - [x] 2.1 Subtask one" in text
+        spec = load_spec(specs_dir / "myspec")
+        assert spec.tasks.task_groups[0].subtasks[0].state == SubtaskState.PENDING
+        assert spec.tasks.task_groups[1].subtasks[0].state == SubtaskState.DONE
 
-    def test_deep_nested_checkboxes_are_reset(self, tmp_path: Path) -> None:
-        """Checkboxes at any nesting depth within a group are reset."""
+    def test_dropped_subtasks_stay_dropped(self, tmp_path: Path) -> None:
+        """Dropped subtasks are not reset to pending."""
+        from afspec import Subtask, SubtaskState, TaskGroup, load_spec
         from agentfox.engine.reset import reset_tasks_md_checkboxes
 
         specs_dir = tmp_path / ".specs"
-        spec_dir = specs_dir / "myspec"
-        spec_dir.mkdir(parents=True)
-        tasks_md = spec_dir / "tasks.md"
-        tasks_md.write_text(
-            "# Tasks\n\n"
-            "- [x] 1. First task group\n"
-            "  - [x] 1.1 Subtask\n"
-            "    - [x] 1.1.1 Deep subtask\n"
-            "- [x] 2. Second task group\n"
-        )
+        self._make_spec(specs_dir, "myspec", [
+            TaskGroup(id=1, title="First", subtasks=[
+                Subtask(id="1.1", title="Done", state=SubtaskState.DONE),
+                Subtask(id="1.2", title="Dropped", state=SubtaskState.DROPPED),
+            ]),
+        ])
 
         reset_tasks_md_checkboxes(["myspec:1"], specs_dir)
 
-        text = tasks_md.read_text()
-        assert "- [ ] 1. First task group" in text
-        assert "  - [ ] 1.1 Subtask" in text
-        assert "    - [ ] 1.1.1 Deep subtask" in text
-        assert "- [x] 2. Second task group" in text
+        spec = load_spec(specs_dir / "myspec")
+        assert spec.tasks.task_groups[0].subtasks[0].state == SubtaskState.PENDING
+        assert spec.tasks.task_groups[0].subtasks[1].state == SubtaskState.DROPPED
 
 
 # ===========================================================================
@@ -879,22 +882,24 @@ class TestUserDeclines:
 
 
 class TestTasksMdMissing:
-    """TS-35-E7: Missing tasks.md files are skipped gracefully."""
+    """TS-35-E7: Missing spec directories are skipped gracefully."""
 
-    def test_missing_tasks_md_no_error(self, tmp_path: Path) -> None:
-        """No error raised for missing spec tasks.md."""
+    def test_missing_spec_dir_no_error(self, tmp_path: Path) -> None:
+        """No error raised for missing spec directory."""
+        from afspec import Subtask, SubtaskState, TaskGroup, load_spec
         from agentfox.engine.reset import reset_tasks_md_checkboxes
 
         specs_dir = tmp_path / ".specs"
-        existing_dir = specs_dir / "existing_spec"
-        existing_dir.mkdir(parents=True)
-        tasks_md = existing_dir / "tasks.md"
-        tasks_md.write_text("# Tasks\n\n- [x] 1. First task group\n")
+        TestResetTasksMdCheckboxes._make_spec(specs_dir, "existing_spec", [
+            TaskGroup(id=1, title="First", subtasks=[
+                Subtask(id="1.1", title="Subtask", state=SubtaskState.DONE),
+            ]),
+        ])
 
         reset_tasks_md_checkboxes(["existing_spec:1", "missing_spec:1"], specs_dir)
 
-        text = tasks_md.read_text()
-        assert "- [ ] 1." in text
+        spec = load_spec(specs_dir / "existing_spec")
+        assert spec.tasks.task_groups[0].subtasks[0].state == SubtaskState.PENDING
 
 
 # ===========================================================================
