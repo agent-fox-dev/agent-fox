@@ -2823,50 +2823,6 @@ class TestSessionRunnerFactoryClientInjection:
             "_setup_infrastructure() should call create_async_anthropic_client()"
         )
 
-    def test_orchestrator_passes_client_to_assessment_manager(self) -> None:
-        """Orchestrator.__init__() passes the client kwarg to AssessmentManager.
-
-        We verify this behaviorally by constructing an Orchestrator with a
-        mock client and checking that AssessmentManager._assessor is non-None
-        (which only happens when client is not None).
-        """
-        from agentfox.engine.engine import Orchestrator
-
-        mock_client = MagicMock()
-        # Construct a minimal Orchestrator with a mock client
-        from agentfox.core.config import AgentFoxConfig, OrchestratorConfig
-
-        orch_config = OrchestratorConfig()
-        full_config = AgentFoxConfig()
-        orch = Orchestrator(
-            config=orch_config,
-            session_runner_factory=MagicMock(),
-            full_config=full_config,
-            client=mock_client,
-        )
-        # AssessmentManager should have instantiated ComplexityAssessor
-        assert orch._routing._assessor is not None, (
-            "Orchestrator should pass client to AssessmentManager, causing ComplexityAssessor to be instantiated"
-        )
-        assert orch._routing._assessor.client is mock_client, (
-            "ComplexityAssessor should receive the same client object passed to Orchestrator"
-        )
-
-    def test_orchestrator_none_client_disables_assessor(self) -> None:
-        """When client=None, AssessmentManager._assessor is None."""
-        from agentfox.core.config import AgentFoxConfig, OrchestratorConfig
-        from agentfox.engine.engine import Orchestrator
-
-        orch_config = OrchestratorConfig()
-        full_config = AgentFoxConfig()
-        orch = Orchestrator(
-            config=orch_config,
-            session_runner_factory=MagicMock(),
-            full_config=full_config,
-            client=None,
-        )
-        assert orch._routing._assessor is None, "Orchestrator with client=None should disable ComplexityAssessor"
-
     def test_run_code_passes_anthropic_client_to_orchestrator(self) -> None:
         """run_code() wires infra['anthropic_client'] as 'client' to Orchestrator.
 
@@ -4528,7 +4484,6 @@ async def _call_prepare_launch_behavioral(
         inter_session_delay=0.0,
         parallel=1,
         graph=mock_graph,
-        routing=mock_routing,
         circuit=mock_circuit,
         config=mock_config,
     )

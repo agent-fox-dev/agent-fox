@@ -97,9 +97,6 @@ class TestWorkspaceStateNoPermBlock:
         from agentfox.engine.graph_sync import GraphSync
 
         # Build minimal DispatchManager
-        routing = MagicMock()
-        routing.assess_node = AsyncMock()
-        routing.ladders = {}
         decision = MagicMock()
         decision.allowed = True
         circuit = MagicMock()
@@ -111,7 +108,6 @@ class TestWorkspaceStateNoPermBlock:
             session_runner_factory=MagicMock(),
             inter_session_delay=0,
             parallel=1,
-            routing=routing,
             circuit=circuit,
             config=MagicMock(max_retries=3, sync_interval=0),
             full_config=full_config,
@@ -148,9 +144,6 @@ class TestWorkspaceStateNoPermBlock:
         from agentfox.engine.dispatch import DispatchManager
         from agentfox.engine.graph_sync import GraphSync
 
-        routing = MagicMock()
-        routing.assess_node = AsyncMock()
-        routing.ladders = {}
         decision = MagicMock()
         decision.allowed = True
         circuit = MagicMock()
@@ -162,7 +155,6 @@ class TestWorkspaceStateNoPermBlock:
             session_runner_factory=MagicMock(),
             inter_session_delay=0,
             parallel=1,
-            routing=routing,
             circuit=circuit,
             config=MagicMock(max_retries=3, sync_interval=0),
             full_config=full_config,

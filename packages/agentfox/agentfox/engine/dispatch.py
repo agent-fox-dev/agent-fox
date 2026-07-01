@@ -422,7 +422,6 @@ class DispatchManager:
         inter_session_delay: float,
         parallel: int,
         graph: Any | None = None,
-        routing: Any | None = None,
         circuit: Any | None = None,
         config: Any | None = None,
         routing_config: Any | None = None,
@@ -436,7 +435,6 @@ class DispatchManager:
         from agentfox.engine.parallel import ParallelRunner
 
         self._graph = graph
-        self._routing = routing
         self._circuit = circuit
         self._config = config
         self._routing_config = routing_config

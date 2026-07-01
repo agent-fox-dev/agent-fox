@@ -53,10 +53,6 @@ def _make_dispatch_manager(
         workspace_cfg = types.SimpleNamespace(force_clean=force_clean)
         full_config = types.SimpleNamespace(workspace=workspace_cfg)
 
-    routing = MagicMock()
-    routing.assess_node = AsyncMock()
-    routing.ladders = {}
-
     decision = MagicMock()
     decision.allowed = True
     circuit = MagicMock()
@@ -67,7 +63,6 @@ def _make_dispatch_manager(
         inter_session_delay=0,
         parallel=1,
         graph=None,
-        routing=routing,
         circuit=circuit,
         config=MagicMock(max_retries=3, sync_interval=0),
         routing_config=None,

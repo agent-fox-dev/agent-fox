@@ -457,13 +457,6 @@ class Orchestrator:
 
         _rc = routing_config or RoutingConfig()
         self._routing_config = _rc
-        # 15-REQ-4.2: Pass the configured Anthropic client to AssessmentManager so
-        # complexity assessment is enabled when a real client is available.
-        self._routing = AssessmentManager(
-            retries_before_escalation=self._resolve_retries_before_escalation(_rc),
-            config=full_config or AgentFoxConfig(),
-            client=client,
-        )
 
         self._state_mgr = StateManager(
             knowledge_db_conn=knowledge_db_conn,
@@ -475,7 +468,6 @@ class Orchestrator:
             session_runner_factory=session_runner_factory,
             inter_session_delay=float(config.inter_session_delay),
             parallel=config.parallel,
-            routing=self._routing,
             circuit=self._circuit,
             config=config,
             routing_config=_rc,
@@ -524,21 +516,6 @@ class Orchestrator:
     @_config_hash.setter
     def _config_hash(self, value: str) -> None:
         self._config_reloader.config_hash = value
-
-    def _resolve_retries_before_escalation(self, routing_config: RoutingConfig) -> int:
-        routing_retries = routing_config.retries_before_escalation
-        orch_retries = self._config.max_retries
-        if routing_retries != 1:
-            return routing_retries
-        if orch_retries != 2:
-            logger.warning(
-                "orchestrator.max_retries is deprecated; use "
-                "routing.retries_before_escalation instead. "
-                "Using max_retries=%d as fallback.",
-                orch_retries,
-            )
-            return min(orch_retries, 3)
-        return routing_retries
 
     def _emit_audit(self, *args: Any, **kwargs: Any) -> None:
         emit_audit_event(self._sink, self._run_id, *args, **kwargs)
