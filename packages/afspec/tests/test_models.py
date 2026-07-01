@@ -441,3 +441,52 @@ def test_property_constructor_completeness(spec_id: str, spec_name: str) -> None
     assert op.ears_pattern == EARSPattern.OPTIONAL
     assert op.feature == "export"
     assert op.error_condition is None
+
+
+# ---------------------------------------------------------------------------
+# Subtask.details string coercion (fixes #658)
+# ---------------------------------------------------------------------------
+
+
+class TestSubtaskDetailsCoercion:
+    """Subtask.details coerces a bare string to a single-element list."""
+
+    def test_string_coerced_to_list(self) -> None:
+        sub = Subtask(id="1.1", title="Write tests", details="Write unit tests in test_foo.py")
+        assert sub.details == ["Write unit tests in test_foo.py"]
+
+    def test_list_unchanged(self) -> None:
+        sub = Subtask(id="1.1", title="Write tests", details=["step one", "step two"])
+        assert sub.details == ["step one", "step two"]
+
+    def test_empty_list_unchanged(self) -> None:
+        sub = Subtask(id="1.1", title="Write tests", details=[])
+        assert sub.details == []
+
+    def test_default_is_empty_list(self) -> None:
+        sub = Subtask(id="1.1", title="Write tests")
+        assert sub.details == []
+
+    def test_model_validate_with_string_details(self) -> None:
+        data = {
+            "id": "1.1",
+            "title": "Write tests",
+            "details": "Write unit tests in test_foo.py covering edge cases",
+        }
+        sub = Subtask.model_validate(data)
+        assert sub.details == ["Write unit tests in test_foo.py covering edge cases"]
+
+    def test_model_validate_nested_in_task_group(self) -> None:
+        from afspec import TaskGroup
+
+        data = {
+            "id": 1,
+            "title": "Implementation",
+            "subtasks": [
+                {"id": "1.1", "title": "Do thing", "details": "A single string detail"},
+                {"id": "1.2", "title": "Other thing", "details": ["Already", "a list"]},
+            ],
+        }
+        tg = TaskGroup.model_validate(data)
+        assert tg.subtasks[0].details == ["A single string detail"]
+        assert tg.subtasks[1].details == ["Already", "a list"]
