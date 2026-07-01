@@ -10,7 +10,7 @@ import uuid
 
 from agentfox.knowledge.review_store import ReviewFinding, VerificationResult
 from agentfox.session.convergence import (
-    converge_skeptic_records,
+    converge_reviewer_pre_records,
     converge_verifier_records,
 )
 
@@ -53,7 +53,7 @@ def _make_verdict(
 class TestConvergeSkepticRecords:
     """TS-27-12: converge skeptic records from multiple instances."""
 
-    def test_converge_skeptic_records(self) -> None:
+    def test_converge_reviewer_pre_records(self) -> None:
         """Union-dedup-majority-gate on ReviewFinding records."""
         instance_1 = [
             _make_finding(severity="critical", description="Issue A", session_id="s1"),
@@ -64,7 +64,7 @@ class TestConvergeSkepticRecords:
             _make_finding(severity="minor", description="Issue C", session_id="s2"),
         ]
 
-        merged, blocked = converge_skeptic_records([instance_1, instance_2], block_threshold=0)
+        merged, blocked = converge_reviewer_pre_records([instance_1, instance_2], block_threshold=0)
 
         descriptions = [f.description for f in merged]
         assert "Issue A" in descriptions
@@ -86,14 +86,14 @@ class TestConvergeSkepticRecords:
             _make_finding(severity="minor", description="Another minor", session_id="s3"),
         ]
 
-        merged, blocked = converge_skeptic_records([instance_1, instance_2, instance_3], block_threshold=0)
+        merged, blocked = converge_reviewer_pre_records([instance_1, instance_2, instance_3], block_threshold=0)
 
         assert blocked is False
 
     def test_convergence_writes_back(self) -> None:
         """Merged findings have a convergence session_id."""
         instance_1 = [_make_finding(session_id="s1")]
-        merged, _ = converge_skeptic_records([instance_1, instance_1], block_threshold=5)
+        merged, _ = converge_reviewer_pre_records([instance_1, instance_1], block_threshold=5)
         for f in merged:
             assert f.session_id.startswith("convergence-")
 
@@ -137,7 +137,7 @@ class TestSingleInstanceSkips:
     def test_single_instance_skips_skeptic(self) -> None:
         """Single instance returns findings directly."""
         findings = [_make_finding(description="Only finding")]
-        merged, blocked = converge_skeptic_records([findings], block_threshold=0)
+        merged, blocked = converge_reviewer_pre_records([findings], block_threshold=0)
         assert len(merged) == 1
         assert merged[0].description == "Only finding"
         assert blocked is False
@@ -150,7 +150,7 @@ class TestSingleInstanceSkips:
 
     def test_empty_instances_skeptic(self) -> None:
         """Empty instance list returns empty result."""
-        merged, blocked = converge_skeptic_records([], block_threshold=0)
+        merged, blocked = converge_reviewer_pre_records([], block_threshold=0)
         assert merged == []
         assert blocked is False
 

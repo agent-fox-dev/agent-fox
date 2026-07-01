@@ -1,7 +1,7 @@
 """Unit tests for NodeSessionRunner._persist_review_findings.
 
-Validates that structured findings from skeptic, verifier, and oracle
-sessions are parsed and persisted to DuckDB.
+Validates that structured findings from reviewer (pre-review, drift-review)
+and verifier sessions are parsed and persisted to DuckDB.
 
 Requirements: 27-REQ-3.1, 27-REQ-4.1, 27-REQ-4.2
 
@@ -19,14 +19,15 @@ from agentfox.engine.session_lifecycle import NodeSessionRunner
 from agentfox.knowledge.db import KnowledgeDB
 
 
-class TestPersistSkepticFindings:
-    """Skeptic findings are parsed from JSON and inserted into review_findings."""
+class TestPersistReviewerFindings:
+    """Reviewer findings are parsed from JSON and inserted into review_findings."""
 
     def test_findings_persisted(self, knowledge_db: KnowledgeDB) -> None:
         runner = NodeSessionRunner(
             "my_spec:0",
             AgentFoxConfig(),
-            archetype="skeptic",
+            archetype="reviewer",
+            mode="pre-review",
             knowledge_db=knowledge_db,
         )
         transcript = json.dumps(
@@ -65,7 +66,8 @@ class TestPersistSkepticFindings:
         runner = NodeSessionRunner(
             "my_spec:0",
             AgentFoxConfig(),
-            archetype="skeptic",
+            archetype="reviewer",
+            mode="pre-review",
             knowledge_db=knowledge_db,
         )
         runner._persist_review_findings("No JSON here at all.", "my_spec:0", 1)
@@ -80,11 +82,17 @@ class TestPersistSkepticFindings:
 # TestPersistVerifierVerdicts removed in spec 10.
 
 
-class TestPersistOracleDrift:
-    """Oracle drift findings are parsed and inserted into drift_findings."""
+class TestPersistDriftReviewFindings:
+    """Drift-review findings are parsed and inserted into drift_findings."""
 
     def test_drift_findings_persisted(self, knowledge_db: KnowledgeDB) -> None:
-        runner = NodeSessionRunner("my_spec:0", AgentFoxConfig(), archetype="oracle", knowledge_db=knowledge_db)
+        runner = NodeSessionRunner(
+            "my_spec:0",
+            AgentFoxConfig(),
+            archetype="reviewer",
+            mode="drift-review",
+            knowledge_db=knowledge_db,
+        )
         transcript = json.dumps(
             {
                 "drift_findings": [
@@ -133,6 +141,12 @@ class TestParseFailureSwallowed:
     def test_db_error_swallowed(self) -> None:
         mock_kb = MagicMock(spec=KnowledgeDB)
         type(mock_kb).connection = PropertyMock(side_effect=RuntimeError("DB gone"))
-        runner = NodeSessionRunner("my_spec:0", AgentFoxConfig(), archetype="skeptic", knowledge_db=mock_kb)
+        runner = NodeSessionRunner(
+            "my_spec:0",
+            AgentFoxConfig(),
+            archetype="reviewer",
+            mode="pre-review",
+            knowledge_db=mock_kb,
+        )
         # Should not raise
         runner._persist_review_findings('{"findings":[{"severity":"major","description":"x"}]}', "my_spec:0", 1)

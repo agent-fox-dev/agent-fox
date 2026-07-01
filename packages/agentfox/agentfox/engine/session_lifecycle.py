@@ -60,7 +60,7 @@ logger = logging.getLogger(__name__)
 # _persist_review_findings rather than free-form factual knowledge.
 # Skipping LLM extraction for these avoids ~18k-token overhead per session
 # when the extraction reliably returns zero facts.
-_REVIEW_ARCHETYPES: frozenset[str] = frozenset({"reviewer", "skeptic", "verifier", "oracle", "auditor"})
+_REVIEW_ARCHETYPES: frozenset[str] = frozenset({"reviewer", "verifier"})
 
 _BUDGET_EXHAUST_RATIO: float = 0.9
 
@@ -714,7 +714,7 @@ class NodeSessionRunner:
             return
 
         # 27-REQ-3.1: Parse and persist structured findings from
-        # review archetypes (skeptic, verifier, oracle).
+        # review archetypes (reviewer, verifier).
         # Prefer the actual session response (which contains the agent's
         # JSON output) over the fallback transcript (which is metadata).
         review_text = outcome_response or transcript

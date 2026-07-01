@@ -14,7 +14,6 @@ import json
 import uuid
 
 import duckdb
-import pytest
 from agentfox.knowledge.review_store import (
     DriftFinding,
     ReviewFinding,
@@ -345,22 +344,22 @@ class TestArchetypeFilterCurrentNames:
         assert rows[0].archetype == "reviewer/drift-review"
 
 
-class TestLegacyArchetypeNamesRejected:
-    """591-AC-4: Legacy archetype names 'skeptic' and 'oracle' raise ValueError."""
+class TestLegacyArchetypeNamesAccepted:
+    """591-AC-4: Legacy archetype names 'skeptic' and 'oracle' are treated as unknown (no error)."""
 
-    def test_skeptic_raises_value_error(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
-        """AC-4: query_findings(archetype='skeptic') raises ValueError."""
+    def test_skeptic_returns_empty(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
+        """query_findings(archetype='skeptic') returns empty list (unknown archetype)."""
         _insert_test_findings(knowledge_conn, severities=["critical"])
 
-        with pytest.raises(ValueError, match="skeptic"):
-            query_findings(knowledge_conn, archetype="skeptic")
+        rows = query_findings(knowledge_conn, archetype="skeptic")
+        assert isinstance(rows, list)
 
-    def test_oracle_raises_value_error(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
-        """AC-4: query_findings(archetype='oracle') raises ValueError."""
+    def test_oracle_returns_empty(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
+        """query_findings(archetype='oracle') returns empty list (unknown archetype)."""
         _insert_drift_finding(knowledge_conn)
 
-        with pytest.raises(ValueError, match="oracle"):
-            query_findings(knowledge_conn, archetype="oracle")
+        rows = query_findings(knowledge_conn, archetype="oracle")
+        assert isinstance(rows, list)
 
 
 class TestCliHelpTextCurrentNames:

@@ -237,17 +237,17 @@ class TestSingleSubtaskOverloadWarning:
         """The warning identifies subtask '1.1' as the offender."""
         spec = _build_spec_with_subtask_refs([9])
         result = validate(spec)
-        assert any(
-            "1.1" in str(w) for w in result.warnings
-        ), f"Expected warning referencing subtask '1.1', got: {result.warnings}"
+        assert any("1.1" in str(w) for w in result.warnings), (
+            f"Expected warning referencing subtask '1.1', got: {result.warnings}"
+        )
 
     def test_warning_mentions_count(self) -> None:
         """The warning mentions the actual ref count (9)."""
         spec = _build_spec_with_subtask_refs([9])
         result = validate(spec)
-        assert any(
-            "9" in str(w) for w in result.warnings
-        ), f"Expected warning mentioning count 9, got: {result.warnings}"
+        assert any("9" in str(w) for w in result.warnings), (
+            f"Expected warning mentioning count 9, got: {result.warnings}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -262,29 +262,21 @@ class TestNoWarningAtOrBelowSubtaskRefThreshold:
         """Subtask with exactly 8 refs: at boundary, no warning."""
         spec = _build_spec_with_subtask_refs([8])
         result = validate(spec)
-        overload_warnings = [
-            w for w in result.warnings if "1.1" in str(w)
-        ]
-        assert len(overload_warnings) == 0, (
-            f"Expected no overload warning for 8 refs, got: {overload_warnings}"
-        )
+        overload_warnings = [w for w in result.warnings if "1.1" in str(w)]
+        assert len(overload_warnings) == 0, f"Expected no overload warning for 8 refs, got: {overload_warnings}"
 
     def test_5_refs_no_warning(self) -> None:
         """Subtask with 5 refs: well below threshold, no warning."""
         spec = _build_spec_with_subtask_refs([5])
         result = validate(spec)
-        overload_warnings = [
-            w for w in result.warnings if "1.1" in str(w)
-        ]
+        overload_warnings = [w for w in result.warnings if "1.1" in str(w)]
         assert len(overload_warnings) == 0
 
     def test_1_ref_no_warning(self) -> None:
         """Subtask with 1 ref: minimal, no warning."""
         spec = _build_spec_with_subtask_refs([1])
         result = validate(spec)
-        overload_warnings = [
-            w for w in result.warnings if "1.1" in str(w)
-        ]
+        overload_warnings = [w for w in result.warnings if "1.1" in str(w)]
         assert len(overload_warnings) == 0
 
 
@@ -300,33 +292,23 @@ class TestEmptyRefsNoOverloadWarning:
         """Subtask with no test_spec_refs set (defaults to []): no warning."""
         spec = _build_spec_with_subtask_refs([-1])  # -1 = no field set
         result = validate(spec)
-        overload_warnings = [
-            w for w in result.warnings if "1.1" in str(w)
-        ]
+        overload_warnings = [w for w in result.warnings if "1.1" in str(w)]
         assert len(overload_warnings) == 0, (
-            f"Expected no overload warning for subtask with no test_spec_refs, "
-            f"got: {overload_warnings}"
+            f"Expected no overload warning for subtask with no test_spec_refs, got: {overload_warnings}"
         )
 
     def test_empty_test_spec_refs_list(self) -> None:
         """Subtask with explicitly empty test_spec_refs=[]: no warning."""
         spec = _build_spec_with_subtask_refs([0])
         result = validate(spec)
-        overload_warnings = [
-            w for w in result.warnings if "1.2" in str(w)
-        ]
+        overload_warnings = [w for w in result.warnings if "1.2" in str(w)]
         assert len(overload_warnings) == 0
 
     def test_mixed_no_field_and_empty_list(self) -> None:
         """Two subtasks: one with no field, one with empty list: no warnings."""
         spec = _build_spec_with_subtask_refs([-1, 0])
         result = validate(spec)
-        overload_warnings = [
-            w
-            for w in result.warnings
-            if "1.1" in str(w) or "1.2" in str(w)
-        ]
+        overload_warnings = [w for w in result.warnings if "1.1" in str(w) or "1.2" in str(w)]
         assert len(overload_warnings) == 0, (
-            f"Expected no overload warnings for subtasks with no/empty refs, "
-            f"got: {overload_warnings}"
+            f"Expected no overload warnings for subtasks with no/empty refs, got: {overload_warnings}"
         )

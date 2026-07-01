@@ -47,7 +47,6 @@ _EXPECTED_PROMOTED_FIELDS = [
     ("orchestrator", "parallel"),
     ("orchestrator", "max_budget_usd"),
     ("platform", "type"),
-    ("archetypes", "coder"),
     ("archetypes", "reviewer"),
     ("archetypes", "verifier"),
     ("archetypes.instances", "verifier"),
@@ -192,10 +191,10 @@ class TestArchetypeTogglesPromoted:
     """TS-68-7: All quality archetype toggles are promoted and active."""
 
     def test_all_toggles_promoted(self):
-        """coder, reviewer, verifier all equal true in parsed template."""
+        """reviewer, verifier all equal true in parsed template."""
         template = generate_default_config()
         parsed = tomllib.loads(template)
-        for toggle in ["coder", "reviewer", "verifier"]:
+        for toggle in ["reviewer", "verifier"]:
             actual = parsed["archetypes"].get(toggle)
             assert actual is True, f"archetypes.{toggle} is {actual!r}, expected True"
 

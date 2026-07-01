@@ -127,9 +127,7 @@ async def _sync_integration_with_remote(
         return await _sync_integration_under_lock(repo_root, branch, remote_ahead, local_ahead)
 
 
-async def _sync_integration_under_lock(
-    repo_root: Path, branch: str, remote_ahead: int, local_ahead: int
-) -> str | None:
+async def _sync_integration_under_lock(repo_root: Path, branch: str, remote_ahead: int, local_ahead: int) -> str | None:
     """Execute the integration branch sync strategies under the merge lock.
 
     Requirements: 118-REQ-5.1, 118-REQ-5.2, 118-REQ-5.3
@@ -222,8 +220,7 @@ async def _sync_integration_under_lock(
                     )
                 else:
                     logger.warning(
-                        "Merge agent failed to resolve %s-sync conflicts. "
-                        "Using local %s as-is; verify manually.",
+                        "Merge agent failed to resolve %s-sync conflicts. Using local %s as-is; verify manually.",
                         branch,
                         branch,
                     )

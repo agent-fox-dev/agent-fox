@@ -22,10 +22,8 @@ _STYLE_ROLES = ("header", "success", "error", "warning", "info", "tool", "muted"
 
 _ARCHETYPES = [
     "coder",
-    "skeptic",
+    "reviewer",
     "verifier",
-    "oracle",
-    "auditor",
 ]
 
 

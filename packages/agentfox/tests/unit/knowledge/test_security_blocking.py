@@ -3,7 +3,7 @@
 Validates that critical findings with category='security' always block
 regardless of numeric threshold, that the category field round-trips
 through DuckDB, that parse_review_findings auto-detects security keywords,
-that converge_skeptic_records preserves category, and that an audit event
+that converge_reviewer_pre_records preserves category, and that an audit event
 is emitted on security-based blocking.
 
 Test Spec: AC-1 through AC-9
@@ -22,7 +22,7 @@ from agentfox.knowledge.review_store import (
     insert_findings,
     query_findings_by_session,
 )
-from agentfox.session.convergence import converge_skeptic_records
+from agentfox.session.convergence import converge_reviewer_pre_records
 from agentfox.session.review_parser import parse_review_findings
 
 # ---------------------------------------------------------------------------
@@ -53,7 +53,7 @@ def _make_finding(
 
 def _make_session_record(
     node_id: str = "test_spec:1",
-    archetype: str = "skeptic",
+    archetype: str = "reviewer",
     attempt: int = 1,
 ) -> SessionRecord:
     return SessionRecord(
@@ -244,7 +244,7 @@ class TestSecurityCriticalAlwaysBlocks:
         record = _make_session_record()
         config = _make_archetypes_config(block_threshold=3)
 
-        decision = evaluate_review_blocking(record, config, knowledge_conn)
+        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-review")
 
         assert decision.should_block is True
         assert decision.coder_node_id == "test_spec:1"
@@ -273,7 +273,7 @@ class TestNonSecurityCriticalRespectsThreshold:
         record = _make_session_record()
         config = _make_archetypes_config(block_threshold=3)
 
-        decision = evaluate_review_blocking(record, config, knowledge_conn)
+        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-review")
 
         assert decision.should_block is False
 
@@ -299,7 +299,7 @@ class TestSecurityBlockingReasonLabel:
         record = _make_session_record()
         config = _make_archetypes_config(block_threshold=3)
 
-        decision = evaluate_review_blocking(record, config, knowledge_conn)
+        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-review")
 
         assert decision.should_block is True
         assert "security" in decision.reason.lower()
@@ -322,7 +322,7 @@ class TestSecurityBlockingReasonLabel:
         record = _make_session_record()
         config = _make_archetypes_config(block_threshold=3)
 
-        decision = evaluate_review_blocking(record, config, knowledge_conn)
+        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-review")
 
         assert decision.should_block is True
         assert "SECURITY" not in decision.reason
@@ -354,7 +354,14 @@ class TestSecurityBlockingAuditEvent:
 
         mock_sink = MagicMock(spec=SinkDispatcher)
 
-        decision = evaluate_review_blocking(record, config, knowledge_conn, sink=mock_sink, run_id="test-run")
+        decision = evaluate_review_blocking(
+            record,
+            config,
+            knowledge_conn,
+            mode="pre-review",
+            sink=mock_sink,
+            run_id="test-run",
+        )
 
         assert decision.should_block is True
         # Verify emit_audit_event was called on the sink
@@ -384,7 +391,14 @@ class TestSecurityBlockingAuditEvent:
         config = _make_archetypes_config(block_threshold=3)
         mock_sink = MagicMock(spec=SinkDispatcher)
 
-        decision = evaluate_review_blocking(record, config, knowledge_conn, sink=mock_sink, run_id="test-run")
+        decision = evaluate_review_blocking(
+            record,
+            config,
+            knowledge_conn,
+            mode="pre-review",
+            sink=mock_sink,
+            run_id="test-run",
+        )
 
         assert decision.should_block is True
         # Verify NO security-specific event was emitted
@@ -393,12 +407,12 @@ class TestSecurityBlockingAuditEvent:
 
 
 # ---------------------------------------------------------------------------
-# AC-8: converge_skeptic_records preserves category
+# AC-8: converge_reviewer_pre_records preserves category
 # ---------------------------------------------------------------------------
 
 
 class TestConvergencePreservesCategory:
-    """AC-8: converge_skeptic_records preserves the category field."""
+    """AC-8: converge_reviewer_pre_records preserves the category field."""
 
     def test_security_category_preserved_after_convergence(self) -> None:
         """category='security' is preserved when merging multiple instances."""
@@ -420,7 +434,7 @@ class TestConvergencePreservesCategory:
         )
 
         instance_findings = [[finding], [finding2]]
-        merged, _ = converge_skeptic_records(instance_findings, block_threshold=3)
+        merged, _ = converge_reviewer_pre_records(instance_findings, block_threshold=3)
 
         assert len(merged) == 1
         assert merged[0].category == "security"
@@ -445,7 +459,7 @@ class TestConvergencePreservesCategory:
         )
 
         instance_findings = [[finding], [finding2]]
-        merged, _ = converge_skeptic_records(instance_findings, block_threshold=3)
+        merged, _ = converge_reviewer_pre_records(instance_findings, block_threshold=3)
 
         assert len(merged) == 1
         assert merged[0].category is None

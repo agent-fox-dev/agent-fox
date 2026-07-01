@@ -250,7 +250,12 @@ class TestPartialHardResetRollback:
 
         with patch("agentfox.engine.reset._load_state_or_raise", return_value=state):
             result = hard_reset_task(
-                "s:2", worktrees_dir, repo, memory_path, db_conn=db_conn, integration_branch="develop",
+                "s:2",
+                worktrees_dir,
+                repo,
+                memory_path,
+                db_conn=db_conn,
+                integration_branch="develop",
             )
 
         # Develop should be at sha1 (predecessor of task 2's commit)

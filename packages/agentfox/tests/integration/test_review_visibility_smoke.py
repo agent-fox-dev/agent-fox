@@ -44,12 +44,13 @@ class TestFindingsPersistenceAuditE2E:
             transcript,
             "smoke:1",
             1,
-            archetype="skeptic",
+            archetype="reviewer",
             spec_name="smoke",
             task_group="1",
             knowledge_db_conn=conn,
             sink=mock_sink,
             run_id="smoke-run",
+            mode="pre-review",
         )
 
         # Verify rows in DB
@@ -161,7 +162,7 @@ class TestEnrichedBlockingReasonE2E:
 
         record = SessionRecord(
             node_id="smoke_spec:1",
-            archetype="skeptic",
+            archetype="reviewer",
             attempt=1,
             status="completed",
             input_tokens=100,
@@ -176,7 +177,7 @@ class TestEnrichedBlockingReasonE2E:
         config.reviewer_config.pre_review_block_threshold = 0
         config.reviewer_config.drift_review_block_threshold = 0
 
-        decision = evaluate_review_blocking(record, config, knowledge_conn)
+        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-review")
 
         assert decision.should_block
         assert "F-" in decision.reason

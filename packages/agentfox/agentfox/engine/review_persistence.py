@@ -66,7 +66,7 @@ def _emit_persistence_event(
         if archetype == "reviewer" and mode:
             dispatch_key = f"reviewer:{mode}"
 
-        if dispatch_key in ("skeptic", "reviewer:pre-review"):
+        if dispatch_key in ("pre-review", "reviewer:pre-review"):
             severity_summary: dict[str, int] = dict(Counter(r.severity for r in records))
             emit_audit_event(
                 sink,
@@ -101,7 +101,7 @@ def _emit_persistence_event(
                     "task_group": task_group,
                 },
             )
-        elif dispatch_key in ("oracle", "reviewer:drift-review"):
+        elif dispatch_key in ("drift-review", "reviewer:drift-review"):
             severity_summary = dict(Counter(r.severity for r in records))
             emit_audit_event(
                 sink,
@@ -209,7 +209,7 @@ def _persist_standard_findings(
     retry_attempted: bool,
     transcript: str,
 ) -> None:
-    """Parse and persist skeptic or oracle findings.
+    """Parse and persist pre-review or drift-review findings.
 
     Requirements: 53-REQ-1.1, 53-REQ-3.1
     """
@@ -223,8 +223,8 @@ def _persist_standard_findings(
     )
 
     _review_dispatch: dict[str, tuple[Any, Any, str]] = {
-        "skeptic": (parse_review_findings, insert_findings, "review findings"),
-        "oracle": (parse_drift_findings, insert_drift_findings, "drift findings"),
+        "pre-review": (parse_review_findings, insert_findings, "review findings"),
+        "drift-review": (parse_drift_findings, insert_drift_findings, "drift findings"),
     }
     parser, inserter, label = _review_dispatch[dispatch_key]
     records = parser(json_objects, spec_name, task_group, session_id)
@@ -267,7 +267,7 @@ def _persist_auditor_findings(
     knowledge_db_conn: Any,
     specs_dir: Path | None,
 ) -> None:
-    """Persist converged auditor results.
+    """Persist converged audit-review results.
 
     Requirements: 98-REQ-5.1, 98-REQ-5.2
     """
@@ -315,28 +315,17 @@ def persist_review_findings(
                   74-REQ-5.1, 74-REQ-5.2, 74-REQ-5.3,
                   98-REQ-5.1, 98-REQ-5.2
     """
-    if archetype not in ("skeptic", "oracle", "auditor", "reviewer"):
+    if archetype != "reviewer":
         return
 
-    if archetype == "reviewer":
-        if mode == "audit-review":
-            archetype = "auditor"
-        elif mode in ("pre-review", "drift-review"):
-            pass
-        elif mode == "fix-review":
-            return
-        else:
-            return
+    if mode not in ("pre-review", "drift-review", "audit-review"):
+        # fix-review and unknown modes do not persist findings
+        return
 
     tg = str(task_group)
     session_id = f"{node_id}:{attempt}"
 
-    dispatch_key = archetype
-    if archetype == "reviewer" and mode:
-        if mode == "pre-review":
-            dispatch_key = "skeptic"
-        elif mode == "drift-review":
-            dispatch_key = "oracle"
+    dispatch_key: str = mode  # "pre-review", "drift-review", or "audit-review"
 
     retry_kwargs = dict(
         session_handle=session_handle,
@@ -347,7 +336,7 @@ def persist_review_findings(
     )
 
     try:
-        if dispatch_key in ("skeptic", "verifier", "oracle"):
+        if dispatch_key in ("pre-review", "drift-review"):
             json_objects, retry_attempted = _try_extract_with_retry(
                 transcript,
                 extract_json_array,
@@ -370,7 +359,7 @@ def persist_review_findings(
                 retry_attempted,
                 transcript,
             )
-        elif archetype == "auditor":
+        elif dispatch_key == "audit-review":
             from agentfox.session.review_parser import parse_auditor_output
 
             audit_result, _ = _try_extract_with_retry(
@@ -430,19 +419,19 @@ def converge_multi_instance_skeptic(
     node_id: str,
     block_threshold: int,
 ) -> list[ReviewFinding] | tuple[list[ReviewFinding], bool]:
-    """Converge multi-instance skeptic results, filtering failed instances.
+    """Converge multi-instance pre-review results, filtering failed instances.
 
     Filters out None results (parse failures), logs warnings for each,
-    and passes remaining results to converge_skeptic_records. Emits
+    and passes remaining results to converge_reviewer_pre_records. Emits
     REVIEW_PARSE_FAILURE if all instances failed.
 
     Requirements: 74-REQ-4.1, 74-REQ-4.4, 74-REQ-4.5, 74-REQ-4.E1,
                   74-REQ-4.E2
     """
-    from agentfox.session.convergence import converge_skeptic_records
+    from agentfox.session.convergence import converge_reviewer_pre_records
 
     # Log warnings for failed instances
-    warn_failed_parse_instances(raw_results, archetype="skeptic", run_id=run_id)
+    warn_failed_parse_instances(raw_results, archetype="reviewer", run_id=run_id)
 
     filtered = [r for r in raw_results if r is not None]
 
@@ -453,11 +442,11 @@ def converge_multi_instance_skeptic(
             run_id,
             AuditEventType.REVIEW_PARSE_FAILURE,
             node_id=node_id,
-            archetype="skeptic",
+            archetype="reviewer",
             severity=AuditSeverity.WARNING,
             payload={"raw_output": "", "all_instances_failed": True},
         )
         return []
 
-    merged, blocked = converge_skeptic_records(filtered, block_threshold)
+    merged, blocked = converge_reviewer_pre_records(filtered, block_threshold)
     return merged, blocked

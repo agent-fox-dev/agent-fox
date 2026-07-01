@@ -131,7 +131,6 @@ def query_same_spec_summaries(
     return [_row_to_summary_record(row) for row in rows]
 
 
-
 def truncate_for_audit(summary_text: str, max_len: int = 2000) -> str:
     """Truncate summary text for audit event payload.
 

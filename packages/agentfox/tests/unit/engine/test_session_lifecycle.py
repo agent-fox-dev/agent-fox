@@ -13,7 +13,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from agentfox.core.config import AgentFoxConfig, ArchetypesConfig
+from agentfox.core.config import AgentFoxConfig, ArchetypesConfig, PerArchetypeConfig
 from agentfox.engine.sdk_params import clamp_instances
 from agentfox.engine.session_lifecycle import NodeSessionRunner
 from agentfox.knowledge.db import KnowledgeDB
@@ -60,8 +60,10 @@ class TestResolveModelTier:
         assert runner._resolved_model_id == "claude-sonnet-4-6"
 
     def test_config_override_takes_priority(self) -> None:
-        """Config override in archetypes.models takes priority over registry."""
-        config = AgentFoxConfig(archetypes=ArchetypesConfig(models={"coder": "SIMPLE"}))
+        """Config override in archetypes.overrides takes priority over registry."""
+        config = AgentFoxConfig(
+            archetypes=ArchetypesConfig(overrides={"coder": PerArchetypeConfig(model_tier="SIMPLE")})
+        )
         runner = NodeSessionRunner("spec:1", config, knowledge_db=_MOCK_KB)
         assert runner._resolved_model_id == "claude-haiku-4-5"
 
@@ -96,7 +98,9 @@ class TestResolveSecurityConfig:
 
     def test_config_allowlist_overrides_registry(self) -> None:
         """Config allowlist override takes priority over registry default."""
-        config = AgentFoxConfig(archetypes=ArchetypesConfig(allowlists={"maintainer": ["echo", "pwd"]}))
+        config = AgentFoxConfig(
+            archetypes=ArchetypesConfig(overrides={"maintainer": PerArchetypeConfig(allowlist=["echo", "pwd"])})
+        )
         runner = NodeSessionRunner("spec:1", config, archetype="maintainer", mode="hunt", knowledge_db=_MOCK_KB)
         assert runner._resolved_security is not None
         assert runner._resolved_security.bash_allowlist == ["echo", "pwd"]

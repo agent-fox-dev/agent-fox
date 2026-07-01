@@ -54,7 +54,6 @@ _VISIBLE_SECTIONS: set[str] = {
 _PROMOTED_DEFAULTS: set[tuple[str, str]] = {
     ("orchestrator", "parallel"),
     ("orchestrator", "max_budget_usd"),
-    ("archetypes", "coder"),
     ("archetypes", "reviewer"),
     ("archetypes", "verifier"),
     ("archetypes.instances", "verifier"),

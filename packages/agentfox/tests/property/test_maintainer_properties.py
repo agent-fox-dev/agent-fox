@@ -146,14 +146,16 @@ if HAS_HYPOTHESIS:
 
         For any valid config, the resolved tier should be in VALID_TIERS.
         """
-        from agentfox.core.config import AgentFoxConfig
+        from agentfox.core.config import AgentFoxConfig, PerArchetypeConfig
         from agentfox.engine.sdk_params import resolve_model_tier
 
         config = AgentFoxConfig()
         if model_override is not None:
-            # Set per-archetype model override
+            # Set per-archetype model override via overrides table
+            overrides = dict(config.archetypes.overrides)
+            overrides["maintainer"] = PerArchetypeConfig(model_tier=model_override)
             config = config.model_copy(
-                update={"archetypes": config.archetypes.model_copy(update={"models": {"maintainer": model_override}})}
+                update={"archetypes": config.archetypes.model_copy(update={"overrides": overrides})}
             )
         tier = resolve_model_tier(config, "maintainer", mode="hunt")
         assert tier in _VALID_TIERS, f"resolve_model_tier returned invalid tier {tier!r}"

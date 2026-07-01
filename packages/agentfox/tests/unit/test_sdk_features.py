@@ -53,11 +53,11 @@ class TestMaxTurnsZeroUnlimited:
 
     def test_zero_max_turns_resolves_to_none(self) -> None:
         """TS-56-4: max_turns=0 resolves to None (no max_turns in options)."""
-        from agentfox.core.config import AgentFoxConfig
+        from agentfox.core.config import AgentFoxConfig, PerArchetypeConfig
         from agentfox.engine.sdk_params import resolve_max_turns
 
         config = AgentFoxConfig(
-            archetypes={"max_turns": {"coder": 0}},  # type: ignore[arg-type]
+            archetypes={"overrides": {"coder": PerArchetypeConfig(max_turns=0)}},  # type: ignore[arg-type]
         )
         result = resolve_max_turns(config, "coder")
         assert result is None

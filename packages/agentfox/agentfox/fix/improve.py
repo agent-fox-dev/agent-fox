@@ -22,7 +22,7 @@ from agentfox.fix.analyzer import (
     filter_improvements,
     load_review_context,
     parse_analyzer_response,
-    query_oracle_context,
+    query_knowledge_context,
 )
 from agentfox.fix.checks import CheckDescriptor
 from agentfox.fix.events import FixProgressCallback, make_progress_emitter
@@ -296,8 +296,8 @@ async def run_improve_loop(
     # Track max observed session cost for accurate budget checks
     max_session_cost = _INITIAL_SESSION_COST_ESTIMATE
 
-    # Query oracle and review context once before the loop
-    oracle_ctx = query_oracle_context(config)
+    # Query knowledge and review context once before the loop
+    oracle_ctx = query_knowledge_context(config)
     review_ctx = load_review_context(project_root)
 
     for pass_number in range(1, max_passes + 1):

@@ -6,8 +6,6 @@ Requirements: 26-REQ-6.1 through 26-REQ-6.5, 26-REQ-6.E1
 
 from __future__ import annotations
 
-import logging
-
 import pytest
 
 # ---------------------------------------------------------------------------
@@ -23,7 +21,6 @@ class TestArchetypeToggles:
         from agentfox.core.config import ArchetypesConfig
 
         cfg = ArchetypesConfig()
-        assert cfg.coder is True
         assert cfg.reviewer is True
         assert cfg.verifier is True
 
@@ -33,7 +30,6 @@ class TestArchetypeToggles:
         cfg = ArchetypesConfig(reviewer=False, verifier=True)
         assert cfg.reviewer is False
         assert cfg.verifier is True
-        assert cfg.coder is True  # always
 
 
 # ---------------------------------------------------------------------------
@@ -79,19 +75,19 @@ class TestInstanceCounts:
 
 
 class TestModelTierOverride:
-    """Verify per-archetype model tier overrides in config."""
+    """Verify per-archetype model tier overrides in config via overrides table."""
 
     def test_model_override_stored(self) -> None:
-        from agentfox.core.config import ArchetypesConfig
+        from agentfox.core.config import ArchetypesConfig, PerArchetypeConfig
 
-        cfg = ArchetypesConfig(models={"reviewer": "SIMPLE"})
-        assert cfg.models["reviewer"] == "SIMPLE"
+        cfg = ArchetypesConfig(overrides={"reviewer": PerArchetypeConfig(model_tier="SIMPLE")})
+        assert cfg.overrides["reviewer"].model_tier == "SIMPLE"
 
-    def test_empty_models_default(self) -> None:
+    def test_empty_overrides_default(self) -> None:
         from agentfox.core.config import ArchetypesConfig
 
         cfg = ArchetypesConfig()
-        assert cfg.models == {}
+        assert cfg.overrides == {}
 
 
 # ---------------------------------------------------------------------------
@@ -101,38 +97,19 @@ class TestModelTierOverride:
 
 
 class TestAllowlistOverride:
-    """Verify per-archetype allowlist overrides in config."""
+    """Verify per-archetype allowlist overrides in config via overrides table."""
 
     def test_allowlist_override_stored(self) -> None:
-        from agentfox.core.config import ArchetypesConfig
+        from agentfox.core.config import ArchetypesConfig, PerArchetypeConfig
 
-        cfg = ArchetypesConfig(allowlists={"reviewer": ["ls", "cat"]})
-        assert cfg.allowlists["reviewer"] == ["ls", "cat"]
+        cfg = ArchetypesConfig(overrides={"reviewer": PerArchetypeConfig(allowlist=["ls", "cat"])})
+        assert cfg.overrides["reviewer"].allowlist == ["ls", "cat"]
 
-    def test_empty_allowlists_default(self) -> None:
+    def test_empty_overrides_default_for_allowlists(self) -> None:
         from agentfox.core.config import ArchetypesConfig
 
         cfg = ArchetypesConfig()
-        assert cfg.allowlists == {}
-
-
-# ---------------------------------------------------------------------------
-# TS-26-26: Coder always enabled
-# Requirement: 26-REQ-6.5
-# ---------------------------------------------------------------------------
-
-
-class TestCoderAlwaysEnabled:
-    """Verify setting coder=false is ignored with a warning."""
-
-    def test_coder_forced_true(self, caplog: pytest.LogCaptureFixture) -> None:
-        from agentfox.core.config import ArchetypesConfig
-
-        with caplog.at_level(logging.WARNING):
-            cfg = ArchetypesConfig(coder=False)
-
-        assert cfg.coder is True
-        assert any("cannot be disabled" in r.message for r in caplog.records)
+        assert cfg.overrides == {}
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +126,6 @@ class TestMissingArchetypesSection:
 
         # AgentFoxConfig without archetypes should use defaults
         cfg = AgentFoxConfig()
-        assert cfg.archetypes.coder is True
         assert cfg.archetypes.reviewer is True
         assert cfg.archetypes.instances.reviewer == 1
 
@@ -163,6 +139,5 @@ class TestMissingArchetypesSection:
         config_path.write_text("[orchestrator]\nparallel = 2\n")
 
         cfg = load_config(config_path)
-        assert cfg.archetypes.coder is True
         assert cfg.archetypes.reviewer is True
         assert cfg.archetypes.instances.reviewer == 1

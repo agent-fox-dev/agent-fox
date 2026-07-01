@@ -643,8 +643,7 @@ def _query_active_drift_findings_for_spec(
     Requirements: 12-REQ-2.1, 12-REQ-2.2
     """
     return conn.execute(
-        "SELECT id, artifact_ref FROM drift_findings "
-        "WHERE spec_name = ? AND superseded_by IS NULL",
+        "SELECT id, artifact_ref FROM drift_findings WHERE spec_name = ? AND superseded_by IS NULL",
         [spec_name],
     ).fetchall()
 
@@ -740,8 +739,7 @@ def supersede_drift_findings_by_files(
     # 12-REQ-1.8: batch-update superseded_by for all matched findings.
     for finding_id, _ in matched_ids:
         conn.execute(
-            "UPDATE drift_findings SET superseded_by = ? "
-            "WHERE id::VARCHAR = ? AND superseded_by IS NULL",
+            "UPDATE drift_findings SET superseded_by = ? WHERE id::VARCHAR = ? AND superseded_by IS NULL",
             [node_id, finding_id],
         )
 

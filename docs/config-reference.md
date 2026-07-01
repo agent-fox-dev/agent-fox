@@ -79,7 +79,7 @@ Controls the orchestration loop: parallelism, retries, timeouts, and budgets.
 | Field | Type | Default | Bounds | Description |
 |-------|------|---------|--------|-------------|
 | `parallel` | int | `2` | 1--8 | Maximum number of parallel coding sessions |
-| `max_budget_usd` | float | `8.0` | >= 0 | Per-session spend cap in USD; `0` means unlimited |
+| `max_budget_usd` | float | `20.0` | >= 0 | Per-session spend cap in USD; `0` means unlimited |
 | `sync_interval` | int | `5` | >= 0 | Task-group sync interval in number of sessions |
 | `hot_load` | bool | `true` | -- | Hot-reload spec files between sessions without restarting the orchestrator |
 | `max_retries` | int | `2` | >= 0 | Maximum number of automatic retries per task group (circuit-breaker limit). **Deprecated for escalation tuning**; use `[routing] retries_before_escalation` instead. Still controls the circuit-breaker retry limit. |
@@ -240,10 +240,6 @@ for the context injected into session prompts.
 |-------|------|---------|-------------|
 | `max_items` | int | `10` | Max total retrieval items across all categories |
 | `max_cross_group_items` | int | `3` | Max cross-group retrieval items (findings from other groups in the same spec) |
-| `max_prior_run_items` | int | `5` | Max prior-run finding items per spec (findings carried forward from previous runs) |
-
-Old fields (`gotcha_ttl_days`, `model_tier`) are silently ignored for
-backward compatibility.
 
 **Example:**
 
@@ -251,7 +247,6 @@ backward compatibility.
 [knowledge.provider]
 max_items = 10
 max_cross_group_items = 3
-max_prior_run_items = 5
 ```
 
 ---

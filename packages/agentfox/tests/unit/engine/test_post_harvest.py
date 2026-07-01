@@ -59,7 +59,8 @@ class TestPostHarvestDoesNotPushFeature:
         ):
             await post_harvest_integrate(
                 repo_root=tmp_path,
-                workspace=workspace, branch="main",
+                workspace=workspace,
+                branch="main",
             )
 
         # push_to_remote must NOT be called directly
@@ -90,7 +91,8 @@ class TestPostHarvestPushesDevelop:
         ):
             await post_harvest_integrate(
                 repo_root=tmp_path,
-                workspace=workspace, branch="main",
+                workspace=workspace,
+                branch="main",
             )
 
         mock_push_develop.assert_called_once_with(tmp_path, "main")
@@ -161,7 +163,8 @@ class TestPostHarvestPushFailureBestEffort:
             # Must not raise even if develop push encounters an issue
             await post_harvest_integrate(
                 repo_root=tmp_path,
-                workspace=workspace, branch="main",
+                workspace=workspace,
+                branch="main",
             )
 
 
@@ -191,7 +194,8 @@ class TestPostHarvestFeatureBranchDeleted:
             # Must not raise
             await post_harvest_integrate(
                 repo_root=tmp_path,
-                workspace=workspace, branch="main",
+                workspace=workspace,
+                branch="main",
             )
 
         mock_push_develop.assert_called_once_with(tmp_path, "main")

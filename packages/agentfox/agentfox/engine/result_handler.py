@@ -252,7 +252,7 @@ class SessionResultHandler:
 
         self._block_task(record.node_id, state, reason)
 
-    def check_skeptic_blocking(
+    def check_review_blocking(
         self,
         record: SessionRecord,
         state: ExecutionState,
@@ -580,7 +580,7 @@ class SessionResultHandler:
             )
 
         # Reviewer blocking (pre-review / drift-review / audit-review)
-        if self.check_skeptic_blocking(record, state):
+        if self.check_review_blocking(record, state):
             self._check_block_budget(state)
 
     def _get_original_node_timeout(self, node_id: str) -> int:

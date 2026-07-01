@@ -19,10 +19,6 @@ from agentfox.nightshift.spec_builder import InMemorySpec
 def _make_config() -> MagicMock:
     config = MagicMock()
     config.archetypes.overrides.get.return_value = None
-    config.archetypes.max_turns.get.return_value = None
-    config.archetypes.thinking.get.return_value = None
-    config.archetypes.models.get.return_value = None
-    config.archetypes.allowlists.get.return_value = None
     config.security = None
     return config
 

@@ -62,8 +62,7 @@ def local_config_dir(tmp_path):
 
 @pytest.fixture()
 def clean_af_env(monkeypatch):
-    """Remove AF_CONFIG and AF_SPEC_MODEL from the environment."""
-    monkeypatch.delenv("AF_CONFIG", raising=False)
+    """Remove AF_SPEC_MODEL from the environment."""
     monkeypatch.delenv("AF_SPEC_MODEL", raising=False)
 
 
@@ -97,17 +96,13 @@ class TestGlobalLocalMerge:
     ):
         """Local [orchestrator] parallel=8 overrides global parallel=2."""
         # Global config
-        (global_config_dir / "config.toml").write_text(
-            "[orchestrator]\nparallel = 2\n"
-        )
+        (global_config_dir / "config.toml").write_text("[orchestrator]\nparallel = 2\n")
         # Local config in CWD
         repo = tmp_path / "repo"
         repo.mkdir(exist_ok=True)
         local_dir = repo / ".agent-fox"
         local_dir.mkdir(exist_ok=True)
-        (local_dir / "config.toml").write_text(
-            "[orchestrator]\nparallel = 8\n"
-        )
+        (local_dir / "config.toml").write_text("[orchestrator]\nparallel = 8\n")
         monkeypatch.chdir(repo)
 
         config = load_config()
@@ -121,13 +116,9 @@ class TestGlobalLocalMerge:
 class TestPostMergeValidation:
     """TS-13-3: Omitted fields have Pydantic defaults applied."""
 
-    def test_defaults_applied_after_merge(
-        self, fake_home, global_config_dir, tmp_path, monkeypatch, clean_af_env
-    ):
+    def test_defaults_applied_after_merge(self, fake_home, global_config_dir, tmp_path, monkeypatch, clean_af_env):
         """Partial global config gets all defaults filled in."""
-        (global_config_dir / "config.toml").write_text(
-            "[orchestrator]\nparallel = 4\n"
-        )
+        (global_config_dir / "config.toml").write_text("[orchestrator]\nparallel = 4\n")
         repo = tmp_path / "repo"
         repo.mkdir(exist_ok=True)
         monkeypatch.chdir(repo)
@@ -146,9 +137,7 @@ class TestPostMergeValidation:
 class TestGlobalConfigAutoCreation:
     """TS-13-4: load_config creates global config with 0o700 dir."""
 
-    def test_auto_creates_global_config(
-        self, fake_home, tmp_path, monkeypatch, clean_af_env
-    ):
+    def test_auto_creates_global_config(self, fake_home, tmp_path, monkeypatch, clean_af_env):
         """When no global config exists, it is auto-created."""
         repo = tmp_path / "repo"
         repo.mkdir(exist_ok=True)
@@ -170,9 +159,7 @@ class TestGlobalConfigAutoCreation:
 class TestExistingGlobalConfig:
     """TS-13-5: Existing global config is parsed and used."""
 
-    def test_existing_global_config_used(
-        self, fake_home, global_config_dir, tmp_path, monkeypatch, clean_af_env
-    ):
+    def test_existing_global_config_used(self, fake_home, global_config_dir, tmp_path, monkeypatch, clean_af_env):
         """Global config with theme.playful=false is reflected; file not modified."""
         global_cfg = global_config_dir / "config.toml"
         global_cfg.write_text("[theme]\nplayful = false\n")
@@ -196,32 +183,23 @@ class TestExistingGlobalConfig:
 class TestHomeUnresolvable:
     """TS-13-6: HOME unresolvable skips global config."""
 
-    def test_home_unresolvable_uses_defaults(
-        self, tmp_path, monkeypatch, caplog, clean_af_env
-    ):
+    def test_home_unresolvable_uses_defaults(self, tmp_path, monkeypatch, caplog, clean_af_env):
         """When HOME cannot be resolved, DEBUG log emitted, no exception."""
         repo = tmp_path / "repo"
         repo.mkdir(exist_ok=True)
         local_dir = repo / ".agent-fox"
         local_dir.mkdir(exist_ok=True)
-        (local_dir / "config.toml").write_text(
-            "[orchestrator]\nparallel = 5\n"
-        )
+        (local_dir / "config.toml").write_text("[orchestrator]\nparallel = 5\n")
         monkeypatch.chdir(repo)
         monkeypatch.delenv("HOME", raising=False)
-        monkeypatch.setattr(
-            Path, "home", staticmethod(lambda: (_ for _ in ()).throw(RuntimeError("no home")))
-        )
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: (_ for _ in ()).throw(RuntimeError("no home"))))
 
         with caplog.at_level(logging.DEBUG):
             config = load_config()
 
         assert isinstance(config, AgentFoxConfig)
         # TS-13-6: same message must contain BOTH 'HOME' AND 'could not be resolved'/'skipped'
-        assert any(
-            "HOME" in msg and ("could not be resolved" in msg or "skipped" in msg)
-            for msg in caplog.messages
-        )
+        assert any("HOME" in msg and ("could not be resolved" in msg or "skipped" in msg) for msg in caplog.messages)
 
 
 # ===================================================================
@@ -230,9 +208,7 @@ class TestHomeUnresolvable:
 class TestGlobalConfigSymlink:
     """TS-13-E2: Symlink on global config raises ConfigError with CWE-59."""
 
-    def test_global_symlink_raises_config_error(
-        self, fake_home, tmp_path, monkeypatch, clean_af_env
-    ):
+    def test_global_symlink_raises_config_error(self, fake_home, tmp_path, monkeypatch, clean_af_env):
         """$HOME/.agent-fox/config.toml as symlink -> ConfigError."""
         agent_dir = fake_home / ".agent-fox"
         agent_dir.mkdir(exist_ok=True)
@@ -257,9 +233,7 @@ class TestGlobalConfigSymlink:
 class TestGlobalDirCreationFailure:
     """TS-13-E3: Permission error creating $HOME/.agent-fox/."""
 
-    def test_dir_creation_permission_error(
-        self, fake_home, tmp_path, monkeypatch, clean_af_env
-    ):
+    def test_dir_creation_permission_error(self, fake_home, tmp_path, monkeypatch, clean_af_env):
         """Read-only $HOME prevents dir creation -> ConfigError."""
         repo = tmp_path / "repo"
         repo.mkdir(exist_ok=True)
@@ -284,25 +258,23 @@ class TestGlobalDirCreationFailure:
 class TestShallowSectionReplacement:
     """TS-13-7: Local section entirely replaces global section."""
 
-    def test_shallow_replacement(
-        self, fake_home, global_config_dir, tmp_path, monkeypatch, clean_af_env
-    ):
+    def test_shallow_replacement(self, fake_home, global_config_dir, tmp_path, monkeypatch, clean_af_env):
         """Local [orchestrator] replaces global wholesale; [routing] inherited."""
-        (global_config_dir / "config.toml").write_text(textwrap.dedent("""\
+        (global_config_dir / "config.toml").write_text(
+            textwrap.dedent("""\
             [orchestrator]
             parallel = 2
             session_timeout = 60
 
             [routing]
             retries_before_escalation = 3
-        """))
+        """)
+        )
         repo = tmp_path / "repo"
         repo.mkdir(exist_ok=True)
         local_dir = repo / ".agent-fox"
         local_dir.mkdir(exist_ok=True)
-        (local_dir / "config.toml").write_text(
-            "[orchestrator]\nparallel = 8\n"
-        )
+        (local_dir / "config.toml").write_text("[orchestrator]\nparallel = 8\n")
         monkeypatch.chdir(repo)
 
         config = load_config()
@@ -318,13 +290,9 @@ class TestShallowSectionReplacement:
 class TestNoLocalConfig:
     """TS-13-8: No local config -> global used, DEBUG log emitted."""
 
-    def test_no_local_config(
-        self, fake_home, global_config_dir, tmp_path, monkeypatch, caplog, clean_af_env
-    ):
+    def test_no_local_config(self, fake_home, global_config_dir, tmp_path, monkeypatch, caplog, clean_af_env):
         """When no local config, global values used and DEBUG log emitted."""
-        (global_config_dir / "config.toml").write_text(
-            "[theme]\nplayful = false\n"
-        )
+        (global_config_dir / "config.toml").write_text("[theme]\nplayful = false\n")
         repo = tmp_path / "repo"
         repo.mkdir(exist_ok=True)
         monkeypatch.chdir(repo)
@@ -334,10 +302,7 @@ class TestNoLocalConfig:
 
         assert config.theme.playful is False
         # TS-13-8: must include the full path suffix
-        assert any(
-            "No local config found at" in msg and ".agent-fox/config.toml" in msg
-            for msg in caplog.messages
-        )
+        assert any("No local config found at" in msg and ".agent-fox/config.toml" in msg for msg in caplog.messages)
 
 
 # ===================================================================
@@ -346,22 +311,20 @@ class TestNoLocalConfig:
 class TestNoDeepMerge:
     """TS-13-9: No deep merge within sections."""
 
-    def test_no_deep_merge(
-        self, fake_home, global_config_dir, tmp_path, monkeypatch, clean_af_env
-    ):
+    def test_no_deep_merge(self, fake_home, global_config_dir, tmp_path, monkeypatch, clean_af_env):
         """Global session_timeout=60 is NOT preserved when local overrides [orchestrator]."""
-        (global_config_dir / "config.toml").write_text(textwrap.dedent("""\
+        (global_config_dir / "config.toml").write_text(
+            textwrap.dedent("""\
             [orchestrator]
             parallel = 2
             session_timeout = 60
-        """))
+        """)
+        )
         repo = tmp_path / "repo"
         repo.mkdir(exist_ok=True)
         local_dir = repo / ".agent-fox"
         local_dir.mkdir(exist_ok=True)
-        (local_dir / "config.toml").write_text(
-            "[orchestrator]\nparallel = 8\n"
-        )
+        (local_dir / "config.toml").write_text("[orchestrator]\nparallel = 8\n")
         monkeypatch.chdir(repo)
 
         config = load_config()
@@ -378,9 +341,7 @@ class TestNoDeepMerge:
 class TestLocalConfigSymlink:
     """TS-13-E4: Symlinked local config raises ConfigError."""
 
-    def test_local_symlink_raises_config_error(
-        self, fake_home, global_config, tmp_path, monkeypatch, clean_af_env
-    ):
+    def test_local_symlink_raises_config_error(self, fake_home, global_config, tmp_path, monkeypatch, clean_af_env):
         """Local .agent-fox/config.toml as symlink -> ConfigError."""
         repo = tmp_path / "repo"
         repo.mkdir(exist_ok=True)
@@ -404,9 +365,7 @@ class TestLocalConfigSymlink:
 class TestIntermediateSymlinkAllowed:
     """TS-13-E5: Symlink checks apply only to the final file."""
 
-    def test_symlinked_intermediate_dir_not_rejected(
-        self, fake_home, tmp_path, monkeypatch, clean_af_env
-    ):
+    def test_symlinked_intermediate_dir_not_rejected(self, fake_home, tmp_path, monkeypatch, clean_af_env):
         """Symlinked intermediate directory is OK if final file is real."""
         # Create a real directory and config
         real_dir = tmp_path / "real_agent_fox"
@@ -459,9 +418,7 @@ class TestMalformedGlobalConfig:
 class TestMalformedLocalConfig:
     """TS-13-11: Malformed local TOML -> ConfigError with local path."""
 
-    def test_malformed_local_raises_config_error(
-        self, fake_home, global_config, tmp_path, monkeypatch, clean_af_env
-    ):
+    def test_malformed_local_raises_config_error(self, fake_home, global_config, tmp_path, monkeypatch, clean_af_env):
         """Local config with invalid TOML raises ConfigError after global loads."""
         repo = tmp_path / "repo"
         repo.mkdir(exist_ok=True)
@@ -486,9 +443,7 @@ class TestMalformedLocalConfig:
 class TestNoPartialConfig:
     """TS-13-12: ConfigError always raised, no partial config returned."""
 
-    def test_no_partial_config_returned(
-        self, fake_home, global_config_dir, tmp_path, monkeypatch, clean_af_env
-    ):
+    def test_no_partial_config_returned(self, fake_home, global_config_dir, tmp_path, monkeypatch, clean_af_env):
         """Malformed TOML never returns a partial AgentFoxConfig."""
         (global_config_dir / "config.toml").write_text("[broken = unterminated")
         repo = tmp_path / "repo"
@@ -501,70 +456,6 @@ class TestNoPartialConfig:
         except ConfigError:
             pass
         assert result is None
-
-
-# ===================================================================
-# TS-13-13: AF_CONFIG deprecation warning
-# ===================================================================
-class TestAfConfigDeprecation:
-    """TS-13-13: AF_CONFIG set -> deprecation warning to stderr."""
-
-    def test_af_config_deprecation_warning(
-        self, fake_home, global_config, tmp_path, monkeypatch, capsys
-    ):
-        """AF_CONFIG triggers deprecation warning on stderr."""
-        custom_config = tmp_path / "custom-config.toml"
-        custom_config.write_text("[theme]\nplayful = false\n")
-        monkeypatch.setenv("AF_CONFIG", str(custom_config))
-        monkeypatch.delenv("AF_SPEC_MODEL", raising=False)
-        repo = tmp_path / "repo"
-        repo.mkdir(exist_ok=True)
-        monkeypatch.chdir(repo)
-
-        config = load_config()
-
-        captured = capsys.readouterr()
-        assert "AF_CONFIG" in captured.err
-        # TS-13-13: must specifically say 'no longer supported'
-        assert "no longer supported" in captured.err.lower()
-        assert isinstance(config, AgentFoxConfig)
-        # TS-13-13: the AF_CONFIG path was never used for config resolution.
-        # The custom config sets theme.playful=false; if AF_CONFIG were read,
-        # the returned config would reflect that canary value.  Since it is
-        # ignored, the config should NOT have theme.playful==False (it should
-        # use the global config value or Pydantic default instead).
-        assert config.theme.playful is not False
-
-
-# ===================================================================
-# TS-13-14: AF_CONFIG value never used for config path
-# ===================================================================
-class TestAfConfigValueIgnored:
-    """TS-13-14: AF_CONFIG value completely ignored."""
-
-    def test_af_config_value_not_used(
-        self, fake_home, global_config_dir, tmp_path, monkeypatch, clean_af_env
-    ):
-        """Config with distinctive value at AF_CONFIG path is not loaded."""
-        # Write a config at the AF_CONFIG path with a canary value
-        canary_config = tmp_path / "custom-config.toml"
-        canary_config.write_text("[theme]\nplayful = false\n")
-
-        # Global config has playful = true (default)
-        (global_config_dir / "config.toml").write_text(
-            "[theme]\nplayful = true\n"
-        )
-
-        monkeypatch.setenv("AF_CONFIG", str(canary_config))
-        repo = tmp_path / "repo"
-        repo.mkdir(exist_ok=True)
-        monkeypatch.chdir(repo)
-
-        config = load_config()
-
-        # If AF_CONFIG were used, playful would be false
-        # Since it's ignored, playful should be true (from global)
-        assert config.theme.playful is True
 
 
 # ===================================================================
@@ -623,9 +514,7 @@ class TestModelResolutionPrecedence:
         # 3. ~/.af/settings.yaml migration fallback
         af_dir = fake_home / ".af"
         af_dir.mkdir(exist_ok=True)
-        (af_dir / "settings.yaml").write_text(
-            "spec_tool:\n  model: claude-haiku\n"
-        )
+        (af_dir / "settings.yaml").write_text("spec_tool:\n  model: claude-haiku\n")
 
         spec_config = agentspec_load_config(agent_fox_config=agent_fox_config)
         assert spec_config.model == "claude-custom-model"
@@ -644,9 +533,7 @@ class TestMigrationFallback:
         # Create ~/.af/settings.yaml with a model
         af_dir = fake_home / ".af"
         af_dir.mkdir()
-        (af_dir / "settings.yaml").write_text(
-            "spec_tool:\n  model: claude-haiku-4\n"
-        )
+        (af_dir / "settings.yaml").write_text("spec_tool:\n  model: claude-haiku-4\n")
 
         # Create global config without [spec_tool] section
         global_dir = fake_home / ".agent-fox"
@@ -697,6 +584,7 @@ class TestHardcodedDefaultModel:
         af_dir = fake_home / ".af"
         if af_dir.exists():
             import shutil
+
             shutil.rmtree(af_dir)
 
         agent_fox_config = AgentFoxConfig()
@@ -713,9 +601,7 @@ class TestHardcodedDefaultModel:
 class TestDebugLogGlobalLoaded:
     """TS-13-20: DEBUG log 'Loaded global config from <path>'."""
 
-    def test_debug_log_global_loaded(
-        self, fake_home, global_config, tmp_path, monkeypatch, caplog, clean_af_env
-    ):
+    def test_debug_log_global_loaded(self, fake_home, global_config, tmp_path, monkeypatch, caplog, clean_af_env):
         """DEBUG log emitted when global config is loaded."""
         repo = tmp_path / "repo"
         repo.mkdir(exist_ok=True)
@@ -726,10 +612,7 @@ class TestDebugLogGlobalLoaded:
 
         global_config_path = str(fake_home / ".agent-fox" / "config.toml")
         # TS-13-20: same message must contain both the prefix and the path
-        assert any(
-            "Loaded global config from" in msg and global_config_path in msg
-            for msg in caplog.messages
-        )
+        assert any("Loaded global config from" in msg and global_config_path in msg for msg in caplog.messages)
 
 
 # ===================================================================
@@ -738,26 +621,19 @@ class TestDebugLogGlobalLoaded:
 class TestDebugLogMerge:
     """TS-13-21: DEBUG log with overridden section names."""
 
-    def test_debug_log_merge(
-        self, fake_home, global_config, tmp_path, monkeypatch, caplog, clean_af_env
-    ):
+    def test_debug_log_merge(self, fake_home, global_config, tmp_path, monkeypatch, caplog, clean_af_env):
         """DEBUG log 'Merging local config from' with section names."""
         repo = tmp_path / "repo"
         repo.mkdir(exist_ok=True)
         local_dir = repo / ".agent-fox"
         local_dir.mkdir(exist_ok=True)
-        (local_dir / "config.toml").write_text(
-            "[orchestrator]\nparallel = 4\n"
-        )
+        (local_dir / "config.toml").write_text("[orchestrator]\nparallel = 4\n")
         monkeypatch.chdir(repo)
 
         with caplog.at_level(logging.DEBUG):
             load_config()
 
-        assert any(
-            "Merging local config from" in msg and "orchestrator" in msg
-            for msg in caplog.messages
-        )
+        assert any("Merging local config from" in msg and "orchestrator" in msg for msg in caplog.messages)
 
 
 # ===================================================================
@@ -766,9 +642,7 @@ class TestDebugLogMerge:
 class TestDebugLogNoLocal:
     """TS-13-22: DEBUG log when no local config exists."""
 
-    def test_debug_log_no_local(
-        self, fake_home, global_config, tmp_path, monkeypatch, caplog, clean_af_env
-    ):
+    def test_debug_log_no_local(self, fake_home, global_config, tmp_path, monkeypatch, caplog, clean_af_env):
         """DEBUG log 'No local config found at .agent-fox/config.toml'."""
         repo = tmp_path / "repo"
         repo.mkdir(exist_ok=True)
@@ -778,10 +652,7 @@ class TestDebugLogNoLocal:
             load_config()
 
         # TS-13-22: must include the full path suffix
-        assert any(
-            "No local config found at" in msg and ".agent-fox/config.toml" in msg
-            for msg in caplog.messages
-        )
+        assert any("No local config found at" in msg and ".agent-fox/config.toml" in msg for msg in caplog.messages)
 
 
 # ===================================================================
@@ -790,26 +661,19 @@ class TestDebugLogNoLocal:
 class TestDebugLogHomeUnresolvable:
     """TS-13-23: DEBUG warning when $HOME cannot be resolved."""
 
-    def test_debug_log_home_unresolvable(
-        self, tmp_path, monkeypatch, caplog, clean_af_env
-    ):
+    def test_debug_log_home_unresolvable(self, tmp_path, monkeypatch, caplog, clean_af_env):
         """DEBUG log mentions HOME when it cannot be resolved."""
         repo = tmp_path / "repo"
         repo.mkdir(exist_ok=True)
         monkeypatch.chdir(repo)
         monkeypatch.delenv("HOME", raising=False)
-        monkeypatch.setattr(
-            Path, "home", staticmethod(lambda: (_ for _ in ()).throw(RuntimeError("no home")))
-        )
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: (_ for _ in ()).throw(RuntimeError("no home"))))
 
         with caplog.at_level(logging.DEBUG):
             load_config()
 
         # TS-13-23: same message must contain BOTH 'HOME' AND 'could not be resolved'/'skipped'
-        assert any(
-            "HOME" in msg and ("could not be resolved" in msg or "skipped" in msg)
-            for msg in caplog.messages
-        )
+        assert any("HOME" in msg and ("could not be resolved" in msg or "skipped" in msg) for msg in caplog.messages)
 
 
 # ===================================================================
@@ -818,9 +682,7 @@ class TestDebugLogHomeUnresolvable:
 class TestAfInitGlobalConfig:
     """TS-13-24: af init creates global dir and config."""
 
-    def test_af_init_creates_global_config(
-        self, fake_home, tmp_path, monkeypatch, clean_af_env
-    ):
+    def test_af_init_creates_global_config(self, fake_home, tmp_path, monkeypatch, clean_af_env):
         """af init creates $HOME/.agent-fox/ with 0o700 and default config."""
         from af.app import main as af_main
         from click.testing import CliRunner
@@ -845,9 +707,7 @@ class TestAfInitGlobalConfig:
 class TestAfInitGlobalPreserved:
     """TS-13-25: af init --force never overwrites global config."""
 
-    def test_af_init_force_preserves_global(
-        self, fake_home, global_config_dir, tmp_path, monkeypatch, clean_af_env
-    ):
+    def test_af_init_force_preserves_global(self, fake_home, global_config_dir, tmp_path, monkeypatch, clean_af_env):
         """Global config with custom content is preserved even with --force."""
         from af.app import main as af_main
         from click.testing import CliRunner
@@ -871,9 +731,7 @@ class TestAfInitGlobalPreserved:
 class TestAfInitLocalCommentedOut:
     """TS-13-26: af init creates local config with all values commented out."""
 
-    def test_af_init_local_all_comments(
-        self, fake_home, global_config, tmp_path, monkeypatch, clean_af_env
-    ):
+    def test_af_init_local_all_comments(self, fake_home, global_config, tmp_path, monkeypatch, clean_af_env):
         """Local config template has only comment lines."""
         from af.app import main as af_main
         from click.testing import CliRunner
@@ -901,9 +759,7 @@ class TestAfInitLocalCommentedOut:
 class TestAfInitLocalPreserved:
     """TS-13-27: af init without --force preserves existing local config."""
 
-    def test_af_init_preserves_local(
-        self, fake_home, global_config, tmp_path, monkeypatch, clean_af_env
-    ):
+    def test_af_init_preserves_local(self, fake_home, global_config, tmp_path, monkeypatch, clean_af_env):
         """Existing local config is not overwritten without --force."""
         from af.app import main as af_main
         from click.testing import CliRunner
@@ -929,9 +785,7 @@ class TestAfInitLocalPreserved:
 class TestAfInitForceOverwritesLocal:
     """TS-13-28: af init --force overwrites local, preserves global."""
 
-    def test_af_init_force_overwrites_local(
-        self, fake_home, global_config_dir, tmp_path, monkeypatch, clean_af_env
-    ):
+    def test_af_init_force_overwrites_local(self, fake_home, global_config_dir, tmp_path, monkeypatch, clean_af_env):
         """--force regenerates local config as all-comments template."""
         from af.app import main as af_main
         from click.testing import CliRunner
@@ -1065,9 +919,7 @@ class TestNonexistentCWD:
     def test_nonexistent_cwd(self, fake_home, global_config, monkeypatch, clean_af_env):
         """load_config raises ConfigError or OSError with bad CWD."""
         # Patch cwd to raise
-        monkeypatch.setattr(
-            Path, "cwd", staticmethod(lambda: (_ for _ in ()).throw(OSError("no cwd")))
-        )
+        monkeypatch.setattr(Path, "cwd", staticmethod(lambda: (_ for _ in ()).throw(OSError("no cwd"))))
         with pytest.raises((ConfigError, OSError)):
             load_config()
 
@@ -1087,9 +939,7 @@ class TestAfInitNoHome:
         repo.mkdir(exist_ok=True)
         monkeypatch.chdir(repo)
         monkeypatch.delenv("HOME", raising=False)
-        monkeypatch.setattr(
-            Path, "home", staticmethod(lambda: (_ for _ in ()).throw(RuntimeError("no home")))
-        )
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: (_ for _ in ()).throw(RuntimeError("no home"))))
 
         runner = CliRunner()
         with caplog.at_level(logging.DEBUG):
@@ -1152,9 +1002,7 @@ class TestGlobalConfigNotOverwrittenProperty:
     """TS-13-P2: Global config created once, never overwritten."""
 
     @pytest.mark.property
-    def test_global_config_not_overwritten(
-        self, fake_home, tmp_path, monkeypatch, clean_af_env
-    ):
+    def test_global_config_not_overwritten(self, fake_home, tmp_path, monkeypatch, clean_af_env):
         """Property: multiple load_config calls don't overwrite global config."""
         from hypothesis import given, settings
         from hypothesis import strategies as st
@@ -1215,22 +1063,22 @@ class TestMalformedTomlFailFastProperty:
     """TS-13-P4: Malformed TOML -> ConfigError, no partial config."""
 
     @pytest.mark.property
-    def test_malformed_toml_always_raises(
-        self, fake_home, tmp_path, monkeypatch, clean_af_env
-    ):
+    def test_malformed_toml_always_raises(self, fake_home, tmp_path, monkeypatch, clean_af_env):
         """Property: malformed TOML in global config always raises ConfigError."""
         from hypothesis import given, settings
         from hypothesis import strategies as st
 
-        malformed_toml = st.sampled_from([
-            "[broken = ",
-            "key = @value",
-            "[section\nkey = ",
-            '"""unterminated',
-            "[[nested]\nkey = {broken",
-            "= no_key",
-            "[good]\nbad = '''unclosed",
-        ])
+        malformed_toml = st.sampled_from(
+            [
+                "[broken = ",
+                "key = @value",
+                "[section\nkey = ",
+                '"""unterminated',
+                "[[nested]\nkey = {broken",
+                "= no_key",
+                "[good]\nbad = '''unclosed",
+            ]
+        )
 
         @given(bad_toml=malformed_toml)
         @settings(max_examples=10)
@@ -1250,9 +1098,7 @@ class TestMalformedTomlFailFastProperty:
                 pass
             except Exception as e:
                 # TS-13-P4: only ConfigError is acceptable
-                raise AssertionError(
-                    f"Expected ConfigError but got {type(e).__name__}: {e}"
-                ) from e
+                raise AssertionError(f"Expected ConfigError but got {type(e).__name__}: {e}") from e
             assert result is None
 
         check()
@@ -1265,9 +1111,7 @@ class TestSymlinkFinalFileOnlyProperty:
     """TS-13-P5: Symlink detection on final file path only."""
 
     @pytest.mark.property
-    def test_symlink_final_file_only(
-        self, fake_home, tmp_path, monkeypatch, clean_af_env
-    ):
+    def test_symlink_final_file_only(self, fake_home, tmp_path, monkeypatch, clean_af_env):
         """Property: symlinked final file rejected; symlinked intermediate dir OK."""
         import shutil
 
@@ -1276,12 +1120,14 @@ class TestSymlinkFinalFileOnlyProperty:
         from hypothesis import strategies as st
 
         # Strategy: generate varying TOML content for diverse path structures
-        toml_content_st = st.sampled_from([
-            "[orchestrator]\nparallel = 1\n",
-            "[theme]\nplayful = true\n",
-            "[routing]\nretries_before_escalation = 2\n",
-            "# empty\n",
-        ])
+        toml_content_st = st.sampled_from(
+            [
+                "[orchestrator]\nparallel = 1\n",
+                "[theme]\nplayful = true\n",
+                "[routing]\nretries_before_escalation = 2\n",
+                "# empty\n",
+            ]
+        )
         # Strategy: generate varying directory depth for intermediate dirs
         depth_st = st.integers(min_value=0, max_value=3)
 
@@ -1350,22 +1196,22 @@ class TestAfInitNeverOverwritesGlobalProperty:
     """TS-13-P6: af init never overwrites existing global config."""
 
     @pytest.mark.property
-    def test_af_init_never_overwrites_global(
-        self, fake_home, tmp_path, monkeypatch, clean_af_env
-    ):
+    def test_af_init_never_overwrites_global(self, fake_home, tmp_path, monkeypatch, clean_af_env):
         """Property: existing global config content preserved by af init."""
         from af.app import main as af_main
         from click.testing import CliRunner
         from hypothesis import given, settings
         from hypothesis import strategies as st
 
-        valid_toml = st.sampled_from([
-            "# custom config\n",
-            "[orchestrator]\nparallel = 4\n",
-            "[theme]\nplayful = false\n",
-            "# empty with comment\n",
-            "[routing]\nretries_before_escalation = 2\n",
-        ])
+        valid_toml = st.sampled_from(
+            [
+                "# custom config\n",
+                "[orchestrator]\nparallel = 4\n",
+                "[theme]\nplayful = false\n",
+                "# empty with comment\n",
+                "[routing]\nretries_before_escalation = 2\n",
+            ]
+        )
         use_force = st.booleans()
 
         @given(content=valid_toml, force=use_force)
@@ -1398,9 +1244,7 @@ class TestSmoke1ZeroConfigFirstRun:
     """TS-13-SMOKE-1: Zero-config first run auto-creates global config."""
 
     @pytest.mark.smoke
-    def test_zero_config_first_run(
-        self, fake_home, tmp_path, monkeypatch, caplog, clean_af_env
-    ):
+    def test_zero_config_first_run(self, fake_home, tmp_path, monkeypatch, caplog, clean_af_env):
         """PATH-1: First load_config() auto-creates global config, emits DEBUG logs."""
         repo = tmp_path / "repo"
         repo.mkdir()
@@ -1420,40 +1264,32 @@ class TestSmoke1ZeroConfigFirstRun:
         assert isinstance(config, AgentFoxConfig)
 
         # DEBUG log: 'Loaded global config from ...'
-        assert any(
-            "Loaded global config from" in msg and str(global_config) in msg
-            for msg in caplog.messages
-        )
+        assert any("Loaded global config from" in msg and str(global_config) in msg for msg in caplog.messages)
         # DEBUG log: 'No local config found ...'
-        assert any(
-            "No local config found" in msg
-            for msg in caplog.messages
-        )
+        assert any("No local config found" in msg for msg in caplog.messages)
 
 
 class TestSmoke2GlobalLocalMerge:
     """TS-13-SMOKE-2: Global + local config merge with section override."""
 
     @pytest.mark.smoke
-    def test_global_local_merge(
-        self, fake_home, global_config_dir, tmp_path, monkeypatch, caplog, clean_af_env
-    ):
+    def test_global_local_merge(self, fake_home, global_config_dir, tmp_path, monkeypatch, caplog, clean_af_env):
         """PATH-2: Merge global+local, DEBUG log lists overridden sections."""
-        (global_config_dir / "config.toml").write_text(textwrap.dedent("""\
+        (global_config_dir / "config.toml").write_text(
+            textwrap.dedent("""\
             [orchestrator]
             parallel = 2
             session_timeout = 60
 
             [routing]
             retries_before_escalation = 3
-        """))
+        """)
+        )
         repo = tmp_path / "repo"
         repo.mkdir()
         local_dir = repo / ".agent-fox"
         local_dir.mkdir()
-        (local_dir / "config.toml").write_text(
-            "[orchestrator]\nparallel = 8\n"
-        )
+        (local_dir / "config.toml").write_text("[orchestrator]\nparallel = 8\n")
         monkeypatch.chdir(repo)
 
         with caplog.at_level(logging.DEBUG):
@@ -1467,24 +1303,16 @@ class TestSmoke2GlobalLocalMerge:
         assert config.orchestrator.session_timeout != 60
 
         # DEBUG log: 'Loaded global config from ...'
-        assert any(
-            "Loaded global config from" in msg
-            for msg in caplog.messages
-        )
+        assert any("Loaded global config from" in msg for msg in caplog.messages)
         # DEBUG log: 'Merging local config from ... (sections overridden: ...)'
-        assert any(
-            "Merging local config from" in msg and "orchestrator" in msg
-            for msg in caplog.messages
-        )
+        assert any("Merging local config from" in msg and "orchestrator" in msg for msg in caplog.messages)
 
 
 class TestSmoke3MalformedGlobalFailFast:
     """TS-13-SMOKE-3: Malformed global config causes fail-fast exit."""
 
     @pytest.mark.smoke
-    def test_malformed_global_fail_fast(
-        self, fake_home, global_config_dir, tmp_path, monkeypatch, clean_af_env
-    ):
+    def test_malformed_global_fail_fast(self, fake_home, global_config_dir, tmp_path, monkeypatch, clean_af_env):
         """PATH-3: Invalid TOML in global config -> ConfigError, local never read."""
         global_config_path = global_config_dir / "config.toml"
         global_config_path.write_text("[broken = ")
@@ -1507,39 +1335,6 @@ class TestSmoke3MalformedGlobalFailFast:
         assert "parse" in error_msg.lower() or "TOML" in error_msg
 
 
-class TestSmoke4AfConfigDeprecation:
-    """TS-13-SMOKE-4: AF_CONFIG deprecation warning, value ignored."""
-
-    @pytest.mark.smoke
-    def test_af_config_deprecation_e2e(
-        self, fake_home, global_config_dir, tmp_path, monkeypatch, capsys
-    ):
-        """PATH-4: AF_CONFIG set -> deprecation warning, config from global+local."""
-        (global_config_dir / "config.toml").write_text(
-            "[orchestrator]\nparallel = 5\n"
-        )
-        # Create a decoy config at AF_CONFIG path with a canary value
-        decoy = tmp_path / "custom.toml"
-        decoy.write_text("[orchestrator]\nparallel = 99\n")
-        monkeypatch.setenv("AF_CONFIG", str(decoy))
-        monkeypatch.delenv("AF_SPEC_MODEL", raising=False)
-
-        repo = tmp_path / "repo"
-        repo.mkdir()
-        monkeypatch.chdir(repo)
-
-        config = load_config()
-
-        # Deprecation warning on stderr
-        captured = capsys.readouterr()
-        assert "AF_CONFIG" in captured.err
-        assert "no longer supported" in captured.err.lower()
-
-        # Decoy config was never read (parallel=99 from decoy was ignored)
-        assert config.orchestrator.parallel == 5  # from global
-        assert isinstance(config, AgentFoxConfig)
-
-
 class TestSmoke5AgentspecMigrationFallback:
     """TS-13-SMOKE-5: agentspec migration fallback from settings.yaml."""
 
@@ -1551,15 +1346,11 @@ class TestSmoke5AgentspecMigrationFallback:
         from agentspec.config import load_config as agentspec_load_config
 
         # Global config without [spec_tool]
-        (global_config_dir / "config.toml").write_text(
-            "[orchestrator]\nparallel = 2\n"
-        )
+        (global_config_dir / "config.toml").write_text("[orchestrator]\nparallel = 2\n")
         # Legacy settings.yaml
         af_dir = fake_home / ".af"
         af_dir.mkdir()
-        (af_dir / "settings.yaml").write_text(
-            "spec_tool:\n  model: claude-haiku-4\n"
-        )
+        (af_dir / "settings.yaml").write_text("spec_tool:\n  model: claude-haiku-4\n")
 
         repo = tmp_path / "repo"
         repo.mkdir()
@@ -1580,9 +1371,7 @@ class TestSmoke6AfInitCleanEnvironment:
     """TS-13-SMOKE-6: af init creates both global and local configs."""
 
     @pytest.mark.smoke
-    def test_af_init_clean_e2e(
-        self, fake_home, tmp_path, monkeypatch, clean_af_env
-    ):
+    def test_af_init_clean_e2e(self, fake_home, tmp_path, monkeypatch, clean_af_env):
         """PATH-6: af init with no existing configs creates both."""
         from af.app import main as af_main
         from click.testing import CliRunner
@@ -1604,6 +1393,7 @@ class TestSmoke6AfInitCleanEnvironment:
         assert global_config.exists()
         # Default config should be parseable TOML
         import tomllib
+
         tomllib.loads(global_config.read_text())
 
         # Local config created with all values commented out
@@ -1619,9 +1409,7 @@ class TestSmoke7AfInitForce:
     """TS-13-SMOKE-7: af init --force regenerates local only."""
 
     @pytest.mark.smoke
-    def test_af_init_force_e2e(
-        self, fake_home, global_config_dir, tmp_path, monkeypatch, clean_af_env
-    ):
+    def test_af_init_force_e2e(self, fake_home, global_config_dir, tmp_path, monkeypatch, clean_af_env):
         """PATH-7: --force overwrites local, leaves global unchanged."""
         from af.app import main as af_main
         from click.testing import CliRunner
@@ -1657,23 +1445,16 @@ class TestSmoke8HomeUnsetLocalUsed:
     """TS-13-SMOKE-8: HOME unset, local config used, no exception."""
 
     @pytest.mark.smoke
-    def test_home_unset_local_used(
-        self, tmp_path, monkeypatch, caplog, clean_af_env
-    ):
+    def test_home_unset_local_used(self, tmp_path, monkeypatch, caplog, clean_af_env):
         """PATH-8: Unresolvable HOME -> skip global, use local config."""
         repo = tmp_path / "repo"
         repo.mkdir()
         local_dir = repo / ".agent-fox"
         local_dir.mkdir()
-        (local_dir / "config.toml").write_text(
-            "[orchestrator]\nparallel = 3\n"
-        )
+        (local_dir / "config.toml").write_text("[orchestrator]\nparallel = 3\n")
         monkeypatch.chdir(repo)
         monkeypatch.delenv("HOME", raising=False)
-        monkeypatch.setattr(
-            Path, "home",
-            staticmethod(lambda: (_ for _ in ()).throw(RuntimeError("no home")))
-        )
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: (_ for _ in ()).throw(RuntimeError("no home"))))
 
         with caplog.at_level(logging.DEBUG):
             config = load_config()
@@ -1683,7 +1464,4 @@ class TestSmoke8HomeUnsetLocalUsed:
         # Local config values used
         assert config.orchestrator.parallel == 3
         # DEBUG warning about HOME
-        assert any(
-            "HOME" in msg and ("could not be resolved" in msg or "skipped" in msg)
-            for msg in caplog.messages
-        )
+        assert any("HOME" in msg and ("could not be resolved" in msg or "skipped" in msg) for msg in caplog.messages)

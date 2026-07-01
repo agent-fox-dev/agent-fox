@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
 import tomllib
 from enum import StrEnum
 from pathlib import Path
@@ -220,11 +219,6 @@ class ThemeConfig(BaseModel):
 class PlatformConfig(BaseModel):
     """Platform configuration for issue tracking.
 
-    Only ``type`` and ``url`` are meaningful.  Old fields
-    (``auto_merge``, ``wait_for_ci``, ``wait_for_review``, ``ci_timeout``,
-    ``pr_granularity``, ``labels``) are silently ignored via
-    ``extra = "ignore"`` for backward compatibility.
-
     Requirements: 65-REQ-1.1, 65-REQ-1.2, 65-REQ-1.E1,
                   65-REQ-2.1, 65-REQ-2.2, 65-REQ-2.3, 65-REQ-2.E1
     """
@@ -238,10 +232,6 @@ class PlatformConfig(BaseModel):
 class KnowledgeProviderConfig(BaseModel):
     """Configuration for the pluggable knowledge provider.
 
-    Controls retrieval limits only. Gotcha TTL and model tier fields were
-    removed in spec 116 (knowledge system pruning). Unknown fields are
-    silently ignored for backward compatibility with existing config files.
-
     Requirements: 116-REQ-7.1, 116-REQ-7.2, 116-REQ-7.3, 116-REQ-7.E1
     """
 
@@ -253,9 +243,6 @@ class KnowledgeProviderConfig(BaseModel):
 
 class KnowledgeConfig(BaseModel):
     """Knowledge store configuration.
-
-    Old fields (embedding_model, dedup_similarity_threshold, etc.) are
-    silently ignored via ``extra="ignore"`` for backward compatibility.
 
     Requirements: 39-REQ-4.2, 114-REQ-8.1, 114-REQ-8.4, 114-REQ-8.5
     """
@@ -361,9 +348,7 @@ class ArchetypeInstancesConfig(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    reviewer: Annotated[int, Clamped(ge=1, le=5)] = Field(
-        default=1, description="Number of reviewer instances (replaces skeptic+auditor)"
-    )
+    reviewer: Annotated[int, Clamped(ge=1, le=5)] = Field(default=1, description="Number of reviewer instances")
     verifier: int = Field(default=1, description="Number of verifier instances (max clamped to 1)")
 
     _auto_clamp = _auto_clamp_validator()
@@ -381,7 +366,7 @@ class ArchetypeInstancesConfig(BaseModel):
 
 
 class ReviewerConfig(BaseModel):
-    """Reviewer-specific configuration, replacing SkepticConfig + OracleSettings + AuditorConfig.
+    """Reviewer-specific configuration.
 
     Contains mode-specific settings keyed by mode name concept, stored as flat fields.
 
@@ -437,8 +422,7 @@ class ArchetypesConfig(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    coder: bool = Field(default=True, description="Enable coder archetype")
-    reviewer: bool = Field(default=True, description="Enable reviewer archetype (replaces skeptic, oracle, auditor)")
+    reviewer: bool = Field(default=True, description="Enable reviewer archetype")
     verifier: bool = Field(default=True, description="Enable verifier archetype")
 
     instances: ArchetypeInstancesConfig = Field(
@@ -447,25 +431,11 @@ class ArchetypesConfig(BaseModel):
     )
     reviewer_config: ReviewerConfig = Field(
         default_factory=ReviewerConfig,
-        description="Reviewer-specific configuration (replaces skeptic_config, oracle_settings, auditor_config)",
-    )
-    models: dict[str, str] = Field(default_factory=dict, description="Per-archetype model overrides")
-    allowlists: dict[str, list[str]] = Field(default_factory=dict, description="Per-archetype command allowlists")
-    max_turns: dict[str, int] = Field(
-        default_factory=dict,
-        description="Per-archetype maximum turn limits",
-    )
-    thinking: dict[str, ThinkingConfig] = Field(
-        default_factory=dict,
-        description="Per-archetype extended thinking configuration",
+        description="Reviewer-specific configuration",
     )
     overrides: dict[str, PerArchetypeConfig] = Field(
         default_factory=dict,
-        description=(
-            "Unified per-archetype configuration tables. "
-            "TOML: [archetypes.overrides.<name>]. "
-            "Takes precedence over models/max_turns/thinking/allowlists dicts."
-        ),
+        description=("Unified per-archetype configuration tables. TOML: [archetypes.overrides.<name>]."),
     )
     custom: dict[str, CustomArchetypeConfig] = Field(
         default_factory=dict,
@@ -475,25 +445,6 @@ class ArchetypesConfig(BaseModel):
             "Requirements: 99-REQ-4.2"
         ),
     )
-
-    @field_validator("coder")
-    @classmethod
-    def coder_always_enabled(cls, v: bool) -> bool:
-        if not v:
-            logger.warning("archetypes.coder cannot be disabled; ignoring")
-        return True
-
-    @field_validator("max_turns")
-    @classmethod
-    def validate_max_turns_non_negative(cls, v: dict[str, int]) -> dict[str, int]:
-        """Reject negative max_turns values.
-
-        Requirements: 56-REQ-1.E1
-        """
-        for archetype, turns in v.items():
-            if turns < 0:
-                raise ValueError(f"max_turns for '{archetype}' must be >= 0, got {turns}")
-        return v
 
 
 class ModelPricing(BaseModel):
@@ -626,10 +577,6 @@ class CachingConfig(BaseModel):
 
 class NightShiftConfig(BaseModel):
     """Night-shift daemon configuration.
-
-    Only the fix-pipeline fields remain after removal of hunt-scan and
-    spec-executor streams (125-REQ-5.1, 125-REQ-5.3).  Removed fields
-    are silently ignored via ``extra="ignore"`` (125-REQ-5.4).
 
     Requirements: 61-REQ-9.1, 61-REQ-9.E1, 125-REQ-5.1, 125-REQ-5.3,
                   125-REQ-5.4
@@ -921,15 +868,6 @@ def _load_config_global_local() -> AgentFoxConfig:
                   13-REQ-3.1, 13-REQ-3.2, 13-REQ-5.1, 13-REQ-5.2,
                   13-REQ-7.1, 13-REQ-7.2, 13-REQ-7.3, 13-REQ-7.4
     """
-    # 13-REQ-5.1, 13-REQ-5.2: AF_CONFIG deprecation — check before any I/O
-    if os.environ.get("AF_CONFIG"):
-        print(
-            "Warning: AF_CONFIG is no longer supported and has been ignored. "
-            "Move your settings to $HOME/.agent-fox/config.toml (global) "
-            "or .agent-fox/config.toml (local).",
-            file=sys.stderr,
-        )
-
     # --- Global config ---
     global_dict: dict = {}
     home: Path | None = None
@@ -938,9 +876,7 @@ def _load_config_global_local() -> AgentFoxConfig:
         home = Path.home()
     except (RuntimeError, OSError):
         # 13-REQ-2.3, 13-REQ-7.4: HOME unresolvable
-        logger.debug(
-            "$HOME could not be resolved; global config loading skipped"
-        )
+        logger.debug("$HOME could not be resolved; global config loading skipped")
 
     if home is not None:
         global_config_path = home / ".agent-fox" / "config.toml"
@@ -969,9 +905,7 @@ def _load_config_global_local() -> AgentFoxConfig:
 
             from agentfox.core.config_gen import generate_default_config
 
-            global_config_path.write_text(
-                generate_default_config(), encoding="utf-8"
-            )
+            global_config_path.write_text(generate_default_config(), encoding="utf-8")
 
         # 13-REQ-2.E1: symlink rejection on final file
         _check_symlink(global_config_path)
@@ -980,9 +914,7 @@ def _load_config_global_local() -> AgentFoxConfig:
         global_dict = _parse_toml_file(global_config_path)
 
         # 13-REQ-7.1: debug log after successful load
-        logger.debug(
-            "Loaded global config from %s", global_config_path
-        )
+        logger.debug("Loaded global config from %s", global_config_path)
 
     # --- Local config ---
     local_path = Path.cwd() / ".agent-fox" / "config.toml"
@@ -995,9 +927,7 @@ def _load_config_global_local() -> AgentFoxConfig:
         local_dict = _parse_toml_file(local_path)
 
         # Track which local keys are sections (dicts) for debug logging
-        overridden_sections = [
-            k for k, v in local_dict.items() if isinstance(v, dict)
-        ]
+        overridden_sections = [k for k, v in local_dict.items() if isinstance(v, dict)]
 
         # 13-REQ-3.1, 13-REQ-3.3: shallow section replacement merge
         merged_dict = shallow_merge(global_dict, local_dict)

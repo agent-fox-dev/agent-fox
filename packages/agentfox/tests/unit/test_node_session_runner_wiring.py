@@ -17,13 +17,12 @@ from agentfox.core.config import AgentFoxConfig
 # unavailable; source-inspection tests that only read the .py file work fine.
 try:
     import rich  # noqa: F401
+
     _has_rich = True
 except ModuleNotFoundError:
     _has_rich = False
 
-_skip_no_rich = pytest.mark.skipif(
-    not _has_rich, reason="rich not installed; NodeSessionRunner import chain fails"
-)
+_skip_no_rich = pytest.mark.skipif(not _has_rich, reason="rich not installed; NodeSessionRunner import chain fails")
 
 # ---------------------------------------------------------------------------
 # TS-14-43: NodeSessionRunner calls resolve_model_variant() first, then
@@ -74,9 +73,7 @@ class TestNodeSessionRunnerCallOrder:
             )
 
             # Verify call order: variant first, model second
-            assert call_order == ["variant", "model"], (
-                f"Expected ['variant', 'model'] but got {call_order}"
-            )
+            assert call_order == ["variant", "model"], f"Expected ['variant', 'model'] but got {call_order}"
             # Verify resolve_model received variant='extended' as keyword argument
             mock_rmv.assert_called_once()
             mock_rm.assert_called_once()
@@ -129,27 +126,17 @@ class TestNodeSessionRunnerSourceInspection:
 
     def test_source_contains_resolve_model_variant(self) -> None:
         """TS-14-44: The source code calls resolve_model_variant and resolve_model."""
-        source_path = (
-            Path(__file__).resolve().parents[2] / "agentfox" / "engine" / "session_lifecycle.py"
-        )
+        source_path = Path(__file__).resolve().parents[2] / "agentfox" / "engine" / "session_lifecycle.py"
         source = source_path.read_text(encoding="utf-8")
-        assert "resolve_model_variant" in source, (
-            "session_lifecycle.py must contain a call to resolve_model_variant"
-        )
-        assert "resolve_model" in source, (
-            "session_lifecycle.py must contain a call to resolve_model"
-        )
+        assert "resolve_model_variant" in source, "session_lifecycle.py must contain a call to resolve_model_variant"
+        assert "resolve_model" in source, "session_lifecycle.py must contain a call to resolve_model"
 
     def test_no_inline_model_registry_scanning(self) -> None:
         """TS-14-44 corollary: NodeSessionRunner does not scan MODEL_REGISTRY or VARIANT_ORDER inline."""
-        source_path = (
-            Path(__file__).resolve().parents[2] / "agentfox" / "engine" / "session_lifecycle.py"
-        )
+        source_path = Path(__file__).resolve().parents[2] / "agentfox" / "engine" / "session_lifecycle.py"
         source = source_path.read_text(encoding="utf-8")
         # VARIANT_ORDER should never appear in session_lifecycle.py
-        assert "VARIANT_ORDER" not in source, (
-            "session_lifecycle.py must not reference VARIANT_ORDER directly"
-        )
+        assert "VARIANT_ORDER" not in source, "session_lifecycle.py must not reference VARIANT_ORDER directly"
 
 
 # ---------------------------------------------------------------------------

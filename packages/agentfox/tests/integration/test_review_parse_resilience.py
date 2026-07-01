@@ -109,13 +109,14 @@ class TestFormatRetryTriggeredOnParseFailure:
                 transcript=_invalid_transcript(),
                 node_id="test-node",
                 attempt=1,
-                archetype="skeptic",
+                archetype="reviewer",
                 spec_name="test_spec",
                 task_group="1",
                 knowledge_db_conn=knowledge_db,
                 sink=sink,
                 run_id="run1",
                 session_handle=mock_session,
+                mode="pre-review",
             )
 
         # Retry message must have been sent
@@ -157,13 +158,14 @@ class TestSuccessfulRetrySuppressesParseFailure:
                 transcript=_invalid_transcript(),
                 node_id="test-node",
                 attempt=1,
-                archetype="skeptic",
+                archetype="reviewer",
                 spec_name="test_spec",
                 task_group="1",
                 knowledge_db_conn=knowledge_db,
                 sink=sink,
                 run_id="run1",
                 session_handle=mock_session,
+                mode="pre-review",
             )
 
         assert not sink.has_event_type(AuditEventType.REVIEW_PARSE_FAILURE), (
@@ -191,13 +193,14 @@ class TestSuccessfulRetrySuppressesParseFailure:
                 transcript=_invalid_transcript(),
                 node_id="test-node",
                 attempt=1,
-                archetype="skeptic",
+                archetype="reviewer",
                 spec_name="test_spec",
                 task_group="1",
                 knowledge_db_conn=knowledge_db,
                 sink=sink,
                 run_id="run1",
                 session_handle=mock_session,
+                mode="pre-review",
             )
 
         assert sink.has_event_type(AuditEventType.REVIEW_PARSE_RETRY_SUCCESS), (
@@ -207,7 +210,7 @@ class TestSuccessfulRetrySuppressesParseFailure:
         retry_events = sink.get_events_of_type(AuditEventType.REVIEW_PARSE_RETRY_SUCCESS)
         assert len(retry_events) > 0
         event = retry_events[0]
-        assert getattr(event, "archetype", None) == "skeptic" or ("archetype" in getattr(event, "payload", {})), (
+        assert getattr(event, "archetype", None) == "reviewer" or ("archetype" in getattr(event, "payload", {})), (
             "REVIEW_PARSE_RETRY_SUCCESS must include archetype information"
         )
 
@@ -239,13 +242,14 @@ class TestFailedRetryEmitsParseFailure:
                 transcript=_invalid_transcript(),
                 node_id="test-node",
                 attempt=1,
-                archetype="skeptic",
+                archetype="reviewer",
                 spec_name="test_spec",
                 task_group="1",
                 knowledge_db_conn=knowledge_db,
                 sink=sink,
                 run_id="run1",
                 session_handle=mock_session,
+                mode="pre-review",
             )
 
         assert sink.has_event_type(AuditEventType.REVIEW_PARSE_FAILURE), (
@@ -268,13 +272,14 @@ class TestFailedRetryEmitsParseFailure:
                 transcript=_invalid_transcript(),
                 node_id="test-node",
                 attempt=1,
-                archetype="skeptic",
+                archetype="reviewer",
                 spec_name="test_spec",
                 task_group="1",
                 knowledge_db_conn=knowledge_db,
                 sink=sink,
                 run_id="run1",
                 session_handle=mock_session,
+                mode="pre-review",
             )
 
         failure_events = sink.get_events_of_type(AuditEventType.REVIEW_PARSE_FAILURE)
@@ -300,13 +305,14 @@ class TestFailedRetryEmitsParseFailure:
                 transcript=_invalid_transcript(),
                 node_id="test-node",
                 attempt=1,
-                archetype="skeptic",
+                archetype="reviewer",
                 spec_name="test_spec",
                 task_group="1",
                 knowledge_db_conn=knowledge_db,
                 sink=sink,
                 run_id="run1",
                 session_handle=mock_session,
+                mode="pre-review",
             )
 
         failure_events = sink.get_events_of_type(AuditEventType.REVIEW_PARSE_FAILURE)

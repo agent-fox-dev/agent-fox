@@ -1,16 +1,13 @@
 """Remaining property tests for model variant support.
 
-Test Spec: TS-14-P5, TS-14-P6, TS-14-P7
-Requirements: 14-REQ-4.3, 14-REQ-13.1, 14-REQ-6.3, 14-REQ-6.E1,
+Test Spec: TS-14-P5, TS-14-P7
+Requirements: 14-REQ-4.3, 14-REQ-13.1,
               14-REQ-3.1, 14-REQ-3.3
 """
 
 from __future__ import annotations
 
-from unittest.mock import patch
-
 import pytest
-from agentfox.core.config import AgentFoxConfig, ArchetypesConfig
 
 # ---------------------------------------------------------------------------
 # TS-14-P5: For any ModeConfig with non-None model_variant and any
@@ -26,9 +23,7 @@ class TestModeBeatsArchetypeVariantProperty:
 
     @pytest.mark.parametrize("mode_variant", ["fast", "standard", "extended"])
     @pytest.mark.parametrize("arch_variant", ["fast", "standard", "extended"])
-    def test_mode_variant_wins_over_archetype_variant(
-        self, mode_variant: str, arch_variant: str
-    ) -> None:
+    def test_mode_variant_wins_over_archetype_variant(self, mode_variant: str, arch_variant: str) -> None:
         """TS-14-P5: For all (mode, archetype) variant combos, merged result
         has default_model_variant == mode_variant.
         """
@@ -43,54 +38,6 @@ class TestModeBeatsArchetypeVariantProperty:
         )
         result = resolve_effective_config(entry, "test-mode")
         assert result.default_model_variant == mode_variant
-
-
-# ---------------------------------------------------------------------------
-# TS-14-P6: For any archetype matched by the legacy config.archetypes.models
-#           dict, resolve_model_variant returns None and never invokes
-#           resolve_effective_config
-# Requirement: 14-REQ-6.3, 14-REQ-6.E1
-# ---------------------------------------------------------------------------
-
-
-class TestLegacyDictShortCircuitProperty:
-    """Property: legacy dict always short-circuits to None without resolve_effective_config."""
-
-    @pytest.mark.parametrize("archetype_name", ["coder", "reviewer", "verifier"])
-    def test_legacy_dict_returns_none_and_skips_resolve_effective_config(
-        self, archetype_name: str
-    ) -> None:
-        """TS-14-P6: For each archetype in legacy dict, result is None and
-        resolve_effective_config is never called.
-        """
-        from agentfox.engine.sdk_params import resolve_model_variant
-
-        config = AgentFoxConfig(
-            archetypes=ArchetypesConfig(
-                models={archetype_name: "ADVANCED"},
-            )
-        )
-        with patch("agentfox.archetypes.resolve_effective_config") as mocked_rec:
-            result = resolve_model_variant(config, archetype_name)
-            assert result is None
-            assert mocked_rec.call_count == 0
-
-    @pytest.mark.parametrize("archetype_name", ["coder", "reviewer"])
-    def test_legacy_dict_short_circuit_with_mode_specified(
-        self, archetype_name: str
-    ) -> None:
-        """TS-14-P6 corollary: Legacy dict short-circuit applies even when mode is specified."""
-        from agentfox.engine.sdk_params import resolve_model_variant
-
-        config = AgentFoxConfig(
-            archetypes=ArchetypesConfig(
-                models={archetype_name: "STANDARD"},
-            )
-        )
-        with patch("agentfox.archetypes.resolve_effective_config") as mocked_rec:
-            result = resolve_model_variant(config, archetype_name, mode="test-mode")
-            assert result is None
-            assert mocked_rec.call_count == 0
 
 
 # ---------------------------------------------------------------------------

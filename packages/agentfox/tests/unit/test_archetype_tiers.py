@@ -18,6 +18,7 @@ import pytest
 from agentfox.core.config import (
     AgentFoxConfig,
     ArchetypesConfig,
+    PerArchetypeConfig,
 )
 from agentfox.core.errors import ConfigError
 from agentfox.core.models import ModelTier
@@ -123,7 +124,7 @@ class TestCeilingAlwaysAdvanced:
             config=AgentFoxConfig(),
         )
 
-        await mgr.assess_node("spec:1", "skeptic")
+        await mgr.assess_node("spec:1", "reviewer")
 
         ladder = mgr.ladders["spec:1"]
         assert ladder._tier_ceiling == ModelTier.ADVANCED
@@ -188,8 +189,10 @@ class TestConfigOverridePrecedence:
     """TS-57-9: Config override for an archetype takes precedence over registry."""
 
     def test_config_override_takes_precedence(self) -> None:
-        """archetypes.models.coder = ADVANCED overrides STANDARD registry default."""
-        config = AgentFoxConfig(archetypes=ArchetypesConfig(models={"coder": "ADVANCED"}))
+        """archetypes.overrides.coder.model_tier = ADVANCED overrides STANDARD registry default."""
+        config = AgentFoxConfig(
+            archetypes=ArchetypesConfig(overrides={"coder": PerArchetypeConfig(model_tier="ADVANCED")})
+        )
         runner = NodeSessionRunner("spec:1", config, knowledge_db=_MOCK_KB)
         # With override "ADVANCED", model should be Opus
         assert runner._resolved_model_id == "claude-opus-4-6"
@@ -206,7 +209,7 @@ class TestNoOverrideUsesRegistry:
 
     def test_no_override_uses_registry_default(self) -> None:
         """Reviewer with no override should use registry default (STANDARD = Sonnet)."""
-        config = AgentFoxConfig(archetypes=ArchetypesConfig(models={}))
+        config = AgentFoxConfig()
         runner = NodeSessionRunner("spec:0", config, archetype="reviewer", knowledge_db=_MOCK_KB)
         assert runner._resolved_model_id == "claude-sonnet-4-6"
 
@@ -222,7 +225,9 @@ class TestAssessedTierOverridesAll:
 
     def test_assessed_tier_overrides_all(self) -> None:
         """assessed_tier=SIMPLE resolves to Haiku regardless of other config."""
-        config = AgentFoxConfig(archetypes=ArchetypesConfig(models={"coder": "ADVANCED"}))
+        config = AgentFoxConfig(
+            archetypes=ArchetypesConfig(overrides={"coder": PerArchetypeConfig(model_tier="ADVANCED")})
+        )
         runner = NodeSessionRunner(
             "spec:1",
             config,
@@ -289,7 +294,9 @@ class TestInvalidConfigTierRaises:
     """TS-57-E3: Invalid tier name in config raises ConfigError."""
 
     def test_invalid_config_tier_raises_config_error(self) -> None:
-        config = AgentFoxConfig(archetypes=ArchetypesConfig(models={"coder": "INVALID_TIER"}))
+        config = AgentFoxConfig(
+            archetypes=ArchetypesConfig(overrides={"coder": PerArchetypeConfig(model_tier="INVALID_TIER")})
+        )
         with pytest.raises(ConfigError):
             NodeSessionRunner("spec:1", config, archetype="coder", knowledge_db=_MOCK_KB)
 

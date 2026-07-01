@@ -85,6 +85,7 @@ class TestValidateSchemaRejects:
         findings = parse_review_output(response, "s", "1", "s1")
         assert len(findings) == 0
 
+
 class TestNoValidJsonReturnsEmpty:
     """TS-27-E3: no valid JSON blocks in agent output."""
 

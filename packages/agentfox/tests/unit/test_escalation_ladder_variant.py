@@ -115,9 +115,7 @@ class TestCurrentVariantImmutabilityProperty:
         "starting_variant",
         [None, "fast", "standard", "extended"],
     )
-    def test_variant_unchanged_across_escalations(
-        self, starting_variant: str | None
-    ) -> None:
+    def test_variant_unchanged_across_escalations(self, starting_variant: str | None) -> None:
         """TS-14-P4: current_variant remains the same before and after escalations.
 
         Using retries_before_escalation=0 so each failure triggers escalation.
@@ -136,8 +134,7 @@ class TestCurrentVariantImmutabilityProperty:
             if ladder.should_retry():
                 ladder.record_failure()
             assert ladder.current_variant == initial, (
-                f"current_variant changed from {initial!r} "
-                f"to {ladder.current_variant!r}"
+                f"current_variant changed from {initial!r} to {ladder.current_variant!r}"
             )
 
 
@@ -167,9 +164,7 @@ class TestVariantPassedToResolveModelOnEscalation:
         ladder.record_failure()
         assert ladder.current_tier == ModelTier.ADVANCED
 
-        with patch(
-            "agentfox.core.escalation.resolve_model"
-        ) as mocked_rm:
+        with patch("agentfox.core.escalation.resolve_model") as mocked_rm:
             mocked_rm.return_value = "claude-opus-4-6[1m]"
             ladder.resolve_current_model()
             mocked_rm.assert_called_once()
@@ -196,9 +191,7 @@ class TestVariantPassedUnchangedWhenUnavailable:
             retries_before_escalation=1,
             starting_variant="extended",
         )
-        with patch(
-            "agentfox.core.escalation.resolve_model"
-        ) as mocked_rm:
+        with patch("agentfox.core.escalation.resolve_model") as mocked_rm:
             mocked_rm.return_value = "claude-haiku-4-5"
             ladder.resolve_current_model()
             mocked_rm.assert_called_once()
@@ -215,9 +208,7 @@ class TestVariantPassedUnchangedWhenUnavailable:
 class TestFallbackLogSourceIsResolveModel:
     """Verify fallback DEBUG log comes from resolve_model, not EscalationLadder."""
 
-    def test_fallback_log_from_models_not_escalation(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_fallback_log_from_models_not_escalation(self, caplog: pytest.LogCaptureFixture) -> None:
         """TS-14-E6: When variant='fast' is unavailable for ADVANCED,
         the DEBUG log is emitted by the resolve_model module path
         (agentfox.core.models), not the escalation module.
@@ -237,9 +228,7 @@ class TestFallbackLogSourceIsResolveModel:
         # All DEBUG logs about variant/fallback must come from the models
         # module, not the escalation module.
         debug_logs = [r for r in caplog.records if r.levelno == logging.DEBUG]
-        escalation_debug_logs = [
-            r for r in debug_logs if "escalation" in r.name
-        ]
+        escalation_debug_logs = [r for r in debug_logs if "escalation" in r.name]
         assert not escalation_debug_logs, (
             "No DEBUG logs should be emitted by the escalation module "
             "for variant fallback — resolve_model handles fallback logging"

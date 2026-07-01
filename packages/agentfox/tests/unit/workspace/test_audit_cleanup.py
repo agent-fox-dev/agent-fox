@@ -110,9 +110,7 @@ class TestDebugLogging:
             purge_stale_audit_files(audit_dir)
 
         debug_msgs = [r.message for r in caplog.records if r.levelno == logging.DEBUG]
-        assert any(str(audit_dir) in m for m in debug_msgs), (
-            f"Expected audit dir path in DEBUG messages: {debug_msgs}"
-        )
+        assert any(str(audit_dir) in m for m in debug_msgs), f"Expected audit dir path in DEBUG messages: {debug_msgs}"
 
 
 class TestErrorHandling:

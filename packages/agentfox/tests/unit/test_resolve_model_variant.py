@@ -119,68 +119,20 @@ class TestResolveModelVariantLayer2:
 
 
 # ---------------------------------------------------------------------------
-# TS-14-21 / TS-14-E3: Layer 3 — legacy dict short-circuit returns None
-# Requirement: 14-REQ-6.3, 14-REQ-6.E1
-# ---------------------------------------------------------------------------
-
-
-class TestResolveModelVariantLayer3ShortCircuit:
-    """Verify resolve_model_variant returns None when legacy dict matches (Layer 3 short-circuit)."""
-
-    def test_legacy_dict_short_circuits_to_none(self) -> None:
-        """TS-14-21: Legacy dict match returns None, even with no config overrides."""
-        from agentfox.engine.sdk_params import resolve_model_variant
-
-        config = AgentFoxConfig(
-            archetypes=ArchetypesConfig(
-                models={"coder": "ADVANCED"},  # legacy dict entry
-            )
-        )
-        result = resolve_model_variant(config, "coder")
-        assert result is None
-
-    def test_legacy_dict_short_circuit_never_calls_resolve_effective_config(self) -> None:
-        """TS-14-E3: When legacy dict matches, resolve_effective_config is never called."""
-        from agentfox.engine.sdk_params import resolve_model_variant
-
-        config = AgentFoxConfig(
-            archetypes=ArchetypesConfig(
-                models={"coder": "ADVANCED"},
-            )
-        )
-        with patch("agentfox.archetypes.resolve_effective_config") as mocked_rec:
-            result = resolve_model_variant(config, "coder")
-            assert result is None
-            assert mocked_rec.call_count == 0
-
-    def test_legacy_dict_short_circuit_with_mode_still_returns_none(self) -> None:
-        """TS-14-21 corollary: Legacy dict short-circuit applies even when mode is specified."""
-        from agentfox.engine.sdk_params import resolve_model_variant
-
-        config = AgentFoxConfig(
-            archetypes=ArchetypesConfig(
-                models={"reviewer": "STANDARD"},
-            )
-        )
-        result = resolve_model_variant(config, "reviewer", mode="pre-review")
-        assert result is None
-
-
-# ---------------------------------------------------------------------------
-# TS-14-22: Layer 4 — resolve_effective_config returns default_model_variant
+# TS-14-22: Layer 3 — resolve_effective_config returns default_model_variant
 # Requirement: 14-REQ-6.4
 # ---------------------------------------------------------------------------
 
 
-class TestResolveModelVariantLayer4:
-    """Verify resolve_model_variant falls through to Layer 4 (resolve_effective_config)."""
+class TestResolveModelVariantLayer3:
+    """Verify resolve_model_variant falls through to Layer 3 (resolve_effective_config)."""
 
-    def test_layer4_returns_default_model_variant_from_registry(self) -> None:
+    def test_layer3_returns_default_model_variant_from_registry(self) -> None:
         """TS-14-22: resolve_effective_config returns ArchetypeEntry with default_model_variant='extended'."""
         from agentfox.archetypes import ArchetypeEntry
         from agentfox.engine.sdk_params import resolve_model_variant
 
-        # No overrides, no legacy dict — falls through all layers to Layer 4.
+        # No overrides — falls through to Layer 3 (registry default).
         config = AgentFoxConfig()
 
         mock_entry = ArchetypeEntry(name="coder", default_model_variant="extended")
@@ -188,8 +140,8 @@ class TestResolveModelVariantLayer4:
             result = resolve_model_variant(config, "coder", mode="code")
             assert result == "extended"
 
-    def test_layer4_with_mode_resolved_variant(self) -> None:
-        """TS-14-22 corollary: Layer 4 uses resolve_effective_config which applies mode overrides."""
+    def test_layer3_with_mode_resolved_variant(self) -> None:
+        """TS-14-22 corollary: Layer 3 uses resolve_effective_config which applies mode overrides."""
         from agentfox.archetypes import ArchetypeEntry, ModeConfig
         from agentfox.engine.sdk_params import resolve_model_variant
 
@@ -209,7 +161,7 @@ class TestResolveModelVariantLayer4:
 
 
 # ---------------------------------------------------------------------------
-# TS-14-23: All four layers return None
+# TS-14-23: All three layers return None
 # Requirement: 14-REQ-6.5
 # ---------------------------------------------------------------------------
 
@@ -218,7 +170,7 @@ class TestResolveModelVariantAllLayersNone:
     """Verify resolve_model_variant returns None when all layers yield None."""
 
     def test_all_layers_return_none(self) -> None:
-        """TS-14-23: No config overrides, no legacy dict, no registry default variant → None."""
+        """TS-14-23: No config overrides, no registry default variant → None."""
         from agentfox.archetypes import ArchetypeEntry
         from agentfox.engine.sdk_params import resolve_model_variant
 

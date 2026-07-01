@@ -190,9 +190,9 @@ class TestTooManySubtasksWarning:
         spec = _build_spec_with_n_subtasks(7)
         result = validate(spec)
         assert len(result.warnings) >= 1
-        assert any(
-            _is_subtask_count_warning(w) for w in result.warnings
-        ), f"Expected a subtask count warning, got: {result.warnings}"
+        assert any(_is_subtask_count_warning(w) for w in result.warnings), (
+            f"Expected a subtask count warning, got: {result.warnings}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -211,12 +211,9 @@ class TestVerificationSubtaskExcluded:
         """
         spec = _build_spec_with_n_subtasks(6)
         result = validate(spec)
-        subtask_warnings = [
-            w for w in result.warnings if _is_subtask_count_warning(w)
-        ]
+        subtask_warnings = [w for w in result.warnings if _is_subtask_count_warning(w)]
         assert len(subtask_warnings) == 0, (
-            f"Expected no subtask count warning for exactly 6 "
-            f"non-verification subtasks, got: {subtask_warnings}"
+            f"Expected no subtask count warning for exactly 6 non-verification subtasks, got: {subtask_warnings}"
         )
 
 
@@ -232,27 +229,21 @@ class TestNoWarningAtOrBelowSubtaskThreshold:
         """Exactly 6 non-verification subtasks: no warning emitted."""
         spec = _build_spec_with_n_subtasks(6)
         result = validate(spec)
-        subtask_warnings = [
-            w for w in result.warnings if _is_subtask_count_warning(w)
-        ]
+        subtask_warnings = [w for w in result.warnings if _is_subtask_count_warning(w)]
         assert len(subtask_warnings) == 0
 
     def test_5_subtasks_no_warning(self) -> None:
         """5 non-verification subtasks: well below threshold, no warning."""
         spec = _build_spec_with_n_subtasks(5)
         result = validate(spec)
-        subtask_warnings = [
-            w for w in result.warnings if _is_subtask_count_warning(w)
-        ]
+        subtask_warnings = [w for w in result.warnings if _is_subtask_count_warning(w)]
         assert len(subtask_warnings) == 0
 
     def test_3_subtasks_no_warning(self) -> None:
         """3 non-verification subtasks: clearly below threshold, no warning."""
         spec = _build_spec_with_n_subtasks(3)
         result = validate(spec)
-        subtask_warnings = [
-            w for w in result.warnings if _is_subtask_count_warning(w)
-        ]
+        subtask_warnings = [w for w in result.warnings if _is_subtask_count_warning(w)]
         assert len(subtask_warnings) == 0
 
 
@@ -274,10 +265,7 @@ class TestExactly7SubtasksOneWarning:
         """Exactly one warning about too many subtasks for group 1."""
         spec = _build_spec_with_n_subtasks(7)
         result = validate(spec)
-        subtask_warnings = [
-            w for w in result.warnings if _is_subtask_count_warning(w)
-        ]
+        subtask_warnings = [w for w in result.warnings if _is_subtask_count_warning(w)]
         assert len(subtask_warnings) == 1, (
-            f"Expected exactly 1 subtask count warning for 7 subtasks, "
-            f"got {len(subtask_warnings)}: {subtask_warnings}"
+            f"Expected exactly 1 subtask count warning for 7 subtasks, got {len(subtask_warnings)}: {subtask_warnings}"
         )

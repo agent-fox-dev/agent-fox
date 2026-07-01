@@ -38,7 +38,7 @@ def _inject_auto_mid_nodes(
     task_groups: dict[str, list[TaskGroupDef]],
     archetypes_config: Any,
 ) -> None:
-    """Inject auditor nodes after detected test-writing groups.
+    """Inject audit-review nodes after detected test-writing groups.
 
     Requirements: 46-REQ-4.1, 46-REQ-4.2, 46-REQ-4.3, 46-REQ-4.E1,
                   46-REQ-4.E2, 46-REQ-4.E3
@@ -59,7 +59,7 @@ def _inject_auto_mid_nodes(
         ts_count = count_ts_entries(spec.path)
         if ts_count < min_ts:
             logger.info(
-                "Skipping auditor injection for spec '%s': %d TS entries < min_ts_entries=%d",
+                "Skipping audit-review injection for spec '%s': %d TS entries < min_ts_entries=%d",
                 spec.name,
                 ts_count,
                 min_ts,
@@ -88,7 +88,7 @@ def _inject_auto_mid_nodes(
                 instances=instances if isinstance(instances, int) else 1,
             )
 
-            # Edge from test-writing group to auditor
+            # Edge from test-writing group to audit-review
             test_node_id = f"{spec.name}:{group_num}"
             if test_node_id in nodes:
                 # Remove existing edge from test group to next group
@@ -99,7 +99,7 @@ def _inject_auto_mid_nodes(
 
                 edges.append(Edge(source=test_node_id, target=node_id, kind="intra_spec"))
 
-                # Edge from auditor to next group (if exists)
+                # Edge from audit-review to next group (if exists)
                 if next_group is not None:
                     next_node_id = f"{spec.name}:{next_group.number}"
                     if next_node_id in nodes:
@@ -182,7 +182,7 @@ def _add_cross_spec_edges(
 
     After creating each declared edge, propagates the cross-spec dependency
     to any direct intra-spec predecessors of the target that are review
-    archetype nodes (e.g. skeptic, oracle at group 0).  This ensures
+    archetype nodes (e.g. reviewer modes at group 0).  This ensures
     pre-review nodes do not run before the dependency they are reviewing
     has been met.
 
@@ -234,7 +234,7 @@ def _add_cross_spec_edges(
         edges.append(Edge(source=source_id, target=target_id, kind="cross_spec"))
 
         # Propagate to direct intra-spec predecessors that are review nodes.
-        # This covers auto_pre nodes (skeptic/oracle) that gate the target.
+        # This covers auto_pre nodes (reviewer modes) that gate the target.
         #
         # Exception: reviewer:pre-review nodes are exempt — they validate
         # spec content (requirements, design), not upstream implementation,
@@ -273,7 +273,7 @@ def _inject_archetype_nodes(
         first_group = sorted_groups[0].number
         last_group = sorted_groups[-1].number
 
-        # auto_pre injection (e.g., Skeptic/Oracle at group 0)
+        # auto_pre injection (e.g., reviewer modes at group 0)
         # 32-REQ-3.1/3.2: Collect enabled auto_pre archetypes first to
         # determine whether to use suffixed IDs (multi) or plain :0 (single).
         enabled_auto_pre = collect_enabled_auto_pre(archetypes_config, spec_path=spec.path)

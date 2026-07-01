@@ -15,9 +15,7 @@ import pytest
 from agentfox.knowledge.fox_provider import FoxKnowledgeProvider
 
 _REPO_ROOT = Path(__file__).resolve().parents[4]
-_FOX_PROVIDER_PATH = (
-    _REPO_ROOT / "packages" / "agentfox" / "agentfox" / "knowledge" / "fox_provider.py"
-)
+_FOX_PROVIDER_PATH = _REPO_ROOT / "packages" / "agentfox" / "agentfox" / "knowledge" / "fox_provider.py"
 
 # Tags from the five removed channels
 _REMOVED_TAGS = ["[ERRATA]", "[ADR]", "[VERIFY]", "[CROSS-SPEC]", "[PRIOR-RUN]"]
@@ -104,9 +102,7 @@ class TestNoRemovedChannelTags:
 
         prompt = "\n".join(result)
         for tag in _REMOVED_TAGS:
-            assert tag not in prompt, (
-                f"Assembled prompt must not contain removed tag {tag}"
-            )
+            assert tag not in prompt, f"Assembled prompt must not contain removed tag {tag}"
         conn.close()
 
     def test_populated_db_no_removed_tags(self) -> None:
@@ -128,9 +124,7 @@ class TestNoRemovedChannelTags:
 
         prompt = "\n".join(result)
         for tag in _REMOVED_TAGS:
-            assert tag not in prompt, (
-                f"Assembled prompt must not contain removed tag {tag}"
-            )
+            assert tag not in prompt, f"Assembled prompt must not contain removed tag {tag}"
         conn.close()
 
 
@@ -169,15 +163,11 @@ class TestRetainedChannelsPresent:
 
         # Check [CROSS-GROUP] items present
         has_cross_group = any("[CROSS-GROUP]" in item for item in result)
-        assert has_cross_group, (
-            "Retained cross-group review channel must be present with cross-group data"
-        )
+        assert has_cross_group, "Retained cross-group review channel must be present with cross-group data"
 
         # Check [CONTEXT] items present
         has_context = any("[CONTEXT]" in item for item in result)
-        assert has_context, (
-            "Retained [CONTEXT] same-spec summary channel must be present with summary data"
-        )
+        assert has_context, "Retained [CONTEXT] same-spec summary channel must be present with summary data"
 
         conn.close()
 
@@ -221,7 +211,5 @@ class TestRemovedTagsPropertyTest:
 
         prompt = "\n".join(result)
         for tag in _REMOVED_TAGS:
-            assert tag not in prompt, (
-                f"Removed tag {tag} found in scenario '{scenario['desc']}'"
-            )
+            assert tag not in prompt, f"Removed tag {tag} found in scenario '{scenario['desc']}'"
         conn.close()

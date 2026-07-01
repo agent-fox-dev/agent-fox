@@ -56,7 +56,7 @@ class TaskEvent:
     status: str  # "completed" | "failed" | "blocked" | "retry" | "disagreed"
     duration_s: float  # wall-clock seconds for the task
     error_message: str | None = None
-    archetype: str | None = None  # e.g. "coder", "skeptic", "verifier"
+    archetype: str | None = None  # e.g. "coder", "reviewer", "verifier"
     attempt: int | None = None  # retry attempt number
     escalated_from: str | None = None  # e.g. "STANDARD"
     escalated_to: str | None = None  # e.g. "ADVANCED"

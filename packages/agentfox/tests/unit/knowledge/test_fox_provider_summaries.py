@@ -106,5 +106,3 @@ class TestSummariesFormattedWithContextPrefix:
         assert len(context_items) >= 1
         assert "(coder, group 2, attempt 1)" in context_items[0]
         assert "Built the SQLite store with WAL mode" in context_items[0]
-
-

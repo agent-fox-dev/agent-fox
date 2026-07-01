@@ -112,9 +112,7 @@ def test_ts12_02_empty_touched_files_short_circuit(
         result = supersede_drift_findings_by_files(conn, "test_spec", [], "test_spec:1")
     assert result == 0
     assert any(record.levelno == logging.DEBUG for record in caplog.records)
-    row = conn.execute(
-        "SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]
-    ).fetchone()
+    row = conn.execute("SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]).fetchone()
     assert row is not None
     assert row[0] is None
 
@@ -128,15 +126,9 @@ def test_ts12_03_cross_task_group_supersession(conn: duckdb.DuckDBPyConnection) 
     """Findings from both task group 0 and 2 are superseded when matching."""
     from agentfox.knowledge.review_store import supersede_drift_findings_by_files
 
-    _insert_finding(
-        conn, finding_id="id-g0", spec_name="test_spec", task_group="0", artifact_ref="src/foo.py"
-    )
-    _insert_finding(
-        conn, finding_id="id-g2", spec_name="test_spec", task_group="2", artifact_ref="src/bar.py"
-    )
-    result = supersede_drift_findings_by_files(
-        conn, "test_spec", ["src/foo.py", "src/bar.py"], "test_spec:3"
-    )
+    _insert_finding(conn, finding_id="id-g0", spec_name="test_spec", task_group="0", artifact_ref="src/foo.py")
+    _insert_finding(conn, finding_id="id-g2", spec_name="test_spec", task_group="2", artifact_ref="src/bar.py")
+    result = supersede_drift_findings_by_files(conn, "test_spec", ["src/foo.py", "src/bar.py"], "test_spec:3")
     assert result == 2
     rows = conn.execute(
         "SELECT id, superseded_by FROM drift_findings WHERE spec_name = ?",
@@ -151,19 +143,14 @@ def test_ts12_03_cross_task_group_supersession(conn: duckdb.DuckDBPyConnection) 
 # ---------------------------------------------------------------------------
 
 
-
 def test_ts12_04_null_artifact_ref_skipped(conn: duckdb.DuckDBPyConnection) -> None:
     """Findings with null artifact_ref are never superseded."""
     from agentfox.knowledge.review_store import supersede_drift_findings_by_files
 
-    fid = _insert_finding(
-        conn, finding_id="id-null", spec_name="test_spec", artifact_ref=None
-    )
+    fid = _insert_finding(conn, finding_id="id-null", spec_name="test_spec", artifact_ref=None)
     result = supersede_drift_findings_by_files(conn, "test_spec", ["src/foo.py"], "test_spec:1")
     assert result == 0
-    row = conn.execute(
-        "SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]
-    ).fetchone()
+    row = conn.execute("SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]).fetchone()
     assert row is not None
     assert row[0] is None
 
@@ -173,19 +160,14 @@ def test_ts12_04_null_artifact_ref_skipped(conn: duckdb.DuckDBPyConnection) -> N
 # ---------------------------------------------------------------------------
 
 
-
 def test_ts12_05_line_number_stripping(conn: duckdb.DuckDBPyConnection) -> None:
     """artifact_ref 'src/foo.py:42' normalizes to 'src/foo.py' and matches."""
     from agentfox.knowledge.review_store import supersede_drift_findings_by_files
 
-    fid = _insert_finding(
-        conn, finding_id="id-ln", spec_name="test_spec", artifact_ref="src/foo.py:42"
-    )
+    fid = _insert_finding(conn, finding_id="id-ln", spec_name="test_spec", artifact_ref="src/foo.py:42")
     result = supersede_drift_findings_by_files(conn, "test_spec", ["src/foo.py"], "test_spec:1")
     assert result == 1
-    row = conn.execute(
-        "SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]
-    ).fetchone()
+    row = conn.execute("SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]).fetchone()
     assert row is not None
     assert row[0] == "test_spec:1"
 
@@ -193,7 +175,6 @@ def test_ts12_05_line_number_stripping(conn: duckdb.DuckDBPyConnection) -> None:
 # ---------------------------------------------------------------------------
 # TS-12-6: Prefix matching for directory refs (12-REQ-1.6)
 # ---------------------------------------------------------------------------
-
 
 
 def test_ts12_06_prefix_matching(conn: duckdb.DuckDBPyConnection) -> None:
@@ -206,13 +187,9 @@ def test_ts12_06_prefix_matching(conn: duckdb.DuckDBPyConnection) -> None:
         spec_name="test_spec",
         artifact_ref="packages/nightshift/",
     )
-    result = supersede_drift_findings_by_files(
-        conn, "test_spec", ["packages/nightshift/src/main.py"], "test_spec:1"
-    )
+    result = supersede_drift_findings_by_files(conn, "test_spec", ["packages/nightshift/src/main.py"], "test_spec:1")
     assert result == 1
-    row = conn.execute(
-        "SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]
-    ).fetchone()
+    row = conn.execute("SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]).fetchone()
     assert row is not None
     assert row[0] == "test_spec:1"
 
@@ -222,21 +199,14 @@ def test_ts12_06_prefix_matching(conn: duckdb.DuckDBPyConnection) -> None:
 # ---------------------------------------------------------------------------
 
 
-
 def test_ts12_07_exact_matching(conn: duckdb.DuckDBPyConnection) -> None:
     """Non-trailing-slash artifact_ref uses exact matching."""
     from agentfox.knowledge.review_store import supersede_drift_findings_by_files
 
-    fid = _insert_finding(
-        conn, finding_id="id-exact", spec_name="test_spec", artifact_ref="src/foo.py"
-    )
-    result = supersede_drift_findings_by_files(
-        conn, "test_spec", ["src/foo.py"], "test_spec:1"
-    )
+    fid = _insert_finding(conn, finding_id="id-exact", spec_name="test_spec", artifact_ref="src/foo.py")
+    result = supersede_drift_findings_by_files(conn, "test_spec", ["src/foo.py"], "test_spec:1")
     assert result == 1
-    row = conn.execute(
-        "SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]
-    ).fetchone()
+    row = conn.execute("SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]).fetchone()
     assert row is not None
     assert row[0] == "test_spec:1"
 
@@ -246,7 +216,6 @@ def test_ts12_07_exact_matching(conn: duckdb.DuckDBPyConnection) -> None:
 # ---------------------------------------------------------------------------
 
 
-
 def test_ts12_08_superseded_by_marker_and_count(conn: duckdb.DuckDBPyConnection) -> None:
     """superseded_by set to node_id for matching; non-matching left null."""
     from agentfox.knowledge.review_store import supersede_drift_findings_by_files
@@ -254,9 +223,7 @@ def test_ts12_08_superseded_by_marker_and_count(conn: duckdb.DuckDBPyConnection)
     _insert_finding(conn, finding_id="id-a", spec_name="test_spec", artifact_ref="src/a.py")
     _insert_finding(conn, finding_id="id-b", spec_name="test_spec", artifact_ref="src/b.py")
     _insert_finding(conn, finding_id="id-c", spec_name="test_spec", artifact_ref="src/c.py")
-    result = supersede_drift_findings_by_files(
-        conn, "test_spec", ["src/a.py", "src/b.py"], "test_spec:2"
-    )
+    result = supersede_drift_findings_by_files(conn, "test_spec", ["src/a.py", "src/b.py"], "test_spec:2")
     assert result == 2
     for alias in ["id-a", "id-b"]:
         row = conn.execute(
@@ -278,7 +245,6 @@ def test_ts12_08_superseded_by_marker_and_count(conn: duckdb.DuckDBPyConnection)
 # ---------------------------------------------------------------------------
 
 
-
 def test_ts12_09_observability_logging(
     conn: duckdb.DuckDBPyConnection,
     caplog: pytest.LogCaptureFixture,
@@ -286,21 +252,15 @@ def test_ts12_09_observability_logging(
     """Superseded finding ID and artifact_ref are logged."""
     from agentfox.knowledge.review_store import supersede_drift_findings_by_files
 
-    fid = _insert_finding(
-        conn, finding_id="id-log", spec_name="test_spec", artifact_ref="src/foo.py"
-    )
+    fid = _insert_finding(conn, finding_id="id-log", spec_name="test_spec", artifact_ref="src/foo.py")
     with caplog.at_level(logging.DEBUG):
         supersede_drift_findings_by_files(conn, "test_spec", ["src/foo.py"], "test_spec:1")
-    assert any(
-        fid in record.message and "src/foo.py" in record.message
-        for record in caplog.records
-    )
+    assert any(fid in record.message and "src/foo.py" in record.message for record in caplog.records)
 
 
 # ---------------------------------------------------------------------------
 # TS-12-10: Private helper query (12-REQ-2.1)
 # ---------------------------------------------------------------------------
-
 
 
 def test_ts12_10_private_helper_query(conn: duckdb.DuckDBPyConnection) -> None:
@@ -342,7 +302,6 @@ def test_ts12_10_private_helper_query(conn: duckdb.DuckDBPyConnection) -> None:
 # ---------------------------------------------------------------------------
 # TS-12-11: Private helper not in public API (12-REQ-2.2)
 # ---------------------------------------------------------------------------
-
 
 
 def test_ts12_11_private_helper_not_public() -> None:
@@ -506,19 +465,14 @@ def test_ts12_14_exception_swallowed_with_warning(
 # ---------------------------------------------------------------------------
 
 
-
 def test_ts12_15_exact_match_hit(conn: duckdb.DuckDBPyConnection) -> None:
     """Finding with exact matching artifact_ref is superseded."""
     from agentfox.knowledge.review_store import supersede_drift_findings_by_files
 
-    fid = _insert_finding(
-        conn, finding_id="id-exact", spec_name="test_spec", artifact_ref="src/foo.py"
-    )
+    fid = _insert_finding(conn, finding_id="id-exact", spec_name="test_spec", artifact_ref="src/foo.py")
     result = supersede_drift_findings_by_files(conn, "test_spec", ["src/foo.py"], "test_spec:1")
     assert result == 1
-    row = conn.execute(
-        "SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]
-    ).fetchone()
+    row = conn.execute("SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]).fetchone()
     assert row is not None
     assert row[0] == "test_spec:1"
 
@@ -526,7 +480,6 @@ def test_ts12_15_exact_match_hit(conn: duckdb.DuckDBPyConnection) -> None:
 # ---------------------------------------------------------------------------
 # TS-12-16: Exact match miss (12-REQ-4.2)
 # ---------------------------------------------------------------------------
-
 
 
 def test_ts12_16_exact_match_miss(conn: duckdb.DuckDBPyConnection) -> None:
@@ -541,9 +494,7 @@ def test_ts12_16_exact_match_miss(conn: duckdb.DuckDBPyConnection) -> None:
     )
     result = supersede_drift_findings_by_files(conn, "test_spec", ["src/bar.py"], "test_spec:1")
     assert result == 0
-    row = conn.execute(
-        "SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]
-    ).fetchone()
+    row = conn.execute("SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]).fetchone()
     assert row is not None
     assert row[0] is None
 
@@ -551,7 +502,6 @@ def test_ts12_16_exact_match_miss(conn: duckdb.DuckDBPyConnection) -> None:
 # ---------------------------------------------------------------------------
 # TS-12-17: Prefix match hit (12-REQ-5.1)
 # ---------------------------------------------------------------------------
-
 
 
 def test_ts12_17_prefix_match_hit(conn: duckdb.DuckDBPyConnection) -> None:
@@ -564,13 +514,9 @@ def test_ts12_17_prefix_match_hit(conn: duckdb.DuckDBPyConnection) -> None:
         spec_name="test_spec",
         artifact_ref="packages/nightshift/",
     )
-    result = supersede_drift_findings_by_files(
-        conn, "test_spec", ["packages/nightshift/cli.py"], "test_spec:1"
-    )
+    result = supersede_drift_findings_by_files(conn, "test_spec", ["packages/nightshift/cli.py"], "test_spec:1")
     assert result == 1
-    row = conn.execute(
-        "SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]
-    ).fetchone()
+    row = conn.execute("SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]).fetchone()
     assert row is not None
     assert row[0] == "test_spec:1"
 
@@ -578,7 +524,6 @@ def test_ts12_17_prefix_match_hit(conn: duckdb.DuckDBPyConnection) -> None:
 # ---------------------------------------------------------------------------
 # TS-12-18: Prefix match miss (12-REQ-5.2)
 # ---------------------------------------------------------------------------
-
 
 
 def test_ts12_18_prefix_match_miss(conn: duckdb.DuckDBPyConnection) -> None:
@@ -591,13 +536,9 @@ def test_ts12_18_prefix_match_miss(conn: duckdb.DuckDBPyConnection) -> None:
         spec_name="test_spec",
         artifact_ref="packages/nightshift/",
     )
-    result = supersede_drift_findings_by_files(
-        conn, "test_spec", ["packages/other/cli.py"], "test_spec:1"
-    )
+    result = supersede_drift_findings_by_files(conn, "test_spec", ["packages/other/cli.py"], "test_spec:1")
     assert result == 0
-    row = conn.execute(
-        "SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]
-    ).fetchone()
+    row = conn.execute("SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]).fetchone()
     assert row is not None
     assert row[0] is None
 
@@ -607,16 +548,13 @@ def test_ts12_18_prefix_match_miss(conn: duckdb.DuckDBPyConnection) -> None:
 # ---------------------------------------------------------------------------
 
 
-
 def test_ts12_19_supersession_marker_exact_string(conn: duckdb.DuckDBPyConnection) -> None:
     """superseded_by is set to exactly the node_id string."""
     from agentfox.knowledge.review_store import supersede_drift_findings_by_files
 
     _insert_finding(conn, finding_id="id-a", spec_name="my_spec", artifact_ref="src/a.py")
     _insert_finding(conn, finding_id="id-b", spec_name="my_spec", artifact_ref="src/b.py")
-    supersede_drift_findings_by_files(
-        conn, "my_spec", ["src/a.py", "src/b.py"], "my_spec:3"
-    )
+    supersede_drift_findings_by_files(conn, "my_spec", ["src/a.py", "src/b.py"], "my_spec:3")
     for alias in ["id-a", "id-b"]:
         row = conn.execute(
             "SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?",
@@ -631,18 +569,13 @@ def test_ts12_19_supersession_marker_exact_string(conn: duckdb.DuckDBPyConnectio
 # ---------------------------------------------------------------------------
 
 
-
 def test_ts12_20_null_artifact_ref_persists(conn: duckdb.DuckDBPyConnection) -> None:
     """Findings with null artifact_ref remain active."""
     from agentfox.knowledge.review_store import supersede_drift_findings_by_files
 
-    fid = _insert_finding(
-        conn, finding_id="id-null", spec_name="test_spec", artifact_ref=None
-    )
+    fid = _insert_finding(conn, finding_id="id-null", spec_name="test_spec", artifact_ref=None)
     supersede_drift_findings_by_files(conn, "test_spec", ["src/any.py"], "test_spec:1")
-    row = conn.execute(
-        "SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]
-    ).fetchone()
+    row = conn.execute("SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]).fetchone()
     assert row is not None
     assert row[0] is None
 
@@ -650,7 +583,6 @@ def test_ts12_20_null_artifact_ref_persists(conn: duckdb.DuckDBPyConnection) -> 
 # ---------------------------------------------------------------------------
 # TS-12-21: Non-matching artifact_ref persists (12-REQ-7.2)
 # ---------------------------------------------------------------------------
-
 
 
 def test_ts12_21_non_matching_persists(conn: duckdb.DuckDBPyConnection) -> None:
@@ -663,12 +595,8 @@ def test_ts12_21_non_matching_persists(conn: duckdb.DuckDBPyConnection) -> None:
         spec_name="test_spec",
         artifact_ref="src/unrelated.py",
     )
-    supersede_drift_findings_by_files(
-        conn, "test_spec", ["src/different.py"], "test_spec:1"
-    )
-    row = conn.execute(
-        "SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]
-    ).fetchone()
+    supersede_drift_findings_by_files(conn, "test_spec", ["src/different.py"], "test_spec:1")
+    row = conn.execute("SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]).fetchone()
     assert row is not None
     assert row[0] is None
 
@@ -706,7 +634,6 @@ def test_ts12_22_query_excludes_superseded(conn: duckdb.DuckDBPyConnection) -> N
 # ---------------------------------------------------------------------------
 
 
-
 def test_ts12_23_req8_exact_match(conn: duckdb.DuckDBPyConnection) -> None:
     """REQ-8.1: Exact path match supersedes finding."""
     from agentfox.knowledge.review_store import supersede_drift_findings_by_files
@@ -714,12 +641,9 @@ def test_ts12_23_req8_exact_match(conn: duckdb.DuckDBPyConnection) -> None:
     fid = _insert_finding(conn, finding_id="f1", spec_name="s", artifact_ref="src/foo.py")
     count = supersede_drift_findings_by_files(conn, "s", ["src/foo.py"], "spec:1")
     assert count == 1
-    row = conn.execute(
-        "SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]
-    ).fetchone()
+    row = conn.execute("SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]).fetchone()
     assert row is not None
     assert row[0] == "spec:1"
-
 
 
 def test_ts12_24_req8_exact_non_match(conn: duckdb.DuckDBPyConnection) -> None:
@@ -729,48 +653,33 @@ def test_ts12_24_req8_exact_non_match(conn: duckdb.DuckDBPyConnection) -> None:
     fid = _insert_finding(conn, finding_id="f2", spec_name="s", artifact_ref="src/foo.py")
     count = supersede_drift_findings_by_files(conn, "s", ["src/bar.py"], "spec:1")
     assert count == 0
-    row = conn.execute(
-        "SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]
-    ).fetchone()
+    row = conn.execute("SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]).fetchone()
     assert row is not None
     assert row[0] is None
-
 
 
 def test_ts12_25_req8_directory_prefix(conn: duckdb.DuckDBPyConnection) -> None:
     """REQ-8.3: Directory prefix match supersedes finding."""
     from agentfox.knowledge.review_store import supersede_drift_findings_by_files
 
-    fid = _insert_finding(
-        conn, finding_id="f3", spec_name="s", artifact_ref="packages/nightshift/"
-    )
-    count = supersede_drift_findings_by_files(
-        conn, "s", ["packages/nightshift/utils.py"], "spec:1"
-    )
+    fid = _insert_finding(conn, finding_id="f3", spec_name="s", artifact_ref="packages/nightshift/")
+    count = supersede_drift_findings_by_files(conn, "s", ["packages/nightshift/utils.py"], "spec:1")
     assert count == 1
-    row = conn.execute(
-        "SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]
-    ).fetchone()
+    row = conn.execute("SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]).fetchone()
     assert row is not None
     assert row[0] == "spec:1"
-
 
 
 def test_ts12_26_req8_line_number_strip(conn: duckdb.DuckDBPyConnection) -> None:
     """REQ-8.4: Line number suffix is stripped before matching."""
     from agentfox.knowledge.review_store import supersede_drift_findings_by_files
 
-    fid = _insert_finding(
-        conn, finding_id="f4", spec_name="s", artifact_ref="src/foo.py:42"
-    )
+    fid = _insert_finding(conn, finding_id="f4", spec_name="s", artifact_ref="src/foo.py:42")
     count = supersede_drift_findings_by_files(conn, "s", ["src/foo.py"], "spec:1")
     assert count == 1
-    row = conn.execute(
-        "SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]
-    ).fetchone()
+    row = conn.execute("SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]).fetchone()
     assert row is not None
     assert row[0] == "spec:1"
-
 
 
 def test_ts12_27_req8_null_ref(conn: duckdb.DuckDBPyConnection) -> None:
@@ -780,12 +689,9 @@ def test_ts12_27_req8_null_ref(conn: duckdb.DuckDBPyConnection) -> None:
     fid = _insert_finding(conn, finding_id="f5", spec_name="s", artifact_ref=None)
     count = supersede_drift_findings_by_files(conn, "s", ["src/foo.py"], "spec:1")
     assert count == 0
-    row = conn.execute(
-        "SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]
-    ).fetchone()
+    row = conn.execute("SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]).fetchone()
     assert row is not None
     assert row[0] is None
-
 
 
 def test_ts12_28_req8_empty_list(
@@ -800,12 +706,9 @@ def test_ts12_28_req8_empty_list(
         count = supersede_drift_findings_by_files(conn, "s", [], "spec:1")
     assert count == 0
     assert any(record.levelno == logging.DEBUG for record in caplog.records)
-    row = conn.execute(
-        "SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]
-    ).fetchone()
+    row = conn.execute("SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]).fetchone()
     assert row is not None
     assert row[0] is None
-
 
 
 def test_ts12_29_req8_null_list(
@@ -820,12 +723,9 @@ def test_ts12_29_req8_null_list(
         count = supersede_drift_findings_by_files(conn, "s", None, "spec:1")
     assert count == 0
     assert any(record.levelno == logging.DEBUG for record in caplog.records)
-    row = conn.execute(
-        "SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]
-    ).fetchone()
+    row = conn.execute("SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]).fetchone()
     assert row is not None
     assert row[0] is None
-
 
 
 def test_ts12_30_req8_multiple_matches(conn: duckdb.DuckDBPyConnection) -> None:
@@ -834,17 +734,11 @@ def test_ts12_30_req8_multiple_matches(conn: duckdb.DuckDBPyConnection) -> None:
 
     fids = []
     for i in range(3):
-        fids.append(
-            _insert_finding(
-                conn, finding_id=f"f8-{i}", spec_name="s", artifact_ref="src/foo.py"
-            )
-        )
+        fids.append(_insert_finding(conn, finding_id=f"f8-{i}", spec_name="s", artifact_ref="src/foo.py"))
     count = supersede_drift_findings_by_files(conn, "s", ["src/foo.py"], "spec:1")
     assert count == 3
     for fid in fids:
-        row = conn.execute(
-            "SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]
-        ).fetchone()
+        row = conn.execute("SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]).fetchone()
         assert row is not None
         assert row[0] == "spec:1"
 
@@ -854,18 +748,13 @@ def test_ts12_30_req8_multiple_matches(conn: duckdb.DuckDBPyConnection) -> None:
 # ---------------------------------------------------------------------------
 
 
-
 def test_ts12_e1_all_null_artifact_refs(conn: duckdb.DuckDBPyConnection) -> None:
     """All findings with null artifact_ref: returns 0, no DB writes."""
     from agentfox.knowledge.review_store import supersede_drift_findings_by_files
 
     for i in range(3):
-        _insert_finding(
-            conn, finding_id=f"null-{i}", spec_name="test_spec", artifact_ref=None
-        )
-    result = supersede_drift_findings_by_files(
-        conn, "test_spec", ["src/foo.py", "src/bar.py"], "test_spec:1"
-    )
+        _insert_finding(conn, finding_id=f"null-{i}", spec_name="test_spec", artifact_ref=None)
+    result = supersede_drift_findings_by_files(conn, "test_spec", ["src/foo.py", "src/bar.py"], "test_spec:1")
     assert result == 0
     rows = conn.execute(
         "SELECT superseded_by FROM drift_findings WHERE spec_name = ?",
@@ -877,7 +766,6 @@ def test_ts12_e1_all_null_artifact_refs(conn: duckdb.DuckDBPyConnection) -> None
 # ---------------------------------------------------------------------------
 # TS-12-E2: Multiple distinct findings share same artifact_ref (12-REQ-1.E2)
 # ---------------------------------------------------------------------------
-
 
 
 def test_ts12_e2_multiple_findings_same_ref(conn: duckdb.DuckDBPyConnection) -> None:
@@ -900,9 +788,7 @@ def test_ts12_e2_multiple_findings_same_ref(conn: duckdb.DuckDBPyConnection) -> 
         spec_name="test_spec",
         artifact_ref="src/other.py",
     )
-    result = supersede_drift_findings_by_files(
-        conn, "test_spec", ["src/shared.py"], "test_spec:2"
-    )
+    result = supersede_drift_findings_by_files(conn, "test_spec", ["src/shared.py"], "test_spec:2")
     assert result == 3
     for fid in shared_fids:
         row = conn.execute(
@@ -911,9 +797,7 @@ def test_ts12_e2_multiple_findings_same_ref(conn: duckdb.DuckDBPyConnection) -> 
         ).fetchone()
         assert row is not None
         assert row[0] == "test_spec:2"
-    other_row = conn.execute(
-        "SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [other_fid]
-    ).fetchone()
+    other_row = conn.execute("SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [other_fid]).fetchone()
     assert other_row is not None
     assert other_row[0] is None
 
@@ -973,7 +857,6 @@ def test_ts12_e3_null_touched_files_passthrough(
 # ---------------------------------------------------------------------------
 
 
-
 def test_ts12_e4_line_number_suffix_stripped(conn: duckdb.DuckDBPyConnection) -> None:
     """artifact_ref with ':42' suffix matches touched file without suffix."""
     from agentfox.knowledge.review_store import supersede_drift_findings_by_files
@@ -984,13 +867,9 @@ def test_ts12_e4_line_number_suffix_stripped(conn: duckdb.DuckDBPyConnection) ->
         spec_name="test_spec",
         artifact_ref="src/foo.py:42",
     )
-    result = supersede_drift_findings_by_files(
-        conn, "test_spec", ["src/foo.py"], "test_spec:1"
-    )
+    result = supersede_drift_findings_by_files(conn, "test_spec", ["src/foo.py"], "test_spec:1")
     assert result == 1
-    row = conn.execute(
-        "SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]
-    ).fetchone()
+    row = conn.execute("SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?", [fid]).fetchone()
     assert row is not None
     assert row[0] == "test_spec:1"
 
@@ -1041,7 +920,6 @@ def _normalize_ref(ref: str) -> str:
     return normalized
 
 
-
 @pytest.mark.timeout(60)
 @settings(max_examples=30, deadline=None)
 @given(
@@ -1080,16 +958,11 @@ def test_ts12_p1_zero_false_positive(
             else:
                 should_match = normalized in touched_set
             if row[0] is not None:
-                assert should_match, (
-                    f"False positive: {ref!r} superseded but no touched file matches"
-                )
+                assert should_match, f"False positive: {ref!r} superseded but no touched file matches"
             else:
-                assert not should_match, (
-                    f"False negative: {ref!r} not superseded but touched files match"
-                )
+                assert not should_match, f"False negative: {ref!r} not superseded but touched files match"
     finally:
         conn.close()
-
 
 
 @pytest.mark.timeout(60)
@@ -1119,7 +992,6 @@ def test_ts12_p2_null_ref_never_superseded(
         conn.close()
 
 
-
 @pytest.mark.timeout(60)
 @settings(max_examples=30, deadline=None)
 @given(
@@ -1143,15 +1015,11 @@ def test_ts12_p3_empty_touched_no_side_effects(
                 spec_name="s",
                 artifact_ref=ref,
             )
-        snapshot_before = conn.execute(
-            "SELECT id, superseded_by FROM drift_findings ORDER BY id"
-        ).fetchall()
+        snapshot_before = conn.execute("SELECT id, superseded_by FROM drift_findings ORDER BY id").fetchall()
         touched = None if use_none else []
         result = supersede_drift_findings_by_files(conn, "s", touched, "spec:1")
         assert result == 0
-        snapshot_after = conn.execute(
-            "SELECT id, superseded_by FROM drift_findings ORDER BY id"
-        ).fetchall()
+        snapshot_after = conn.execute("SELECT id, superseded_by FROM drift_findings ORDER BY id").fetchall()
         assert snapshot_before == snapshot_after
     finally:
         conn.close()
@@ -1191,7 +1059,6 @@ def test_ts12_p4_superseded_excluded_from_query(
         conn.close()
 
 
-
 @pytest.mark.timeout(60)
 @settings(max_examples=30, deadline=None)
 @given(
@@ -1208,9 +1075,7 @@ def test_ts12_p5_marker_consistency(
     conn = duckdb.connect(":memory:")
     run_migrations(conn)
     try:
-        fid = _insert_finding(
-            conn, finding_id="marker-test", spec_name="s", artifact_ref=artifact_ref
-        )
+        fid = _insert_finding(conn, finding_id="marker-test", spec_name="s", artifact_ref=artifact_ref)
         supersede_drift_findings_by_files(conn, "s", [artifact_ref], node_id)
         row = conn.execute(
             "SELECT superseded_by FROM drift_findings WHERE id::VARCHAR = ?",
@@ -1294,26 +1159,15 @@ def test_ts12_36_knowledge_system_architecture_updated() -> None:
     """05-knowledge-system-architecture.md documents matching rules."""
     from pathlib import Path
 
-    docs_path = (
-        Path(__file__).resolve().parents[3]
-        / "docs"
-        / "architecture"
-        / "05-knowledge-system-architecture.md"
-    )
+    docs_path = Path(__file__).resolve().parents[3] / "docs" / "architecture" / "05-knowledge-system-architecture.md"
     assert docs_path.exists(), f"05-knowledge-system-architecture.md not found at {docs_path}"
     content = docs_path.read_text()
     # Must reference artifact_ref matching rules (not vacuously true)
     assert "artifact_ref" in content, "artifact_ref not documented"
     # Must reference prefix matching in the context of drift supersession
-    assert "prefix match" in content.lower() or "prefix-match" in content.lower(), (
-        "Prefix matching rule not documented"
-    )
+    assert "prefix match" in content.lower() or "prefix-match" in content.lower(), "Prefix matching rule not documented"
     # Must document null artifact_ref fallback behaviour
-    assert "null" in content.lower() and "artifact_ref" in content, (
-        "Null artifact_ref fallback not documented"
-    )
+    assert "null" in content.lower() and "artifact_ref" in content, "Null artifact_ref fallback not documented"
     # Must reference sections 4.1, 8, and 9 per spec pseudocode
     assert "4.1" in content, "Section 4.1 reference missing"
-    assert any(s in content for s in ["## 8", "### 8", "Section 8"]), (
-        "Section 8 reference missing"
-    )
+    assert any(s in content for s in ["## 8", "### 8", "Section 8"]), "Section 8 reference missing"

@@ -106,7 +106,7 @@ def build_task_prompt(
     update checkbox states, commit on the feature branch, and run quality
     gates.
 
-    For non-coder archetypes (skeptic, verifier, etc.): returns a concise
+    For non-coder archetypes (reviewer, verifier, etc.): returns a concise
     prompt that defers to the system prompt profile for detailed
     instructions.
 

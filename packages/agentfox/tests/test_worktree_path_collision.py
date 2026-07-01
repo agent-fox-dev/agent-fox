@@ -78,7 +78,10 @@ class TestPathWithoutMode:
     async def test_path_without_mode(self, repo_root: Path) -> None:
         """PRD test 1: 2-level path and feature/{spec}/{task_group} branch."""
         result = await create_worktree(
-            repo_root, "my_spec", 7, base_branch="main",
+            repo_root,
+            "my_spec",
+            7,
+            base_branch="main",
         )
         expected_path = repo_root / ".agent-fox" / "worktrees" / "my_spec" / "7"
         assert result.path == expected_path
@@ -145,9 +148,7 @@ class TestCoderRegression:
         assert result.branch == "feature/coder_spec/2"
         # Confirm no extra role/mode path segments beyond spec_name/task_group
         # (substring check would false-positive on spec_name 'coder_spec')
-        path_relative = result.path.relative_to(
-            repo_root / ".agent-fox" / "worktrees"
-        )
+        path_relative = result.path.relative_to(repo_root / ".agent-fox" / "worktrees")
         assert list(path_relative.parts) == ["coder_spec", "2"]
 
 
@@ -235,9 +236,7 @@ class TestRolePresentModeAbsentSilent:
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("_stub_git")
-    async def test_role_present_mode_absent_silent(
-        self, repo_root: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    async def test_role_present_mode_absent_silent(self, repo_root: Path, caplog: pytest.LogCaptureFixture) -> None:
         """PRD test 6: role present but mode absent → silent fallback to 2-level."""
         with caplog.at_level(logging.WARNING):
             result = await create_worktree(
@@ -267,9 +266,7 @@ class TestModePresentRoleAbsentWarning:
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("_stub_git")
-    async def test_mode_present_role_absent_warning(
-        self, repo_root: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    async def test_mode_present_role_absent_warning(self, repo_root: Path, caplog: pytest.LogCaptureFixture) -> None:
         """PRD test 7: mode set, role absent → 'unknown' as role segment + WARNING."""
         with caplog.at_level(logging.WARNING):
             result = await create_worktree(
@@ -281,13 +278,7 @@ class TestModePresentRoleAbsentWarning:
                 mode="drift-review",
             )
         expected_path = (
-            repo_root
-            / ".agent-fox"
-            / "worktrees"
-            / "08_spec_generation_improvement"
-            / "0"
-            / "unknown"
-            / "drift-review"
+            repo_root / ".agent-fox" / "worktrees" / "08_spec_generation_improvement" / "0" / "unknown" / "drift-review"
         )
         assert result.path == expected_path
         assert "unknown" in result.branch
@@ -393,7 +384,12 @@ class TestModeNone2LevelPath:
     async def test_mode_none_produces_2level_path(self, repo_root: Path) -> None:
         """role=None, mode=None → worktrees_root/spec/task_group."""
         result = await create_worktree(
-            repo_root, "my_spec", 3, base_branch="main", role=None, mode=None,
+            repo_root,
+            "my_spec",
+            3,
+            base_branch="main",
+            role=None,
+            mode=None,
         )
         assert result.path == repo_root / ".agent-fox" / "worktrees" / "my_spec" / "3"
         assert result.branch == "feature/my_spec/3"
@@ -421,8 +417,13 @@ class TestBothRoleAndMode4LevelPath:
             mode="drift-review",
         )
         expected = (
-            repo_root / ".agent-fox" / "worktrees"
-            / "08_spec_generation_improvement" / "0" / "reviewer" / "drift-review"
+            repo_root
+            / ".agent-fox"
+            / "worktrees"
+            / "08_spec_generation_improvement"
+            / "0"
+            / "reviewer"
+            / "drift-review"
         )
         assert result.path == expected
         assert result.branch == "feature/08_spec_generation_improvement/0/reviewer/drift-review"
@@ -439,14 +440,16 @@ class TestRoleSetModeNoneSilentFallback:
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("_stub_git")
-    async def test_role_set_mode_none_silent_fallback(
-        self, repo_root: Path, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    async def test_role_set_mode_none_silent_fallback(self, repo_root: Path, caplog: pytest.LogCaptureFixture) -> None:
         """role='reviewer', mode=None → 2-level path without WARNING."""
         with caplog.at_level(logging.WARNING):
             result = await create_worktree(
-                repo_root, "test_spec", 0, base_branch="main",
-                role="reviewer", mode=None,
+                repo_root,
+                "test_spec",
+                0,
+                base_branch="main",
+                role="reviewer",
+                mode=None,
             )
         assert result.path == repo_root / ".agent-fox" / "worktrees" / "test_spec" / "0"
         assert result.branch == "feature/test_spec/0"
@@ -470,12 +473,15 @@ class TestModeSetRoleNoneWarning:
         """role=None, mode='drift-review' → 'unknown' role segment + WARNING."""
         with caplog.at_level(logging.WARNING):
             result = await create_worktree(
-                repo_root, "08_spec_generation_improvement", 0,
-                base_branch="main", role=None, mode="drift-review",
+                repo_root,
+                "08_spec_generation_improvement",
+                0,
+                base_branch="main",
+                role=None,
+                mode="drift-review",
             )
         expected = (
-            repo_root / ".agent-fox" / "worktrees"
-            / "08_spec_generation_improvement" / "0" / "unknown" / "drift-review"
+            repo_root / ".agent-fox" / "worktrees" / "08_spec_generation_improvement" / "0" / "unknown" / "drift-review"
         )
         assert result.path == expected
         assert result.branch == "feature/08_spec_generation_improvement/0/unknown/drift-review"
@@ -668,7 +674,10 @@ class TestCoderBackwardCompat:
     async def test_coder_backward_compat(self, repo_root: Path) -> None:
         """Calling without role/mode → same 2-level path as pre-fix."""
         result = await create_worktree(
-            repo_root, "coder_spec", 5, base_branch="main",
+            repo_root,
+            "coder_spec",
+            5,
+            base_branch="main",
         )
         assert result.path == repo_root / ".agent-fox" / "worktrees" / "coder_spec" / "5"
         assert result.branch == "feature/coder_spec/5"
@@ -707,7 +716,10 @@ class TestNoAdditionalSanitization:
 
         with pytest.raises(WorkspaceError, match="Invalid spec name"):
             await create_worktree(
-                repo_root, "invalid spec!", 0, base_branch="main",
+                repo_root,
+                "invalid spec!",
+                0,
+                base_branch="main",
             )
 
 
@@ -723,10 +735,7 @@ class TestDestroyWorktreeUsesFullPath:
     @pytest.mark.asyncio
     async def test_destroy_worktree_uses_full_path(self, tmp_path: Path) -> None:
         """git worktree remove is called with the exact 4-level path."""
-        four_level_path = (
-            tmp_path / ".agent-fox" / "worktrees" / "spec" / "0"
-            / "reviewer" / "drift-review"
-        )
+        four_level_path = tmp_path / ".agent-fox" / "worktrees" / "spec" / "0" / "reviewer" / "drift-review"
         four_level_path.mkdir(parents=True)
 
         workspace = WorkspaceInfo(
@@ -753,10 +762,7 @@ class TestDestroyWorktreeUsesFullPath:
             await destroy_worktree(tmp_path, workspace)
 
         # Check that git worktree remove --force was called with the 4-level path
-        remove_calls = [
-            c for c in git_commands
-            if len(c) >= 3 and c[0] == "worktree" and c[1] == "remove"
-        ]
+        remove_calls = [c for c in git_commands if len(c) >= 3 and c[0] == "worktree" and c[1] == "remove"]
         assert len(remove_calls) >= 1
         assert str(four_level_path) in remove_calls[0]
 
@@ -797,10 +803,7 @@ class TestStaleWorktreeCleanupBeforeAdd:
     @pytest.mark.asyncio
     async def test_stale_worktree_cleanup_before_add(self, repo_root: Path) -> None:
         """'git worktree remove --force' precedes 'git worktree add' for stale path."""
-        stale_path = (
-            repo_root / ".agent-fox" / "worktrees" / "spec" / "0"
-            / "reviewer" / "drift-review"
-        )
+        stale_path = repo_root / ".agent-fox" / "worktrees" / "spec" / "0" / "reviewer" / "drift-review"
         stale_path.mkdir(parents=True)
 
         git_commands: list[list[str]] = []
@@ -810,6 +813,7 @@ class TestStaleWorktreeCleanupBeforeAdd:
             # Simulate successful removal so the path no longer exists
             if args[:2] == ["worktree", "remove"]:
                 import shutil
+
                 path_str = args[-1]
                 target = Path(path_str)
                 if target.exists():
@@ -823,18 +827,18 @@ class TestStaleWorktreeCleanupBeforeAdd:
             patch("agentfox.workspace.worktree.branch_used_by_worktree", AsyncMock(return_value=False)),
         ):
             await create_worktree(
-                repo_root, "spec", 0, base_branch="main",
-                role="reviewer", mode="drift-review",
+                repo_root,
+                "spec",
+                0,
+                base_branch="main",
+                role="reviewer",
+                mode="drift-review",
             )
 
         remove_calls = [
-            c for c in git_commands
-            if len(c) >= 3 and c[0] == "worktree" and c[1] == "remove" and "--force" in c
+            c for c in git_commands if len(c) >= 3 and c[0] == "worktree" and c[1] == "remove" and "--force" in c
         ]
-        add_calls = [
-            c for c in git_commands
-            if len(c) >= 3 and c[0] == "worktree" and c[1] == "add"
-        ]
+        add_calls = [c for c in git_commands if len(c) >= 3 and c[0] == "worktree" and c[1] == "add"]
         assert len(remove_calls) >= 1, "Expected 'git worktree remove --force' call"
         assert len(add_calls) >= 1, "Expected 'git worktree add' call"
         # Remove must come before add
@@ -862,7 +866,12 @@ class TestEdgeCaseEmptyStringNotSegment:
     async def test_edge_empty_string_not_segment(self, repo_root: Path) -> None:
         """role='' and mode='' → None; no empty segment in path."""
         result = await create_worktree(
-            repo_root, "test_spec", 0, base_branch="main", role="", mode="",
+            repo_root,
+            "test_spec",
+            0,
+            base_branch="main",
+            role="",
+            mode="",
         )
         assert result.role is None
         assert result.mode is None
@@ -884,10 +893,20 @@ class TestEdgeCaseBothEmptyIdenticalToNone:
     async def test_edge_both_empty_identical_to_none(self, repo_root: Path) -> None:
         """Empty-string pair produces identical path and branch to None pair."""
         result_empty = await create_worktree(
-            repo_root, "test_spec", 0, base_branch="main", role="", mode="",
+            repo_root,
+            "test_spec",
+            0,
+            base_branch="main",
+            role="",
+            mode="",
         )
         result_none = await create_worktree(
-            repo_root, "test_spec", 0, base_branch="main", role=None, mode=None,
+            repo_root,
+            "test_spec",
+            0,
+            base_branch="main",
+            role=None,
+            mode=None,
         )
         assert result_empty.path == result_none.path
         assert result_empty.branch == result_none.branch
@@ -909,12 +928,20 @@ class TestEdgeCaseConcurrentDistinctModes:
         """Two concurrent calls with different modes produce non-colliding paths."""
         r1, r2 = await asyncio.gather(
             create_worktree(
-                repo_root, "08_spec_generation_improvement", 0,
-                base_branch="main", role="reviewer", mode="pre-review",
+                repo_root,
+                "08_spec_generation_improvement",
+                0,
+                base_branch="main",
+                role="reviewer",
+                mode="pre-review",
             ),
             create_worktree(
-                repo_root, "08_spec_generation_improvement", 0,
-                base_branch="main", role="reviewer", mode="drift-review",
+                repo_root,
+                "08_spec_generation_improvement",
+                0,
+                base_branch="main",
+                role="reviewer",
+                mode="drift-review",
             ),
         )
         assert r1.path != r2.path
@@ -937,8 +964,12 @@ class TestEdgeCaseEmptyStringModeSentinel:
     async def test_empty_string_mode_sentinel(self, repo_root: Path) -> None:
         """mode='' normalised to None inside create_worktree → 2-level path."""
         result = await create_worktree(
-            repo_root, "test_spec", 0, base_branch="main",
-            role="coder", mode="",
+            repo_root,
+            "test_spec",
+            0,
+            base_branch="main",
+            role="coder",
+            mode="",
         )
         assert result.mode is None
         assert result.path == repo_root / ".agent-fox" / "worktrees" / "test_spec" / "0"
@@ -979,10 +1010,20 @@ class TestPropertyDistinctPairsDistinctPaths:
     ) -> None:
         """Parametrized: distinct (role, mode) → distinct path and branch."""
         r1 = await create_worktree(
-            repo_root, "spec", 0, base_branch="main", role=role1, mode=mode1,
+            repo_root,
+            "spec",
+            0,
+            base_branch="main",
+            role=role1,
+            mode=mode1,
         )
         r2 = await create_worktree(
-            repo_root, "spec", 0, base_branch="main", role=role2, mode=mode2,
+            repo_root,
+            "spec",
+            0,
+            base_branch="main",
+            role=role2,
+            mode=mode2,
         )
         assert r1.path != r2.path
         assert r1.branch != r2.branch
@@ -1009,11 +1050,19 @@ class TestPropertyEmptyNoneCombos2Level:
         ],
     )
     async def test_property_empty_none_combos_2level(
-        self, repo_root: Path, role: str | None, mode: str | None,
+        self,
+        repo_root: Path,
+        role: str | None,
+        mode: str | None,
     ) -> None:
         """All None/'' combos → 2-level path with role=None, mode=None."""
         result = await create_worktree(
-            repo_root, "spec", 0, base_branch="main", role=role, mode=mode,
+            repo_root,
+            "spec",
+            0,
+            base_branch="main",
+            role=role,
+            mode=mode,
         )
         assert result.path == repo_root / ".agent-fox" / "worktrees" / "spec" / "0"
         assert result.branch == "feature/spec/0"
@@ -1047,11 +1096,19 @@ class TestPropertyAnyRoleModeAbsent2Level:
         ],
     )
     async def test_property_any_role_mode_absent_2level(
-        self, repo_root: Path, role: str | None, mode: str | None,
+        self,
+        repo_root: Path,
+        role: str | None,
+        mode: str | None,
     ) -> None:
         """Arbitrary role with mode=None or '' → 2-level path."""
         result = await create_worktree(
-            repo_root, "spec", 1, base_branch="main", role=role, mode=mode,
+            repo_root,
+            "spec",
+            1,
+            base_branch="main",
+            role=role,
+            mode=mode,
         )
         assert result.path == repo_root / ".agent-fox" / "worktrees" / "spec" / "1"
         assert result.branch == "feature/spec/1"
@@ -1089,7 +1146,12 @@ class TestPropertyNormalisedRoleModeFields:
     ) -> None:
         """WorkspaceInfo.role and .mode match normalised expectations."""
         result = await create_worktree(
-            repo_root, "spec", 0, base_branch="main", role=role, mode=mode,
+            repo_root,
+            "spec",
+            0,
+            base_branch="main",
+            role=role,
+            mode=mode,
         )
         assert result.role == expected_role
         assert result.mode == expected_mode
@@ -1113,7 +1175,9 @@ class TestPropertyWorkspaceInfoDefaultsNone:
         ],
     )
     def test_property_workspace_info_defaults_none(
-        self, spec_name: str, task_group: int,
+        self,
+        spec_name: str,
+        task_group: int,
     ) -> None:
         """WorkspaceInfo constructed without role/mode → both None."""
         info = WorkspaceInfo(
@@ -1146,12 +1210,20 @@ class TestSmokeConcurrentReviewerDispatch:
         """Two concurrent create_worktree calls succeed with distinct paths."""
         result1, result2 = await asyncio.gather(
             create_worktree(
-                repo_root, "spec", 0, base_branch="main",
-                role="reviewer", mode="pre-review",
+                repo_root,
+                "spec",
+                0,
+                base_branch="main",
+                role="reviewer",
+                mode="pre-review",
             ),
             create_worktree(
-                repo_root, "spec", 0, base_branch="main",
-                role="reviewer", mode="drift-review",
+                repo_root,
+                "spec",
+                0,
+                base_branch="main",
+                role="reviewer",
+                mode="drift-review",
             ),
         )
         assert result1.path != result2.path
@@ -1175,17 +1247,19 @@ class TestSmokeCoderNode2Level:
     async def test_smoke_coder_node_2level(self, repo_root: Path) -> None:
         """Coder node call produces 2-level path with no role/mode segments."""
         result = await create_worktree(
-            repo_root, "spec", 0, base_branch="main",
-            role="coder", mode=None,
+            repo_root,
+            "spec",
+            0,
+            base_branch="main",
+            role="coder",
+            mode=None,
         )
         assert result.path == repo_root / ".agent-fox" / "worktrees" / "spec" / "0"
         assert result.branch == "feature/spec/0"
         assert result.role is None
         assert result.mode is None
         # No extra role/mode path segments beyond spec_name/task_group
-        path_relative = result.path.relative_to(
-            repo_root / ".agent-fox" / "worktrees"
-        )
+        path_relative = result.path.relative_to(repo_root / ".agent-fox" / "worktrees")
         assert list(path_relative.parts) == ["spec", "0"]
 
 
@@ -1201,13 +1275,19 @@ class TestSmokeModeSetRoleAbsentFallback:
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("_stub_git")
     async def test_smoke_mode_set_role_absent_fallback(
-        self, repo_root: Path, caplog: pytest.LogCaptureFixture,
+        self,
+        repo_root: Path,
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         """WARNING emitted and 'unknown' used as role segment."""
         with caplog.at_level(logging.WARNING):
             result = await create_worktree(
-                repo_root, "spec", 0, base_branch="main",
-                role=None, mode="drift-review",
+                repo_root,
+                "spec",
+                0,
+                base_branch="main",
+                role=None,
+                mode="drift-review",
             )
         assert "unknown/drift-review" in str(result.path)
         assert result.role == "unknown"
@@ -1230,10 +1310,7 @@ class TestSmokeStaleWorktreeCleanup4Level:
     @pytest.mark.asyncio
     async def test_smoke_stale_worktree_cleanup_4level(self, repo_root: Path) -> None:
         """Stale 4-level directory triggers git worktree remove --force before add."""
-        stale_path = (
-            repo_root / ".agent-fox" / "worktrees" / "spec" / "0"
-            / "reviewer" / "drift-review"
-        )
+        stale_path = repo_root / ".agent-fox" / "worktrees" / "spec" / "0" / "reviewer" / "drift-review"
         stale_path.mkdir(parents=True)
 
         git_commands: list[list[str]] = []
@@ -1242,6 +1319,7 @@ class TestSmokeStaleWorktreeCleanup4Level:
             git_commands.append(list(args))
             if args[:2] == ["worktree", "remove"]:
                 import shutil
+
                 path_str = args[-1]
                 target = Path(path_str)
                 if target.exists():
@@ -1255,8 +1333,12 @@ class TestSmokeStaleWorktreeCleanup4Level:
             patch("agentfox.workspace.worktree.branch_used_by_worktree", AsyncMock(return_value=False)),
         ):
             result = await create_worktree(
-                repo_root, "spec", 0, base_branch="main",
-                role="reviewer", mode="drift-review",
+                repo_root,
+                "spec",
+                0,
+                base_branch="main",
+                role="reviewer",
+                mode="drift-review",
             )
 
         # git worktree remove --force issued before git worktree add

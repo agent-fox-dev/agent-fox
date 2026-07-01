@@ -929,7 +929,7 @@ MIGRATIONS: list[Migration] = [
     ),
     Migration(
         version=4,
-        description="add drift_findings table for oracle archetype",
+        description="add drift_findings table for drift-review",
         apply=_migrate_v4,
     ),
     Migration(

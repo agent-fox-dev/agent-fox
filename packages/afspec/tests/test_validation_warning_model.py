@@ -32,14 +32,9 @@ class TestValidationWarningModel:
         """ValidationWarning has an entity identifier field (e.g. entity_id)."""
         from afspec.validation import ValidationWarning
 
-        entity_fields = [
-            f
-            for f in ValidationWarning.model_fields
-            if "id" in f or "entity" in f or "location" in f
-        ]
+        entity_fields = [f for f in ValidationWarning.model_fields if "id" in f or "entity" in f or "location" in f]
         assert len(entity_fields) >= 1, (
-            f"Expected at least one entity identifier field, "
-            f"got fields: {list(ValidationWarning.model_fields.keys())}"
+            f"Expected at least one entity identifier field, got fields: {list(ValidationWarning.model_fields.keys())}"
         )
 
     def test_instantiation_and_field_access(self) -> None:

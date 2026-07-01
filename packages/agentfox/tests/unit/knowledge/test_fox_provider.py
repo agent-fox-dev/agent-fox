@@ -847,5 +847,3 @@ class TestCrossGroupReviewRetrieval:
         cross_group = [r for r in result if r.startswith("[CROSS-GROUP]")]
         assert len(cross_group) == 1
         assert "group 1" in cross_group[0], f"Expected source group reference, got: {cross_group[0]!r}"
-
-

@@ -111,7 +111,7 @@ async def test_no_pipeline_modules_imported_after_assess() -> None:
 
     config = AgentFoxConfig()
     manager = AssessmentManager(retries_before_escalation=1, config=config)
-    await manager.assess_node("some_spec:2", "oracle")
+    await manager.assess_node("some_spec:2", "reviewer")
 
     after = set(sys.modules.keys())
     new_modules = after - before

@@ -35,9 +35,13 @@ class TestReviewerModelTier609:
         result = resolve_model_tier(config, "reviewer", mode="fix-review")
         assert result == "ADVANCED"
 
-    def test_coder_returns_advanced_from_models_dict(self) -> None:
-        """TS-NS-5: coder returns ADVANCED when models = {coder = 'ADVANCED'} is set."""
-        config = AgentFoxConfig(archetypes=ArchetypesConfig(models={"coder": "ADVANCED"}))
+    def test_coder_returns_advanced_from_overrides(self) -> None:
+        """TS-NS-5: coder returns ADVANCED when overrides.coder.model_tier = 'ADVANCED'."""
+        from agentfox.core.config import PerArchetypeConfig
+
+        config = AgentFoxConfig(
+            archetypes=ArchetypesConfig(overrides={"coder": PerArchetypeConfig(model_tier="ADVANCED")})
+        )
         result = resolve_model_tier(config, "coder")
         assert result == "ADVANCED"
 

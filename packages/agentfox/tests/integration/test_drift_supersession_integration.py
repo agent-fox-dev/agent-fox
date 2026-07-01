@@ -120,9 +120,7 @@ def test_ts12_31_to_34_end_to_end_supersession(
     assert total_count == 12
 
     # TS-12-32: Simulate supersession via direct function call
-    result = supersede_drift_findings_by_files(
-        conn, spec_name, touched_files, node_id
-    )
+    result = supersede_drift_findings_by_files(conn, spec_name, touched_files, node_id)
     assert result == 10
 
     superseded_count = conn.execute(
@@ -147,9 +145,7 @@ def test_ts12_31_to_34_end_to_end_supersession(
     assert _stable_uuid("null-ref") in active_id_set
 
     # TS-12-34: query_active_drift_findings returns exactly 2
-    results = query_active_drift_findings(
-        conn, spec_name, include_prereview=True
-    )
+    results = query_active_drift_findings(conn, spec_name, include_prereview=True)
     assert len(results) == 2
     for finding in results:
         assert finding.superseded_by is None
@@ -271,14 +267,10 @@ def test_ts12_smoke2_null_touched_files_short_circuit(
 
     # Verify the function was called (via debug log from supersede_drift_findings_by_files)
     drift_debug_msgs = [
-        r.message
-        for r in caplog.records
-        if r.levelno == logging.DEBUG
-        and "drift" in r.message.lower()
+        r.message for r in caplog.records if r.levelno == logging.DEBUG and "drift" in r.message.lower()
     ]
     assert len(drift_debug_msgs) > 0, (
-        "Expected a debug log from supersede_drift_findings_by_files; "
-        f"got: {[r.message for r in caplog.records]}"
+        f"Expected a debug log from supersede_drift_findings_by_files; got: {[r.message for r in caplog.records]}"
     )
 
     # Finding remains active

@@ -47,7 +47,7 @@ def _is_auto_pre(node_id: str) -> bool:
     """Check if a node is an auto_pre archetype (group 0).
 
     Group 0 is reserved for auto_pre archetype nodes (pre-review,
-    drift-review, skeptic, etc.).  Coder groups start at 1.
+    drift-review, etc.).  Coder groups start at 1.
 
     Requirements: 69-REQ-1.1
     """

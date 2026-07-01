@@ -122,10 +122,10 @@ class TestArchetypeTracking:
             duration_ms=0,
             error_message=None,
             timestamp="2026-01-01T00:00:00Z",
-            archetype="skeptic",
+            archetype="reviewer",
         )
 
-        assert record.archetype == "skeptic"
+        assert record.archetype == "reviewer"
 
 
 class TestPerSpecCost:

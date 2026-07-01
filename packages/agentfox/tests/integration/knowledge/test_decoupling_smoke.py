@@ -21,7 +21,6 @@ def _make_mock_config() -> MagicMock:
     mock_config.models = MagicMock()
     mock_config.orchestrator = MagicMock()
     mock_config.archetypes.overrides.get.return_value = None
-    mock_config.archetypes.models = {}
     mock_config.models.coding = None
     mock_config.models.review = None
     return mock_config

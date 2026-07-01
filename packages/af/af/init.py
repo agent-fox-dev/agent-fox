@@ -194,11 +194,13 @@ def init_cmd(ctx: click.Context, force: bool, skills: bool, profiles: bool) -> N
     # 01-REQ-3.5: check we are in a git repository for the rest of init
     if not _is_git_repo():
         if json_mode:
-            om.emit({
-                "status": "ok",
-                "global_config": global_msg,
-                "local_config": local_msg,
-            })
+            om.emit(
+                {
+                    "status": "ok",
+                    "global_config": global_msg,
+                    "local_config": local_msg,
+                }
+            )
             return
         if global_msg:
             click.echo(global_msg)

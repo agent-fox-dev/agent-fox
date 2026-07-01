@@ -16,8 +16,8 @@ from agentfox.knowledge.review_store import (
 )
 from agentfox.session.convergence import (
     Finding,
-    converge_skeptic,
-    converge_skeptic_records,
+    converge_reviewer_pre,
+    converge_reviewer_pre_records,
 )
 from agentfox.session.prompt import render_review_context
 from hypothesis import given, settings
@@ -107,8 +107,8 @@ class TestContextRenderingDeterminism:
 class TestConvergenceEquivalence:
     """TS-27-P4: Property 4 -- Convergence Equivalence.
 
-    converge_skeptic_records produces the same blocking decision as
-    converge_skeptic for equivalent input data.
+    converge_reviewer_pre_records produces the same blocking decision as
+    converge_reviewer_pre for equivalent input data.
     """
 
     @given(
@@ -150,8 +150,8 @@ class TestConvergenceEquivalence:
                 ]
             )
 
-        old_merged, old_blocked = converge_skeptic(old_instances, threshold)
-        new_merged, new_blocked = converge_skeptic_records(new_instances, threshold)
+        old_merged, old_blocked = converge_reviewer_pre(old_instances, threshold)
+        new_merged, new_blocked = converge_reviewer_pre_records(new_instances, threshold)
 
         assert old_blocked == new_blocked
         assert len(old_merged) == len(new_merged)

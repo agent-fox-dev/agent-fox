@@ -1,7 +1,7 @@
 """Multi-instance convergence logic for archetype sessions.
 
 Provides deterministic post-processing for multi-instance archetype runs:
-- Skeptic: union findings, normalize-dedup, majority-gate criticals,
+- Reviewer pre-review: union findings, normalize-dedup, majority-gate criticals,
   apply blocking threshold.
 - Verifier: majority vote on verdicts.
 
@@ -42,7 +42,7 @@ def normalize_finding(f: Finding) -> tuple[str, str]:
     )
 
 
-def converge_skeptic(
+def converge_reviewer_pre(
     instance_findings: list[list[Finding]],
     block_threshold: int,
 ) -> tuple[list[Finding], bool]:
@@ -123,11 +123,11 @@ def converge_verifier(
 # ---------------------------------------------------------------------------
 
 
-def converge_skeptic_records(
+def converge_reviewer_pre_records(
     instance_findings: list[list[ReviewFinding]],
     block_threshold: int,
 ) -> tuple[list[ReviewFinding], bool]:
-    """Same algorithm as converge_skeptic but operating on ReviewFinding records.
+    """Same algorithm as converge_reviewer_pre but operating on ReviewFinding records.
 
     Returns (merged_findings, blocked).
 
@@ -299,7 +299,7 @@ class AuditResult:
 def converge_auditor(
     instance_results: list[AuditResult],
 ) -> AuditResult:
-    """Merge multiple auditor instance results using union semantics.
+    """Merge multiple audit-review instance results using union semantics.
 
     A TS entry takes the worst verdict across instances.
     Overall verdict is FAIL if any instance verdict is FAIL.
@@ -313,7 +313,7 @@ def converge_auditor(
 
     # 46-REQ-6.E2: Empty list returns PASS with warning
     if not instance_results:
-        _logger.warning("No auditor instance results; treating as PASS")
+        _logger.warning("No audit-review instance results; treating as PASS")
         return AuditResult(entries=[], overall_verdict="PASS", summary="No results")
 
     # 46-REQ-6.E1: Single instance passthrough
@@ -369,7 +369,7 @@ def converge_reviewer(
     """Dispatch convergence to the correct algorithm by reviewer mode.
 
     Routing:
-    - ``"pre-review"`` and ``"drift-review"`` → :func:`converge_skeptic`
+    - ``"pre-review"`` and ``"drift-review"`` → :func:`converge_reviewer_pre`
       (majority-gated blocking on ``list[list[Finding]]`` results)
     - ``"audit-review"`` → :func:`converge_auditor`
       (union / worst-verdict-wins on ``list[AuditResult]`` results)
@@ -383,7 +383,7 @@ def converge_reviewer(
             - fix-review: single-element ``list``
         mode: Reviewer mode string (``"pre-review"``, ``"drift-review"``,
             ``"audit-review"``, or ``"fix-review"``).
-        block_threshold: Passed to :func:`converge_skeptic` for pre/drift modes.
+        block_threshold: Passed to :func:`converge_reviewer_pre` for pre/drift modes.
 
     Returns:
         - For pre-review / drift-review: ``tuple[list[Finding], bool]``
@@ -396,7 +396,7 @@ def converge_reviewer(
     Requirements: 98-REQ-5.1, 98-REQ-5.2, 98-REQ-5.3, 98-REQ-5.E1
     """
     if mode in ("pre-review", "drift-review"):
-        return converge_skeptic(results, block_threshold=block_threshold)
+        return converge_reviewer_pre(results, block_threshold=block_threshold)
     elif mode == "audit-review":
         return converge_auditor(results)
     elif mode == "fix-review":

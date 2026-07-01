@@ -14,13 +14,7 @@ from pathlib import Path
 
 import pytest
 
-CODER_MD_PATH = (
-    Path(__file__).resolve().parents[1]
-    / "agentfox"
-    / "_templates"
-    / "profiles"
-    / "coder.md"
-)
+CODER_MD_PATH = Path(__file__).resolve().parents[1] / "agentfox" / "_templates" / "profiles" / "coder.md"
 
 
 @pytest.fixture()
@@ -46,9 +40,7 @@ class TestSummaryNonObviousLearnings:
         )
 
     def test_references_summary_field(self, coder_md_content: str) -> None:
-        assert "summary" in coder_md_content, (
-            "coder.md must reference the summary field"
-        )
+        assert "summary" in coder_md_content, "coder.md must reference the summary field"
 
 
 # ---------------------------------------------------------------------------
@@ -61,9 +53,7 @@ class TestRejectedApproachesInstructions:
     """Verify coder.md instructs populating rejected_approaches."""
 
     def test_contains_rejected_approaches_field(self, coder_md_content: str) -> None:
-        assert "rejected_approaches" in coder_md_content, (
-            "coder.md must reference the rejected_approaches field"
-        )
+        assert "rejected_approaches" in coder_md_content, "coder.md must reference the rejected_approaches field"
 
     def test_contains_rejected_or_tried_language(self, coder_md_content: str) -> None:
         content_lower = coder_md_content.lower()
@@ -81,19 +71,11 @@ class TestGotchasInstructions:
     """Verify coder.md instructs populating gotchas."""
 
     def test_contains_gotchas_field(self, coder_md_content: str) -> None:
-        assert "gotchas" in coder_md_content, (
-            "coder.md must reference the gotchas field"
-        )
+        assert "gotchas" in coder_md_content, "coder.md must reference the gotchas field"
 
-    def test_contains_edge_case_or_watch_out_language(
-        self, coder_md_content: str
-    ) -> None:
+    def test_contains_edge_case_or_watch_out_language(self, coder_md_content: str) -> None:
         content_lower = coder_md_content.lower()
-        assert (
-            "edge case" in content_lower
-            or "watch out" in content_lower
-            or "counter-intuitive" in content_lower
-        ), (
+        assert "edge case" in content_lower or "watch out" in content_lower or "counter-intuitive" in content_lower, (
             "coder.md must instruct agents about edge cases, watch-outs, or "
             "counter-intuitive behaviors in the gotchas field"
         )
@@ -108,15 +90,12 @@ class TestAssumptionsInstructions:
     """Verify coder.md instructs populating assumptions."""
 
     def test_contains_assumptions_field(self, coder_md_content: str) -> None:
-        assert "assumptions" in coder_md_content, (
-            "coder.md must reference the assumptions field"
-        )
+        assert "assumptions" in coder_md_content, "coder.md must reference the assumptions field"
 
     def test_contains_later_or_might_not_hold(self, coder_md_content: str) -> None:
         content_lower = coder_md_content.lower()
         assert "later" in content_lower or "might not hold" in content_lower, (
-            "coder.md must instruct agents about assumptions that might not "
-            "hold for later task groups"
+            "coder.md must instruct agents about assumptions that might not hold for later task groups"
         )
 
 
@@ -131,13 +110,11 @@ class TestSummaryCharacterTarget:
 
     def test_contains_500_and_1000(self, coder_md_content: str) -> None:
         assert "500" in coder_md_content and "1000" in coder_md_content, (
-            "coder.md must reference a ~500-1000 character target for the "
-            "summary field"
+            "coder.md must reference a ~500-1000 character target for the summary field"
         )
 
     def test_contains_non_obvious_or_learnings(self, coder_md_content: str) -> None:
         content_lower = coder_md_content.lower()
         assert "non-obvious" in content_lower or "learnings" in content_lower, (
-            "coder.md must frame the summary around non-obvious learnings "
-            "rather than completion status"
+            "coder.md must frame the summary around non-obvious learnings rather than completion status"
         )

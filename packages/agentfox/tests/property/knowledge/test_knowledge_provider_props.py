@@ -170,7 +170,6 @@ class TestRetrieveFailureResilience:
         mock_config.models = MagicMock()
         mock_config.orchestrator = MagicMock()
         mock_config.archetypes.overrides.get.return_value = None
-        mock_config.archetypes.models = {}
         mock_config.models.coding = None
         mock_db = MagicMock()
 
@@ -231,7 +230,6 @@ class TestIngestFailureResilience:
         mock_config.models = MagicMock()
         mock_config.orchestrator = MagicMock()
         mock_config.archetypes.overrides.get.return_value = None
-        mock_config.archetypes.models = {}
         mock_config.models.coding = None
         mock_db = MagicMock()
 

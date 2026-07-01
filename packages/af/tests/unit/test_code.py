@@ -768,9 +768,7 @@ class TestPerSpecSummary:
                 complete_event = obj
                 break
 
-        assert complete_event is not None, (
-            f"No 'complete' event found in JSON output. Raw output:\n{result.output!r}"
-        )
+        assert complete_event is not None, f"No 'complete' event found in JSON output. Raw output:\n{result.output!r}"
         assert "specs" in complete_event["summary"]
         specs = complete_event["summary"]["specs"]
         assert "08_session_lifecycle" in specs

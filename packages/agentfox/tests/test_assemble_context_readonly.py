@@ -335,9 +335,7 @@ class TestOrchestratorPassesReadOnlyConn:
             infra = _setup_infrastructure(mock_config)
 
         # open_knowledge_store called exactly once — cursor replaces second connection
-        assert len(call_log) == 1, (
-            f"Expected exactly 1 call to open_knowledge_store, got {len(call_log)}: {call_log}"
-        )
+        assert len(call_log) == 1, f"Expected exactly 1 call to open_knowledge_store, got {len(call_log)}: {call_log}"
         assert call_log[0] is False, "open_knowledge_store call must use read_only=False"
 
         # 06-REQ-7.3: context_knowledge_db must be a cursor-based wrapper

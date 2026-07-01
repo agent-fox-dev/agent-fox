@@ -28,11 +28,11 @@ class TestTurnLimitPassthrough:
     @given(max_turns=st.integers(min_value=1, max_value=1000))
     @settings(max_examples=50)
     def test_positive_max_turns_passthrough(self, max_turns: int) -> None:
-        from agentfox.core.config import AgentFoxConfig
+        from agentfox.core.config import AgentFoxConfig, PerArchetypeConfig
         from agentfox.engine.sdk_params import resolve_max_turns
 
         config = AgentFoxConfig(
-            archetypes={"max_turns": {"coder": max_turns}},  # type: ignore[arg-type]
+            archetypes={"overrides": {"coder": PerArchetypeConfig(max_turns=max_turns)}},  # type: ignore[arg-type]
         )
         result = resolve_max_turns(config, "coder")
         assert result == max_turns
@@ -52,20 +52,18 @@ class TestZeroTurnsUnlimited:
         archetype=st.sampled_from(
             [
                 "coder",
-                "oracle",
-                "skeptic",
+                "reviewer",
                 "verifier",
-                "auditor",
             ]
         )
     )
     @settings(max_examples=20)
     def test_zero_turns_always_none(self, archetype: str) -> None:
-        from agentfox.core.config import AgentFoxConfig
+        from agentfox.core.config import AgentFoxConfig, PerArchetypeConfig
         from agentfox.engine.sdk_params import resolve_max_turns
 
         config = AgentFoxConfig(
-            archetypes={"max_turns": {archetype: 0}},  # type: ignore[arg-type]
+            archetypes={"overrides": {archetype: PerArchetypeConfig(max_turns=0)}},  # type: ignore[arg-type]
         )
         result = resolve_max_turns(config, archetype)
         assert result is None
@@ -110,13 +108,13 @@ class TestThinkingPassthrough:
     )
     @settings(max_examples=50)
     def test_nondisabled_thinking_passthrough(self, mode: str, budget: int) -> None:
-        from agentfox.core.config import AgentFoxConfig
+        from agentfox.core.config import AgentFoxConfig, PerArchetypeConfig
         from agentfox.engine.sdk_params import resolve_thinking
 
         config = AgentFoxConfig(
             archetypes={  # type: ignore[arg-type]
-                "thinking": {
-                    "coder": {"mode": mode, "budget_tokens": budget},
+                "overrides": {
+                    "coder": PerArchetypeConfig(thinking_mode=mode, thinking_budget=budget),
                 },
             },
         )
@@ -140,22 +138,20 @@ class TestConfigOverridePrecedence:
         archetype=st.sampled_from(
             [
                 "coder",
-                "oracle",
-                "skeptic",
+                "reviewer",
                 "verifier",
-                "auditor",
             ]
         ),
         override_turns=st.integers(min_value=1, max_value=500),
     )
     @settings(max_examples=50)
     def test_config_override_wins(self, archetype: str, override_turns: int) -> None:
-        from agentfox.core.config import AgentFoxConfig
+        from agentfox.core.config import AgentFoxConfig, PerArchetypeConfig
         from agentfox.engine.sdk_params import resolve_max_turns
 
         config = AgentFoxConfig(
             archetypes={  # type: ignore[arg-type]
-                "max_turns": {archetype: override_turns},
+                "overrides": {archetype: PerArchetypeConfig(max_turns=override_turns)},
             },
         )
         result = resolve_max_turns(config, archetype)
@@ -191,13 +187,11 @@ class TestValidationRejectsInvalid:
     @given(neg=st.integers(min_value=-1000, max_value=-1))
     @settings(max_examples=20)
     def test_negative_max_turns_rejected(self, neg: int) -> None:
-        """Negative max_turns always raises."""
+        """Negative max_turns always raises via PerArchetypeConfig."""
         try:
-            from agentfox.core.config import AgentFoxConfig
+            from agentfox.core.config import PerArchetypeConfig
 
-            AgentFoxConfig(
-                archetypes={"max_turns": {"coder": neg}},  # type: ignore[arg-type]
-            )
+            PerArchetypeConfig(max_turns=neg)
             raise AssertionError(  # noqa: TRY301
                 f"Expected ValidationError for max_turns={neg}"
             )
@@ -207,15 +201,9 @@ class TestValidationRejectsInvalid:
     def test_invalid_thinking_mode_rejected(self) -> None:
         """Invalid thinking mode raises."""
         try:
-            from agentfox.core.config import AgentFoxConfig
+            from agentfox.core.config import PerArchetypeConfig
 
-            AgentFoxConfig(
-                archetypes={  # type: ignore[arg-type]
-                    "thinking": {
-                        "coder": {"mode": "turbo", "budget_tokens": 10000},
-                    },
-                },
-            )
+            PerArchetypeConfig(thinking_mode="turbo", thinking_budget=10000)  # type: ignore[arg-type]
             raise AssertionError(  # noqa: TRY301
                 "Expected ValidationError for mode='turbo'"
             )
@@ -225,15 +213,9 @@ class TestValidationRejectsInvalid:
     def test_zero_budget_tokens_enabled_rejected(self) -> None:
         """budget_tokens=0 with mode=enabled raises."""
         try:
-            from agentfox.core.config import AgentFoxConfig
+            from agentfox.core.config import PerArchetypeConfig
 
-            AgentFoxConfig(
-                archetypes={  # type: ignore[arg-type]
-                    "thinking": {
-                        "coder": {"mode": "enabled", "budget_tokens": 0},
-                    },
-                },
-            )
+            PerArchetypeConfig(thinking_mode="enabled", thinking_budget=0)
             raise AssertionError(  # noqa: TRY301
                 "Expected ValidationError for budget_tokens=0 with enabled"
             )

@@ -134,9 +134,7 @@ def _write_spec_fixture(
     spec_dir.mkdir(parents=True, exist_ok=True)
 
     # -- prd.md ---------------------------------------------------------------
-    (spec_dir / "prd.md").write_text(
-        _PRD_TEMPLATE.format(spec_id=spec_id, spec_name=spec_name)
-    )
+    (spec_dir / "prd.md").write_text(_PRD_TEMPLATE.format(spec_id=spec_id, spec_name=spec_name))
 
     # -- Generate matching criteria, test cases, and refs ---------------------
     criteria: list[dict] = []
@@ -499,9 +497,7 @@ def malformed_spec_dir(tmp_path: Path) -> Path:
 class TestCLIWarningsOnly:
     """TS-08-23: CLI shows warnings and valid: true when only warnings present."""
 
-    def test_exit_code_zero(
-        self, runner: CliRunner, oversized_spec_dir: Path
-    ) -> None:
+    def test_exit_code_zero(self, runner: CliRunner, oversized_spec_dir: Path) -> None:
         """Exit code is 0 when validation produces only warnings."""
         spec_parent = oversized_spec_dir.parent
         result = runner.invoke(
@@ -509,13 +505,10 @@ class TestCLIWarningsOnly:
             ["--spec-dir", str(spec_parent), "--quiet", "validate", "01_oversized_test"],
         )
         assert result.exit_code == 0, (
-            f"Expected exit code 0 for warnings-only, got {result.exit_code}.\n"
-            f"output: {result.output}"
+            f"Expected exit code 0 for warnings-only, got {result.exit_code}.\noutput: {result.output}"
         )
 
-    def test_valid_true_in_output(
-        self, runner: CliRunner, oversized_spec_dir: Path
-    ) -> None:
+    def test_valid_true_in_output(self, runner: CliRunner, oversized_spec_dir: Path) -> None:
         """Output contains valid: true (case-insensitive)."""
         spec_parent = oversized_spec_dir.parent
         result = runner.invoke(
@@ -523,17 +516,11 @@ class TestCLIWarningsOnly:
             ["--spec-dir", str(spec_parent), "--quiet", "validate", "01_oversized_test"],
         )
         output_lower = result.output.lower()
-        assert "valid" in output_lower, (
-            f"Expected 'valid' in output, got:\n{result.output}"
-        )
+        assert "valid" in output_lower, f"Expected 'valid' in output, got:\n{result.output}"
         # Check that valid is true (JSON or text format)
-        assert "true" in output_lower, (
-            f"Expected valid: true in output, got:\n{result.output}"
-        )
+        assert "true" in output_lower, f"Expected valid: true in output, got:\n{result.output}"
 
-    def test_warning_messages_in_output(
-        self, runner: CliRunner, oversized_spec_dir: Path
-    ) -> None:
+    def test_warning_messages_in_output(self, runner: CliRunner, oversized_spec_dir: Path) -> None:
         """Output contains at least one warning message.
 
         This test will FAIL in RED phase because the current CLI
@@ -545,10 +532,7 @@ class TestCLIWarningsOnly:
             ["--spec-dir", str(spec_parent), "--quiet", "validate", "01_oversized_test"],
         )
         output_lower = result.output.lower()
-        assert "warning" in output_lower, (
-            f"Expected at least one warning message in output, got:\n"
-            f"{result.output}"
-        )
+        assert "warning" in output_lower, f"Expected at least one warning message in output, got:\n{result.output}"
 
 
 # ---------------------------------------------------------------------------
@@ -559,9 +543,7 @@ class TestCLIWarningsOnly:
 class TestCLICleanSpec:
     """TS-08-24: CLI shows valid: true with no warnings for a clean spec."""
 
-    def test_exit_code_zero(
-        self, runner: CliRunner, clean_spec_dir: Path
-    ) -> None:
+    def test_exit_code_zero(self, runner: CliRunner, clean_spec_dir: Path) -> None:
         """Exit code is 0 for a clean spec with no errors or warnings."""
         spec_parent = clean_spec_dir.parent
         result = runner.invoke(
@@ -569,13 +551,10 @@ class TestCLICleanSpec:
             ["--spec-dir", str(spec_parent), "--quiet", "validate", "01_clean_test"],
         )
         assert result.exit_code == 0, (
-            f"Expected exit code 0 for clean spec, got {result.exit_code}.\n"
-            f"output: {result.output}"
+            f"Expected exit code 0 for clean spec, got {result.exit_code}.\noutput: {result.output}"
         )
 
-    def test_valid_true_in_output(
-        self, runner: CliRunner, clean_spec_dir: Path
-    ) -> None:
+    def test_valid_true_in_output(self, runner: CliRunner, clean_spec_dir: Path) -> None:
         """Output contains valid: true (case-insensitive)."""
         spec_parent = clean_spec_dir.parent
         result = runner.invoke(
@@ -586,9 +565,7 @@ class TestCLICleanSpec:
         assert "valid" in output_lower
         assert "true" in output_lower
 
-    def test_no_warning_in_output(
-        self, runner: CliRunner, clean_spec_dir: Path
-    ) -> None:
+    def test_no_warning_in_output(self, runner: CliRunner, clean_spec_dir: Path) -> None:
         """Output contains no warning messages."""
         spec_parent = clean_spec_dir.parent
         result = runner.invoke(
@@ -596,10 +573,7 @@ class TestCLICleanSpec:
             ["--spec-dir", str(spec_parent), "--quiet", "validate", "01_clean_test"],
         )
         output_lower = result.output.lower()
-        assert "warning" not in output_lower, (
-            f"Expected no warning messages for clean spec, got:\n"
-            f"{result.output}"
-        )
+        assert "warning" not in output_lower, f"Expected no warning messages for clean spec, got:\n{result.output}"
 
 
 # ---------------------------------------------------------------------------
@@ -610,9 +584,7 @@ class TestCLICleanSpec:
 class TestCLIErrorsAndWarnings:
     """TS-08-25: CLI shows errors+warnings and valid: false with non-zero exit."""
 
-    def test_non_zero_exit_code(
-        self, runner: CliRunner, error_and_warning_spec_dir: Path
-    ) -> None:
+    def test_non_zero_exit_code(self, runner: CliRunner, error_and_warning_spec_dir: Path) -> None:
         """Exit code is non-zero when both errors and warnings are present."""
         spec_parent = error_and_warning_spec_dir.parent
         result = runner.invoke(
@@ -625,14 +597,9 @@ class TestCLIErrorsAndWarnings:
                 "01_error_warning_test",
             ],
         )
-        assert result.exit_code != 0, (
-            f"Expected non-zero exit code, got {result.exit_code}.\n"
-            f"output: {result.output}"
-        )
+        assert result.exit_code != 0, f"Expected non-zero exit code, got {result.exit_code}.\noutput: {result.output}"
 
-    def test_valid_false_in_output(
-        self, runner: CliRunner, error_and_warning_spec_dir: Path
-    ) -> None:
+    def test_valid_false_in_output(self, runner: CliRunner, error_and_warning_spec_dir: Path) -> None:
         """Output contains valid: false (case-insensitive)."""
         spec_parent = error_and_warning_spec_dir.parent
         result = runner.invoke(
@@ -649,9 +616,7 @@ class TestCLIErrorsAndWarnings:
         assert "valid" in output_lower
         assert "false" in output_lower
 
-    def test_error_messages_in_output(
-        self, runner: CliRunner, error_and_warning_spec_dir: Path
-    ) -> None:
+    def test_error_messages_in_output(self, runner: CliRunner, error_and_warning_spec_dir: Path) -> None:
         """Output contains at least one error message."""
         spec_parent = error_and_warning_spec_dir.parent
         result = runner.invoke(
@@ -665,13 +630,9 @@ class TestCLIErrorsAndWarnings:
             ],
         )
         output_lower = result.output.lower()
-        assert "error" in output_lower, (
-            f"Expected error messages in output, got:\n{result.output}"
-        )
+        assert "error" in output_lower, f"Expected error messages in output, got:\n{result.output}"
 
-    def test_warning_messages_in_output(
-        self, runner: CliRunner, error_and_warning_spec_dir: Path
-    ) -> None:
+    def test_warning_messages_in_output(self, runner: CliRunner, error_and_warning_spec_dir: Path) -> None:
         """Output contains at least one warning message.
 
         This test will FAIL in RED phase because the current CLI
@@ -689,10 +650,7 @@ class TestCLIErrorsAndWarnings:
             ],
         )
         output_lower = result.output.lower()
-        assert "warning" in output_lower, (
-            f"Expected at least one warning message in output, got:\n"
-            f"{result.output}"
-        )
+        assert "warning" in output_lower, f"Expected at least one warning message in output, got:\n{result.output}"
 
 
 # ---------------------------------------------------------------------------
@@ -703,9 +661,7 @@ class TestCLIErrorsAndWarnings:
 class TestCLIMalformedSpec:
     """TS-08-E9: CLI reports parse error as ValidationError, no warnings."""
 
-    def test_non_zero_exit_code(
-        self, runner: CliRunner, malformed_spec_dir: Path
-    ) -> None:
+    def test_non_zero_exit_code(self, runner: CliRunner, malformed_spec_dir: Path) -> None:
         """Exit code is non-zero for a malformed spec."""
         spec_parent = malformed_spec_dir.parent
         result = runner.invoke(
@@ -719,13 +675,10 @@ class TestCLIMalformedSpec:
             ],
         )
         assert result.exit_code != 0, (
-            f"Expected non-zero exit code for malformed spec, got {result.exit_code}.\n"
-            f"output: {result.output}"
+            f"Expected non-zero exit code for malformed spec, got {result.exit_code}.\noutput: {result.output}"
         )
 
-    def test_error_message_in_output(
-        self, runner: CliRunner, malformed_spec_dir: Path
-    ) -> None:
+    def test_error_message_in_output(self, runner: CliRunner, malformed_spec_dir: Path) -> None:
         """Output contains an error or parse failure message."""
         spec_parent = malformed_spec_dir.parent
         result = runner.invoke(
@@ -746,9 +699,7 @@ class TestCLIMalformedSpec:
             f"Expected parse/error message in output, got:\n{result.output}"
         )
 
-    def test_no_warning_in_output(
-        self, runner: CliRunner, malformed_spec_dir: Path
-    ) -> None:
+    def test_no_warning_in_output(self, runner: CliRunner, malformed_spec_dir: Path) -> None:
         """No warning messages for a parse failure — only errors."""
         spec_parent = malformed_spec_dir.parent
         result = runner.invoke(
@@ -762,10 +713,7 @@ class TestCLIMalformedSpec:
             ],
         )
         output_lower = result.output.lower()
-        assert "warning" not in output_lower, (
-            f"Expected no warning messages for malformed spec, got:\n"
-            f"{result.output}"
-        )
+        assert "warning" not in output_lower, f"Expected no warning messages for malformed spec, got:\n{result.output}"
 
 
 # ---------------------------------------------------------------------------
@@ -815,9 +763,7 @@ def _build_spec_first_group_standard() -> Spec:
                 Requirement(
                     id="BC-REQ-1",
                     title="Test requirement",
-                    user_story=UserStory(
-                        role="dev", goal="test", benefit="coverage"
-                    ),
+                    user_story=UserStory(role="dev", goal="test", benefit="coverage"),
                     acceptance_criteria=criteria,
                     edge_cases=[
                         Criterion(
@@ -867,9 +813,7 @@ def _build_spec_first_group_standard() -> Spec:
                             requirement_refs=["BC-REQ-1"],
                         )
                     ],
-                    verification=VerificationSubtask(
-                        id="1.V", checks=["pass"]
-                    ),
+                    verification=VerificationSubtask(id="1.V", checks=["pass"]),
                 ),
                 TaskGroup(
                     id=2,
@@ -882,9 +826,7 @@ def _build_spec_first_group_standard() -> Spec:
                             requirement_refs=["BC-REQ-1"],
                         )
                     ],
-                    verification=VerificationSubtask(
-                        id="2.V", checks=["done"]
-                    ),
+                    verification=VerificationSubtask(id="2.V", checks=["done"]),
                 ),
             ],
             traceability=[
@@ -918,9 +860,9 @@ class TestBackwardCompatFirstGroupKind:
         result = validate(spec)
         assert len(result.errors) >= 1
         error_texts = [str(e).lower() for e in result.errors]
-        assert any(
-            "kind" in text or "tests" in text for text in error_texts
-        ), f"Expected error mentioning kind/tests, got: {result.errors}"
+        assert any("kind" in text or "tests" in text for text in error_texts), (
+            f"Expected error mentioning kind/tests, got: {result.errors}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -963,9 +905,7 @@ def _build_spec_with_consecutive_test_groups() -> Spec:
                 Requirement(
                     id="MT-REQ-1",
                     title="First requirement",
-                    user_story=UserStory(
-                        role="dev", goal="test", benefit="coverage"
-                    ),
+                    user_story=UserStory(role="dev", goal="test", benefit="coverage"),
                     acceptance_criteria=[
                         Criterion(
                             id=cid1,
@@ -987,9 +927,7 @@ def _build_spec_with_consecutive_test_groups() -> Spec:
                 Requirement(
                     id="MT-REQ-2",
                     title="Second requirement",
-                    user_story=UserStory(
-                        role="dev", goal="test", benefit="coverage"
-                    ),
+                    user_story=UserStory(role="dev", goal="test", benefit="coverage"),
                     acceptance_criteria=[
                         Criterion(
                             id=cid2,
@@ -1043,9 +981,7 @@ def _build_spec_with_consecutive_test_groups() -> Spec:
                             requirement_refs=["MT-REQ-1"],
                         )
                     ],
-                    verification=VerificationSubtask(
-                        id="1.V", checks=["pass"]
-                    ),
+                    verification=VerificationSubtask(id="1.V", checks=["pass"]),
                 ),
                 TaskGroup(
                     id=2,
@@ -1059,9 +995,7 @@ def _build_spec_with_consecutive_test_groups() -> Spec:
                             requirement_refs=["MT-REQ-2"],
                         )
                     ],
-                    verification=VerificationSubtask(
-                        id="2.V", checks=["pass"]
-                    ),
+                    verification=VerificationSubtask(id="2.V", checks=["pass"]),
                 ),
                 TaskGroup(
                     id=3,
@@ -1074,9 +1008,7 @@ def _build_spec_with_consecutive_test_groups() -> Spec:
                             requirement_refs=["MT-REQ-1"],
                         )
                     ],
-                    verification=VerificationSubtask(
-                        id="3.V", checks=["pass"]
-                    ),
+                    verification=VerificationSubtask(id="3.V", checks=["pass"]),
                 ),
                 TaskGroup(
                     id=4,
@@ -1089,9 +1021,7 @@ def _build_spec_with_consecutive_test_groups() -> Spec:
                             requirement_refs=["MT-REQ-1"],
                         )
                     ],
-                    verification=VerificationSubtask(
-                        id="4.V", checks=["done"]
-                    ),
+                    verification=VerificationSubtask(id="4.V", checks=["done"]),
                 ),
             ],
             traceability=[
@@ -1123,12 +1053,12 @@ class TestBackwardCompatMultipleTestGroups:
         spec = _build_spec_with_consecutive_test_groups()
         result = validate(spec)
         error_texts = [str(e).lower() for e in result.errors]
-        assert not any(
-            "multiple" in text and "tests" in text for text in error_texts
-        ), f"Unexpected error about multiple test groups: {result.errors}"
-        assert not any(
-            "consecutive" in text for text in error_texts
-        ), f"Unexpected error about consecutive groups: {result.errors}"
+        assert not any("multiple" in text and "tests" in text for text in error_texts), (
+            f"Unexpected error about multiple test groups: {result.errors}"
+        )
+        assert not any("consecutive" in text for text in error_texts), (
+            f"Unexpected error about consecutive groups: {result.errors}"
+        )
 
     def test_no_error_about_kind_tests(self) -> None:
         """No ValidationError complaining about kind: tests for group 2."""
@@ -1137,11 +1067,5 @@ class TestBackwardCompatMultipleTestGroups:
         # The only kind-related error should be absent (groups 1 & 2 are
         # both kind: tests, which is valid).
         error_texts = [str(e).lower() for e in result.errors]
-        kind_errors = [
-            text
-            for text in error_texts
-            if "kind" in text and "group 2" in text
-        ]
-        assert len(kind_errors) == 0, (
-            f"Unexpected kind error for group 2: {kind_errors}"
-        )
+        kind_errors = [text for text in error_texts if "kind" in text and "group 2" in text]
+        assert len(kind_errors) == 0, f"Unexpected kind error for group 2: {kind_errors}"

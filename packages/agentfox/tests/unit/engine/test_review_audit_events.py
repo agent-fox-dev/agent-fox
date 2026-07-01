@@ -1,8 +1,8 @@
 """Unit tests for review findings persistence audit events.
 
 Validates that persist_review_findings() emits the correct audit events
-after successful insertion: review.findings_persisted for skeptic,
-review.verdicts_persisted for verifier, review.drift_persisted for oracle.
+after successful insertion: review.findings_persisted for reviewer (pre-review),
+review.verdicts_persisted for verifier, review.drift_persisted for reviewer (drift-review).
 Also validates that audit emission failure does not propagate.
 
 Test Spec: TS-84-3, TS-84-4, TS-84-5, TS-84-E2
@@ -19,8 +19,8 @@ from agentfox.engine.review_persistence import persist_review_findings
 from agentfox.knowledge.audit import AuditEventType
 
 
-def _make_skeptic_transcript(findings: list[dict]) -> str:
-    """Create a transcript containing a JSON array of skeptic findings."""
+def _make_reviewer_transcript(findings: list[dict]) -> str:
+    """Create a transcript containing a JSON array of reviewer findings."""
     return json.dumps(findings)
 
 
@@ -29,30 +29,31 @@ def _make_verifier_transcript(verdicts: list[dict]) -> str:
     return json.dumps(verdicts)
 
 
-def _make_oracle_transcript(drift_findings: list[dict]) -> str:
-    """Create a transcript containing a JSON array of oracle drift findings."""
+def _make_drift_review_transcript(drift_findings: list[dict]) -> str:
+    """Create a transcript containing a JSON array of drift-review findings."""
     return json.dumps(drift_findings)
 
 
-class TestSkepticFindingsPersistedAuditEvent:
-    """TS-84-3: review.findings_persisted event emitted for skeptic."""
+class TestReviewerFindingsPersistedAuditEvent:
+    """TS-84-3: review.findings_persisted event emitted for reviewer."""
 
     def test_findings_persisted_event_emitted(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
         """Verify review.findings_persisted event is emitted after successful insertion."""
         mock_sink = MagicMock()
 
-        transcript = _make_skeptic_transcript([{"severity": "critical", "description": "missing guard"}])
+        transcript = _make_reviewer_transcript([{"severity": "critical", "description": "missing guard"}])
 
         persist_review_findings(
             transcript,
             "my_spec:1",
             1,
-            archetype="skeptic",
+            archetype="reviewer",
             spec_name="my_spec",
             task_group="1",
             knowledge_db_conn=knowledge_conn,
             sink=mock_sink,
             run_id="test-run",
+            mode="pre-review",
         )
 
         # Find the findings_persisted audit event call
@@ -61,7 +62,7 @@ class TestSkepticFindingsPersistedAuditEvent:
         assert len(persisted_events) == 1
 
         event = persisted_events[0].args[0]
-        assert event.payload["archetype"] == "skeptic"
+        assert event.payload["archetype"] == "reviewer"
         assert event.payload["count"] == 1
         assert event.payload["severity_summary"]["critical"] == 1
 
@@ -69,7 +70,7 @@ class TestSkepticFindingsPersistedAuditEvent:
         """Verify audit event payload contains spec_name."""
         mock_sink = MagicMock()
 
-        transcript = _make_skeptic_transcript(
+        transcript = _make_reviewer_transcript(
             [
                 {"severity": "critical", "description": "issue A"},
                 {"severity": "major", "description": "issue B"},
@@ -80,12 +81,13 @@ class TestSkepticFindingsPersistedAuditEvent:
             transcript,
             "my_spec:2",
             1,
-            archetype="skeptic",
+            archetype="reviewer",
             spec_name="my_spec",
             task_group="2",
             knowledge_db_conn=knowledge_conn,
             sink=mock_sink,
             run_id="test-run",
+            mode="pre-review",
         )
 
         calls = mock_sink.emit_audit_event.call_args_list
@@ -101,25 +103,26 @@ class TestSkepticFindingsPersistedAuditEvent:
 # TS-84-4 removed — verification_results table dropped in spec 10.
 
 
-class TestOracleDriftPersistedAuditEvent:
-    """TS-84-5: review.drift_persisted event emitted for oracle."""
+class TestDriftReviewPersistedAuditEvent:
+    """TS-84-5: review.drift_persisted event emitted for drift-review."""
 
     def test_drift_persisted_event_emitted(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
         """Verify review.drift_persisted event with severity summary."""
         mock_sink = MagicMock()
 
-        transcript = _make_oracle_transcript([{"severity": "major", "description": "spec divergence"}])
+        transcript = _make_drift_review_transcript([{"severity": "major", "description": "spec divergence"}])
 
         persist_review_findings(
             transcript,
             "my_spec:1",
             1,
-            archetype="oracle",
+            archetype="reviewer",
             spec_name="my_spec",
             task_group="1",
             knowledge_db_conn=knowledge_conn,
             sink=mock_sink,
             run_id="test-run",
+            mode="drift-review",
         )
 
         calls = mock_sink.emit_audit_event.call_args_list
@@ -145,19 +148,20 @@ class TestAuditEmissionFailureResilience:
         mock_sink = MagicMock()
         mock_sink.emit_audit_event.side_effect = RuntimeError("audit broken")
 
-        transcript = _make_skeptic_transcript([{"severity": "critical", "description": "test finding"}])
+        transcript = _make_reviewer_transcript([{"severity": "critical", "description": "test finding"}])
 
         # Should not raise
         persist_review_findings(
             transcript,
             "my_spec:1",
             1,
-            archetype="skeptic",
+            archetype="reviewer",
             spec_name="my_spec",
             task_group="1",
             knowledge_db_conn=knowledge_conn,
             sink=mock_sink,
             run_id="test-run",
+            mode="pre-review",
         )
 
         # Findings should still be in the database

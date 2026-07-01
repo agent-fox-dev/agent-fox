@@ -639,9 +639,7 @@ def run_reset(
     if hard:
         branch = "main"
         if config is not None:
-            branch = getattr(
-                getattr(config, "workspace", None), "integration_branch", "main"
-            )
+            branch = getattr(getattr(config, "workspace", None), "integration_branch", "main")
         if target is not None:
             return hard_reset_task(
                 task_id=target,

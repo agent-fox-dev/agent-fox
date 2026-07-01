@@ -125,14 +125,14 @@ class TestResetSetsAllSpecNodesToPending:
 
 
 class TestResetIncludesArchetypeNodes:
-    """TS-50-2: Archetype nodes (skeptic, auditor, verifier) are included."""
+    """TS-50-2: Archetype nodes (reviewer, verifier) are included."""
 
     def test_archetype_and_coder_nodes_all_reset(self, tmp_path: Path) -> None:
         """All node types for the spec are reset."""
         nodes = {
-            "alpha:0": {"spec_name": "alpha", "archetype": "skeptic"},
+            "alpha:0": {"spec_name": "alpha", "archetype": "reviewer"},
             "alpha:1": {"spec_name": "alpha", "archetype": "coder"},
-            "alpha:1:auditor": {"spec_name": "alpha", "archetype": "auditor"},
+            "alpha:1:auditor": {"spec_name": "alpha", "archetype": "reviewer"},
             "alpha:2": {"spec_name": "alpha", "archetype": "coder"},
             "alpha:3": {"spec_name": "alpha", "archetype": "verifier"},
         }

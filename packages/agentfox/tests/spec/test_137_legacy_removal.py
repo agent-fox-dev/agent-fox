@@ -493,9 +493,7 @@ class TestNoDeletedModuleImportsInTests:
     """TS-137-E3: No test file imports from any deleted module."""
 
     def test_no_deleted_module_imports_in_tests(self) -> None:
-        pattern = re.compile(
-            r"from agent_fox\.spec\.validators"
-        )
+        pattern = re.compile(r"from agent_fox\.spec\.validators")
         py_files = _collect_py_files(_TESTS_ROOT)
         matches: list[str] = []
         for p in py_files:

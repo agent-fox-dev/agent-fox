@@ -1,6 +1,6 @@
 """Unit tests for enriched blocking reason formatting.
 
-Validates that when a skeptic blocks a task, the blocking reason includes
+Validates that when a reviewer blocks a task, the blocking reason includes
 finding IDs and truncated descriptions, and caps at 3 finding IDs.
 
 Test Spec: TS-84-6, TS-84-7
@@ -41,7 +41,7 @@ def _make_finding(
 
 def _make_session_record(
     node_id: str = "my_spec:1",
-    archetype: str = "skeptic",
+    archetype: str = "reviewer",
     attempt: int = 1,
 ) -> SessionRecord:
     """Create a minimal SessionRecord for blocking evaluation."""
@@ -81,7 +81,7 @@ class TestEnrichedBlockingReason:
         record = _make_session_record()
         config = _make_archetypes_config(block_threshold=0)
 
-        decision = evaluate_review_blocking(record, config, knowledge_conn)
+        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-review")
 
         assert decision.should_block is True
         assert "2 critical" in decision.reason
@@ -99,7 +99,7 @@ class TestEnrichedBlockingReason:
         record = _make_session_record()
         config = _make_archetypes_config(block_threshold=0)
 
-        decision = evaluate_review_blocking(record, config, knowledge_conn)
+        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-review")
 
         assert decision.should_block is True
         # Description should appear (possibly truncated) in the reason
@@ -117,7 +117,7 @@ class TestBlockingReasonFindingIdCap:
         record = _make_session_record()
         config = _make_archetypes_config(block_threshold=0)
 
-        decision = evaluate_review_blocking(record, config, knowledge_conn)
+        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-review")
 
         assert decision.should_block is True
         # Count F- prefixed IDs in the reason string

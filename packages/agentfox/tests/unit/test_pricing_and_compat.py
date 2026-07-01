@@ -51,15 +51,9 @@ class TestPricingFieldsOpus1m:
         """TS-14-38: input/output/cache_read/cache_creation price fields are non-None numeric."""
         models = _default_pricing_models()
         entry = models["claude-opus-4-6[1m]"]
-        assert entry.input_price_per_m is not None and isinstance(
-            entry.input_price_per_m, (int, float)
-        )
-        assert entry.output_price_per_m is not None and isinstance(
-            entry.output_price_per_m, (int, float)
-        )
-        assert entry.cache_read_price_per_m is not None and isinstance(
-            entry.cache_read_price_per_m, (int, float)
-        )
+        assert entry.input_price_per_m is not None and isinstance(entry.input_price_per_m, (int, float))
+        assert entry.output_price_per_m is not None and isinstance(entry.output_price_per_m, (int, float))
+        assert entry.cache_read_price_per_m is not None and isinstance(entry.cache_read_price_per_m, (int, float))
         assert entry.cache_creation_price_per_m is not None and isinstance(
             entry.cache_creation_price_per_m, (int, float)
         )
@@ -93,8 +87,7 @@ class TestPricingSourceDateComment:
         # Check a 400-char window around the entry for a date comment
         snippet = source[max(0, idx - 300) : idx + 300]
         assert re.search(r"#.*retrieved.*\d{4}-\d{2}-\d{2}", snippet, re.IGNORECASE), (
-            "Expected a comment with retrieval date (YYYY-MM-DD) "
-            "adjacent to the claude-opus-4-6[1m] pricing entry"
+            "Expected a comment with retrieval date (YYYY-MM-DD) adjacent to the claude-opus-4-6[1m] pricing entry"
         )
 
 
@@ -152,7 +145,9 @@ class TestExistingTestSuitePasses:
         project_root = Path(__file__).resolve().parents[4]
         result = subprocess.run(
             [
-                sys.executable, "-m", "pytest",
+                sys.executable,
+                "-m",
+                "pytest",
                 "packages/agentfox/tests/unit/test_model_entry_variant.py",
                 "packages/agentfox/tests/unit/test_variant_order.py",
                 "packages/agentfox/tests/unit/test_archetype_variant_fields.py",
@@ -162,7 +157,8 @@ class TestExistingTestSuitePasses:
                 "packages/agentfox/tests/unit/test_escalation_ladder_variant.py",
                 "packages/agentfox/tests/unit/test_variant_properties.py",
                 "packages/agentfox/tests/unit/test_node_session_runner_wiring.py",
-                "-q", "--tb=short",
+                "-q",
+                "--tb=short",
             ],
             capture_output=True,
             text=True,
@@ -170,6 +166,5 @@ class TestExistingTestSuitePasses:
             cwd=str(project_root),
         )
         assert result.returncode == 0, (
-            f"Test suite failed with code {result.returncode}:\n"
-            f"{result.stdout[-2000:]}\n{result.stderr[-500:]}"
+            f"Test suite failed with code {result.returncode}:\n{result.stdout[-2000:]}\n{result.stderr[-500:]}"
         )

@@ -62,9 +62,7 @@ class TestNightshiftCallsAuditCleanup:
         import nightshift.app as app_mod
 
         source = Path(app_mod.__file__).read_text()
-        assert "purge_stale_audit_files" in source, (
-            "Expected purge_stale_audit_files call in nightshift/app.py"
-        )
+        assert "purge_stale_audit_files" in source, "Expected purge_stale_audit_files call in nightshift/app.py"
 
     def test_nightshift_app_purge_call_follows_merge_lock_cleanup(self) -> None:
         """purge_stale_audit_files appears after cleanup_stale_merge_lock in nightshift/app.py."""
@@ -88,15 +86,11 @@ class TestReadOnlyCommandsDoNotCleanup:
         import af.plan as plan_mod
 
         source = Path(plan_mod.__file__).read_text()
-        assert "purge_stale_audit_files" not in source, (
-            "purge_stale_audit_files must NOT be called from af/plan.py"
-        )
+        assert "purge_stale_audit_files" not in source, "purge_stale_audit_files must NOT be called from af/plan.py"
 
     def test_standup_source_does_not_contain_purge_call(self) -> None:
         """af/standup.py source does NOT reference purge_stale_audit_files."""
         import af.standup as standup_mod
 
         source = Path(standup_mod.__file__).read_text()
-        assert "purge_stale_audit_files" not in source, (
-            "purge_stale_audit_files must NOT be called from af/standup.py"
-        )
+        assert "purge_stale_audit_files" not in source, "purge_stale_audit_files must NOT be called from af/standup.py"

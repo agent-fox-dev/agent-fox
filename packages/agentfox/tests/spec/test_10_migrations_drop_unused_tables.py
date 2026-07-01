@@ -28,8 +28,7 @@ from hypothesis import strategies as st
 def _table_exists(conn: duckdb.DuckDBPyConnection, table_name: str) -> bool:
     """Check whether a table exists in the DuckDB database."""
     rows = conn.execute(
-        "SELECT COUNT(*) FROM information_schema.tables "
-        "WHERE table_schema = 'main' AND table_name = ?",
+        "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'main' AND table_name = ?",
         [table_name],
     ).fetchone()
     return rows is not None and rows[0] > 0
@@ -37,9 +36,7 @@ def _table_exists(conn: duckdb.DuckDBPyConnection, table_name: str) -> bool:
 
 def _get_applied_versions(conn: duckdb.DuckDBPyConnection) -> list[int]:
     """Return all applied migration versions in ascending order."""
-    rows = conn.execute(
-        "SELECT version FROM schema_version ORDER BY version ASC"
-    ).fetchall()
+    rows = conn.execute("SELECT version FROM schema_version ORDER BY version ASC").fetchall()
     return [row[0] for row in rows]
 
 
@@ -81,9 +78,7 @@ class TestMigrationDropsUnusedTables:
 
         assert not _table_exists(conn, "errata"), "errata table should be dropped"
         assert not _table_exists(conn, "adr_entries"), "adr_entries table should be dropped"
-        assert not _table_exists(conn, "verification_results"), (
-            "verification_results table should be dropped"
-        )
+        assert not _table_exists(conn, "verification_results"), "verification_results table should be dropped"
         conn.close()
 
 
@@ -99,9 +94,7 @@ class TestSessionSummariesSurvivesMigration:
         conn = duckdb.connect(":memory:")
         run_migrations(conn)
 
-        assert _table_exists(conn, "session_summaries"), (
-            "session_summaries table must survive the migration"
-        )
+        assert _table_exists(conn, "session_summaries"), "session_summaries table must survive the migration"
         conn.close()
 
     def test_session_summaries_queryable_with_data(self) -> None:
@@ -138,9 +131,7 @@ class TestMigrationVersionOrdering:
         max_version = max(versions)
         # After the spec is implemented, the max version should be > 25
         # (v25 is the current highest before the spec)
-        assert max_version > 25, (
-            f"New migration version ({max_version}) must be > 25 (current highest)"
-        )
+        assert max_version > 25, f"New migration version ({max_version}) must be > 25 (current highest)"
 
     def test_version_recorded_exactly_once(self) -> None:
         """After applying all migrations, the new DROP version appears exactly once."""
@@ -150,9 +141,7 @@ class TestMigrationVersionOrdering:
         versions = _get_applied_versions(conn)
         max_version = max(m.version for m in MIGRATIONS)
 
-        assert versions.count(max_version) == 1, (
-            f"Version {max_version} must appear exactly once in schema_version"
-        )
+        assert versions.count(max_version) == 1, f"Version {max_version} must appear exactly once in schema_version"
         conn.close()
 
 
@@ -173,9 +162,7 @@ class TestMigrationFreshDatabase:
         # The migration version should be recorded
         versions = _get_applied_versions(conn)
         max_version = max(m.version for m in MIGRATIONS)
-        assert max_version in versions, (
-            "New migration version must be recorded even on a fresh DB"
-        )
+        assert max_version in versions, "New migration version must be recorded even on a fresh DB"
         conn.close()
 
     def test_fresh_db_no_target_tables_before_migration(self) -> None:
@@ -245,12 +232,8 @@ class TestMigrationPropertyInvariant:
         # Invariants
         assert not _table_exists(conn, "errata"), "errata must be absent post-migration"
         assert not _table_exists(conn, "adr_entries"), "adr_entries must be absent post-migration"
-        assert not _table_exists(conn, "verification_results"), (
-            "verification_results must be absent post-migration"
-        )
-        assert _table_exists(conn, "session_summaries"), (
-            "session_summaries must exist post-migration"
-        )
+        assert not _table_exists(conn, "verification_results"), "verification_results must be absent post-migration"
+        assert _table_exists(conn, "session_summaries"), "session_summaries must exist post-migration"
         conn.close()
 
 

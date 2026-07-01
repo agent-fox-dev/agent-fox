@@ -33,9 +33,9 @@ class TestMultiInstanceDispatch:
     async def test_multi_instance_creates_n_sessions(self) -> None:
         # This test will be fully implemented with task 7.2
         # For now verify the convergence module is importable
-        from agentfox.session.convergence import converge_skeptic, converge_verifier
+        from agentfox.session.convergence import converge_reviewer_pre, converge_verifier
 
-        assert converge_skeptic is not None
+        assert converge_reviewer_pre is not None
         assert converge_verifier is not None
 
 
@@ -49,7 +49,7 @@ class TestSkepticUnionDedup:
     """Verify Skeptic convergence unions and deduplicates findings."""
 
     def test_dedup_by_normalized_severity_description(self) -> None:
-        from agentfox.session.convergence import Finding, converge_skeptic
+        from agentfox.session.convergence import Finding, converge_reviewer_pre
 
         instance_1 = [
             Finding(severity="critical", description="Missing edge case"),
@@ -64,7 +64,7 @@ class TestSkepticUnionDedup:
             Finding(severity="major", description="New concern"),
         ]
 
-        merged, blocked = converge_skeptic([instance_1, instance_2, instance_3], block_threshold=3)
+        merged, blocked = converge_reviewer_pre([instance_1, instance_2, instance_3], block_threshold=3)
 
         # After dedup: 1 critical + 2 major + 1 minor = 4 unique
         from agentfox.session.convergence import normalize_finding
@@ -73,9 +73,9 @@ class TestSkepticUnionDedup:
         assert len(unique) == 4
 
     def test_empty_instances(self) -> None:
-        from agentfox.session.convergence import converge_skeptic
+        from agentfox.session.convergence import converge_reviewer_pre
 
-        merged, blocked = converge_skeptic([[], [], []], block_threshold=3)
+        merged, blocked = converge_reviewer_pre([[], [], []], block_threshold=3)
         assert merged == []
         assert blocked is False
 
@@ -90,18 +90,18 @@ class TestSkepticMajorityGating:
     """Verify critical finding only counts if in >= ceil(N/2) instances."""
 
     def test_minority_critical_not_counted(self) -> None:
-        from agentfox.session.convergence import Finding, converge_skeptic
+        from agentfox.session.convergence import Finding, converge_reviewer_pre
 
         # Critical in only 1 of 3 instances - should not count
         instance_1 = [Finding(severity="critical", description="Issue A")]
         instance_2: list = []
         instance_3: list = []
 
-        merged, blocked = converge_skeptic([instance_1, instance_2, instance_3], block_threshold=3)
+        merged, blocked = converge_reviewer_pre([instance_1, instance_2, instance_3], block_threshold=3)
         assert blocked is False
 
     def test_majority_critical_counted(self) -> None:
-        from agentfox.session.convergence import Finding, converge_skeptic
+        from agentfox.session.convergence import Finding, converge_reviewer_pre
 
         # Critical in 2 of 3 instances - should count
         instance_1 = [Finding(severity="critical", description="Issue A")]
@@ -109,7 +109,7 @@ class TestSkepticMajorityGating:
         instance_3: list = []
 
         # 1 majority-agreed critical, threshold=0 → blocked
-        merged, blocked = converge_skeptic([instance_1, instance_2, instance_3], block_threshold=0)
+        merged, blocked = converge_reviewer_pre([instance_1, instance_2, instance_3], block_threshold=0)
         assert blocked is True
 
 
@@ -192,13 +192,13 @@ class TestPartialInstanceFailure:
     """Verify convergence proceeds with successful instances; all-fail = node fail."""
 
     def test_partial_success_converges(self) -> None:
-        from agentfox.session.convergence import Finding, converge_skeptic
+        from agentfox.session.convergence import Finding, converge_reviewer_pre
 
         # 2 succeed, 1 would be filtered out before convergence
         instance_1 = [Finding(severity="minor", description="note")]
         instance_2 = [Finding(severity="minor", description="note")]
 
-        merged, blocked = converge_skeptic([instance_1, instance_2], block_threshold=3)
+        merged, blocked = converge_reviewer_pre([instance_1, instance_2], block_threshold=3)
         assert merged is not None
         assert len(merged) >= 1
 
@@ -216,7 +216,7 @@ class TestPropertyConvergenceDeterminism:
     def test_prop_skeptic_deterministic(self) -> None:
         from agentfox.session.convergence import (
             Finding,
-            converge_skeptic,
+            converge_reviewer_pre,
             normalize_finding,
         )
 
@@ -229,7 +229,7 @@ class TestPropertyConvergenceDeterminism:
         # Test all permutations produce same result
         results = set()
         for perm in permutations(instances):
-            merged, blocked = converge_skeptic(list(perm), block_threshold=3)
+            merged, blocked = converge_reviewer_pre(list(perm), block_threshold=3)
             normalized = frozenset(normalize_finding(f) for f in merged)
             results.add((normalized, blocked))
 
@@ -273,13 +273,13 @@ class TestPropertyBlockingThreshold:
     )
     @settings(max_examples=50)
     def test_prop_blocking_formula(self, n_criticals: int, threshold: int) -> None:
-        from agentfox.session.convergence import Finding, converge_skeptic
+        from agentfox.session.convergence import Finding, converge_reviewer_pre
 
         # Create instances where all criticals appear in all instances
         # (so they all pass majority gate)
         findings = [Finding(severity="critical", description=f"Issue {i}") for i in range(n_criticals)]
         # Use 1 instance so all findings pass majority gate (1/1 >= ceil(1/2))
-        _, blocked = converge_skeptic([findings], block_threshold=threshold)
+        _, blocked = converge_reviewer_pre([findings], block_threshold=threshold)
         assert blocked == (n_criticals > 0 and n_criticals >= threshold)
 
 

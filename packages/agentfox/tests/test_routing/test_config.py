@@ -57,7 +57,9 @@ class TestArchetypeCeiling:
         Requirement: 30-REQ-5.3
         """
         config = load_config(archetype_ceiling_config_toml)
-        ceiling_str = config.archetypes.models.get("coder")
+        coder_override = config.archetypes.overrides.get("coder")
+        assert coder_override is not None
+        ceiling_str = coder_override.model_tier
         assert ceiling_str == "STANDARD"
 
         ceiling = ModelTier(ceiling_str)

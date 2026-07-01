@@ -63,7 +63,8 @@ class TestDevelopSyncAuditOnSuccess:
         # Simulate local behind remote: _sync_develop_under_lock with
         # remote_ahead=2, local_ahead=0 should fast-forward.
         result = await _sync_integration_under_lock(
-            tmp_worktree_repo, "develop",
+            tmp_worktree_repo,
+            "develop",
             remote_ahead=2,
             local_ahead=0,
         )
@@ -108,7 +109,8 @@ class TestDevelopSyncAuditOnFailure:
             ) as mock_emit,
         ):
             await _sync_integration_under_lock(
-                tmp_worktree_repo, "develop",
+                tmp_worktree_repo,
+                "develop",
                 remote_ahead=2,
                 local_ahead=1,
             )

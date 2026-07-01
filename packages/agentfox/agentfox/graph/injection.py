@@ -1,8 +1,8 @@
 """Shared archetype injection logic used by both the graph builder and engine.
 
 Centralizes the decision logic for which archetypes to inject (auto_pre,
-auto_mid, auto_post), oracle gating, instance resolution, and auditor
-configuration.
+auto_mid, auto_post), drift-review gating, instance resolution, and
+audit-review configuration.
 
 Also provides ``ensure_graph_archetypes()`` for runtime injection on a
 typed ``TaskGraph`` — used by the engine to patch stale cached plans.
@@ -140,7 +140,7 @@ def collect_enabled_auto_post(
 
 
 class AuditorConfig(NamedTuple):
-    """Resolved auditor injection configuration."""
+    """Resolved audit-review injection configuration."""
 
     enabled: bool
     min_ts_entries: int
@@ -150,15 +150,13 @@ class AuditorConfig(NamedTuple):
 def resolve_auditor_config(archetypes_config: Any) -> AuditorConfig:
     """Resolve audit-review injection configuration from archetypes config.
 
-    Reads the consolidated reviewer_config for audit settings. Falls back
-    to legacy auditor_config if reviewer_config is not present (migration).
+    Reads the consolidated reviewer_config for audit settings.
 
     Returns:
         AuditorConfig with enabled flag, minimum TS entries, and instance count.
 
     Requirements: 98-REQ-4.3
     """
-    # New consolidated path: reviewer toggle + reviewer_config
     reviewer_enabled = getattr(archetypes_config, "reviewer", False)
     if reviewer_enabled:
         reviewer_cfg = getattr(archetypes_config, "reviewer_config", None)
@@ -166,15 +164,7 @@ def resolve_auditor_config(archetypes_config: Any) -> AuditorConfig:
         instances = resolve_instances(archetypes_config, "reviewer")
         return AuditorConfig(enabled=True, min_ts_entries=min_ts, instances=instances)
 
-    # Legacy path: auditor toggle (for backward compat during migration)
-    legacy_enabled = getattr(archetypes_config, "auditor", False)
-    if not legacy_enabled:
-        return AuditorConfig(enabled=False, min_ts_entries=5, instances=1)
-
-    auditor_cfg = getattr(archetypes_config, "auditor_config", None)
-    min_ts = getattr(auditor_cfg, "min_ts_entries", 5) if auditor_cfg else 5
-    instances = resolve_instances(archetypes_config, "auditor")
-    return AuditorConfig(enabled=True, min_ts_entries=min_ts, instances=instances)
+    return AuditorConfig(enabled=False, min_ts_entries=5, instances=1)
 
 
 def ensure_graph_archetypes(
@@ -374,7 +364,7 @@ def ensure_graph_archetypes(
 # Review-only mode: graph construction, audit events, and summary output
 # ---------------------------------------------------------------------------
 
-#: Source file extensions that trigger Skeptic + Oracle node creation.
+#: Source file extensions that trigger reviewer node creation.
 _SOURCE_EXTENSIONS = frozenset({".py", ".ts", ".go", ".rs", ".java", ".js"})
 
 
@@ -388,7 +378,7 @@ def build_review_only_graph(
     Scans *specs_dir* for spec subdirectories.  For each eligible spec:
 
     - If the spec directory contains source files (.py, .ts, .go, .rs,
-      .java, .js), Skeptic and Oracle nodes are created.
+      .java, .js), reviewer pre-review and drift-review nodes are created.
     - If the spec directory contains a ``requirements.json`` file, a
       Verifier node is created.
 

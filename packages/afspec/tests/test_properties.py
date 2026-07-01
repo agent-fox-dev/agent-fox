@@ -261,14 +261,10 @@ class TestWarningsNeverBlockValidity:
     ) -> None:
         """If validate() produces zero errors, valid must be True."""
         subtask_counts = [
-            data.draw(st.integers(min_value=1, max_value=6), label=f"subtasks_g{i}")
-            for i in range(num_groups)
+            data.draw(st.integers(min_value=1, max_value=6), label=f"subtasks_g{i}") for i in range(num_groups)
         ]
         refs_per_subtask = [
-            [
-                data.draw(_ref_count_strategy, label=f"refs_g{g}s{s}")
-                for s in range(subtask_counts[g])
-            ]
+            [data.draw(_ref_count_strategy, label=f"refs_g{g}s{s}") for s in range(subtask_counts[g])]
             for g in range(num_groups)
         ]
 
@@ -278,8 +274,7 @@ class TestWarningsNeverBlockValidity:
         # The invariant: zero errors ⇒ valid is True
         if len(result.errors) == 0:
             assert result.valid is True, (
-                f"validate() returned zero errors but valid={result.valid}. "
-                f"Warnings count: {len(result.warnings)}"
+                f"validate() returned zero errors but valid={result.valid}. Warnings count: {len(result.warnings)}"
             )
 
     @given(
@@ -296,9 +291,7 @@ class TestWarningsNeverBlockValidity:
         result = validate(spec)
 
         if len(result.errors) == 0:
-            assert result.valid is True, (
-                f"Single group with {num_refs} refs: zero errors but valid={result.valid}"
-            )
+            assert result.valid is True, f"Single group with {num_refs} refs: zero errors but valid={result.valid}"
 
     def test_valid_true_with_zero_warnings(self) -> None:
         """Spec with no warnings at all: valid must be True if no errors."""
@@ -328,8 +321,7 @@ class TestWarningsNeverBlockValidity:
 
         if len(result.errors) == 0:
             assert result.valid is True, (
-                f"Spec with many warning triggers but zero errors: "
-                f"valid should be True, got {result.valid}"
+                f"Spec with many warning triggers but zero errors: valid should be True, got {result.valid}"
             )
 
 
@@ -389,11 +381,8 @@ class TestOversizedGroupAlwaysWarned:
         result = validate(spec)
 
         # Group 1 has >15 total refs — must have a warning
-        assert any(
-            _warning_references_group(w, 1) for w in result.warnings
-        ), (
-            f"Group 1 has {total_refs} total refs (>15) but no warning "
-            f"was emitted. Warnings: {result.warnings}"
+        assert any(_warning_references_group(w, 1) for w in result.warnings), (
+            f"Group 1 has {total_refs} total refs (>15) but no warning was emitted. Warnings: {result.warnings}"
         )
 
     @given(
@@ -425,12 +414,8 @@ class TestOversizedGroupAlwaysWarned:
             target_group_id = 2
 
         result = validate(spec)
-        assert any(
-            _warning_references_group(w, target_group_id)
-            for w in result.warnings
-        ), (
-            f"Group {target_group_id} (kind={kind.value}) has >15 refs "
-            f"but no warning. Warnings: {result.warnings}"
+        assert any(_warning_references_group(w, target_group_id) for w in result.warnings), (
+            f"Group {target_group_id} (kind={kind.value}) has >15 refs but no warning. Warnings: {result.warnings}"
         )
 
 
@@ -474,11 +459,8 @@ class TestTooManySubtasksAlwaysWarned:
         )
         result = validate(spec)
 
-        assert any(
-            _warning_references_group(w, 1) for w in result.warnings
-        ), (
-            f"Group 1 has {num_subtasks} subtasks (>6) but no warning "
-            f"was emitted. Warnings: {result.warnings}"
+        assert any(_warning_references_group(w, 1) for w in result.warnings), (
+            f"Group 1 has {num_subtasks} subtasks (>6) but no warning was emitted. Warnings: {result.warnings}"
         )
 
     @given(
@@ -507,12 +489,8 @@ class TestTooManySubtasksAlwaysWarned:
             target_group_id = 2
 
         result = validate(spec)
-        assert any(
-            _warning_references_group(w, target_group_id)
-            for w in result.warnings
-        ), (
-            f"Group {target_group_id} (kind={kind.value}) has 8 subtasks "
-            f"but no warning. Warnings: {result.warnings}"
+        assert any(_warning_references_group(w, target_group_id) for w in result.warnings), (
+            f"Group {target_group_id} (kind={kind.value}) has 8 subtasks but no warning. Warnings: {result.warnings}"
         )
 
 
@@ -542,11 +520,8 @@ class TestSubtaskOverloadAlwaysWarned:
         result = validate(spec)
 
         # Subtask 1.1 should be referenced in a warning
-        assert any(
-            "1.1" in str(w) for w in result.warnings
-        ), (
-            f"Subtask 1.1 has {num_refs} refs (>8) but no warning "
-            f"referencing it. Warnings: {result.warnings}"
+        assert any("1.1" in str(w) for w in result.warnings), (
+            f"Subtask 1.1 has {num_refs} refs (>8) but no warning referencing it. Warnings: {result.warnings}"
         )
 
     @given(
@@ -579,9 +554,7 @@ class TestSubtaskOverloadAlwaysWarned:
 
         for s_idx in range(num_subtasks):
             subtask_id = f"1.{s_idx + 1}"
-            assert any(
-                subtask_id in str(w) for w in result.warnings
-            ), (
+            assert any(subtask_id in str(w) for w in result.warnings), (
                 f"Subtask {subtask_id} has {refs[s_idx]} refs (>8) but "
                 f"no warning referencing it. Warnings: {result.warnings}"
             )
@@ -599,10 +572,7 @@ class TestSubtaskOverloadAlwaysWarned:
         )
         result = validate(spec)
 
-        overload_warnings = [
-            w for w in result.warnings if "1.1" in str(w)
-        ]
+        overload_warnings = [w for w in result.warnings if "1.1" in str(w)]
         assert len(overload_warnings) == 0, (
-            f"Subtask 1.1 has {num_refs} refs (<=8) but got a warning: "
-            f"{overload_warnings}"
+            f"Subtask 1.1 has {num_refs} refs (<=8) but got a warning: {overload_warnings}"
         )

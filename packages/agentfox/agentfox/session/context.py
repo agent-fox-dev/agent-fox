@@ -348,7 +348,7 @@ def assemble_context(
         sections.append(verification_md)
         db_rendered_files.add("verification.md")
 
-    # Render oracle drift report (32-REQ-8.1)
+    # Render drift-review report (32-REQ-8.1)
     drift_md = render_drift_context(conn, spec_name)
     if drift_md is not None:
         sections.append(drift_md)

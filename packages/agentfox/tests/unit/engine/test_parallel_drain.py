@@ -287,14 +287,11 @@ class TestReviewArchetypeDetection:
     """Verify review archetype detection used by the pool cap."""
 
     def test_review_archetypes_include_all_review_types(self) -> None:
-        """_REVIEW_ARCHETYPES includes reviewer, skeptic, verifier, oracle, auditor."""
+        """_REVIEW_ARCHETYPES includes reviewer and verifier."""
         from agentfox.engine.session_lifecycle import _REVIEW_ARCHETYPES
 
         assert "reviewer" in _REVIEW_ARCHETYPES
-        assert "skeptic" in _REVIEW_ARCHETYPES
         assert "verifier" in _REVIEW_ARCHETYPES
-        assert "oracle" in _REVIEW_ARCHETYPES
-        assert "auditor" in _REVIEW_ARCHETYPES
 
     def test_coder_not_in_review_archetypes(self) -> None:
         """Coder archetype is not a review archetype."""
@@ -352,7 +349,7 @@ class TestReviewConcurrencyCapPool:
                 group_number=1,
                 title="review B",
                 optional=False,
-                archetype="skeptic",
+                archetype="reviewer",
             ),
             "spec_c:1": Node(
                 id="spec_c:1",
@@ -401,7 +398,7 @@ class TestReviewConcurrencyCapPool:
         launched = [t.get_name().replace("parallel-", "") for t in pool]
 
         # max_review = max(1, int(3 * 0.34)) = 1
-        # spec_a:1 (reviewer) should launch (first review), spec_b:1 (skeptic) should be
+        # spec_a:1 (reviewer) should launch (first review), spec_b:1 (reviewer) should be
         # skipped (cap reached), spec_c:1 (coder) should launch
         assert "spec_a:1" in launched
         assert "spec_c:1" in launched
@@ -439,7 +436,7 @@ class TestReviewConcurrencyCapPool:
                 group_number=0,
                 title="pre-review B",
                 optional=False,
-                archetype="skeptic",
+                archetype="reviewer",
             ),
             "spec_c:1": Node(
                 id="spec_c:1",
@@ -533,7 +530,7 @@ class TestReviewConcurrencyCapPool:
                 group_number=2,
                 title="review",
                 optional=False,
-                archetype="oracle",
+                archetype="reviewer",
             ),
             "spec_d:1": Node(
                 id="spec_d:1",

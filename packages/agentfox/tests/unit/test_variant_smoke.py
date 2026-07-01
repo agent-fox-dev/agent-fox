@@ -34,9 +34,7 @@ try:
 except ModuleNotFoundError:
     _has_rich = False
 
-_skip_no_rich = pytest.mark.skipif(
-    not _has_rich, reason="rich not installed; NodeSessionRunner import chain fails"
-)
+_skip_no_rich = pytest.mark.skipif(not _has_rich, reason="rich not installed; NodeSessionRunner import chain fails")
 
 
 # ---------------------------------------------------------------------------
@@ -70,9 +68,7 @@ class TestSmokeAdvancedExtendedResolution:
         assert model_id == "claude-opus-4-6[1m]"
 
     @_skip_no_rich
-    def test_node_session_runner_end_to_end(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_node_session_runner_end_to_end(self, caplog: pytest.LogCaptureFixture) -> None:
         """TS-14-SMOKE-1: Full NodeSessionRunner wiring with mocked archetype
         produces claude-opus-4-6[1m] and emits no fallback DEBUG log.
         """
@@ -103,8 +99,7 @@ class TestSmokeAdvancedExtendedResolution:
         fallback_logs = [
             r
             for r in caplog.records
-            if r.levelno == logging.DEBUG
-            and ("fallback" in r.message.lower() or "falling back" in r.message.lower())
+            if r.levelno == logging.DEBUG and ("fallback" in r.message.lower() or "falling back" in r.message.lower())
         ]
         assert not fallback_logs, "No fallback log expected for valid (ADVANCED, extended) match"
 
@@ -120,9 +115,7 @@ class TestSmokeAdvancedExtendedResolution:
 class TestSmokeFallbackSimpleExtended:
     """Smoke: SIMPLE tier + extended variant falls back to claude-haiku-4-5."""
 
-    def test_simple_extended_fallback_with_debug_log(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_simple_extended_fallback_with_debug_log(self, caplog: pytest.LogCaptureFixture) -> None:
         """TS-14-SMOKE-2: resolve_model('SIMPLE', variant='extended') returns
         claude-haiku-4-5 with a DEBUG fallback log.
         """
@@ -142,14 +135,10 @@ class TestSmokeFallbackSimpleExtended:
             model_id = resolve_model("SIMPLE", variant=variant)
 
         assert model_id == "claude-haiku-4-5"
-        assert any(
-            r.levelno == logging.DEBUG for r in caplog.records
-        ), "Expected a DEBUG-level fallback log"
+        assert any(r.levelno == logging.DEBUG for r in caplog.records), "Expected a DEBUG-level fallback log"
 
     @_skip_no_rich
-    def test_node_session_runner_fallback_path(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_node_session_runner_fallback_path(self, caplog: pytest.LogCaptureFixture) -> None:
         """TS-14-SMOKE-2: Full NodeSessionRunner wiring with SIMPLE tier
         and extended variant falls back to haiku with DEBUG log.
         """
@@ -177,9 +166,9 @@ class TestSmokeFallbackSimpleExtended:
                 assert runner._resolved_model_id == "claude-haiku-4-5"
 
         # Fallback DEBUG log IS expected for this path.
-        assert any(
-            r.levelno == logging.DEBUG for r in caplog.records
-        ), "Expected a DEBUG fallback log for SIMPLE + extended"
+        assert any(r.levelno == logging.DEBUG for r in caplog.records), (
+            "Expected a DEBUG fallback log for SIMPLE + extended"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -192,9 +181,7 @@ class TestSmokeFallbackSimpleExtended:
 class TestSmokeBackwardCompatNoVariant:
     """Smoke: resolve_model('ADVANCED') without variant returns claude-opus-4-6."""
 
-    def test_no_variant_returns_standard_opus(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_no_variant_returns_standard_opus(self, caplog: pytest.LogCaptureFixture) -> None:
         """TS-14-SMOKE-3: resolve_model('ADVANCED') returns 'claude-opus-4-6'
         (identical to pre-spec behavior) with no DEBUG fallback log.
         """
@@ -208,8 +195,7 @@ class TestSmokeBackwardCompatNoVariant:
         fallback_logs = [
             r
             for r in caplog.records
-            if r.levelno == logging.DEBUG
-            and ("fallback" in r.message.lower() or "falling back" in r.message.lower())
+            if r.levelno == logging.DEBUG and ("fallback" in r.message.lower() or "falling back" in r.message.lower())
         ]
         assert not fallback_logs, "No fallback log expected for backward-compatible path"
 
@@ -254,9 +240,7 @@ class TestSmokeEscalationPreservesVariant:
         model_id = ladder.resolve_current_model()
         assert model_id == "claude-opus-4-6[1m]"
 
-    def test_variant_preserved_through_all_tiers(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_variant_preserved_through_all_tiers(self, caplog: pytest.LogCaptureFixture) -> None:
         """TS-14-SMOKE-4 corollary: variant='extended' is preserved from
         SIMPLE through STANDARD to ADVANCED. At SIMPLE and STANDARD, fallback
         is applied (DEBUG log); at ADVANCED, exact match found.

@@ -29,15 +29,17 @@ class TestMaxTurnsParsing:
     def test_max_turns_parsed_from_toml(self, tmp_path: Path) -> None:
         """TS-56-1: max_turns per archetype is parsed from config TOML."""
         config_file = tmp_path / "config.toml"
-        config_file.write_text("[archetypes.max_turns]\ncoder = 150\nreviewer = 30\n")
+        config_file.write_text(
+            "[archetypes.overrides.coder]\nmax_turns = 150\n[archetypes.overrides.reviewer]\nmax_turns = 30\n"
+        )
         config = load_config(path=config_file)
-        assert config.archetypes.max_turns["coder"] == 150
-        assert config.archetypes.max_turns["reviewer"] == 30
+        assert config.archetypes.overrides["coder"].max_turns == 150
+        assert config.archetypes.overrides["reviewer"].max_turns == 30
 
-    def test_max_turns_empty_when_not_configured(self) -> None:
-        """Default config has empty max_turns dict."""
+    def test_overrides_empty_when_not_configured(self) -> None:
+        """Default config has empty overrides dict."""
         config = AgentFoxConfig()
-        assert config.archetypes.max_turns == {}
+        assert config.archetypes.overrides == {}
 
 
 # ---------------------------------------------------------------------------
@@ -149,15 +151,15 @@ class TestThinkingParsing:
     def test_thinking_parsed_from_toml(self, tmp_path: Path) -> None:
         """TS-56-12: Thinking config per archetype is parsed from TOML."""
         config_file = tmp_path / "config.toml"
-        config_file.write_text('[archetypes.thinking.coder]\nmode = "enabled"\nbudget_tokens = 20000\n')
+        config_file.write_text('[archetypes.overrides.coder]\nthinking_mode = "enabled"\nthinking_budget = 20000\n')
         config = load_config(path=config_file)
-        assert config.archetypes.thinking["coder"].mode == "enabled"
-        assert config.archetypes.thinking["coder"].budget_tokens == 20000
+        assert config.archetypes.overrides["coder"].thinking_mode == "enabled"
+        assert config.archetypes.overrides["coder"].thinking_budget == 20000
 
-    def test_thinking_empty_when_not_configured(self) -> None:
-        """Default config has empty thinking dict."""
+    def test_overrides_empty_when_not_configured_for_thinking(self) -> None:
+        """Default config has empty overrides dict."""
         config = AgentFoxConfig()
-        assert config.archetypes.thinking == {}
+        assert config.archetypes.overrides == {}
 
 
 # ---------------------------------------------------------------------------
@@ -203,16 +205,16 @@ class TestNegativeMaxTurnsRejected:
     def test_negative_max_turns_raises(self, tmp_path: Path) -> None:
         """TS-56-E1: Negative max_turns raises ValidationError."""
         config_file = tmp_path / "config.toml"
-        config_file.write_text("[archetypes.max_turns]\ncoder = -1\n")
+        config_file.write_text("[archetypes.overrides.coder]\nmax_turns = -1\n")
         with pytest.raises((ValidationError, ValueError, Exception)):
             load_config(path=config_file)
 
     def test_negative_max_turns_direct(self) -> None:
         """TS-56-E1: Negative max_turns via direct construction raises."""
+        from agentfox.core.config import PerArchetypeConfig
+
         with pytest.raises((ValidationError, ValueError, Exception)):
-            AgentFoxConfig(
-                archetypes={"max_turns": {"coder": -1}},  # type: ignore[arg-type]
-            )
+            PerArchetypeConfig(max_turns=-1)
 
 
 # ---------------------------------------------------------------------------
@@ -244,7 +246,7 @@ class TestInvalidThinkingModeRejected:
     def test_invalid_thinking_mode_raises(self, tmp_path: Path) -> None:
         """TS-56-E5: Invalid thinking mode raises ValidationError."""
         config_file = tmp_path / "config.toml"
-        config_file.write_text('[archetypes.thinking.coder]\nmode = "turbo"\nbudget_tokens = 10000\n')
+        config_file.write_text('[archetypes.overrides.coder]\nthinking_mode = "turbo"\nthinking_budget = 10000\n')
         with pytest.raises((ValidationError, ValueError, Exception)):
             load_config(path=config_file)
 
@@ -261,6 +263,6 @@ class TestZeroBudgetTokensEnabledRejected:
     def test_zero_budget_tokens_enabled_raises(self, tmp_path: Path) -> None:
         """TS-56-E6: budget_tokens=0 with mode=enabled raises error."""
         config_file = tmp_path / "config.toml"
-        config_file.write_text('[archetypes.thinking.coder]\nmode = "enabled"\nbudget_tokens = 0\n')
+        config_file.write_text('[archetypes.overrides.coder]\nthinking_mode = "enabled"\nthinking_budget = 0\n')
         with pytest.raises((ValidationError, ValueError, Exception)):
             load_config(path=config_file)

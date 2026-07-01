@@ -18,7 +18,7 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 # Glob patterns that match stale ephemeral audit files produced during a run.
-# Unrelated files (e.g. ``audit_{spec}.md`` from auditor_output.py) are NOT
+# Unrelated files (e.g. ``audit_{spec}.md`` from audit output) are NOT
 # matched and are left untouched.
 _STALE_PATTERNS: tuple[str, ...] = (
     "agent_*.jsonl",

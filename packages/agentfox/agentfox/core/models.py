@@ -42,9 +42,7 @@ class ModelEntry:
 
     def __post_init__(self) -> None:
         if self.variant is not None and not isinstance(self.variant, str):
-            raise TypeError(
-                f"variant must be str or None, got {type(self.variant).__name__}"
-            )
+            raise TypeError(f"variant must be str or None, got {type(self.variant).__name__}")
 
 
 # Canonical variant label ordering for upgrade comparisons.
@@ -113,8 +111,7 @@ def resolve_model(name: str, *, variant: str | None = None) -> str:
 
         # Fallback: no match found for (tier, variant).
         logger.debug(
-            "No model found for tier=%s variant=%s; "
-            "falling back to tier default %s",
+            "No model found for tier=%s variant=%s; falling back to tier default %s",
             tier,
             variant,
             TIER_DEFAULTS[tier],

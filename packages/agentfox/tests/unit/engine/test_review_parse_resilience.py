@@ -20,7 +20,7 @@ from agentfox.session.convergence import (
     AuditEntry,
     AuditResult,
     converge_auditor,
-    converge_skeptic_records,
+    converge_reviewer_pre_records,
 )
 from agentfox.session.review_parser import (
     _unwrap_items,
@@ -49,7 +49,6 @@ def _make_finding(
         task_group=task_group,
         session_id=session_id,
     )
-
 
 
 # ---------------------------------------------------------------------------
@@ -363,13 +362,14 @@ class TestMaximumOneRetry:
                 transcript="no json here",
                 node_id="test-node",
                 attempt=1,
-                archetype="skeptic",
+                archetype="reviewer",
                 spec_name="test_spec",
                 task_group="1",
                 knowledge_db_conn=MagicMock(),
                 sink=None,
                 run_id="run1",
                 session_handle=mock_session,
+                mode="pre-review",
             )
 
         # At most 2 calls: initial parse + 1 retry
@@ -412,25 +412,26 @@ class TestNoRetryOnTerminatedSession:
                 transcript="no json here",
                 node_id="test-node",
                 attempt=1,
-                archetype="skeptic",
+                archetype="reviewer",
                 spec_name="test_spec",
                 task_group="1",
                 knowledge_db_conn=MagicMock(),
                 sink=None,
                 run_id="run1",
                 session_handle=mock_session,
+                mode="pre-review",
             )
 
         assert len(retry_called) == 0, "Format retry must not be attempted when session is terminated"
 
 
 # ---------------------------------------------------------------------------
-# TS-74-20: Partial convergence - Skeptic (REQ-4.1)
+# TS-74-20: Partial convergence - Reviewer pre-review (REQ-4.1)
 # ---------------------------------------------------------------------------
 
 
-class TestPartialConvergenceSkeptic:
-    """TS-74-20: Skeptic convergence proceeds with parseable instances only.
+class TestPartialConvergenceReviewerPre:
+    """TS-74-20: Reviewer pre-review convergence proceeds with parseable instances only.
 
     Requirements: 74-REQ-4.1
     """
@@ -450,7 +451,7 @@ class TestPartialConvergenceSkeptic:
 
         assert len(filtered) == 2
 
-        merged, blocked = converge_skeptic_records(filtered, block_threshold=5)
+        merged, blocked = converge_reviewer_pre_records(filtered, block_threshold=5)
         assert len(merged) >= 1
 
     def test_single_parseable_instance_produces_results(self) -> None:
@@ -460,7 +461,7 @@ class TestPartialConvergenceSkeptic:
         filtered = [r for r in raw_results if r is not None]
 
         assert len(filtered) == 1
-        merged, _blocked = converge_skeptic_records(filtered, block_threshold=5)
+        merged, _blocked = converge_reviewer_pre_records(filtered, block_threshold=5)
         assert len(merged) == 1
 
 
@@ -531,7 +532,7 @@ class TestWarningLoggedForFailedInstances:
         raw_results: list[list[ReviewFinding] | None] = [[f], None]
 
         with caplog.at_level(logging.WARNING):
-            warn_failed_parse_instances(raw_results, archetype="skeptic", run_id="run1")
+            warn_failed_parse_instances(raw_results, archetype="reviewer", run_id="run1")
 
         assert any("instance" in r.message.lower() and "failed" in r.message.lower() for r in caplog.records), (
             "Expected a warning about failed parse instances"
@@ -647,12 +648,13 @@ class TestParseFailurePayloadStrategyField:
                 transcript="no json here",
                 node_id="test-node",
                 attempt=1,
-                archetype="skeptic",
+                archetype="reviewer",
                 spec_name="test_spec",
                 task_group="1",
                 knowledge_db_conn=MagicMock(),
                 sink=sink,
                 run_id="run1",
+                mode="pre-review",
             )
 
         failure_events = [
@@ -724,8 +726,8 @@ class TestSingleInstanceBypass:
         raw_results: list[list[ReviewFinding]] = [[f]]
 
         # With a single instance, no filtering should happen.
-        # converge_skeptic_records with 1 instance returns the list directly.
-        merged, _blocked = converge_skeptic_records(raw_results, block_threshold=5)
+        # converge_reviewer_pre_records with 1 instance returns the list directly.
+        merged, _blocked = converge_reviewer_pre_records(raw_results, block_threshold=5)
         assert len(merged) == 1
         assert merged[0].severity == "major"
         assert merged[0].description == "direct finding"

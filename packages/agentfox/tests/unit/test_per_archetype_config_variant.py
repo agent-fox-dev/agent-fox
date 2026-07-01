@@ -60,9 +60,7 @@ class TestTomlModeOverrideModelVariant:
     def test_mode_level_model_variant_parsed(self, tmp_path: Path) -> None:
         """TS-14-17: model_variant under [archetypes.overrides.reviewer.modes.fix-review] is populated."""
         config_file = tmp_path / "config.toml"
-        config_file.write_text(
-            '[archetypes.overrides.reviewer.modes.fix-review]\nmodel_variant = "standard"\n'
-        )
+        config_file.write_text('[archetypes.overrides.reviewer.modes.fix-review]\nmodel_variant = "standard"\n')
         config = load_config(path=config_file)
         assert "reviewer" in config.archetypes.overrides
         reviewer_cfg = config.archetypes.overrides["reviewer"]

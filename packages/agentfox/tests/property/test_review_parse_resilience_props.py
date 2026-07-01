@@ -125,13 +125,14 @@ class TestRetryBound:
                 transcript="bad json " * n_bad,
                 node_id="test-node",
                 attempt=1,
-                archetype="skeptic",
+                archetype="reviewer",
                 spec_name="test_spec",
                 task_group="1",
                 knowledge_db_conn=MagicMock(),
                 sink=None,
                 run_id="run1",
                 session_handle=mock_session,
+                mode="pre-review",
             )
 
         assert call_count[0] <= 2, f"Expected at most 2 extraction attempts, got {call_count[0]} (n_bad={n_bad})"

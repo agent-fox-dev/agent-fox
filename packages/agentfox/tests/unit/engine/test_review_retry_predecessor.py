@@ -42,7 +42,7 @@ def _make_finding(
 
 def _make_session_record(
     node_id: str = "test_spec:1",
-    archetype: str = "skeptic",
+    archetype: str = "reviewer",
     attempt: int = 1,
 ) -> SessionRecord:
     return SessionRecord(
@@ -80,7 +80,7 @@ class TestThresholdGteComparison:
         record = _make_session_record()
         config = _make_archetypes_config(block_threshold=1)
 
-        decision = evaluate_review_blocking(record, config, knowledge_conn)
+        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-review")
 
         assert decision.should_block is True
 
@@ -95,7 +95,7 @@ class TestThresholdGteComparison:
         record = _make_session_record()
         config = _make_archetypes_config(block_threshold=2)
 
-        decision = evaluate_review_blocking(record, config, knowledge_conn)
+        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-review")
 
         assert decision.should_block is False
 
@@ -106,7 +106,7 @@ class TestThresholdGteComparison:
         record = _make_session_record()
         config = _make_archetypes_config(block_threshold=2)
 
-        decision = evaluate_review_blocking(record, config, knowledge_conn)
+        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-review")
 
         assert decision.should_block is True
 
@@ -149,11 +149,11 @@ class TestGroup0CoderNodeId:
 
         record = _make_session_record(
             node_id="spec_07:3",
-            archetype="skeptic",
+            archetype="reviewer",
         )
         config = _make_archetypes_config(block_threshold=1)
 
-        decision = evaluate_review_blocking(record, config, knowledge_conn)
+        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-review")
 
         assert decision.should_block is True
         assert decision.coder_node_id == "spec_07:3"
@@ -278,7 +278,7 @@ class TestRetryOnReviewBlock:
             archetype="reviewer",
         )
 
-        blocked = handler.check_skeptic_blocking(record, state)
+        blocked = handler.check_review_blocking(record, state)
 
         assert blocked is False
         block_task_fn.assert_not_called()
@@ -341,10 +341,10 @@ class TestRetryOnReviewBlock:
 
         record = _make_session_record(
             node_id="test_spec:1",
-            archetype="skeptic",
+            archetype="reviewer",
         )
 
-        blocked = handler.check_skeptic_blocking(record, state)
+        blocked = handler.check_review_blocking(record, state)
 
         assert blocked is True
         block_task_fn.assert_called_once()
@@ -529,7 +529,7 @@ class TestRetryOnReviewBlockTaskGroupFilter:
 
         # The reviewer runs for group 0, so task_group is mapped to '1' (group-0 targets group-1).
         # But the finding is tagged task_group='0', which != '1'. So no block.
-        blocked = handler.check_skeptic_blocking(record, state)
+        blocked = handler.check_review_blocking(record, state)
 
         assert blocked is False
         block_task_fn.assert_not_called()

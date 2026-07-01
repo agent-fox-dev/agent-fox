@@ -34,10 +34,6 @@ def _make_config() -> MagicMock:
     # fall back to archetype registry defaults cleanly
     config.archetypes = MagicMock()
     config.archetypes.overrides = {}
-    config.archetypes.models = {}
-    config.archetypes.max_turns = {}
-    config.archetypes.thinking = {}
-    config.archetypes.allowlists = {}
     config.models = MagicMock()
     config.models.coding = "STANDARD"
     config.pricing = MagicMock()

@@ -60,9 +60,7 @@ class TestDeletedTestFilesAbsent:
     @pytest.mark.parametrize("rel_path", _DELETED_TEST_FILES)
     def test_file_absent(self, rel_path: str) -> None:
         full_path = _TESTS_ROOT / rel_path
-        assert not full_path.exists(), (
-            f"Deleted test file must be absent: {rel_path}"
-        )
+        assert not full_path.exists(), f"Deleted test file must be absent: {rel_path}"
 
 
 # ---------------------------------------------------------------------------
@@ -88,10 +86,7 @@ class TestCrossSpecPortionsRemoved:
             if not test_file.exists():
                 continue
             matches = _grep_file(test_file, forbidden)
-            assert not matches, (
-                f"{test_file.name} must not reference '{forbidden}':\n"
-                + "\n".join(matches)
-            )
+            assert not matches, f"{test_file.name} must not reference '{forbidden}':\n" + "\n".join(matches)
 
 
 # ---------------------------------------------------------------------------
@@ -120,10 +115,7 @@ class TestVerdictPortionsRemoved:
             if not test_file.exists():
                 continue
             matches = _grep_file(test_file, forbidden)
-            assert not matches, (
-                f"{test_file.name} must not reference '{forbidden}':\n"
-                + "\n".join(matches)
-            )
+            assert not matches, f"{test_file.name} must not reference '{forbidden}':\n" + "\n".join(matches)
 
 
 # ---------------------------------------------------------------------------
@@ -154,10 +146,7 @@ class TestSmokePriorRunPortionsRemoved:
                 continue
             matches = _grep_file(test_file, forbidden)
             # Filter out this test file itself
-            assert not matches, (
-                f"{test_file.name} must not reference '{forbidden}':\n"
-                + "\n".join(matches)
-            )
+            assert not matches, f"{test_file.name} must not reference '{forbidden}':\n" + "\n".join(matches)
 
 
 # ---------------------------------------------------------------------------
@@ -179,10 +168,7 @@ class TestErrataPortionsRemoved:
             if not test_file.exists():
                 continue
             matches = _grep_file(test_file, "errata")
-            assert not matches, (
-                f"{test_file.name} must not reference 'errata':\n"
-                + "\n".join(matches)
-            )
+            assert not matches, f"{test_file.name} must not reference 'errata':\n" + "\n".join(matches)
 
 
 # ---------------------------------------------------------------------------
@@ -203,9 +189,7 @@ class TestCollectionNoImportErrors:
             timeout=120,
         )
         # Check stderr for actual import errors (not test names containing "ImportError")
-        assert "ImportError" not in result.stderr, (
-            f"pytest collection raised ImportError:\n{result.stderr}"
-        )
+        assert "ImportError" not in result.stderr, f"pytest collection raised ImportError:\n{result.stderr}"
         assert "ModuleNotFoundError" not in result.stderr, (
             f"pytest collection raised ModuleNotFoundError:\n{result.stderr}"
         )
@@ -255,15 +239,8 @@ class TestNoDeletedSymbolsInCodebase:
         )
         if result.stdout.strip():
             # Filter out this test file and other test_10_* spec test files
-            matches = [
-                line
-                for line in result.stdout.strip().splitlines()
-                if "test_10_" not in line
-            ]
-            assert not matches, (
-                f"Deleted symbol '{symbol}' found in codebase:\n"
-                + "\n".join(matches)
-            )
+            matches = [line for line in result.stdout.strip().splitlines() if "test_10_" not in line]
+            assert not matches, f"Deleted symbol '{symbol}' found in codebase:\n" + "\n".join(matches)
 
 
 # ---------------------------------------------------------------------------

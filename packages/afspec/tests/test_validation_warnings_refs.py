@@ -106,9 +106,7 @@ def _build_spec_with_refs(
     test becomes group 2.  A ``kind: wiring_verification`` group is
     always appended as the final group.
     """
-    refs, criteria, test_cases, traceability = _make_refs_and_artifacts(
-        total_refs, prefix="R"
-    )
+    refs, criteria, test_cases, traceability = _make_refs_and_artifacts(total_refs, prefix="R")
 
     # Split refs across two subtasks for realism
     mid = max(1, len(refs) // 2)
@@ -220,9 +218,7 @@ def _build_spec_with_refs(
                 kind=group_kind,
                 title=f"{group_kind.value} group",
                 subtasks=[subtask1_target, subtask2_target],
-                verification=VerificationSubtask(
-                    id=f"{target_group_id}.V", checks=["pass"]
-                ),
+                verification=VerificationSubtask(id=f"{target_group_id}.V", checks=["pass"]),
             )
         )
 
@@ -410,10 +406,9 @@ class TestOversizedTestSpecRefsWarning:
         spec = _build_spec_with_refs(total_refs=17)
         result = validate(spec)
         warning_texts = [str(w).lower() for w in result.warnings]
-        assert any(
-            "test_spec_refs" in text or "17" in text
-            for text in warning_texts
-        ), f"Expected a warning mentioning test_spec_refs or count 17, got: {result.warnings}"
+        assert any("test_spec_refs" in text or "17" in text for text in warning_texts), (
+            f"Expected a warning mentioning test_spec_refs or count 17, got: {result.warnings}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -437,13 +432,11 @@ class TestOversizedRefsAllKinds:
         spec = _build_spec_with_refs(total_refs=16, group_kind=kind)
         result = validate(spec)
         assert len(result.warnings) >= 1, (
-            f"Expected at least one warning for kind={kind.value} "
-            f"with 16 refs, got {result.warnings}"
+            f"Expected at least one warning for kind={kind.value} with 16 refs, got {result.warnings}"
         )
-        assert any(
-            "test_spec_refs" in str(w).lower() or "16" in str(w)
-            for w in result.warnings
-        ), f"Expected warning about test_spec_refs for kind={kind.value}"
+        assert any("test_spec_refs" in str(w).lower() or "16" in str(w) for w in result.warnings), (
+            f"Expected warning about test_spec_refs for kind={kind.value}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -458,25 +451,14 @@ class TestNoWarningAtOrBelowThreshold:
         """Exactly 15 total refs across subtasks: no warning emitted."""
         spec = _build_spec_with_refs(total_refs=15)
         result = validate(spec)
-        refs_warnings = [
-            w
-            for w in result.warnings
-            if "test_spec_refs" in str(w).lower()
-        ]
-        assert len(refs_warnings) == 0, (
-            f"Expected no test_spec_refs warning for exactly 15 refs, "
-            f"got: {refs_warnings}"
-        )
+        refs_warnings = [w for w in result.warnings if "test_spec_refs" in str(w).lower()]
+        assert len(refs_warnings) == 0, f"Expected no test_spec_refs warning for exactly 15 refs, got: {refs_warnings}"
 
     def test_below_15_refs_no_warning(self) -> None:
         """Well below the threshold (5 refs): no warning emitted."""
         spec = _build_spec_with_refs(total_refs=5)
         result = validate(spec)
-        refs_warnings = [
-            w
-            for w in result.warnings
-            if "test_spec_refs" in str(w).lower()
-        ]
+        refs_warnings = [w for w in result.warnings if "test_spec_refs" in str(w).lower()]
         assert len(refs_warnings) == 0
 
 
@@ -495,21 +477,15 @@ class TestEmptyGroupNoWarning:
         refs_warnings = [
             w
             for w in result.warnings
-            if "test_spec_refs" in str(w).lower()
-            and ("group 1" in str(w).lower() or "group" in str(w).lower())
+            if "test_spec_refs" in str(w).lower() and ("group 1" in str(w).lower() or "group" in str(w).lower())
         ]
         assert len(refs_warnings) == 0, (
-            f"Expected no test_spec_refs warning for group with only "
-            f"verification subtask, got: {refs_warnings}"
+            f"Expected no test_spec_refs warning for group with only verification subtask, got: {refs_warnings}"
         )
 
     def test_group_with_zero_refs_subtasks(self) -> None:
         """Group with subtasks that have zero test_spec_refs: no warning."""
         spec = _build_spec_with_refs(total_refs=0)
         result = validate(spec)
-        refs_warnings = [
-            w
-            for w in result.warnings
-            if "test_spec_refs" in str(w).lower()
-        ]
+        refs_warnings = [w for w in result.warnings if "test_spec_refs" in str(w).lower()]
         assert len(refs_warnings) == 0

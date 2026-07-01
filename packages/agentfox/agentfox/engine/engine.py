@@ -220,15 +220,11 @@ class AssessmentManager:
         if mode is not None and override is not None:
             mode_override = override.modes.get(mode)
             if mode_override is not None and mode_override.model_tier:
-                # 15-REQ-6.E1: Return True immediately without checking layers 2-3
+                # 15-REQ-6.E1: Return True immediately without checking layer 2
                 return True
 
         # Layer 2: per-archetype override (unified table)
         if override is not None and override.model_tier:
-            return True
-
-        # Layer 3: legacy dict override
-        if archetypes_cfg.models.get(archetype):
             return True
 
         return False

@@ -41,11 +41,7 @@ def _grep_file(file_path: Path, pattern: str) -> list[str]:
     if not file_path.exists():
         return []
     content = file_path.read_text()
-    return [
-        line
-        for line in content.splitlines()
-        if pattern in line
-    ]
+    return [line for line in content.splitlines() if pattern in line]
 
 
 def _grep_all_python(pattern: str, *, exclude_test_10: bool = True) -> list[str]:
@@ -87,10 +83,7 @@ class TestReviewStoreRemovedFunctions:
     @pytest.mark.parametrize("fn_name", _REMOVED_REVIEW_STORE_FNS)
     def test_function_not_defined(self, fn_name: str) -> None:
         matches = _grep_file(_REVIEW_STORE, f"def {fn_name}")
-        assert not matches, (
-            f"review_store.py must not define {fn_name}():\n"
-            + "\n".join(matches)
-        )
+        assert not matches, f"review_store.py must not define {fn_name}():\n" + "\n".join(matches)
 
 
 # ---------------------------------------------------------------------------
@@ -104,10 +97,7 @@ class TestNoReviewStoreCallSites:
     @pytest.mark.parametrize("fn_name", _REMOVED_REVIEW_STORE_FNS)
     def test_no_call_sites(self, fn_name: str) -> None:
         matches = _grep_all_python(fn_name)
-        assert not matches, (
-            f"Found call sites for removed function {fn_name}:\n"
-            + "\n".join(matches)
-        )
+        assert not matches, f"Found call sites for removed function {fn_name}:\n" + "\n".join(matches)
 
 
 # ---------------------------------------------------------------------------
@@ -120,10 +110,7 @@ class TestQueryCrossSpecSummariesRemoved:
 
     def test_function_not_defined(self) -> None:
         matches = _grep_file(_SUMMARY_STORE, "def query_cross_spec_summaries")
-        assert not matches, (
-            "summary_store.py must not define query_cross_spec_summaries():\n"
-            + "\n".join(matches)
-        )
+        assert not matches, "summary_store.py must not define query_cross_spec_summaries():\n" + "\n".join(matches)
 
 
 # ---------------------------------------------------------------------------
@@ -136,10 +123,7 @@ class TestNoQueryCrossSpecCallSites:
 
     def test_no_call_sites(self) -> None:
         matches = _grep_all_python("query_cross_spec_summaries")
-        assert not matches, (
-            "Found call sites for query_cross_spec_summaries:\n"
-            + "\n".join(matches)
-        )
+        assert not matches, "Found call sites for query_cross_spec_summaries:\n" + "\n".join(matches)
 
 
 # ---------------------------------------------------------------------------
@@ -171,12 +155,8 @@ class TestQuerySameSpecSummariesRetained:
         )
 
         # Query for task_group "2" should see task_group "1" summaries
-        results = query_same_spec_summaries(
-            conn, "test-spec", "2", "run-1"
-        )
-        assert len(results) >= 1, (
-            "query_same_spec_summaries must return rows from session_summaries"
-        )
+        results = query_same_spec_summaries(conn, "test-spec", "2", "run-1")
+        assert len(results) >= 1, "query_same_spec_summaries must return rows from session_summaries"
         conn.close()
 
 
@@ -190,10 +170,7 @@ class TestRunPyNoErrataIndexing:
 
     def test_no_errata_reference(self) -> None:
         matches = _grep_file(_RUN_PY, "index_errata_from_markdown")
-        assert not matches, (
-            "run.py must not reference index_errata_from_markdown:\n"
-            + "\n".join(matches)
-        )
+        assert not matches, "run.py must not reference index_errata_from_markdown:\n" + "\n".join(matches)
 
 
 # ---------------------------------------------------------------------------
@@ -206,9 +183,8 @@ class TestNightshiftStartupNoErrataIndexing:
 
     def test_no_errata_reference(self) -> None:
         matches = _grep_file(_NIGHTSHIFT_STARTUP, "index_errata_from_markdown")
-        assert not matches, (
-            "nightshift/_startup.py must not reference index_errata_from_markdown:\n"
-            + "\n".join(matches)
+        assert not matches, "nightshift/_startup.py must not reference index_errata_from_markdown:\n" + "\n".join(
+            matches
         )
 
 
@@ -222,10 +198,7 @@ class TestResultHandlerNoGenerateErrata:
 
     def test_no_generate_errata(self) -> None:
         matches = _grep_file(_RESULT_HANDLER, "_generate_errata")
-        assert not matches, (
-            "result_handler.py must not define or call _generate_errata:\n"
-            + "\n".join(matches)
-        )
+        assert not matches, "result_handler.py must not define or call _generate_errata:\n" + "\n".join(matches)
 
 
 # ---------------------------------------------------------------------------

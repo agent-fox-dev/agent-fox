@@ -72,7 +72,7 @@ class TestCostBudgetMonotonicity:
                 return_value=analyzer_result.improvements,
             ),
             patch(
-                "agentfox.fix.improve.query_oracle_context",
+                "agentfox.fix.improve.query_knowledge_context",
                 return_value="",
             ),
             patch(

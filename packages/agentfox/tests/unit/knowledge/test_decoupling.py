@@ -24,7 +24,6 @@ def _make_mock_config() -> MagicMock:
     mock_config.orchestrator = MagicMock()
     # Ensure model tier resolution returns None so defaults are used
     mock_config.archetypes.overrides.get.return_value = None
-    mock_config.archetypes.models = {}
     mock_config.models.coding = None
     mock_config.models.review = None
     return mock_config

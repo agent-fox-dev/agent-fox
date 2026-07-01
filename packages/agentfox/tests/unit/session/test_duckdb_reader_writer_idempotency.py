@@ -157,5 +157,3 @@ class TestIdempotencyProperty:
             ).fetchone()[0]
             assert count_after_first == count_after_n
             conn.close()
-
-

@@ -248,7 +248,7 @@ class TestAlwaysPushesBoth:
                 await post_harvest_integrate(
                     repo_root=Path("/tmp"),
                     workspace=workspace,
-                branch="develop",
+                    branch="develop",
                 )
                 # Develop push must be attempted
                 assert mock_push_develop.call_count == 1

@@ -29,9 +29,7 @@ class TestErrataModuleAbsent:
 
     def test_errata_file_absent(self) -> None:
         errata_path = _PACKAGES_ROOT / "agentfox" / "knowledge" / "errata.py"
-        assert not errata_path.exists(), (
-            f"errata.py must be deleted: {errata_path}"
-        )
+        assert not errata_path.exists(), f"errata.py must be deleted: {errata_path}"
 
     def test_errata_import_raises(self) -> None:
         """Importing agentfox.knowledge.errata must raise ImportError."""
@@ -51,9 +49,7 @@ class TestAdrModuleAbsent:
 
     def test_adr_file_absent(self) -> None:
         adr_path = _PACKAGES_ROOT / "agentfox" / "knowledge" / "adr.py"
-        assert not adr_path.exists(), (
-            f"adr.py must be deleted: {adr_path}"
-        )
+        assert not adr_path.exists(), f"adr.py must be deleted: {adr_path}"
 
     def test_adr_import_raises(self) -> None:
         """Importing agentfox.knowledge.adr must raise ImportError."""
@@ -99,10 +95,8 @@ class TestNoImportReferences:
             filtered = [
                 line
                 for line in matches.splitlines()
-                if "test_10_deleted_modules_absent.py" not in line
-                and "test_knowledge_pruning.py" not in line
+                if "test_10_deleted_modules_absent.py" not in line and "test_knowledge_pruning.py" not in line
             ]
-            assert not filtered, (
-                f"Found import references to deleted module pattern '{pattern}':\n"
-                + "\n".join(filtered)
+            assert not filtered, f"Found import references to deleted module pattern '{pattern}':\n" + "\n".join(
+                filtered
             )

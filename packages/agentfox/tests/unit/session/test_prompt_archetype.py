@@ -125,10 +125,12 @@ class TestRunnerUsesArchetype:
         assert runner._resolved_model_id == "claude-opus-4-6"
 
     def test_runner_model_tier_config_override(self) -> None:
-        from agentfox.core.config import AgentFoxConfig, ArchetypesConfig
+        from agentfox.core.config import AgentFoxConfig, ArchetypesConfig, PerArchetypeConfig
         from agentfox.engine.session_lifecycle import NodeSessionRunner
 
-        config = AgentFoxConfig(archetypes=ArchetypesConfig(models={"reviewer": "SIMPLE"}))
+        config = AgentFoxConfig(
+            archetypes=ArchetypesConfig(overrides={"reviewer": PerArchetypeConfig(model_tier="SIMPLE")})
+        )
         runner = NodeSessionRunner(
             "spec:3",
             config,
@@ -157,10 +159,12 @@ class TestRunnerUsesArchetype:
         assert "cat" in runner._resolved_security.bash_allowlist
 
     def test_runner_allowlist_config_override(self) -> None:
-        from agentfox.core.config import AgentFoxConfig, ArchetypesConfig
+        from agentfox.core.config import AgentFoxConfig, ArchetypesConfig, PerArchetypeConfig
         from agentfox.engine.session_lifecycle import NodeSessionRunner
 
-        config = AgentFoxConfig(archetypes=ArchetypesConfig(allowlists={"reviewer": ["ls", "cat"]}))
+        config = AgentFoxConfig(
+            archetypes=ArchetypesConfig(overrides={"reviewer": PerArchetypeConfig(allowlist=["ls", "cat"])})
+        )
         runner = NodeSessionRunner(
             "spec:0",
             config,

@@ -679,17 +679,11 @@ def validate_cmd(ctx: click.Context, spec: str) -> None:
     warning_dicts: list[dict[str, Any]] = []
     for group in spec_obj.tasks.task_groups:
         for w in _check_group_test_spec_refs(group):
-            warning_dicts.append(
-                {"category": "warning", "message": w.message, "entity_id": w.entity_id}
-            )
+            warning_dicts.append({"category": "warning", "message": w.message, "entity_id": w.entity_id})
         for w in _check_group_subtask_count(group):
-            warning_dicts.append(
-                {"category": "warning", "message": w.message, "entity_id": w.entity_id}
-            )
+            warning_dicts.append({"category": "warning", "message": w.message, "entity_id": w.entity_id})
         for w in _check_subtask_overload(group):
-            warning_dicts.append(
-                {"category": "warning", "message": w.message, "entity_id": w.entity_id}
-            )
+            warning_dicts.append({"category": "warning", "message": w.message, "entity_id": w.entity_id})
 
     # Emit results ------------------------------------------------------------
     all_errors = schema_errors + integrity_errors

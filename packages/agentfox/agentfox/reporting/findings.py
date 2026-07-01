@@ -76,28 +76,17 @@ def query_findings(
             - ``"reviewer/drift-review"`` — drift_findings only
             - ``"verifier"`` — verification_results only
             - ``None`` — all tables
-            Legacy values ``"skeptic"`` and ``"oracle"`` raise ``ValueError``.
         run_id: Filter by run ID (returns empty list if run metadata unavailable).
         active_only: Only return non-superseded findings.
 
     Returns:
         List of FindingRow objects matching the filters.
 
-    Raises:
-        ValueError: If archetype is a legacy name ("skeptic" or "oracle").
-
     Requirements: 84-REQ-4.1, 84-REQ-4.2, 84-REQ-4.3, 84-REQ-4.4,
                   84-REQ-4.5, 84-REQ-4.6
     """
     if conn is None:
         return []
-
-    # Reject legacy archetype names with a clear error
-    if archetype in ("skeptic", "oracle"):
-        raise ValueError(
-            f"Archetype {archetype!r} is no longer supported. "
-            "Use 'reviewer', 'reviewer/pre-review', or 'reviewer/drift-review' instead."
-        )
 
     # run_id filtering requires a join to audit_events or session metadata
     # which is not available in the review tables. Return empty list.

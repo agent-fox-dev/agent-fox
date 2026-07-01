@@ -83,7 +83,7 @@ def spec_has_existing_code(spec_path: Path) -> bool:
 
     Extracts paths marked ``(modified)`` and returns True if at least one
     of those paths exists on disk.  Returns True (safe default) when the
-    target file is missing or unreadable so the oracle is not accidentally
+    target file is missing or unreadable so drift-review is not accidentally
     suppressed.
 
     Requirements: 134-REQ-3.3
@@ -98,7 +98,7 @@ def spec_has_existing_code(spec_path: Path) -> bool:
 
     refs = _DESIGN_FILE_REF.findall(content)
     if not refs:
-        # No (modified) references found — nothing for oracle to validate
+        # No (modified) references found — nothing for drift-review to validate
         return False
 
     for ref in refs:

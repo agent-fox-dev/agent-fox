@@ -204,7 +204,7 @@ def cached_messages_create_sync(
 ) -> anthropic.types.Message:
     """Synchronous variant of ``cached_messages_create()``.
 
-    Used by sync callers: knowledge_harvest, query_oracle, clusterer.
+    Used by sync callers: knowledge_harvest, query_knowledge_context, clusterer.
 
     Requirements: 77-REQ-2.1
     """

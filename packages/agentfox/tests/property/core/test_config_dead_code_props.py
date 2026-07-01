@@ -37,9 +37,6 @@ _removed_models_keys = {
 
 _removed_archetype_keys = {
     "triage": st.booleans(),
-    "skeptic": st.booleans(),
-    "oracle": st.booleans(),
-    "auditor": st.booleans(),
     "skeptic_config": st.text(min_size=0, max_size=20),
     "fix_reviewer": st.booleans(),
     "fix_coder": st.booleans(),

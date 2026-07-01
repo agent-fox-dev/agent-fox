@@ -87,7 +87,7 @@ class TestPreReviewEndToEnd:
 
     def test_pre_review_convergence_uses_skeptic_algorithm(self) -> None:
         """TS-98-SMOKE-1 (part 2): converge_reviewer uses skeptic algorithm for pre-review."""
-        from agentfox.session.convergence import converge_reviewer, converge_skeptic
+        from agentfox.session.convergence import converge_reviewer, converge_reviewer_pre
 
         # Build mock findings (list[list[Finding]])
         findings_instance_1 = [
@@ -101,12 +101,13 @@ class TestPreReviewEndToEnd:
 
         # Run converge_reviewer with mode="pre-review" (uses real convergence logic)
         reviewer_merged, reviewer_blocked = converge_reviewer(results, mode="pre-review", block_threshold=3)
-        # Run converge_skeptic directly for comparison
-        skeptic_merged, skeptic_blocked = converge_skeptic(results, block_threshold=3)
+        # Run converge_reviewer_pre directly for comparison
+        skeptic_merged, skeptic_blocked = converge_reviewer_pre(results, block_threshold=3)
 
         # Results must be identical — same algorithm
         assert reviewer_blocked == skeptic_blocked, (
-            f"converge_reviewer('pre-review') blocked={reviewer_blocked} but converge_skeptic blocked={skeptic_blocked}"
+            f"converge_reviewer('pre-review') blocked={reviewer_blocked} "
+            f"but converge_reviewer_pre blocked={skeptic_blocked}"
         )
         # Merged finding counts should be equal
         assert len(reviewer_merged) == len(skeptic_merged), (
@@ -189,7 +190,7 @@ class TestDriftReviewGatingEndToEnd:
 
     def test_drift_review_convergence_uses_skeptic_algorithm(self) -> None:
         """TS-98-SMOKE-2: converge_reviewer drift-review uses skeptic algorithm."""
-        from agentfox.session.convergence import converge_reviewer, converge_skeptic
+        from agentfox.session.convergence import converge_reviewer, converge_reviewer_pre
 
         findings = [
             [_make_finding("major", "Drift: module X interface changed")],
@@ -197,7 +198,7 @@ class TestDriftReviewGatingEndToEnd:
         ]
 
         reviewer_merged, reviewer_blocked = converge_reviewer(findings, mode="drift-review", block_threshold=3)
-        skeptic_merged, skeptic_blocked = converge_skeptic(findings, block_threshold=3)
+        skeptic_merged, skeptic_blocked = converge_reviewer_pre(findings, block_threshold=3)
 
         assert reviewer_blocked == skeptic_blocked
         assert len(reviewer_merged) == len(skeptic_merged)
@@ -224,10 +225,10 @@ class TestCoderFixModeSessionSetup:
 
     def test_coder_fix_mode_resolves_to_advanced(self) -> None:
         """TS-98-SMOKE-3: coder:fix mode resolves to ADVANCED via registry default."""
-        from agentfox.core.config import AgentFoxConfig, ArchetypesConfig
+        from agentfox.core.config import AgentFoxConfig
         from agentfox.engine.session_lifecycle import NodeSessionRunner
 
-        config = AgentFoxConfig(archetypes=ArchetypesConfig(models={}))
+        config = AgentFoxConfig()
 
         # Real NodeSessionRunner with mode="fix" — no mocking of tier resolution
         runner = NodeSessionRunner(

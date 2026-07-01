@@ -194,12 +194,12 @@ class TestDisagreementLine:
             node_id="spec:0",
             status="disagreed",
             duration_s=0,
-            archetype="skeptic",
+            archetype="reviewer",
             predecessor_node="spec:1",
         )
         line = display._format_task_line(event)
         text = str(line)
-        assert "[skeptic]" in text, f"Expected [skeptic] in: {text!r}"
+        assert "[reviewer]" in text, f"Expected [reviewer] in: {text!r}"
         assert "disagrees" in text, f"Expected 'disagrees' in: {text!r}"
         assert "spec:1" in text, f"Expected predecessor 'spec:1' in: {text!r}"
 

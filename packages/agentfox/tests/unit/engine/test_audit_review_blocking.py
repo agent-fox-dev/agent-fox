@@ -8,7 +8,7 @@ Acceptance Criteria:
         findings exist for the (spec, task_group).
   AC-2: evaluate_review_blocking() does NOT block when no critical/major audit
         findings exist (empty table, superseded rows, or non-audit rows).
-  AC-3: check_skeptic_blocking() triggers _retry_on_review_block for audit-review
+  AC-3: check_review_blocking() triggers _retry_on_review_block for audit-review
         blocking decisions, resetting the test_group coder to pending.
   AC-4: build_retry_context() includes audit findings in the re-run coder's
         prompt when task_group matches.
@@ -300,7 +300,7 @@ class TestAC2EvaluateReviewBlockingNoBlock:
 
 
 # ---------------------------------------------------------------------------
-# AC-3: check_skeptic_blocking() triggers _retry_on_review_block for
+# AC-3: check_review_blocking() triggers _retry_on_review_block for
 #        audit-review, resetting the test_group coder to pending.
 # ---------------------------------------------------------------------------
 
@@ -326,7 +326,7 @@ def _make_audit_review_handler(
     graph_sync.predecessors = lambda nid: edges_dict.get(nid, [])
 
     # Configure _transition to actually update node_states so assertions on
-    # state transitions work correctly after check_skeptic_blocking() runs.
+    # state transitions work correctly after check_review_blocking() runs.
     def _transition(nid: str, new_status: str, *, reason: str = "") -> None:
         node_states[nid] = new_status
 
@@ -393,7 +393,7 @@ def _make_audit_review_handler(
 
 
 class TestAC3CheckSkepticBlockingForAuditReview:
-    """AC-3: check_skeptic_blocking triggers retry_predecessor for audit-review."""
+    """AC-3: check_review_blocking triggers retry_predecessor for audit-review."""
 
     def test_audit_review_blocking_resets_coder_to_pending(self, audit_conn: duckdb.DuckDBPyConnection) -> None:
         """When audit findings block, the coder is reset to pending (not permanently blocked)."""
@@ -407,8 +407,8 @@ class TestAC3CheckSkepticBlockingForAuditReview:
         handler, state, block_task_fn = _make_audit_review_handler(audit_conn)
         record = _make_audit_review_record(node_id="foo:2:reviewer:audit-review")
 
-        # check_skeptic_blocking returns False when coder is reset (not permanently blocked)
-        blocked = handler.check_skeptic_blocking(record, state)
+        # check_review_blocking returns False when coder is reset (not permanently blocked)
+        blocked = handler.check_review_blocking(record, state)
 
         assert blocked is False, "retry_predecessor=True should not permanently block the coder"
         block_task_fn.assert_not_called()
@@ -421,7 +421,7 @@ class TestAC3CheckSkepticBlockingForAuditReview:
         handler, state, block_task_fn = _make_audit_review_handler(audit_conn)
         record = _make_audit_review_record(node_id="foo:2:reviewer:audit-review")
 
-        blocked = handler.check_skeptic_blocking(record, state)
+        blocked = handler.check_review_blocking(record, state)
 
         assert blocked is False
         block_task_fn.assert_not_called()
@@ -544,7 +544,7 @@ class TestAC5ExhaustedLadderBlocksPermanently:
         handler._get_node_state("foo:2").audit_retry_count = 2
 
         record = _make_audit_review_record(node_id="foo:2:reviewer:audit-review")
-        handler.check_skeptic_blocking(record, state)
+        handler.check_review_blocking(record, state)
 
         # With exhausted audit counter, the coder should be permanently blocked
         block_task_fn.assert_called_once()
@@ -563,7 +563,7 @@ class TestAC5ExhaustedLadderBlocksPermanently:
         handler, state, block_task_fn = _make_audit_review_handler(audit_conn)
 
         record = _make_audit_review_record(node_id="foo:2:reviewer:audit-review")
-        handler.check_skeptic_blocking(record, state)
+        handler.check_review_blocking(record, state)
 
         # Fresh ladder → convert to retry, not permanent block
         block_task_fn.assert_not_called()
@@ -681,7 +681,7 @@ class TestAC6AuditMaxRetriesConfig:
             state.node_states["foo:2:reviewer:audit-review"] = "completed"
             handler._graph_sync.node_states["foo:2"] = "completed"
             handler._graph_sync.node_states["foo:2:reviewer:audit-review"] = "completed"
-            blocked = handler.check_skeptic_blocking(record, state)
+            blocked = handler.check_review_blocking(record, state)
             assert blocked is False, f"Retry {i + 1} should convert to retry, not block"
             block_task_fn.assert_not_called()
 
@@ -690,7 +690,7 @@ class TestAC6AuditMaxRetriesConfig:
         state.node_states["foo:2:reviewer:audit-review"] = "completed"
         handler._graph_sync.node_states["foo:2"] = "completed"
         handler._graph_sync.node_states["foo:2:reviewer:audit-review"] = "completed"
-        blocked = handler.check_skeptic_blocking(record, state)
+        blocked = handler.check_review_blocking(record, state)
         assert blocked is True, "After audit_max_retries exhausted, coder must be permanently blocked"
         block_task_fn.assert_called_once()
 
@@ -708,7 +708,7 @@ class TestAC6AuditMaxRetriesConfig:
         # One retry allowed
         state.node_states["foo:2"] = "completed"
         handler._graph_sync.node_states["foo:2"] = "completed"
-        handler.check_skeptic_blocking(record, state)
+        handler.check_review_blocking(record, state)
         block_task_fn.assert_not_called()
 
         # The coder's generic escalation ladder should not have been created/consumed
@@ -724,7 +724,7 @@ class TestAC6AuditMaxRetriesConfig:
         handler, state, block_task_fn = _make_audit_handler_with_config(audit_conn, audit_max_retries=0)
 
         record = _make_audit_review_record(node_id="foo:2:reviewer:audit-review")
-        blocked = handler.check_skeptic_blocking(record, state)
+        blocked = handler.check_review_blocking(record, state)
 
         assert blocked is True
         block_task_fn.assert_called_once()
@@ -832,7 +832,7 @@ class TestAC6AuditMaxRetriesConfig:
         # Pre-review with retry_predecessor=True should use the escalation ladder,
         # not audit_max_retries. audit_max_retries=0 would block immediately if
         # the code incorrectly applied it to pre-review.
-        blocked = handler.check_skeptic_blocking(record, state)
+        blocked = handler.check_review_blocking(record, state)
 
         assert blocked is False, (
             "Pre-review should use the generic EscalationLadder (retries_before_escalation=2), not audit_max_retries=0"
@@ -985,11 +985,11 @@ class TestDeferralPatternMatching:
 
 
 class TestOnlyDeferredNoBlock:
-    """AC-5 (#572): When all audit findings are deferred, check_skeptic_blocking()
+    """AC-5 (#572): When all audit findings are deferred, check_review_blocking()
     returns False and does not trigger a coder retry."""
 
     def test_only_deferred_findings_no_retry(self, audit_conn: duckdb.DuckDBPyConnection) -> None:
-        """100% deferred findings for (foo, 2) → check_skeptic_blocking returns False."""
+        """100% deferred findings for (foo, 2) → check_review_blocking returns False."""
         deferred_descriptions = [
             "Integration smoke test. Deferred to task group 4.",
             "Startup smoke test. Deferred to task group 4.",
@@ -1008,7 +1008,7 @@ class TestOnlyDeferredNoBlock:
         handler, state, block_task_fn = _make_audit_review_handler(audit_conn)
         record = _make_audit_review_record(node_id="foo:2:reviewer:audit-review")
 
-        result = handler.check_skeptic_blocking(record, state)
+        result = handler.check_review_blocking(record, state)
 
         assert result is False
         block_task_fn.assert_not_called()

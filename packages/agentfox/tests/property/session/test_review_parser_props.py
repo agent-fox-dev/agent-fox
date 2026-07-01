@@ -36,7 +36,6 @@ def valid_finding_json(draw: st.DrawFn) -> dict:
     return result
 
 
-
 class TestParseRoundtripFidelity:
     """TS-27-P2: Property 2 — Parse-Roundtrip Fidelity.
 
@@ -54,7 +53,6 @@ class TestParseRoundtripFidelity:
         assert f.severity == finding_data["severity"]
         assert f.description == finding_data["description"]
         assert f.requirement_ref == finding_data.get("requirement_ref")
-
 
 
 class TestSeverityNormalization:

@@ -229,9 +229,7 @@ class TestResolutionPriorityChain:
         # Determine expected result (5-level priority):
         # 1. config mode-level override
         # 2. config archetype-level override
-        # 3. legacy archetypes.models dict (not set here)
-        # 4. global [models] config (deprecated; models.coding is None by default)
-        # 5. archetype registry default (STANDARD for coder, spec 15)
+        # 3. archetype registry default (STANDARD for coder, spec 15)
         mode_in_arch = arch_name in arch_overrides and mode_name in arch_overrides[arch_name].modes
         if config_mode_tier is not None and mode_in_arch:
             expected = config_mode_tier

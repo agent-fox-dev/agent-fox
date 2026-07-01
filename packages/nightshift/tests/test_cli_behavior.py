@@ -199,7 +199,7 @@ class TestVersionFlag:
 
 
 class TestConfigLoading:
-    """TS-07-13: Configuration loading from .agent-fox/config.toml and AF_CONFIG.
+    """TS-07-13: Configuration loading from .agent-fox/config.toml.
 
     Requirements: 07-REQ-3.5
     """
@@ -210,25 +210,6 @@ class TestConfigLoading:
 
         result = cli_runner.invoke(main, ["--help"])
         assert result.exit_code == 0
-
-    def test_af_config_ignored_with_deprecation_warning(self) -> None:
-        """AF_CONFIG is ignored and does not cause a failure.
-
-        TS-07-13 part 2: AF_CONFIG is deprecated and ignored per 13-REQ-5.1.
-        The nightshift CLI ignores AF_CONFIG and proceeds with the
-        global+local config loading scheme.  Deprecation warning content
-        is tested in test_global_config_loading.py (TS-13-13, TS-13-14).
-        """
-        env = os.environ.copy()
-        env["AF_CONFIG"] = "/nonexistent/config.toml"
-        result = subprocess.run(
-            [sys.executable, "-m", "nightshift", "--help"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            env=env,
-        )
-        assert result.returncode == 0, f"Expected exit code 0 (AF_CONFIG ignored), got {result.returncode}"
 
 
 class TestStartupMessage:
@@ -390,52 +371,6 @@ class TestDoubleSigintAbort:
         assert returncode in (130, -2), f"Expected exit code 130 or -2 after double SIGINT, got {returncode}"
 
 
-class TestStartupFailure:
-    """TS-07-18 / TS-07-E4: Startup failure via invalid config exits code 1.
-
-    Requirements: 07-REQ-3.10, 07-REQ-3.E1
-
-    Note: AF_CONFIG is deprecated and ignored per 13-REQ-5.1.  These tests
-    now verify that AF_CONFIG triggers a deprecation warning but does not
-    affect config loading (the global+local scheme is used instead).
-    """
-
-    def test_af_config_ignored_deprecation_warning(self) -> None:
-        """AF_CONFIG is ignored and does not cause a startup failure.
-
-        TS-07-E4: AF_CONFIG is deprecated per 13-REQ-5.1.  The value is
-        never used for config path resolution.  Deprecation warning
-        content is tested in test_global_config_loading.py (TS-13-13).
-        """
-        env = os.environ.copy()
-        env["AF_CONFIG"] = "/dev/null/invalid"
-        result = subprocess.run(
-            [sys.executable, "-m", "nightshift", "--help"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            env=env,
-        )
-        assert result.returncode == 0, f"Expected exit code 0 (AF_CONFIG ignored), got {result.returncode}"
-
-    def test_af_config_nonexistent_path_ignored(self) -> None:
-        """AF_CONFIG with nonexistent path is ignored; CLI succeeds.
-
-        TS-07-E4: AF_CONFIG is deprecated per 13-REQ-5.1.  The value is
-        never used for config path resolution.
-        """
-        env = os.environ.copy()
-        env["AF_CONFIG"] = "/nonexistent/config.toml"
-        result = subprocess.run(
-            [sys.executable, "-m", "nightshift", "--help"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            env=env,
-        )
-        assert result.returncode == 0, f"Expected exit code 0 (AF_CONFIG ignored), got {result.returncode}"
-
-
 class TestAgentFoxGroupUsage:
     """TS-07-19: app.py uses AgentFoxGroup from agentfox.io as its Click group.
 
@@ -456,9 +391,6 @@ class TestEnvironmentVariables:
     """TS-07-20: Environment variable support for AF_LOG_LEVEL, AF_AGENT.
 
     Requirements: 07-REQ-3.12
-
-    Note: AF_CONFIG is deprecated and ignored per 13-REQ-5.1.  Tests now
-    verify the deprecation warning behavior instead of config loading.
     """
 
     def test_af_agent_env_accepted(self) -> None:
@@ -486,25 +418,6 @@ class TestEnvironmentVariables:
             env=env,
         )
         assert result.returncode == 0
-
-    def test_af_config_deprecated_and_ignored(self) -> None:
-        """AF_CONFIG is deprecated and does not affect config loading.
-
-        13-REQ-5.1: AF_CONFIG is deprecated and ignored.  Deprecation
-        warning content is tested in test_global_config_loading.py.
-        """
-        env = os.environ.copy()
-        env["AF_CONFIG"] = "/nonexistent/config.toml"
-        result = subprocess.run(
-            [sys.executable, "-m", "nightshift", "--help"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            env=env,
-        )
-        assert result.returncode == 0, (
-            f"AF_CONFIG is deprecated and ignored; expected exit 0, got {result.returncode}"
-        )
 
 
 class TestAfAgentMode:
@@ -604,7 +517,6 @@ class TestEnvVarSemantics:
     Requirements: 07-REQ-3.12
 
     Tests AF_LOG_LEVEL and AF_AGENT with correct semantic checks.
-    AF_CONFIG tests verify deprecation behavior per 13-REQ-5.1.
     """
 
     @pytest.mark.parametrize(
@@ -631,36 +543,3 @@ class TestEnvVarSemantics:
             env=env,
         )
         assert result.returncode == 0
-
-    def test_af_config_deprecated_ignored(self) -> None:
-        """AF_CONFIG is deprecated and ignored per 13-REQ-5.1."""
-        env = os.environ.copy()
-        env["AF_CONFIG"] = "/nonexistent/config.toml"
-        result = subprocess.run(
-            [sys.executable, "-m", "nightshift", "--help"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            env=env,
-        )
-        assert result.returncode == 0, f"AF_CONFIG is deprecated and ignored; expected exit 0, got {result.returncode}"
-
-    def test_af_config_deprecation_message(self) -> None:
-        """AF_CONFIG is deprecated and ignored; CLI exits 0 with --help.
-
-        13-REQ-5.1: AF_CONFIG is no longer supported.  The deprecation
-        warning content is verified in test_global_config_loading.py
-        (TS-13-13).  This test confirms AF_CONFIG doesn't break the CLI.
-        """
-        env = os.environ.copy()
-        env["AF_CONFIG"] = "/nonexistent/config.toml"
-        result = subprocess.run(
-            [sys.executable, "-m", "nightshift", "--help"],
-            capture_output=True,
-            text=True,
-            timeout=30,
-            env=env,
-        )
-        assert result.returncode == 0, (
-            f"AF_CONFIG is deprecated and ignored; expected exit 0, got {result.returncode}"
-        )

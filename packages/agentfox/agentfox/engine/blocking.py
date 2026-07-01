@@ -224,8 +224,7 @@ def evaluate_review_blocking(
     if archetype == "reviewer":
         if mode not in ("pre-review", "drift-review", "audit-review"):
             return BlockDecision(should_block=False)
-    elif archetype not in ("skeptic", "oracle"):
-        # Legacy names kept for backward compat with old session records
+    else:
         return BlockDecision(should_block=False)
 
     if knowledge_db_conn is None:
@@ -310,12 +309,6 @@ def evaluate_review_blocking(
                     if rc.drift_review_block_threshold is None:
                         return BlockDecision(should_block=False)
                     configured_threshold = rc.drift_review_block_threshold
-            elif archetype == "skeptic":
-                configured_threshold = rc.pre_review_block_threshold
-            elif archetype == "oracle":
-                if rc.drift_review_block_threshold is None:
-                    return BlockDecision(should_block=False)
-                configured_threshold = rc.drift_review_block_threshold
 
         blocked = critical_count >= configured_threshold
 

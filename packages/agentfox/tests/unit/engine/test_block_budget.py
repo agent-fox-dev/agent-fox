@@ -1,11 +1,10 @@
-"""Tests for block budget and skeptic/oracle blocking integration.
+"""Tests for block budget and review blocking integration.
 
 Covers:
 - Block budget: run stops when blocked fraction exceeds max_blocked_fraction
 - Block budget disabled by default (None)
-- Skeptic blocking: critical findings above threshold block downstream tasks
-- Oracle blocking: drift findings above threshold block downstream tasks
-- Oracle advisory mode: no blocking when block_threshold is None
+- Reviewer blocking: critical findings above threshold block downstream tasks
+- Drift-review advisory mode: no blocking when block_threshold is None
 """
 
 from __future__ import annotations
@@ -196,26 +195,22 @@ class TestBlockBudget:
 # -- Skeptic Blocking Tests --------------------------------------------
 
 
-class TestSkepticBlocking:
-    """Tests for skeptic/oracle blocking integration in the engine."""
+class TestReviewerBlocking:
+    """Tests for reviewer blocking integration in the engine."""
 
     @pytest.mark.asyncio
     async def test_reviewer_blocks_coder_on_critical_findings(
         self,
     ) -> None:
-        """When skeptic finds criticals above threshold, coder is blocked.
-
-        Uses the legacy skeptic archetype (no retry_predecessor) to test
-        permanent blocking. Pre-review mode now has retry_predecessor=True
-        and converts blocks to retries instead.
-        """
+        """When reviewer finds criticals above threshold, coder is blocked."""
         db_conn = write_plan_to_db(
             nodes={
-                "spec_a:1:skeptic": {
-                    "title": "Skeptic Review",
+                "spec_a:1:reviewer:drift-review": {
+                    "title": "Reviewer (drift-review)",
                     "spec_name": "spec_a",
                     "group_number": 1,
-                    "archetype": "skeptic",
+                    "archetype": "reviewer",
+                    "mode": "drift-review",
                 },
                 "spec_a:1": {
                     "title": "Implement spec_a",
@@ -231,10 +226,10 @@ class TestSkepticBlocking:
                 },
             },
             edges=[
-                {"source": "spec_a:1", "target": "spec_a:1:skeptic", "kind": "intra_spec"},
+                {"source": "spec_a:1", "target": "spec_a:1:reviewer:drift-review", "kind": "intra_spec"},
                 {"source": "spec_a:1", "target": "spec_a:1:verifier", "kind": "intra_spec"},
             ],
-            order=["spec_a:1", "spec_a:1:skeptic", "spec_a:1:verifier"],
+            order=["spec_a:1", "spec_a:1:reviewer:drift-review", "spec_a:1:verifier"],
         )
 
         runner = MockSessionRunner()
@@ -243,8 +238,8 @@ class TestSkepticBlocking:
             [MockSessionOutcome("spec_a:1", "completed", archetype="coder")],
         )
         runner.configure(
-            "spec_a:1:skeptic",
-            [MockSessionOutcome("spec_a:1:skeptic", "completed", archetype="skeptic")],
+            "spec_a:1:reviewer:drift-review",
+            [MockSessionOutcome("spec_a:1:reviewer:drift-review", "completed", archetype="reviewer")],
         )
 
         mock_findings = []
@@ -252,11 +247,14 @@ class TestSkepticBlocking:
             finding = MagicMock()
             finding.severity = "critical"
             finding.description = f"Critical issue {i}"
-            finding.task_group = "1"  # must match skeptic's group_number
+            finding.task_group = "1"  # must match reviewer's group_number
             mock_findings.append(finding)
 
         archetypes_config = ArchetypesConfig(
-            reviewer_config=ReviewerConfig(pre_review_block_threshold=3),
+            reviewer_config=ReviewerConfig(
+                pre_review_block_threshold=3,
+                drift_review_block_threshold=3,
+            ),
         )
 
         config = OrchestratorConfig(

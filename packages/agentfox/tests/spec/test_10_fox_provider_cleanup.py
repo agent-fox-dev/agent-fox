@@ -117,9 +117,7 @@ class TestRemovedMethodDefinitionsAbsent:
     def test_method_not_defined(self, method_name: str) -> None:
         source = _read_fox_provider_source()
         pattern = rf"def {method_name}\("
-        assert not re.search(pattern, source), (
-            f"fox_provider.py must not define {method_name}()"
-        )
+        assert not re.search(pattern, source), f"fox_provider.py must not define {method_name}()"
 
 
 # ---------------------------------------------------------------------------
@@ -138,14 +136,9 @@ class TestRetrieveNoRemovedCalls:
         calls = [
             line
             for line in source.splitlines()
-            if method_name in line
-            and not line.strip().startswith("#")
-            and f"def {method_name}" not in line
+            if method_name in line and not line.strip().startswith("#") and f"def {method_name}" not in line
         ]
-        assert not calls, (
-            f"fox_provider.py must not reference {method_name}:\n"
-            + "\n".join(calls)
-        )
+        assert not calls, f"fox_provider.py must not reference {method_name}:\n" + "\n".join(calls)
 
     def test_retrieve_runtime_succeeds(self) -> None:
         """Runtime: retrieve() completes without AttributeError/NameError."""
@@ -175,8 +168,7 @@ class TestItemsWithIdsStructure:
         # The old code used: *((t, None) for t in errata)
         # This pattern must be absent
         assert "(t, None)" not in source, (
-            "fox_provider.py must not contain None-padded tuple construction "
-            "in items_with_ids"
+            "fox_provider.py must not contain None-padded tuple construction in items_with_ids"
         )
 
     def test_retrieve_returns_reviews_only_structure(self) -> None:
@@ -209,9 +201,7 @@ class TestCrossGroupItemsReviewsOnly:
         """Static: cross_group_items must not combine cross_verdicts."""
         source = _read_fox_provider_source()
         # Old code: (cross_reviews + cross_verdicts)[:max_cross_group_items]
-        assert "cross_verdicts" not in source, (
-            "fox_provider.py must not reference cross_verdicts in cross_group_items"
-        )
+        assert "cross_verdicts" not in source, "fox_provider.py must not reference cross_verdicts in cross_group_items"
 
     def test_cross_group_cap_respected(self) -> None:
         """cross_group_items length must not exceed max_cross_group_items."""
@@ -253,14 +243,10 @@ class TestRetrieveLogFormat:
             provider.retrieve(spec_name="my-spec", task_description="test task")
 
         log_lines = [r.message for r in caplog.records if "Retrieved" in r.message and "items for" in r.message]
-        assert len(log_lines) == 1, (
-            f"Expected exactly one 'Retrieved ... items for ...' log line, got {len(log_lines)}"
-        )
+        assert len(log_lines) == 1, f"Expected exactly one 'Retrieved ... items for ...' log line, got {len(log_lines)}"
 
         pattern = r"Retrieved \d+ review \+ \d+ cross-group \+ \d+ context items for my-spec"
-        assert re.search(pattern, log_lines[0]), (
-            f"Log line does not match three-field format:\n  {log_lines[0]}"
-        )
+        assert re.search(pattern, log_lines[0]), f"Log line does not match three-field format:\n  {log_lines[0]}"
         conn.close()
 
 
@@ -282,16 +268,12 @@ class TestNoVerdictIdsInInit:
         )
         assert init_match is not None, "Could not find FoxKnowledgeProvider.__init__"
         init_body = init_match.group(0)
-        assert "verdict_ids" not in init_body, (
-            "FoxKnowledgeProvider.__init__ must not reference verdict_ids"
-        )
+        assert "verdict_ids" not in init_body, "FoxKnowledgeProvider.__init__ must not reference verdict_ids"
 
     def test_verdict_ids_absent_from_class(self) -> None:
         """No verdict_ids anywhere in fox_provider.py source."""
         source = _read_fox_provider_source()
-        assert "verdict_ids" not in source, (
-            "fox_provider.py must not contain any reference to verdict_ids"
-        )
+        assert "verdict_ids" not in source, "fox_provider.py must not contain any reference to verdict_ids"
 
 
 # ---------------------------------------------------------------------------
@@ -341,9 +323,7 @@ class TestLogFormatProperty:
         assert len(matching) == 1
 
         pattern = r"Retrieved \d+ review \+ \d+ cross-group \+ \d+ context items for test-spec"
-        assert re.search(pattern, matching[0]), (
-            f"Log line does not match three-field pattern:\n  {matching[0]}"
-        )
+        assert re.search(pattern, matching[0]), f"Log line does not match three-field pattern:\n  {matching[0]}"
         conn.close()
 
 
@@ -406,7 +386,5 @@ class TestSmokeThreeChannelRetrieval:
         matching = [r.message for r in caplog.records if "Retrieved" in r.message]
         assert len(matching) == 1
         pattern = r"Retrieved \d+ review \+ \d+ cross-group \+ \d+ context items for smoke-spec"
-        assert re.search(pattern, matching[0]), (
-            f"Smoke log line doesn't match three-field format: {matching[0]}"
-        )
+        assert re.search(pattern, matching[0]), f"Smoke log line doesn't match three-field format: {matching[0]}"
         conn.close()

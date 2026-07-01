@@ -1,8 +1,8 @@
 """Analyzer module for Phase 2 auto-improve.
 
 Builds analyzer prompts, parses structured JSON responses, filters
-improvements by confidence and tier priority, and queries the oracle
-for project knowledge context.
+improvements by confidence and tier priority, and queries the knowledge
+store for project context.
 
 Requirements: 31-REQ-3.*, 31-REQ-4.*
 """
@@ -64,8 +64,10 @@ _REQUIRED_IMPROVEMENT_FIELDS = {
 # Convention file names to search for, in priority order
 _CONVENTION_FILES = ("CLAUDE.md", "AGENTS.md", "README.md")
 
-# Seed question for oracle context enrichment (31-REQ-4.1)
-_ORACLE_SEED_QUESTION = "What are the established patterns, conventions, and architectural decisions in this project?"
+# Seed question for knowledge context enrichment (31-REQ-4.1)
+_KNOWLEDGE_SEED_QUESTION = (
+    "What are the established patterns, conventions, and architectural decisions in this project?"
+)
 
 
 @dataclass(frozen=True)
@@ -261,10 +263,10 @@ def filter_improvements(
     return filtered
 
 
-def query_oracle_context(config: AgentFoxConfig) -> str:
-    """Query the oracle for project knowledge context.
+def query_knowledge_context(config: AgentFoxConfig) -> str:
+    """Query the knowledge store for project context.
 
-    Runs the oracle RAG pipeline with the seed question about patterns,
+    Runs the knowledge RAG pipeline with the seed question about patterns,
     conventions, and architectural decisions. Returns formatted context
     string. DuckDB errors propagate to the caller (38-REQ-3.1).
 
@@ -303,7 +305,7 @@ def query_oracle_context(config: AgentFoxConfig) -> str:
 
 
 def load_review_context(project_root: Path) -> str:
-    """Load existing skeptic/verifier findings from DuckDB.
+    """Load existing reviewer/verifier findings from DuckDB.
 
     Opens knowledge.duckdb with ``read_only=True`` — this function
     performs only SELECT queries via ``query_active_findings``.

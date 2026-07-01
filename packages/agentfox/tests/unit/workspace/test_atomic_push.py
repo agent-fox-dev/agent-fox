@@ -1659,7 +1659,9 @@ class TestSmokeHarvestPushRetry:
         ):
             result = await harvest(
                 repo_root,
-                fake_workspace, dev_branch="develop", push=True,
+                fake_workspace,
+                dev_branch="develop",
+                push=True,
                 audit_sink=sink,
                 run_id="test-run",
             )
@@ -1716,7 +1718,9 @@ class TestSmokeHarvestPushSuccessFirstTry:
         ):
             result = await harvest(
                 repo_root,
-                fake_workspace, dev_branch="develop", push=True,
+                fake_workspace,
+                dev_branch="develop",
+                push=True,
                 audit_sink=sink,
                 run_id="test-run",
             )

@@ -56,7 +56,7 @@ class TestConvergeReviewerPreReview:
         """TS-98-11: converge_reviewer(results, 'pre-review') uses skeptic algorithm."""
         from agentfox.session.convergence import (
             converge_reviewer,  # type: ignore[attr-defined]
-            converge_skeptic,
+            converge_reviewer_pre,
         )
 
         # 3 instances, each with 1 critical finding (same description for dedup)
@@ -67,10 +67,10 @@ class TestConvergeReviewerPreReview:
         ]
 
         result = converge_reviewer(results, mode="pre-review", block_threshold=3)
-        expected = converge_skeptic(results, block_threshold=3)
+        expected = converge_reviewer_pre(results, block_threshold=3)
 
         assert result == expected, (
-            f"pre-review convergence should match converge_skeptic output. Expected {expected}, got {result}"
+            f"pre-review convergence should match converge_reviewer_pre output. Expected {expected}, got {result}"
         )
 
     def test_pre_review_blocking(self) -> None:
@@ -92,7 +92,7 @@ class TestConvergeReviewerPreReview:
         """TS-98-11: converge_reviewer(results, 'drift-review') uses skeptic algorithm."""
         from agentfox.session.convergence import (
             converge_reviewer,  # type: ignore[attr-defined]
-            converge_skeptic,
+            converge_reviewer_pre,
         )
 
         results = [
@@ -101,10 +101,10 @@ class TestConvergeReviewerPreReview:
         ]
 
         result = converge_reviewer(results, mode="drift-review", block_threshold=5)
-        expected = converge_skeptic(results, block_threshold=5)
+        expected = converge_reviewer_pre(results, block_threshold=5)
 
         assert result == expected, (
-            f"drift-review convergence should match converge_skeptic output. Expected {expected}, got {result}"
+            f"drift-review convergence should match converge_reviewer_pre output. Expected {expected}, got {result}"
         )
 
 

@@ -43,7 +43,7 @@ def finding_row_strategy():
         FindingRow,
         id=st.text(min_size=8, max_size=12, alphabet="abcdef0123456789").map(lambda s: f"F-{s}"),
         severity=st.sampled_from(SEVERITY_LEVELS),
-        archetype=st.sampled_from(["skeptic", "oracle"]),
+        archetype=st.sampled_from(["reviewer"]),
         spec_name=st.text(min_size=1, max_size=20, alphabet="abcdefghijklmnopqrstuvwxyz_0123456789"),
         task_group=st.sampled_from(["1", "2", "3"]),
         description=st.text(
@@ -90,12 +90,13 @@ class TestAuditEventCountProperty:
             findings_json,
             "test:1",
             1,
-            archetype="skeptic",
+            archetype="reviewer",
             spec_name="test",
             task_group="1",
             knowledge_db_conn=conn,
             sink=mock_sink,
             run_id="run-test",
+            mode="pre-review",
         )
 
         # Find the persisted audit event — must exist
@@ -139,7 +140,7 @@ class TestBlockReasonIdCapProperty:
         ]
 
         reason = _format_block_reason(
-            archetype="skeptic",
+            archetype="reviewer",
             findings=findings,
             threshold=0,
             spec_name="test",

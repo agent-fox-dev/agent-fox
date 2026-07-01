@@ -26,7 +26,7 @@ from tests.unit.engine.conftest import write_plan_to_db
 
 SPEC_NAMES = ["alpha", "beta", "gamma", "delta", "epsilon"]
 STATUSES = ["pending", "completed", "failed", "blocked", "in_progress"]
-ARCHETYPES = ["coder", "skeptic", "auditor", "verifier", "oracle"]
+ARCHETYPES = ["coder", "reviewer", "verifier"]
 
 
 @st.composite

@@ -58,11 +58,7 @@ class TestTierDefaultsAdvancedInvariant:
         """TS-14-27 / TS-14-P1: TIER_DEFAULTS['ADVANCED'] == MODEL_REGISTRY entry
         with tier=ADVANCED and variant='standard'.
         """
-        standard_advanced = next(
-            e
-            for e in MODEL_REGISTRY.values()
-            if e.tier == "ADVANCED" and e.variant == "standard"
-        )
+        standard_advanced = next(e for e in MODEL_REGISTRY.values() if e.tier == "ADVANCED" and e.variant == "standard")
         assert TIER_DEFAULTS["ADVANCED"] == standard_advanced.model_id
 
 
@@ -90,9 +86,7 @@ class TestVariantNoneBackwardCompat:
 class TestResolveModelFallbackSimpleExtended:
     """Verify resolve_model falls back to TIER_DEFAULTS and emits DEBUG log."""
 
-    def test_simple_extended_falls_back_to_haiku(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_simple_extended_falls_back_to_haiku(self, caplog: pytest.LogCaptureFixture) -> None:
         """TS-14-26 / TS-14-34 / TS-14-E4: resolve_model('SIMPLE', variant='extended')
         returns 'claude-haiku-4-5' and emits a DEBUG log.
         """
@@ -101,9 +95,9 @@ class TestResolveModelFallbackSimpleExtended:
 
         assert result == TIER_DEFAULTS["SIMPLE"]
         assert result == "claude-haiku-4-5"
-        assert any(
-            record.levelno == logging.DEBUG for record in caplog.records
-        ), "Expected at least one DEBUG log to be emitted"
+        assert any(record.levelno == logging.DEBUG for record in caplog.records), (
+            "Expected at least one DEBUG log to be emitted"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -115,9 +109,7 @@ class TestResolveModelFallbackSimpleExtended:
 class TestResolveModelUnrecognizedVariant:
     """Verify resolve_model never raises for an unrecognized variant string."""
 
-    def test_turbo_variant_no_exception(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_turbo_variant_no_exception(self, caplog: pytest.LogCaptureFixture) -> None:
         """TS-14-35 / TS-14-E5: resolve_model('ADVANCED', variant='turbo')
         returns a non-empty string and emits a DEBUG log; no exception raised.
         """
@@ -126,9 +118,7 @@ class TestResolveModelUnrecognizedVariant:
 
         assert isinstance(result, str) and len(result) > 0
         assert result == TIER_DEFAULTS["ADVANCED"]
-        assert any(
-            record.levelno == logging.DEBUG for record in caplog.records
-        ), "Expected a DEBUG-level fallback log"
+        assert any(record.levelno == logging.DEBUG for record in caplog.records), "Expected a DEBUG-level fallback log"
 
 
 # ---------------------------------------------------------------------------
@@ -140,9 +130,7 @@ class TestResolveModelUnrecognizedVariant:
 class TestResolveModelFallbackLogLevel:
     """Verify the fallback log is emitted at DEBUG only, not WARNING or ERROR."""
 
-    def test_fallback_log_is_debug_only(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_fallback_log_is_debug_only(self, caplog: pytest.LogCaptureFixture) -> None:
         """TS-14-36: Fallback log for unmatched variant is DEBUG;
         no WARNING or ERROR emitted.
         """
@@ -150,20 +138,15 @@ class TestResolveModelFallbackLogLevel:
             resolve_model("SIMPLE", variant="extended")
 
         # Any log referencing variant/fallback must be DEBUG level.
-        fallback_logs = [
-            r
-            for r in caplog.records
-            if "variant" in r.message.lower() or "fallback" in r.message.lower()
-        ]
-        assert all(
-            r.levelno == logging.DEBUG for r in fallback_logs
-        ), "All variant/fallback log messages must be DEBUG level"
+        fallback_logs = [r for r in caplog.records if "variant" in r.message.lower() or "fallback" in r.message.lower()]
+        assert all(r.levelno == logging.DEBUG for r in fallback_logs), (
+            "All variant/fallback log messages must be DEBUG level"
+        )
 
         # No WARNING or ERROR logs from the models module.
-        assert not any(
-            r.levelno in (logging.WARNING, logging.ERROR)
-            for r in caplog.records
-        ), "No WARNING or ERROR logs should be emitted for variant fallback"
+        assert not any(r.levelno in (logging.WARNING, logging.ERROR) for r in caplog.records), (
+            "No WARNING or ERROR logs should be emitted for variant fallback"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -175,9 +158,7 @@ class TestResolveModelFallbackLogLevel:
 class TestResolveModelCanonicalVariantUnavailable:
     """Verify that a canonical variant unavailable for the tier triggers fallback."""
 
-    def test_simple_standard_variant_falls_back(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_simple_standard_variant_falls_back(self, caplog: pytest.LogCaptureFixture) -> None:
         """TS-14-E7: resolve_model('SIMPLE', variant='standard') returns
         TIER_DEFAULTS['SIMPLE'] and emits a DEBUG log.
         """
@@ -186,9 +167,9 @@ class TestResolveModelCanonicalVariantUnavailable:
 
         assert result == TIER_DEFAULTS["SIMPLE"]
         assert result == "claude-haiku-4-5"
-        assert any(
-            record.levelno == logging.DEBUG for record in caplog.records
-        ), "Expected a DEBUG log for unavailable canonical variant"
+        assert any(record.levelno == logging.DEBUG for record in caplog.records), (
+            "Expected a DEBUG log for unavailable canonical variant"
+        )
 
 
 # ---------------------------------------------------------------------------

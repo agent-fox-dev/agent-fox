@@ -118,30 +118,18 @@ class TestOverridesTomlParsing:
     def test_coexists_with_boolean_enables(self, tmp_path: Path) -> None:
         """overrides and boolean enable flags work together."""
         config_file = tmp_path / "config.toml"
-        config_file.write_text(
-            '[archetypes]\ncoder = true\nreviewer = true\n[archetypes.overrides.coder]\nmodel_tier = "ADVANCED"\n'
-        )
+        config_file.write_text('[archetypes]\nreviewer = true\n[archetypes.overrides.coder]\nmodel_tier = "ADVANCED"\n')
         config = load_config(path=config_file)
-        assert config.archetypes.coder is True
         assert config.archetypes.overrides["coder"].model_tier == "ADVANCED"
 
 
 # ---------------------------------------------------------------------------
-# resolve_max_turns — priority: overrides > legacy > registry
+# resolve_max_turns — priority: overrides > registry
 # ---------------------------------------------------------------------------
 
 
 class TestResolveMaxTurnsWithOverrides:
     """resolve_max_turns checks overrides first."""
-
-    def test_override_takes_precedence_over_legacy_dict(self) -> None:
-        config = AgentFoxConfig(
-            archetypes=ArchetypesConfig(
-                max_turns={"coder": 100},  # legacy
-                overrides={"coder": PerArchetypeConfig(max_turns=200)},  # new
-            )
-        )
-        assert resolve_max_turns(config, "coder") == 200
 
     def test_override_takes_precedence_over_registry(self) -> None:
         config = AgentFoxConfig(
@@ -159,31 +147,29 @@ class TestResolveMaxTurnsWithOverrides:
         )
         assert resolve_max_turns(config, "coder") is None
 
-    def test_legacy_dict_used_when_no_override(self) -> None:
-        config = AgentFoxConfig(archetypes=ArchetypesConfig(max_turns={"coder": 150}))
-        assert resolve_max_turns(config, "coder") == 150
-
-    def test_registry_default_used_when_neither(self) -> None:
-        """No override and no legacy dict → registry default."""
+    def test_registry_default_used_when_no_override(self) -> None:
+        """No override → registry default."""
         from agentfox.archetypes import ARCHETYPE_REGISTRY
 
         config = AgentFoxConfig()
         expected = ARCHETYPE_REGISTRY["coder"].default_max_turns
         assert resolve_max_turns(config, "coder") == expected
 
-    def test_override_none_max_turns_falls_through(self) -> None:
-        """PerArchetypeConfig with max_turns=None falls through to legacy dict."""
+    def test_override_none_max_turns_falls_through_to_registry(self) -> None:
+        """PerArchetypeConfig with max_turns=None falls through to registry default."""
+        from agentfox.archetypes import ARCHETYPE_REGISTRY
+
         config = AgentFoxConfig(
             archetypes=ArchetypesConfig(
-                max_turns={"coder": 100},
                 overrides={"coder": PerArchetypeConfig(max_turns=None)},
             )
         )
-        assert resolve_max_turns(config, "coder") == 100
+        expected = ARCHETYPE_REGISTRY["coder"].default_max_turns
+        assert resolve_max_turns(config, "coder") == expected
 
 
 # ---------------------------------------------------------------------------
-# resolve_thinking — priority: overrides > legacy > registry
+# resolve_thinking — priority: overrides > registry
 # ---------------------------------------------------------------------------
 
 
@@ -219,47 +205,29 @@ class TestResolveThinkingWithOverrides:
         result = resolve_thinking(config, "coder")
         assert result is None
 
-    def test_override_takes_precedence_over_legacy_thinking_dict(self) -> None:
-        from agentfox.core.config import ThinkingConfig
+    def test_override_none_thinking_mode_falls_through_to_registry(self) -> None:
+        """PerArchetypeConfig with thinking_mode=None falls through to registry default."""
+        from agentfox.archetypes import ARCHETYPE_REGISTRY
 
         config = AgentFoxConfig(
             archetypes=ArchetypesConfig(
-                thinking={"coder": ThinkingConfig(mode="enabled", budget_tokens=5000)},
-                overrides={"coder": PerArchetypeConfig(thinking_mode="disabled")},
-            )
-        )
-        # Override wins → disabled
-        result = resolve_thinking(config, "coder")
-        assert result is None
-
-    def test_legacy_thinking_dict_used_when_no_override(self) -> None:
-        from agentfox.core.config import ThinkingConfig
-
-        config = AgentFoxConfig(
-            archetypes=ArchetypesConfig(
-                thinking={"reviewer": ThinkingConfig(mode="adaptive", budget_tokens=8000)},
-            )
-        )
-        result = resolve_thinking(config, "reviewer")
-        assert result == {"type": "adaptive", "budget_tokens": 8000}
-
-    def test_override_none_thinking_mode_falls_through(self) -> None:
-        """PerArchetypeConfig with thinking_mode=None falls through to legacy."""
-        from agentfox.core.config import ThinkingConfig
-
-        config = AgentFoxConfig(
-            archetypes=ArchetypesConfig(
-                thinking={"coder": ThinkingConfig(mode="enabled", budget_tokens=5000)},
                 overrides={"coder": PerArchetypeConfig(thinking_mode=None)},
             )
         )
-        # thinking_mode is None in override → check legacy
+        # thinking_mode is None in override → check registry
         result = resolve_thinking(config, "coder")
-        assert result == {"type": "enabled", "budget_tokens": 5000}
+        coder_entry = ARCHETYPE_REGISTRY["coder"]
+        if coder_entry.default_thinking_mode == "disabled":
+            assert result is None
+        else:
+            assert result == {
+                "type": coder_entry.default_thinking_mode,
+                "budget_tokens": coder_entry.default_thinking_budget,
+            }
 
 
 # ---------------------------------------------------------------------------
-# _resolve_model_tier — priority: overrides > legacy > registry
+# _resolve_model_tier — priority: overrides > registry
 # ---------------------------------------------------------------------------
 
 
@@ -271,8 +239,7 @@ class TestResolveModelTierWithOverrides:
 
         config = AgentFoxConfig(
             archetypes=ArchetypesConfig(
-                models={"coder": "STANDARD"},  # legacy
-                overrides={"coder": PerArchetypeConfig(model_tier="ADVANCED")},  # new
+                overrides={"coder": PerArchetypeConfig(model_tier="ADVANCED")},
             )
         )
         runner = NodeSessionRunner("spec:1", config, archetype="coder", knowledge_db=_MOCK_KB)
@@ -291,28 +258,21 @@ class TestResolveModelTierWithOverrides:
         # STANDARD → claude-sonnet-4-6
         assert runner._resolved_model_id == "claude-sonnet-4-6"
 
-    def test_legacy_models_dict_used_when_no_override(self) -> None:
-        from agentfox.engine.session_lifecycle import NodeSessionRunner
-
-        config = AgentFoxConfig(archetypes=ArchetypesConfig(models={"coder": "ADVANCED"}))
-        runner = NodeSessionRunner("spec:1", config, archetype="coder", knowledge_db=_MOCK_KB)
-        assert runner._resolved_model_id == "claude-opus-4-6"
-
-    def test_override_none_model_tier_falls_through_to_legacy(self) -> None:
+    def test_override_none_model_tier_falls_through_to_registry(self) -> None:
         from agentfox.engine.session_lifecycle import NodeSessionRunner
 
         config = AgentFoxConfig(
             archetypes=ArchetypesConfig(
-                models={"coder": "ADVANCED"},
                 overrides={"coder": PerArchetypeConfig(model_tier=None)},
             )
         )
         runner = NodeSessionRunner("spec:1", config, archetype="coder", knowledge_db=_MOCK_KB)
-        assert runner._resolved_model_id == "claude-opus-4-6"
+        # Falls through to registry default (STANDARD for coder)
+        assert runner._resolved_model_id == "claude-sonnet-4-6"
 
 
 # ---------------------------------------------------------------------------
-# _resolve_security_config — priority: overrides > legacy > registry
+# _resolve_security_config — priority: overrides > registry
 # ---------------------------------------------------------------------------
 
 
@@ -324,34 +284,24 @@ class TestResolveSecurityConfigWithOverrides:
 
         config = AgentFoxConfig(
             archetypes=ArchetypesConfig(
-                allowlists={"coder": ["ls"]},  # legacy
-                overrides={"coder": PerArchetypeConfig(allowlist=["git", "grep"])},  # new
+                overrides={"coder": PerArchetypeConfig(allowlist=["git", "grep"])},
             )
         )
         sec = resolve_security_config(config, "coder")
         assert sec is not None
         assert sec.bash_allowlist == ["git", "grep"]
 
-    def test_legacy_allowlist_used_when_no_override(self) -> None:
-        from agentfox.engine.sdk_params import resolve_security_config
-
-        config = AgentFoxConfig(archetypes=ArchetypesConfig(allowlists={"coder": ["make", "uv"]}))
-        sec = resolve_security_config(config, "coder")
-        assert sec is not None
-        assert sec.bash_allowlist == ["make", "uv"]
-
-    def test_override_none_allowlist_falls_through_to_legacy(self) -> None:
+    def test_override_none_allowlist_falls_through_to_registry(self) -> None:
         from agentfox.engine.sdk_params import resolve_security_config
 
         config = AgentFoxConfig(
             archetypes=ArchetypesConfig(
-                allowlists={"coder": ["make"]},
                 overrides={"coder": PerArchetypeConfig(allowlist=None)},
             )
         )
+        # Coder has no default allowlist in the registry → returns None
         sec = resolve_security_config(config, "coder")
-        assert sec is not None
-        assert sec.bash_allowlist == ["make"]
+        assert sec is None
 
     def test_override_empty_allowlist_not_treated_as_none(self) -> None:
         """An explicit empty list [] is a valid allowlist (no commands allowed)."""
@@ -359,8 +309,7 @@ class TestResolveSecurityConfigWithOverrides:
 
         config = AgentFoxConfig(
             archetypes=ArchetypesConfig(
-                allowlists={"coder": ["make"]},  # legacy
-                overrides={"coder": PerArchetypeConfig(allowlist=[])},  # override with empty
+                overrides={"coder": PerArchetypeConfig(allowlist=[])},
             )
         )
         sec = resolve_security_config(config, "coder")
@@ -399,17 +348,17 @@ class TestEndToEndTomlResolution:
         result = resolve_thinking(config, "verifier")
         assert result == {"type": "enabled", "budget_tokens": 8000}
 
-    def test_backwards_compat_legacy_max_turns_dict(self, tmp_path: Path) -> None:
-        """Old archetypes.max_turns dict style still works."""
+    def test_overrides_max_turns_from_toml(self, tmp_path: Path) -> None:
+        """archetypes.overrides.coder.max_turns from TOML resolves correctly."""
         config_file = tmp_path / "config.toml"
-        config_file.write_text("[archetypes.max_turns]\ncoder = 150\n")
+        config_file.write_text("[archetypes.overrides.coder]\nmax_turns = 150\n")
         config = load_config(path=config_file)
         assert resolve_max_turns(config, "coder") == 150
 
-    def test_backwards_compat_legacy_thinking_dict(self, tmp_path: Path) -> None:
-        """Old archetypes.thinking dict style still works."""
+    def test_overrides_thinking_from_toml(self, tmp_path: Path) -> None:
+        """archetypes.overrides.coder thinking fields from TOML resolve correctly."""
         config_file = tmp_path / "config.toml"
-        config_file.write_text('[archetypes.thinking.coder]\nmode = "enabled"\nbudget_tokens = 20000\n')
+        config_file.write_text('[archetypes.overrides.coder]\nthinking_mode = "enabled"\nthinking_budget = 20000\n')
         config = load_config(path=config_file)
         result = resolve_thinking(config, "coder")
         assert result == {"type": "enabled", "budget_tokens": 20000}

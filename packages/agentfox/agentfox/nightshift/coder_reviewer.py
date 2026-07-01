@@ -67,7 +67,9 @@ class CoderReviewerLoop:
         # so that pre_assessed complexity from triage can upgrade the starting
         # tier without a redundant Haiku LLM call (15-REQ-11.3, 15-REQ-11.5).
         ladder = await self._build_coder_ladder(
-            spec, assessed_complexity, retries_before,
+            spec,
+            assessed_complexity,
+            retries_before,
         )
 
         review_feedback: FixReviewResult | None = None
@@ -159,8 +161,7 @@ class CoderReviewerLoop:
             return ladder
         except Exception:
             logger.debug(
-                "Could not run complexity assessment for coder node %s; "
-                "falling back to base ladder",
+                "Could not run complexity assessment for coder node %s; falling back to base ladder",
                 node_id,
                 exc_info=True,
             )

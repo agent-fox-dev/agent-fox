@@ -655,10 +655,7 @@ def _check_group_test_spec_refs(group: TaskGroup) -> list[ValidationWarning]:
     if total > _MAX_GROUP_TEST_SPEC_REFS:
         return [
             ValidationWarning(
-                message=(
-                    f"Group {group.id} has {total} test_spec_refs "
-                    f"(limit {_MAX_GROUP_TEST_SPEC_REFS})"
-                ),
+                message=(f"Group {group.id} has {total} test_spec_refs (limit {_MAX_GROUP_TEST_SPEC_REFS})"),
                 entity_id=str(group.id),
             )
         ]
@@ -676,8 +673,7 @@ def _check_group_subtask_count(group: TaskGroup) -> list[ValidationWarning]:
         return [
             ValidationWarning(
                 message=(
-                    f"Group {group.id} has {count} subtasks "
-                    f"(limit {_MAX_SUBTASKS_PER_GROUP}, excluding verification)"
+                    f"Group {group.id} has {count} subtasks (limit {_MAX_SUBTASKS_PER_GROUP}, excluding verification)"
                 ),
                 entity_id=str(group.id),
             )
@@ -697,8 +693,7 @@ def _check_subtask_overload(group: TaskGroup) -> list[ValidationWarning]:
             warnings.append(
                 ValidationWarning(
                     message=(
-                        f"Subtask {subtask.id} references {count} "
-                        f"test_spec_refs (limit {_MAX_SUBTASK_TEST_SPEC_REFS})"
+                        f"Subtask {subtask.id} references {count} test_spec_refs (limit {_MAX_SUBTASK_TEST_SPEC_REFS})"
                     ),
                     entity_id=subtask.id,
                 )

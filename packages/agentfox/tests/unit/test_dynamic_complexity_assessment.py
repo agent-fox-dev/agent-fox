@@ -363,12 +363,8 @@ class TestComplexityAssessorStatelessness:
         assessor = ComplexityAssessor(client=mock_client)
 
         async def _run() -> tuple[AssessmentResult, AssessmentResult]:
-            task1 = assessor.assess(
-                "body1", "coder", None, "STANDARD", "standard", None
-            )
-            task2 = assessor.assess(
-                "body2", "reviewer", "fix-review", "STANDARD", "standard", None
-            )
+            task1 = assessor.assess("body1", "coder", None, "STANDARD", "standard", None)
+            task2 = assessor.assess("body2", "reviewer", "fix-review", "STANDARD", "standard", None)
             return await asyncio.gather(task1, task2)  # type: ignore[return-value]
 
         result1, result2 = asyncio.run(_run())
@@ -391,21 +387,13 @@ class TestComplexityAssessorNoConcurrencyCap:
         assessor = ComplexityAssessor(client=mock_client)
 
         async def _run() -> list[AssessmentResult]:
-            tasks = [
-                assessor.assess(
-                    "body", "coder", None, "STANDARD", "standard", None
-                )
-                for _ in range(3)
-            ]
+            tasks = [assessor.assess("body", "coder", None, "STANDARD", "standard", None) for _ in range(3)]
             return await asyncio.gather(*tasks)
 
         results = asyncio.run(_run())
 
         assert len(results) == 3
-        assert all(
-            r.recommended_tier in ("SIMPLE", "STANDARD", "ADVANCED")
-            for r in results
-        )
+        assert all(r.recommended_tier in ("SIMPLE", "STANDARD", "ADVANCED") for r in results)
         assert mock_client.messages.create.call_count == 3
 
 
@@ -454,9 +442,7 @@ class TestAssessmentManagerClientNone:
         # Coder base tier should be STANDARD per spec 15-REQ-8.1
         assert hasattr(ladder, "starting_tier") or hasattr(ladder, "_starting_tier")
 
-    def test_no_warning_logs_emitted(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_no_warning_logs_emitted(self, caplog: pytest.LogCaptureFixture) -> None:
         """No WARNING or ERROR logs emitted on client=None path."""
         from agentfox.engine.engine import AssessmentManager
 
@@ -473,9 +459,7 @@ class TestAssessmentManagerClientNone:
                 )
             )
 
-        warning_records = [
-            r for r in caplog.records if r.levelno >= logging.WARNING
-        ]
+        warning_records = [r for r in caplog.records if r.levelno >= logging.WARNING]
         assert len(warning_records) == 0
 
 
@@ -518,9 +502,7 @@ class TestAssessmentManagerClientNoneMultipleNodes:
     Requirement: 15-REQ-1.E1
     """
 
-    def test_multiple_nodes_all_fallback(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_multiple_nodes_all_fallback(self, caplog: pytest.LogCaptureFixture) -> None:
         """All assess_node() calls silently return base tier/variant."""
         from agentfox.engine.engine import AssessmentManager
 
@@ -544,9 +526,7 @@ class TestAssessmentManagerClientNoneMultipleNodes:
                 )
                 assert ladder is not None
 
-        warning_records = [
-            r for r in caplog.records if r.levelno >= logging.WARNING
-        ]
+        warning_records = [r for r in caplog.records if r.levelno >= logging.WARNING]
         assert len(warning_records) == 0
 
 
@@ -903,9 +883,7 @@ class TestAssessmentTimeoutEnforcement:
         )
 
         timeout = captured_kwargs.get("timeout")
-        assert timeout == 30 or timeout == 30.0, (
-            f"Expected timeout=30, got timeout={timeout}"
-        )
+        assert timeout == 30 or timeout == 30.0, f"Expected timeout=30, got timeout={timeout}"
 
     def test_api_call_uses_configured_model(self) -> None:
         """The API call uses the assessor's configured model."""
@@ -999,9 +977,7 @@ class TestComplexityAssessorParseFailures:
     Requirement: 15-REQ-2.E1
     """
 
-    def test_malformed_json_logs_warning_and_falls_back(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_malformed_json_logs_warning_and_falls_back(self, caplog: pytest.LogCaptureFixture) -> None:
         """Malformed JSON triggers WARNING and base tier/variant fallback."""
         mock_client = _make_mock_client("not json at all")
         assessor = ComplexityAssessor(client=mock_client)
@@ -1026,16 +1002,10 @@ class TestComplexityAssessorParseFailures:
         warning_logs = [r for r in caplog.records if r.levelno >= logging.WARNING]
         assert len(warning_logs) >= 1
 
-    def test_missing_required_field_logs_warning_and_falls_back(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_missing_required_field_logs_warning_and_falls_back(self, caplog: pytest.LogCaptureFixture) -> None:
         """Missing required field (rationale) triggers WARNING and fallback."""
         # Missing 'rationale' field
-        bad_json = (
-            '{"recommended_tier": "ADVANCED", '
-            '"recommended_variant": "standard", '
-            '"confidence": 0.8}'
-        )
+        bad_json = '{"recommended_tier": "ADVANCED", "recommended_variant": "standard", "confidence": 0.8}'
         mock_client = _make_mock_client(bad_json)
         assessor = ComplexityAssessor(client=mock_client)
 
@@ -1058,15 +1028,10 @@ class TestComplexityAssessorParseFailures:
         warning_logs = [r for r in caplog.records if r.levelno >= logging.WARNING]
         assert len(warning_logs) >= 1
 
-    def test_out_of_range_confidence_logs_warning_and_falls_back(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_out_of_range_confidence_logs_warning_and_falls_back(self, caplog: pytest.LogCaptureFixture) -> None:
         """Confidence=1.5 (out of [0.0, 1.0]) triggers WARNING and fallback."""
         bad_json = (
-            '{"recommended_tier": "ADVANCED", '
-            '"recommended_variant": "standard", '
-            '"confidence": 1.5, '
-            '"rationale": "r"}'
+            '{"recommended_tier": "ADVANCED", "recommended_variant": "standard", "confidence": 1.5, "rationale": "r"}'
         )
         mock_client = _make_mock_client(bad_json)
         assessor = ComplexityAssessor(client=mock_client)
@@ -1090,15 +1055,10 @@ class TestComplexityAssessorParseFailures:
         warning_logs = [r for r in caplog.records if r.levelno >= logging.WARNING]
         assert len(warning_logs) >= 1
 
-    def test_wrong_case_tier_logs_warning_and_falls_back(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_wrong_case_tier_logs_warning_and_falls_back(self, caplog: pytest.LogCaptureFixture) -> None:
         """Wrong-case tier ('advanced' instead of 'ADVANCED') triggers WARNING."""
         bad_json = (
-            '{"recommended_tier": "advanced", '
-            '"recommended_variant": "standard", '
-            '"confidence": 0.8, '
-            '"rationale": "r"}'
+            '{"recommended_tier": "advanced", "recommended_variant": "standard", "confidence": 0.8, "rationale": "r"}'
         )
         mock_client = _make_mock_client(bad_json)
         assessor = ComplexityAssessor(client=mock_client)
@@ -1122,15 +1082,10 @@ class TestComplexityAssessorParseFailures:
         warning_logs = [r for r in caplog.records if r.levelno >= logging.WARNING]
         assert len(warning_logs) >= 1
 
-    def test_wrong_case_variant_logs_warning_and_falls_back(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_wrong_case_variant_logs_warning_and_falls_back(self, caplog: pytest.LogCaptureFixture) -> None:
         """Wrong-case variant ('Standard' instead of 'standard') triggers WARNING."""
         bad_json = (
-            '{"recommended_tier": "ADVANCED", '
-            '"recommended_variant": "Standard", '
-            '"confidence": 0.8, '
-            '"rationale": "r"}'
+            '{"recommended_tier": "ADVANCED", "recommended_variant": "Standard", "confidence": 0.8, "rationale": "r"}'
         )
         mock_client = _make_mock_client(bad_json)
         assessor = ComplexityAssessor(client=mock_client)
@@ -1159,8 +1114,7 @@ class TestComplexityAssessorParseFailures:
         [
             pytest.param("not json at all", id="malformed-json"),
             pytest.param(
-                '{"recommended_tier": "ADVANCED", "recommended_variant": "standard", '
-                '"confidence": 0.8}',
+                '{"recommended_tier": "ADVANCED", "recommended_variant": "standard", "confidence": 0.8}',
                 id="missing-rationale",
             ),
             pytest.param(
@@ -1230,9 +1184,7 @@ class TestComplexityAssessorTimeoutError:
     Requirement: 15-REQ-2.E2
     """
 
-    def test_timeout_error_returns_base_without_raising(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_timeout_error_returns_base_without_raising(self, caplog: pytest.LogCaptureFixture) -> None:
         """APITimeoutError does not propagate; returns base tier/variant."""
         mock_client = MagicMock()
         mock_client.messages.create = AsyncMock(
@@ -1259,9 +1211,7 @@ class TestComplexityAssessorTimeoutError:
         assert result.recommended_tier == "STANDARD"
         assert result.recommended_variant == "standard"
 
-    def test_timeout_error_logs_warning_with_timeout_message(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_timeout_error_logs_warning_with_timeout_message(self, caplog: pytest.LogCaptureFixture) -> None:
         """WARNING log includes 'timeout' or exception details."""
         mock_client = MagicMock()
         mock_client.messages.create = AsyncMock(
@@ -1285,9 +1235,9 @@ class TestComplexityAssessorTimeoutError:
         assert len(warning_logs) >= 1
 
         log_text = " ".join(r.getMessage() for r in warning_logs)
-        assert (
-            "timeout" in log_text.lower() or "Timeout" in log_text
-        ), f"Expected 'timeout' in warning log, got: {log_text}"
+        assert "timeout" in log_text.lower() or "Timeout" in log_text, (
+            f"Expected 'timeout' in warning log, got: {log_text}"
+        )
 
     def test_timeout_no_retry(self) -> None:
         """API call made exactly once — no retry on timeout."""
@@ -1318,9 +1268,7 @@ class TestComplexityAssessorRateLimitError:
     Requirement: 15-REQ-2.E3
     """
 
-    def test_rate_limit_error_returns_base_without_raising(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_rate_limit_error_returns_base_without_raising(self, caplog: pytest.LogCaptureFixture) -> None:
         """RateLimitError does not propagate; returns base tier/variant."""
         mock_client = MagicMock()
         mock_client.messages.create = AsyncMock(
@@ -1347,9 +1295,7 @@ class TestComplexityAssessorRateLimitError:
         assert result.recommended_tier == "STANDARD"
         assert result.recommended_variant == "standard"
 
-    def test_rate_limit_error_logs_warning(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_rate_limit_error_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
         """WARNING log emitted on rate limit error."""
         mock_client = MagicMock()
         mock_client.messages.create = AsyncMock(
@@ -1410,9 +1356,7 @@ class TestComplexityAssessorNetworkError:
     Requirement: 15-REQ-12.1
     """
 
-    def test_connection_error_returns_base_without_raising(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_connection_error_returns_base_without_raising(self, caplog: pytest.LogCaptureFixture) -> None:
         """ConnectionError does not propagate; returns base tier/variant."""
         mock_client = MagicMock()
         mock_client.messages.create = AsyncMock(
@@ -1439,9 +1383,7 @@ class TestComplexityAssessorNetworkError:
         assert result.recommended_tier == "STANDARD"
         assert result.recommended_variant == "standard"
 
-    def test_connection_error_logs_warning_with_details(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_connection_error_logs_warning_with_details(self, caplog: pytest.LogCaptureFixture) -> None:
         """WARNING log contains exception details (Network failure)."""
         mock_client = MagicMock()
         mock_client.messages.create = AsyncMock(
@@ -1465,9 +1407,9 @@ class TestComplexityAssessorNetworkError:
         assert len(warning_logs) >= 1
 
         log_text = " ".join(r.getMessage() for r in warning_logs)
-        assert (
-            "Network failure" in log_text or "ConnectionError" in log_text
-        ), f"Expected exception details in warning log, got: {log_text}"
+        assert "Network failure" in log_text or "ConnectionError" in log_text, (
+            f"Expected exception details in warning log, got: {log_text}"
+        )
 
 
 @_needs_anthropic
@@ -1479,9 +1421,7 @@ class TestComplexityAssessorContextLimitError:
     Requirement: 15-REQ-12.E1
     """
 
-    def test_context_limit_error_returns_base_without_raising(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_context_limit_error_returns_base_without_raising(self, caplog: pytest.LogCaptureFixture) -> None:
         """BadRequestError (context limit) does not propagate."""
         mock_client = MagicMock()
         mock_client.messages.create = AsyncMock(
@@ -1508,9 +1448,7 @@ class TestComplexityAssessorContextLimitError:
         assert result.recommended_tier == "STANDARD"
         assert result.recommended_variant == "standard"
 
-    def test_context_limit_error_logs_warning(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_context_limit_error_logs_warning(self, caplog: pytest.LogCaptureFixture) -> None:
         """WARNING log emitted on context-limit error."""
         mock_client = MagicMock()
         mock_client.messages.create = AsyncMock(
@@ -1616,9 +1554,7 @@ class TestAssessNodeAbsentBody:
         assert ladder is not None
         assert ladder.starting_tier.value == "STANDARD" or str(ladder.starting_tier) == "STANDARD"
 
-    def test_none_body_logs_debug_with_absent_or_empty(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_none_body_logs_debug_with_absent_or_empty(self, caplog: pytest.LogCaptureFixture) -> None:
         """DEBUG log mentions 'absent' or 'empty' and node_id for None body."""
         from agentfox.engine.engine import AssessmentManager
 
@@ -1636,19 +1572,13 @@ class TestAssessNodeAbsentBody:
                 )
             )
 
-        debug_msgs = [
-            r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG
-        ]
-        assert any(
-            ("absent" in m.lower() or "empty" in m.lower()) for m in debug_msgs
-        ), f"Expected 'absent' or 'empty' in DEBUG logs: {debug_msgs}"
-        assert any(
-            "n1" in m for m in debug_msgs
-        ), f"Expected node_id 'n1' in DEBUG logs: {debug_msgs}"
+        debug_msgs = [r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG]
+        assert any(("absent" in m.lower() or "empty" in m.lower()) for m in debug_msgs), (
+            f"Expected 'absent' or 'empty' in DEBUG logs: {debug_msgs}"
+        )
+        assert any("n1" in m for m in debug_msgs), f"Expected node_id 'n1' in DEBUG logs: {debug_msgs}"
 
-    def test_empty_body_logs_debug_with_absent_or_empty(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_empty_body_logs_debug_with_absent_or_empty(self, caplog: pytest.LogCaptureFixture) -> None:
         """DEBUG log mentions 'absent' or 'empty' and node_id for empty body."""
         from agentfox.engine.engine import AssessmentManager
 
@@ -1666,15 +1596,11 @@ class TestAssessNodeAbsentBody:
                 )
             )
 
-        debug_msgs = [
-            r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG
-        ]
-        assert any(
-            ("absent" in m.lower() or "empty" in m.lower()) for m in debug_msgs
-        ), f"Expected 'absent' or 'empty' in DEBUG logs: {debug_msgs}"
-        assert any(
-            "n2" in m for m in debug_msgs
-        ), f"Expected node_id 'n2' in DEBUG logs: {debug_msgs}"
+        debug_msgs = [r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG]
+        assert any(("absent" in m.lower() or "empty" in m.lower()) for m in debug_msgs), (
+            f"Expected 'absent' or 'empty' in DEBUG logs: {debug_msgs}"
+        )
+        assert any("n2" in m for m in debug_msgs), f"Expected node_id 'n2' in DEBUG logs: {debug_msgs}"
 
     def test_no_llm_call_on_absent_body(self) -> None:
         """ComplexityAssessor.assess() is never called for absent/empty body."""
@@ -1715,9 +1641,7 @@ class TestSuccessfulAssessmentDebugLog:
     Requirement: 15-REQ-12.2
     """
 
-    def test_debug_log_contains_required_keys(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_debug_log_contains_required_keys(self, caplog: pytest.LogCaptureFixture) -> None:
         """Structured DEBUG log emitted on successful assessment."""
         from agentfox.engine.engine import AssessmentManager
 
@@ -1744,16 +1668,10 @@ class TestSuccessfulAssessmentDebugLog:
         # All required keys should appear in the DEBUG log
         assert "n1" in log_text, f"node_id 'n1' missing from DEBUG log: {log_text}"
         assert "coder" in log_text, f"archetype 'coder' missing from DEBUG log: {log_text}"
-        assert (
-            "ADVANCED" in log_text
-        ), f"effective_tier 'ADVANCED' missing from DEBUG log: {log_text}"
-        assert (
-            "extended" in log_text
-        ), f"effective_variant 'extended' missing from DEBUG log: {log_text}"
+        assert "ADVANCED" in log_text, f"effective_tier 'ADVANCED' missing from DEBUG log: {log_text}"
+        assert "extended" in log_text, f"effective_variant 'extended' missing from DEBUG log: {log_text}"
         # At least confidence or rationale should be present
-        assert (
-            "0.82" in log_text or "complex" in log_text
-        ), f"confidence/rationale missing from DEBUG log: {log_text}"
+        assert "0.82" in log_text or "complex" in log_text, f"confidence/rationale missing from DEBUG log: {log_text}"
 
 
 class TestExplicitOverrideDebugLog:
@@ -1766,9 +1684,7 @@ class TestExplicitOverrideDebugLog:
     Requirement: 15-REQ-12.4
     """
 
-    def test_explicit_override_debug_log_contains_info(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_explicit_override_debug_log_contains_info(self, caplog: pytest.LogCaptureFixture) -> None:
         """DEBUG log with node_id, archetype, mode, and resolved tier on override."""
         from agentfox.engine.engine import AssessmentManager
 
@@ -1808,10 +1724,7 @@ class TestExplicitOverrideDebugLog:
         assert "fix" in log_text, f"mode missing from DEBUG log: {log_text}"
         # Tier value should appear (either explicit tier name or 'explicit')
         assert (
-            "ADVANCED" in log_text
-            or "STANDARD" in log_text
-            or "SIMPLE" in log_text
-            or "explicit" in log_text.lower()
+            "ADVANCED" in log_text or "STANDARD" in log_text or "SIMPLE" in log_text or "explicit" in log_text.lower()
         ), f"resolved tier missing from DEBUG log: {log_text}"
 
         # No LLM call should have been made
@@ -1827,9 +1740,7 @@ class TestClientNoneNoLogs:
     Requirement: 15-REQ-12.5
     """
 
-    def test_no_log_entries_at_any_level(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_no_log_entries_at_any_level(self, caplog: pytest.LogCaptureFixture) -> None:
         """Client=None path emits zero log entries for assess_node() call."""
         from agentfox.engine.engine import AssessmentManager
 
@@ -1847,13 +1758,8 @@ class TestClientNoneNoLogs:
             )
 
         # Filter for logs from agentfox loggers only (not unrelated noise)
-        agentfox_logs = [
-            r for r in caplog.records if r.name.startswith("agentfox")
-        ]
-        assert len(agentfox_logs) == 0, (
-            f"Expected zero log entries, got: "
-            f"{[r.getMessage() for r in agentfox_logs]}"
-        )
+        agentfox_logs = [r for r in caplog.records if r.name.startswith("agentfox")]
+        assert len(agentfox_logs) == 0, f"Expected zero log entries, got: {[r.getMessage() for r in agentfox_logs]}"
 
 
 # ===========================================================================
@@ -2399,20 +2305,10 @@ class TestApplyAssessmentPropertyTierUpgradeOnly:
 
     @pytest.mark.parametrize(
         "base_tier,recommended_tier",
-        [
-            (bt, rt)
-            for bt in _ALL_TIERS
-            for rt in _ALL_TIERS
-        ],
-        ids=[
-            f"base={bt}-rec={rt}"
-            for bt in _ALL_TIERS
-            for rt in _ALL_TIERS
-        ],
+        [(bt, rt) for bt in _ALL_TIERS for rt in _ALL_TIERS],
+        ids=[f"base={bt}-rec={rt}" for bt in _ALL_TIERS for rt in _ALL_TIERS],
     )
-    def test_effective_tier_never_below_base(
-        self, base_tier: str, recommended_tier: str
-    ) -> None:
+    def test_effective_tier_never_below_base(self, base_tier: str, recommended_tier: str) -> None:
         """effective_tier >= base_tier in ModelTier ordering for all combinations."""
         rec = AssessmentResult(
             recommended_tier=recommended_tier,
@@ -2429,22 +2325,10 @@ class TestApplyAssessmentPropertyTierUpgradeOnly:
 
     @pytest.mark.parametrize(
         "base_tier,recommended_tier",
-        [
-            (bt, rt)
-            for bt in _ALL_TIERS
-            for rt in _ALL_TIERS
-            if _TIER_ORDER[rt] < _TIER_ORDER[bt]
-        ],
-        ids=[
-            f"base={bt}-rec={rt}"
-            for bt in _ALL_TIERS
-            for rt in _ALL_TIERS
-            if _TIER_ORDER[rt] < _TIER_ORDER[bt]
-        ],
+        [(bt, rt) for bt in _ALL_TIERS for rt in _ALL_TIERS if _TIER_ORDER[rt] < _TIER_ORDER[bt]],
+        ids=[f"base={bt}-rec={rt}" for bt in _ALL_TIERS for rt in _ALL_TIERS if _TIER_ORDER[rt] < _TIER_ORDER[bt]],
     )
-    def test_downgrade_attempt_yields_base_tier(
-        self, base_tier: str, recommended_tier: str
-    ) -> None:
+    def test_downgrade_attempt_yields_base_tier(self, base_tier: str, recommended_tier: str) -> None:
         """When recommended_tier < base_tier, effective_tier == base_tier."""
         rec = AssessmentResult(
             recommended_tier=recommended_tier,
@@ -2465,20 +2349,10 @@ class TestApplyAssessmentPropertyVariantUpgradeOnly:
 
     @pytest.mark.parametrize(
         "base_variant,recommended_variant",
-        [
-            (bv, rv)
-            for bv in _ALL_VARIANTS
-            for rv in _ALL_VARIANTS
-        ],
-        ids=[
-            f"base={bv}-rec={rv}"
-            for bv in _ALL_VARIANTS
-            for rv in _ALL_VARIANTS
-        ],
+        [(bv, rv) for bv in _ALL_VARIANTS for rv in _ALL_VARIANTS],
+        ids=[f"base={bv}-rec={rv}" for bv in _ALL_VARIANTS for rv in _ALL_VARIANTS],
     )
-    def test_effective_variant_never_below_base(
-        self, base_variant: str, recommended_variant: str
-    ) -> None:
+    def test_effective_variant_never_below_base(self, base_variant: str, recommended_variant: str) -> None:
         """effective_variant >= base_variant in VARIANT_ORDER for all combinations."""
         rec = AssessmentResult(
             recommended_tier="STANDARD",
@@ -2547,16 +2421,8 @@ class TestApplyAssessmentPropertyConfidenceGate:
 
     @pytest.mark.parametrize(
         "base_tier,base_variant",
-        [
-            (bt, bv)
-            for bt in _ALL_TIERS
-            for bv in [None, "fast", "standard", "extended"]
-        ],
-        ids=[
-            f"base={bt}/{bv}"
-            for bt in _ALL_TIERS
-            for bv in ["none", "fast", "standard", "extended"]
-        ],
+        [(bt, bv) for bt in _ALL_TIERS for bv in [None, "fast", "standard", "extended"]],
+        ids=[f"base={bt}/{bv}" for bt in _ALL_TIERS for bv in ["none", "fast", "standard", "extended"]],
     )
     @pytest.mark.parametrize(
         "recommended_tier,recommended_variant",
@@ -2584,8 +2450,7 @@ class TestApplyAssessmentPropertyConfidenceGate:
         )
         result = apply_assessment(rec, base_tier, base_variant, 0.6)
         assert result == (base_tier, base_variant), (
-            f"Expected ({base_tier}, {base_variant}), got {result} "
-            f"with below-threshold confidence"
+            f"Expected ({base_tier}, {base_variant}), got {result} with below-threshold confidence"
         )
 
     @pytest.mark.parametrize(
@@ -2609,9 +2474,7 @@ class TestApplyAssessmentPropertyConfidenceGate:
             "0.99<1.0",
         ],
     )
-    def test_various_below_threshold_pairs(
-        self, confidence: float, threshold: float
-    ) -> None:
+    def test_various_below_threshold_pairs(self, confidence: float, threshold: float) -> None:
         """Confidence gate holds for various (confidence, threshold) pairs."""
         rec = AssessmentResult(
             recommended_tier="ADVANCED",
@@ -2621,8 +2484,7 @@ class TestApplyAssessmentPropertyConfidenceGate:
         )
         result = apply_assessment(rec, "STANDARD", "standard", threshold)
         assert result == ("STANDARD", "standard"), (
-            f"Expected base values with confidence={confidence} < threshold={threshold}, "
-            f"got {result}"
+            f"Expected base values with confidence={confidence} < threshold={threshold}, got {result}"
         )
 
 
@@ -2640,8 +2502,7 @@ class TestApplyAssessmentPropertyConfidenceGate:
 # ---------------------------------------------------------------------------
 
 _UPGRADE_RESPONSE_JSON = (
-    '{"recommended_tier": "ADVANCED", "recommended_variant": "extended", '
-    '"confidence": 0.9, "rationale": "complex"}'
+    '{"recommended_tier": "ADVANCED", "recommended_variant": "extended", "confidence": 0.9, "rationale": "complex"}'
 )
 
 _LOW_CONFIDENCE_RESPONSE_JSON = (
@@ -2725,9 +2586,7 @@ class TestAssessNodeSignatureAndReturn:
                 pre_assessed=None,
             )
         )
-        assert isinstance(ladder, EscalationLadder), (
-            f"Expected EscalationLadder, got {type(ladder)}"
-        )
+        assert isinstance(ladder, EscalationLadder), f"Expected EscalationLadder, got {type(ladder)}"
 
     def test_assess_node_previous_failure_defaults_to_none(self) -> None:
         """previous_failure should default to None when not provided."""
@@ -2736,9 +2595,7 @@ class TestAssessNodeSignatureAndReturn:
         sig = inspect.signature(AssessmentManager.assess_node)
         param = sig.parameters.get("previous_failure")
         assert param is not None, "Missing previous_failure parameter"
-        assert param.default is None, (
-            f"previous_failure default should be None, got {param.default}"
-        )
+        assert param.default is None, f"previous_failure default should be None, got {param.default}"
 
     def test_assess_node_pre_assessed_defaults_to_none(self) -> None:
         """pre_assessed should default to None when not provided."""
@@ -2747,9 +2604,7 @@ class TestAssessNodeSignatureAndReturn:
         sig = inspect.signature(AssessmentManager.assess_node)
         param = sig.parameters.get("pre_assessed")
         assert param is not None, "Missing pre_assessed parameter"
-        assert param.default is None, (
-            f"pre_assessed default should be None, got {param.default}"
-        )
+        assert param.default is None, f"pre_assessed default should be None, got {param.default}"
 
 
 class TestEscalationLadderConstruction:
@@ -2774,9 +2629,7 @@ class TestEscalationLadderConstruction:
         )
         # Assessment recommends ADVANCED with confidence 0.9 >= threshold 0.6
         # Coder base tier is STANDARD; max(STANDARD, ADVANCED) = ADVANCED
-        assert ladder.current_tier == ModelTier.ADVANCED, (
-            f"Expected starting tier ADVANCED, got {ladder.current_tier}"
-        )
+        assert ladder.current_tier == ModelTier.ADVANCED, f"Expected starting tier ADVANCED, got {ladder.current_tier}"
 
     def test_ladder_has_starting_variant_from_assessment(self) -> None:
         """Ladder starting_variant matches effective_variant from assessment."""
@@ -2793,9 +2646,9 @@ class TestEscalationLadderConstruction:
         # Once spec #14 adds starting_variant to EscalationLadder,
         # this will test that it equals 'extended'.
         # For now, verify the attribute exists.
-        assert hasattr(ladder, "starting_variant") or hasattr(
-            ladder, "_starting_variant"
-        ), "EscalationLadder should have starting_variant attribute"
+        assert hasattr(ladder, "starting_variant") or hasattr(ladder, "_starting_variant"), (
+            "EscalationLadder should have starting_variant attribute"
+        )
 
     def test_ladder_ceiling_is_advanced(self) -> None:
         """Ladder tier_ceiling should be ADVANCED."""
@@ -2813,9 +2666,7 @@ class TestEscalationLadderConstruction:
         )
         # The ceiling should be ADVANCED (accessible via _tier_ceiling)
         ceiling = getattr(ladder, "_tier_ceiling", None)
-        assert ceiling == ModelTier.ADVANCED, (
-            f"Expected tier_ceiling ADVANCED, got {ceiling}"
-        )
+        assert ceiling == ModelTier.ADVANCED, f"Expected tier_ceiling ADVANCED, got {ceiling}"
 
     def test_ladder_retry_config_from_routing_config(self) -> None:
         """Ladder retries_before_escalation comes from RoutingConfig."""
@@ -2831,9 +2682,7 @@ class TestEscalationLadderConstruction:
         )
         # Verify the ladder was constructed with retry config from RoutingConfig
         retries = getattr(ladder, "_retries_before_escalation", None)
-        assert retries is not None, (
-            "Ladder should have _retries_before_escalation from RoutingConfig"
-        )
+        assert retries is not None, "Ladder should have _retries_before_escalation from RoutingConfig"
 
 
 class TestAssessNodePriorityOrdering:
@@ -2877,9 +2726,7 @@ class TestAssessNodePriorityOrdering:
         # LLM should not be called
         mock_client.messages.create.assert_not_called()
 
-    def test_path_3_explicit_override_skips_assessment(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_path_3_explicit_override_skips_assessment(self, caplog: pytest.LogCaptureFixture) -> None:
         """Path 3: explicit config override → configured tier, no LLM call."""
         mock_client = _make_mock_client(_UPGRADE_RESPONSE_JSON)
         manager = _make_assessment_manager(client=mock_client)
@@ -2999,12 +2846,10 @@ class TestSessionRunnerFactoryClientInjection:
         )
         # AssessmentManager should have instantiated ComplexityAssessor
         assert orch._routing._assessor is not None, (
-            "Orchestrator should pass client to AssessmentManager, "
-            "causing ComplexityAssessor to be instantiated"
+            "Orchestrator should pass client to AssessmentManager, causing ComplexityAssessor to be instantiated"
         )
         assert orch._routing._assessor.client is mock_client, (
-            "ComplexityAssessor should receive the same client object "
-            "passed to Orchestrator"
+            "ComplexityAssessor should receive the same client object passed to Orchestrator"
         )
 
     def test_orchestrator_none_client_disables_assessor(self) -> None:
@@ -3020,9 +2865,7 @@ class TestSessionRunnerFactoryClientInjection:
             full_config=full_config,
             client=None,
         )
-        assert orch._routing._assessor is None, (
-            "Orchestrator with client=None should disable ComplexityAssessor"
-        )
+        assert orch._routing._assessor is None, "Orchestrator with client=None should disable ComplexityAssessor"
 
     def test_run_code_passes_anthropic_client_to_orchestrator(self) -> None:
         """run_code() wires infra['anthropic_client'] as 'client' to Orchestrator.
@@ -3033,12 +2876,8 @@ class TestSessionRunnerFactoryClientInjection:
 
         source = inspect.getsource(run.run_code)
         # The orch_kwargs dict should include client from infra
-        assert '"client"' in source or "'client'" in source, (
-            "run_code() should include 'client' key in orch_kwargs"
-        )
-        assert "anthropic_client" in source, (
-            "run_code() should source the client from infra['anthropic_client']"
-        )
+        assert '"client"' in source or "'client'" in source, "run_code() should include 'client' key in orch_kwargs"
+        assert "anthropic_client" in source, "run_code() should source the client from infra['anthropic_client']"
 
 
 # ===========================================================================
@@ -3109,9 +2948,7 @@ class TestReAssessmentOnRetry:
 
         # Reset mock to return again on second call
         mock_client.messages.create.reset_mock()
-        mock_client.messages.create.return_value = _make_anthropic_response(
-            _UPGRADE_RESPONSE_JSON
-        )
+        mock_client.messages.create.return_value = _make_anthropic_response(_UPGRADE_RESPONSE_JSON)
 
         ladder2 = asyncio.run(
             manager.assess_node(
@@ -3155,9 +2992,7 @@ class TestPreviousFailurePassthrough:
         # The previous_failure should appear somewhere in the prompt
         # sent to the LLM (either in messages or system)
         call_str = str(captured_kwargs)
-        assert "TypeError: NoneType" in call_str, (
-            "previous_failure should be included in the prompt sent to LLM"
-        )
+        assert "TypeError: NoneType" in call_str, "previous_failure should be included in the prompt sent to LLM"
 
 
 class TestRetryLadderConfig:
@@ -3183,9 +3018,7 @@ class TestRetryLadderConfig:
         )
 
         mock_client.messages.create.reset_mock()
-        mock_client.messages.create.return_value = _make_anthropic_response(
-            _UPGRADE_RESPONSE_JSON
-        )
+        mock_client.messages.create.return_value = _make_anthropic_response(_UPGRADE_RESPONSE_JSON)
 
         ladder2 = asyncio.run(
             manager.assess_node(
@@ -3218,9 +3051,7 @@ class TestRetryLadderConfig:
         )
 
         mock_client.messages.create.reset_mock()
-        mock_client.messages.create.return_value = _make_anthropic_response(
-            _UPGRADE_RESPONSE_JSON
-        )
+        mock_client.messages.create.return_value = _make_anthropic_response(_UPGRADE_RESPONSE_JSON)
 
         ladder2 = asyncio.run(
             manager.assess_node(
@@ -3234,9 +3065,7 @@ class TestRetryLadderConfig:
 
         retries1 = getattr(ladder1, "_retries_before_escalation", None)
         retries2 = getattr(ladder2, "_retries_before_escalation", None)
-        assert retries1 == retries2, (
-            f"Both ladders should share retry config: got {retries1} vs {retries2}"
-        )
+        assert retries1 == retries2, f"Both ladders should share retry config: got {retries1} vs {retries2}"
 
     def test_only_starting_tier_variant_differ(self) -> None:
         """Only starting_tier and starting_variant may differ between ladders."""
@@ -3256,9 +3085,7 @@ class TestRetryLadderConfig:
         )
 
         # Second call with high-confidence response → upgraded tier
-        low_client.messages.create = AsyncMock(
-            return_value=_make_anthropic_response(_UPGRADE_RESPONSE_JSON)
-        )
+        low_client.messages.create = AsyncMock(return_value=_make_anthropic_response(_UPGRADE_RESPONSE_JSON))
 
         ladder2 = asyncio.run(
             manager.assess_node(
@@ -3271,9 +3098,7 @@ class TestRetryLadderConfig:
         )
 
         # Ceiling and retry config should be same
-        assert getattr(ladder1, "_tier_ceiling", None) == getattr(
-            ladder2, "_tier_ceiling", None
-        )
+        assert getattr(ladder1, "_tier_ceiling", None) == getattr(ladder2, "_tier_ceiling", None)
         assert getattr(ladder1, "_retries_before_escalation", None) == getattr(
             ladder2, "_retries_before_escalation", None
         )
@@ -3315,9 +3140,7 @@ class TestReAssessmentBelowThreshold:
         )
 
         # Second call returns low confidence (0.3 < threshold 0.6)
-        mock_client.messages.create = AsyncMock(
-            return_value=_make_anthropic_response(_LOW_CONFIDENCE_RESPONSE_JSON)
-        )
+        mock_client.messages.create = AsyncMock(return_value=_make_anthropic_response(_LOW_CONFIDENCE_RESPONSE_JSON))
 
         ladder2 = asyncio.run(
             manager.assess_node(
@@ -3350,9 +3173,7 @@ class TestReAssessmentBelowThreshold:
             ladder1.record_failure()
 
         # Re-assess with low confidence
-        mock_client.messages.create = AsyncMock(
-            return_value=_make_anthropic_response(_LOW_CONFIDENCE_RESPONSE_JSON)
-        )
+        mock_client.messages.create = AsyncMock(return_value=_make_anthropic_response(_LOW_CONFIDENCE_RESPONSE_JSON))
 
         ladder2 = asyncio.run(
             manager.assess_node(
@@ -3365,12 +3186,10 @@ class TestReAssessmentBelowThreshold:
         )
         # New ladder should be fresh — no failures recorded
         assert ladder2.attempt_count == 1, (
-            f"New ladder should start fresh with attempt_count=1, "
-            f"got {ladder2.attempt_count}"
+            f"New ladder should start fresh with attempt_count=1, got {ladder2.attempt_count}"
         )
         assert ladder2.escalation_count == 0, (
-            f"New ladder should have escalation_count=0, "
-            f"got {ladder2.escalation_count}"
+            f"New ladder should have escalation_count=0, got {ladder2.escalation_count}"
         )
 
     def test_new_ladder_is_distinct_object(self) -> None:
@@ -3389,9 +3208,7 @@ class TestReAssessmentBelowThreshold:
             )
         )
 
-        mock_client.messages.create = AsyncMock(
-            return_value=_make_anthropic_response(_LOW_CONFIDENCE_RESPONSE_JSON)
-        )
+        mock_client.messages.create = AsyncMock(return_value=_make_anthropic_response(_LOW_CONFIDENCE_RESPONSE_JSON))
 
         ladder2 = asyncio.run(
             manager.assess_node(
@@ -3440,9 +3257,7 @@ class TestPropertyAssessmentFailureInvariant:
             "runtime_error",
         ],
     )
-    def test_generic_failure_returns_base_without_raising(
-        self, failure_exc: Exception
-    ) -> None:
+    def test_generic_failure_returns_base_without_raising(self, failure_exc: Exception) -> None:
         """assess_node() never raises on failure; returns EscalationLadder at base."""
         from agentfox.core.escalation import EscalationLadder
         from agentfox.core.models import ModelTier
@@ -3461,14 +3276,9 @@ class TestPropertyAssessmentFailureInvariant:
                 )
             )
         except Exception as exc:
-            pytest.fail(
-                f"assess_node() raised {type(exc).__name__}: {exc}; "
-                f"should have returned base-tier ladder"
-            )
+            pytest.fail(f"assess_node() raised {type(exc).__name__}: {exc}; should have returned base-tier ladder")
 
-        assert isinstance(ladder, EscalationLadder), (
-            f"Expected EscalationLadder, got {type(ladder)}"
-        )
+        assert isinstance(ladder, EscalationLadder), f"Expected EscalationLadder, got {type(ladder)}"
         assert ladder.current_tier == ModelTier.STANDARD, (
             f"Expected base tier STANDARD on failure, got {ladder.current_tier}"
         )
@@ -3487,9 +3297,7 @@ class TestPropertyAssessmentFailureInvariant:
             "out_of_range_confidence",
         ],
     )
-    def test_malformed_response_returns_base_without_raising(
-        self, bad_json: str
-    ) -> None:
+    def test_malformed_response_returns_base_without_raising(self, bad_json: str) -> None:
         """assess_node() handles malformed LLM responses without raising."""
         from agentfox.core.escalation import EscalationLadder
         from agentfox.core.models import ModelTier
@@ -3507,10 +3315,7 @@ class TestPropertyAssessmentFailureInvariant:
                 )
             )
         except Exception as exc:
-            pytest.fail(
-                f"assess_node() raised {type(exc).__name__}: {exc}; "
-                f"should have returned base-tier ladder"
-            )
+            pytest.fail(f"assess_node() raised {type(exc).__name__}: {exc}; should have returned base-tier ladder")
 
         assert isinstance(ladder, EscalationLadder)
         assert ladder.current_tier == ModelTier.STANDARD
@@ -3542,9 +3347,7 @@ class TestPropertyAssessmentFailureInvariant:
         from agentfox.core.models import ModelTier
 
         mock_client = MagicMock()
-        mock_client.messages.create = AsyncMock(
-            side_effect=ConnectionError("fail")
-        )
+        mock_client.messages.create = AsyncMock(side_effect=ConnectionError("fail"))
         manager = _make_assessment_manager(client=mock_client)
 
         try:
@@ -3560,8 +3363,7 @@ class TestPropertyAssessmentFailureInvariant:
             pytest.fail(f"Should not raise: {exc}")
 
         assert ladder.current_tier == ModelTier(expected_tier), (
-            f"Expected fallback tier {expected_tier} for {archetype}/{mode}, "
-            f"got {ladder.current_tier}"
+            f"Expected fallback tier {expected_tier} for {archetype}/{mode}, got {ladder.current_tier}"
         )
 
 
@@ -3620,9 +3422,7 @@ class TestPropertyConcurrentAssessNodeCalls:
 
         assert len(results) == 3
         for r in results:
-            assert isinstance(r, EscalationLadder), (
-                f"Expected EscalationLadder, got {type(r)}"
-            )
+            assert isinstance(r, EscalationLadder), f"Expected EscalationLadder, got {type(r)}"
 
     def test_concurrent_calls_no_shared_state_leak(self) -> None:
         """Concurrent calls do not leak state between AssessmentManager instances."""
@@ -3652,14 +3452,10 @@ class TestPropertyConcurrentAssessNodeCalls:
         results = asyncio.run(run_concurrent())
 
         assert len(results) == 5
-        assert call_count == 5, (
-            f"Expected 5 independent LLM calls, got {call_count}"
-        )
+        assert call_count == 5, f"Expected 5 independent LLM calls, got {call_count}"
         # All results should be distinct objects
         ids = [id(r) for r in results]
-        assert len(set(ids)) == 5, (
-            "All returned ladders should be distinct objects"
-        )
+        assert len(set(ids)) == 5, "All returned ladders should be distinct objects"
 
 
 # ===========================================================================
@@ -3717,23 +3513,6 @@ def _make_config_with_archetype_override(
     return config
 
 
-def _make_config_with_legacy_override(
-    archetype: str,
-    model_tier: str,
-) -> Any:
-    """Create an AgentFoxConfig with a legacy dict model override.
-
-    This sets up config.archetypes.models[archetype] = model_tier
-    which is layer 3 in the config resolution priority.
-    """
-    from agentfox.core.config import AgentFoxConfig
-
-    config = AgentFoxConfig(
-        archetypes={"models": {archetype: model_tier}},
-    )
-    return config
-
-
 def _make_routing_config_from_agentfox_config(
     agentfox_config: Any,
     *,
@@ -3766,7 +3545,7 @@ def _make_routing_config_from_agentfox_config(
 
 
 class TestIsExplicitlyConfiguredLayers:
-    """TS-15-26: is_explicitly_configured() returns True when any layer 1-3
+    """TS-15-26: is_explicitly_configured() returns True when any layer 1-2
     has a non-None value, False when all return None.
 
     Requirement: 15-REQ-6.1
@@ -3786,9 +3565,7 @@ class TestIsExplicitlyConfiguredLayers:
         manager = AssessmentManager(config=config, client=mock_client)
 
         result = manager.is_explicitly_configured("coder", None)
-        assert result is True, (
-            "Expected True when per-archetype override (layer 2) has a non-None model_tier"
-        )
+        assert result is True, "Expected True when per-archetype override (layer 2) has a non-None model_tier"
 
     def test_returns_false_when_all_layers_none(self) -> None:
         """Returns False when no overrides exist at any layer for the archetype."""
@@ -3797,14 +3574,13 @@ class TestIsExplicitlyConfiguredLayers:
         mock_client = MagicMock()
         # Use a full AgentFoxConfig with no overrides — all layers return None
         from agentfox.core.config import AgentFoxConfig
+
         config = AgentFoxConfig()
         manager = AssessmentManager(config=config, client=mock_client)
 
         # 'verifier' has no explicit config override in a default AgentFoxConfig
         result = manager.is_explicitly_configured("verifier", None)
-        assert result is False, (
-            "Expected False when no explicit override exists for verifier in any layer"
-        )
+        assert result is False, "Expected False when no explicit override exists for verifier in any layer"
 
     def test_returns_true_with_mode_level_override(self) -> None:
         """Returns True when layer 1 (mode-level override) has a non-None value.
@@ -3820,34 +3596,14 @@ class TestIsExplicitlyConfiguredLayers:
         manager = AssessmentManager(config=config, client=mock_client)
 
         result = manager.is_explicitly_configured("coder", "fix")
-        assert result is True, (
-            "Expected True when mode-level override (layer 1) for coder/fix has model_tier"
-        )
-
-    def test_returns_true_with_legacy_dict_override(self) -> None:
-        """Returns True when layer 3 (legacy dict override) has a non-None value.
-
-        Uses AgentFoxConfig with archetypes.models['coder'] set (legacy layer 3)
-        to verify is_explicitly_configured() returns True.
-        """
-        from agentfox.engine.engine import AssessmentManager
-
-        mock_client = MagicMock()
-        # Build a real AgentFoxConfig with a legacy dict override at layer 3
-        config = _make_config_with_legacy_override("coder", "ADVANCED")
-        manager = AssessmentManager(config=config, client=mock_client)
-
-        result = manager.is_explicitly_configured("coder", None)
-        assert result is True, (
-            "Expected True when legacy dict override (layer 3) has a non-None value for coder"
-        )
+        assert result is True, "Expected True when mode-level override (layer 1) for coder/fix has model_tier"
 
 
 class TestIsExplicitlyConfiguredModeNone:
     """TS-15-27: is_explicitly_configured() skips layer 1 when mode is None.
 
     When mode is None, layer 1 (mode-level override check) is skipped
-    entirely and only layers 2-3 are consulted.
+    entirely and only layer 2 is consulted.
 
     Requirement: 15-REQ-6.2
     """
@@ -3856,21 +3612,19 @@ class TestIsExplicitlyConfiguredModeNone:
         """mode=None skips layer 1; returns False when only layer 1 has override.
 
         Set up a config with only a mode-level override for coder/fix (layer 1).
-        With mode=None, layer 1 is skipped and layers 2-3 have no override,
+        With mode=None, layer 1 is skipped and layer 2 has no override,
         so is_explicitly_configured('coder', None) must return False.
         """
         from agentfox.engine.engine import AssessmentManager
 
         mock_client = MagicMock()
-        # Only a mode-level override for 'fix' — no per-archetype or legacy override
+        # Only a mode-level override for 'fix' — no per-archetype override
         config = _make_config_with_mode_override("coder", "fix", "ADVANCED")
         manager = AssessmentManager(config=config, client=mock_client)
 
-        # mode=None → layer 1 is skipped entirely; layers 2-3 have no value → False
+        # mode=None → layer 1 is skipped entirely; layer 2 has no value → False
         result = manager.is_explicitly_configured("coder", None)
-        assert result is False, (
-            "Expected False when mode=None and only a mode-level (layer 1) override exists"
-        )
+        assert result is False, "Expected False when mode=None and only a mode-level (layer 1) override exists"
 
     def test_mode_fix_hits_layer_1(self) -> None:
         """mode='fix' checks layer 1 and returns True if override exists.
@@ -3887,9 +3641,7 @@ class TestIsExplicitlyConfiguredModeNone:
 
         # mode='fix' → layer 1 is checked and finds the override → True
         result = manager.is_explicitly_configured("coder", "fix")
-        assert result is True, (
-            "Expected True when mode='fix' and a mode-level (layer 1) override exists for coder/fix"
-        )
+        assert result is True, "Expected True when mode='fix' and a mode-level (layer 1) override exists for coder/fix"
 
 
 class TestIsExplicitlyConfiguredEarlyReturn:
@@ -3918,16 +3670,12 @@ class TestIsExplicitlyConfiguredEarlyReturn:
 
         # Layer 1 has value → True without consulting layers 2-3
         result = manager.is_explicitly_configured("coder", "fix")
-        assert result is True, (
-            "Expected True immediately when layer 1 (mode-level override) has a value"
-        )
+        assert result is True, "Expected True immediately when layer 1 (mode-level override) has a value"
 
         # Cross-check: same config with mode=None should return False
         # (layer 1 skipped, no layer 2/3 override present)
         result_mode_none = manager.is_explicitly_configured("coder", None)
-        assert result_mode_none is False, (
-            "Expected False when mode=None skips layer 1 and layers 2-3 have no override"
-        )
+        assert result_mode_none is False, "Expected False when mode=None skips layer 1 and layers 2-3 have no override"
 
     def test_layer_1_hit_returns_true_not_false(self) -> None:
         """When layer 1 has a value, result is True regardless of layers 2-3.
@@ -3946,17 +3694,13 @@ class TestIsExplicitlyConfiguredEarlyReturn:
         config_no_override = AgentFoxConfig()
         manager_no = AssessmentManager(config=config_no_override, client=mock_client)
         result_no = manager_no.is_explicitly_configured("reviewer", "fix-review")
-        assert result_no is False, (
-            "Expected False when registry default (not a config override) is the only source"
-        )
+        assert result_no is False, "Expected False when registry default (not a config override) is the only source"
 
         # With explicit mode-level override at layer 1 — must return True
         config_with_override = _make_config_with_mode_override("reviewer", "fix-review", "ADVANCED")
         manager_yes = AssessmentManager(config=config_with_override, client=mock_client)
         result_yes = manager_yes.is_explicitly_configured("reviewer", "fix-review")
-        assert result_yes is True, (
-            "Expected True when an explicit mode-level config override (layer 1) is present"
-        )
+        assert result_yes is True, "Expected True when an explicit mode-level config override (layer 1) is present"
 
 
 # ===========================================================================
@@ -4021,9 +3765,7 @@ class TestAssessNodeSkipOnExplicitOverride:
         # The ladder should use the explicitly configured tier
         assert hasattr(ladder, "current_tier") or hasattr(ladder, "starting_tier")
 
-    def test_debug_log_contains_override_info(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_debug_log_contains_override_info(self, caplog: pytest.LogCaptureFixture) -> None:
         """DEBUG log contains node_id, archetype, mode, and resolved tier."""
         from agentfox.engine.engine import AssessmentManager
 
@@ -4052,10 +3794,7 @@ class TestAssessNodeSkipOnExplicitOverride:
         assert "fix" in log_text, f"mode missing from DEBUG log: {log_text}"
         # Should mention the resolved tier or 'explicit'
         assert (
-            "ADVANCED" in log_text
-            or "STANDARD" in log_text
-            or "SIMPLE" in log_text
-            or "explicit" in log_text.lower()
+            "ADVANCED" in log_text or "STANDARD" in log_text or "SIMPLE" in log_text or "explicit" in log_text.lower()
         ), f"resolved tier missing from DEBUG log: {log_text}"
 
 
@@ -4450,10 +4189,7 @@ class TestArchetypeRegistryAll10Combinations:
     @pytest.mark.parametrize(
         "archetype,mode,expected_tier",
         _EXPECTED_DEFAULTS,
-        ids=[
-            f"{a}/{m or 'base'}"
-            for a, m, _ in _EXPECTED_DEFAULTS
-        ],
+        ids=[f"{a}/{m or 'base'}" for a, m, _ in _EXPECTED_DEFAULTS],
     )
     def test_archetype_mode_default_tier(
         self,
@@ -4467,8 +4203,7 @@ class TestArchetypeRegistryAll10Combinations:
         entry = ARCHETYPE_REGISTRY[archetype]
         resolved = resolve_effective_config(entry, mode=mode)
         assert resolved.default_model_tier == expected_tier, (
-            f"{archetype}/{mode or 'base'}: expected {expected_tier}, "
-            f"got {resolved.default_model_tier}"
+            f"{archetype}/{mode or 'base'}: expected {expected_tier}, got {resolved.default_model_tier}"
         )
 
 
@@ -4542,9 +4277,7 @@ class TestPropertyExplicitOverrideSkipsAssessor:
         # LLM should never be called
         mock_client.messages.create.assert_not_called()
         # Ladder should be returned (not None)
-        assert ladder is not None, (
-            f"Expected ladder for {archetype}/{mode}, got None"
-        )
+        assert ladder is not None, f"Expected ladder for {archetype}/{mode}, got None"
 
     @pytest.mark.parametrize(
         "archetype,mode,node_body",
@@ -4662,8 +4395,7 @@ class TestPropertyQualityGuaranteeReviewer:
 
         # Floor for these modes is ADVANCED per REQ-8.2
         assert ladder.current_tier == ModelTier.ADVANCED, (
-            f"Expected ADVANCED for reviewer/{mode}, "
-            f"got {ladder.current_tier}"
+            f"Expected ADVANCED for reviewer/{mode}, got {ladder.current_tier}"
         )
 
     @pytest.mark.parametrize(
@@ -4700,8 +4432,7 @@ class TestPropertyQualityGuaranteeReviewer:
             pytest.fail(f"Should not raise: {exc}")
 
         assert ladder.current_tier == ModelTier.ADVANCED, (
-            f"Expected ADVANCED floor for reviewer/{mode} on failure, "
-            f"got {ladder.current_tier}"
+            f"Expected ADVANCED floor for reviewer/{mode} on failure, got {ladder.current_tier}"
         )
 
     @pytest.mark.parametrize(
@@ -4730,8 +4461,7 @@ class TestPropertyQualityGuaranteeReviewer:
         )
 
         assert ladder.current_tier == ModelTier.ADVANCED, (
-            f"Expected ADVANCED for reviewer/{mode} with no assessor, "
-            f"got {ladder.current_tier}"
+            f"Expected ADVANCED for reviewer/{mode} with no assessor, got {ladder.current_tier}"
         )
 
 
@@ -4854,11 +4584,11 @@ class TestPreparelaunchNodeBody:
         passed_body = (
             call_kwargs.kwargs.get("node_body")
             if call_kwargs.kwargs
-            else call_kwargs.args[3] if len(call_kwargs.args) > 3 else None
+            else call_kwargs.args[3]
+            if len(call_kwargs.args) > 3
+            else None
         )
-        assert passed_body == node_body, (
-            f"Expected assess_node to receive node_body='{node_body}', got {passed_body!r}"
-        )
+        assert passed_body == node_body, f"Expected assess_node to receive node_body='{node_body}', got {passed_body!r}"
 
     def test_node_body_forwarded_to_assess_node(self) -> None:
         """assess_node() receives node_body from prepare_launch() — behavioral."""
@@ -4873,9 +4603,7 @@ class TestPreparelaunchNodeBody:
         # Verify node_body was in the call — check both kwargs and positional args
         call_args = mock_routing.assess_node.call_args
         all_args = str(call_args)
-        assert node_body in all_args, (
-            f"Expected node_body='{node_body}' in assess_node call, got: {call_args}"
-        )
+        assert node_body in all_args, f"Expected node_body='{node_body}' in assess_node call, got: {call_args}"
 
 
 class TestPrepareLaunchPreviousFailure:
@@ -4982,9 +4710,7 @@ class TestPrepareLaunchNoFailureEntry:
         mock_routing.assess_node.assert_called_once()
         call_args = mock_routing.assess_node.call_args
         passed_failure = call_args.kwargs.get("previous_failure") if call_args.kwargs else "MISSING"
-        assert passed_failure is None, (
-            f"Empty error_tracker should yield previous_failure=None, got {passed_failure!r}"
-        )
+        assert passed_failure is None, f"Empty error_tracker should yield previous_failure=None, got {passed_failure!r}"
 
     def test_missing_node_in_error_tracker_yields_none(self) -> None:
         """When node_id not in error_tracker, previous_failure=None — behavioral.
@@ -5140,8 +4866,7 @@ class TestRoutingConfigConfidenceOutOfRange:
         errors = exc_info.value.errors()
         error_locs = [str(e.get("loc", "")) for e in errors]
         assert any("confidence_threshold" in loc for loc in error_locs), (
-            f"ValidationError should reference confidence_threshold "
-            f"for value {bad_threshold}, got: {error_locs}"
+            f"ValidationError should reference confidence_threshold for value {bad_threshold}, got: {error_locs}"
         )
 
 
@@ -5476,9 +5201,7 @@ class TestCoderReviewerPreAssessedPassthrough:
 
         sig = inspect.signature(CoderReviewerLoop.run)
         params = list(sig.parameters.keys())
-        assert "triage" in params, (
-            "CoderReviewerLoop.run() should accept a triage parameter"
-        )
+        assert "triage" in params, "CoderReviewerLoop.run() should accept a triage parameter"
 
     def test_coder_reviewer_source_should_reference_pre_assessed(self) -> None:
         """Once implemented, coder_reviewer should reference pre_assessed."""
@@ -5489,12 +5212,8 @@ class TestCoderReviewerPreAssessedPassthrough:
         # assessed_complexity as pre_assessed to assess_node for the coder
         # but NOT for fix-review nodes.
         # The source should mention pre_assessed or assessed_complexity.
-        assert (
-            "pre_assessed" in source
-            or "assessed_complexity" in source
-        ), (
-            "CoderReviewerLoop should reference pre_assessed or "
-            "assessed_complexity for the coder node passthrough"
+        assert "pre_assessed" in source or "assessed_complexity" in source, (
+            "CoderReviewerLoop should reference pre_assessed or assessed_complexity for the coder node passthrough"
         )
 
 
@@ -5525,11 +5244,8 @@ class TestTriagePromptAssessedComplexity:
 
         source = inspect.getsource(review_parser.parse_triage_output)
         # After implementation, the parser should handle assessed_complexity
-        assert (
-            "assessed_complexity" in source
-        ), (
-            "parse_triage_output should reference assessed_complexity "
-            "to parse the triage response sub-object"
+        assert "assessed_complexity" in source, (
+            "parse_triage_output should reference assessed_complexity to parse the triage response sub-object"
         )
 
     def test_triage_task_prompt_requests_assessed_complexity(self) -> None:
@@ -5596,9 +5312,7 @@ class TestTriagePartialFailureSemantics:
         # Rest of TriageResult should be parsed normally
         assert result.summary == "fix auth"
 
-    def test_out_of_range_confidence_yields_none(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_out_of_range_confidence_yields_none(self, caplog: pytest.LogCaptureFixture) -> None:
         """assessed_complexity with confidence=2.0 sets field to None, logs WARNING."""
         from agentfox.session.review_parser import parse_triage_output
 
@@ -5609,23 +5323,15 @@ class TestTriagePartialFailureSemantics:
         )
 
         with caplog.at_level(logging.WARNING, logger="agentfox"):
-            result = parse_triage_output(
-                response_json, "fix-1", "fix-1:0:triage"
-            )
+            result = parse_triage_output(response_json, "fix-1", "fix-1:0:triage")
 
         assert result.assessed_complexity is None
         assert result.summary == "fix auth"
         # WARNING should be logged
-        warning_records = [
-            r for r in caplog.records if r.levelno >= logging.WARNING
-        ]
-        assert len(warning_records) >= 1, (
-            "Expected WARNING log for invalid assessed_complexity"
-        )
+        warning_records = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert len(warning_records) >= 1, "Expected WARNING log for invalid assessed_complexity"
 
-    def test_wrong_case_tier_yields_none(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_wrong_case_tier_yields_none(self, caplog: pytest.LogCaptureFixture) -> None:
         """assessed_complexity with tier='advanced' (wrong case) sets to None."""
         from agentfox.session.review_parser import parse_triage_output
 
@@ -5636,16 +5342,12 @@ class TestTriagePartialFailureSemantics:
         )
 
         with caplog.at_level(logging.WARNING, logger="agentfox"):
-            result = parse_triage_output(
-                response_json, "fix-1", "fix-1:0:triage"
-            )
+            result = parse_triage_output(response_json, "fix-1", "fix-1:0:triage")
 
         assert result.assessed_complexity is None
         assert result.summary == "fix auth"
 
-    def test_wrong_case_variant_yields_none(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
+    def test_wrong_case_variant_yields_none(self, caplog: pytest.LogCaptureFixture) -> None:
         """assessed_complexity with variant='Standard' (wrong case) sets to None."""
         from agentfox.session.review_parser import parse_triage_output
 
@@ -5656,9 +5358,7 @@ class TestTriagePartialFailureSemantics:
         )
 
         with caplog.at_level(logging.WARNING, logger="agentfox"):
-            result = parse_triage_output(
-                response_json, "fix-1", "fix-1:0:triage"
-            )
+            result = parse_triage_output(response_json, "fix-1", "fix-1:0:triage")
 
         assert result.assessed_complexity is None
         assert result.summary == "fix auth"
@@ -5710,9 +5410,7 @@ class TestTriageNoPartialSalvaging:
         from agentfox.session.review_parser import parse_triage_output
 
         response_json = (
-            '{"summary": "fix", '
-            '"assessed_complexity": {"tier": "ADVANCED", "variant": "standard", '
-            '"confidence": 0.8}}'
+            '{"summary": "fix", "assessed_complexity": {"tier": "ADVANCED", "variant": "standard", "confidence": 0.8}}'
         )
 
         result = parse_triage_output(response_json, "fix-1", "fix-1:0:triage")
@@ -5723,9 +5421,7 @@ class TestTriageNoPartialSalvaging:
         from agentfox.session.review_parser import parse_triage_output
 
         response_json = (
-            '{"summary": "fix", '
-            '"assessed_complexity": {"variant": "standard", '
-            '"confidence": 0.8, "rationale": "r"}}'
+            '{"summary": "fix", "assessed_complexity": {"variant": "standard", "confidence": 0.8, "rationale": "r"}}'
         )
 
         result = parse_triage_output(response_json, "fix-1", "fix-1:0:triage")
@@ -5839,9 +5535,9 @@ class TestPropertyPreAssessedBypassHaiku:
             )
         )
 
-        mock_client.messages.create.assert_not_called(), (
-            f"LLM should not be called with pre_assessed "
-            f"tier={tier} variant={variant} confidence={confidence}"
+        (
+            mock_client.messages.create.assert_not_called(),
+            (f"LLM should not be called with pre_assessed tier={tier} variant={variant} confidence={confidence}"),
         )
 
     @pytest.mark.parametrize(
@@ -5894,9 +5590,9 @@ class TestPropertyPreAssessedBypassHaiku:
             )
         )
 
-        mock_client.messages.create.assert_not_called(), (
-            f"LLM should not be called with pre_assessed "
-            f"for {archetype}/{mode}"
+        (
+            mock_client.messages.create.assert_not_called(),
+            (f"LLM should not be called with pre_assessed for {archetype}/{mode}"),
         )
 
 
@@ -5955,16 +5651,12 @@ class TestSmokeSuccessfulLLMUpgrade:
         mock_client.messages.create.assert_called_once()
 
         # apply_assessment() upgrades tier from STANDARD to ADVANCED
-        assert ladder.starting_tier.value == "ADVANCED", (
-            f"Expected starting_tier=ADVANCED, got {ladder.starting_tier}"
-        )
+        assert ladder.starting_tier.value == "ADVANCED", f"Expected starting_tier=ADVANCED, got {ladder.starting_tier}"
         assert ladder.starting_variant == "extended", (
             f"Expected starting_variant=extended, got {ladder.starting_variant}"
         )
         # EscalationLadder ceiling is ADVANCED (internal _tier_ceiling)
-        assert ladder._tier_ceiling.value == "ADVANCED", (
-            f"Expected ceiling=ADVANCED, got {ladder._tier_ceiling}"
-        )
+        assert ladder._tier_ceiling.value == "ADVANCED", f"Expected ceiling=ADVANCED, got {ladder._tier_ceiling}"
 
         # Structured DEBUG log emitted with required keys
         debug_msgs = [r.message for r in caplog.records if r.levelno == logging.DEBUG]
@@ -6042,9 +5734,7 @@ class TestSmokeAPIFailureFallback:
         assert len(warning_msgs) >= 1, "Expected at least one WARNING log on API failure"
 
         # EscalationLadder at base tier (STANDARD/standard for coder)
-        assert ladder.starting_tier.value == "STANDARD", (
-            f"Expected fallback to STANDARD, got {ladder.starting_tier}"
-        )
+        assert ladder.starting_tier.value == "STANDARD", f"Expected fallback to STANDARD, got {ladder.starting_tier}"
         assert ladder.starting_variant == "standard", (
             f"Expected fallback to standard variant, got {ladder.starting_variant}"
         )
@@ -6169,9 +5859,7 @@ class TestSmokeNightshiftPreAssessedBypass:
         assert ladder.starting_tier.value == "ADVANCED", (
             f"Expected ADVANCED from pre_assessed, got {ladder.starting_tier}"
         )
-        assert ladder.starting_variant == "standard", (
-            f"Expected standard variant, got {ladder.starting_variant}"
-        )
+        assert ladder.starting_variant == "standard", f"Expected standard variant, got {ladder.starting_variant}"
 
         # Structured DEBUG log emitted
         debug_msgs = [r.message for r in caplog.records if r.levelno == logging.DEBUG]
@@ -6194,11 +5882,11 @@ class TestSmokeNightshiftPreAssessedBypass:
         )
         # Fix-review nodes should NOT receive pre_assessed
         # They go through _run_reviewer_phase which does NOT pass pre_assessed
-        assert "pre_assessed" not in source.split("_run_reviewer_phase")[1].split("def ")[0] if (
-            "_run_reviewer_phase" in source
-        ) else True, (
-            "Reviewer phase should not reference pre_assessed"
-        )
+        assert (
+            "pre_assessed" not in source.split("_run_reviewer_phase")[1].split("def ")[0]
+            if ("_run_reviewer_phase" in source)
+            else True
+        ), "Reviewer phase should not reference pre_assessed"
 
 
 class TestSmokeReAssessmentOnRetry:
@@ -6222,9 +5910,7 @@ class TestSmokeReAssessmentOnRetry:
             # Check that second call includes the failure context in the prompt
             prompt_text = str(kwargs)
             if call_count == 2:
-                assert "TypeError" in prompt_text, (
-                    "Re-assessment prompt should include previous_failure text"
-                )
+                assert "TypeError" in prompt_text, "Re-assessment prompt should include previous_failure text"
             return _make_anthropic_response(
                 '{"recommended_tier": "ADVANCED", '
                 '"recommended_variant": "extended", '
@@ -6268,9 +5954,7 @@ class TestSmokeReAssessmentOnRetry:
         assert ladder2.starting_variant == "extended"
 
         # Both ladders share same ceiling (internal _tier_ceiling)
-        assert ladder1._tier_ceiling == ladder2._tier_ceiling, (
-            "Both ladders should have same ceiling"
-        )
+        assert ladder1._tier_ceiling == ladder2._tier_ceiling, "Both ladders should have same ceiling"
 
     def test_retry_prior_state_not_preserved(self) -> None:
         """Prior retry state is not preserved in the new ladder."""
@@ -6286,9 +5970,7 @@ class TestSmokeReAssessmentOnRetry:
         manager = AssessmentManager(config=config, client=mock_client)
 
         # First call
-        ladder1 = asyncio.run(
-            manager.assess_node("smoke-5b", "coder", None, "body")
-        )
+        ladder1 = asyncio.run(manager.assess_node("smoke-5b", "coder", None, "body"))
 
         # Simulate failure on first ladder
         if hasattr(ladder1, "record_failure"):
@@ -6297,7 +5979,10 @@ class TestSmokeReAssessmentOnRetry:
         # Re-assessment replaces the ladder entirely
         ladder2 = asyncio.run(
             manager.assess_node(
-                "smoke-5b", "coder", None, "body",
+                "smoke-5b",
+                "coder",
+                None,
+                "body",
                 previous_failure="some error",
             )
         )
@@ -6350,18 +6035,13 @@ class TestSmokeAbsentClientDisablesAssessment:
 
             # EscalationLadder at base tier/variant per ARCHETYPE_REGISTRY
             assert ladder.starting_tier.value == exp_tier, (
-                f"{archetype}/{mode}: expected {exp_tier}, "
-                f"got {ladder.starting_tier.value}"
+                f"{archetype}/{mode}: expected {exp_tier}, got {ladder.starting_tier.value}"
             )
 
             # No WARNING, ERROR, or any log entries for assessment
-            assessment_logs = [
-                r for r in caplog.records
-                if f"smoke6_{archetype}" in r.message
-            ]
+            assessment_logs = [r for r in caplog.records if f"smoke6_{archetype}" in r.message]
             assert len(assessment_logs) == 0, (
-                f"No log entries expected for client=None path, "
-                f"got {len(assessment_logs)} for {archetype}/{mode}"
+                f"No log entries expected for client=None path, got {len(assessment_logs)} for {archetype}/{mode}"
             )
 
     def test_dispatch_proceeds_normally_without_client(self) -> None:

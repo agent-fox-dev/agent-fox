@@ -15,12 +15,7 @@ from pathlib import Path
 
 import pytest
 
-ARCH_DOC_PATH = (
-    Path(__file__).resolve().parents[3]
-    / "docs"
-    / "architecture"
-    / "05-knowledge-system-architecture.md"
-)
+ARCH_DOC_PATH = Path(__file__).resolve().parents[3] / "docs" / "architecture" / "05-knowledge-system-architecture.md"
 
 
 @pytest.fixture()
@@ -72,32 +67,23 @@ def _extract_section(content: str, heading_number: str) -> str:
 class TestSection42EnrichedSchema:
     """Verify Section 4.2 describes enriched session-summary.json schema."""
 
-    def test_section_42_mentions_rejected_approaches(
-        self, arch_doc_content: str
-    ) -> None:
+    def test_section_42_mentions_rejected_approaches(self, arch_doc_content: str) -> None:
         section = _extract_section(arch_doc_content, "4.2")
-        assert "rejected_approaches" in section, (
-            "Section 4.2 must reference the rejected_approaches field"
-        )
+        assert "rejected_approaches" in section, "Section 4.2 must reference the rejected_approaches field"
 
     def test_section_42_mentions_gotchas(self, arch_doc_content: str) -> None:
         section = _extract_section(arch_doc_content, "4.2")
-        assert "gotchas" in section, (
-            "Section 4.2 must reference the gotchas field"
-        )
+        assert "gotchas" in section, "Section 4.2 must reference the gotchas field"
 
     def test_section_42_mentions_assumptions(self, arch_doc_content: str) -> None:
         section = _extract_section(arch_doc_content, "4.2")
-        assert "assumptions" in section, (
-            "Section 4.2 must reference the assumptions field"
-        )
+        assert "assumptions" in section, "Section 4.2 must reference the assumptions field"
 
     def test_section_42_mentions_composition(self, arch_doc_content: str) -> None:
         section = _extract_section(arch_doc_content, "4.2")
         section_lower = section.lower()
         assert "compos" in section_lower, (
-            "Section 4.2 must describe the composition step that transforms "
-            "structured fields into stored text"
+            "Section 4.2 must describe the composition step that transforms structured fields into stored text"
         )
 
 
@@ -112,19 +98,14 @@ class TestSection42EnrichedSchema:
 class TestSection55NonObviousLearnings:
     """Verify Section 5.4 notes non-obvious learnings in session_summaries."""
 
-    def test_section_55_mentions_non_obvious_or_rejected(
-        self, arch_doc_content: str
-    ) -> None:
+    def test_section_55_mentions_non_obvious_or_rejected(self, arch_doc_content: str) -> None:
         section = _extract_section(arch_doc_content, "5.4")
         section_lower = section.lower()
         assert "non-obvious" in section_lower or "rejected" in section_lower, (
-            "Section 5.4 must mention non-obvious learnings or rejected "
-            "approaches in session_summaries rows"
+            "Section 5.4 must mention non-obvious learnings or rejected approaches in session_summaries rows"
         )
 
-    def test_section_55_no_longer_completion_status(
-        self, arch_doc_content: str
-    ) -> None:
+    def test_section_55_no_longer_completion_status(self, arch_doc_content: str) -> None:
         section = _extract_section(arch_doc_content, "5.4")
         section_lower = section.lower()
         # Either 'completion' should not appear, or it should be qualified
@@ -152,18 +133,11 @@ class TestSection6RetrievalTable:
             "Section 6 must reference Same-spec summaries"
         )
 
-    def test_section_6_mentions_enriched_content(
-        self, arch_doc_content: str
-    ) -> None:
+    def test_section_6_mentions_enriched_content(self, arch_doc_content: str) -> None:
         section = _extract_section(arch_doc_content, "6")
         section_lower = section.lower()
-        assert (
-            "enriched" in section_lower
-            or "rejected" in section_lower
-            or "gotcha" in section_lower
-        ), (
-            "Section 6 Same-spec summaries row must reference enriched content "
-            "from structured session-summary fields"
+        assert "enriched" in section_lower or "rejected" in section_lower or "gotcha" in section_lower, (
+            "Section 6 Same-spec summaries row must reference enriched content from structured session-summary fields"
         )
 
 
@@ -176,27 +150,18 @@ class TestSection6RetrievalTable:
 class TestSection11CrossSessionContinuity:
     """Verify Section 11 describes enriched summary content."""
 
-    def test_section_11_mentions_structured_fields(
-        self, arch_doc_content: str
-    ) -> None:
+    def test_section_11_mentions_structured_fields(self, arch_doc_content: str) -> None:
         section = _extract_section(arch_doc_content, "11")
         section_lower = section.lower()
-        assert (
-            "rejected" in section_lower
-            or "gotcha" in section_lower
-            or "assumption" in section_lower
-        ), (
+        assert "rejected" in section_lower or "gotcha" in section_lower or "assumption" in section_lower, (
             "Section 11's cross-session continuity paragraph must reference "
             "rejected approaches, gotchas, or assumptions"
         )
 
-    def test_section_11_no_generic_completion_status(
-        self, arch_doc_content: str
-    ) -> None:
+    def test_section_11_no_generic_completion_status(self, arch_doc_content: str) -> None:
         section = _extract_section(arch_doc_content, "11")
         section_lower = section.lower()
         if "completion status" in section_lower:
             assert "no longer" in section_lower or "rather than" in section_lower, (
-                "Section 11 should not describe generic completion status as "
-                "current behavior"
+                "Section 11 should not describe generic completion status as current behavior"
             )

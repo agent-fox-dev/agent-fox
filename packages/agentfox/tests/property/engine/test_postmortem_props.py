@@ -49,7 +49,7 @@ def session_record_strategy(draw: st.DrawFn) -> SessionRecord:
         error_message=draw(st.one_of(st.none(), st.text(min_size=1, max_size=50))),
         timestamp="2026-06-03T10:00:00+00:00",
         model=draw(st.sampled_from(["claude-sonnet-4-6", "claude-opus-4", "claude-haiku-3.5"])),
-        archetype=draw(st.sampled_from(["coder", "skeptic", "verifier"])),
+        archetype=draw(st.sampled_from(["coder", "reviewer", "verifier"])),
         is_transport_error=draw(st.booleans()),
         is_budget_exhausted=draw(st.booleans()),
         is_non_retryable=draw(st.booleans()),

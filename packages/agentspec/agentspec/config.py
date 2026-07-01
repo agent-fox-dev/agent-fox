@@ -96,9 +96,7 @@ def load_config(
 
         # Determine whether [spec_tool] was *explicitly* present in the
         # raw TOML (as opposed to Pydantic filling in defaults).
-        spec_tool_explicit = getattr(
-            agent_fox_config, "_spec_tool_explicit", False
-        )
+        spec_tool_explicit = getattr(agent_fox_config, "_spec_tool_explicit", False)
         if spec_tool_explicit or config.model != _DEFAULT_MODEL:
             # Explicit config — use it as-is, no fallback.
             return config

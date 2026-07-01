@@ -214,10 +214,10 @@ class TestConfigOverridePrecedence:
     @pytest.mark.parametrize("override", ["SIMPLE", "STANDARD", "ADVANCED"])
     def test_config_override_takes_precedence(self, name: str, override: str) -> None:
         """With config override, resolve_model_tier returns override value."""
-        from agentfox.core.config import AgentFoxConfig, ArchetypesConfig
+        from agentfox.core.config import AgentFoxConfig, ArchetypesConfig, PerArchetypeConfig
         from agentfox.engine.sdk_params import resolve_model_tier
 
-        config = AgentFoxConfig(archetypes=ArchetypesConfig(models={name: override}))
+        config = AgentFoxConfig(archetypes=ArchetypesConfig(overrides={name: PerArchetypeConfig(model_tier=override)}))
         tier = resolve_model_tier(config, name)
         assert tier == override
 
@@ -225,10 +225,10 @@ class TestConfigOverridePrecedence:
     def test_no_override_uses_registry_default(self, name: str) -> None:
         """Without archetype override, registry default tier is used."""
         from agentfox.archetypes import ARCHETYPE_REGISTRY
-        from agentfox.core.config import AgentFoxConfig, ArchetypesConfig
+        from agentfox.core.config import AgentFoxConfig
         from agentfox.engine.sdk_params import resolve_model_tier
 
-        config = AgentFoxConfig(archetypes=ArchetypesConfig(models={}))
+        config = AgentFoxConfig()
         tier = resolve_model_tier(config, name)
         expected = ARCHETYPE_REGISTRY[name].default_model_tier
         assert tier == expected
@@ -246,11 +246,11 @@ class TestConfigOverridePrecedence:
     def test_prop_config_override_precedence(self, name: str, override: str | None) -> None:
         """Property: override → returned; no override → registry default."""
         from agentfox.archetypes import ARCHETYPE_REGISTRY
-        from agentfox.core.config import AgentFoxConfig, ArchetypesConfig
+        from agentfox.core.config import AgentFoxConfig, ArchetypesConfig, PerArchetypeConfig
         from agentfox.engine.sdk_params import resolve_model_tier
 
-        models = {name: override} if override is not None else {}
-        config = AgentFoxConfig(archetypes=ArchetypesConfig(models=models))
+        overrides = {name: PerArchetypeConfig(model_tier=override)} if override is not None else {}
+        config = AgentFoxConfig(archetypes=ArchetypesConfig(overrides=overrides))
         result = resolve_model_tier(config, name)
 
         if override is not None:

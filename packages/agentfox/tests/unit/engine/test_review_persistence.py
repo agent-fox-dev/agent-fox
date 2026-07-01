@@ -1,7 +1,7 @@
 """Unit tests for review finding persistence wiring in session lifecycle.
 
 Tests that archetype session output is routed to the correct insert function
-(Skeptic→insert_findings, Oracle→insert_drift_findings),
+(reviewer:pre-review→insert_findings, reviewer:drift-review→insert_drift_findings),
 that parse failures emit a review.parse_failure audit event, and that retry
 context is assembled correctly from active findings.
 
@@ -23,15 +23,15 @@ from agentfox.knowledge.db import KnowledgeDB
 from agentfox.knowledge.review_store import ReviewFinding, insert_findings
 
 # ---------------------------------------------------------------------------
-# TS-53-1: Skeptic output parsed via engine.review_parser and persisted
+# TS-53-1: Pre-review output parsed via engine.review_parser and persisted
 # ---------------------------------------------------------------------------
 
 
-class TestSkepticOutputParsedAndPersisted:
-    """TS-53-1: Skeptic session output is parsed using engine.review_parser."""
+class TestPreReviewOutputParsedAndPersisted:
+    """TS-53-1: Pre-review session output is parsed using engine.review_parser."""
 
-    def test_skeptic_uses_extract_json_array(self, knowledge_db: KnowledgeDB) -> None:
-        """TS-53-1: _persist_review_findings calls extract_json_array for Skeptic.
+    def test_pre_review_uses_extract_json_array(self, knowledge_db: KnowledgeDB) -> None:
+        """TS-53-1: _persist_review_findings calls extract_json_array for pre-review.
 
         This test will fail until Task Group 3 wires extract_json_array from
         engine.review_parser into session_lifecycle.py.
@@ -44,7 +44,8 @@ class TestSkepticOutputParsedAndPersisted:
         runner = NodeSessionRunner(
             "03_api:2",
             AgentFoxConfig(),
-            archetype="skeptic",
+            archetype="reviewer",
+            mode="pre-review",
             knowledge_db=knowledge_db,
         )
 
@@ -64,8 +65,8 @@ class TestSkepticOutputParsedAndPersisted:
 
         mock_extract.assert_called_once_with(output)
 
-    def test_skeptic_end_to_end_finding_persisted(self, knowledge_db: KnowledgeDB) -> None:
-        """TS-53-1: Skeptic output persisted to DuckDB (bare JSON array format)."""
+    def test_pre_review_end_to_end_finding_persisted(self, knowledge_db: KnowledgeDB) -> None:
+        """TS-53-1: Pre-review output persisted to DuckDB (bare JSON array format)."""
         output = json.dumps(
             [
                 {
@@ -78,7 +79,8 @@ class TestSkepticOutputParsedAndPersisted:
         runner = NodeSessionRunner(
             "03_api:2",
             AgentFoxConfig(),
-            archetype="skeptic",
+            archetype="reviewer",
+            mode="pre-review",
             knowledge_db=knowledge_db,
         )
 
@@ -107,15 +109,15 @@ class TestSkepticOutputParsedAndPersisted:
 
 
 # ---------------------------------------------------------------------------
-# TS-53-3: Oracle output parsed via engine.review_parser and persisted
+# TS-53-3: Drift-review output parsed via engine.review_parser and persisted
 # ---------------------------------------------------------------------------
 
 
-class TestOracleOutputParsedAndPersisted:
-    """TS-53-3: Oracle session output is parsed using engine.review_parser."""
+class TestDriftReviewOutputParsedAndPersisted:
+    """TS-53-3: Drift-review session output is parsed using engine.review_parser."""
 
-    def test_oracle_uses_extract_json_array(self, knowledge_db: KnowledgeDB) -> None:
-        """TS-53-3: _persist_review_findings calls extract_json_array for Oracle."""
+    def test_drift_review_uses_extract_json_array(self, knowledge_db: KnowledgeDB) -> None:
+        """TS-53-3: _persist_review_findings calls extract_json_array for drift-review."""
         output = json.dumps(
             [
                 {
@@ -129,7 +131,8 @@ class TestOracleOutputParsedAndPersisted:
         runner = NodeSessionRunner(
             "03_api:0",
             AgentFoxConfig(),
-            archetype="oracle",
+            archetype="reviewer",
+            mode="drift-review",
             knowledge_db=knowledge_db,
         )
 
@@ -149,8 +152,8 @@ class TestOracleOutputParsedAndPersisted:
 
         mock_extract.assert_called_once_with(output)
 
-    def test_oracle_end_to_end_drift_persisted(self, knowledge_db: KnowledgeDB) -> None:
-        """TS-53-3: Oracle output persisted to DuckDB."""
+    def test_drift_review_end_to_end_drift_persisted(self, knowledge_db: KnowledgeDB) -> None:
+        """TS-53-3: Drift-review output persisted to DuckDB."""
         output = json.dumps(
             [
                 {
@@ -164,7 +167,8 @@ class TestOracleOutputParsedAndPersisted:
         runner = NodeSessionRunner(
             "03_api:0",
             AgentFoxConfig(),
-            archetype="oracle",
+            archetype="reviewer",
+            mode="drift-review",
             knowledge_db=knowledge_db,
         )
 
@@ -218,7 +222,8 @@ class TestParseFailureEmitsAuditEvent:
         runner = NodeSessionRunner(
             "03_api:2",
             AgentFoxConfig(),
-            archetype="skeptic",
+            archetype="reviewer",
+            mode="pre-review",
             knowledge_db=knowledge_db,
             sink_dispatcher=mock_sink,
             run_id="test_run_001",
@@ -243,7 +248,8 @@ class TestParseFailureEmitsAuditEvent:
         runner = NodeSessionRunner(
             "03_api:2",
             AgentFoxConfig(),
-            archetype="skeptic",
+            archetype="reviewer",
+            mode="pre-review",
             knowledge_db=knowledge_db,
             sink_dispatcher=mock_sink,
             run_id="test_run_002",
@@ -268,7 +274,8 @@ class TestParseFailureEmitsAuditEvent:
         runner = NodeSessionRunner(
             "03_api:2",
             AgentFoxConfig(),
-            archetype="skeptic",
+            archetype="reviewer",
+            mode="pre-review",
             knowledge_db=knowledge_db,
             sink_dispatcher=mock_sink,
             run_id="test_run_003",
@@ -295,7 +302,8 @@ class TestParseFailureEmitsAuditEvent:
         runner = NodeSessionRunner(
             "03_api:2",
             AgentFoxConfig(),
-            archetype="skeptic",
+            archetype="reviewer",
+            mode="pre-review",
             knowledge_db=knowledge_db,
             sink_dispatcher=mock_sink,
             run_id="test_run_004",
@@ -573,16 +581,16 @@ class TestBuildRetryContextTaskGroupFilter:
 
 
 # ---------------------------------------------------------------------------
-# Auditor parse failure and retry (issue #267)
+# Audit-review parse failure and retry (issue #267)
 # Requirements: 46-REQ-8.1
 # ---------------------------------------------------------------------------
 
 
-class TestAuditorParseFailureEmitsEvent:
-    """Auditor parse failure emits review.parse_failure event (issue #267)."""
+class TestAuditReviewParseFailureEmitsEvent:
+    """Audit-review parse failure emits review.parse_failure event (issue #267)."""
 
-    def test_auditor_parse_failure_emits_event(self, knowledge_db: KnowledgeDB) -> None:
-        """Unparseable auditor output emits a REVIEW_PARSE_FAILURE audit event."""
+    def test_audit_review_parse_failure_emits_event(self, knowledge_db: KnowledgeDB) -> None:
+        """Unparseable audit-review output emits a REVIEW_PARSE_FAILURE audit event."""
         emitted_events = []
         mock_sink = MagicMock()
         mock_sink.emit_audit_event.side_effect = lambda e: emitted_events.append(e)
@@ -590,7 +598,8 @@ class TestAuditorParseFailureEmitsEvent:
         runner = NodeSessionRunner(
             "05_spec:1",
             AgentFoxConfig(),
-            archetype="auditor",
+            archetype="reviewer",
+            mode="audit-review",
             knowledge_db=knowledge_db,
             sink_dispatcher=mock_sink,
             run_id="test_run_auditor_001",
@@ -609,20 +618,21 @@ class TestAuditorParseFailureEmitsEvent:
         assert "raw_output" in payload
         assert payload["retry_attempted"] is False
 
-    def test_auditor_parse_failure_does_not_raise(self, knowledge_db: KnowledgeDB) -> None:
-        """Auditor parse failure must not raise — execution continues."""
+    def test_audit_review_parse_failure_does_not_raise(self, knowledge_db: KnowledgeDB) -> None:
+        """Audit-review parse failure must not raise — execution continues."""
         runner = NodeSessionRunner(
             "05_spec:1",
             AgentFoxConfig(),
-            archetype="auditor",
+            archetype="reviewer",
+            mode="audit-review",
             knowledge_db=knowledge_db,
             run_id="test_run_auditor_002",
         )
         # Must not raise
         runner._persist_review_findings("no json here at all", "05_spec:1", 1)
 
-    def test_auditor_retry_succeeds_on_second_attempt(self, knowledge_db: KnowledgeDB) -> None:
-        """When initial auditor parse fails but retry produces valid JSON, success event emitted."""
+    def test_audit_review_retry_succeeds_on_second_attempt(self, knowledge_db: KnowledgeDB) -> None:
+        """When initial audit-review parse fails but retry produces valid JSON, success event emitted."""
         import json as _json
 
         from agentfox.engine.review_persistence import persist_review_findings
@@ -663,13 +673,14 @@ class TestAuditorParseFailureEmitsEvent:
                 "prose with no JSON",
                 "05_spec:1",
                 1,
-                archetype="auditor",
+                archetype="reviewer",
                 spec_name="05_spec",
                 task_group="1",
                 knowledge_db_conn=conn,
                 sink=mock_sink,
                 run_id="test_run_auditor_003",
                 session_handle=mock_session,
+                mode="audit-review",
             )
 
         # A retry was attempted
@@ -681,7 +692,7 @@ class TestAuditorParseFailureEmitsEvent:
         assert len(failure_events) == 0, "No failure event expected when retry succeeds"
         assert len(retry_success_events) == 1
 
-    def test_auditor_retry_emits_failure_when_both_fail(self, knowledge_db: KnowledgeDB) -> None:
+    def test_audit_review_retry_emits_failure_when_both_fail(self, knowledge_db: KnowledgeDB) -> None:
         """When both initial parse and retry fail, a failure event is emitted with retry_attempted=True."""
         from agentfox.engine.review_persistence import persist_review_findings
 
@@ -699,13 +710,14 @@ class TestAuditorParseFailureEmitsEvent:
             "prose with no JSON",
             "05_spec:1",
             1,
-            archetype="auditor",
+            archetype="reviewer",
             spec_name="05_spec",
             task_group="1",
             knowledge_db_conn=conn,
             sink=mock_sink,
             run_id="test_run_auditor_004",
             session_handle=mock_session,
+            mode="audit-review",
         )
 
         failure_events = [e for e in emitted_events if e.event_type == "review.parse_failure"]

@@ -72,8 +72,8 @@ def archetype_ceiling_config_toml(tmp_path: Path) -> Path:
     p = tmp_path / "config.toml"
     p.write_text(
         textwrap.dedent("""\
-    [archetypes]
-    models = { coder = "STANDARD" }
+    [archetypes.overrides.coder]
+    model_tier = "STANDARD"
     """)
     )
     return p

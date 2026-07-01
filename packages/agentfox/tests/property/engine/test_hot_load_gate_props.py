@@ -116,7 +116,10 @@ class TestGatePipelineMonotonicFiltering:
                 ),
             ):
                 result = await discover_new_specs_gated(
-                    specs_dir, known_specs=set(), repo_root=tmp_path, integration_branch="main",
+                    specs_dir,
+                    known_specs=set(),
+                    repo_root=tmp_path,
+                    integration_branch="main",
                 )
 
             # Output is a subset
@@ -294,9 +297,7 @@ class TestLintGateCorrectness:
             else:
                 mock_loaded = MagicMock()
                 has_errors = any(s == "error" for s in severities)
-                mock_result = type(
-                    "MockResult", (), {"errors": mock_errors, "valid": not has_errors}
-                )()
+                mock_result = type("MockResult", (), {"errors": mock_errors, "valid": not has_errors})()
                 with (
                     patch("afspec.load_spec", return_value=mock_loaded),
                     patch("afspec.validate", return_value=mock_result),
@@ -394,7 +395,10 @@ class TestStatelessReEvaluation:
                 ),
             ):
                 await discover_new_specs_gated(
-                    specs_dir, known_specs=set(), repo_root=tmp_path, integration_branch="main",
+                    specs_dir,
+                    known_specs=set(),
+                    repo_root=tmp_path,
+                    integration_branch="main",
                 )
 
             # Eval 2 with state_2
@@ -414,7 +418,10 @@ class TestStatelessReEvaluation:
                 ),
             ):
                 result_2 = await discover_new_specs_gated(
-                    specs_dir, known_specs=set(), repo_root=tmp_path, integration_branch="main",
+                    specs_dir,
+                    known_specs=set(),
+                    repo_root=tmp_path,
+                    integration_branch="main",
                 )
 
             # Fresh eval with state_2 (verify same result)
@@ -434,7 +441,10 @@ class TestStatelessReEvaluation:
                 ),
             ):
                 result_fresh = await discover_new_specs_gated(
-                    specs_dir, known_specs=set(), repo_root=tmp_path, integration_branch="main",
+                    specs_dir,
+                    known_specs=set(),
+                    repo_root=tmp_path,
+                    integration_branch="main",
                 )
 
             # Results from eval_2 and fresh must match

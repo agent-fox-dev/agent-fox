@@ -129,10 +129,10 @@ class TestConvergenceDispatchCorrectness:
 
     @pytest.mark.parametrize("mode", ["pre-review", "drift-review"])
     def test_pre_drift_dispatch_to_skeptic(self, mode: str) -> None:
-        """pre-review and drift-review route to converge_skeptic."""
+        """pre-review and drift-review route to converge_reviewer_pre."""
         from agentfox.session.convergence import (
             converge_reviewer,  # type: ignore[attr-defined]
-            converge_skeptic,
+            converge_reviewer_pre,
         )
 
         results = [
@@ -140,7 +140,7 @@ class TestConvergenceDispatchCorrectness:
             [_make_findings(1, "major", "Other")[0]],
         ]
         result = converge_reviewer(results, mode=mode, block_threshold=5)
-        expected = converge_skeptic(results, block_threshold=5)
+        expected = converge_reviewer_pre(results, block_threshold=5)
         assert result == expected, f"mode={mode!r}: expected {expected}, got {result}"
 
     def test_audit_dispatch_to_auditor(self) -> None:
@@ -162,15 +162,15 @@ class TestConvergenceDispatchCorrectness:
     @given(mode=st.sampled_from(["pre-review", "drift-review"]))
     @settings(max_examples=20)
     def test_skeptic_modes_always_match(self, mode: str) -> None:
-        """Property: any skeptic-routed mode produces same result as converge_skeptic."""
+        """Property: any skeptic-routed mode produces same result as converge_reviewer_pre."""
         from agentfox.session.convergence import (
             converge_reviewer,  # type: ignore[attr-defined]
-            converge_skeptic,
+            converge_reviewer_pre,
         )
 
         results: list = []
         result = converge_reviewer(results, mode=mode, block_threshold=3)
-        expected = converge_skeptic(results, block_threshold=3)
+        expected = converge_reviewer_pre(results, block_threshold=3)
         assert result == expected
 
 

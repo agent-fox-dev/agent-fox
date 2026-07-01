@@ -557,10 +557,10 @@ def parse_review_output(
 
     Requirements: 27-REQ-3.1, 27-REQ-3.3, 27-REQ-3.E1, 27-REQ-3.E2
     """
-    items = _unwrap_items(response, "findings", ("severity",), "Skeptic")
+    items = _unwrap_items(response, "findings", ("severity",), "Reviewer")
     findings = parse_review_findings(items, spec_name, task_group, session_id)
     if not findings:
-        logger.warning("No valid findings extracted from Skeptic output")
+        logger.warning("No valid findings extracted from reviewer output")
     return findings
 
 
@@ -570,7 +570,7 @@ def parse_oracle_output(
     task_group: str,
     session_id: str,
 ) -> list[DriftFinding]:
-    """Extract DriftFinding objects from oracle agent response JSON.
+    """Extract DriftFinding objects from drift-review agent response JSON.
 
     Looks for a JSON object with a "drift_findings" array. Each entry
     must have "severity" and "description". Returns empty list if no
@@ -578,10 +578,10 @@ def parse_oracle_output(
 
     Requirements: 32-REQ-6.1, 32-REQ-6.2, 32-REQ-6.E1, 32-REQ-6.E2
     """
-    items = _unwrap_items(response, "drift_findings", ("severity", "description"), "Oracle")
+    items = _unwrap_items(response, "drift_findings", ("severity", "description"), "Reviewer")
     findings = parse_drift_findings(items, spec_name, task_group, session_id)
     if not findings:
-        logger.warning("No valid drift findings extracted from Oracle output")
+        logger.warning("No valid drift findings extracted from drift-review output")
     return findings
 
 
@@ -637,7 +637,7 @@ def parse_auditor_output(
     """
     # ------------------------------------------------------------------
     # Fast path: try direct JSON parsing on the entire response.
-    # The auditor prompt instructs bare JSON output with no fences, so this
+    # The audit-review prompt instructs bare JSON output with no fences, so this
     # path handles conforming responses without regex overhead.
     # ------------------------------------------------------------------
     stripped = response.strip()

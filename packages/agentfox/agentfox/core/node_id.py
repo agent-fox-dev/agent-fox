@@ -21,7 +21,7 @@ class ParsedNodeId(NamedTuple):
 
     spec_name: str
     group_number: int
-    role: str | None  # e.g. "skeptic", "auditor", "verifier", "oracle"
+    role: str | None  # e.g. "reviewer", "verifier"
 
 
 def parse_node_id(node_id: str) -> ParsedNodeId:
@@ -33,8 +33,8 @@ def parse_node_id(node_id: str) -> ParsedNodeId:
 
         >>> parse_node_id("11_echo_server:3")
         ParsedNodeId(spec_name='11_echo_server', group_number=3, role=None)
-        >>> parse_node_id("11_echo_server:3:skeptic")
-        ParsedNodeId(spec_name='11_echo_server', group_number=3, role='skeptic')
+        >>> parse_node_id("11_echo_server:3:reviewer")
+        ParsedNodeId(spec_name='11_echo_server', group_number=3, role='reviewer')
         >>> parse_node_id("11_echo_server")
         ParsedNodeId(spec_name='11_echo_server', group_number=0, role=None)
     """

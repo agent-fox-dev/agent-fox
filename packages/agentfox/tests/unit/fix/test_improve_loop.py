@@ -82,7 +82,7 @@ class TestImproveLoopTermination:
                 return_value=analyzer_result,
             ),
             patch(
-                "agentfox.fix.improve.query_oracle_context",
+                "agentfox.fix.improve.query_knowledge_context",
                 return_value="",
             ),
             patch(
@@ -120,7 +120,7 @@ class TestImproveLoopTermination:
                 return_value=low_only,
             ),
             patch(
-                "agentfox.fix.improve.query_oracle_context",
+                "agentfox.fix.improve.query_knowledge_context",
                 return_value="",
             ),
             patch(
@@ -167,7 +167,7 @@ class TestImproveLoopTermination:
                 return_value=analyzer_result.improvements,
             ),
             patch(
-                "agentfox.fix.improve.query_oracle_context",
+                "agentfox.fix.improve.query_knowledge_context",
                 return_value="",
             ),
             patch(
@@ -218,7 +218,7 @@ class TestImproveLoopTermination:
                 return_value=analyzer_result.improvements,
             ),
             patch(
-                "agentfox.fix.improve.query_oracle_context",
+                "agentfox.fix.improve.query_knowledge_context",
                 return_value="",
             ),
             patch(
@@ -245,7 +245,7 @@ class TestImproveLoopTermination:
     async def test_cost_limit_terminates(self, tmp_path: Path, mock_config: AgentFoxConfig) -> None:
         """TS-31-23: Loop stops when cost budget is exhausted."""
         with (
-            patch("agentfox.fix.improve.query_oracle_context", return_value=""),
+            patch("agentfox.fix.improve.query_knowledge_context", return_value=""),
             patch("agentfox.fix.improve.load_review_context", return_value=""),
         ):
             result = await run_improve_loop(
@@ -271,7 +271,7 @@ class TestImproveLoopTermination:
                 return_value=("sys", "task"),
             ),
             patch(
-                "agentfox.fix.improve.query_oracle_context",
+                "agentfox.fix.improve.query_knowledge_context",
                 return_value="",
             ),
             patch(
@@ -318,7 +318,7 @@ class TestImproveLoopTermination:
                 return_value=analyzer_result.improvements,
             ),
             patch(
-                "agentfox.fix.improve.query_oracle_context",
+                "agentfox.fix.improve.query_knowledge_context",
                 return_value="",
             ),
             patch(

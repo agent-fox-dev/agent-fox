@@ -30,11 +30,7 @@ def _grep_doc(doc_path: Path, pattern: str, *, case_insensitive: bool = True) ->
         pytest.skip(f"Document not found: {doc_path}")
     content = doc_path.read_text()
     flags = re.IGNORECASE if case_insensitive else 0
-    return [
-        line
-        for line in content.splitlines()
-        if re.search(pattern, line, flags)
-    ]
+    return [line for line in content.splitlines() if re.search(pattern, line, flags)]
 
 
 # ---------------------------------------------------------------------------
@@ -53,10 +49,7 @@ class TestArchitectureMdCleanup:
     def test_forbidden_term_absent(self, term: str) -> None:
         doc = _DOCS / "architecture.md"
         matches = _grep_doc(doc, term)
-        assert not matches, (
-            f"docs/architecture.md must not contain '{term}':\n"
-            + "\n".join(matches)
-        )
+        assert not matches, f"docs/architecture.md must not contain '{term}':\n" + "\n".join(matches)
 
 
 # ---------------------------------------------------------------------------
@@ -76,9 +69,8 @@ class TestKnowledgeSystemArchitectureCleanup:
     )
     def test_removed_channel_terms_absent(self, removed_term: str) -> None:
         matches = _grep_doc(self._DOC_PATH, removed_term)
-        assert not matches, (
-            f"05-knowledge-system-architecture.md must not contain '{removed_term}':\n"
-            + "\n".join(matches)
+        assert not matches, f"05-knowledge-system-architecture.md must not contain '{removed_term}':\n" + "\n".join(
+            matches
         )
 
     @pytest.mark.parametrize(
@@ -91,9 +83,7 @@ class TestKnowledgeSystemArchitectureCleanup:
         if not doc.exists():
             pytest.skip(f"Document not found: {doc}")
         content = doc.read_text().lower()
-        assert retained_term.lower() in content, (
-            f"05-knowledge-system-architecture.md must document '{retained_term}'"
-        )
+        assert retained_term.lower() in content, f"05-knowledge-system-architecture.md must document '{retained_term}'"
 
 
 # ---------------------------------------------------------------------------
@@ -112,7 +102,4 @@ class TestExecutionArchetypesCleanup:
     )
     def test_forbidden_term_absent(self, term: str) -> None:
         matches = _grep_doc(self._DOC_PATH, term)
-        assert not matches, (
-            f"03-execution-and-archetypes.md must not contain '{term}':\n"
-            + "\n".join(matches)
-        )
+        assert not matches, f"03-execution-and-archetypes.md must not contain '{term}':\n" + "\n".join(matches)
