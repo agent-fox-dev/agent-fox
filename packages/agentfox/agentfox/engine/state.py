@@ -64,6 +64,18 @@ class SessionRecord:
     is_harvest_failure: bool = False  # True when session completed but harvest/merge failed
     is_workspace_setup_failure: bool = False  # True when failure occurred during workspace setup (worktree/branch)
 
+    @property
+    def is_environment_failure(self) -> bool:
+        """True when the session died before any LLM work (0 tokens, 0 cost)."""
+        return (
+            self.status != "completed"
+            and self.input_tokens == 0
+            and self.output_tokens == 0
+            and self.cost <= 0.0
+            and not self.is_workspace_setup_failure
+            and not self.is_transport_error
+        )
+
 
 @dataclass
 class SessionOutcomeRecord:

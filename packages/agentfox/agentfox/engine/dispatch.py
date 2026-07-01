@@ -564,6 +564,17 @@ class DispatchManager:
             )
             return None
 
+        if (
+            self._result_handler is not None
+            and hasattr(self._result_handler, "is_environment_backoff_active")
+            and self._result_handler.is_environment_backoff_active(node_id)
+        ):
+            logger.debug(
+                "Environment failure backoff active for %s, skipping dispatch cycle",
+                node_id,
+            )
+            return None
+
         archetype = self.get_node_archetype(node_id)
         mode = self.get_node_mode(node_id)
 

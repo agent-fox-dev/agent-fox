@@ -53,6 +53,7 @@ class AuditEventType(StrEnum):
     SESSION_FAIL = "session.fail"
     SESSION_RETRY = "session.retry"
     SESSION_TIMEOUT_RETRY = "session.timeout_retry"
+    SESSION_ENVIRONMENT_FAILURE = "session.environment_failure"
     TASK_STATUS_CHANGE = "task.status_change"
     MODEL_ASSESSMENT = "model.assessment"
     TOOL_INVOCATION = "tool.invocation"

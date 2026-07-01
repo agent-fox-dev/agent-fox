@@ -36,6 +36,8 @@ logger = logging.getLogger(__name__)
 
 _MAX_WORKSPACE_FAILURES = 3
 _MAX_WORKSPACE_BACKOFF_SECONDS = 30
+_MAX_ENVIRONMENT_FAILURES = 3
+_MAX_ENVIRONMENT_BACKOFF_SECONDS = 30
 
 
 @dataclass
@@ -49,6 +51,8 @@ class _NodeRetryState:
     coverage_baseline: Any = field(default=None, repr=False)
     workspace_failures: int = 0
     workspace_next_eligible: float = 0.0
+    environment_failures: int = 0
+    environment_next_eligible: float = 0.0
 
 
 class SessionResultHandler:
@@ -527,6 +531,7 @@ class SessionResultHandler:
         ns = self._node_retry_states.get(node_id)
         if ns is not None:
             ns.workspace_failures = 0
+            ns.environment_failures = 0
 
         prev_status = self._graph_sync.node_states.get(node_id, "in_progress")
         self._graph_sync.mark_completed(node_id)
@@ -740,6 +745,13 @@ class SessionResultHandler:
             return False
         return time.monotonic() < ns.workspace_next_eligible
 
+    def is_environment_backoff_active(self, node_id: str) -> bool:
+        """Return True when the node is in environment-failure backoff."""
+        ns = self._node_retry_states.get(node_id)
+        if ns is None or ns.environment_failures == 0:
+            return False
+        return time.monotonic() < ns.environment_next_eligible
+
     def _handle_workspace_setup_failure(
         self,
         record: SessionRecord,
@@ -805,6 +817,71 @@ class SessionResultHandler:
             },
         )
 
+    def _handle_environment_failure(
+        self,
+        record: SessionRecord,
+        state: ExecutionState,
+    ) -> None:
+        """Handle a zero-turn environment failure with backoff.
+
+        The session died before any LLM work (0 tokens, 0 cost). This is
+        an infrastructure issue — retrying with the same model after a
+        backoff delay is the correct response. Does not consume the
+        generic retry counter.
+        """
+        node_id = record.node_id
+        ns = self._get_node_state(node_id)
+        ns.environment_failures += 1
+        count = ns.environment_failures
+
+        if count >= _MAX_ENVIRONMENT_FAILURES:
+            reason = (
+                f"Environment failure {count} times consecutively for {node_id}: "
+                f"{record.error_message}. "
+                f"Session crashed before any LLM call (0 tokens, $0 cost)."
+            )
+            logger.warning("Environment failure circuit breaker tripped for %s: %s", node_id, reason)
+            self._block_task(node_id, state, reason)
+            self._check_block_budget(state)
+            emit_audit_event(
+                self._sink,
+                self._run_id,
+                AuditEventType.SESSION_ENVIRONMENT_FAILURE,
+                node_id=node_id,
+                payload={
+                    "consecutive_failures": count,
+                    "blocked": True,
+                    "error": record.error_message,
+                },
+            )
+            return
+
+        delay = min(2**count, _MAX_ENVIRONMENT_BACKOFF_SECONDS)
+        ns.environment_next_eligible = time.monotonic() + delay
+
+        logger.warning(
+            "Environment failure for %s (%d/%d), backing off %ds: %s",
+            node_id,
+            count,
+            _MAX_ENVIRONMENT_FAILURES,
+            delay,
+            record.error_message,
+        )
+        self._graph_sync.mark_pending(node_id, reason="environment failure retry with backoff")
+
+        emit_audit_event(
+            self._sink,
+            self._run_id,
+            AuditEventType.SESSION_ENVIRONMENT_FAILURE,
+            node_id=node_id,
+            payload={
+                "consecutive_failures": count,
+                "blocked": False,
+                "backoff_seconds": delay,
+                "error": record.error_message,
+            },
+        )
+
     def _handle_failure(
         self,
         record: SessionRecord,
@@ -835,6 +912,12 @@ class SessionResultHandler:
         # Transport errors are retried without counting.
         if getattr(record, "is_transport_error", False):
             self._handle_transport_error(record)
+            return
+
+        # Zero-turn environment failures (SDK crashed before any LLM call)
+        # get backoff without consuming retry budget.
+        if record.is_environment_failure:
+            self._handle_environment_failure(record, state)
             return
 
         # 26-REQ-9.3: Retry-predecessor for archetypes with the flag
