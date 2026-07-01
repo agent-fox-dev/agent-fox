@@ -11,7 +11,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Optional
 
-from pydantic import BaseModel, Field, PrivateAttr
+from pydantic import BaseModel, Field, PrivateAttr, field_validator
 
 from afspec.exceptions import LifecycleError
 
@@ -339,6 +339,13 @@ class Subtask(BaseModel):
     requirement_refs: list[str] = Field(default_factory=list)
     state: SubtaskState = SubtaskState.PENDING
     optional: bool = False
+
+    @field_validator("details", mode="before")
+    @classmethod
+    def _coerce_details_to_list(cls, v: Any) -> list[str]:
+        if isinstance(v, str):
+            return [v]
+        return v
 
     def transition_to(self, target: SubtaskState) -> Subtask:
         """Transition to a new state.
