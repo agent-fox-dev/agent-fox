@@ -61,6 +61,10 @@ nightshift
 uv tool install af --from git+https://github.com/agent-fox-dev/agent-fox.git#subdirectory=packages/af
 ```
 
+```bash
+curl -fsSL https://raw.githubusercontent.com/agent-fox-dev/agent-fox/refs/heads/main/install.sh | sh
+```
+
 ## Development
 
 The repository is a [uv workspace](https://docs.astral.sh/uv/concepts/workspaces/)
