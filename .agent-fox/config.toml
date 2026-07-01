@@ -44,18 +44,12 @@
 # watch_interval = 60
 
 # [routing]
-## Retries before model escalation (0-3, default: 1)
-# retries_before_escalation = 1
-## Maximum timeout retries before falling through to escalation (>=0, default: 2)
+## Maximum timeout retries before falling through to failure handler (>=0, default: 2)
 # max_timeout_retries = 2
 ## Factor by which max_turns and session_timeout are extended on timeout retry (>=1.0, default: 1.5)
 # timeout_multiplier = 1.5
 ## Maximum session_timeout as a factor of the original configured value (>=1.0, default: 2.0)
 # timeout_ceiling_factor = 2.0
-## Anthropic model ID for complexity assessment (default: "claude-haiku-4-5")
-# assessor_model = "claude-haiku-4-5"
-## Minimum confidence to apply complexity assessment upgrade (default: 0.6)
-# confidence_threshold = 0.6
 
 # [security]
 ## Allowed bash commands (not set by default)

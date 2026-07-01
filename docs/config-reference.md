@@ -82,7 +82,7 @@ Controls the orchestration loop: parallelism, retries, timeouts, and budgets.
 | `max_budget_usd` | float | `20.0` | >= 0 | Per-session spend cap in USD; `0` means unlimited |
 | `sync_interval` | int | `5` | >= 0 | Task-group sync interval in number of sessions |
 | `hot_load` | bool | `true` | -- | Hot-reload spec files between sessions without restarting the orchestrator |
-| `max_retries` | int | `2` | >= 0 | Maximum number of automatic retries per task group (circuit-breaker limit). **Deprecated for escalation tuning**; use `[routing] retries_before_escalation` instead. Still controls the circuit-breaker retry limit. |
+| `max_retries` | int | `2` | >= 0 | Maximum number of automatic retries per task group before blocking the node |
 | `session_timeout` | int | `45` | >= 1 | Per-session timeout in minutes |
 | `inter_session_delay` | int | `3` | >= 0 | Delay in seconds between consecutive session launches |
 | `max_cost` | float\|null | `null` | -- | Hard cost ceiling for the entire run (null = no limit) |
@@ -114,23 +114,17 @@ to a more capable model tier based on past session outcomes.
 
 | Field | Type | Default | Bounds | Description |
 |-------|------|---------|--------|-------------|
-| `retries_before_escalation` | int | `1` | 0--3 | Failed retries before escalating to the next model tier |
-| `max_timeout_retries` | int | `2` | >= 0 | Maximum timeout retries before falling through to escalation (0 = disable timeout handling) |
+| `max_timeout_retries` | int | `2` | >= 0 | Maximum timeout retries before falling through to failure handler (0 = disable timeout handling) |
 | `timeout_multiplier` | float | `1.5` | >= 1.0 | Factor by which `max_turns` and `session_timeout` are extended on each timeout retry |
 | `timeout_ceiling_factor` | float | `2.0` | >= 1.0 | Maximum `session_timeout` as a multiple of the original configured value |
-| `assessor_model` | str | `"claude-haiku-4-5"` | min 1 char | Anthropic model ID used for dynamic complexity assessment |
-| `confidence_threshold` | float | `0.6` | 0.0--1.0 | Minimum confidence score to apply a complexity assessment upgrade |
 
 **Example:**
 
 ```toml
 [routing]
-retries_before_escalation = 2
 max_timeout_retries = 3
 timeout_multiplier = 1.5
 timeout_ceiling_factor = 2.0
-assessor_model = "claude-haiku-4-5"
-confidence_threshold = 0.6
 ```
 
 ---
@@ -311,7 +305,7 @@ Reviewer-specific configuration, consolidating settings for all review modes.
 | `pre_review_block_threshold` | int | `1` | >= 0 | Finding count to block merge for pre-review mode |
 | `drift_review_block_threshold` | int\|null | `null` | >= 1 | Drift count to block for drift-review mode; `null` = advisory only |
 | `audit_min_ts_entries` | int | `5` | >= 1 | Minimum test-spec entries to trigger audit-review injection |
-| `audit_max_retries` | int | `2` | >= 0 | Maximum audit-review/coder retry cycles before permanently blocking. Tracked independently of the generic escalation ladder, so audit retries do not consume the coder's escalation budget. Set to 0 to block on the first audit-review failure |
+| `audit_max_retries` | int | `2` | >= 0 | Maximum audit-review/coder retry cycles before permanently blocking. Tracked independently of the generic failure counter. Set to 0 to block on the first audit-review failure |
 
 **Example:**
 
