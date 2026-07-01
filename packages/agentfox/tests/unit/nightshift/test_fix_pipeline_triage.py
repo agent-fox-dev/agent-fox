@@ -96,7 +96,6 @@ def _make_session_outcome(response: str = "") -> MagicMock:
 
 def _make_pipeline(
     max_retries: int = 3,
-    retries_before_escalation: int = 1,
 ) -> tuple:
     """Create a FixPipeline with mocked config and platform.
 
@@ -105,7 +104,7 @@ def _make_pipeline(
     from agentfox.nightshift.fix_pipeline import FixPipeline
 
     config = MagicMock()
-    config.routing.retries_before_escalation = retries_before_escalation
+    config.archetypes.overrides.get.return_value = None
     config.orchestrator.max_retries = max_retries
 
     mock_platform = AsyncMock()
@@ -317,53 +316,6 @@ class TestCoderRetryOnFail:
 
 
 # ---------------------------------------------------------------------------
-# TS-82-16: Model escalation on repeated FAIL
-# Requirements: 82-REQ-8.2, 82-REQ-8.3
-# ---------------------------------------------------------------------------
-
-
-class TestModelEscalation:
-    """Verify pipeline escalates model tier after repeated FAILs."""
-
-    @pytest.mark.asyncio
-    async def test_model_tier_changes_after_escalation(self) -> None:
-        pipeline, mock_platform, _ = _make_pipeline(max_retries=3, retries_before_escalation=1)
-
-        model_ids_used: list[str | None] = []
-
-        async def mock_run_session(archetype: str, workspace: object = None, **kwargs: object) -> MagicMock:
-            if archetype == "maintainer":
-                return _make_session_outcome(_triage_json(1))
-            if archetype == "reviewer":
-                return _make_session_outcome(_review_json("FAIL", ["AC-1"], ["FAIL"]))
-            return _make_session_outcome()
-
-        pipeline._run_session = mock_run_session  # type: ignore[method-assign]
-
-        # Capture model_id passed to coder sessions
-        original_run_coder = pipeline._run_coder_session
-
-        async def capturing_run_coder(
-            workspace: object,
-            spec: object,
-            system_prompt: str,
-            task_prompt: str,
-            model_id: str | None = None,
-        ) -> MagicMock:
-            model_ids_used.append(model_id)
-            return await original_run_coder(workspace, spec, system_prompt, task_prompt, model_id)
-
-        pipeline._run_coder_session = capturing_run_coder  # type: ignore[method-assign]
-
-        await pipeline.process_issue(_make_issue(), issue_body="hard bug")
-
-        # At least some model_ids should differ (escalation occurred)
-        assert len(model_ids_used) >= 2
-        # First and last should differ (escalation happened)
-        assert model_ids_used[0] != model_ids_used[-1]
-
-
-# ---------------------------------------------------------------------------
 # TS-82-17: Pipeline stops and posts failure on exhaustion
 # Requirement: 82-REQ-8.4
 # ---------------------------------------------------------------------------
@@ -374,7 +326,7 @@ class TestPipelineExhaustion:
 
     @pytest.mark.asyncio
     async def test_exhaustion_posts_failure_no_close(self) -> None:
-        pipeline, mock_platform, _ = _make_pipeline(max_retries=1, retries_before_escalation=1)
+        pipeline, mock_platform, _ = _make_pipeline(max_retries=1)
 
         async def mock_run_session(archetype: str, workspace: object = None, **kwargs: object) -> MagicMock:
             if archetype == "maintainer":
@@ -524,87 +476,3 @@ class TestReviewerNoTriageCriteria:
         assert "issue" in prompt_lower or spec.system_context in system_prompt
 
 
-# ---------------------------------------------------------------------------
-# AC-1: CoderReviewerLoop reads retries_before_escalation from routing config
-# ---------------------------------------------------------------------------
-
-
-class TestCoderReviewerLoopReadsRoutingConfig:
-    """AC-1: EscalationLadder is initialised with config.routing.retries_before_escalation.
-
-    Construct CoderReviewerLoop with a real AgentFoxConfig that has
-    routing.retries_before_escalation=2 and orchestrator.max_retries=3,
-    then assert the EscalationLadder is built with retries_before_escalation=2
-    (not the getattr fallback of 1).
-
-    Requirement: 589-AC-1
-    """
-
-    @pytest.mark.asyncio
-    async def test_escalation_ladder_uses_routing_retries_not_orchestrator(self) -> None:
-        """EscalationLadder receives retries_before_escalation from routing, not orchestrator."""
-        from unittest.mock import patch
-
-        from agentfox.core.config import AgentFoxConfig, OrchestratorConfig, RoutingConfig
-        from agentfox.core.escalation import EscalationLadder
-        from agentfox.core.models import ModelTier
-        from agentfox.nightshift.coder_reviewer import CoderReviewerLoop
-
-        full_config = AgentFoxConfig(
-            orchestrator=OrchestratorConfig(max_retries=3),
-            routing=RoutingConfig(retries_before_escalation=2),
-        )
-
-        pipeline = MagicMock()
-        pipeline._config = full_config
-        pipeline._run_id = "test-run"
-        pipeline._task_callback = None
-        pipeline._sink = None
-
-        captured: dict[str, int] = {}
-        original_init = EscalationLadder.__init__
-
-        def _capture_init(
-            self: EscalationLadder,
-            starting_tier: ModelTier,
-            tier_ceiling: ModelTier,
-            retries_before_escalation: int,
-        ) -> None:
-            captured["retries_before_escalation"] = retries_before_escalation
-            original_init(self, starting_tier, tier_ceiling, retries_before_escalation)
-
-        from agentfox.nightshift.fix_pipeline import FixReviewResult
-        from agentfox.nightshift.spec_builder import InMemorySpec
-
-        spec = MagicMock(spec=InMemorySpec)
-        spec.issue_number = 1
-
-        passing_review = MagicMock(spec=FixReviewResult)
-        passing_review.overall_verdict = "PASS"
-        passing_review.is_parse_failure = False
-
-        coder_outcome = MagicMock()
-        coder_outcome.cost_usd = 0.0
-
-        loop = CoderReviewerLoop(pipeline)
-
-        with (
-            patch.object(EscalationLadder, "__init__", _capture_init),
-            patch(
-                "agentfox.nightshift.coder_reviewer.CoderReviewerLoop._run_reviewer_phase",
-                new=AsyncMock(return_value=passing_review),
-            ),
-            patch(
-                "agentfox.nightshift.coder_reviewer.CoderReviewerLoop._run_coder_phase",
-                new=AsyncMock(return_value=coder_outcome),
-            ),
-        ):
-            pipeline._format_review_comment = MagicMock(return_value="LGTM")
-            pipeline._post_comment = AsyncMock()
-            result = await loop.run(spec, MagicMock(), MagicMock(), _mock_workspace())
-
-        assert result is True, "Expected PASS on first attempt"
-        assert "retries_before_escalation" in captured, "EscalationLadder.__init__ was not called"
-        assert captured["retries_before_escalation"] == 2, (
-            f"Expected retries_before_escalation=2 (from routing config), got {captured['retries_before_escalation']}"
-        )

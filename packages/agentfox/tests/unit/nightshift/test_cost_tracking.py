@@ -24,10 +24,10 @@ from agentfox.knowledge.sink import SinkDispatcher
 def _make_config() -> MagicMock:
     """Build a mock AgentFoxConfig with minimum required attributes."""
     config = MagicMock()
+    config.archetypes.overrides.get.return_value = None
     config.platform.type = "github"
     config.orchestrator.max_cost = None
     config.orchestrator.max_sessions = None
-    config.routing.retries_before_escalation = 1
     config.orchestrator.max_retries = 3
     config.orchestrator.max_budget_usd = 0.0
     # Use empty dicts so resolve_model_tier and other sdk_params resolvers
@@ -45,6 +45,7 @@ def _make_config() -> MagicMock:
 def _make_config_for_cli() -> MagicMock:
     """Build a mock config suitable for CLI invocation."""
     config = MagicMock()
+    config.archetypes.overrides.get.return_value = None
     config.platform.type = "github"
     ns = MagicMock()
     config.night_shift = ns

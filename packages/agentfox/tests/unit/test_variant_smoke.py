@@ -16,17 +16,15 @@ from agentfox.core.config import (
     ArchetypesConfig,
     PerArchetypeConfig,
 )
-from agentfox.core.escalation import EscalationLadder
 from agentfox.core.models import (
     TIER_DEFAULTS,
-    ModelTier,
     resolve_model,
 )
 from agentfox.engine.sdk_params import resolve_model_variant
 
 # NodeSessionRunner import chain pulls in rich.
 # Runtime tests that instantiate NodeSessionRunner are skipped when rich is
-# unavailable; tests using only sdk_params/models/escalation work fine.
+# unavailable; tests using only sdk_params/models work fine.
 try:
     import rich  # noqa: F401
 
@@ -203,74 +201,6 @@ class TestSmokeBackwardCompatNoVariant:
         """TS-14-SMOKE-3 corollary: All tiers return TIER_DEFAULTS without variant."""
         for tier in ["SIMPLE", "STANDARD", "ADVANCED"]:
             assert resolve_model(tier) == TIER_DEFAULTS[tier]
-
-
-# ---------------------------------------------------------------------------
-# TS-14-SMOKE-4: EscalationLadder preserves variant='extended' across
-#                STANDARD->ADVANCED escalation -> claude-opus-4-6[1m]
-# Execution Path: 14-PATH-4
-# Requirements: 14-REQ-8.4
-# ---------------------------------------------------------------------------
-
-
-class TestSmokeEscalationPreservesVariant:
-    """Smoke: EscalationLadder preserves variant across escalation to ADVANCED."""
-
-    def test_standard_to_advanced_with_extended_variant(self) -> None:
-        """TS-14-SMOKE-4: ladder with starting_variant='extended' escalates
-        STANDARD->ADVANCED and resolve_current_model returns claude-opus-4-6[1m].
-
-        Uses real resolve_model (no mocks) to verify end-to-end.
-        """
-        ladder = EscalationLadder(
-            ModelTier.STANDARD,
-            ModelTier.ADVANCED,
-            retries_before_escalation=0,
-            starting_variant="extended",
-        )
-        assert ladder.current_variant == "extended"
-        assert ladder.current_tier == ModelTier.STANDARD
-
-        # Escalate to ADVANCED
-        ladder.record_failure()
-        assert ladder.current_tier == ModelTier.ADVANCED
-        assert ladder.current_variant == "extended"
-
-        # Resolve using real MODEL_REGISTRY
-        model_id = ladder.resolve_current_model()
-        assert model_id == "claude-opus-4-6[1m]"
-
-    def test_variant_preserved_through_all_tiers(self, caplog: pytest.LogCaptureFixture) -> None:
-        """TS-14-SMOKE-4 corollary: variant='extended' is preserved from
-        SIMPLE through STANDARD to ADVANCED. At SIMPLE and STANDARD, fallback
-        is applied (DEBUG log); at ADVANCED, exact match found.
-        """
-        ladder = EscalationLadder(
-            ModelTier.SIMPLE,
-            ModelTier.ADVANCED,
-            retries_before_escalation=0,
-            starting_variant="extended",
-        )
-
-        with caplog.at_level(logging.DEBUG, logger="agentfox.core.models"):
-            # SIMPLE: no extended variant -> fallback
-            model_simple = ladder.resolve_current_model()
-            assert model_simple == "claude-haiku-4-5"
-
-            # Escalate to STANDARD
-            ladder.record_failure()
-            assert ladder.current_tier == ModelTier.STANDARD
-            model_standard = ladder.resolve_current_model()
-            assert model_standard == "claude-sonnet-4-6"
-
-            # Escalate to ADVANCED
-            ladder.record_failure()
-            assert ladder.current_tier == ModelTier.ADVANCED
-            model_advanced = ladder.resolve_current_model()
-            assert model_advanced == "claude-opus-4-6[1m]"
-
-        # Variant never changed
-        assert ladder.current_variant == "extended"
 
 
 # ---------------------------------------------------------------------------

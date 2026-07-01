@@ -122,8 +122,8 @@ class TestPushBeforeHarvestIntegration:
         from agentfox.nightshift.fix_pipeline import FixPipeline
 
         config = MagicMock()
+        config.archetypes.overrides.get.return_value = None
         config.night_shift.push_fix_branch = True
-        config.routing.retries_before_escalation = 1
         config.orchestrator.max_retries = 1
 
         mock_platform = AsyncMock()
@@ -176,8 +176,8 @@ class TestFullPipelinePushEnabled:
         from agentfox.nightshift.fix_pipeline import FixPipeline
 
         config = MagicMock()
+        config.archetypes.overrides.get.return_value = None
         config.night_shift.push_fix_branch = True
-        config.routing.retries_before_escalation = 1
         config.orchestrator.max_retries = 1
 
         mock_platform = AsyncMock()
@@ -253,8 +253,8 @@ class TestFullPipelinePushDisabled:
         from agentfox.nightshift.fix_pipeline import FixPipeline
 
         config = MagicMock()
+        config.archetypes.overrides.get.return_value = None
         config.night_shift.push_fix_branch = False
-        config.routing.retries_before_escalation = 1
         config.orchestrator.max_retries = 1
 
         mock_platform = AsyncMock()

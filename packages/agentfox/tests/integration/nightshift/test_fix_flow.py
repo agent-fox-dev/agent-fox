@@ -57,7 +57,7 @@ class TestArchetypePipeline:
         from agentfox.nightshift.fix_pipeline import FixPipeline
 
         config = MagicMock()
-        config.routing.retries_before_escalation = 1
+        config.archetypes.overrides.get.return_value = None
         config.orchestrator.max_retries = 3
         mock_platform = AsyncMock()
         mock_platform.add_issue_comment = AsyncMock()
@@ -128,6 +128,7 @@ class TestFixProgressComments:
         from agentfox.nightshift.fix_pipeline import FixPipeline
 
         config = MagicMock()
+        config.archetypes.overrides.get.return_value = None
         mock_platform = AsyncMock()
         mock_platform.add_issue_comment = AsyncMock()
 
@@ -163,6 +164,7 @@ class TestFixCompletionComment:
         from agentfox.nightshift.fix_pipeline import FixPipeline
 
         config = MagicMock()
+        config.archetypes.overrides.get.return_value = None
         mock_platform = AsyncMock()
         mock_platform.add_issue_comment = AsyncMock()
 
@@ -199,6 +201,7 @@ class TestFixSessionFailure:
         from agentfox.nightshift.fix_pipeline import FixPipeline
 
         config = MagicMock()
+        config.archetypes.overrides.get.return_value = None
         mock_platform = AsyncMock()
         mock_platform.add_issue_comment = AsyncMock()
 

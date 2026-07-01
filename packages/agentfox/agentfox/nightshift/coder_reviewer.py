@@ -1,8 +1,7 @@
-"""Coder-reviewer retry/escalation loop for the fix pipeline.
+"""Coder-reviewer retry loop for the fix pipeline.
 
 Extracted from fix_pipeline.py to isolate the retry state machine.
-Manages the escalation ladder, reviewer parse-fail retry, and
-verdict checking in a single cohesive class.
+Manages reviewer parse-fail retry and verdict checking.
 
 Requirements: 82-REQ-7.1, 82-REQ-8.1, 82-REQ-8.2, 82-REQ-8.3,
               82-REQ-8.4, 82-REQ-8.E1
@@ -25,11 +24,11 @@ logger = logging.getLogger(__name__)
 
 
 class CoderReviewerLoop:
-    """Coder-reviewer retry/escalation state machine.
+    """Coder-reviewer retry state machine.
 
-    Runs coder -> reviewer in a loop with escalation ladder support,
-    reviewer parse-fail retry, and verdict checking.  Delegates I/O
-    operations (session running, comment posting) to the pipeline.
+    Runs coder -> reviewer in a loop with reviewer parse-fail retry
+    and verdict checking. Delegates I/O operations (session running,
+    comment posting) to the pipeline.
 
     Requirements: 82-REQ-7.1, 82-REQ-8.1 through 82-REQ-8.4, 82-REQ-8.E1
     """
@@ -46,38 +45,21 @@ class CoderReviewerLoop:
         prior_context: str = "",
         knowledge_context: str = "",
     ) -> bool:
-        """Run the coder-reviewer loop. Returns True on PASS, False on exhaustion.
-
-        15-REQ-11.5: Extracts triage.assessed_complexity once and passes it
-        as pre_assessed to assess_node() for the coder node only; fix-review
-        nodes do not receive pre_assessed.
-        """
+        """Run the coder-reviewer loop. Returns True on PASS, False on exhaustion."""
         from agentfox.core.models import resolve_model
+        from agentfox.engine.sdk_params import resolve_model_tier, resolve_model_variant
 
         p = self._pipeline
 
-        retries_before = getattr(p._config.routing, "retries_before_escalation", 1)
         max_retries = getattr(p._config.orchestrator, "max_retries", 3)
 
-        # 15-REQ-11.5: Extract assessed_complexity for coder pre_assessed passthrough
-        # (fix-review nodes follow their own assessment path, no pre_assessed)
-        assessed_complexity = triage.assessed_complexity
-
-        # Build the coder EscalationLadder via AssessmentManager.assess_node()
-        # so that pre_assessed complexity from triage can upgrade the starting
-        # tier without a redundant Haiku LLM call (15-REQ-11.3, 15-REQ-11.5).
-        ladder = await self._build_coder_ladder(
-            spec,
-            assessed_complexity,
-            retries_before,
-        )
+        tier = resolve_model_tier(p._config, "coder", mode="fix")
+        variant = resolve_model_variant(p._config, "coder", mode="fix")
+        model_id: str | None = resolve_model(tier, variant=variant)
 
         review_feedback: FixReviewResult | None = None
 
         for attempt in range(max_retries + 1):
-            tier = ladder.current_tier
-            model_id: str | None = resolve_model(tier.value)
-
             await self._run_coder_phase(
                 spec,
                 triage,
@@ -105,9 +87,7 @@ class CoderReviewerLoop:
             if review_result.overall_verdict == "PASS":
                 return True
 
-            ladder.record_failure()
-
-            if ladder.is_exhausted or attempt >= max_retries:
+            if attempt >= max_retries:
                 await p._post_comment(
                     spec.issue_number,
                     "Fix pipeline exhausted all retries. "
@@ -119,57 +99,6 @@ class CoderReviewerLoop:
             review_feedback = review_result
 
         return False  # pragma: no cover
-
-    async def _build_coder_ladder(
-        self,
-        spec: InMemorySpec,
-        assessed_complexity: Any,
-        retries_before: int,
-    ) -> Any:
-        """Build coder EscalationLadder via AssessmentManager.assess_node().
-
-        When an Anthropic client is available, uses AssessmentManager so that
-        pre_assessed complexity from triage can upgrade the starting tier
-        (15-REQ-11.3, 15-REQ-11.5).  Falls back to a base-tier ladder when
-        the client cannot be created.
-
-        Fix-review nodes are NOT handled here — they follow their own
-        assessment path without pre_assessed.
-        """
-        from agentfox.core.escalation import EscalationLadder
-        from agentfox.core.models import ModelTier
-
-        p = self._pipeline
-        node_id = f"fix-issue-{spec.issue_number}:0:coder"
-
-        try:
-            from agentfox.core.client import create_async_anthropic_client
-            from agentfox.engine.engine import AssessmentManager
-
-            client = create_async_anthropic_client()
-            manager = AssessmentManager(
-                config=p._config,
-                client=client,
-            )
-            ladder = await manager.assess_node(
-                node_id=node_id,
-                archetype="coder",
-                mode="fix",
-                node_body=spec.task_prompt or spec.title,
-                pre_assessed=assessed_complexity,
-            )
-            return ladder
-        except Exception:
-            logger.debug(
-                "Could not run complexity assessment for coder node %s; falling back to base ladder",
-                node_id,
-                exc_info=True,
-            )
-            return EscalationLadder(
-                starting_tier=ModelTier.STANDARD,
-                tier_ceiling=ModelTier.ADVANCED,
-                retries_before_escalation=retries_before,
-            )
 
     async def _run_coder_phase(
         self,

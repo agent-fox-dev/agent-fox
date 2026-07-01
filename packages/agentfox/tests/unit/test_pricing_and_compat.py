@@ -154,7 +154,6 @@ class TestExistingTestSuitePasses:
                 "packages/agentfox/tests/unit/test_per_archetype_config_variant.py",
                 "packages/agentfox/tests/unit/test_resolve_model_variant.py",
                 "packages/agentfox/tests/unit/test_resolve_model_variant_awareness.py",
-                "packages/agentfox/tests/unit/test_escalation_ladder_variant.py",
                 "packages/agentfox/tests/unit/test_variant_properties.py",
                 "packages/agentfox/tests/unit/test_node_session_runner_wiring.py",
                 "-q",

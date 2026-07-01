@@ -46,7 +46,7 @@ class TestFixPipelineLabelFixed:
         from agentfox.nightshift.fix_pipeline import FixPipeline
 
         config = MagicMock()
-        config.routing.retries_before_escalation = 1
+        config.archetypes.overrides.get.return_value = None
         config.orchestrator.max_retries = 3
         mock_platform = AsyncMock()
         mock_platform.assign_label = AsyncMock()
@@ -107,7 +107,7 @@ class TestFixPipelineLabelFixed:
         from agentfox.nightshift.fix_pipeline import FixPipeline
 
         config = MagicMock()
-        config.routing.retries_before_escalation = 1
+        config.archetypes.overrides.get.return_value = None
         config.orchestrator.max_retries = 3
         mock_platform = AsyncMock()
         mock_platform.remove_label = AsyncMock()
@@ -168,7 +168,7 @@ class TestFixPipelineLabelFixed:
         from agentfox.nightshift.fix_pipeline import FixPipeline
 
         config = MagicMock()
-        config.routing.retries_before_escalation = 1
+        config.archetypes.overrides.get.return_value = None
         config.orchestrator.max_retries = 3
         mock_platform = AsyncMock()
         mock_platform.assign_label = AsyncMock()
@@ -238,6 +238,7 @@ class TestEngineLabelFixedOnClose:
         from agentfox.nightshift.engine import NightShiftEngine
 
         config = MagicMock()
+        config.archetypes.overrides.get.return_value = None
         config.orchestrator.max_cost = None
         config.orchestrator.max_sessions = None
         config.night_shift.categories.dependency_freshness = True
@@ -285,6 +286,7 @@ class TestEngineLabelFixedOnClose:
         from agentfox.nightshift.engine import NightShiftEngine
 
         config = MagicMock()
+        config.archetypes.overrides.get.return_value = None
         config.orchestrator.max_cost = None
         config.orchestrator.max_sessions = None
         config.night_shift.categories.dependency_freshness = True

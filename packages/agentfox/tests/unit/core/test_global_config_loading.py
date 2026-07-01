@@ -267,7 +267,7 @@ class TestShallowSectionReplacement:
             session_timeout = 60
 
             [routing]
-            retries_before_escalation = 3
+            max_timeout_retries = 3
         """)
         )
         repo = tmp_path / "repo"
@@ -281,7 +281,7 @@ class TestShallowSectionReplacement:
 
         assert config.orchestrator.parallel == 8
         # Routing inherited from global
-        assert config.routing.retries_before_escalation == 3
+        assert config.routing.max_timeout_retries == 3
 
 
 # ===================================================================
@@ -1124,7 +1124,7 @@ class TestSymlinkFinalFileOnlyProperty:
             [
                 "[orchestrator]\nparallel = 1\n",
                 "[theme]\nplayful = true\n",
-                "[routing]\nretries_before_escalation = 2\n",
+                "[routing]\nmax_timeout_retries = 3\n",
                 "# empty\n",
             ]
         )
@@ -1209,7 +1209,7 @@ class TestAfInitNeverOverwritesGlobalProperty:
                 "[orchestrator]\nparallel = 4\n",
                 "[theme]\nplayful = false\n",
                 "# empty with comment\n",
-                "[routing]\nretries_before_escalation = 2\n",
+                "[routing]\nmax_timeout_retries = 3\n",
             ]
         )
         use_force = st.booleans()
@@ -1282,7 +1282,7 @@ class TestSmoke2GlobalLocalMerge:
             session_timeout = 60
 
             [routing]
-            retries_before_escalation = 3
+            max_timeout_retries = 3
         """)
         )
         repo = tmp_path / "repo"
@@ -1298,7 +1298,7 @@ class TestSmoke2GlobalLocalMerge:
         # Merged config has local values
         assert config.orchestrator.parallel == 8
         # Routing inherited from global
-        assert config.routing.retries_before_escalation == 3
+        assert config.routing.max_timeout_retries == 3
         # Shallow replace: session_timeout gone from global's [orchestrator]
         assert config.orchestrator.session_timeout != 60
 

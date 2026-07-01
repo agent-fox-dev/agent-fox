@@ -105,7 +105,7 @@ class TestFullPipelineHappyPath:
         mock_platform.close_issue = AsyncMock()
 
         config = MagicMock()
-        config.routing.retries_before_escalation = 1
+        config.archetypes.overrides.get.return_value = None
         config.orchestrator.max_retries = 3
 
         pipeline = FixPipeline(config=config, platform=mock_platform)
@@ -153,13 +153,13 @@ class TestFullPipelineHappyPath:
 
 
 # ---------------------------------------------------------------------------
-# TS-82-SMOKE-2: Retry loop with escalation
+# TS-82-SMOKE-2: Retry loop with static model
 # Execution Path: 4
 # ---------------------------------------------------------------------------
 
 
 class TestRetryLoopWithEscalation:
-    """Pipeline where reviewer FAILs twice, escalation occurs, third passes."""
+    """Pipeline where reviewer FAILs twice, coder retries with same model, third passes."""
 
     @pytest.mark.asyncio
     async def test_retry_with_escalation(self) -> None:
@@ -170,7 +170,7 @@ class TestRetryLoopWithEscalation:
         mock_platform.close_issue = AsyncMock()
 
         config = MagicMock()
-        config.routing.retries_before_escalation = 1
+        config.archetypes.overrides.get.return_value = None
         config.orchestrator.max_retries = 3
 
         pipeline = FixPipeline(config=config, platform=mock_platform)
@@ -213,8 +213,8 @@ class TestRetryLoopWithEscalation:
         # 1 triage + 3 coder + 3 reviewer = 7 sessions
         assert metrics.sessions_run == 7
 
-        # Model tier should change (escalation occurred)
-        assert model_ids_used[0] != model_ids_used[2]
+        # Model stays the same across retries (no escalation)
+        assert all(m == model_ids_used[0] for m in model_ids_used)
 
         # Issue is closed on final PASS
         mock_platform.close_issue.assert_awaited_once()
@@ -238,7 +238,7 @@ class TestTriageFailureFallback:
         mock_platform.close_issue = AsyncMock()
 
         config = MagicMock()
-        config.routing.retries_before_escalation = 1
+        config.archetypes.overrides.get.return_value = None
         config.orchestrator.max_retries = 3
 
         pipeline = FixPipeline(config=config, platform=mock_platform)
@@ -296,7 +296,7 @@ class TestRunIdInExhaustionComment:
         mock_platform.close_issue = AsyncMock()
 
         config = MagicMock()
-        config.routing.retries_before_escalation = 1
+        config.archetypes.overrides.get.return_value = None
         config.orchestrator.max_retries = 1
 
         pipeline = FixPipeline(config=config, platform=mock_platform)
@@ -340,7 +340,7 @@ class TestRunIdInFailureComment:
         mock_platform.close_issue = AsyncMock()
 
         config = MagicMock()
-        config.routing.retries_before_escalation = 1
+        config.archetypes.overrides.get.return_value = None
         config.orchestrator.max_retries = 3
 
         pipeline = FixPipeline(config=config, platform=mock_platform)
@@ -382,7 +382,7 @@ class TestRunIdInTriageComment:
         mock_platform.close_issue = AsyncMock()
 
         config = MagicMock()
-        config.routing.retries_before_escalation = 1
+        config.archetypes.overrides.get.return_value = None
         config.orchestrator.max_retries = 3
 
         pipeline = FixPipeline(config=config, platform=mock_platform)
@@ -427,7 +427,7 @@ class TestRunIdInReviewComment:
         mock_platform.close_issue = AsyncMock()
 
         config = MagicMock()
-        config.routing.retries_before_escalation = 1
+        config.archetypes.overrides.get.return_value = None
         config.orchestrator.max_retries = 3
 
         pipeline = FixPipeline(config=config, platform=mock_platform)
@@ -472,7 +472,7 @@ class TestRunIdInMergeFailureComment:
         mock_platform.close_issue = AsyncMock()
 
         config = MagicMock()
-        config.routing.retries_before_escalation = 1
+        config.archetypes.overrides.get.return_value = None
         config.orchestrator.max_retries = 3
 
         pipeline = FixPipeline(config=config, platform=mock_platform)

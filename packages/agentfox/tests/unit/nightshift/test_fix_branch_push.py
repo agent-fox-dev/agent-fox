@@ -46,8 +46,8 @@ def _make_issue(number: int = 1, title: str = "test issue") -> IssueResult:
 
 def _make_config(*, push_fix_branch: bool = False) -> MagicMock:
     config = MagicMock()
+    config.archetypes.overrides.get.return_value = None
     config.night_shift.push_fix_branch = push_fix_branch
-    config.routing.retries_before_escalation = 1
     config.orchestrator.max_retries = 1
     return config
 

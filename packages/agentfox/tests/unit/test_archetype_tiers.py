@@ -21,7 +21,6 @@ from agentfox.core.config import (
     PerArchetypeConfig,
 )
 from agentfox.core.errors import ConfigError
-from agentfox.core.models import ModelTier
 from agentfox.engine.session_lifecycle import NodeSessionRunner
 from agentfox.knowledge.db import KnowledgeDB
 
@@ -103,83 +102,6 @@ class TestRemainingArchetypesStandard:
 
 
 # ---------------------------------------------------------------------------
-# TS-57-6: Escalation Ladder Ceiling Is Always ADVANCED
-# Requirement: 57-REQ-2.1
-# Note: Tests using a Skeptic node. Currently Skeptic has STANDARD tier so
-# the ceiling would be STANDARD before the fix.
-# ---------------------------------------------------------------------------
-
-
-class TestCeilingAlwaysAdvanced:
-    """TS-57-6: Ceiling is always ADVANCED regardless of archetype default tier."""
-
-    @pytest.mark.asyncio
-    async def test_ceiling_always_advanced_skeptic(self) -> None:
-        """Skeptic node: ceiling must be ADVANCED even though default is STANDARD."""
-        from agentfox.core.config import AgentFoxConfig
-        from agentfox.engine.engine import AssessmentManager
-
-        mgr = AssessmentManager(
-            retries_before_escalation=1,
-            config=AgentFoxConfig(),
-        )
-
-        await mgr.assess_node("spec:1", "reviewer")
-
-        ladder = mgr.ladders["spec:1"]
-        assert ladder._tier_ceiling == ModelTier.ADVANCED
-
-
-# ---------------------------------------------------------------------------
-# TS-57-7: STANDARD Agent Escalates to ADVANCED
-# Requirement: 57-REQ-2.2
-# ---------------------------------------------------------------------------
-
-
-class TestStandardEscalatesToAdvanced:
-    """TS-57-7: A STANDARD-starting ladder escalates to ADVANCED after retries."""
-
-    def test_standard_escalates_to_advanced(self) -> None:
-        from agentfox.core.escalation import EscalationLadder
-
-        ladder = EscalationLadder(
-            starting_tier=ModelTier.STANDARD,
-            tier_ceiling=ModelTier.ADVANCED,
-            retries_before_escalation=1,
-        )
-        ladder.record_failure()  # retry at STANDARD
-        ladder.record_failure()  # exhausted STANDARD, escalate
-
-        assert ladder.current_tier == ModelTier.ADVANCED
-        assert ladder.is_exhausted is False
-
-
-# ---------------------------------------------------------------------------
-# TS-57-8: ADVANCED Agent Blocks After Exhaustion
-# Requirement: 57-REQ-2.3
-# ---------------------------------------------------------------------------
-
-
-class TestAdvancedBlocksAfterExhaustion:
-    """TS-57-8: An ADVANCED-starting ladder exhausts without escalation."""
-
-    def test_advanced_blocks_after_exhaustion(self) -> None:
-        from agentfox.core.escalation import EscalationLadder
-
-        ladder = EscalationLadder(
-            starting_tier=ModelTier.ADVANCED,
-            tier_ceiling=ModelTier.ADVANCED,
-            retries_before_escalation=1,
-        )
-        ladder.record_failure()  # retry at ADVANCED
-        ladder.record_failure()  # exhausted, no higher tier
-
-        assert ladder.is_exhausted is True
-        assert ladder.current_tier == ModelTier.ADVANCED
-        assert ladder.escalation_count == 0
-
-
-# ---------------------------------------------------------------------------
 # TS-57-9: Config Override Takes Precedence
 # Requirement: 57-REQ-3.1
 # ---------------------------------------------------------------------------
@@ -236,34 +158,6 @@ class TestUnknownArchetypeFallback:
         assert entry.name == "coder"
         # Coder registry default is STANDARD (spec 15)
         assert entry.default_model_tier == "STANDARD"
-
-
-# ---------------------------------------------------------------------------
-# TS-57-E2: Assessment Pipeline Failure Uses Default + ADVANCED Ceiling
-# Requirement: 57-REQ-2.E1
-# ---------------------------------------------------------------------------
-
-
-class TestPipelineFailureFallback:
-    """TS-57-E2: Failing pipeline uses archetype default as starting tier."""
-
-    @pytest.mark.asyncio
-    async def test_pipeline_failure_uses_default_with_advanced_ceiling(self) -> None:
-        """Coder node with default config: starting=STANDARD (registry default), ceiling=ADVANCED."""
-        from agentfox.core.config import AgentFoxConfig
-        from agentfox.engine.engine import AssessmentManager
-
-        mgr = AssessmentManager(
-            retries_before_escalation=1,
-            config=AgentFoxConfig(),
-        )
-
-        await mgr.assess_node("spec:1", "coder")
-
-        ladder = mgr.ladders["spec:1"]
-        # starting_tier = STANDARD (spec 15), ceiling = ADVANCED
-        assert ladder.current_tier == ModelTier.STANDARD
-        assert ladder._tier_ceiling == ModelTier.ADVANCED
 
 
 # ---------------------------------------------------------------------------

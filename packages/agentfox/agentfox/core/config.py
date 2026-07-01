@@ -103,42 +103,21 @@ def _auto_clamp_validator() -> Any:
 
 
 class RoutingConfig(BaseModel):
-    """Model routing configuration.
-
-    Requirements: 89-REQ-4.1, 89-REQ-4.2,
-                  15-REQ-10.1, 15-REQ-10.2, 15-REQ-10.3
-    """
+    """Timeout retry configuration."""
 
     model_config = ConfigDict(extra="ignore")
 
-    retries_before_escalation: Annotated[int, Clamped(ge=0, le=3, cast=int)] = Field(
-        default=1, description="Retries before model escalation"
-    )
     max_timeout_retries: Annotated[int, Clamped(ge=0, cast=int)] = Field(
         default=2,
-        description="Maximum timeout retries before falling through to escalation",
+        description="Maximum timeout retries before falling through to failure handler",
     )
     timeout_multiplier: Annotated[float, Clamped(ge=1.0)] = Field(
         default=1.5,
-        description=("Factor by which max_turns and session_timeout are extended on timeout retry"),
+        description="Factor by which max_turns and session_timeout are extended on timeout retry",
     )
     timeout_ceiling_factor: Annotated[float, Clamped(ge=1.0)] = Field(
         default=2.0,
-        description=("Maximum session_timeout as a factor of the original configured value"),
-    )
-
-    # 15-REQ-10.1: Assessor model for complexity assessment
-    assessor_model: str = Field(
-        default="claude-haiku-4-5",
-        min_length=1,
-        description="Anthropic model ID for complexity assessment",
-    )
-    # 15-REQ-10.2: Confidence threshold for applying assessment upgrades
-    confidence_threshold: float = Field(
-        default=0.6,
-        ge=0.0,
-        le=1.0,
-        description="Minimum confidence to apply complexity assessment upgrade",
+        description="Maximum session_timeout as a factor of the original configured value",
     )
 
     _auto_clamp = _auto_clamp_validator()

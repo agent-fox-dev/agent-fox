@@ -61,13 +61,14 @@ def _make_in_memory_sink() -> tuple[duckdb.DuckDBPyConnection, SinkDispatcher]:
 def _make_config() -> MagicMock:
     from agentfox.core.config import PricingConfig
 
+    from agentfox.core.config import ArchetypesConfig
+
     config = MagicMock()
     config.platform.type = "github"
     config.orchestrator.max_cost = None
     config.orchestrator.max_sessions = None
-    config.routing.retries_before_escalation = 1
     config.orchestrator.max_retries = 3
-    config.archetypes = None
+    config.archetypes = ArchetypesConfig()
     # Use real PricingConfig so calculate_cost returns non-zero values
     # (pricing.models has default entries for claude-sonnet-4-6, etc.)
     config.pricing = PricingConfig()

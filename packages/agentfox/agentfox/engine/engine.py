@@ -90,10 +90,8 @@ _defer_ready_reviews = defer_ready_reviews
 
 
 class AssessmentManager:
-    """Manages escalation ladders for nodes based on archetype default tiers.
-
-    Coordinates complexity assessment for nodes, integrating
-    ComplexityAssessor with dispatch logic.
+    """DEPRECATED: No longer used by the Orchestrator. Retained temporarily
+    so existing tests that import AssessmentManager don't fail at import time.
 
     Requirements: 15-REQ-1.6, 15-REQ-1.7, 15-REQ-4.1, 15-REQ-4.3,
                   15-REQ-4.4, 15-REQ-6.1

@@ -293,6 +293,7 @@ class TestContextInjectedIntoPrompt:
         from agentfox.nightshift.spec_builder import InMemorySpec
 
         config = MagicMock()
+        config.archetypes.overrides.get.return_value = None
         pipeline = FixPipeline(config=config, platform=MagicMock())
 
         spec = InMemorySpec(
@@ -328,6 +329,7 @@ class TestEmptyContextUnchanged:
         from agentfox.nightshift.spec_builder import InMemorySpec
 
         config = MagicMock()
+        config.archetypes.overrides.get.return_value = None
         pipeline = FixPipeline(config=config, platform=MagicMock())
 
         spec = InMemorySpec(
@@ -362,7 +364,7 @@ class TestPipelineWiring:
         from agentfox.platform.protocol import IssueResult
 
         config = MagicMock()
-        config.routing.retries_before_escalation = 1
+        config.archetypes.overrides.get.return_value = None
         config.orchestrator.max_retries = 3
         mock_platform = AsyncMock()
         mock_conn = MagicMock()
@@ -744,6 +746,7 @@ class TestSmokeFullPipelineWithPriorAttempts:
 
         # Build prompt using real pipeline code
         config = MagicMock()
+        config.archetypes.overrides.get.return_value = None
         pipeline = FixPipeline(config=config, platform=MagicMock())
 
         spec = InMemorySpec(

@@ -310,20 +310,6 @@ class TestOrchestratorEvents:
         assert event.payload["attempt"] == 2
         assert "reason" in event.payload
 
-    def test_model_escalation(self) -> None:
-        """model.escalation event with tier details."""
-        event = AuditEvent(
-            run_id="r1",
-            event_type=AuditEventType.MODEL_ESCALATION,
-            payload={
-                "from_tier": "haiku",
-                "to_tier": "sonnet",
-                "reason": "task complexity",
-            },
-        )
-        assert event.payload["from_tier"] == "haiku"
-        assert event.payload["to_tier"] == "sonnet"
-
     def test_model_assessment(self) -> None:
         """model.assessment event with predicted_tier and confidence."""
         event = AuditEvent(

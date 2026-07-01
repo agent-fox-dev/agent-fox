@@ -56,6 +56,7 @@ def _make_config(
     max_sessions: int | None = None,
 ) -> MagicMock:
     config = MagicMock()
+    config.archetypes.overrides.get.return_value = None
     config.orchestrator.max_cost = max_cost
     config.orchestrator.max_sessions = max_sessions
     return config
@@ -89,7 +90,6 @@ class TestFixSessionActivityDisplay:
 
         issue = _make_issue(number=42)
         config = _make_config()
-        config.routing.retries_before_escalation = 1
         config.orchestrator.max_retries = 3
         platform = AsyncMock()
 

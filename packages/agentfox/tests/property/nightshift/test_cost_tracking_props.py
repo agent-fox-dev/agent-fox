@@ -28,13 +28,14 @@ _ARCHETYPES = [
 
 
 def _make_config() -> MagicMock:
+    from agentfox.core.config import ArchetypesConfig
+
     config = MagicMock()
     config.platform.type = "github"
     config.orchestrator.max_cost = None
     config.orchestrator.max_sessions = None
-    config.routing.retries_before_escalation = 1
     config.orchestrator.max_retries = 3
-    config.archetypes = None
+    config.archetypes = ArchetypesConfig()
     config.pricing = MagicMock()
     config.pricing.models = {}
     config.theme = None

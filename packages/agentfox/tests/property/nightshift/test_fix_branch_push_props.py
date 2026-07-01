@@ -45,8 +45,8 @@ def _make_pipeline(*, push_fix_branch: bool) -> FixPipeline:
     """Create a FixPipeline with mocked dependencies."""
 
     config = MagicMock()
+    config.archetypes.overrides.get.return_value = None
     config.night_shift.push_fix_branch = push_fix_branch
-    config.routing.retries_before_escalation = 1
     config.orchestrator.max_retries = 1
 
     mock_platform = AsyncMock()
@@ -236,8 +236,8 @@ class TestForcePushSemantics:
         from agentfox.nightshift.spec_builder import InMemorySpec
 
         config = MagicMock()
+        config.archetypes.overrides.get.return_value = None
         config.night_shift.push_fix_branch = True
-        config.routing.retries_before_escalation = 1
         config.orchestrator.max_retries = 1
 
         mock_platform = AsyncMock()

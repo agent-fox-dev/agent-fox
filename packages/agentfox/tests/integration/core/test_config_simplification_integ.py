@@ -18,15 +18,15 @@ class TestHiddenSectionsLoad:
     def test_routing_and_theme_load_correctly(self, tmp_path: Path):
         """Config with routing and theme sections appended loads without error."""
         base = generate_default_config()
-        extra = "\n[routing]\nretries_before_escalation = 2\n\n[theme]\nplayful = false\n"
+        extra = "\n[routing]\nmax_timeout_retries = 3\n\n[theme]\nplayful = false\n"
         content = base + extra
         config_file = tmp_path / "config.toml"
         config_file.write_text(content)
 
         config = load_config(config_file)
 
-        assert config.routing.retries_before_escalation == 2, (
-            f"routing.retries_before_escalation is {config.routing.retries_before_escalation}, expected 2"
+        assert config.routing.max_timeout_retries == 3, (
+            f"routing.max_timeout_retries is {config.routing.max_timeout_retries}, expected 3"
         )
         assert config.theme.playful is False, f"theme.playful is {config.theme.playful}, expected False"
 
@@ -48,7 +48,7 @@ class TestHiddenSectionsLoad:
         """Config with multiple hidden sections all load correctly."""
         base = generate_default_config()
         extra = (
-            "\n[routing]\nretries_before_escalation = 1\n"
+            "\n[routing]\nmax_timeout_retries = 1\n"
             "\n[theme]\nplayful = true\n"
             '\n[knowledge]\nstore_path = "custom.duckdb"\n'
         )
@@ -58,6 +58,6 @@ class TestHiddenSectionsLoad:
 
         config = load_config(config_file)
 
-        assert config.routing.retries_before_escalation == 1
+        assert config.routing.max_timeout_retries == 1
         assert config.theme.playful is True
         assert config.knowledge.store_path == "custom.duckdb"

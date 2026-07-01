@@ -100,7 +100,6 @@ class TestAuditEventTypeEnum:
             "session.fail",
             "session.retry",
             "task.status_change",
-            "model.escalation",
             "model.assessment",
             "tool.invocation",
             "tool.error",

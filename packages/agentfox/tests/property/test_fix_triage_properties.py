@@ -135,50 +135,6 @@ class TestReviewerVerdictValidation:
 
 
 # ---------------------------------------------------------------------------
-# TS-82-P3: Escalation ladder consistency
-# Property 3: Pipeline escalation state matches reference ladder.
-# Validates: 82-REQ-8.2, 82-REQ-8.3, 82-REQ-8.4
-# ---------------------------------------------------------------------------
-
-
-class TestEscalationLadderConsistency:
-    """Escalation state after N failures matches a fresh ladder."""
-
-    @given(
-        n=st.integers(min_value=1, max_value=9),
-        retries_before=st.sampled_from([0, 1, 2]),
-    )
-    @settings(
-        max_examples=50,
-        suppress_health_check=[HealthCheck.function_scoped_fixture],
-    )
-    def test_ladder_state_matches_reference(self, n: int, retries_before: int) -> None:
-        from agentfox.core.escalation import EscalationLadder
-        from agentfox.core.models import ModelTier
-
-        ref_ladder = EscalationLadder(
-            starting_tier=ModelTier.STANDARD,
-            tier_ceiling=ModelTier.ADVANCED,
-            retries_before_escalation=retries_before,
-        )
-
-        # Replay ladder: a second instance with same N failures
-        test_ladder = EscalationLadder(
-            starting_tier=ModelTier.STANDARD,
-            tier_ceiling=ModelTier.ADVANCED,
-            retries_before_escalation=retries_before,
-        )
-
-        for _ in range(n):
-            ref_ladder.record_failure()
-            test_ladder.record_failure()
-
-        assert test_ladder.current_tier == ref_ladder.current_tier
-        assert test_ladder.is_exhausted == ref_ladder.is_exhausted
-        assert test_ladder.escalation_count == ref_ladder.escalation_count
-
-
-# ---------------------------------------------------------------------------
 # TS-82-P4: Retry feedback injection
 # Property 4: Coder retry prompt contains all FAIL evidence.
 # Validates: 82-REQ-8.1

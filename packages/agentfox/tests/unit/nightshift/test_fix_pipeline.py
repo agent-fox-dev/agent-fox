@@ -226,7 +226,7 @@ class TestSuccessfulFixHarvestsAndCloses:
         from agentfox.platform.protocol import IssueResult
 
         config = MagicMock()
-        config.routing.retries_before_escalation = 1
+        config.archetypes.overrides.get.return_value = None
         config.orchestrator.max_retries = 3
         mock_platform = AsyncMock()
 
@@ -292,7 +292,7 @@ class TestSuccessfulFixHarvestsAndCloses:
         from agentfox.platform.protocol import IssueResult
 
         config = MagicMock()
-        config.routing.retries_before_escalation = 1
+        config.archetypes.overrides.get.return_value = None
         config.orchestrator.max_retries = 3
         mock_platform = AsyncMock()
 
@@ -366,7 +366,7 @@ class TestSuccessfulFixHarvestsAndCloses:
         from agentfox.platform.protocol import IssueResult
 
         config = MagicMock()
-        config.routing.retries_before_escalation = 1
+        config.archetypes.overrides.get.return_value = None
         config.orchestrator.max_retries = 3
         mock_platform = AsyncMock()
 
@@ -448,6 +448,7 @@ class TestSuccessfulFixHarvestsAndCloses:
         from agentfox.platform.protocol import IssueResult
 
         config = MagicMock()
+        config.archetypes.overrides.get.return_value = None
         mock_platform = AsyncMock()
 
         pipeline = FixPipeline(config=config, platform=mock_platform)
@@ -487,6 +488,7 @@ class TestEmptyIssueBody:
         from agentfox.platform.protocol import IssueResult
 
         config = MagicMock()
+        config.archetypes.overrides.get.return_value = None
         mock_platform = AsyncMock()
         mock_platform.add_issue_comment = AsyncMock()
 
@@ -642,7 +644,7 @@ class TestReviewerRetryOnParseFailure:
         from agentfox.platform.protocol import IssueResult
 
         config = MagicMock()
-        config.routing.retries_before_escalation = 1
+        config.archetypes.overrides.get.return_value = None
         config.orchestrator.max_retries = 3
         mock_platform = AsyncMock()
 
@@ -717,7 +719,7 @@ class TestReviewerRetryOnParseFailure:
         from agentfox.platform.protocol import IssueResult
 
         config = MagicMock()
-        config.routing.retries_before_escalation = 1
+        config.archetypes.overrides.get.return_value = None
         config.orchestrator.max_retries = 0  # No coder retries -- exhaust immediately
         mock_platform = AsyncMock()
 
@@ -789,7 +791,7 @@ class TestFixPipelineDbTelemetry:
         from agentfox.platform.protocol import IssueResult
 
         config = MagicMock()
-        config.routing.retries_before_escalation = 1
+        config.archetypes.overrides.get.return_value = None
         config.orchestrator.max_retries = 3
         mock_platform = AsyncMock()
 
@@ -879,6 +881,7 @@ class TestFixPipelineDbTelemetry:
         from agentfox.platform.protocol import IssueResult
 
         config = MagicMock()
+        config.archetypes.overrides.get.return_value = None
         mock_platform = AsyncMock()
         mock_conn = MagicMock()
 
@@ -910,7 +913,7 @@ class TestFixPipelineDbTelemetry:
         from agentfox.platform.protocol import IssueResult
 
         config = MagicMock()
-        config.routing.retries_before_escalation = 1
+        config.archetypes.overrides.get.return_value = None
         config.orchestrator.max_retries = 3
         mock_platform = AsyncMock()
         mock_conn = MagicMock()
@@ -1000,7 +1003,7 @@ class TestFixPipelineDbTelemetry:
         from agentfox.platform.protocol import IssueResult
 
         config = MagicMock()
-        config.routing.retries_before_escalation = 1
+        config.archetypes.overrides.get.return_value = None
         config.orchestrator.max_retries = 3
         mock_platform = AsyncMock()
 
@@ -1256,6 +1259,7 @@ class TestExceptionSanitizationInFailureComment:
         from agentfox.platform.protocol import IssueResult
 
         config = MagicMock()
+        config.archetypes.overrides.get.return_value = None
         mock_platform = AsyncMock()
 
         pipeline = FixPipeline(config=config, platform=mock_platform)
@@ -1308,6 +1312,7 @@ class TestExceptionSanitizationInFailureComment:
         from agentfox.platform.protocol import IssueResult
 
         config = MagicMock()
+        config.archetypes.overrides.get.return_value = None
         mock_platform = AsyncMock()
 
         pipeline = FixPipeline(config=config, platform=mock_platform)
@@ -1348,6 +1353,7 @@ class TestExceptionSanitizationInFailureComment:
         from agentfox.platform.protocol import IssueResult
 
         config = MagicMock()
+        config.archetypes.overrides.get.return_value = None
         mock_platform = AsyncMock()
 
         pipeline = FixPipeline(config=config, platform=mock_platform)
