@@ -1,12 +1,10 @@
-"""Session result processing: retry decisions, escalation, timeout handling.
+"""Session result processing: retry decisions, timeout handling.
 
 Extracted from engine.py to reduce the Orchestrator class size. Handles
 the outcome of each completed session: marking success, deciding retries,
-escalating model tiers, cascade-blocking on exhaustion, and emitting
-audit events.
+cascade-blocking on exhaustion, and emitting audit events.
 
-Requirements: 30-REQ-2.*, 30-REQ-7.3, 30-REQ-7.4, 26-REQ-9.3,
-              40-REQ-9.4, 40-REQ-10.1, 18-REQ-5.4,
+Requirements: 26-REQ-9.3, 40-REQ-9.4, 18-REQ-5.4,
               58-REQ-1.*, 58-REQ-2.*
 """
 
@@ -25,7 +23,6 @@ from pathlib import Path
 from typing import Any
 
 from agentfox.archetypes import get_archetype
-from agentfox.core.models import ModelTier
 from agentfox.engine.audit_helpers import emit_audit_event
 from agentfox.engine.blocking import evaluate_review_blocking
 from agentfox.engine.graph_sync import GraphSync
@@ -55,18 +52,16 @@ class _NodeRetryState:
 
 
 class SessionResultHandler:
-    """Processes session outcomes: success, retry, escalation, blocking.
+    """Processes session outcomes: success, retry, blocking.
 
-    Extracted from Orchestrator to isolate the complex retry/escalation
-    decision tree from the dispatch loop.
+    Extracted from Orchestrator to isolate the retry decision tree
+    from the dispatch loop.
     """
 
     def __init__(
         self,
         *,
         graph_sync: GraphSync,
-        routing_ladders: dict[str, Any],
-        retries_before_escalation: int,
         max_retries: int,
         task_callback: TaskCallback | None,
         sink: SinkDispatcher | None,
@@ -82,8 +77,6 @@ class SessionResultHandler:
         original_session_timeout: int = 45,
     ) -> None:
         self._graph_sync = graph_sync
-        self._routing_ladders = routing_ladders
-        self._retries_before_escalation = retries_before_escalation
         self._max_retries = max_retries
         self._task_callback = task_callback
         self._sink = sink
@@ -96,8 +89,8 @@ class SessionResultHandler:
         self._block_task = block_task_fn
         self._check_block_budget = check_block_budget_fn
 
-        # Per-node retry/escalation state (75-REQ-2.1)
         self._node_retry_states: dict[str, _NodeRetryState] = {}
+        self._node_failure_counts: dict[str, int] = {}
         self._coverage_tool: Any = None  # None = not checked, False = no tool
         self._max_timeout_retries: int = max_timeout_retries
         self._timeout_multiplier: float = timeout_multiplier
@@ -297,9 +290,8 @@ class SessionResultHandler:
         findings injected as context.
 
         For audit-review mode, uses a dedicated per-node counter capped by
-        ``ReviewerConfig.audit_max_retries`` so audit retries do not consume
-        the coder's generic escalation budget. For other modes, falls back to
-        the coder's ``EscalationLadder``.
+        ``ReviewerConfig.audit_max_retries``. For other modes, uses the
+        generic failure counter against ``max_retries``.
 
         Returns True if the coder was permanently blocked (retries exhausted),
         False if converted to a retry.
@@ -309,22 +301,10 @@ class SessionResultHandler:
         if mode == "audit-review":
             return self._retry_on_audit_review_block(record, decision, state, coder_node_id)
 
-        from agentfox.core.escalation import EscalationLadder
+        count = self._node_failure_counts.get(coder_node_id, 0) + 1
+        self._node_failure_counts[coder_node_id] = count
 
-        pred_ladder = self._routing_ladders.get(coder_node_id)
-        if pred_ladder is None:
-            coder_archetype = self._get_node_archetype(coder_node_id)
-            coder_entry = get_archetype(coder_archetype)
-            pred_ladder = EscalationLadder(
-                starting_tier=ModelTier(coder_entry.default_model_tier),
-                tier_ceiling=ModelTier.ADVANCED,
-                retries_before_escalation=self._retries_before_escalation,
-            )
-            self._routing_ladders[coder_node_id] = pred_ladder
-
-        pred_ladder.record_failure()
-
-        if pred_ladder.is_exhausted:
+        if count > self._max_retries:
             logger.warning(
                 "Review retry-predecessor exhausted for %s, permanently blocking",
                 coder_node_id,
@@ -519,7 +499,6 @@ class SessionResultHandler:
             # 75-REQ-1.1, 75-REQ-1.3: Route timeout to dedicated handler
             self._handle_timeout(record, attempt, state, attempt_tracker, error_tracker)
         else:
-            # 75-REQ-1.2: Non-timeout failures use the escalation ladder
             self._handle_failure(record, attempt, state, attempt_tracker, error_tracker)
 
         # 105-REQ-2.1: Persist node status per-transition to DB (not batch at end-of-run).
@@ -651,9 +630,8 @@ class SessionResultHandler:
         current_retries = ns.timeout_retries
 
         if current_retries >= self._max_timeout_retries:
-            # Exhausted timeout retries — fall through to escalation (75-REQ-2.4)
             logger.warning(
-                "Timeout retries exhausted for %s (%d/%d), falling through to escalation ladder",
+                "Timeout retries exhausted for %s (%d/%d), falling through to failure handler",
                 node_id,
                 current_retries,
                 self._max_timeout_retries,
@@ -836,17 +814,16 @@ class SessionResultHandler:
         attempt_tracker: dict[str, int],
         error_tracker: dict[str, str | None],
     ) -> None:
-        """Handle a failed session: retry, escalate, or block."""
+        """Handle a failed session: retry or block."""
         node_id = record.node_id
         error_tracker[node_id] = record.error_message
 
-        # Workspace-setup failures get exponential backoff, not escalation.
+        # Workspace-setup failures get exponential backoff, not retries.
         if record.is_workspace_setup_failure:
             self._handle_workspace_setup_failure(record, state)
             return
 
-        # 118-REQ-3.2, 118-REQ-3.3: Non-retryable errors (workspace-state)
-        # are blocked immediately without consuming escalation ladder retries.
+        # Non-retryable errors (workspace-state) are blocked immediately.
         if getattr(record, "is_non_retryable", False):
             self._handle_non_retryable(record, state)
             return
@@ -856,7 +833,7 @@ class SessionResultHandler:
             self._handle_budget_exhausted(record, state)
             return
 
-        # Transport errors are retried without consuming an escalation attempt.
+        # Transport errors are retried without counting.
         if getattr(record, "is_transport_error", False):
             self._handle_transport_error(record)
             return
@@ -865,24 +842,15 @@ class SessionResultHandler:
         node_archetype = self._get_node_archetype(node_id)
         node_mode = self._get_node_mode(node_id)
         archetype_entry = get_archetype(node_archetype)
-        # Resolve mode-specific overrides (e.g. audit-review retry_predecessor)
         if node_mode is not None:
             from agentfox.archetypes import resolve_effective_config
 
             archetype_entry = resolve_effective_config(archetype_entry, node_mode)
 
-        # 30-REQ-7.3: Use escalation ladder for retry/escalation decisions
-        ladder = self._routing_ladders.get(node_id)
-
-        if ladder is not None:
-            ladder.record_failure()
-            can_retry = ladder.should_retry()
-            exhausted = ladder.is_exhausted
-        else:
-            # Fallback: no ladder (backward compat)
-            max_attempts = self._max_retries + 1
-            can_retry = attempt < max_attempts
-            exhausted = attempt >= max_attempts
+        count = self._node_failure_counts.get(node_id, 0) + 1
+        self._node_failure_counts[node_id] = count
+        can_retry = count <= self._max_retries
+        exhausted = not can_retry
 
         # Retry-predecessor: reset predecessor instead of failed node
         if archetype_entry.retry_predecessor and can_retry:
@@ -892,7 +860,7 @@ class SessionResultHandler:
         if exhausted:
             self._handle_exhausted(node_id, record, state, attempt_tracker)
         else:
-            self._handle_retry(node_id, record, attempt, ladder)
+            self._handle_retry(node_id, record, attempt)
 
     def _try_retry_predecessor(
         self,
@@ -909,30 +877,14 @@ class SessionResultHandler:
 
         pred_id = predecessors[0]
 
-        # 58-REQ-1.1: Record failure on predecessor's escalation ladder
-        from agentfox.core.escalation import EscalationLadder
+        pred_count = self._node_failure_counts.get(pred_id, 0) + 1
+        self._node_failure_counts[pred_id] = pred_count
 
-        pred_ladder = self._routing_ladders.get(pred_id)
-        if pred_ladder is None:
-            # 58-REQ-1.E1: Create ladder defensively
-            pred_archetype = self._get_node_archetype(pred_id)
-            pred_entry = get_archetype(pred_archetype)
-            pred_starting = ModelTier(pred_entry.default_model_tier)
-            pred_ladder = EscalationLadder(
-                starting_tier=pred_starting,
-                tier_ceiling=ModelTier.ADVANCED,
-                retries_before_escalation=self._retries_before_escalation,
-            )
-            self._routing_ladders[pred_id] = pred_ladder
-
-        pred_ladder.record_failure()
-
-        # 58-REQ-2.1: Block predecessor if ladder exhausted
-        if pred_ladder.is_exhausted:
+        if pred_count > self._max_retries:
             self._block_task(
                 pred_id,
                 state,
-                f"Predecessor {pred_id} exhausted all tiers after reviewer {node_id} failures",
+                f"Predecessor {pred_id} exhausted retries after reviewer {node_id} failures",
             )
             self._check_block_budget(state)
             return True
@@ -943,7 +895,6 @@ class SessionResultHandler:
             node_id,
             attempt,
         )
-        # 59-REQ-8.1: Emit disagreement event
         if self._task_callback is not None:
             self._task_callback(
                 TaskEvent(
@@ -954,10 +905,8 @@ class SessionResultHandler:
                     predecessor_node=pred_id,
                 )
             )
-        # 58-REQ-1.2: Reset predecessor to pending (completed→pending, use _transition)
         self._graph_sync._transition(pred_id, "pending", reason="retry predecessor")
         error_tracker[pred_id] = record.error_message
-        # Reset reviewer to pending (in_progress→pending, use mark_pending)
         self._graph_sync.mark_pending(node_id, reason="retry predecessor reset")
         return True
 
@@ -993,31 +942,8 @@ class SessionResultHandler:
         node_id: str,
         record: SessionRecord,
         attempt: int,
-        ladder: Any | None,
     ) -> None:
-        """Handle a retry (possibly with tier escalation)."""
-        # 30-REQ-2.1/2.2: Retry at same tier or escalate
-        if ladder is not None and ladder.escalation_count > 0:
-            prev_tier = record.model or "unknown"
-            logger.warning(
-                "Escalating %s from %s to %s",
-                node_id,
-                prev_tier,
-                ladder.current_tier,
-            )
-            # 40-REQ-10.1: Emit model.escalation audit event
-            emit_audit_event(
-                self._sink,
-                self._run_id,
-                AuditEventType.MODEL_ESCALATION,
-                node_id=node_id,
-                payload={
-                    "from_tier": prev_tier,
-                    "to_tier": ladder.current_tier.value,
-                    "reason": (f"retry limit at tier exhausted for {node_id}"),
-                },
-            )
-        # 40-REQ-9.4: Emit session.retry on pending reset
+        """Handle a retry at the same model tier."""
         emit_audit_event(
             self._sink,
             self._run_id,
@@ -1028,13 +954,7 @@ class SessionResultHandler:
                 "reason": record.error_message or "retrying after failure",
             },
         )
-        # 59-REQ-8.2, 59-REQ-8.3: Emit retry task event with escalation info
         if self._task_callback is not None:
-            escalated_from: str | None = None
-            escalated_to: str | None = None
-            if ladder is not None and ladder.escalation_count > 0:
-                escalated_from = record.model or "unknown"
-                escalated_to = ladder.current_tier.value
             self._task_callback(
                 TaskEvent(
                     node_id=node_id,
@@ -1042,8 +962,6 @@ class SessionResultHandler:
                     duration_s=0,
                     archetype=self._get_node_archetype(node_id),
                     attempt=attempt + 1,
-                    escalated_from=escalated_from,
-                    escalated_to=escalated_to,
                 )
             )
         self._graph_sync.mark_pending(node_id, reason="retry after failure")

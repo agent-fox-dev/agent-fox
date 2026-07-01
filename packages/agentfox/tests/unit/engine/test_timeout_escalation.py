@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import logging
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 from agentfox.engine.graph_sync import GraphSync
@@ -72,43 +71,21 @@ def _make_record(
     )
 
 
-def _make_mock_ladder(
-    *,
-    is_exhausted: bool = False,
-    should_retry: bool = True,
-    escalation_count: int = 0,
-    attempt_count: int = 1,
-) -> MagicMock:
-    """Create a mock EscalationLadder with configurable behavior."""
-    mock = MagicMock()
-    mock.is_exhausted = is_exhausted
-    mock.should_retry.return_value = should_retry
-    mock.escalation_count = escalation_count
-    mock.attempt_count = attempt_count
-    return mock
-
-
 def _make_handler(
     *,
     node_id: str = "node1",
-    is_exhausted: bool = False,
     sink: _EventCaptureSink | None = None,
 ) -> tuple[
     SessionResultHandler,
-    MagicMock,
     ExecutionState,
     dict[str, int],
     dict[str, str | None],
 ]:
     """Create a minimal SessionResultHandler with mocked dependencies.
 
-    Returns (handler, mock_ladder, state, attempt_tracker, error_tracker).
-    The mock_ladder is the escalation ladder for node_id.
+    Returns (handler, state, attempt_tracker, error_tracker).
     """
     graph_sync = GraphSync({node_id: "in_progress"}, {node_id: []})
-
-    mock_ladder = _make_mock_ladder(is_exhausted=is_exhausted)
-    routing_ladders: dict[str, Any] = {node_id: mock_ladder}
 
     from agentfox.knowledge.sink import SinkDispatcher
 
@@ -119,8 +96,6 @@ def _make_handler(
 
     handler = SessionResultHandler(
         graph_sync=graph_sync,
-        routing_ladders=routing_ladders,
-        retries_before_escalation=1,
         max_retries=2,
         task_callback=None,
         sink=sink_dispatcher,
@@ -140,7 +115,7 @@ def _make_handler(
     attempt_tracker: dict[str, int] = {}
     error_tracker: dict[str, str | None] = {}
 
-    return handler, mock_ladder, state, attempt_tracker, error_tracker
+    return handler, state, attempt_tracker, error_tracker
 
 
 # ---------------------------------------------------------------------------
@@ -152,9 +127,9 @@ def _make_handler(
 class TestTimeoutRouting:
     """TS-75-1: Status 'timeout' routes to timeout handler, not escalation."""
 
-    def test_timeout_does_not_call_record_failure(self) -> None:
-        """TS-75-1: Timeout status should NOT invoke the escalation ladder."""
-        handler, mock_ladder, state, attempt_tracker, error_tracker = _make_handler()
+    def test_timeout_does_not_increment_failure_count(self) -> None:
+        """TS-75-1: Timeout status should NOT increment the failure counter."""
+        handler, state, attempt_tracker, error_tracker = _make_handler()
         record = _make_record("timeout")
 
         handler.process(
@@ -165,13 +140,11 @@ class TestTimeoutRouting:
             error_tracker=error_tracker,
         )
 
-        # After implementation: timeout should NOT hit the escalation ladder.
-        # Currently this FAILS because _handle_failure() calls record_failure().
-        assert mock_ladder.record_failure.call_count == 0
+        assert handler._node_failure_counts.get("node1", 0) == 0
 
     def test_timeout_sets_node_to_pending(self) -> None:
         """TS-75-1: Timeout with retries remaining should reset node to pending."""
-        handler, mock_ladder, state, attempt_tracker, error_tracker = _make_handler()
+        handler, state, attempt_tracker, error_tracker = _make_handler()
         record = _make_record("timeout")
 
         handler.process(
@@ -187,7 +160,7 @@ class TestTimeoutRouting:
 
     def test_timeout_increments_retry_counter(self) -> None:
         """TS-75-1: Timeout increments the timeout retry counter."""
-        handler, mock_ladder, state, attempt_tracker, error_tracker = _make_handler()
+        handler, state, attempt_tracker, error_tracker = _make_handler()
         record = _make_record("timeout")
 
         handler.process(
@@ -210,9 +183,9 @@ class TestTimeoutRouting:
 class TestNonTimeoutFailureRouting:
     """TS-75-2: Status 'failed' routes to the escalation ladder."""
 
-    def test_failed_status_calls_record_failure(self) -> None:
-        """TS-75-2: 'failed' status must invoke escalation ladder's record_failure."""
-        handler, mock_ladder, state, attempt_tracker, error_tracker = _make_handler()
+    def test_failed_status_increments_failure_count(self) -> None:
+        """TS-75-2: 'failed' status must increment the failure counter."""
+        handler, state, attempt_tracker, error_tracker = _make_handler()
         record = _make_record("failed")
 
         handler.process(
@@ -223,11 +196,11 @@ class TestNonTimeoutFailureRouting:
             error_tracker=error_tracker,
         )
 
-        assert mock_ladder.record_failure.call_count == 1
+        assert handler._node_failure_counts.get("node1", 0) == 1
 
     def test_failed_status_does_not_increment_timeout_counter(self) -> None:
         """TS-75-2: 'failed' status does not increment timeout retry counter."""
-        handler, mock_ladder, state, attempt_tracker, error_tracker = _make_handler()
+        handler, state, attempt_tracker, error_tracker = _make_handler()
         record = _make_record("failed")
 
         handler.process(
@@ -255,7 +228,7 @@ class TestStatusStringDetection:
         timeout_handler_invocations: dict[str, int] = {}
 
         for status in ("timeout", "failed", "completed"):
-            handler, mock_ladder, state, attempt_tracker, error_tracker = _make_handler()
+            handler, state, attempt_tracker, error_tracker = _make_handler()
             record = _make_record(status)
 
             handler.process(
@@ -283,9 +256,9 @@ class TestStatusStringDetection:
 class TestFailedWithTimeoutInMessage:
     """TS-75-4: 'failed' status with 'timeout' in error message uses ladder."""
 
-    def test_failed_with_timeout_in_error_uses_ladder(self) -> None:
-        """TS-75-4: status='failed', error='Connection timeout' → escalation ladder."""
-        handler, mock_ladder, state, attempt_tracker, error_tracker = _make_handler()
+    def test_failed_with_timeout_in_error_increments_failure_count(self) -> None:
+        """TS-75-4: status='failed', error='Connection timeout' → failure counter."""
+        handler, state, attempt_tracker, error_tracker = _make_handler()
         record = _make_record(
             "failed",
             error_message="Connection timeout after 30s",
@@ -299,12 +272,12 @@ class TestFailedWithTimeoutInMessage:
             error_tracker=error_tracker,
         )
 
-        # Must still call record_failure (not timeout handler).
-        assert mock_ladder.record_failure.call_count == 1
+        # Must still increment the failure counter (not timeout handler).
+        assert handler._node_failure_counts.get("node1", 0) == 1
 
     def test_failed_with_timeout_in_error_no_timeout_counter(self) -> None:
         """TS-75-4: status='failed' with timeout in message → counter stays 0."""
-        handler, mock_ladder, state, attempt_tracker, error_tracker = _make_handler()
+        handler, state, attempt_tracker, error_tracker = _make_handler()
         record = _make_record(
             "failed",
             error_message="Connection timeout after 30s",
@@ -332,7 +305,7 @@ class TestTimeoutCounterIndependence:
 
     def test_two_timeouts_increment_counter_twice(self) -> None:
         """TS-75-5: Two timeout records increment the counter to 2."""
-        handler, mock_ladder, state, attempt_tracker, error_tracker = _make_handler()
+        handler, state, attempt_tracker, error_tracker = _make_handler()
 
         for attempt_n in (1, 2):
             # Simulate the dispatch loop: node goes back to in_progress before
@@ -351,10 +324,9 @@ class TestTimeoutCounterIndependence:
 
         assert handler._get_node_state("node1").timeout_retries == 2
 
-    def test_timeouts_dont_affect_ladder_attempt_count(self) -> None:
-        """TS-75-5: Timeouts must NOT increment the escalation ladder attempt count."""
-        handler, mock_ladder, state, attempt_tracker, error_tracker = _make_handler()
-        initial_count = mock_ladder.attempt_count
+    def test_timeouts_dont_affect_failure_count(self) -> None:
+        """TS-75-5: Timeouts must NOT increment the failure counter."""
+        handler, state, attempt_tracker, error_tracker = _make_handler()
 
         record = _make_record("timeout")
         handler.process(
@@ -365,9 +337,7 @@ class TestTimeoutCounterIndependence:
             error_tracker=error_tracker,
         )
 
-        # Currently FAILS: record_failure IS called, which would change ladder state.
-        assert mock_ladder.record_failure.call_count == 0
-        assert mock_ladder.attempt_count == initial_count
+        assert handler._node_failure_counts.get("node1", 0) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -381,7 +351,7 @@ class TestRetryAtSameTier:
 
     def test_timeout_retry_resets_node_to_pending(self) -> None:
         """TS-75-6: After a timeout retry, node state must be 'pending'."""
-        handler, mock_ladder, state, attempt_tracker, error_tracker = _make_handler()
+        handler, state, attempt_tracker, error_tracker = _make_handler()
         record = _make_record("timeout")
 
         handler.process(
@@ -394,9 +364,9 @@ class TestRetryAtSameTier:
 
         assert handler._graph_sync.node_states["node1"] == "pending"
 
-    def test_timeout_retry_does_not_escalate_tier(self) -> None:
-        """TS-75-6: Timeout retry must NOT trigger tier escalation."""
-        handler, mock_ladder, state, attempt_tracker, error_tracker = _make_handler()
+    def test_timeout_retry_does_not_increment_failure_count(self) -> None:
+        """TS-75-6: Timeout retry must NOT increment the failure counter."""
+        handler, state, attempt_tracker, error_tracker = _make_handler()
         record = _make_record("timeout")
 
         handler.process(
@@ -407,8 +377,7 @@ class TestRetryAtSameTier:
             error_tracker=error_tracker,
         )
 
-        # record_failure must NOT be called — currently FAILS.
-        assert mock_ladder.record_failure.call_count == 0
+        assert handler._node_failure_counts.get("node1", 0) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -420,9 +389,9 @@ class TestRetryAtSameTier:
 class TestTimeoutFallThrough:
     """TS-75-7: When timeout retries exhausted, escalation ladder is invoked."""
 
-    def test_exhausted_timeout_counter_calls_record_failure(self) -> None:
-        """TS-75-7: After max timeout retries, next timeout calls record_failure()."""
-        handler, mock_ladder, state, attempt_tracker, error_tracker = _make_handler()
+    def test_exhausted_timeout_counter_increments_failure_count(self) -> None:
+        """TS-75-7: After max timeout retries, next timeout increments failure counter."""
+        handler, state, attempt_tracker, error_tracker = _make_handler()
 
         handler._get_node_state("node1").timeout_retries = 2
 
@@ -435,7 +404,7 @@ class TestTimeoutFallThrough:
             error_tracker=error_tracker,
         )
 
-        assert mock_ladder.record_failure.call_count == 1
+        assert handler._node_failure_counts.get("node1", 0) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -448,8 +417,8 @@ class TestMixedTimeoutAndFailures:
     """TS-75-8: Timeout and failure counters are independent when mixed."""
 
     def test_mixed_events_maintain_independent_counters(self) -> None:
-        """TS-75-8: timeout x2 + failed x2 → timeout_retries=2, ladder_failures=2."""
-        handler, mock_ladder, state, attempt_tracker, error_tracker = _make_handler()
+        """TS-75-8: timeout x2 + failed x2 → timeout_retries=2, failure_count=2."""
+        handler, state, attempt_tracker, error_tracker = _make_handler()
 
         # First timeout (node starts as in_progress from _make_handler)
         handler.process(
@@ -489,8 +458,8 @@ class TestMixedTimeoutAndFailures:
         )
 
         assert handler._get_node_state("node1").timeout_retries == 2
-        # record_failure should only be called for the 'failed' records.
-        assert mock_ladder.record_failure.call_count == 2
+        # Failure counter should only count the 'failed' records.
+        assert handler._node_failure_counts.get("node1", 0) == 2
 
 
 # ---------------------------------------------------------------------------
@@ -502,12 +471,10 @@ class TestMixedTimeoutAndFailures:
 class TestZeroMaxTimeoutRetries:
     """TS-75-9: max_timeout_retries=0 → timeout goes directly to escalation."""
 
-    def test_zero_max_retries_calls_record_failure_immediately(self) -> None:
-        """TS-75-9: When max_timeout_retries=0, timeout hits the escalation ladder."""
-        handler, mock_ladder, state, attempt_tracker, error_tracker = _make_handler()
+    def test_zero_max_retries_increments_failure_count_immediately(self) -> None:
+        """TS-75-9: When max_timeout_retries=0, timeout increments the failure counter."""
+        handler, state, attempt_tracker, error_tracker = _make_handler()
 
-        # Signal to the handler that max_timeout_retries is 0.
-        # Currently FAILS: _max_timeout_retries doesn't exist.
         handler._max_timeout_retries = 0
 
         record = _make_record("timeout")
@@ -519,13 +486,12 @@ class TestZeroMaxTimeoutRetries:
             error_tracker=error_tracker,
         )
 
-        assert mock_ladder.record_failure.call_count == 1
+        assert handler._node_failure_counts.get("node1", 0) == 1
 
     def test_zero_max_retries_no_timeout_counter_increment(self) -> None:
         """TS-75-9: When max_timeout_retries=0, timeout counter stays at 0."""
-        handler, mock_ladder, state, attempt_tracker, error_tracker = _make_handler()
+        handler, state, attempt_tracker, error_tracker = _make_handler()
 
-        # Currently FAILS: _max_timeout_retries doesn't exist.
         handler._max_timeout_retries = 0
 
         record = _make_record("timeout")
@@ -552,7 +518,7 @@ class TestMaxTurnsExtension:
 
     def test_max_turns_multiplied_and_rounded_up(self) -> None:
         """TS-75-10: original=200, multiplier=1.5 → extended=300."""
-        handler, _, _, _, _ = _make_handler()
+        handler, _, _, _ = _make_handler()
 
         ns = handler._get_node_state("node1")
         ns.max_turns = 200
@@ -577,7 +543,7 @@ class TestSessionTimeoutExtension:
 
     def test_session_timeout_multiplied_and_rounded_up(self) -> None:
         """TS-75-11: original_timeout=30, multiplier=1.5 → extended=45."""
-        handler, _, _, _, _ = _make_handler()
+        handler, _, _, _ = _make_handler()
 
         ns = handler._get_node_state("node1")
         ns.timeout = 30
@@ -602,7 +568,7 @@ class TestTimeoutCeiling:
 
     def test_two_retries_clamp_to_ceiling(self) -> None:
         """TS-75-12: original=30, mult=1.5, ceil=2.0: retry1→45, retry2→60 (clamped)."""
-        handler, _, _, _, _ = _make_handler()
+        handler, _, _, _ = _make_handler()
 
         ns = handler._get_node_state("node1")
         ns.timeout = 30
@@ -631,7 +597,7 @@ class TestUnlimitedTurnsPreservation:
 
     def test_none_max_turns_not_modified(self) -> None:
         """TS-75-13: If max_turns is None, it must remain None after extension."""
-        handler, _, _, _, _ = _make_handler()
+        handler, _, _, _ = _make_handler()
 
         ns = handler._get_node_state("node1")
         ns.max_turns = None
@@ -656,7 +622,7 @@ class TestPerNodeParameterIsolation:
 
     def test_extending_node1_does_not_affect_node2(self) -> None:
         """TS-75-14: node1 extension is isolated; node2 must not appear in dicts."""
-        handler, _, _, _, _ = _make_handler()
+        handler, _, _, _ = _make_handler()
 
         ns = handler._get_node_state("node1")
         ns.max_turns = 200
@@ -682,7 +648,7 @@ class TestCeilingClamp:
 
     def test_ceiling_clamp_when_multiplier_exceeds_ceiling(self) -> None:
         """TS-75-15: original=20, multiplier=2.0, ceiling=1.5 → clamped to 30."""
-        handler, _, _, _, _ = _make_handler()
+        handler, _, _, _ = _make_handler()
 
         # original_timeout=20, multiplier=2.0: ceil(20 * 2.0) = 40
         # ceiling = ceil(20 * 1.5) = 30 → clamped to 30
@@ -709,7 +675,7 @@ class TestMultiplierOneNoExtensionHandler:
 
     def test_multiplier_one_no_change_to_turns(self) -> None:
         """TS-75-20: With multiplier=1.0, max_turns is unchanged after extension."""
-        handler, _, _, _, _ = _make_handler()
+        handler, _, _, _ = _make_handler()
 
         ns = handler._get_node_state("node1")
         ns.max_turns = 200
@@ -724,7 +690,7 @@ class TestMultiplierOneNoExtensionHandler:
 
     def test_multiplier_one_no_change_to_timeout(self) -> None:
         """TS-75-20: With multiplier=1.0, session_timeout unchanged after extend."""
-        handler, _, _, _, _ = _make_handler()
+        handler, _, _, _ = _make_handler()
 
         ns = handler._get_node_state("node1")
         ns.max_turns = 200
@@ -755,7 +721,7 @@ class TestTimeoutRetryAuditEvent:
         event_type = AuditEventType.SESSION_TIMEOUT_RETRY
 
         sink = _EventCaptureSink()
-        handler, mock_ladder, state, attempt_tracker, error_tracker = _make_handler(sink=sink)
+        handler, state, attempt_tracker, error_tracker = _make_handler(sink=sink)
 
         record = _make_record("timeout")
         handler.process(
@@ -776,7 +742,7 @@ class TestTimeoutRetryAuditEvent:
         event_type = AuditEventType.SESSION_TIMEOUT_RETRY  # Currently FAILS
 
         sink = _EventCaptureSink()
-        handler, mock_ladder, state, attempt_tracker, error_tracker = _make_handler(sink=sink)
+        handler, state, attempt_tracker, error_tracker = _make_handler(sink=sink)
 
         record = _make_record("timeout")
         handler.process(
@@ -805,7 +771,7 @@ class TestExhaustionWarningLog:
 
     def test_warning_logged_on_timeout_exhaustion(self, caplog: pytest.LogCaptureFixture) -> None:
         """TS-75-22: Warning mentioning exhaustion is emitted when retries run out."""
-        handler, mock_ladder, state, attempt_tracker, error_tracker = _make_handler()
+        handler, state, attempt_tracker, error_tracker = _make_handler()
 
         handler._get_node_state("node1").timeout_retries = 2
         handler._max_timeout_retries = 2
@@ -844,7 +810,7 @@ class TestAuditEventPayloadValues:
         event_type = AuditEventType.SESSION_TIMEOUT_RETRY  # Currently FAILS
 
         sink = _EventCaptureSink()
-        handler, mock_ladder, state, attempt_tracker, error_tracker = _make_handler(sink=sink)
+        handler, state, attempt_tracker, error_tracker = _make_handler(sink=sink)
 
         record = _make_record("timeout")
         handler.process(
@@ -870,7 +836,7 @@ class TestAuditEventPayloadValues:
         event_type = AuditEventType.SESSION_TIMEOUT_RETRY  # Currently FAILS
 
         sink = _EventCaptureSink()
-        handler, mock_ladder, state, attempt_tracker, error_tracker = _make_handler(sink=sink)
+        handler, state, attempt_tracker, error_tracker = _make_handler(sink=sink)
 
         ns = handler._get_node_state("node1")
         ns.max_turns = 200

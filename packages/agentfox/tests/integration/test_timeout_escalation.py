@@ -7,7 +7,6 @@ Requirements: 75-REQ-2.3, 75-REQ-2.4
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import MagicMock
 
 from agentfox.engine.graph_sync import GraphSync
 from agentfox.engine.result_handler import SessionResultHandler
@@ -75,7 +74,6 @@ def _make_handler_with_sink(
     original_max_turns: int | None = 200,
 ) -> tuple[
     SessionResultHandler,
-    MagicMock,
     ExecutionState,
     _EventCaptureSink,
     dict[str, int],
@@ -86,21 +84,11 @@ def _make_handler_with_sink(
 
     graph_sync = GraphSync({node_id: "in_progress"}, {node_id: []})
 
-    mock_ladder = MagicMock()
-    mock_ladder.is_exhausted = False
-    mock_ladder.should_retry.return_value = True
-    mock_ladder.escalation_count = 0
-    mock_ladder.attempt_count = 1
-
-    routing_ladders: dict[str, Any] = {node_id: mock_ladder}
-
     sink = _EventCaptureSink()
     sink_dispatcher: SinkDispatcher = SinkDispatcher([sink])  # type: ignore[list-item]
 
     handler = SessionResultHandler(
         graph_sync=graph_sync,
-        routing_ladders=routing_ladders,
-        retries_before_escalation=1,
         max_retries=max_timeout_retries + 3,
         task_callback=None,
         sink=sink_dispatcher,
@@ -121,7 +109,7 @@ def _make_handler_with_sink(
     attempt_tracker: dict[str, int] = {}
     error_tracker: dict[str, str | None] = {}
 
-    return handler, mock_ladder, state, sink, attempt_tracker, error_tracker
+    return handler, state, sink, attempt_tracker, error_tracker
 
 
 # ---------------------------------------------------------------------------
@@ -140,7 +128,7 @@ class TestTimeoutThenSuccess:
         session 2 succeeds.
         """
         node_id = "spec:1"
-        handler, mock_ladder, state, sink, attempt_tracker, error_tracker = _make_handler_with_sink(node_id)
+        handler, state, sink, attempt_tracker, error_tracker = _make_handler_with_sink(node_id)
 
         # Currently FAILS: timeout-aware routing doesn't exist.
         handler._max_timeout_retries = 2  # noqa: SLF001
@@ -158,7 +146,7 @@ class TestTimeoutThenSuccess:
         # After timeout: node should be pending for retry.
         # Currently FAILS: _handle_failure is called, not _handle_timeout.
         assert handler._graph_sync.node_states[node_id] == "pending"
-        assert mock_ladder.record_failure.call_count == 0
+        assert handler._node_failure_counts.get(node_id, 0) == 0
 
         # Session 2: succeeds.
         success_record = _make_session_record(node_id, "completed", attempt=2)
@@ -181,7 +169,7 @@ class TestTimeoutThenSuccess:
         event_type = AuditEventType.SESSION_TIMEOUT_RETRY
 
         node_id = "spec:1"
-        handler, mock_ladder, state, sink, attempt_tracker, error_tracker = _make_handler_with_sink(node_id)
+        handler, state, sink, attempt_tracker, error_tracker = _make_handler_with_sink(node_id)
 
         # Currently FAILS: _max_timeout_retries doesn't exist.
         handler._max_timeout_retries = 2
@@ -202,7 +190,7 @@ class TestTimeoutThenSuccess:
     def test_timeout_extends_session_parameters(self) -> None:
         """TS-75-E1: Extended session timeout is recorded after timeout retry."""
         node_id = "spec:1"
-        handler, mock_ladder, state, sink, attempt_tracker, error_tracker = _make_handler_with_sink(
+        handler, state, sink, attempt_tracker, error_tracker = _make_handler_with_sink(
             node_id,
             timeout_multiplier=1.5,
             original_timeout=30,
@@ -239,7 +227,7 @@ class TestTimeoutExhaustionThenEscalation:
         Simulates: 2 timeouts (max_timeout_retries=1) → fall through to ladder.
         """
         node_id = "spec:1"
-        handler, mock_ladder, state, sink, attempt_tracker, error_tracker = _make_handler_with_sink(
+        handler, state, sink, attempt_tracker, error_tracker = _make_handler_with_sink(
             node_id, max_timeout_retries=1
         )
 
@@ -257,7 +245,7 @@ class TestTimeoutExhaustionThenEscalation:
         )
 
         # Currently FAILS: record_failure IS called for all failures.
-        assert mock_ladder.record_failure.call_count == 0
+        assert handler._node_failure_counts.get(node_id, 0) == 0
 
         # Session 2: timeout again (retries exhausted → fall through to ladder).
         # Simulate the dispatch loop re-queuing the node to in_progress.
@@ -273,7 +261,7 @@ class TestTimeoutExhaustionThenEscalation:
         )
 
         # Now the escalation ladder must have been invoked.
-        assert mock_ladder.record_failure.call_count == 1
+        assert handler._node_failure_counts.get(node_id, 0) == 1
 
     def test_exhausted_retries_warning_then_escalation(self) -> None:
         """TS-75-E2: Exhaustion warning is logged before falling through."""
@@ -281,7 +269,7 @@ class TestTimeoutExhaustionThenEscalation:
         import logging
 
         node_id = "spec:1"
-        handler, mock_ladder, state, sink, attempt_tracker, error_tracker = _make_handler_with_sink(
+        handler, state, sink, attempt_tracker, error_tracker = _make_handler_with_sink(
             node_id, max_timeout_retries=1
         )
 
@@ -308,7 +296,7 @@ class TestTimeoutExhaustionThenEscalation:
             handler_logger.removeHandler(log_handler)
 
         # After implementation: record_failure is called after exhaustion.
-        assert mock_ladder.record_failure.call_count == 1
+        assert handler._node_failure_counts.get(node_id, 0) == 1
 
     def test_two_timeouts_one_success_at_escalated_tier(self) -> None:
         """TS-75-E2: Sequence: timeout → timeout (exhausted) → success at new tier.
@@ -317,7 +305,7 @@ class TestTimeoutExhaustionThenEscalation:
         success should complete the node.
         """
         node_id = "spec:1"
-        handler, mock_ladder, state, sink, attempt_tracker, error_tracker = _make_handler_with_sink(
+        handler, state, sink, attempt_tracker, error_tracker = _make_handler_with_sink(
             node_id, max_timeout_retries=1
         )
 
@@ -347,7 +335,7 @@ class TestTimeoutExhaustionThenEscalation:
 
         # After exhaustion, escalation was triggered.
         # Currently FAILS: record_failure is called on every non-success.
-        assert mock_ladder.record_failure.call_count == 1
+        assert handler._node_failure_counts.get(node_id, 0) == 1
 
         # Session 3: success at escalated tier.
         state.node_states[node_id] = "in_progress"

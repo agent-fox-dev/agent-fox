@@ -6,8 +6,6 @@ Requirements: 118-REQ-3.2, 118-REQ-3.3
 
 from __future__ import annotations
 
-from agentfox.core.escalation import EscalationLadder
-from agentfox.core.models import ModelTier
 from agentfox.engine.graph_sync import GraphSync
 from agentfox.engine.result_handler import SessionResultHandler
 from agentfox.engine.state import ExecutionState, SessionRecord
@@ -22,7 +20,6 @@ class TestNonRetryableImmediateBlock:
     def _make_handler(
         self,
         graph_sync: GraphSync,
-        routing_ladders: dict,
         block_calls: list,
     ) -> SessionResultHandler:
         """Create a SessionResultHandler with mocked dependencies."""
@@ -34,8 +31,6 @@ class TestNonRetryableImmediateBlock:
 
         return SessionResultHandler(
             graph_sync=graph_sync,
-            routing_ladders=routing_ladders,
-            retries_before_escalation=2,
             max_retries=3,
             task_callback=None,
             sink=None,
@@ -54,16 +49,8 @@ class TestNonRetryableImmediateBlock:
         edges: dict[str, list[str]] = {"spec:1": []}
         graph_sync = GraphSync(node_states, edges)
 
-        # Set up an escalation ladder with remaining retries
-        ladder = EscalationLadder(
-            starting_tier=ModelTier.STANDARD,
-            tier_ceiling=ModelTier.ADVANCED,
-            retries_before_escalation=2,
-        )
-        routing_ladders = {"spec:1": ladder}
-
         block_calls: list[tuple[str, str]] = []
-        handler = self._make_handler(graph_sync, routing_ladders, block_calls)
+        handler = self._make_handler(graph_sync, block_calls)
 
         record = SessionRecord(
             node_id="spec:1",
@@ -95,6 +82,6 @@ class TestNonRetryableImmediateBlock:
         assert len(block_calls) == 1
         assert "workspace-state" in block_calls[0][1]
 
-        # Ladder must NOT have consumed an additional failure
-        # (the record_failure in _handle_failure should be skipped)
-        assert ladder.attempt_count == 1  # no additional failures recorded
+        # Failure counter must NOT have been incremented
+        # (the non-retryable path blocks immediately without counting)
+        assert handler._node_failure_counts.get("spec:1", 0) == 0

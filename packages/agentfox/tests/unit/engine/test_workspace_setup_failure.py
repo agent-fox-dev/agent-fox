@@ -147,8 +147,6 @@ class TestWorkspaceBackoffAndCircuitBreaker:
 
         return SessionResultHandler(
             graph_sync=graph_sync,
-            routing_ladders={},
-            retries_before_escalation=2,
             max_retries=3,
             task_callback=None,
             sink=None,
@@ -207,28 +205,18 @@ class TestWorkspaceBackoffAndCircuitBreaker:
         assert "Workspace setup failed" in block_calls[0][1]
         assert "stale worktrees" in block_calls[0][1]
 
-    def test_backoff_does_not_consume_escalation_retries(self) -> None:
-        """Workspace failures should not consume escalation ladder retries."""
-        from agentfox.core.escalation import EscalationLadder
-        from agentfox.core.models import ModelTier
-
+    def test_backoff_does_not_consume_failure_retries(self) -> None:
+        """Workspace failures should not consume failure counter retries."""
         node_states = {"spec:1": "in_progress"}
         edges: dict[str, list[str]] = {"spec:1": []}
         graph_sync = GraphSync(node_states, edges)
         block_calls: list = []
         handler = self._make_handler(graph_sync, block_calls)
 
-        ladder = EscalationLadder(
-            starting_tier=ModelTier.STANDARD,
-            tier_ceiling=ModelTier.ADVANCED,
-            retries_before_escalation=2,
-        )
-        handler._routing_ladders["spec:1"] = ladder
-
         state = ExecutionState(plan_hash="abc", node_states=node_states)
         handler.process(self._make_record(), 1, state, {}, {})
 
-        assert ladder._total_failures == 0
+        assert handler._node_failure_counts.get("spec:1", 0) == 0
 
     def test_backoff_clears_on_success(self) -> None:
         node_states = {"spec:1": "in_progress"}

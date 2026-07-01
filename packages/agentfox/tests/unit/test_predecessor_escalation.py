@@ -1,8 +1,8 @@
-"""Tests for predecessor escalation in the retry-predecessor path.
+"""Tests for predecessor retry counting in the retry-predecessor path.
 
 Verifies that reviewer-triggered resets correctly record failures on the
-predecessor's escalation ladder, trigger tier escalation, and block the
-predecessor when all tiers are exhausted.
+predecessor's failure counter, and block the predecessor when retries
+are exhausted.
 
 Test Spec: TS-58-1 through TS-58-8, TS-58-E1, TS-58-E2
 Requirements: 58-REQ-1.1 through 58-REQ-3.2
@@ -13,8 +13,6 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from agentfox.core.config import OrchestratorConfig
-from agentfox.core.escalation import EscalationLadder
-from agentfox.core.models import ModelTier
 from agentfox.engine.engine import Orchestrator
 from agentfox.engine.graph_sync import GraphSync
 from agentfox.engine.result_handler import SessionResultHandler
@@ -86,8 +84,6 @@ def _make_orchestrator(
     # Initialize result handler (normally done in run())
     orch._result_handler = SessionResultHandler(
         graph_sync=orch._graph_sync,
-        routing_ladders=orch._routing.ladders,
-        retries_before_escalation=orch._routing.retries_before_escalation,
         max_retries=config.max_retries,
         task_callback=None,
         sink=None,
@@ -134,16 +130,16 @@ def _make_failed_reviewer_record(
 
 
 # ---------------------------------------------------------------------------
-# TS-58-1: Reviewer Failure Records on Predecessor Ladder
+# TS-58-1: Reviewer Failure Increments Predecessor Failure Counter
 # Requirement: 58-REQ-1.1
 # ---------------------------------------------------------------------------
 
 
-class TestReviewerFailureRecordsOnPredLadder:
-    """TS-58-1: Reviewer failure records on predecessor ladder."""
+class TestReviewerFailureRecordsOnPredCounter:
+    """TS-58-1: Reviewer failure increments predecessor failure counter."""
 
-    def test_reviewer_failure_records_on_pred_ladder(self) -> None:
-        """Verify that a reviewer failure increments the predecessor's attempt count.
+    def test_reviewer_failure_increments_pred_counter(self) -> None:
+        """Verify that a reviewer failure increments the predecessor's failure count.
 
         Test Spec: TS-58-1
         Requirement: 58-REQ-1.1
@@ -153,14 +149,6 @@ class TestReviewerFailureRecordsOnPredLadder:
             CODER_VERIFIER_NODES, CODER_VERIFIER_EDGES, node_states
         )
 
-        pred_ladder = EscalationLadder(
-            starting_tier=ModelTier.STANDARD,
-            tier_ceiling=ModelTier.ADVANCED,
-            retries_before_escalation=1,
-        )
-        orch._routing.ladders["spec:1"] = pred_ladder
-        initial_count = pred_ladder.attempt_count  # = 1 before any failures
-
         orch._result_handler.process(  # type: ignore[union-attr]
             _make_failed_reviewer_record(),
             1,
@@ -169,8 +157,8 @@ class TestReviewerFailureRecordsOnPredLadder:
             error_tracker,
         )
 
-        # 58-REQ-1.1: predecessor ladder must record a failure
-        assert pred_ladder.attempt_count == initial_count + 1
+        # 58-REQ-1.1: predecessor failure counter must be incremented
+        assert orch._result_handler._node_failure_counts.get("spec:1", 0) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -183,7 +171,7 @@ class TestPredecessorResetToPending:
     """TS-58-2: Predecessor reset to pending after recorded failure."""
 
     def test_predecessor_reset_to_pending(self) -> None:
-        """Verify predecessor and reviewer are pending when ladder is not exhausted.
+        """Verify predecessor and reviewer are pending when retries are not exhausted.
 
         Test Spec: TS-58-2
         Requirement: 58-REQ-1.2
@@ -193,14 +181,6 @@ class TestPredecessorResetToPending:
             CODER_VERIFIER_NODES, CODER_VERIFIER_EDGES, node_states
         )
 
-        # retries_before_escalation=2: first failure does not exhaust the ladder
-        pred_ladder = EscalationLadder(
-            starting_tier=ModelTier.STANDARD,
-            tier_ceiling=ModelTier.ADVANCED,
-            retries_before_escalation=2,
-        )
-        orch._routing.ladders["spec:1"] = pred_ladder
-
         orch._result_handler.process(  # type: ignore[union-attr]
             _make_failed_reviewer_record(),
             1,
@@ -209,27 +189,24 @@ class TestPredecessorResetToPending:
             error_tracker,
         )
 
-        # 58-REQ-1.2: both nodes must be pending (ladder not exhausted)
+        # 58-REQ-1.2: both nodes must be pending (retries not exhausted)
         assert state.node_states["spec:1"] == "pending"
         assert state.node_states["spec:2"] == "pending"
-        # The predecessor's ladder must have recorded the failure
-        assert pred_ladder.attempt_count == 2  # 1 initial + 1 failure
+        # The predecessor's failure counter must have recorded the failure
+        assert orch._result_handler._node_failure_counts.get("spec:1", 0) == 1
 
 
 # ---------------------------------------------------------------------------
-# TS-58-3: Predecessor Escalates After Retries Exhausted at Tier
+# TS-58-3: Predecessor Retries Accumulate
 # Requirement: 58-REQ-1.3
 # ---------------------------------------------------------------------------
 
 
-class TestPredecessorEscalatesAfterRetries:
-    """TS-58-3: Predecessor escalates after retries exhausted at tier."""
+class TestPredecessorRetriesAccumulate:
+    """TS-58-3: Predecessor retries accumulate across multiple failures."""
 
-    def test_predecessor_escalates_after_retries(self) -> None:
-        """Verify predecessor ladder escalates from STANDARD to ADVANCED.
-
-        After retries_before_escalation+1 reviewer failures, current_tier
-        must advance to ADVANCED while the predecessor remains pending.
+    def test_predecessor_retries_accumulate(self) -> None:
+        """Verify predecessor failure count accumulates across failures.
 
         Test Spec: TS-58-3
         Requirement: 58-REQ-1.3
@@ -239,15 +216,7 @@ class TestPredecessorEscalatesAfterRetries:
             CODER_VERIFIER_NODES, CODER_VERIFIER_EDGES, node_states
         )
 
-        # retries_before_escalation=1: 2nd failure triggers escalation
-        pred_ladder = EscalationLadder(
-            starting_tier=ModelTier.STANDARD,
-            tier_ceiling=ModelTier.ADVANCED,
-            retries_before_escalation=1,
-        )
-        orch._routing.ladders["spec:1"] = pred_ladder
-
-        # First failure — still STANDARD
+        # First failure
         orch._result_handler.process(  # type: ignore[union-attr]
             _make_failed_reviewer_record(attempt=1),
             1,
@@ -255,13 +224,13 @@ class TestPredecessorEscalatesAfterRetries:
             attempt_tracker,
             error_tracker,
         )
-        assert pred_ladder.current_tier == ModelTier.STANDARD
+        assert orch._result_handler._node_failure_counts.get("spec:1", 0) == 1
 
         # Reset state for the second call
         state.node_states["spec:1"] = "completed"
         state.node_states["spec:2"] = "in_progress"
 
-        # Second failure — escalates to ADVANCED
+        # Second failure
         orch._result_handler.process(  # type: ignore[union-attr]
             _make_failed_reviewer_record(attempt=2),
             2,
@@ -269,40 +238,33 @@ class TestPredecessorEscalatesAfterRetries:
             attempt_tracker,
             error_tracker,
         )
-        assert pred_ladder.current_tier == ModelTier.ADVANCED
-        # Predecessor should still be pending (ladder has ADVANCED left)
+        assert orch._result_handler._node_failure_counts.get("spec:1", 0) == 2
+        # Predecessor should still be pending (not yet past max_retries=5)
         assert state.node_states["spec:1"] == "pending"
 
 
 # ---------------------------------------------------------------------------
-# TS-58-4: Predecessor Blocks on Ladder Exhaustion
+# TS-58-4: Predecessor Blocks on Retries Exhaustion
 # Requirement: 58-REQ-2.1
 # ---------------------------------------------------------------------------
 
 
 class TestPredecessorBlocksOnExhaustion:
-    """TS-58-4: Predecessor blocks on ladder exhaustion."""
+    """TS-58-4: Verifier blocks when retries exhausted, stopping predecessor retries."""
 
-    def test_predecessor_blocks_on_exhaustion(self) -> None:
-        """Verify predecessor status is blocked when ladder is exhausted.
+    def test_verifier_blocks_on_exhaustion(self) -> None:
+        """Verify verifier is blocked when retries are exhausted, ending the retry loop.
 
         Test Spec: TS-58-4
         Requirement: 58-REQ-2.1
         """
         node_states = {"spec:1": "completed", "spec:2": "in_progress"}
+        # max_retries=1: blocked after 2nd failure
         orch, state, attempt_tracker, error_tracker = _make_orchestrator(
-            CODER_VERIFIER_NODES, CODER_VERIFIER_EDGES, node_states
+            CODER_VERIFIER_NODES, CODER_VERIFIER_EDGES, node_states, max_retries=1
         )
 
-        # Starting at ADVANCED (ceiling): exhausted after 2 failures
-        pred_ladder = EscalationLadder(
-            starting_tier=ModelTier.ADVANCED,
-            tier_ceiling=ModelTier.ADVANCED,
-            retries_before_escalation=1,
-        )
-        orch._routing.ladders["spec:1"] = pred_ladder
-
-        # First failure — still retrying
+        # First failure — still retrying (predecessor reset to pending)
         orch._result_handler.process(  # type: ignore[union-attr]
             _make_failed_reviewer_record(attempt=1),
             1,
@@ -310,13 +272,13 @@ class TestPredecessorBlocksOnExhaustion:
             attempt_tracker,
             error_tracker,
         )
-        assert not pred_ladder.is_exhausted
+        assert state.node_states["spec:1"] == "pending"
 
         # Reset state for second call
         state.node_states["spec:1"] = "completed"
         state.node_states["spec:2"] = "in_progress"
 
-        # Second failure — exhausts the ladder
+        # Second failure — exhausts retries, verifier is blocked
         orch._result_handler.process(  # type: ignore[union-attr]
             _make_failed_reviewer_record(attempt=2),
             2,
@@ -325,9 +287,8 @@ class TestPredecessorBlocksOnExhaustion:
             error_tracker,
         )
 
-        # 58-REQ-2.1: predecessor must be blocked
-        assert pred_ladder.is_exhausted is True
-        assert state.node_states["spec:1"] == "blocked"
+        # 58-REQ-2.1: verifier must be blocked (retries exhausted)
+        assert state.node_states["spec:2"] == "blocked"
 
 
 # ---------------------------------------------------------------------------
@@ -337,26 +298,19 @@ class TestPredecessorBlocksOnExhaustion:
 
 
 class TestNeitherNodeResetWhenBlocked:
-    """TS-58-6: Neither node reset when predecessor blocks."""
+    """TS-58-6: Neither node reset when retries exhausted."""
 
     def test_neither_node_reset_when_blocked(self) -> None:
-        """Verify that blocking the predecessor does not reset either node.
+        """Verify that when retries are exhausted, the verifier is blocked.
 
         Test Spec: TS-58-6
         Requirement: 58-REQ-2.3
         """
         node_states = {"spec:1": "completed", "spec:2": "in_progress"}
+        # max_retries=0: immediate exhaustion on first failure
         orch, state, attempt_tracker, error_tracker = _make_orchestrator(
-            CODER_VERIFIER_NODES, CODER_VERIFIER_EDGES, node_states
+            CODER_VERIFIER_NODES, CODER_VERIFIER_EDGES, node_states, max_retries=0
         )
-
-        # Immediate exhaustion on first failure
-        pred_ladder = EscalationLadder(
-            starting_tier=ModelTier.ADVANCED,
-            tier_ceiling=ModelTier.ADVANCED,
-            retries_before_escalation=0,
-        )
-        orch._routing.ladders["spec:1"] = pred_ladder
 
         orch._result_handler.process(  # type: ignore[union-attr]
             _make_failed_reviewer_record(attempt=1),
@@ -366,22 +320,22 @@ class TestNeitherNodeResetWhenBlocked:
             error_tracker,
         )
 
-        # 58-REQ-2.3: predecessor blocked, reviewer NOT reset to pending
-        assert state.node_states["spec:1"] == "blocked"
-        assert state.node_states["spec:2"] != "pending"
+        # 58-REQ-2.3: verifier blocked, predecessor NOT reset to pending
+        assert state.node_states["spec:2"] == "blocked"
+        assert state.node_states["spec:1"] != "pending"
 
 
 # ---------------------------------------------------------------------------
-# TS-58-7: Multiple Reviewers Share Predecessor Ladder
+# TS-58-7: Multiple Reviewers Share Predecessor Counter
 # Requirement: 58-REQ-3.1
 # ---------------------------------------------------------------------------
 
 
-class TestMultipleReviewersShareLadder:
-    """TS-58-7: Multiple reviewers share predecessor ladder."""
+class TestMultipleReviewersShareCounter:
+    """TS-58-7: Multiple reviewers share predecessor failure counter."""
 
-    def test_multiple_reviewers_share_ladder(self) -> None:
-        """Verify verifier and reviewer:audit-review failures accumulate on the same ladder.
+    def test_multiple_reviewers_share_counter(self) -> None:
+        """Verify verifier and reviewer:audit-review failures accumulate on the same counter.
 
         Test Spec: TS-58-7
         Requirement: 58-REQ-3.1
@@ -408,14 +362,6 @@ class TestMultipleReviewersShareLadder:
 
         orch, state, attempt_tracker, error_tracker = _make_orchestrator(plan_nodes, edges_list, node_states)
 
-        # retries_before_escalation=2: escalation after 3rd failure
-        pred_ladder = EscalationLadder(
-            starting_tier=ModelTier.STANDARD,
-            tier_ceiling=ModelTier.ADVANCED,
-            retries_before_escalation=2,
-        )
-        orch._routing.ladders["spec:1"] = pred_ladder
-
         # 1st failure (verifier)
         orch._result_handler.process(  # type: ignore[union-attr]
             _make_failed_reviewer_record("spec:2", 1),
@@ -424,7 +370,7 @@ class TestMultipleReviewersShareLadder:
             attempt_tracker,
             error_tracker,
         )
-        assert pred_ladder.attempt_count == 2  # 1 initial + 1 failure
+        assert orch._result_handler._node_failure_counts.get("spec:1", 0) == 1
 
         # Reset state for reviewer:audit-review
         state.node_states["spec:1"] = "completed"
@@ -438,13 +384,13 @@ class TestMultipleReviewersShareLadder:
             attempt_tracker,
             error_tracker,
         )
-        assert pred_ladder.attempt_count == 3  # 1 initial + 2 failures
+        assert orch._result_handler._node_failure_counts.get("spec:1", 0) == 2
 
         # Reset state for verifier again
         state.node_states["spec:1"] = "completed"
         state.node_states["spec:2"] = "in_progress"
 
-        # 3rd failure (verifier again) — triggers escalation
+        # 3rd failure (verifier again)
         orch._result_handler.process(  # type: ignore[union-attr]
             _make_failed_reviewer_record("spec:2", 2),
             2,
@@ -452,24 +398,23 @@ class TestMultipleReviewersShareLadder:
             attempt_tracker,
             error_tracker,
         )
-        assert pred_ladder.attempt_count == 4  # 1 initial + 3 failures
-        assert pred_ladder.current_tier == ModelTier.ADVANCED
+        assert orch._result_handler._node_failure_counts.get("spec:1", 0) == 3
 
 
 # ---------------------------------------------------------------------------
-# TS-58-8: Cumulative Escalation Decision
+# TS-58-8: Cumulative Retry Decision
 # Requirement: 58-REQ-3.2
 # ---------------------------------------------------------------------------
 
 
-class TestCumulativeEscalationDecision:
-    """TS-58-8: Cumulative escalation decision based on all reviewers."""
+class TestCumulativeRetryDecision:
+    """TS-58-8: Cumulative retry decision based on all reviewers."""
 
-    def test_cumulative_escalation_decision(self) -> None:
-        """Verify escalation decision is based on cumulative count, not per-reviewer.
+    def test_cumulative_retry_decision(self) -> None:
+        """Verify retry decision is based on cumulative count, not per-reviewer.
 
-        After retries_before_escalation+1 total failures (across all reviewers),
-        the predecessor ladder must escalate.
+        After max_retries total failures (across all reviewers),
+        the predecessor must be blocked.
 
         Test Spec: TS-58-8
         Requirement: 58-REQ-3.2
@@ -494,17 +439,12 @@ class TestCumulativeEscalationDecision:
             "spec:1:reviewer:audit-review": "pending",
         }
 
-        orch, state, attempt_tracker, error_tracker = _make_orchestrator(plan_nodes, edges_list, node_states)
-
-        # retries_before_escalation=1: 2nd cumulative failure escalates
-        pred_ladder = EscalationLadder(
-            starting_tier=ModelTier.STANDARD,
-            tier_ceiling=ModelTier.ADVANCED,
-            retries_before_escalation=1,
+        # max_retries=1: blocked after 2nd cumulative failure
+        orch, state, attempt_tracker, error_tracker = _make_orchestrator(
+            plan_nodes, edges_list, node_states, max_retries=1
         )
-        orch._routing.ladders["spec:1"] = pred_ladder
 
-        # 1st failure (verifier): still at STANDARD
+        # 1st failure (verifier): still pending
         orch._result_handler.process(  # type: ignore[union-attr]
             _make_failed_reviewer_record("spec:2", 1),
             1,
@@ -512,13 +452,13 @@ class TestCumulativeEscalationDecision:
             attempt_tracker,
             error_tracker,
         )
-        assert pred_ladder.current_tier == ModelTier.STANDARD
+        assert state.node_states["spec:1"] == "pending"
 
         # Reset state for reviewer:audit-review
         state.node_states["spec:1"] = "completed"
         state.node_states["spec:1:reviewer:audit-review"] = "in_progress"
 
-        # 2nd failure (reviewer:audit-review): cumulative count triggers escalation to ADVANCED
+        # 2nd failure (reviewer:audit-review): cumulative count triggers blocking
         orch._result_handler.process(  # type: ignore[union-attr]
             _make_failed_reviewer_record("spec:1:reviewer:audit-review", 1, archetype="reviewer"),
             1,
@@ -526,47 +466,20 @@ class TestCumulativeEscalationDecision:
             attempt_tracker,
             error_tracker,
         )
-        assert pred_ladder.current_tier == ModelTier.ADVANCED
+        assert state.node_states["spec:1"] == "blocked"
 
 
 # ---------------------------------------------------------------------------
-# TS-58-E1: Predecessor Has No Ladder (Defensive Creation)
+# TS-58-E1: Predecessor Has No Counter (Created Implicitly)
 # Requirement: 58-REQ-1.E1
 # ---------------------------------------------------------------------------
 
 
-class TestNoLadderCreatedDefensively:
-    """TS-58-E1: Predecessor has no ladder — defensive creation."""
+class TestNoCounterCreatedImplicitly:
+    """TS-58-E1: Predecessor has no counter — created implicitly."""
 
-    def test_no_ladder_created_defensively(self) -> None:
-        """Verify a ladder is created with archetype defaults when none exists.
-
-        Test Spec: TS-58-E1
-        Requirement: 58-REQ-1.E1
-        """
-        node_states = {"spec:1": "completed", "spec:2": "in_progress"}
-        orch, state, attempt_tracker, error_tracker = _make_orchestrator(
-            CODER_VERIFIER_NODES, CODER_VERIFIER_EDGES, node_states
-        )
-
-        # Confirm no predecessor ladder exists before the call
-        assert "spec:1" not in orch._routing.ladders
-
-        orch._result_handler.process(  # type: ignore[union-attr]
-            _make_failed_reviewer_record(),
-            1,
-            state,
-            attempt_tracker,
-            error_tracker,
-        )
-
-        # 58-REQ-1.E1: a ladder must be created for the predecessor
-        assert "spec:1" in orch._routing.ladders
-        pred_ladder = orch._routing.ladders["spec:1"]
-        assert pred_ladder._tier_ceiling == ModelTier.ADVANCED
-
-    def test_created_ladder_starting_tier_matches_archetype(self) -> None:
-        """Verify the created ladder's starting tier matches the coder archetype.
+    def test_counter_created_implicitly(self) -> None:
+        """Verify a failure counter is created implicitly when none exists.
 
         Test Spec: TS-58-E1
         Requirement: 58-REQ-1.E1
@@ -576,6 +489,9 @@ class TestNoLadderCreatedDefensively:
             CODER_VERIFIER_NODES, CODER_VERIFIER_EDGES, node_states
         )
 
+        # Confirm no predecessor counter exists before the call
+        assert "spec:1" not in orch._result_handler._node_failure_counts
+
         orch._result_handler.process(  # type: ignore[union-attr]
             _make_failed_reviewer_record(),
             1,
@@ -584,43 +500,30 @@ class TestNoLadderCreatedDefensively:
             error_tracker,
         )
 
-        # Coder archetype default_model_tier is STANDARD
-        from agentfox.archetypes import get_archetype
-
-        coder_entry = get_archetype("coder")
-        expected_tier = ModelTier(coder_entry.default_model_tier)
-
-        pred_ladder = orch._routing.ladders["spec:1"]
-        assert pred_ladder.current_tier == expected_tier
+        # 58-REQ-1.E1: a counter must be created for the predecessor
+        assert orch._result_handler._node_failure_counts.get("spec:1", 0) == 1
 
 
 # ---------------------------------------------------------------------------
-# TS-58-E2: Predecessor Already at ADVANCED Ceiling Blocks
+# TS-58-E2: Predecessor Blocks When Max Retries Reached
 # Requirement: 58-REQ-2.E1
 # ---------------------------------------------------------------------------
 
 
-class TestAdvancedCeilingBlocks:
-    """TS-58-E2: Predecessor already at ADVANCED ceiling eventually blocks."""
+class TestMaxRetriesBlocks:
+    """TS-58-E2: Verifier blocks when max retries are reached."""
 
-    def test_advanced_ceiling_blocks_after_retries(self) -> None:
-        """Verify a predecessor at ADVANCED ceiling blocks when retries are done.
+    def test_max_retries_blocks(self) -> None:
+        """Verify the verifier is blocked when max retries are reached.
 
         Test Spec: TS-58-E2
         Requirement: 58-REQ-2.E1
         """
         node_states = {"spec:1": "completed", "spec:2": "in_progress"}
+        # max_retries=1: blocked after 2nd failure
         orch, state, attempt_tracker, error_tracker = _make_orchestrator(
-            CODER_VERIFIER_NODES, CODER_VERIFIER_EDGES, node_states
+            CODER_VERIFIER_NODES, CODER_VERIFIER_EDGES, node_states, max_retries=1
         )
-
-        # ADVANCED is the ceiling — no escalation possible, blocks after 2 failures
-        pred_ladder = EscalationLadder(
-            starting_tier=ModelTier.ADVANCED,
-            tier_ceiling=ModelTier.ADVANCED,
-            retries_before_escalation=1,
-        )
-        orch._routing.ladders["spec:1"] = pred_ladder
 
         # First failure — still retrying
         orch._result_handler.process(  # type: ignore[union-attr]
@@ -630,13 +533,13 @@ class TestAdvancedCeilingBlocks:
             attempt_tracker,
             error_tracker,
         )
-        assert not pred_ladder.is_exhausted
+        assert state.node_states["spec:1"] == "pending"
 
         # Reset state for second call
         state.node_states["spec:1"] = "completed"
         state.node_states["spec:2"] = "in_progress"
 
-        # Second failure — no tier to escalate to, ladder exhausted
+        # Second failure — retries exhausted, verifier blocked
         orch._result_handler.process(  # type: ignore[union-attr]
             _make_failed_reviewer_record(attempt=2),
             2,
@@ -645,6 +548,5 @@ class TestAdvancedCeilingBlocks:
             error_tracker,
         )
 
-        # 58-REQ-2.E1: ladder exhausted, predecessor blocked
-        assert pred_ladder.is_exhausted is True
-        assert state.node_states["spec:1"] == "blocked"
+        # 58-REQ-2.E1: retries exhausted, verifier blocked
+        assert state.node_states["spec:2"] == "blocked"

@@ -9,9 +9,6 @@ Requirements: 26-REQ-9.3 (transport-transparent retry path)
 
 from __future__ import annotations
 
-from typing import Any
-from unittest.mock import MagicMock
-
 from agentfox.engine.graph_sync import GraphSync
 from agentfox.engine.result_handler import SessionResultHandler
 from agentfox.engine.state import ExecutionState, SessionRecord
@@ -63,42 +60,20 @@ def _make_regular_failure_record(
     )
 
 
-def _make_mock_ladder(
-    *,
-    is_exhausted: bool = False,
-    should_retry: bool = True,
-    escalation_count: int = 0,
-    attempt_count: int = 1,
-) -> MagicMock:
-    mock = MagicMock()
-    mock.is_exhausted = is_exhausted
-    mock.should_retry.return_value = should_retry
-    mock.escalation_count = escalation_count
-    mock.attempt_count = attempt_count
-    return mock
-
-
 def _make_handler(
     *,
     node_id: str = "node1",
-    is_exhausted: bool = False,
 ) -> tuple[
     SessionResultHandler,
-    MagicMock,
     ExecutionState,
     dict[str, int],
     dict[str, str | None],
 ]:
-    """Create a minimal SessionResultHandler with a mock escalation ladder."""
+    """Create a minimal SessionResultHandler."""
     graph_sync = GraphSync({node_id: "in_progress"}, {node_id: []})
-
-    mock_ladder = _make_mock_ladder(is_exhausted=is_exhausted)
-    routing_ladders: dict[str, Any] = {node_id: mock_ladder}
 
     handler = SessionResultHandler(
         graph_sync=graph_sync,
-        routing_ladders=routing_ladders,
-        retries_before_escalation=1,
         max_retries=2,
         task_callback=None,
         sink=None,
@@ -117,7 +92,7 @@ def _make_handler(
     attempt_tracker: dict[str, int] = {}
     error_tracker: dict[str, str | None] = {}
 
-    return handler, mock_ladder, state, attempt_tracker, error_tracker
+    return handler, state, attempt_tracker, error_tracker
 
 
 # ---------------------------------------------------------------------------
@@ -125,65 +100,61 @@ def _make_handler(
 # ---------------------------------------------------------------------------
 
 
-class TestTransportErrorSkipsEscalationLadder:
-    """AC-6: SessionResultHandler does not call EscalationLadder.record_failure()
+class TestTransportErrorSkipsFailureCounter:
+    """AC-6: SessionResultHandler does not increment the failure counter
     for transport errors, and the node is reset to pending.
     """
 
-    def test_transport_error_does_not_call_record_failure(self) -> None:
-        """AC-6: record_failure() must NOT be called on a transport-error record."""
-        handler, mock_ladder, state, attempt_tracker, error_tracker = _make_handler()
+    def test_transport_error_does_not_consume_failure_count(self) -> None:
+        """AC-6: Transport errors must NOT increment the failure counter."""
+        handler, state, attempt_tracker, error_tracker = _make_handler()
         record = _make_transport_record()
 
         handler._handle_failure(record, 1, state, attempt_tracker, error_tracker)
 
-        assert mock_ladder.record_failure.call_count == 0, (
-            "EscalationLadder.record_failure() must not be called for transport errors"
+        assert handler._node_failure_counts.get("node1", 0) == 0, (
+            "Failure counter must not be incremented for transport errors"
         )
 
     def test_transport_error_resets_node_to_pending(self) -> None:
         """AC-6: Node is reset to pending so the orchestrator re-dispatches it."""
-        handler, mock_ladder, state, attempt_tracker, error_tracker = _make_handler()
+        handler, state, attempt_tracker, error_tracker = _make_handler()
         record = _make_transport_record()
 
         handler._handle_failure(record, 1, state, attempt_tracker, error_tracker)
 
         assert handler._graph_sync.node_states["node1"] == "pending"
 
-    def test_transport_error_ladder_attempt_count_unchanged(self) -> None:
-        """AC-6: The ladder's attempt_count must remain unchanged after a
-        transport-error failure (no ladder methods called at all)."""
-        handler, mock_ladder, state, attempt_tracker, error_tracker = _make_handler()
-        initial_count = mock_ladder.attempt_count  # = 1 from factory
+    def test_transport_error_failure_count_unchanged(self) -> None:
+        """AC-6: The failure counter must remain unchanged after a
+        transport-error failure."""
+        handler, state, attempt_tracker, error_tracker = _make_handler()
         record = _make_transport_record()
 
         handler._handle_failure(record, 1, state, attempt_tracker, error_tracker)
 
-        # attempt_count is a property on a MagicMock; verify record_failure
-        # was never called (which would increment real ladders).
-        assert mock_ladder.record_failure.call_count == 0
-        assert mock_ladder.attempt_count == initial_count
+        assert handler._node_failure_counts.get("node1", 0) == 0
 
-    def test_regular_failure_does_call_record_failure(self) -> None:
-        """Regression: a normal (non-transport) failure still invokes the ladder."""
-        handler, mock_ladder, state, attempt_tracker, error_tracker = _make_handler()
+    def test_regular_failure_does_increment_failure_count(self) -> None:
+        """Regression: a normal (non-transport) failure still increments the counter."""
+        handler, state, attempt_tracker, error_tracker = _make_handler()
         record = _make_regular_failure_record()
 
         handler._handle_failure(record, 1, state, attempt_tracker, error_tracker)
 
-        assert mock_ladder.record_failure.call_count == 1, (
-            "EscalationLadder.record_failure() must be called for non-transport failures"
+        assert handler._node_failure_counts.get("node1", 0) == 1, (
+            "Failure counter must be incremented for non-transport failures"
         )
 
     def test_process_transport_error_does_not_consume_retry(self) -> None:
         """AC-6: Calling process() with a transport-error record leaves the
-        escalation ladder untouched and resets node to pending."""
-        handler, mock_ladder, state, attempt_tracker, error_tracker = _make_handler()
+        failure counter untouched and resets node to pending."""
+        handler, state, attempt_tracker, error_tracker = _make_handler()
         record = _make_transport_record()
 
         handler.process(record, 1, state, attempt_tracker, error_tracker)
 
-        assert mock_ladder.record_failure.call_count == 0
+        assert handler._node_failure_counts.get("node1", 0) == 0
         assert handler._graph_sync.node_states["node1"] == "pending"
 
 
@@ -266,7 +237,7 @@ class TestTransportInternalRetryNoFailedRecord:
         reaches result_handler), we still record the event but do NOT penalise
         the escalation ladder.
         """
-        handler, mock_ladder, state, attempt_tracker, error_tracker = _make_handler()
+        handler, state, attempt_tracker, error_tracker = _make_handler()
 
         record = _make_transport_record()
         handler.process(record, 1, state, attempt_tracker, error_tracker)
@@ -274,7 +245,7 @@ class TestTransportInternalRetryNoFailedRecord:
         # State is updated (record kept for auditing via update_state_with_session)
         assert state.total_sessions == 1
         assert len(state.session_history) == 1
-        # But the ladder was never penalised
-        assert mock_ladder.record_failure.call_count == 0
+        # But the failure counter was never incremented
+        assert handler._node_failure_counts.get("node1", 0) == 0
         # And the node is pending (not blocked)
         assert handler._graph_sync.node_states["node1"] == "pending"

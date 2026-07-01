@@ -713,8 +713,6 @@ class Orchestrator:
         defer_ready_reviews(graph, self._graph_sync, self._knowledge_db_conn)
         self._result_handler = SessionResultHandler(
             graph_sync=self._graph_sync,
-            routing_ladders=self._routing.ladders,
-            retries_before_escalation=self._routing.retries_before_escalation,
             max_retries=self._config.max_retries,
             task_callback=self._task_callback,
             sink=self._sink,

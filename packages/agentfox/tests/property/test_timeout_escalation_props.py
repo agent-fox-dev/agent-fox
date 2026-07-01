@@ -9,8 +9,6 @@ Requirements: 75-REQ-1.1, 75-REQ-2.1, 75-REQ-2.2, 75-REQ-2.4, 75-REQ-2.E1,
 from __future__ import annotations
 
 import math
-from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -51,41 +49,21 @@ def _make_record(
     )
 
 
-def _make_mock_ladder(
-    *,
-    is_exhausted: bool = False,
-    should_retry: bool = True,
-    escalation_count: int = 0,
-    attempt_count: int = 1,
-) -> MagicMock:
-    mock = MagicMock()
-    mock.is_exhausted = is_exhausted
-    mock.should_retry.return_value = should_retry
-    mock.escalation_count = escalation_count
-    mock.attempt_count = attempt_count
-    return mock
-
-
 def _make_handler(
     *,
     node_id: str = "node1",
     max_timeout_retries: int = 2,
 ) -> tuple[
     SessionResultHandler,
-    MagicMock,
     ExecutionState,
     dict[str, int],
     dict[str, str | None],
 ]:
     """Create a minimal SessionResultHandler for property tests."""
     graph_sync = GraphSync({node_id: "in_progress"}, {node_id: []})
-    mock_ladder = _make_mock_ladder()
-    routing_ladders: dict[str, Any] = {node_id: mock_ladder}
 
     handler = SessionResultHandler(
         graph_sync=graph_sync,
-        routing_ladders=routing_ladders,
-        retries_before_escalation=1,
         max_retries=max_timeout_retries + 2,
         task_callback=None,
         sink=None,
@@ -105,7 +83,7 @@ def _make_handler(
     attempt_tracker: dict[str, int] = {}
     error_tracker: dict[str, str | None] = {}
 
-    return handler, mock_ladder, state, attempt_tracker, error_tracker
+    return handler, state, attempt_tracker, error_tracker
 
 
 # ---------------------------------------------------------------------------
@@ -135,7 +113,7 @@ class TestTimeoutNeverDirectlyEscalates:
         # Clamp timeout_count to max_timeout_retries so retries remain.
         n = min(timeout_count, max_timeout_retries)
 
-        handler, mock_ladder, state, attempt_tracker, error_tracker = _make_handler(
+        handler, state, attempt_tracker, error_tracker = _make_handler(
             max_timeout_retries=max_timeout_retries
         )
 
@@ -157,11 +135,11 @@ class TestTimeoutNeverDirectlyEscalates:
 
         # Property: no escalation ladder failures while retries remain.
         # Currently FAILS because _handle_failure is called for all non-success.
-        assert mock_ladder.record_failure.call_count == 0
+        assert handler._node_failure_counts.get("node1", 0) == 0
 
     def test_single_timeout_no_escalation(self) -> None:
         """TS-75-P1 (concrete): One timeout with max_timeout_retries=1 → none."""
-        handler, mock_ladder, state, attempt_tracker, error_tracker = _make_handler(max_timeout_retries=1)
+        handler, state, attempt_tracker, error_tracker = _make_handler(max_timeout_retries=1)
         # Currently FAILS: _max_timeout_retries doesn't exist.
         handler._max_timeout_retries = 1
 
@@ -174,7 +152,7 @@ class TestTimeoutNeverDirectlyEscalates:
             error_tracker=error_tracker,
         )
 
-        assert mock_ladder.record_failure.call_count == 0
+        assert handler._node_failure_counts.get("node1", 0) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -206,7 +184,7 @@ class TestCounterIndependence:
         Validates: 75-REQ-2.1, 75-REQ-2.E1
         """
         max_timeout_retries = 5
-        handler, mock_ladder, state, attempt_tracker, error_tracker = _make_handler(
+        handler, state, attempt_tracker, error_tracker = _make_handler(
             max_timeout_retries=max_timeout_retries
         )
 
@@ -230,13 +208,13 @@ class TestCounterIndependence:
         expected_failures = sum(1 for e in events if e == "failed")
         # Timeouts that fell through after exhaustion also count as failures.
         timeouts_after_max = max(0, sum(1 for e in events if e == "timeout") - max_timeout_retries)
-        total_expected_ladder_failures = expected_failures + timeouts_after_max
+        total_expected_failures = expected_failures + timeouts_after_max
 
         actual_timeout_retries = handler._get_node_state("node1").timeout_retries
         assert actual_timeout_retries == expected_timeouts_before_max
 
-        # Failures should only count ladder invocations.
-        assert mock_ladder.record_failure.call_count == total_expected_ladder_failures
+        # Failure counter should count both 'failed' events and exhausted timeouts.
+        assert handler._node_failure_counts.get("node1", 0) == total_expected_failures
 
 
 # ---------------------------------------------------------------------------
@@ -285,7 +263,7 @@ class TestMonotonicTimeoutExtension:
 
     def test_concrete_two_retries_clamped(self) -> None:
         """TS-75-P3 (concrete): original=30, mult=1.5, ceil=2.0: 45 → 60."""
-        handler, _, _, _, _ = _make_handler()
+        handler, _, _, _ = _make_handler()
 
         ns = handler._get_node_state("node1")
         ns.timeout = 30
@@ -319,7 +297,7 @@ class TestTimeoutExhaustionFallsThrough:
 
         Validates: 75-REQ-2.4
         """
-        handler, mock_ladder, state, attempt_tracker, error_tracker = _make_handler(max_timeout_retries=max_retries)
+        handler, state, attempt_tracker, error_tracker = _make_handler(max_timeout_retries=max_retries)
 
         # Currently FAILS: _max_timeout_retries doesn't exist.
         handler._max_timeout_retries = max_retries
@@ -339,7 +317,7 @@ class TestTimeoutExhaustionFallsThrough:
             )
 
         # Currently FAILS: record_failure IS called on every failure path.
-        assert mock_ladder.record_failure.call_count == 0
+        assert handler._node_failure_counts.get("node1", 0) == 0
 
         # One more timeout → must fall through to escalation.
         handler._graph_sync.node_states["node1"] = "in_progress"  # type: ignore[attr-defined]
@@ -352,11 +330,11 @@ class TestTimeoutExhaustionFallsThrough:
             error_tracker=error_tracker,
         )
 
-        assert mock_ladder.record_failure.call_count == 1
+        assert handler._node_failure_counts.get("node1", 0) == 1
 
     def test_concrete_exhaustion_at_max_two(self) -> None:
         """TS-75-P4 (concrete): max_timeout_retries=2; 3rd timeout → escalation."""
-        handler, mock_ladder, state, attempt_tracker, error_tracker = _make_handler(max_timeout_retries=2)
+        handler, state, attempt_tracker, error_tracker = _make_handler(max_timeout_retries=2)
 
         # Currently FAILS: _max_timeout_retries doesn't exist.
         handler._max_timeout_retries = 2
@@ -373,7 +351,7 @@ class TestTimeoutExhaustionFallsThrough:
                 error_tracker=error_tracker,
             )
 
-        assert mock_ladder.record_failure.call_count == 0
+        assert handler._node_failure_counts.get("node1", 0) == 0
 
         handler._graph_sync.node_states["node1"] = "in_progress"  # type: ignore[attr-defined]
         record = _make_record("timeout", attempt=3)
@@ -385,7 +363,7 @@ class TestTimeoutExhaustionFallsThrough:
             error_tracker=error_tracker,
         )
 
-        assert mock_ladder.record_failure.call_count == 1
+        assert handler._node_failure_counts.get("node1", 0) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -406,7 +384,7 @@ class TestUnlimitedTurnsPreserved:
 
         Validates: 75-REQ-3.4
         """
-        handler, _, _, _, _ = _make_handler()
+        handler, _, _, _ = _make_handler()
 
         ns = handler._get_node_state("node1")
         ns.max_turns = None
@@ -421,7 +399,7 @@ class TestUnlimitedTurnsPreserved:
 
     def test_none_preserved_concrete_three_retries(self) -> None:
         """TS-75-P5 (concrete): None max_turns stays None through 3 retries."""
-        handler, _, _, _, _ = _make_handler()
+        handler, _, _, _ = _make_handler()
 
         ns = handler._get_node_state("node1")
         ns.max_turns = None

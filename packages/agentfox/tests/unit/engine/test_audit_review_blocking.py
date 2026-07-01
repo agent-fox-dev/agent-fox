@@ -369,8 +369,6 @@ def _make_audit_review_handler(
 
     handler = SessionResultHandler(
         graph_sync=graph_sync,
-        routing_ladders={},
-        retries_before_escalation=2,
         max_retries=3,
         task_callback=None,
         sink=None,
@@ -526,7 +524,7 @@ class TestAC4BuildRetryContextIncludesAuditFindings:
 
 
 class TestAC5ExhaustedLadderBlocksPermanently:
-    """AC-5: When the predecessor coder's EscalationLadder is exhausted,
+    """AC-5: When the predecessor coder's retry counter is exhausted,
     _retry_on_review_block permanently blocks the coder instead of looping."""
 
     def test_exhausted_audit_retries_permanently_blocks_coder(self, audit_conn: duckdb.DuckDBPyConnection) -> None:
@@ -579,9 +577,8 @@ class TestAC5ExhaustedLadderBlocksPermanently:
 def _make_audit_handler_with_config(
     audit_conn: duckdb.DuckDBPyConnection,
     audit_max_retries: int = 2,
-    retries_before_escalation: int = 5,
 ) -> tuple[SessionResultHandler, ExecutionState, MagicMock]:
-    """Build a handler where audit_max_retries and retries_before_escalation differ."""
+    """Build a handler where audit_max_retries controls audit-review retry limit."""
     node_states: dict[str, str] = {
         "foo:2": "completed",
         "foo:2:reviewer:audit-review": "completed",
@@ -637,8 +634,6 @@ def _make_audit_handler_with_config(
 
     handler = SessionResultHandler(
         graph_sync=graph_sync,
-        routing_ladders={},
-        retries_before_escalation=retries_before_escalation,
         max_retries=10,
         task_callback=None,
         sink=None,
@@ -662,7 +657,7 @@ def _make_audit_handler_with_config(
 
 class TestAC6AuditMaxRetriesConfig:
     """AC-6: audit_max_retries from ReviewerConfig controls audit-review retry
-    limit independently of the generic EscalationLadder."""
+    limit independently of the generic failure counter."""
 
     def test_audit_retries_limited_by_audit_max_retries(self, audit_conn: duckdb.DuckDBPyConnection) -> None:
         """After audit_max_retries (2) cycles, coder is permanently blocked."""
@@ -670,7 +665,7 @@ class TestAC6AuditMaxRetriesConfig:
         insert_findings(audit_conn, [finding])
 
         handler, state, block_task_fn = _make_audit_handler_with_config(
-            audit_conn, audit_max_retries=2, retries_before_escalation=5
+            audit_conn, audit_max_retries=2
         )
 
         record = _make_audit_review_record(node_id="foo:2:reviewer:audit-review")
@@ -694,13 +689,13 @@ class TestAC6AuditMaxRetriesConfig:
         assert blocked is True, "After audit_max_retries exhausted, coder must be permanently blocked"
         block_task_fn.assert_called_once()
 
-    def test_audit_retries_do_not_consume_escalation_ladder(self, audit_conn: duckdb.DuckDBPyConnection) -> None:
-        """Audit retries should not consume the coder's generic EscalationLadder budget."""
+    def test_audit_retries_do_not_consume_failure_counter(self, audit_conn: duckdb.DuckDBPyConnection) -> None:
+        """Audit retries should not consume the coder's generic failure counter budget."""
         finding = _make_audit_finding(severity="critical", spec_name="foo", task_group="2")
         insert_findings(audit_conn, [finding])
 
         handler, state, block_task_fn = _make_audit_handler_with_config(
-            audit_conn, audit_max_retries=1, retries_before_escalation=5
+            audit_conn, audit_max_retries=1
         )
 
         record = _make_audit_review_record(node_id="foo:2:reviewer:audit-review")
@@ -711,9 +706,9 @@ class TestAC6AuditMaxRetriesConfig:
         handler.check_review_blocking(record, state)
         block_task_fn.assert_not_called()
 
-        # The coder's generic escalation ladder should not have been created/consumed
-        assert "foo:2" not in handler._routing_ladders, (
-            "Audit retries must not create or consume the coder's generic EscalationLadder"
+        # The coder's generic failure counter should not have been incremented
+        assert handler._node_failure_counts.get("foo:2", 0) == 0, (
+            "Audit retries must not increment the coder's generic failure counter"
         )
 
     def test_audit_max_retries_zero_blocks_immediately(self, audit_conn: duckdb.DuckDBPyConnection) -> None:
@@ -730,7 +725,7 @@ class TestAC6AuditMaxRetriesConfig:
         block_task_fn.assert_called_once()
 
     def test_pre_review_still_uses_escalation_ladder(self, audit_conn: duckdb.DuckDBPyConnection) -> None:
-        """Pre-review mode (not audit-review) still uses the generic EscalationLadder."""
+        """Pre-review mode (not audit-review) still uses the generic failure counter."""
         from agentfox.knowledge.review_store import ReviewFinding
 
         finding = ReviewFinding(
@@ -793,8 +788,6 @@ class TestAC6AuditMaxRetriesConfig:
 
         handler = SessionResultHandler(
             graph_sync=graph_sync,
-            routing_ladders={},
-            retries_before_escalation=2,
             max_retries=3,
             task_callback=None,
             sink=None,
@@ -835,7 +828,7 @@ class TestAC6AuditMaxRetriesConfig:
         blocked = handler.check_review_blocking(record, state)
 
         assert blocked is False, (
-            "Pre-review should use the generic EscalationLadder (retries_before_escalation=2), not audit_max_retries=0"
+            "Pre-review should use the generic failure counter (max_retries=3), not audit_max_retries=0"
         )
         block_task_fn.assert_not_called()
 

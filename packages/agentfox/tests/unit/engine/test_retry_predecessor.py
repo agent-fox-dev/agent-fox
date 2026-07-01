@@ -67,8 +67,6 @@ def _make_orchestrator_with_graph(
     # Initialize result handler (normally done in run())
     orch._result_handler = SessionResultHandler(
         graph_sync=orch._graph_sync,
-        routing_ladders=orch._routing.ladders,
-        retries_before_escalation=orch._routing.retries_before_escalation,
         max_retries=config.max_retries,
         task_callback=None,
         sink=None,
@@ -183,7 +181,7 @@ class TestRetryCycleLimit:
         assert ARCHETYPE_REGISTRY["reviewer"].retry_predecessor is False
 
     def test_verifier_blocked_after_max_retries(self) -> None:
-        """After max_retries+1 failures, verifier is blocked."""
+        """After max_retries+1 failures, verifier predecessor is blocked."""
         plan_nodes = {
             "spec:4": {
                 "spec_name": "spec",
@@ -211,27 +209,32 @@ class TestRetryCycleLimit:
             max_retries=2,
         )
 
-        failed_record = SessionRecord(
-            node_id="spec:5",
-            attempt=3,  # attempt >= max_retries + 1 (2+1=3)
-            status="failed",
-            input_tokens=0,
-            output_tokens=0,
-            cost=0.0,
-            duration_ms=0,
-            error_message="Still failing",
-            timestamp="2024-01-01T00:00:00Z",
-        )
+        # Simulate max_retries+1 failures so the verifier exceeds retry budget
+        for attempt in range(1, 4):  # 3 failures with max_retries=2
+            state.node_states["spec:4"] = "completed"
+            state.node_states["spec:5"] = "in_progress"
 
-        orch._result_handler.process(  # type: ignore[union-attr]
-            failed_record,
-            3,
-            state,
-            attempt_tracker,
-            error_tracker,
-        )
+            failed_record = SessionRecord(
+                node_id="spec:5",
+                attempt=attempt,
+                status="failed",
+                input_tokens=0,
+                output_tokens=0,
+                cost=0.0,
+                duration_ms=0,
+                error_message="Still failing",
+                timestamp="2024-01-01T00:00:00Z",
+            )
 
-        # Should be blocked, not reset
+            orch._result_handler.process(  # type: ignore[union-attr]
+                failed_record,
+                attempt,
+                state,
+                attempt_tracker,
+                error_tracker,
+            )
+
+        # Should be blocked after exceeding max_retries
         assert state.node_states["spec:5"] == "blocked"
 
 

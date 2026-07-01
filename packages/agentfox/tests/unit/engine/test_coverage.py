@@ -329,8 +329,6 @@ class TestResultHandlerCoverageIntegration:
 
         return SessionResultHandler(
             graph_sync=mock_graph_sync,
-            routing_ladders={},
-            retries_before_escalation=1,
             max_retries=2,
             task_callback=None,
             sink=None,

@@ -43,16 +43,9 @@ def _make_handler(*, knowledge_db_conn: Any = None) -> SessionResultHandler:
     """Construct a minimal SessionResultHandler."""
     node_id = "spec:group:coder"
     graph_sync = GraphSync({node_id: "in_progress"}, {node_id: []})
-    mock_ladder = MagicMock()
-    mock_ladder.is_exhausted = False
-    mock_ladder.should_retry.return_value = False
-    mock_ladder.escalation_count = 0
-    mock_ladder.attempt_count = 1
 
     return SessionResultHandler(
         graph_sync=graph_sync,
-        routing_ladders={node_id: mock_ladder},
-        retries_before_escalation=1,
         max_retries=2,
         task_callback=None,
         sink=None,

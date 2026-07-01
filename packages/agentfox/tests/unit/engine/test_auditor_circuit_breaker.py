@@ -79,8 +79,6 @@ def _make_auditor_orchestrator(
     # Initialize result handler (normally done in run())
     orch._result_handler = SessionResultHandler(
         graph_sync=orch._graph_sync,
-        routing_ladders=orch._routing.ladders,
-        retries_before_escalation=orch._routing.retries_before_escalation,
         max_retries=config.max_retries,
         task_callback=None,
         sink=None,
@@ -262,31 +260,35 @@ class TestCircuitBreakerBlocks:
             max_retries=2,
         )
 
-        # Attempt 3 = max_retries(2) + 1 — circuit breaker should trip
-        failed_record = SessionRecord(
-            node_id="spec:1.5",
-            attempt=3,
-            status="failed",
-            input_tokens=0,
-            output_tokens=0,
-            cost=0.0,
-            duration_ms=0,
-            error_message="Still failing",
-            timestamp="2024-01-01T00:00:00Z",
-        )
-
+        # Simulate max_retries+1 failures so the circuit breaker trips
         with caplog.at_level(logging.WARNING):
-            orch._result_handler.process(  # type: ignore[union-attr]
-                failed_record,
-                3,
-                state,
-                attempt_tracker,
-                error_tracker,
-            )
+            for attempt in range(1, 4):  # 3 failures with max_retries=2
+                state.node_states["spec:1"] = "completed"
+                state.node_states["spec:1.5"] = "in_progress"
 
-        # Auditor should be blocked
+                failed_record = SessionRecord(
+                    node_id="spec:1.5",
+                    attempt=attempt,
+                    status="failed",
+                    input_tokens=0,
+                    output_tokens=0,
+                    cost=0.0,
+                    duration_ms=0,
+                    error_message="Still failing",
+                    timestamp="2024-01-01T00:00:00Z",
+                )
+
+                orch._result_handler.process(  # type: ignore[union-attr]
+                    failed_record,
+                    attempt,
+                    state,
+                    attempt_tracker,
+                    error_tracker,
+                )
+
+        # Auditor should be blocked after exceeding max_retries
         assert state.node_states["spec:1.5"] == "blocked"
-        # Predecessor should NOT be reset
+        # Predecessor should NOT be reset on final failure
         assert state.node_states["spec:1"] != "pending"
 
 
@@ -466,20 +468,24 @@ class TestPropertyCircuitBreakerBound:
         edges_list = [
             {"source": "spec:1", "target": "spec:1.5", "kind": "intra_spec"},
         ]
+        node_states = {
+            "spec:1": "completed",
+            "spec:1.5": "in_progress",
+        }
+
+        # Use a single orchestrator to accumulate failures across attempts
+        orch, state, attempt_tracker, error_tracker = _make_auditor_orchestrator(
+            plan_nodes,
+            edges_list,
+            node_states,
+            max_retries=max_retries,
+        )
 
         reset_count = 0
         for attempt in range(1, max_retries + 5):
-            node_states = {
-                "spec:1": "completed",
-                "spec:1.5": "in_progress",
-            }
-
-            orch, state, attempt_tracker, error_tracker = _make_auditor_orchestrator(
-                plan_nodes,
-                edges_list,
-                node_states,
-                max_retries=max_retries,
-            )
+            # Reset node states to simulate re-dispatch
+            state.node_states["spec:1"] = "completed"
+            state.node_states["spec:1.5"] = "in_progress"
 
             failed_record = SessionRecord(
                 node_id="spec:1.5",

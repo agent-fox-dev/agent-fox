@@ -239,8 +239,6 @@ class TestRetryOnReviewBlock:
 
         handler = SessionResultHandler(
             graph_sync=graph_sync,
-            routing_ladders={},
-            retries_before_escalation=2,
             max_retries=3,
             task_callback=None,
             sink=None,
@@ -319,8 +317,6 @@ class TestRetryOnReviewBlock:
 
         handler = SessionResultHandler(
             graph_sync=graph_sync,
-            routing_ladders={},
-            retries_before_escalation=2,
             max_retries=3,
             task_callback=None,
             sink=None,
@@ -501,8 +497,6 @@ class TestRetryOnReviewBlockTaskGroupFilter:
 
         handler = SessionResultHandler(
             graph_sync=graph_sync,
-            routing_ladders={},
-            retries_before_escalation=2,
             max_retries=3,
             task_callback=None,
             sink=None,

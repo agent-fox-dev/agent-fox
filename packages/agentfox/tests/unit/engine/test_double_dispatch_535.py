@@ -9,8 +9,6 @@ Verifies acceptance criteria:
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
-
 import pytest
 from agentfox.engine.graph_sync import GraphSync, InvalidTransitionError
 from agentfox.engine.result_handler import SessionResultHandler
@@ -45,26 +43,16 @@ def _make_handler(
     node_id: str = "01_project_setup:2",
     *,
     max_timeout_retries: int = 2,
-    is_exhausted: bool = False,
 ) -> tuple[
     SessionResultHandler,
-    MagicMock,
     ExecutionState,
     dict[str, int],
     dict[str, str | None],
 ]:
     graph_sync = GraphSync({node_id: "in_progress"}, {node_id: []})
 
-    mock_ladder = MagicMock()
-    mock_ladder.is_exhausted = is_exhausted
-    mock_ladder.should_retry.return_value = not is_exhausted
-    mock_ladder.escalation_count = 0
-    mock_ladder.attempt_count = 1
-
     handler = SessionResultHandler(
         graph_sync=graph_sync,
-        routing_ladders={node_id: mock_ladder},
-        retries_before_escalation=1,
         max_retries=2,
         task_callback=None,
         sink=None,
@@ -82,7 +70,7 @@ def _make_handler(
         node_states={node_id: "in_progress"},
     )
 
-    return handler, mock_ladder, state, {}, {}
+    return handler, state, {}, {}
 
 
 # ---------------------------------------------------------------------------
@@ -215,7 +203,7 @@ class TestSingleTimeoutTwoDispatches:
     def test_timeout_handler_resets_via_mark_pending(self) -> None:
         """AC-3: _handle_timeout() resets node via mark_pending, recording the transition."""
         node_id = "01_project_setup:2"
-        handler, mock_ladder, state, attempt_tracker, error_tracker = _make_handler(node_id)
+        handler, state, attempt_tracker, error_tracker = _make_handler(node_id)
 
         # Confirm the node starts as in_progress
         assert handler._graph_sync.node_states[node_id] == "in_progress"
@@ -243,16 +231,18 @@ class TestExhaustedTimeoutRetries:
     def test_exhausted_timeout_does_not_call_mark_pending(self) -> None:
         """AC-5: When retries exhausted, _handle_timeout falls through to failure path."""
         node_id = "01_project_setup:2"
-        handler, mock_ladder, state, attempt_tracker, error_tracker = _make_handler(
-            node_id, max_timeout_retries=1, is_exhausted=True
+        handler, state, attempt_tracker, error_tracker = _make_handler(
+            node_id, max_timeout_retries=1
         )
 
         handler._get_node_state(node_id).timeout_retries = 1  # already at max
+        # Pre-exhaust the failure counter so the fall-through blocks
+        handler._node_failure_counts[node_id] = 2  # max_retries=2, next will be 3 > 2
 
         record = _make_record("timeout", node_id=node_id, attempt=2)
         handler.process(record, attempt=2, state=state, attempt_tracker=attempt_tracker, error_tracker=error_tracker)
 
-        # With exhausted retries and exhausted ladder, node is blocked (not pending)
+        # With exhausted timeout retries and exhausted failure counter, node is blocked (not pending)
         final_state = handler._graph_sync.node_states[node_id]
         assert final_state != "pending", (
             f"Node should not be reset to pending when timeout retries exhausted, got {final_state!r}"
@@ -261,7 +251,7 @@ class TestExhaustedTimeoutRetries:
     def test_two_timeouts_max_one_retry_final_state_not_pending(self) -> None:
         """AC-5: max_timeout_retries=1, two timeouts → escalation ladder, not re-queued."""
         node_id = "01_project_setup:2"
-        handler, mock_ladder, state, attempt_tracker, error_tracker = _make_handler(node_id, max_timeout_retries=1)
+        handler, state, attempt_tracker, error_tracker = _make_handler(node_id, max_timeout_retries=1)
 
         # First timeout: within retry budget, reset to pending
         record1 = _make_record("timeout", node_id=node_id, attempt=1)
@@ -272,12 +262,11 @@ class TestExhaustedTimeoutRetries:
         # Simulate re-dispatch by orchestrator
         handler._graph_sync.node_states[node_id] = "in_progress"
 
-        # Second timeout: retries exhausted, falls through to escalation ladder
-        # With mock_ladder.is_exhausted=False (from _make_handler), it retries via ladder
+        # Second timeout: retries exhausted, falls through to failure handler
         record2 = _make_record("timeout", node_id=node_id, attempt=2)
         handler.process(record2, attempt=2, state=state, attempt_tracker=attempt_tracker, error_tracker=error_tracker)
 
         # Timeout retry count is 1 (not incremented beyond max)
         assert handler._get_node_state(node_id).timeout_retries == 1
-        # Escalation ladder record_failure was called (fell through to _handle_failure)
-        assert mock_ladder.record_failure.call_count == 1
+        # Failure counter was incremented (fell through to _handle_failure)
+        assert handler._node_failure_counts.get(node_id, 0) == 1
