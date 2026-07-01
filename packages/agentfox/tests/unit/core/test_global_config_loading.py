@@ -367,9 +367,9 @@ class TestNoDeepMerge:
         config = load_config()
 
         assert config.orchestrator.parallel == 8
-        # session_timeout should revert to Pydantic default (30), not global's 60
+        # session_timeout should revert to Pydantic default (45), not global's 60
         assert config.orchestrator.session_timeout != 60
-        assert config.orchestrator.session_timeout == 30
+        assert config.orchestrator.session_timeout == 45
 
 
 # ===================================================================

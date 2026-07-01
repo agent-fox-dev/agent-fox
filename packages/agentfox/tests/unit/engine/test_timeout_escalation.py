@@ -890,7 +890,7 @@ class TestAuditEventPayloadValues:
         events = sink.find_events(event_type)
         assert len(events) >= 1
         payload = events[0].payload
-        # original_timeout from config (default 30), extended = ceil(30 * 1.5) = 45
-        assert payload.get("extended_timeout") == 45
+        # original_timeout from config (default 45), extended = ceil(45 * 1.5) = 68
+        assert payload.get("extended_timeout") == 68
         # original_max_turns=200, extended = ceil(200 * 1.5) = 300
         assert payload.get("extended_max_turns") == 300

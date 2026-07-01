@@ -152,7 +152,7 @@ class OrchestratorConfig(BaseModel):
     sync_interval: Annotated[int, Clamped(ge=0)] = Field(default=5, description="Sync interval in task groups")
     hot_load: bool = Field(default=True, description="Hot-load specs between sessions")
     max_retries: Annotated[int, Clamped(ge=0)] = Field(default=2, description="Maximum retries per task group")
-    session_timeout: Annotated[int, Clamped(ge=1)] = Field(default=30, description="Session timeout in minutes")
+    session_timeout: Annotated[int, Clamped(ge=1)] = Field(default=45, description="Session timeout in minutes")
     inter_session_delay: Annotated[int, Clamped(ge=0)] = Field(
         default=3, description="Delay between sessions in seconds"
     )

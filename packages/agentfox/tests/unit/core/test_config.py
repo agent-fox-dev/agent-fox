@@ -29,7 +29,7 @@ class TestConfigDefaults:
         assert config.orchestrator.parallel == 2
         assert config.orchestrator.sync_interval == 5
         assert config.orchestrator.max_retries == 2
-        assert config.orchestrator.session_timeout == 30
+        assert config.orchestrator.session_timeout == 45
         assert config.theme.playful is True
 
     def test_whitespace_only_toml_returns_defaults(self, tmp_path: Path) -> None:

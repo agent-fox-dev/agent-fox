@@ -110,6 +110,7 @@ def _make_handler_with_sink(
         knowledge_db_conn=None,
         block_task_fn=lambda nid, st, reason: None,
         check_block_budget_fn=lambda st: False,
+        original_session_timeout=original_timeout,
     )
 
     state = ExecutionState(

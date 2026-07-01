@@ -24,8 +24,8 @@
 # hot_load = true
 ## Maximum retries per task group (>=0, default: 2)
 # max_retries = 2
-## Session timeout in minutes (>=1, default: 30)
-# session_timeout = 30
+## Session timeout in minutes (>=1, default: 45)
+# session_timeout = 45
 ## Delay between sessions in seconds (>=0, default: 3)
 # inter_session_delay = 3
 ## Maximum cost limit (not set by default)

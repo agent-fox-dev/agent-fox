@@ -83,7 +83,7 @@ Controls the orchestration loop: parallelism, retries, timeouts, and budgets.
 | `sync_interval` | int | `5` | >= 0 | Task-group sync interval in number of sessions |
 | `hot_load` | bool | `true` | -- | Hot-reload spec files between sessions without restarting the orchestrator |
 | `max_retries` | int | `2` | >= 0 | Maximum number of automatic retries per task group (circuit-breaker limit). **Deprecated for escalation tuning**; use `[routing] retries_before_escalation` instead. Still controls the circuit-breaker retry limit. |
-| `session_timeout` | int | `30` | >= 1 | Per-session timeout in minutes |
+| `session_timeout` | int | `45` | >= 1 | Per-session timeout in minutes |
 | `inter_session_delay` | int | `3` | >= 0 | Delay in seconds between consecutive session launches |
 | `max_cost` | float\|null | `null` | -- | Hard cost ceiling for the entire run (null = no limit) |
 | `max_sessions` | int\|null | `null` | -- | Maximum total sessions in a run (null = no limit) |

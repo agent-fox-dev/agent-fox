@@ -79,7 +79,7 @@ class SessionResultHandler:
         max_timeout_retries: int = 2,
         timeout_multiplier: float = 1.5,
         timeout_ceiling_factor: float = 2.0,
-        original_session_timeout: int = 30,
+        original_session_timeout: int = 45,
     ) -> None:
         self._graph_sync = graph_sync
         self._routing_ladders = routing_ladders
