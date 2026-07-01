@@ -362,9 +362,8 @@ class SessionResultHandler:
     ) -> bool:
         """Handle audit-review retry using a dedicated counter.
 
-        Uses ``ReviewerConfig.audit_max_retries`` instead of the generic
-        ``EscalationLadder`` so audit retries do not consume the coder's
-        escalation budget.
+        Uses ``ReviewerConfig.audit_max_retries`` as a separate counter
+        from the generic failure counter.
 
         Returns True if permanently blocked, False if converted to retry.
         """
