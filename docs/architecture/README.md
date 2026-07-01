@@ -66,9 +66,9 @@ hot-load discovery.
 
 How the plan is carried out. Covers the orchestrator's dispatch loop, the
 four-phase session lifecycle (prepare, execute, harvest, assess), context
-assembly with eight knowledge retrieval categories, the four-entry archetype
+assembly with three knowledge retrieval categories, the four-entry archetype
 registry with mode system (coder, reviewer, verifier, maintainer),
-multi-instance convergence strategies, the escalation ladder, workspace
+multi-instance convergence strategies, retry handling, workspace
 isolation, merge integration, sync barriers, and reset.
 
 ### [Part 4: Night-Shift Mode](04-night-shift.md)
@@ -81,11 +81,11 @@ detection.
 ### [Part 5: Knowledge System Architecture](05-knowledge-system-architecture.md)
 
 How the system remembers. Covers the `KnowledgeProvider` protocol, the
-eight-category retrieval pipeline, the closed-loop finding lifecycle
-(create → inject → supersede), session summary storage, ADR indexing, the
-DuckDB-backed knowledge store, the quality assurance layer (review findings,
-drift findings, verification results, multi-instance convergence), and the
-audit trail.
+three-category retrieval pipeline (review findings, cross-group findings,
+same-spec summaries), the closed-loop finding lifecycle
+(create → inject → supersede), session summary storage, the DuckDB-backed
+knowledge store, the quality assurance layer (review findings, drift findings,
+multi-instance convergence), and the audit trail.
 
 ### [Part 6: Spec Format v1.2](06-spec-format-v12.md)
 

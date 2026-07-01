@@ -475,7 +475,7 @@ relevant items rather than a large ranked list of loosely related ones.
 **No embeddings.** All retrieval uses direct column-filter SQL with keyword
 scoring. This eliminates the computational overhead and operational complexity
 of embedding generation and vector indexing. The tradeoff favors operational
-simplicity over cross-spec semantic discovery.
+simplicity over fuzzy semantic discovery.
 
 **Closed-loop finding lifecycle.** Findings are not merely stored — they are
 tracked through injection and retired on completion. This prevents resolved

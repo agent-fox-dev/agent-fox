@@ -100,17 +100,13 @@ institutional memory across sessions. Each new session starts with a fresh
 context window but receives curated, relevant knowledge from prior sessions
 so agents build on each other's work rather than starting blind.
 
-The knowledge system tracks eight categories of context: review findings,
-verification verdicts, errata, architecture decision records, cross-group
-findings, same-spec session summaries, cross-spec session summaries, and
-prior-run findings. Findings follow a closed-loop lifecycle — when a finding
-is injected into a session and the session completes, the finding is
-automatically superseded. This keeps the active knowledge set current without
-manual intervention.
-
-ADR files (`docs/adr/*.md`) created during coding sessions are automatically
-detected and indexed, making architectural decisions discoverable by future
-sessions working on related specs.
+The knowledge system tracks three categories of context: review findings
+(active critical and major findings for the current task group), cross-group
+findings (issues found in other groups of the same spec), and same-spec
+session summaries (what earlier groups accomplished). Findings follow a
+closed-loop lifecycle — when a finding is injected into a session and the
+session completes, the finding is automatically superseded. This keeps the
+active knowledge set current without manual intervention.
 
 ### Recovery
 

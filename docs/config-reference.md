@@ -255,16 +255,11 @@ behaviour (`pre-review`, `drift-review`, `audit-review`, `fix-review`).
 
 | Field | Type | Default | Bounds | Description |
 |-------|------|---------|--------|-------------|
-| `coder` | bool | `true` | -- | Enable the Coder archetype (cannot be disabled; always forced to `true`) |
-| `reviewer` | bool | `true` | -- | Enable the Reviewer archetype (replaces skeptic, oracle, auditor) |
+| `reviewer` | bool | `true` | -- | Enable the Reviewer archetype (all modes: pre-review, drift-review, audit-review, fix-review) |
 | `verifier` | bool | `true` | -- | Enable the Verifier archetype (post-code correctness checks) |
 | `instances` | table | see below | -- | Per-archetype instance counts |
 | `reviewer_config` | table | see below | -- | Reviewer-specific configuration |
-| `models` | dict[str, str] | `{}` | -- | Per-archetype model tier overrides (e.g. `{coder = "STANDARD"}`) |
-| `allowlists` | dict[str, list[str]] | `{}` | -- | Per-archetype extra bash command allowlists |
-| `max_turns` | dict[str, int] | `{}` | -- | Per-archetype maximum turn limits (>= 0) |
-| `thinking` | dict[str, ThinkingConfig] | `{}` | -- | Per-archetype extended thinking configuration |
-| `overrides` | dict[str, PerArchetypeConfig] | `{}` | -- | Unified per-archetype config overrides (takes precedence over individual dicts) |
+| `overrides` | dict[str, PerArchetypeConfig] | `{}` | -- | Unified per-archetype config overrides (model tier, variant, max turns, thinking, allowlist, budget) |
 | `custom` | dict[str, CustomArchetypeConfig] | `{}` | -- | Custom archetype definitions |
 
 **Example:**
@@ -273,11 +268,11 @@ behaviour (`pre-review`, `drift-review`, `audit-review`, `fix-review`).
 [archetypes]
 reviewer = true
 verifier = true
-# Override model tiers per archetype
-models = {coder = "STANDARD", reviewer = "ADVANCED"}
 
-# Limit turns for specific archetypes
-max_turns = {coder = 100, verifier = 50}
+# Override model tier for coder archetype
+[archetypes.overrides.coder]
+model_tier = "ADVANCED"
+max_turns = 100
 ```
 
 ### archetypes.instances
@@ -318,18 +313,18 @@ audit_max_retries = 1
 
 ### archetypes.overrides
 
-Unified per-archetype configuration tables. Takes precedence over the
-individual `models`, `max_turns`, `thinking`, and `allowlists` dicts.
-
-Each override is keyed by archetype name and supports:
+Unified per-archetype configuration tables. Each override is keyed by
+archetype name and supports:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `model_tier` | str\|null | `null` | Model tier override (SIMPLE, STANDARD, ADVANCED). Null = registry default. |
+| `model_variant` | str\|null | `null` | Model variant override (fast, standard, extended). Null = registry default. |
 | `max_turns` | int\|null | `null` | Max turns override. 0 = unlimited. Null = registry default. |
 | `thinking_mode` | str\|null | `null` | Extended thinking mode: `enabled`, `adaptive`, or `disabled`. Null = registry default. |
 | `thinking_budget` | int\|null | `null` | Thinking budget in tokens. Null = registry default. |
 | `allowlist` | list[str]\|null | `null` | Bash command allowlist override. Null = registry default. |
+| `max_budget_usd` | float\|null | `null` | Per-archetype budget ceiling in USD. Null = inherit global `orchestrator.max_budget_usd`. 0 = unlimited. |
 | `modes` | dict[str, PerArchetypeConfig] | `{}` | Per-mode overrides (same fields as above, keyed by mode name). |
 
 **Example:**
@@ -397,6 +392,7 @@ Each entry in `models` is a TOML inline table or sub-table with these fields:
 | `claude-sonnet-4-6` | 3.00 | 15.00 | 0.30 | 3.75 |
 | `claude-opus-4-5` | 5.00 | 25.00 | 0.50 | 6.25 |
 | `claude-opus-4-6` | 5.00 | 25.00 | 0.50 | 6.25 |
+| `claude-opus-4-6[1m]` | 5.00 | 25.00 | 0.50 | 6.25 |
 
 **Example (override a single model's pricing):**
 

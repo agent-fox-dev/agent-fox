@@ -84,8 +84,9 @@ Each issue passes through a three-stage pipeline:
    pipeline loops back to the Coder with review feedback, up to the
    configured retry limit.
 
-The coder-reviewer loop starts at the STANDARD model tier and escalates to
-ADVANCED on repeated failures, controlled by `routing.retries_before_escalation`.
+The coder-reviewer loop retries at the same model tier up to `max_retries`,
+then blocks the issue for human attention if it still cannot produce an
+accepted fix.
 
 All sessions share the same fix branch, which is created from the
 current integration branch HEAD. After the pipeline completes successfully, the fix

@@ -15,7 +15,7 @@ It assumes familiarity with how specs become task graphs
 
 The orchestrator is a deterministic dispatch loop. It contains zero LLM
 inference — every decision it makes (which task to run next, whether to retry,
-when to escalate) is based on rules, thresholds, and the outcomes of prior
+when to block) is based on rules, thresholds, and the outcomes of prior
 sessions. The LLM work happens inside sessions; the orchestrator only manages
 them.
 
@@ -34,7 +34,7 @@ The orchestrator loads the task graph and execution state, then enters a loop:
 4. **Dispatch.** Fill available parallel slots with ready tasks. Each task
    launches a session in an isolated worktree.
 5. **Process results.** When a session completes, assess the outcome, apply
-   retry or escalation logic, persist state, and update the graph.
+   retry logic, persist state, and update the graph.
 6. **Sync barrier.** At configurable intervals, pause dispatch to synchronize
    with the outside world (pull remote changes, discover new specs, reload
    config, ingest knowledge).
@@ -129,8 +129,8 @@ over multiple turns.
 
 Key parameters are resolved per session:
 
-- **Model ID**: Determined by the escalation ladder based on the archetype's
-  default tier and any prior failures (see Model Routing below).
+- **Model ID**: Determined by the archetype's default tier (see Model Routing
+  below).
 - **Max turns**: Archetype-specific limit on the number of agent turns.
 - **Thinking mode**: Extended thinking with configurable token budget,
   currently enabled only for the Coder archetype in adaptive mode.
@@ -416,11 +416,12 @@ extraction (`extraction`).
 
 ### Design Rationale
 
-All archetypes default to the STANDARD model tier. The escalation ladder may
-promote individual tasks to higher tiers after failures (described below).
-Operators can also override model tiers per archetype via configuration. The
-intent is to start cost-effective and escalate only when needed, rather than
-running every session at the most capable (and expensive) tier.
+Archetypes default to either the SIMPLE or STANDARD model tier depending on
+their role, with certain reviewer modes using the ADVANCED tier for tasks that
+require deeper reasoning. Operators can override model tiers per archetype via
+configuration. On failure, tasks retry at their assigned tier up to
+`max_retries` (default 2) before being blocked — there is no automatic
+promotion to a higher tier.
 
 Read-only tool allowlists for reviewer modes enforce a separation of concerns.
 A reviewer that can modify code is no longer a pure reviewer — it might fix
@@ -492,32 +493,27 @@ Regressions are reported as audit events.
 
 ### Timeout
 
-Timeout failures receive specialized handling. Instead of immediately
-escalating to a higher model tier, the orchestrator extends the session
-parameters: max turns and session timeout are multiplied by a configurable
-factor, clamped to a ceiling. The task is reset to PENDING for retry at the
-same model tier. This is based on the observation that timeouts usually mean
-the task needed more time, not a smarter model.
-
-Only after timeout retries are exhausted does the task fall through to the
-normal failure escalation path.
+Timeout failures receive specialized handling. The orchestrator extends the
+session parameters: max turns and session timeout are multiplied by a
+configurable factor, clamped to a ceiling. The task is reset to PENDING for
+retry at the same model tier. This is based on the observation that timeouts
+usually mean the task needed more time, not a smarter model. Timeout retries
+do not consume normal retry attempts.
 
 ### Failure
 
-Non-timeout failures enter the escalation ladder. The escalation system
-maintains a per-task state machine that tracks the current model tier, attempt
-count, and escalation count. On failure:
+Non-timeout failures use a simple retry counter. On failure:
 
-1. If retries remain at the current tier, the task is reset to PENDING for
-   another attempt.
-2. If retries at the current tier are exhausted, the tier is escalated (SIMPLE
-   → STANDARD → ADVANCED) and the retry counter resets.
-3. If the highest tier's retries are also exhausted, the task is marked BLOCKED
-   and all its dependents are cascade-blocked via BFS through the dependency
-   graph.
-
-Escalation is strictly non-decreasing — a task never drops back to a lower
-tier. The tier ceiling (ADVANCED) prevents unbounded escalation.
+1. If retries remain (up to `max_retries`, default 2), the task is reset to
+   PENDING for another attempt at the same model tier.
+2. If retries are exhausted, the task is marked BLOCKED and all its dependents
+   are cascade-blocked via BFS through the dependency graph.
+3. Transport errors (network failures, API errors) are retried without
+   consuming retry attempts, since they reflect environment problems rather
+   than task difficulty.
+4. Budget exhaustion blocks the task immediately without retry, since spending
+   more on the same task would violate the cost constraint that triggered
+   the failure.
 
 ### Cascade Blocking
 
@@ -529,10 +525,10 @@ succeed because their prerequisites failed.
 
 ---
 
-## Model Routing and the Escalation Ladder
+## Model Routing
 
-Each archetype has a default model tier (STANDARD for all built-in archetypes).
-Model tiers map to concrete model IDs through a registry:
+Each archetype entry (including its modes) has a default model tier. Model
+tiers map to concrete model IDs through a registry:
 
 | Tier | Default Model |
 |---|---|
@@ -540,14 +536,25 @@ Model tiers map to concrete model IDs through a registry:
 | STANDARD | `claude-sonnet-4-6` |
 | ADVANCED | `claude-opus-4-6` |
 
-Before dispatching a task, the assessor creates an escalation ladder from the
-node's resolved model tier. The ladder is a per-task state machine that tracks
-the current tier, attempt count at the current tier, and escalation count. The
-tier ceiling is ADVANCED.
+The default tier assignments across all archetype entries and modes are:
 
-Operators can override model tiers per archetype via configuration. The intent
-is to start cost-effective and escalate only when needed. Escalation is
-strictly non-decreasing — a task never drops back to a lower tier.
+| Archetype / Mode | Model Tier | Thinking |
+|---|---|---|
+| coder | STANDARD | standard |
+| coder (fix) | STANDARD | standard |
+| reviewer (base) | STANDARD | standard |
+| reviewer (pre-review) | ADVANCED | standard |
+| reviewer (drift-review) | STANDARD | standard |
+| reviewer (audit-review) | ADVANCED | standard |
+| reviewer (fix-review) | ADVANCED | standard |
+| verifier | STANDARD | standard |
+| maintainer (base) | STANDARD | standard |
+| maintainer (hunt) | SIMPLE | standard |
+| maintainer (fix-triage) | STANDARD | standard |
+| maintainer (extraction) | SIMPLE | standard |
+
+Operators can override model tiers per archetype via configuration. The model
+tier remains fixed for the lifetime of a task — retries reuse the same tier.
 
 After each session, the actual tier used, token consumption, cost, duration,
 and success/failure outcome are recorded in the `session_outcomes` table. This
