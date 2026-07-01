@@ -1,4 +1,4 @@
-"""Specification discovery: scan .specs/ for valid spec folders.
+"""Specification discovery: scan the spec root for valid spec folders.
 
 Requirements: 02-REQ-1.1, 02-REQ-1.2, 02-REQ-1.3, 02-REQ-1.E1, 02-REQ-1.E2
 """
@@ -24,7 +24,7 @@ class SpecInfo:
 
     name: str  # e.g., "01_core_foundation"
     prefix: int  # e.g., 1
-    path: Path  # e.g., Path(".specs/01_core_foundation")
+    path: Path  # e.g., Path(".agent-fox/specs/01_core_foundation")
     has_tasks: bool  # whether tasks.json exists
     has_prd: bool  # whether prd.md exists
 
@@ -38,7 +38,7 @@ def discover_specs(
     Only returns specs with a requirements.json file present.
 
     Args:
-        specs_dir: Path to the .specs/ directory.
+        specs_dir: Path to the spec root directory.
         filter_spec: If set, return only this spec (by name or prefix).
 
     Returns:
@@ -47,7 +47,7 @@ def discover_specs(
     Raises:
         PlanError: If no specs found or filter matches nothing.
     """
-    # 02-REQ-1.E1: missing or empty .specs/ directory
+    # 02-REQ-1.E1: missing or empty spec root directory
     if not specs_dir.is_dir():
         raise PlanError(f"No specifications found: '{specs_dir}' does not exist")
 

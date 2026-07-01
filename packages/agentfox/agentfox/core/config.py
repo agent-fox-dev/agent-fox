@@ -702,9 +702,6 @@ class WorkspaceConfig(BaseModel):
     )
 
 
-# Default spec root for backward compatibility fallback
-_LEGACY_SPEC_ROOT = ".specs"
-
 
 class SpecToolConfig(BaseModel):
     """Configuration for the agentspec tool.
@@ -1032,11 +1029,7 @@ def _load_config_global_local() -> AgentFoxConfig:
 
 
 def resolve_spec_root(config: AgentFoxConfig, project_root: Path) -> Path:
-    """Resolve the spec root directory from config with backward compatibility.
-
-    When the configured path is the default (``.agent-fox/specs``) and that
-    directory does not exist but the legacy ``.specs/`` does, falls back to
-    ``.specs/`` with a deprecation warning.
+    """Resolve the spec root directory from config.
 
     Args:
         config: Loaded AgentFoxConfig.
@@ -1044,21 +1037,5 @@ def resolve_spec_root(config: AgentFoxConfig, project_root: Path) -> Path:
 
     Returns:
         Resolved Path to the spec root directory.
-
-    Requirements: 371-REQ-1.2
     """
-    spec_root = config.paths.spec_root
-    spec_path = project_root / spec_root
-
-    # Backward compatibility: fall back to .specs/ when using the new default
-    # and only the legacy directory exists.
-    if spec_root == ".agent-fox/specs" and not spec_path.is_dir():
-        legacy = project_root / _LEGACY_SPEC_ROOT
-        if legacy.is_dir():
-            logger.warning(
-                "Using legacy spec root '.specs/' — migrate to "
-                "'.agent-fox/specs/' or set [paths] spec_root in config.toml"
-            )
-            return legacy
-
-    return spec_path
+    return project_root / config.paths.spec_root

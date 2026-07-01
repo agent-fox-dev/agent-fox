@@ -90,7 +90,7 @@ def _setup_for_property(
     )
 
     # Create specs dirs with tasks.md for each spec
-    specs_dir = tmp_path / ".specs"
+    specs_dir = tmp_path / ".agent-fox" / "specs"
     seen_specs: set[str] = set()
     for nid, props in nodes.items():
         spec = props.get("spec_name", nid.split(":")[0])
@@ -279,7 +279,7 @@ class TestArtifactSynchronization:
                 assert state.node_states[nid] == "pending", f"State node {nid} should be pending"
 
         # Check tasks.md - no [x] or [-] for reset spec
-        tasks_md = tmp_path / ".specs" / target_spec / "tasks.md"
+        tasks_md = tmp_path / ".agent-fox" / "specs" / target_spec / "tasks.md"
         if tasks_md.exists():
             content = tasks_md.read_text()
             # Top-level checkboxes should not have [x] or [-]

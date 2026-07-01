@@ -39,7 +39,7 @@ def build_plan(
     Discovery → parsing → building → resolving → (fast mode) → graph.
 
     Args:
-        specs_dir: Path to the .specs/ directory.
+        specs_dir: Path to the spec root directory.
         filter_spec: If set, restrict to this single spec.
         fast: Whether to apply fast-mode filtering.
         config: Loaded agent-fox config (for archetypes).
