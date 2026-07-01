@@ -57,9 +57,7 @@ nightshift
 
 ## Installation
 
-```bash
-uv tool install af --from git+https://github.com/agent-fox-dev/agent-fox.git#subdirectory=packages/af
-```
+Install all three CLIs:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/agent-fox-dev/agent-fox/refs/heads/main/install.sh | sh
