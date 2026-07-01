@@ -220,24 +220,6 @@ class TestNoOverrideUsesRegistry:
 # ---------------------------------------------------------------------------
 
 
-class TestAssessedTierOverridesAll:
-    """TS-57-11: assessed_tier overrides both config override and registry."""
-
-    def test_assessed_tier_overrides_all(self) -> None:
-        """assessed_tier=SIMPLE resolves to Haiku regardless of other config."""
-        config = AgentFoxConfig(
-            archetypes=ArchetypesConfig(overrides={"coder": PerArchetypeConfig(model_tier="ADVANCED")})
-        )
-        runner = NodeSessionRunner(
-            "spec:1",
-            config,
-            archetype="coder",
-            assessed_tier=ModelTier.SIMPLE,
-            knowledge_db=_MOCK_KB,
-        )
-        assert runner._resolved_model_id == "claude-haiku-4-5"
-
-
 # ---------------------------------------------------------------------------
 # TS-57-E1: Unknown Archetype Falls Back to Coder
 # Requirement: 57-REQ-1.E1

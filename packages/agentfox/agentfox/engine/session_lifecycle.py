@@ -242,7 +242,6 @@ class NodeSessionRunner:
         context_knowledge_db: KnowledgeDB | ContextKnowledgeDB | None = None,
         knowledge_provider: KnowledgeProvider | None = None,
         activity_callback: ActivityCallback | None = None,
-        assessed_tier: ModelTier | None = None,
         run_id: str = "",
         timeout_override: int | None = None,
         max_turns_override: int | None = None,
@@ -275,17 +274,11 @@ class NodeSessionRunner:
         self._spec_name = parsed.spec_name
         self._task_group = parsed.group_number
 
-        # 14-REQ-12.1: Two-step model resolution — resolve variant first, then model.
-        # 30-REQ-7.2: Use assessed tier from adaptive routing if provided,
-        # otherwise fall back to static resolution (26-REQ-4.4, 97-REQ-5.3).
         resolved_variant = resolve_model_variant(self._config, self._archetype, mode=self._mode)
-        if assessed_tier is not None:
-            self._resolved_model_id = resolve_model(assessed_tier.value, variant=resolved_variant)
-        else:
-            self._resolved_model_id = resolve_model(
-                resolve_model_tier(self._config, self._archetype, mode=self._mode),
-                variant=resolved_variant,
-            )
+        self._resolved_model_id = resolve_model(
+            resolve_model_tier(self._config, self._archetype, mode=self._mode),
+            variant=resolved_variant,
+        )
         self._resolved_security = resolve_security_config(self._config, self._archetype, mode=self._mode)
 
     def _build_prompts(

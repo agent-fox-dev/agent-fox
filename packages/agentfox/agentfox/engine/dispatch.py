@@ -111,7 +111,6 @@ class SerialRunner:
         archetype: str = "coder",
         mode: str | None = None,
         instances: int = 1,
-        assessed_tier: Any | None = None,
         run_id: str = "",
         timeout_override: int | None = None,
         max_turns_override: int | None = None,
@@ -124,7 +123,6 @@ class SerialRunner:
             archetype=archetype,
             mode=mode,
             instances=instances,
-            assessed_tier=assessed_tier,
             run_id=run_id,
             timeout_override=timeout_override,
             max_turns_override=max_turns_override,
@@ -176,15 +174,7 @@ class SerialDispatcher:
             if launch is None:
                 continue
 
-            (
-                _,
-                attempt,
-                previous_error,
-                node_archetype,
-                node_instances,
-                assessed_tier,
-                node_mode,
-            ) = launch
+            _, attempt, previous_error, node_archetype, node_instances, node_mode = launch
 
             if not first_dispatch:
                 await orch._dispatch_mgr.serial_runner.delay()
@@ -204,7 +194,6 @@ class SerialDispatcher:
                 archetype=node_archetype,
                 mode=node_mode,
                 instances=node_instances,
-                assessed_tier=assessed_tier,
                 run_id=orch._run_id,
                 timeout_override=timeout_override,
                 max_turns_override=max_turns_override,
@@ -351,7 +340,7 @@ class ParallelDispatcher:
             if launch is None:
                 continue
 
-            _, attempt, previous_error, archetype, instances, assessed_tier, node_mode = launch
+            _, attempt, previous_error, archetype, instances, node_mode = launch
 
             orch._graph_sync.mark_in_progress(node_id)
 
@@ -368,7 +357,6 @@ class ParallelDispatcher:
                     archetype=archetype,
                     mode=node_mode,
                     instances=instances,
-                    assessed_tier=assessed_tier,
                     run_id=orch._run_id,
                     timeout_override=timeout_override,
                     max_turns_override=max_turns_override,
@@ -500,8 +488,8 @@ class DispatchManager:
         state: Any,
         attempt_tracker: dict[str, int],
         error_tracker: dict[str, str | None],
-    ) -> tuple[str, int, str | None, str, int, Any | None, str | None] | None:
-        """Assess a node and check whether it may launch.
+    ) -> tuple[str, int, str | None, str, int, str | None] | None:
+        """Check whether a node may launch.
 
         Performs a pre-session workspace health check before creating the
         worktree. If untracked files are detected, the node is blocked
@@ -509,10 +497,8 @@ class DispatchManager:
         fail-open (dispatch proceeds).
 
         Returns a tuple of (verdict, attempt, previous_error, archetype,
-        instances, assessed_tier, mode) if the node is allowed to launch,
+        instances, mode) if the node is allowed to launch,
         or None if it was blocked/limited.
-
-        Requirements: 118-REQ-4.1, 118-REQ-4.2, 118-REQ-4.3, 118-REQ-4.E1
         """
         # 118-REQ-4.1: Pre-session workspace health check
         try:
@@ -583,20 +569,6 @@ class DispatchManager:
         archetype = self.get_node_archetype(node_id)
         mode = self.get_node_mode(node_id)
 
-        # 15-REQ-9.1: Extract node_body from task graph node
-        node = self.get_node(node_id)
-        node_body = node.body if node else None
-        # 15-REQ-9.2: Extract previous_failure from error_tracker
-        previous_failure = error_tracker.get(node_id) if error_tracker else None
-
-        await self._routing.assess_node(
-            node_id,
-            archetype,
-            mode=mode,
-            node_body=node_body,
-            previous_failure=previous_failure,
-        )
-
         attempt = attempt_tracker.get(node_id, 0) + 1
         verdict = self._check_launch(
             node_id,
@@ -617,10 +589,7 @@ class DispatchManager:
         previous_error = error_tracker.get(node_id)
         instances = self.get_node_instances(node_id)
 
-        ladder = self._routing.ladders.get(node_id)
-        assessed_tier = ladder.current_tier if ladder else None
-
-        return (verdict, attempt, previous_error, archetype, instances, assessed_tier, mode)
+        return (verdict, attempt, previous_error, archetype, instances, mode)
 
     def _check_launch(
         self,

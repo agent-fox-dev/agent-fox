@@ -96,7 +96,6 @@ class ParallelRunner:
         archetype: str = "coder",
         mode: str | None = None,
         instances: int = 1,
-        assessed_tier: Any | None = None,
         run_id: str = "",
         timeout_override: int | None = None,
         max_turns_override: int | None = None,
@@ -114,7 +113,6 @@ class ParallelRunner:
             archetype: Archetype name from the plan node.
             mode: Optional mode variant for the archetype (97-REQ-5.3).
             instances: Instance count from the plan node.
-            assessed_tier: Model tier from adaptive routing assessment.
             run_id: Audit run identifier for correlation.
             timeout_override: Per-node session timeout override in minutes.
             max_turns_override: Per-node max_turns override.
@@ -130,7 +128,6 @@ class ParallelRunner:
                 archetype=archetype,
                 mode=mode,
                 instances=instances,
-                assessed_tier=assessed_tier,
                 run_id=run_id,
                 timeout_override=timeout_override,
                 max_turns_override=max_turns_override,
@@ -269,7 +266,6 @@ class ParallelRunner:
         archetype: str = "coder",
         mode: str | None = None,
         instances: int = 1,
-        assessed_tier: Any | None = None,
         run_id: str = "",
         timeout_override: int | None = None,
         max_turns_override: int | None = None,
@@ -280,7 +276,6 @@ class ParallelRunner:
             archetype=archetype,
             mode=mode,
             instances=instances,
-            assessed_tier=assessed_tier,
             run_id=run_id,
             timeout_override=timeout_override,
             max_turns_override=max_turns_override,

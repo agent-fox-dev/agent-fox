@@ -79,40 +79,6 @@ class TestNodeSessionRunnerCallOrder:
             mock_rm.assert_called_once()
             assert mock_rm.call_args.kwargs.get("variant") == "extended"
 
-    def test_variant_resolved_for_assessed_tier_path(self) -> None:
-        """TS-14-43 corollary: Even with assessed_tier, resolve_model_variant is called
-        and its result is passed to resolve_model.
-        """
-        from agentfox.core.models import ModelTier
-        from agentfox.engine.session_lifecycle import NodeSessionRunner
-
-        mock_parsed = MagicMock(spec_name="test_spec", group_number=1)
-
-        with (
-            patch(
-                "agentfox.engine.session_lifecycle.resolve_model_variant",
-                create=True,
-                return_value="extended",
-            ) as mock_rmv,
-            patch(
-                "agentfox.engine.session_lifecycle.resolve_model",
-                return_value="claude-opus-4-6[1m]",
-            ) as mock_rm,
-            patch("agentfox.engine.session_lifecycle.resolve_model_tier", return_value="ADVANCED"),
-            patch("agentfox.engine.session_lifecycle.resolve_security_config", return_value=None),
-            patch("agentfox.engine.session_lifecycle.clamp_instances", side_effect=lambda a, i, **kw: i),
-            patch("agentfox.engine.session_lifecycle.parse_node_id", return_value=mock_parsed),
-        ):
-            NodeSessionRunner(
-                node_id="test_spec_1_coder_1",
-                config=AgentFoxConfig(),
-                knowledge_db=MagicMock(),
-                assessed_tier=ModelTier.ADVANCED,
-            )
-
-            mock_rmv.assert_called_once()
-            assert mock_rm.call_args.kwargs.get("variant") == "extended"
-
 
 # ---------------------------------------------------------------------------
 # TS-14-44: NodeSessionRunner source code contains resolve_model_variant call

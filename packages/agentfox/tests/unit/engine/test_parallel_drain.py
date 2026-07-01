@@ -384,7 +384,7 @@ class TestReviewConcurrencyCapPool:
 
         async def mock_prepare_launch(node_id, state, at, et):
             arch = nodes[node_id].archetype
-            return ("allowed", 1, None, arch, 1, None, None)
+            return ("allowed", 1, None, arch, 1, None)
 
         dispatch_mgr.prepare_launch = mock_prepare_launch
         orch._dispatch_mgr = dispatch_mgr
@@ -471,7 +471,7 @@ class TestReviewConcurrencyCapPool:
 
         async def mock_prepare_launch(node_id, state, at, et):
             arch = nodes[node_id].archetype
-            return ("allowed", 1, None, arch, 1, None, None)
+            return ("allowed", 1, None, arch, 1, None)
 
         dispatch_mgr.prepare_launch = mock_prepare_launch
         orch._dispatch_mgr = dispatch_mgr
@@ -573,7 +573,7 @@ class TestReviewConcurrencyCapPool:
 
         async def mock_prepare_launch(node_id, state, at, et):
             arch = nodes[node_id].archetype
-            return ("allowed", 1, None, arch, 1, None, None)
+            return ("allowed", 1, None, arch, 1, None)
 
         dispatch_mgr.prepare_launch = mock_prepare_launch
         orch._dispatch_mgr = dispatch_mgr
@@ -673,7 +673,7 @@ class TestReviewCapDoesNotConsumeRetries:
             prepare_calls.append(node_id)
             arch = nodes[node_id].archetype
             at[node_id] = at.get(node_id, 0) + 1
-            return ("allowed", at[node_id], None, arch, 1, None, None)
+            return ("allowed", at[node_id], None, arch, 1, None)
 
         dispatch_mgr.prepare_launch = mock_prepare_launch
         orch._dispatch_mgr = dispatch_mgr
@@ -753,7 +753,7 @@ class TestReviewCapDoesNotConsumeRetries:
         async def mock_prepare_launch(node_id, state, at, et):
             arch = nodes[node_id].archetype
             at[node_id] = at.get(node_id, 0) + 1
-            return ("allowed", at[node_id], None, arch, 1, None, None)
+            return ("allowed", at[node_id], None, arch, 1, None)
 
         dispatch_mgr.prepare_launch = mock_prepare_launch
         orch._dispatch_mgr = dispatch_mgr
