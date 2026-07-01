@@ -168,8 +168,8 @@ def _setup_project(project_dir: Path) -> None:
     agent_fox_dir.mkdir(exist_ok=True)
     (agent_fox_dir / "config.toml").write_text("")
 
-    # Create .specs/01_test/ with v1.2 format artifacts
-    _write_spec(project_dir / ".specs" / "01_test")
+    # Create .agent-fox/specs/01_test/ with v1.2 format artifacts
+    _write_spec(project_dir / ".agent-fox" / "specs" / "01_test")
 
 
 class TestPlanPersistAndLoad:
@@ -331,7 +331,7 @@ class TestPlanCLIEndToEnd:
         _setup_project(tmp_git_repo)
 
         _write_spec(
-            tmp_git_repo / ".specs" / "02_other",
+            tmp_git_repo / ".agent-fox" / "specs" / "02_other",
             task_groups=[
                 {
                     "id": 1,
@@ -381,7 +381,7 @@ class TestPlanCLIEndToEnd:
         assert "no such option" in result.output.lower()
 
     def test_plan_always_rebuilds_after_spec_change(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
-        """plan rebuilds from .specs/ even when plan.json exists (63-REQ-1.1).
+        """plan rebuilds from spec root even when plan.json exists (63-REQ-1.1).
 
         Modifying a spec's tasks.md and re-running plan (without --reanalyze)
         must produce output that reflects the updated spec.
@@ -397,7 +397,7 @@ class TestPlanCLIEndToEnd:
         # Add a new task group to the spec's tasks.json (v1.2 format)
         import json
 
-        tasks_path = tmp_git_repo / ".specs" / "01_test" / "tasks.json"
+        tasks_path = tmp_git_repo / ".agent-fox" / "specs" / "01_test" / "tasks.json"
         tasks_data = json.loads(tasks_path.read_text())
         tasks_data["task_groups"].append(
             {

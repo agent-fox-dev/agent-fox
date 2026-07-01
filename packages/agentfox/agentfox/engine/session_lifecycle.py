@@ -74,7 +74,7 @@ def extract_subtask_descriptions(spec_dir: Path, task_group: int) -> list[str]:
     first detail whose text does not start with ``_`` is captured.
 
     Args:
-        spec_dir: Path to the spec folder (e.g., .specs/12_rate_limiting/).
+        spec_dir: Path to the spec folder (e.g., .agent-fox/specs/12_rate_limiting/).
         task_group: The task group number to extract from.
 
     Returns:

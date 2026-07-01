@@ -1,8 +1,8 @@
 """Hot-loader: discover and incorporate new specs at sync barriers.
 
-At sync barriers, scans .specs/ for new specification folders not present
-in the current task graph, parses them, and incorporates them into the
-graph without restart.
+At sync barriers, scans the spec root for new specification folders not
+present in the current task graph, parses them, and incorporates them
+into the graph without restart.
 
 Requirements: 06-REQ-6.3, 06-REQ-7.1, 06-REQ-7.2, 06-REQ-7.3,
               06-REQ-7.E1, 06-REQ-7.E2
@@ -166,7 +166,7 @@ def are_all_tasks_done(spec_path: Path) -> bool:
     least one group, and every group has ``completed=True``.
 
     Args:
-        spec_path: Path to the spec folder (e.g., ``.specs/42_feature``).
+        spec_path: Path to the spec folder (e.g., ``.agent-fox/specs/42_feature``).
 
     Returns:
         True if all task groups are completed, False otherwise.
@@ -249,7 +249,7 @@ async def discover_new_specs_gated(
     re-evaluated at the next barrier with a clean slate (51-REQ-7.2).
 
     Args:
-        specs_dir: Path to the .specs/ directory.
+        specs_dir: Path to the spec root directory.
         known_specs: Set of spec names already in the current plan.
         repo_root: Path to the repository root (for git checks).
         db_conn: Optional DuckDB connection for querying plan_nodes
@@ -330,13 +330,13 @@ def discover_new_specs(
     specs_dir: Path,
     known_specs: set[str],
 ) -> list[SpecInfo]:
-    """Find spec folders in .specs/ not already in the task graph.
+    """Find spec folders in the spec root not already in the task graph.
 
     Uses the standard spec discovery mechanism and filters out specs
     whose names are already in the known set.
 
     Args:
-        specs_dir: Path to the .specs/ directory.
+        specs_dir: Path to the spec root directory.
         known_specs: Set of spec names already in the current plan.
 
     Returns:

@@ -241,7 +241,7 @@ class TestTasksMdCheckboxesReset:
         state, db_conn, wt_dir, repo = _setup(tmp_path, nodes, node_states)
 
         # Create tasks.md with checked boxes
-        specs_dir = repo / ".specs"
+        specs_dir = repo / ".agent-fox" / "specs"
         alpha_dir = specs_dir / "alpha"
         alpha_dir.mkdir(parents=True)
         tasks_md = alpha_dir / "tasks.md"
