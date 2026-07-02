@@ -13,11 +13,11 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from afaudit.sink import SessionOutcome
 from agentfox.core.config import AgentFoxConfig, PerArchetypeConfig
 from agentfox.core.config_gen import generate_default_config
 from agentfox.engine.sdk_params import resolve_max_budget
 from agentfox.knowledge.db import KnowledgeDB
-from agentfox.knowledge.sink import SessionOutcome
 from agentfox.workspace import WorkspaceInfo
 
 _MOCK_KB = MagicMock(spec=KnowledgeDB)

@@ -83,7 +83,7 @@ def _make_runner(
 
 def _fake_outcome(status="completed"):
     """Create a fake SessionOutcome for testing."""
-    from agentfox.knowledge.sink import SessionOutcome
+    from afaudit.sink import SessionOutcome
 
     return SessionOutcome(
         spec_name="spec_a",

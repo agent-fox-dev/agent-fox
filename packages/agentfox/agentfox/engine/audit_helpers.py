@@ -17,8 +17,9 @@ from afaudit.events import (
 )
 
 if TYPE_CHECKING:
+    from afaudit.sink import SessionSink, SinkDispatcher
+
     from agentfox.core.config import AgentFoxConfig
-    from agentfox.knowledge.sink import SessionSink, SinkDispatcher
 
 logger = logging.getLogger(__name__)
 

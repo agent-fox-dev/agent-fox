@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from afaudit.events import AuditEventType, AuditSeverity
+from afaudit.sink import SessionOutcome, SinkDispatcher
 
 from agentfox.core.config import AgentFoxConfig
 from agentfox.core.errors import IntegrationError
@@ -37,7 +38,6 @@ from agentfox.engine.sdk_params import (
 from agentfox.engine.state import SessionRecord
 from agentfox.knowledge.db import ContextKnowledgeDB, KnowledgeDB
 from agentfox.knowledge.fox_provider import KnowledgeProvider
-from agentfox.knowledge.sink import SessionOutcome, SinkDispatcher
 from agentfox.session.prompt import (
     assemble_context,
     build_system_prompt,

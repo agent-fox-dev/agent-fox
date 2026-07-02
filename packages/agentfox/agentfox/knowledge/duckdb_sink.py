@@ -11,8 +11,7 @@ import logging
 
 import duckdb  # noqa: F401
 from afaudit.events import AuditEvent
-
-from agentfox.knowledge.sink import SessionOutcome, ToolCall, ToolError
+from afaudit.sink import SessionOutcome, ToolCall, ToolError
 
 logger = logging.getLogger("agentfox.knowledge.duckdb_sink")
 

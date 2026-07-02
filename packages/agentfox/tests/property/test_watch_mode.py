@@ -13,8 +13,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from afaudit.events import AuditEvent, AuditEventType
+from afaudit.sink import SinkDispatcher
 from agentfox.core.config import OrchestratorConfig
-from agentfox.knowledge.sink import SinkDispatcher
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 

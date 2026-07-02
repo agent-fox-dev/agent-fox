@@ -8,8 +8,8 @@ Validates: 131-REQ-2.E1
 from __future__ import annotations
 
 import duckdb
+from afaudit.sink import ToolCall, ToolError
 from agentfox.knowledge.duckdb_sink import DuckDBSink
-from agentfox.knowledge.sink import ToolCall, ToolError
 from hypothesis import given, settings
 from hypothesis import strategies as st
 

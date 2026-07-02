@@ -20,7 +20,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from agentfox.knowledge.sink import SessionOutcome
+from afaudit.sink import SessionOutcome
 
 # ---------------------------------------------------------------------------
 # Helpers

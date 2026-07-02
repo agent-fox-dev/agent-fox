@@ -11,10 +11,10 @@ def init_knowledge(config, project_root):
     """Open knowledge store, run migrations. Returns (db, sink, provider)."""
     kdb = sink = kprov = None
     try:
+        from afaudit.sink import SinkDispatcher
         from agentfox.knowledge.db import open_knowledge_store
         from agentfox.knowledge.duckdb_sink import DuckDBSink
         from agentfox.knowledge.fox_provider import FoxKnowledgeProvider
-        from agentfox.knowledge.sink import SinkDispatcher
 
         kdb = open_knowledge_store(config.knowledge, read_only=False)
         sink = SinkDispatcher([DuckDBSink(kdb.connection)])

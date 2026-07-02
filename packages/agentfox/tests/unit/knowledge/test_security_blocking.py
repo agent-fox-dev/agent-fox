@@ -339,7 +339,7 @@ class TestSecurityBlockingAuditEvent:
 
     def test_security_finding_blocked_audit_event_emitted(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
         """A SECURITY_FINDING_BLOCKED audit event is emitted when blocking on security."""
-        from agentfox.knowledge.sink import SinkDispatcher
+        from afaudit.sink import SinkDispatcher
 
         finding = _make_finding(
             severity="critical",
@@ -374,7 +374,7 @@ class TestSecurityBlockingAuditEvent:
 
     def test_no_audit_event_for_non_security_blocking(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
         """No SECURITY_FINDING_BLOCKED event is emitted for threshold-based blocking."""
-        from agentfox.knowledge.sink import SinkDispatcher
+        from afaudit.sink import SinkDispatcher
 
         findings = [
             _make_finding(

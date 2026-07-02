@@ -80,7 +80,7 @@ def _make_handler_with_sink(
     dict[str, str | None],
 ]:
     """Build a SessionResultHandler configured for integration timeout tests."""
-    from agentfox.knowledge.sink import SinkDispatcher
+    from afaudit.sink import SinkDispatcher
 
     graph_sync = GraphSync({node_id: "in_progress"}, {node_id: []})
 

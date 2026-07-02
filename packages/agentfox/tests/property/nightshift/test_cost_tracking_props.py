@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from agentfox.knowledge.sink import SinkDispatcher
+from afaudit.sink import SinkDispatcher
 from hypothesis import given, settings
 from hypothesis import strategies as st
 

@@ -8,14 +8,14 @@ Requirements: 11-REQ-4.1, 11-REQ-4.2, 11-REQ-4.3
 from __future__ import annotations
 
 import duckdb
-from agentfox.knowledge.duckdb_sink import DuckDBSink
-from agentfox.knowledge.sink import (
+from afaudit.sink import (
     SessionOutcome,
     SessionSink,
     SinkDispatcher,
     ToolCall,
     ToolError,
 )
+from agentfox.knowledge.duckdb_sink import DuckDBSink
 
 # -- Mock sink for testing ---------------------------------------------------
 

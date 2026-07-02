@@ -21,8 +21,9 @@ from agentfox.nightshift.dep_graph import DependencyEdge
 from agentfox.platform.protocol import IssueResult
 
 if TYPE_CHECKING:
+    from afaudit.sink import SinkDispatcher
+
     from agentfox.core.config import AgentFoxConfig
-    from agentfox.knowledge.sink import SinkDispatcher
 
 logger = logging.getLogger(__name__)
 

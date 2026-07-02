@@ -17,8 +17,9 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from afaudit.sink import SinkDispatcher
+
     from agentfox.core.config import PricingConfig
-    from agentfox.knowledge.sink import SinkDispatcher
 
 logger = logging.getLogger(__name__)
 

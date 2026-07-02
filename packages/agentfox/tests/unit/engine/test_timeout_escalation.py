@@ -87,7 +87,7 @@ def _make_handler(
     """
     graph_sync = GraphSync({node_id: "in_progress"}, {node_id: []})
 
-    from agentfox.knowledge.sink import SinkDispatcher
+    from afaudit.sink import SinkDispatcher
 
     if sink is not None:
         sink_dispatcher: SinkDispatcher | None = SinkDispatcher([sink])  # type: ignore[list-item]

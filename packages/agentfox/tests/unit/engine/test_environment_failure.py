@@ -205,7 +205,7 @@ class TestEnvironmentFailureAuditEvent:
 
     def test_emits_audit_event(self) -> None:
         from afaudit.events import AuditEventType
-        from agentfox.knowledge.sink import SinkDispatcher
+        from afaudit.sink import SinkDispatcher
 
         capture = _EventCaptureSink()
         sink = SinkDispatcher([capture])  # type: ignore[list-item]

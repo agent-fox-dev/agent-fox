@@ -14,7 +14,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from agentfox.knowledge.sink import SinkDispatcher
+from afaudit.sink import SinkDispatcher
 
 # ---------------------------------------------------------------------------
 # Helpers

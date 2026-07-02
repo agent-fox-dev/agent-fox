@@ -17,8 +17,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import duckdb
 import pytest
+from afaudit.sink import SinkDispatcher
 from agentfox.knowledge.duckdb_sink import DuckDBSink
-from agentfox.knowledge.sink import SinkDispatcher
 
 # ---------------------------------------------------------------------------
 # Schema helpers

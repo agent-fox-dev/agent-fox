@@ -23,13 +23,13 @@ from pathlib import Path
 from typing import Any
 
 from afaudit.events import AuditEventType
+from afaudit.sink import SinkDispatcher
 
 from agentfox.archetypes import get_archetype
 from agentfox.engine.audit_helpers import emit_audit_event
 from agentfox.engine.blocking import evaluate_review_blocking
 from agentfox.engine.graph_sync import GraphSync
 from agentfox.engine.state import ExecutionState, SessionRecord, update_state_with_session
-from agentfox.knowledge.sink import SinkDispatcher
 from agentfox.ui.progress import TaskCallback, TaskEvent
 
 logger = logging.getLogger(__name__)

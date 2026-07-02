@@ -21,12 +21,13 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from afaudit.sink import SinkDispatcher
+
 from agentfox.engine.engine import Orchestrator
 from agentfox.engine.state import ExecutionState, RunStatus
 from agentfox.knowledge.db import ContextKnowledgeDB, open_knowledge_store
 from agentfox.knowledge.duckdb_sink import DuckDBSink
 from agentfox.knowledge.fox_provider import FoxKnowledgeProvider
-from agentfox.knowledge.sink import SinkDispatcher
 
 if TYPE_CHECKING:
     from agentfox.core.config import AgentFoxConfig, OrchestratorConfig

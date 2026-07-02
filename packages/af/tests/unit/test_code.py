@@ -358,9 +358,9 @@ class TestNodeSessionRunnerHarvestError:
         self,
     ) -> None:
         """Integration error produces a failed record mentioning harvest."""
+        from afaudit.sink import SessionOutcome
         from agentfox.core.errors import IntegrationError
         from agentfox.engine.session_lifecycle import NodeSessionRunner
-        from agentfox.knowledge.sink import SessionOutcome
 
         config = AgentFoxConfig()
         runner = NodeSessionRunner("test_spec:1", config, knowledge_db=_MOCK_KB)

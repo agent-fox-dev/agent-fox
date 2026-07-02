@@ -15,7 +15,7 @@ from agentfox.platform.labels import LABEL_FIX
 from agentfox.platform.protocol import IssueResult
 
 if TYPE_CHECKING:
-    from agentfox.knowledge.sink import SinkDispatcher
+    from afaudit.sink import SinkDispatcher
 
 logger = logging.getLogger(__name__)
 

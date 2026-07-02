@@ -7,7 +7,7 @@ Requirements: 03-REQ-3.3
 
 from __future__ import annotations
 
-from agentfox.knowledge.sink import SessionOutcome
+from afaudit.sink import SessionOutcome
 from hypothesis import given, settings
 from hypothesis import strategies as st
 

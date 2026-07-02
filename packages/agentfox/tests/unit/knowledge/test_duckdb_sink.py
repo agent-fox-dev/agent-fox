@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import duckdb
 import pytest
+from afaudit.sink import SessionOutcome, ToolCall, ToolError
 from agentfox.knowledge.duckdb_sink import DuckDBSink
-from agentfox.knowledge.sink import SessionOutcome, ToolCall, ToolError
 
 from tests.unit.knowledge.conftest import create_schema
 

@@ -21,15 +21,15 @@ from afaudit.events import (
     AuditJsonlSink,
     AuditSeverity,
 )
-from agentfox.knowledge.duckdb_sink import DuckDBSink
-from agentfox.knowledge.migrations import MIGRATIONS
-from agentfox.knowledge.sink import (
+from afaudit.sink import (
     SessionOutcome,
     SessionSink,
     SinkDispatcher,
     ToolCall,
     ToolError,
 )
+from agentfox.knowledge.duckdb_sink import DuckDBSink
+from agentfox.knowledge.migrations import MIGRATIONS
 
 # -- Mock sinks for audit event testing -------------------------------------
 

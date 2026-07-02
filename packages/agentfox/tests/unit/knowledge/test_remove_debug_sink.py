@@ -8,8 +8,8 @@ from __future__ import annotations
 
 import duckdb
 import pytest
+from afaudit.sink import SessionOutcome
 from agentfox.knowledge.duckdb_sink import DuckDBSink
-from agentfox.knowledge.sink import SessionOutcome
 
 from tests.unit.knowledge.conftest import create_schema
 

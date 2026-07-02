@@ -15,6 +15,13 @@ from afaudit.events import (
     event_to_json,
     generate_run_id,
 )
+from afaudit.sink import (
+    SessionOutcome,
+    SessionSink,
+    SinkDispatcher,
+    ToolCall,
+    ToolError,
+)
 
 __all__ = [
     # constants
@@ -28,4 +35,10 @@ __all__ = [
     "event_from_json",
     "event_to_json",
     "generate_run_id",
+    # sink
+    "SessionOutcome",
+    "SessionSink",
+    "SinkDispatcher",
+    "ToolCall",
+    "ToolError",
 ]

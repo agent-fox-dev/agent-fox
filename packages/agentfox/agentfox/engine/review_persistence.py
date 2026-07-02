@@ -17,10 +17,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from afaudit.events import AuditEventType, AuditSeverity
+from afaudit.sink import SessionSink, SinkDispatcher
 
 from agentfox.core.json_extraction import extract_json_array
 from agentfox.engine.audit_helpers import emit_audit_event
-from agentfox.knowledge.sink import SessionSink, SinkDispatcher
 
 if TYPE_CHECKING:
     from agentfox.knowledge.review_store import ReviewFinding

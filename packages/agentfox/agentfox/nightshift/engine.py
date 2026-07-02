@@ -31,9 +31,9 @@ from agentfox.ui.progress import ActivityCallback, SpinnerCallback, TaskCallback
 
 if TYPE_CHECKING:
     import duckdb
+    from afaudit.sink import SinkDispatcher
 
     from agentfox.knowledge.fox_provider import KnowledgeProvider
-    from agentfox.knowledge.sink import SinkDispatcher
 
 logger = logging.getLogger(__name__)
 

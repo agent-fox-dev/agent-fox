@@ -41,6 +41,7 @@ from afaudit.events import (
     AuditSeverity,
     generate_run_id,
 )
+from afaudit.sink import SinkDispatcher
 
 from agentfox.core.config import (
     AgentFoxConfig,
@@ -82,7 +83,6 @@ from agentfox.graph.injection import ensure_graph_archetypes
 from agentfox.graph.persistence import load_plan, save_plan
 from agentfox.graph.types import TaskGraph
 from agentfox.knowledge.audit import enforce_audit_retention
-from agentfox.knowledge.sink import SinkDispatcher
 from agentfox.ui.progress import TaskCallback
 
 logger = logging.getLogger(__name__)

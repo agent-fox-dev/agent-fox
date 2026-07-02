@@ -18,8 +18,7 @@ from typing import IO, TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from afaudit.events import AuditEvent
-
-    from agentfox.knowledge.sink import SessionOutcome, ToolCall, ToolError
+    from afaudit.sink import SessionOutcome, ToolCall, ToolError
 
 logger = logging.getLogger("agentfox.knowledge.agent_trace")
 

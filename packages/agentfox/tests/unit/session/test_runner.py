@@ -17,8 +17,8 @@ from collections.abc import AsyncIterator
 from unittest.mock import MagicMock, patch
 
 import pytest
+from afaudit.sink import SinkDispatcher, ToolCall, ToolError
 from agentfox.core.config import AgentFoxConfig
-from agentfox.knowledge.sink import SinkDispatcher, ToolCall, ToolError
 from agentfox.session.backends.types import (
     AgentMessage,
     AssistantMessage,

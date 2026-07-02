@@ -17,7 +17,7 @@ from afaudit.events import (
     AuditEventType,
     AuditSeverity,
 )
-from agentfox.knowledge.sink import SinkDispatcher
+from afaudit.sink import SinkDispatcher
 
 # -- Helpers -----------------------------------------------------------------
 
