@@ -12,7 +12,7 @@ from pathlib import Path
 from uuid import uuid4
 
 import duckdb
-from agentfox.knowledge.audit import (
+from afaudit.events import (
     AuditEvent,
     AuditEventType,
     AuditSeverity,

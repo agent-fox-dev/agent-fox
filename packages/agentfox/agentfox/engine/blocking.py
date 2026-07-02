@@ -12,11 +12,12 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from afaudit.events import AuditEventType
+
 from agentfox.core.config import ArchetypesConfig
 from agentfox.core.node_id import parse_node_id
 from agentfox.engine.audit_helpers import emit_audit_event
 from agentfox.engine.state import SessionRecord
-from agentfox.knowledge.audit import AuditEventType
 
 logger = logging.getLogger(__name__)
 

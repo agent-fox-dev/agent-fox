@@ -151,7 +151,7 @@ class TestAuditEventIncludesSummary:
 
         Requirements: 119-REQ-4.1
         """
-        from agentfox.knowledge.audit import AuditEventType
+        from afaudit.events import AuditEventType
 
         workspace = MagicMock()
         workspace.path = tmp_path
@@ -275,7 +275,7 @@ class TestAuditEventOmitsSummaryWhenMissing:
 
         Requirements: 119-REQ-4.2
         """
-        from agentfox.knowledge.audit import AuditEventType
+        from afaudit.events import AuditEventType
 
         workspace = MagicMock()
         workspace.path = tmp_path
@@ -496,7 +496,7 @@ class TestSummaryAvailableToBothPaths:
 
         Requirements: 119-REQ-5.3
         """
-        from agentfox.knowledge.audit import AuditEventType
+        from afaudit.events import AuditEventType
 
         workspace = MagicMock()
         workspace.path = tmp_path
@@ -676,7 +676,7 @@ class TestSmokeAuditEventIncludesSummary:
 
         Requirements: 119-REQ-4.1, 119-REQ-5.3
         """
-        from agentfox.knowledge.audit import AuditEventType
+        from afaudit.events import AuditEventType
 
         agent_fox_dir = tmp_path / ".agent-fox"
         agent_fox_dir.mkdir()

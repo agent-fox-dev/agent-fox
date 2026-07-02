@@ -16,9 +16,9 @@ import json
 import uuid
 from unittest.mock import MagicMock, patch
 
+from afaudit.events import AuditEventType, AuditSeverity
 from agentfox.core.config import AgentFoxConfig
 from agentfox.engine.session_lifecycle import NodeSessionRunner
-from agentfox.knowledge.audit import AuditEventType, AuditSeverity
 from agentfox.knowledge.db import KnowledgeDB
 from agentfox.knowledge.review_store import ReviewFinding, insert_findings
 

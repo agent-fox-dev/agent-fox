@@ -10,6 +10,8 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from afaudit.events import AuditEventType
+
 from agentfox.core.config import (
     AgentFoxConfig,
     ArchetypesConfig,
@@ -21,7 +23,6 @@ from agentfox.core.errors import ConfigError
 from agentfox.core.models import content_hash
 from agentfox.engine.audit_helpers import emit_audit_event
 from agentfox.engine.circuit import CircuitBreaker
-from agentfox.knowledge.audit import AuditEventType
 
 logger = logging.getLogger(__name__)
 

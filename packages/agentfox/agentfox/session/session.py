@@ -18,14 +18,15 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
+from afaudit.events import (
+    AuditEvent,
+    AuditEventType,
+)
+
 from agentfox.core.config import AgentFoxConfig
 from agentfox.core.models import resolve_model
 from agentfox.core.security import make_pre_tool_use_hook
 from agentfox.engine.sdk_params import resolve_model_tier
-from agentfox.knowledge.audit import (
-    AuditEvent,
-    AuditEventType,
-)
 from agentfox.knowledge.sink import SessionOutcome, SinkDispatcher, ToolCall, ToolError
 from agentfox.session.backends.claude import ClaudeBackend
 from agentfox.session.backends.types import (

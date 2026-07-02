@@ -13,8 +13,9 @@ import logging
 import time
 from typing import Any
 
+from afaudit.events import AuditEventType
+
 from agentfox.engine.audit_helpers import emit_audit_event
-from agentfox.knowledge.audit import AuditEventType
 from agentfox.nightshift.fix_pipeline import FixReviewResult, TriageResult
 from agentfox.nightshift.spec_builder import InMemorySpec
 from agentfox.ui.progress import TaskEvent

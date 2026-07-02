@@ -13,8 +13,8 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from afaudit.events import AuditEventType
 from agentfox.core.json_extraction import extract_json_array
-from agentfox.knowledge.audit import AuditEventType
 from agentfox.knowledge.review_store import ReviewFinding
 from agentfox.session.convergence import (
     AuditEntry,

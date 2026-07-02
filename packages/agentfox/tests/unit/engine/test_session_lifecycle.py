@@ -345,7 +345,7 @@ class TestNoDuplicateHarvestCompleteEvent:
     @pytest.mark.asyncio
     async def test_run_and_harvest_does_not_emit_harvest_complete_directly(self) -> None:
         """emit_audit_event must NOT be called with HARVEST_COMPLETE in _run_and_harvest."""
-        from agentfox.knowledge.audit import AuditEventType
+        from afaudit.events import AuditEventType
 
         config = AgentFoxConfig()
         sink = MagicMock()

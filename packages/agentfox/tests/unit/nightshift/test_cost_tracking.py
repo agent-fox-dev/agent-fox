@@ -244,7 +244,7 @@ class TestProcessIssueGeneratesRunId:
     @pytest.mark.asyncio
     async def test_process_issue_generates_unique_run_ids(self) -> None:
         """Two successive process_issue calls produce two distinct run_ids."""
-        from agentfox.knowledge.audit import generate_run_id as real_generate_run_id
+        from afaudit.events import generate_run_id as real_generate_run_id
         from agentfox.nightshift.fix_pipeline import FixPipeline
         from agentfox.platform.protocol import IssueResult
 
@@ -345,7 +345,7 @@ class TestEnginePropagatessRunId:
         issue = IssueResult(number=7, title="A bug", html_url="http://example.com/7")
         generated_ids: list[str] = []
 
-        from agentfox.knowledge.audit import generate_run_id as real_generate_run_id
+        from afaudit.events import generate_run_id as real_generate_run_id
 
         def _track_generate() -> str:
             rid = real_generate_run_id()
@@ -442,7 +442,7 @@ class TestSessionCompleteEmitted:
     @pytest.mark.asyncio
     async def test_session_complete_emitted_after_triage(self) -> None:
         """_run_triage emits session.complete with archetype, cost, tokens."""
-        from agentfox.knowledge.audit import AuditEventType
+        from afaudit.events import AuditEventType
         from agentfox.nightshift.fix_pipeline import FixPipeline
 
         mock_sink = MagicMock(spec=SinkDispatcher)
@@ -490,7 +490,7 @@ class TestSessionFailEmitted:
     @pytest.mark.asyncio
     async def test_session_fail_emitted_when_triage_raises(self) -> None:
         """session.fail with error_message emitted when _run_session raises."""
-        from agentfox.knowledge.audit import AuditEventType
+        from afaudit.events import AuditEventType
         from agentfox.nightshift.fix_pipeline import FixPipeline
 
         mock_sink = MagicMock(spec=SinkDispatcher)
@@ -536,7 +536,7 @@ class TestEmitAuxiliaryCost:
     def test_emit_auxiliary_cost_session_complete(self) -> None:
         """emit_auxiliary_cost emits SESSION_COMPLETE with archetype and cost."""
         # FAILS with ModuleNotFoundError until cost_helpers.py is created
-        from agentfox.knowledge.audit import AuditEventType
+        from afaudit.events import AuditEventType
         from agentfox.nightshift.cost_helpers import emit_auxiliary_cost  # type: ignore[import]
 
         mock_sink = MagicMock(spec=SinkDispatcher)
@@ -786,8 +786,8 @@ class TestEmptyRunIdSkipsEmission:
         This validates the existing guard in engine/audit_helpers.py which is
         the foundation for graceful degradation across all nightshift audit calls.
         """
+        from afaudit.events import AuditEventType
         from agentfox.engine.audit_helpers import emit_audit_event
-        from agentfox.knowledge.audit import AuditEventType
 
         mock_sink = MagicMock(spec=SinkDispatcher)
 

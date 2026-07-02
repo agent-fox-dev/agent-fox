@@ -163,7 +163,7 @@ class TestTimeoutThenSuccess:
 
     def test_timeout_then_success_emits_timeout_retry_event(self) -> None:
         """TS-75-E1: Timeout retry emits SESSION_TIMEOUT_RETRY audit event."""
-        from agentfox.knowledge.audit import AuditEventType
+        from afaudit.events import AuditEventType
 
         # Currently FAILS: SESSION_TIMEOUT_RETRY doesn't exist.
         event_type = AuditEventType.SESSION_TIMEOUT_RETRY

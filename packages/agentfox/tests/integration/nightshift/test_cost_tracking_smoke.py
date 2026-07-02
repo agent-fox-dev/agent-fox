@@ -59,9 +59,7 @@ def _make_in_memory_sink() -> tuple[duckdb.DuckDBPyConnection, SinkDispatcher]:
 
 
 def _make_config() -> MagicMock:
-    from agentfox.core.config import PricingConfig
-
-    from agentfox.core.config import ArchetypesConfig
+    from agentfox.core.config import ArchetypesConfig, PricingConfig
 
     config = MagicMock()
     config.platform.type = "github"

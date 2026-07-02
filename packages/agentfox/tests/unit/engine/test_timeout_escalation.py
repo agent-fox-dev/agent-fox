@@ -715,7 +715,7 @@ class TestTimeoutRetryAuditEvent:
 
     def test_timeout_retry_emits_audit_event(self) -> None:
         """TS-75-21: Processing a timeout record emits SESSION_TIMEOUT_RETRY event."""
-        from agentfox.knowledge.audit import AuditEventType
+        from afaudit.events import AuditEventType
 
         # Currently FAILS: SESSION_TIMEOUT_RETRY doesn't exist.
         event_type = AuditEventType.SESSION_TIMEOUT_RETRY
@@ -737,7 +737,7 @@ class TestTimeoutRetryAuditEvent:
 
     def test_timeout_retry_event_has_required_payload_fields(self) -> None:
         """TS-75-21: SESSION_TIMEOUT_RETRY event payload has timeout_retry_count."""
-        from agentfox.knowledge.audit import AuditEventType
+        from afaudit.events import AuditEventType
 
         event_type = AuditEventType.SESSION_TIMEOUT_RETRY  # Currently FAILS
 
@@ -805,7 +805,7 @@ class TestAuditEventPayloadValues:
 
     def test_payload_contains_original_and_extended_timeout(self) -> None:
         """TS-75-23: Payload includes original_timeout and extended_timeout."""
-        from agentfox.knowledge.audit import AuditEventType
+        from afaudit.events import AuditEventType
 
         event_type = AuditEventType.SESSION_TIMEOUT_RETRY  # Currently FAILS
 
@@ -831,7 +831,7 @@ class TestAuditEventPayloadValues:
 
     def test_payload_values_are_correct(self) -> None:
         """TS-75-23: Payload values match expected extended parameters."""
-        from agentfox.knowledge.audit import AuditEventType
+        from afaudit.events import AuditEventType
 
         event_type = AuditEventType.SESSION_TIMEOUT_RETRY  # Currently FAILS
 

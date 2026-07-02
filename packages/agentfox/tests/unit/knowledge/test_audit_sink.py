@@ -15,7 +15,7 @@ from pathlib import Path
 
 import duckdb
 import pytest
-from agentfox.knowledge.audit import (
+from afaudit.events import (
     AuditEvent,
     AuditEventType,
     AuditJsonlSink,

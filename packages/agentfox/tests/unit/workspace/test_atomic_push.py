@@ -13,8 +13,8 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from afaudit.events import AuditEvent, AuditEventType
 from agentfox.core.errors import IntegrationError
-from agentfox.knowledge.audit import AuditEvent, AuditEventType
 from agentfox.workspace import WorkspaceInfo
 from agentfox.workspace.harvest import harvest, post_harvest_integrate
 from agentfox.workspace.merge_lock import MergeLock

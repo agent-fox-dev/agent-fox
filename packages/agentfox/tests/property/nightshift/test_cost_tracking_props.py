@@ -229,7 +229,7 @@ class TestRunIdUniqueness:
         nightshift cost tracking implementation will use. It passes on the
         current codebase since generate_run_id() already exists.
         """
-        from agentfox.knowledge.audit import generate_run_id
+        from afaudit.events import generate_run_id
 
         ids = [generate_run_id() for _ in range(n)]
         assert len(set(ids)) == n, (

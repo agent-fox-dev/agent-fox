@@ -17,10 +17,10 @@ import uuid
 from pathlib import Path
 from unittest.mock import MagicMock
 
+from afaudit.events import AuditEventType
 from agentfox.core.config import AgentFoxConfig
 from agentfox.engine.session_lifecycle import NodeSessionRunner
 from agentfox.graph.injection import build_review_only_graph
-from agentfox.knowledge.audit import AuditEventType
 from agentfox.knowledge.db import KnowledgeDB
 from agentfox.knowledge.migrations import apply_pending_migrations
 from agentfox.knowledge.review_store import (

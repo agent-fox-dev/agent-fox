@@ -11,10 +11,10 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from afaudit.events import AuditEvent, AuditEventType
 from agentfox.core.config import OrchestratorConfig
 from agentfox.engine.engine import Orchestrator
 from agentfox.engine.state import ExecutionState
-from agentfox.knowledge.audit import AuditEvent, AuditEventType
 from agentfox.knowledge.sink import SinkDispatcher
 
 # ---------------------------------------------------------------------------

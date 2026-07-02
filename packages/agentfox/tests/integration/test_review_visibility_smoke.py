@@ -29,8 +29,8 @@ class TestFindingsPersistenceAuditE2E:
     """
 
     def test_findings_inserted_and_event_emitted(self) -> None:
+        from afaudit.events import AuditEventType
         from agentfox.engine.review_persistence import persist_review_findings
-        from agentfox.knowledge.audit import AuditEventType
 
         conn = duckdb.connect(":memory:")
         conn.execute(SCHEMA_DDL)

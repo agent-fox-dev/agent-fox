@@ -194,7 +194,7 @@ async def run_sync_barrier_sequence(
     Requirements: 06-REQ-6.1, 06-REQ-6.2, 06-REQ-6.3,
                   51-REQ-2.*, 51-REQ-3.*, 114-REQ-5.1, 114-REQ-5.2
     """
-    from agentfox.knowledge.audit import AuditEventType
+    from afaudit.events import AuditEventType
 
     completed_count = _count_node_status(state.node_states, "completed")
     barrier_number = completed_count // sync_interval

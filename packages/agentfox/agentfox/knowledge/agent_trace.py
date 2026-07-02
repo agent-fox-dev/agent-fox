@@ -17,7 +17,8 @@ from pathlib import Path
 from typing import IO, TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from agentfox.knowledge.audit import AuditEvent
+    from afaudit.events import AuditEvent
+
     from agentfox.knowledge.sink import SessionOutcome, ToolCall, ToolError
 
 logger = logging.getLogger("agentfox.knowledge.agent_trace")

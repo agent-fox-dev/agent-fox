@@ -17,17 +17,17 @@ from pathlib import Path
 from uuid import uuid4
 
 import duckdb
-from agentfox.knowledge.audit import (
+from afaudit.events import (
     AuditEvent,
     AuditEventType,
     AuditJsonlSink,
     AuditSeverity,
     default_severity_for,
-    enforce_audit_retention,
     event_from_json,
     event_to_json,
     generate_run_id,
 )
+from agentfox.knowledge.audit import enforce_audit_retention
 from agentfox.knowledge.duckdb_sink import DuckDBSink
 from agentfox.knowledge.sink import SinkDispatcher
 from hypothesis import given, settings

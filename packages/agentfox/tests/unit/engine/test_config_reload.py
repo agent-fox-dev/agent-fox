@@ -13,6 +13,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from afaudit.events import AuditEventType
 from agentfox.core.config import (
     AgentFoxConfig,
     ArchetypesConfig,
@@ -23,7 +24,6 @@ from agentfox.engine.barrier import run_sync_barrier_sequence
 from agentfox.engine.engine import Orchestrator
 from agentfox.engine.hot_load import should_trigger_barrier
 from agentfox.engine.state import ExecutionState
-from agentfox.knowledge.audit import AuditEventType
 
 from .conftest import MockSessionRunner
 

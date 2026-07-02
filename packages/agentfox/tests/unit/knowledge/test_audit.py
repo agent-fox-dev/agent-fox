@@ -11,7 +11,7 @@ import re
 from datetime import UTC, datetime
 from uuid import UUID
 
-from agentfox.knowledge.audit import (
+from afaudit.events import (
     AuditEvent,
     AuditEventType,
     AuditSeverity,

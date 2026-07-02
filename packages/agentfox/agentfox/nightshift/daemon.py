@@ -22,8 +22,9 @@ if TYPE_CHECKING:
     from agentfox.nightshift.streams import WorkStream
     from agentfox.platform.protocol import PlatformProtocol
 
+from afaudit.events import AuditEventType, generate_run_id
+
 from agentfox.engine.audit_helpers import emit_audit_event as _emit_audit_event
-from agentfox.knowledge.audit import AuditEventType, generate_run_id
 
 logger = logging.getLogger(__name__)
 

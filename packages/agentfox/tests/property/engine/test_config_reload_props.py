@@ -14,12 +14,12 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
+from afaudit.events import AuditEventType
 from agentfox.core.config import (
     AgentFoxConfig,
     OrchestratorConfig,
 )
 from agentfox.engine.engine import Orchestrator
-from agentfox.knowledge.audit import AuditEventType
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 

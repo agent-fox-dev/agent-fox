@@ -13,6 +13,7 @@ import warnings
 from pathlib import Path
 
 import agentfox.core.config as config_mod
+from afaudit.events import AuditEventType
 from agentfox.core.config import AgentFoxConfig, OrchestratorConfig, load_config
 from agentfox.core.config_gen import (
     _BOUNDS_MAP_OVERRIDES,
@@ -20,7 +21,6 @@ from agentfox.core.config_gen import (
     _VISIBLE_SECTIONS,
     generate_default_config,
 )
-from agentfox.knowledge.audit import AuditEventType
 
 # ---------------------------------------------------------------------------
 # Unit tests: field absence (TS-130-1 through TS-130-4)

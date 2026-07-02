@@ -35,6 +35,13 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from agentfox.platform.protocol import PlatformProtocol
 
+from afaudit.events import (
+    AuditEventType,
+    AuditJsonlSink,
+    AuditSeverity,
+    generate_run_id,
+)
+
 from agentfox.core.config import (
     AgentFoxConfig,
     ArchetypesConfig,
@@ -74,13 +81,7 @@ from agentfox.engine.state_manager import (
 from agentfox.graph.injection import ensure_graph_archetypes
 from agentfox.graph.persistence import load_plan, save_plan
 from agentfox.graph.types import TaskGraph
-from agentfox.knowledge.audit import (
-    AuditEventType,
-    AuditJsonlSink,
-    AuditSeverity,
-    enforce_audit_retention,
-    generate_run_id,
-)
+from agentfox.knowledge.audit import enforce_audit_retention
 from agentfox.knowledge.sink import SinkDispatcher
 from agentfox.ui.progress import TaskCallback
 

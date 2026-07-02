@@ -14,6 +14,8 @@ from collections import defaultdict
 from datetime import UTC, datetime
 from typing import Any
 
+from afaudit.events import AuditEventType, AuditSeverity
+
 from agentfox.engine.audit_helpers import emit_audit_event
 from agentfox.engine.graph_sync import GraphSync, _is_auto_pre
 from agentfox.engine.session_lifecycle import _REVIEW_ARCHETYPES
@@ -24,7 +26,6 @@ from agentfox.engine.state import (
     load_state_from_db,
 )
 from agentfox.graph.types import NodeStatus, TaskGraph
-from agentfox.knowledge.audit import AuditEventType, AuditSeverity
 from agentfox.ui.progress import TaskCallback, TaskEvent
 
 logger = logging.getLogger(__name__)

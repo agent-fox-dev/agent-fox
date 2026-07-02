@@ -14,8 +14,8 @@ from unittest.mock import MagicMock
 
 from agentfox.engine.graph_sync import GraphSync
 from agentfox.engine.result_handler import (
-    SessionResultHandler,
     _MAX_ENVIRONMENT_FAILURES,
+    SessionResultHandler,
 )
 from agentfox.engine.state import ExecutionState, SessionRecord
 
@@ -204,7 +204,7 @@ class TestEnvironmentFailureCircuitBreaker:
 class TestEnvironmentFailureAuditEvent:
 
     def test_emits_audit_event(self) -> None:
-        from agentfox.knowledge.audit import AuditEventType
+        from afaudit.events import AuditEventType
         from agentfox.knowledge.sink import SinkDispatcher
 
         capture = _EventCaptureSink()

@@ -20,9 +20,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from afaudit.events import AuditEventType, generate_run_id
+
 from agentfox.core.config import AgentFoxConfig
 from agentfox.engine.audit_helpers import emit_audit_event
-from agentfox.knowledge.audit import AuditEventType, generate_run_id
 from agentfox.nightshift.prior_attempts import format_prior_attempts, query_prior_attempts
 from agentfox.nightshift.spec_builder import (
     InMemorySpec,

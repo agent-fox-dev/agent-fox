@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 from uuid import UUID, uuid4
 
 if TYPE_CHECKING:
-    from agentfox.knowledge.audit import AuditEvent
+    from afaudit.events import AuditEvent
 
 logger = logging.getLogger("agentfox.knowledge.sink")
 

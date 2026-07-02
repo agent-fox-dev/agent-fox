@@ -17,6 +17,8 @@ import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
+from afaudit.events import AuditEventType, AuditSeverity
+
 from agentfox.core.config import AgentFoxConfig
 from agentfox.core.errors import IntegrationError
 from agentfox.core.models import ModelTier, resolve_model
@@ -33,7 +35,6 @@ from agentfox.engine.sdk_params import (
     resolve_session_params,
 )
 from agentfox.engine.state import SessionRecord
-from agentfox.knowledge.audit import AuditEventType, AuditSeverity
 from agentfox.knowledge.db import ContextKnowledgeDB, KnowledgeDB
 from agentfox.knowledge.fox_provider import KnowledgeProvider
 from agentfox.knowledge.sink import SessionOutcome, SinkDispatcher

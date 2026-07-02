@@ -75,8 +75,8 @@ class TestAuditEventCountProperty:
         """Audit event count equals number of inserted records."""
         from unittest.mock import MagicMock
 
+        from afaudit.events import AuditEventType
         from agentfox.engine.review_persistence import persist_review_findings
-        from agentfox.knowledge.audit import AuditEventType
 
         conn = duckdb.connect(":memory:")
         conn.execute(SCHEMA_DDL)

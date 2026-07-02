@@ -20,11 +20,12 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from afaudit.events import AuditEventType
+
 from agentfox.engine.audit_helpers import emit_audit_event
 from agentfox.engine.graph_sync import _is_auto_pre
 from agentfox.engine.session_lifecycle import _REVIEW_ARCHETYPES
 from agentfox.engine.state import SessionRecord
-from agentfox.knowledge.audit import AuditEventType
 from agentfox.ui.progress import TaskCallback, TaskEvent
 
 logger = logging.getLogger(__name__)

@@ -15,8 +15,9 @@ import logging
 import shutil
 from pathlib import Path
 
+from afaudit.events import AuditEvent, AuditEventType
+
 from agentfox.core.errors import IntegrationError
-from agentfox.knowledge.audit import AuditEvent, AuditEventType
 from agentfox.workspace import (
     WorkspaceInfo,
     _sync_integration_with_remote,

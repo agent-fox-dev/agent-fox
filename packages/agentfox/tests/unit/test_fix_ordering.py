@@ -630,7 +630,7 @@ class TestObservability:
 
             # Check audit event "night_shift.issue_obsolete"
             # New signature: _emit_audit_event(sink, run_id, AuditEventType, payload=...)
-            from agentfox.knowledge.audit import AuditEventType
+            from afaudit.events import AuditEventType
 
             audit_calls = [
                 c for c in mock_audit.call_args_list if len(c.args) >= 3 and c.args[2] == AuditEventType.ISSUE_OBSOLETE
@@ -685,7 +685,7 @@ class TestObservability:
 
             # Verify the night_shift.issue_superseded audit event was emitted
             # New signature: _emit_audit_event(sink, run_id, AuditEventType, payload=...)
-            from agentfox.knowledge.audit import AuditEventType
+            from afaudit.events import AuditEventType
 
             audit_calls = [
                 c

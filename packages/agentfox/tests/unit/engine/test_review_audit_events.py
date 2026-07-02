@@ -15,8 +15,8 @@ import json
 from unittest.mock import MagicMock
 
 import duckdb
+from afaudit.events import AuditEventType
 from agentfox.engine.review_persistence import persist_review_findings
-from agentfox.knowledge.audit import AuditEventType
 
 
 def _make_reviewer_transcript(findings: list[dict]) -> str:
