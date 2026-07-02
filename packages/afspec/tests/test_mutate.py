@@ -33,6 +33,7 @@ from afspec.mutate import (
     add_task_group,
     add_test_case,
     add_traceability_entry,
+    complete_subtask_states,
     get_requirement,
     next_requirement_id,
     next_test_case_id,
@@ -463,3 +464,76 @@ class TestResetSubtaskStates:
         updated = reset_subtask_states(tasks, [1])
         assert updated.task_groups[0].subtasks[0].state == SubtaskState.PENDING
         assert updated.task_groups[1].subtasks[0].state == SubtaskState.DONE
+
+
+# ---------------------------------------------------------------------------
+# complete_subtask_states tests
+# ---------------------------------------------------------------------------
+
+
+class TestCompleteSubtaskStates:
+    def test_marks_pending_as_done(self) -> None:
+        tasks = Tasks(
+            task_groups=[
+                TaskGroup(
+                    id=1,
+                    subtasks=[
+                        Subtask(id="1.1", title="A", state=SubtaskState.PENDING),
+                        Subtask(id="1.2", title="B", state=SubtaskState.IN_PROGRESS),
+                    ],
+                ),
+            ],
+        )
+        updated = complete_subtask_states(tasks, [1])
+        assert all(s.state == SubtaskState.DONE for s in updated.task_groups[0].subtasks)
+
+    def test_skips_dropped(self) -> None:
+        tasks = Tasks(
+            task_groups=[
+                TaskGroup(
+                    id=1,
+                    subtasks=[
+                        Subtask(id="1.1", title="A", state=SubtaskState.PENDING),
+                        Subtask(id="1.2", title="B", state=SubtaskState.DROPPED),
+                    ],
+                ),
+            ],
+        )
+        updated = complete_subtask_states(tasks, [1])
+        assert updated.task_groups[0].subtasks[0].state == SubtaskState.DONE
+        assert updated.task_groups[0].subtasks[1].state == SubtaskState.DROPPED
+
+    def test_skips_already_done(self) -> None:
+        tasks = Tasks(
+            task_groups=[
+                TaskGroup(
+                    id=1,
+                    subtasks=[
+                        Subtask(id="1.1", title="A", state=SubtaskState.DONE),
+                    ],
+                ),
+            ],
+        )
+        updated = complete_subtask_states(tasks, [1])
+        assert updated.task_groups[0].subtasks[0].state == SubtaskState.DONE
+
+    def test_only_affects_specified_groups(self) -> None:
+        tasks = Tasks(
+            task_groups=[
+                TaskGroup(
+                    id=1,
+                    subtasks=[
+                        Subtask(id="1.1", title="A", state=SubtaskState.PENDING),
+                    ],
+                ),
+                TaskGroup(
+                    id=2,
+                    subtasks=[
+                        Subtask(id="2.1", title="B", state=SubtaskState.PENDING),
+                    ],
+                ),
+            ],
+        )
+        updated = complete_subtask_states(tasks, [1])
+        assert updated.task_groups[0].subtasks[0].state == SubtaskState.DONE
+        assert updated.task_groups[1].subtasks[0].state == SubtaskState.PENDING

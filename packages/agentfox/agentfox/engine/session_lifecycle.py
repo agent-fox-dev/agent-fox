@@ -605,6 +605,49 @@ class NodeSessionRunner:
 
         return status, error_message, touched_files, is_non_retryable
 
+    async def _mark_subtasks_done(self, workspace: WorkspaceInfo) -> None:
+        """Mark all subtasks in the task group as done in the worktree.
+
+        Loads the spec from the worktree, sets non-dropped subtasks to
+        done via afspec, saves, and commits the change. The commit gets
+        squash-merged with the agent's code changes during harvest.
+
+        Best-effort: logs and continues on any failure — the DB is the
+        real source of truth for completion status.
+        """
+        from agentfox.core.config import resolve_spec_root
+
+        try:
+            import afspec
+            from afspec.mutate import complete_subtask_states
+
+            spec_dir = resolve_spec_root(self._config, workspace.path) / self._spec_name
+            if not spec_dir.is_dir():
+                logger.debug("Spec dir not found in worktree for %s, skipping subtask update", self._spec_name)
+                return
+
+            spec = afspec.load_spec(spec_dir)
+            updated_tasks = complete_subtask_states(spec.tasks, [self._task_group])
+            spec = spec.model_copy(update={"tasks": updated_tasks})
+            afspec.save(spec, spec_dir)
+
+            from agentfox.workspace.git import run_git
+
+            tasks_json = spec_dir / "tasks.json"
+            await run_git(["add", str(tasks_json)], cwd=workspace.path, check=True)
+            await run_git(
+                ["commit", "-m", f"chore: mark task group {self._task_group} subtasks done"],
+                cwd=workspace.path,
+                check=True,
+            )
+        except Exception:
+            logger.warning(
+                "Failed to mark subtasks done for %s:%d in worktree",
+                self._spec_name,
+                self._task_group,
+                exc_info=True,
+            )
+
     def _ingest_knowledge(
         self,
         node_id: str,
@@ -765,6 +808,9 @@ class NodeSessionRunner:
                 cost,
                 resolved_budget,
             )
+
+        if outcome.status == "completed" and self._archetype == "coder":
+            await self._mark_subtasks_done(workspace)
 
         status, error_message, touched_files, is_non_retryable = await self._harvest_and_integrate(
             node_id,

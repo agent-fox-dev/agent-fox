@@ -57,7 +57,7 @@ from afspec.models import (
     VerificationSubtask,
     valid_transition,
 )
-from afspec.mutate import reset_subtask_states, transition_subtask
+from afspec.mutate import complete_subtask_states, reset_subtask_states, transition_subtask
 from afspec.render import render_combined, render_individual, render_requirements, render_tasks, render_test_spec
 from afspec.schemas import schemas
 from afspec.validation import (
@@ -112,6 +112,7 @@ __all__ = [
     "validate_cross_file",
     "transition",
     "transition_subtask",
+    "complete_subtask_states",
     "reset_subtask_states",
     "supersede",
     "move_to_archive",

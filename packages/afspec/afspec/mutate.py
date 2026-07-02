@@ -250,6 +250,30 @@ def transition_subtask(tasks: Tasks, subtask_id: str, target: SubtaskState) -> T
     raise KeyError(f"Subtask not found: {subtask_id}")
 
 
+def complete_subtask_states(tasks: Tasks, group_ids: list[int]) -> Tasks:
+    """Mark all subtasks in the specified groups as done.
+
+    Skips subtasks that are already done or dropped.
+    Bypasses the state machine — intended for orchestrator use
+    when a session has completed successfully.
+    Returns a new Tasks with the updated states.
+    """
+    target_set = set(group_ids)
+    new_groups = []
+    for group in tasks.task_groups:
+        if group.id not in target_set:
+            new_groups.append(group)
+            continue
+        new_subtasks = []
+        for subtask in group.subtasks:
+            if subtask.state in (SubtaskState.DONE, SubtaskState.DROPPED):
+                new_subtasks.append(subtask)
+            else:
+                new_subtasks.append(subtask.model_copy(update={"state": SubtaskState.DONE}))
+        new_groups.append(group.model_copy(update={"subtasks": new_subtasks}))
+    return tasks.model_copy(update={"task_groups": new_groups})
+
+
 def reset_subtask_states(tasks: Tasks, group_ids: list[int]) -> Tasks:
     """Reset all subtasks in the specified groups to pending.
 
