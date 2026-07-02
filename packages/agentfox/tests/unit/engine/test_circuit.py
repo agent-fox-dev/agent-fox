@@ -8,18 +8,14 @@ Requirements: 04-REQ-2.E1, 04-REQ-5.1, 04-REQ-5.2, 04-REQ-5.3
 
 from __future__ import annotations
 
-import logging
-from pathlib import Path
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock
 
-import pytest
-from agentfox.core.config import OrchestratorConfig, RoutingConfig
+from agentfox.core.config import OrchestratorConfig
 from agentfox.engine.circuit import CircuitBreaker
 from agentfox.engine.state import ExecutionState
 
 if TYPE_CHECKING:
-    from agentfox.engine.engine import Orchestrator
+    pass
 
 # -- Helpers ------------------------------------------------------------------
 
@@ -233,5 +229,3 @@ class TestRetryLimitEnforcement:
 # ---------------------------------------------------------------------------
 # AC-2: Orchestrator._resolve_retries_before_escalation deprecation
 # ---------------------------------------------------------------------------
-
-

@@ -215,21 +215,15 @@ class TestAllThreeFileTypesProduced:
         """
         # Record which agentfox modules were loaded BEFORE our imports.
         # The afaudit package modules should NOT pull in any new agentfox modules.
-        agentfox_modules_before = {
-            k for k in sys.modules if k == "agentfox" or k.startswith("agentfox.")
-        }
+        agentfox_modules_before = {k for k in sys.modules if k == "agentfox" or k.startswith("agentfox.")}
 
         # Re-import and use afaudit to trigger any lazy imports
         import afaudit.events  # noqa: F811, F401
         import afaudit.postmortem  # noqa: F811, F401
         import afaudit.trace  # noqa: F811, F401
 
-        agentfox_modules_after = {
-            k for k in sys.modules if k == "agentfox" or k.startswith("agentfox.")
-        }
+        agentfox_modules_after = {k for k in sys.modules if k == "agentfox" or k.startswith("agentfox.")}
 
         # afaudit should not have added any new agentfox modules
         new_agentfox_modules = agentfox_modules_after - agentfox_modules_before
-        assert not new_agentfox_modules, (
-            f"Importing afaudit modules pulled in agentfox modules: {new_agentfox_modules}"
-        )
+        assert not new_agentfox_modules, f"Importing afaudit modules pulled in agentfox modules: {new_agentfox_modules}"

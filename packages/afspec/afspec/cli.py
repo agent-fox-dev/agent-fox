@@ -58,9 +58,7 @@ def _cmd_update_subtask(args: argparse.Namespace) -> int:
         return 1
 
     try:
-        spec = spec.model_copy(
-            update={"tasks": transition_subtask(spec.tasks, args.subtask_id, target)}
-        )
+        spec = spec.model_copy(update={"tasks": transition_subtask(spec.tasks, args.subtask_id, target)})
     except KeyError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

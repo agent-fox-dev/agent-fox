@@ -26,11 +26,12 @@ dev = [
 testpaths = ["packages/agentfox/tests", "packages/af/tests", "packages/afaudit/tests", "packages/afspec/tests", "packages/agentspec/tests", "packages/nightshift/tests"]
 pythonpath = ["packages/agentfox"]
 asyncio_mode = "auto"
-addopts = "-n auto --dist=loadfile --timeout=15 -m 'not smoke'"
+addopts = "-n auto --dist=loadfile --timeout=15 -m 'not smoke' --import-mode=importlib"
 markers = [
     "property: Hypothesis property-based test",
     "slow: tests that take >1s (property, integration, orchestrator); excluded by test-fast",
     "smoke: End-to-end smoke test (slow, runs full suite as subprocess)",
+    "integration: Integration test requiring multiple workspace packages",
 ]
 
 [tool.uv.workspace]

@@ -115,9 +115,7 @@ def _setup_for_property(
                 for g in sorted(groups_set)
             ]
             spec = create_spec(spec_id="01", spec_name=spec_name)
-            spec = spec.model_copy(
-                update={"tasks": Tasks(spec_id="01", spec_name=spec_name, task_groups=task_groups)}
-            )
+            spec = spec.model_copy(update={"tasks": Tasks(spec_id="01", spec_name=spec_name, task_groups=task_groups)})
             save(spec, spec_dir)
 
     return state, db_conn, wt_dir, tmp_path

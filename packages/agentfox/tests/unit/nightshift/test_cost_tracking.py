@@ -786,8 +786,8 @@ class TestEmptyRunIdSkipsEmission:
         This validates the existing guard in engine/audit_helpers.py which is
         the foundation for graceful degradation across all nightshift audit calls.
         """
-        from afaudit.events import AuditEventType
         from afaudit.emit import emit_audit_event
+        from afaudit.events import AuditEventType
 
         mock_sink = MagicMock(spec=SinkDispatcher)
 

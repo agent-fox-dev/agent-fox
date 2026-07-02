@@ -66,8 +66,7 @@ class TestDuckDBSinkSatisfiesSessionSink:
             proto_names = [p for p in protocol_params if p != "self"]
             impl_names = [p for p in impl_params if p != "self"]
             assert proto_names == impl_names, (
-                f"DuckDBSink.{method_name} signature mismatch: "
-                f"protocol expects {proto_names}, got {impl_names}"
+                f"DuckDBSink.{method_name} signature mismatch: protocol expects {proto_names}, got {impl_names}"
             )
 
     def test_runtime_checkable_isinstance(self) -> None:

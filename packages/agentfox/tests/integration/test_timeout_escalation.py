@@ -227,9 +227,7 @@ class TestTimeoutExhaustionThenEscalation:
         Simulates: 2 timeouts (max_timeout_retries=1) → fall through to ladder.
         """
         node_id = "spec:1"
-        handler, state, sink, attempt_tracker, error_tracker = _make_handler_with_sink(
-            node_id, max_timeout_retries=1
-        )
+        handler, state, sink, attempt_tracker, error_tracker = _make_handler_with_sink(node_id, max_timeout_retries=1)
 
         # Currently FAILS: _max_timeout_retries doesn't exist.
         handler._max_timeout_retries = 1
@@ -269,9 +267,7 @@ class TestTimeoutExhaustionThenEscalation:
         import logging
 
         node_id = "spec:1"
-        handler, state, sink, attempt_tracker, error_tracker = _make_handler_with_sink(
-            node_id, max_timeout_retries=1
-        )
+        handler, state, sink, attempt_tracker, error_tracker = _make_handler_with_sink(node_id, max_timeout_retries=1)
 
         handler._max_timeout_retries = 1
         handler._get_node_state(node_id).timeout_retries = 1  # pre-exhaust
@@ -305,9 +301,7 @@ class TestTimeoutExhaustionThenEscalation:
         success should complete the node.
         """
         node_id = "spec:1"
-        handler, state, sink, attempt_tracker, error_tracker = _make_handler_with_sink(
-            node_id, max_timeout_retries=1
-        )
+        handler, state, sink, attempt_tracker, error_tracker = _make_handler_with_sink(node_id, max_timeout_retries=1)
 
         # Currently FAILS: _max_timeout_retries doesn't exist.
         handler._max_timeout_retries = 1

@@ -374,9 +374,7 @@ class TestArtifactSyncProperty:
             )
 
         spec = create_spec(spec_id="01", spec_name="propspec")
-        spec = spec.model_copy(
-            update={"tasks": Tasks(spec_id="01", spec_name="propspec", task_groups=groups)}
-        )
+        spec = spec.model_copy(update={"tasks": Tasks(spec_id="01", spec_name="propspec", task_groups=groups)})
         save(spec, spec_dir)
 
         reset_tasks_md_checkboxes(task_ids, specs_dir)

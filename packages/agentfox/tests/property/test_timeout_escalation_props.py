@@ -113,9 +113,7 @@ class TestTimeoutNeverDirectlyEscalates:
         # Clamp timeout_count to max_timeout_retries so retries remain.
         n = min(timeout_count, max_timeout_retries)
 
-        handler, state, attempt_tracker, error_tracker = _make_handler(
-            max_timeout_retries=max_timeout_retries
-        )
+        handler, state, attempt_tracker, error_tracker = _make_handler(max_timeout_retries=max_timeout_retries)
 
         # Currently FAILS: _max_timeout_retries doesn't exist.
         handler._max_timeout_retries = max_timeout_retries
@@ -184,9 +182,7 @@ class TestCounterIndependence:
         Validates: 75-REQ-2.1, 75-REQ-2.E1
         """
         max_timeout_retries = 5
-        handler, state, attempt_tracker, error_tracker = _make_handler(
-            max_timeout_retries=max_timeout_retries
-        )
+        handler, state, attempt_tracker, error_tracker = _make_handler(max_timeout_retries=max_timeout_retries)
 
         # Currently FAILS: _max_timeout_retries doesn't exist.
         handler._max_timeout_retries = max_timeout_retries

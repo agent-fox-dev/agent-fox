@@ -231,9 +231,7 @@ class TestExhaustedTimeoutRetries:
     def test_exhausted_timeout_does_not_call_mark_pending(self) -> None:
         """AC-5: When retries exhausted, _handle_timeout falls through to failure path."""
         node_id = "01_project_setup:2"
-        handler, state, attempt_tracker, error_tracker = _make_handler(
-            node_id, max_timeout_retries=1
-        )
+        handler, state, attempt_tracker, error_tracker = _make_handler(node_id, max_timeout_retries=1)
 
         handler._get_node_state(node_id).timeout_retries = 1  # already at max
         # Pre-exhaust the failure counter so the fall-through blocks

@@ -109,10 +109,7 @@ class TestZeroDependencies:
             # requires is None or a list of strings (PEP 508 markers).
             # Filter out extras; only check mandatory (no marker or no extra).
             if requires:
-                mandatory = [
-                    r for r in requires
-                    if "extra ==" not in r and "extra==" not in r
-                ]
+                mandatory = [r for r in requires if "extra ==" not in r and "extra==" not in r]
                 assert mandatory == [], f"Expected no mandatory deps, got: {mandatory}"
         except importlib.metadata.PackageNotFoundError:
             # Fall back to pip show

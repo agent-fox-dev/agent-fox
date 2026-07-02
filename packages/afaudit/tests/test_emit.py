@@ -27,8 +27,7 @@ class TestEmitModule:
     def test_calculate_session_cost_not_present(self) -> None:
         """calculate_session_cost must NOT be defined in afaudit.emit."""
         assert not hasattr(emit, "calculate_session_cost"), (
-            "calculate_session_cost should remain in agentfox.engine.audit_helpers, "
-            "not be migrated to afaudit.emit"
+            "calculate_session_cost should remain in agentfox.engine.audit_helpers, not be migrated to afaudit.emit"
         )
 
 

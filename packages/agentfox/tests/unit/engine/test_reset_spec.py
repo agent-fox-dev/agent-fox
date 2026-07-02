@@ -253,12 +253,20 @@ class TestTasksMdCheckboxesReset:
                     spec_id="01",
                     spec_name="alpha",
                     task_groups=[
-                        TaskGroup(id=1, title="Task One", subtasks=[
-                            Subtask(id="1.1", title="Subtask", state=SubtaskState.DONE),
-                        ]),
-                        TaskGroup(id=2, title="Task Two", subtasks=[
-                            Subtask(id="2.1", title="Subtask", state=SubtaskState.IN_PROGRESS),
-                        ]),
+                        TaskGroup(
+                            id=1,
+                            title="Task One",
+                            subtasks=[
+                                Subtask(id="1.1", title="Subtask", state=SubtaskState.DONE),
+                            ],
+                        ),
+                        TaskGroup(
+                            id=2,
+                            title="Task Two",
+                            subtasks=[
+                                Subtask(id="2.1", title="Subtask", state=SubtaskState.IN_PROGRESS),
+                            ],
+                        ),
                     ],
                 ),
             }

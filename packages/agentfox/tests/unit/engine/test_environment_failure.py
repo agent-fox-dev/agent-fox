@@ -10,7 +10,6 @@ Fixes: #656
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import MagicMock
 
 from agentfox.engine.graph_sync import GraphSync
 from agentfox.engine.result_handler import (
@@ -99,7 +98,6 @@ class _EventCaptureSink:
 
 
 class TestSessionRecordIsEnvironmentFailure:
-
     def test_zero_token_zero_cost_failed_is_env_failure(self) -> None:
         record = _make_env_failure_record()
         assert record.is_environment_failure is True
@@ -110,33 +108,50 @@ class TestSessionRecordIsEnvironmentFailure:
 
     def test_completed_session_is_not_env_failure(self) -> None:
         record = SessionRecord(
-            node_id="node1", attempt=1, status="completed",
-            input_tokens=0, output_tokens=0, cost=0.0,
-            duration_ms=100, error_message=None, timestamp="2026-07-01T10:00:00Z",
+            node_id="node1",
+            attempt=1,
+            status="completed",
+            input_tokens=0,
+            output_tokens=0,
+            cost=0.0,
+            duration_ms=100,
+            error_message=None,
+            timestamp="2026-07-01T10:00:00Z",
         )
         assert record.is_environment_failure is False
 
     def test_workspace_setup_failure_is_not_env_failure(self) -> None:
         record = SessionRecord(
-            node_id="node1", attempt=1, status="failed",
-            input_tokens=0, output_tokens=0, cost=0.0,
-            duration_ms=100, error_message="worktree error", timestamp="2026-07-01T10:00:00Z",
+            node_id="node1",
+            attempt=1,
+            status="failed",
+            input_tokens=0,
+            output_tokens=0,
+            cost=0.0,
+            duration_ms=100,
+            error_message="worktree error",
+            timestamp="2026-07-01T10:00:00Z",
             is_workspace_setup_failure=True,
         )
         assert record.is_environment_failure is False
 
     def test_transport_error_is_not_env_failure(self) -> None:
         record = SessionRecord(
-            node_id="node1", attempt=1, status="failed",
-            input_tokens=0, output_tokens=0, cost=0.0,
-            duration_ms=100, error_message="connection reset", timestamp="2026-07-01T10:00:00Z",
+            node_id="node1",
+            attempt=1,
+            status="failed",
+            input_tokens=0,
+            output_tokens=0,
+            cost=0.0,
+            duration_ms=100,
+            error_message="connection reset",
+            timestamp="2026-07-01T10:00:00Z",
             is_transport_error=True,
         )
         assert record.is_environment_failure is False
 
 
 class TestEnvironmentFailureDoesNotConsumeRetries:
-
     def test_env_failure_does_not_consume_retry_counter(self) -> None:
         handler, state, at, et = _make_handler(max_retries=2)
         record = _make_env_failure_record()
@@ -151,7 +166,6 @@ class TestEnvironmentFailureDoesNotConsumeRetries:
 
 
 class TestEnvironmentFailureBackoff:
-
     def test_first_env_failure_sets_backoff(self) -> None:
         handler, state, at, et = _make_handler()
         record = _make_env_failure_record()
@@ -168,7 +182,6 @@ class TestEnvironmentFailureBackoff:
 
 
 class TestEnvironmentFailureCircuitBreaker:
-
     def test_blocks_after_max_consecutive_failures(self) -> None:
         blocked_nodes: list[str] = []
 
@@ -202,7 +215,6 @@ class TestEnvironmentFailureCircuitBreaker:
 
 
 class TestEnvironmentFailureAuditEvent:
-
     def test_emits_audit_event(self) -> None:
         from afaudit.events import AuditEventType
         from afaudit.sink import SinkDispatcher
@@ -222,7 +234,6 @@ class TestEnvironmentFailureAuditEvent:
 
 
 class TestEnvironmentFailureResetsOnSuccess:
-
     def test_success_resets_counter(self) -> None:
         handler, state, at, et = _make_handler()
 
@@ -231,9 +242,15 @@ class TestEnvironmentFailureResetsOnSuccess:
         assert handler._get_node_state("node1").environment_failures == 1
 
         success_record = SessionRecord(
-            node_id="node1", attempt=2, status="completed",
-            input_tokens=5000, output_tokens=1200, cost=0.03,
-            duration_ms=45000, error_message=None, timestamp="2026-07-01T10:38:00Z",
+            node_id="node1",
+            attempt=2,
+            status="completed",
+            input_tokens=5000,
+            output_tokens=1200,
+            cost=0.03,
+            duration_ms=45000,
+            error_message=None,
+            timestamp="2026-07-01T10:38:00Z",
         )
         handler._graph_sync.node_states["node1"] = "in_progress"
         handler.process(success_record, attempt=2, state=state, attempt_tracker=at, error_tracker=et)

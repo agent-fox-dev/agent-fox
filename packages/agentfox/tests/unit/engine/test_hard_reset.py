@@ -606,17 +606,33 @@ class TestResetTasksMdCheckboxes:
         from agentfox.engine.reset import reset_tasks_md_checkboxes
 
         specs_dir = tmp_path / ".specs"
-        self._make_spec(specs_dir, "myspec", [
-            TaskGroup(id=1, title="First", subtasks=[
-                Subtask(id="1.1", title="Subtask", state=SubtaskState.DONE),
-            ]),
-            TaskGroup(id=2, title="Second", subtasks=[
-                Subtask(id="2.1", title="Subtask", state=SubtaskState.IN_PROGRESS),
-            ]),
-            TaskGroup(id=3, title="Third", subtasks=[
-                Subtask(id="3.1", title="Subtask", state=SubtaskState.PENDING),
-            ]),
-        ])
+        self._make_spec(
+            specs_dir,
+            "myspec",
+            [
+                TaskGroup(
+                    id=1,
+                    title="First",
+                    subtasks=[
+                        Subtask(id="1.1", title="Subtask", state=SubtaskState.DONE),
+                    ],
+                ),
+                TaskGroup(
+                    id=2,
+                    title="Second",
+                    subtasks=[
+                        Subtask(id="2.1", title="Subtask", state=SubtaskState.IN_PROGRESS),
+                    ],
+                ),
+                TaskGroup(
+                    id=3,
+                    title="Third",
+                    subtasks=[
+                        Subtask(id="3.1", title="Subtask", state=SubtaskState.PENDING),
+                    ],
+                ),
+            ],
+        )
 
         reset_tasks_md_checkboxes(["myspec:1", "myspec:2"], specs_dir)
 
@@ -631,12 +647,20 @@ class TestResetTasksMdCheckboxes:
         from agentfox.engine.reset import reset_tasks_md_checkboxes
 
         specs_dir = tmp_path / ".specs"
-        self._make_spec(specs_dir, "myspec", [
-            TaskGroup(id=1, title="First", subtasks=[
-                Subtask(id="1.1", title="Subtask one", state=SubtaskState.DONE),
-                Subtask(id="1.2", title="Subtask two", state=SubtaskState.DONE),
-            ]),
-        ])
+        self._make_spec(
+            specs_dir,
+            "myspec",
+            [
+                TaskGroup(
+                    id=1,
+                    title="First",
+                    subtasks=[
+                        Subtask(id="1.1", title="Subtask one", state=SubtaskState.DONE),
+                        Subtask(id="1.2", title="Subtask two", state=SubtaskState.DONE),
+                    ],
+                ),
+            ],
+        )
 
         reset_tasks_md_checkboxes(["myspec:1"], specs_dir)
 
@@ -649,13 +673,21 @@ class TestResetTasksMdCheckboxes:
         from agentfox.engine.reset import reset_tasks_md_checkboxes
 
         specs_dir = tmp_path / ".specs"
-        self._make_spec(specs_dir, "myspec", [
-            TaskGroup(id=1, title="First", subtasks=[
-                Subtask(id="1.1", title="Done", state=SubtaskState.DONE),
-                Subtask(id="1.2", title="In-progress", state=SubtaskState.IN_PROGRESS),
-                Subtask(id="1.3", title="Pending", state=SubtaskState.PENDING),
-            ]),
-        ])
+        self._make_spec(
+            specs_dir,
+            "myspec",
+            [
+                TaskGroup(
+                    id=1,
+                    title="First",
+                    subtasks=[
+                        Subtask(id="1.1", title="Done", state=SubtaskState.DONE),
+                        Subtask(id="1.2", title="In-progress", state=SubtaskState.IN_PROGRESS),
+                        Subtask(id="1.3", title="Pending", state=SubtaskState.PENDING),
+                    ],
+                ),
+            ],
+        )
 
         reset_tasks_md_checkboxes(["myspec:1"], specs_dir)
 
@@ -668,14 +700,26 @@ class TestResetTasksMdCheckboxes:
         from agentfox.engine.reset import reset_tasks_md_checkboxes
 
         specs_dir = tmp_path / ".specs"
-        self._make_spec(specs_dir, "myspec", [
-            TaskGroup(id=1, title="First", subtasks=[
-                Subtask(id="1.1", title="Subtask", state=SubtaskState.DONE),
-            ]),
-            TaskGroup(id=2, title="Second", subtasks=[
-                Subtask(id="2.1", title="Subtask", state=SubtaskState.DONE),
-            ]),
-        ])
+        self._make_spec(
+            specs_dir,
+            "myspec",
+            [
+                TaskGroup(
+                    id=1,
+                    title="First",
+                    subtasks=[
+                        Subtask(id="1.1", title="Subtask", state=SubtaskState.DONE),
+                    ],
+                ),
+                TaskGroup(
+                    id=2,
+                    title="Second",
+                    subtasks=[
+                        Subtask(id="2.1", title="Subtask", state=SubtaskState.DONE),
+                    ],
+                ),
+            ],
+        )
 
         reset_tasks_md_checkboxes(["myspec:1"], specs_dir)
 
@@ -689,12 +733,20 @@ class TestResetTasksMdCheckboxes:
         from agentfox.engine.reset import reset_tasks_md_checkboxes
 
         specs_dir = tmp_path / ".specs"
-        self._make_spec(specs_dir, "myspec", [
-            TaskGroup(id=1, title="First", subtasks=[
-                Subtask(id="1.1", title="Done", state=SubtaskState.DONE),
-                Subtask(id="1.2", title="Dropped", state=SubtaskState.DROPPED),
-            ]),
-        ])
+        self._make_spec(
+            specs_dir,
+            "myspec",
+            [
+                TaskGroup(
+                    id=1,
+                    title="First",
+                    subtasks=[
+                        Subtask(id="1.1", title="Done", state=SubtaskState.DONE),
+                        Subtask(id="1.2", title="Dropped", state=SubtaskState.DROPPED),
+                    ],
+                ),
+            ],
+        )
 
         reset_tasks_md_checkboxes(["myspec:1"], specs_dir)
 
@@ -890,11 +942,19 @@ class TestTasksMdMissing:
         from agentfox.engine.reset import reset_tasks_md_checkboxes
 
         specs_dir = tmp_path / ".specs"
-        TestResetTasksMdCheckboxes._make_spec(specs_dir, "existing_spec", [
-            TaskGroup(id=1, title="First", subtasks=[
-                Subtask(id="1.1", title="Subtask", state=SubtaskState.DONE),
-            ]),
-        ])
+        TestResetTasksMdCheckboxes._make_spec(
+            specs_dir,
+            "existing_spec",
+            [
+                TaskGroup(
+                    id=1,
+                    title="First",
+                    subtasks=[
+                        Subtask(id="1.1", title="Subtask", state=SubtaskState.DONE),
+                    ],
+                ),
+            ],
+        )
 
         reset_tasks_md_checkboxes(["existing_spec:1", "missing_spec:1"], specs_dir)
 

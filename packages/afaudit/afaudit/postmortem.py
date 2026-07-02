@@ -75,9 +75,7 @@ class PostmortemInput(Protocol):
 
 SCHEMA_VERSION: int = 1
 
-TRIGGER_STATUSES: frozenset[str] = frozenset(
-    {"stalled", "block_limit", "cost_limit", "session_limit"}
-)
+TRIGGER_STATUSES: frozenset[str] = frozenset({"stalled", "block_limit", "cost_limit", "session_limit"})
 
 
 # ---------------------------------------------------------------------------

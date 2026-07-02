@@ -474,5 +474,3 @@ class TestReviewerNoTriageCriteria:
         # Should reference issue description or contain the issue context
         prompt_lower = system_prompt.lower()
         assert "issue" in prompt_lower or spec.system_context in system_prompt
-
-

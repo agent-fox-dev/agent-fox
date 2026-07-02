@@ -664,9 +664,7 @@ class TestAC6AuditMaxRetriesConfig:
         finding = _make_audit_finding(severity="critical", spec_name="foo", task_group="2")
         insert_findings(audit_conn, [finding])
 
-        handler, state, block_task_fn = _make_audit_handler_with_config(
-            audit_conn, audit_max_retries=2
-        )
+        handler, state, block_task_fn = _make_audit_handler_with_config(audit_conn, audit_max_retries=2)
 
         record = _make_audit_review_record(node_id="foo:2:reviewer:audit-review")
 
@@ -694,9 +692,7 @@ class TestAC6AuditMaxRetriesConfig:
         finding = _make_audit_finding(severity="critical", spec_name="foo", task_group="2")
         insert_findings(audit_conn, [finding])
 
-        handler, state, block_task_fn = _make_audit_handler_with_config(
-            audit_conn, audit_max_retries=1
-        )
+        handler, state, block_task_fn = _make_audit_handler_with_config(audit_conn, audit_max_retries=1)
 
         record = _make_audit_review_record(node_id="foo:2:reviewer:audit-review")
 

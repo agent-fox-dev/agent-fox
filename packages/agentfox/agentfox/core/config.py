@@ -628,7 +628,6 @@ class WorkspaceConfig(BaseModel):
     )
 
 
-
 class SpecToolConfig(BaseModel):
     """Configuration for the agentspec tool.
 

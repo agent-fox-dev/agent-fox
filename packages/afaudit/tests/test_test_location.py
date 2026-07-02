@@ -51,9 +51,7 @@ class TestAfauditTestCoverage:
         """Each afaudit-exclusive symbol must appear in at least one test file."""
         all_content = _read_all_test_content(AFAUDIT_TESTS)
         missing = [sym for sym in self.REQUIRED_SYMBOLS if sym not in all_content]
-        assert not missing, (
-            f"The following symbols are not tested in packages/afaudit/tests/: {missing}"
-        )
+        assert not missing, f"The following symbols are not tested in packages/afaudit/tests/: {missing}"
 
     def test_test_files_exist(self) -> None:
         """packages/afaudit/tests/ must contain test_*.py files."""
@@ -72,22 +70,17 @@ class TestEnforceFileRetentionEdgeCaseCoverage:
         all_content = _read_all_test_content(AFAUDIT_TESTS)
         # Check for patterns indicating the missing-directory edge case.
         has_coverage = (
-            "nonexistent" in all_content.lower()
-            or "does_not_exist" in all_content
-            or "missing" in all_content.lower()
+            "nonexistent" in all_content.lower() or "does_not_exist" in all_content or "missing" in all_content.lower()
         )
         assert has_coverage, (
-            "No test found in packages/afaudit/tests/ covering the "
-            "enforce_file_retention missing-directory edge case"
+            "No test found in packages/afaudit/tests/ covering the enforce_file_retention missing-directory edge case"
         )
 
     def test_unparseable_filename_edge_case_covered(self) -> None:
         """A test must exist for enforce_file_retention with unparseable filenames."""
         all_content = _read_all_test_content(AFAUDIT_TESTS)
         has_coverage = (
-            "unparseable" in all_content.lower()
-            or "BADNAME" in all_content
-            or "invalid" in all_content.lower()
+            "unparseable" in all_content.lower() or "BADNAME" in all_content or "invalid" in all_content.lower()
         )
         assert has_coverage, (
             "No test found in packages/afaudit/tests/ covering the "
@@ -104,8 +97,7 @@ class TestEnforceFileRetentionEdgeCaseCoverage:
             or "mock_unlink" in all_content
         )
         assert has_coverage, (
-            "No test found in packages/afaudit/tests/ covering the "
-            "enforce_file_retention deletion-failure edge case"
+            "No test found in packages/afaudit/tests/ covering the enforce_file_retention deletion-failure edge case"
         )
 
 
@@ -120,8 +112,7 @@ class TestAgentfoxTestsRetainHeavyTests:
         """agentfox/tests/ must still contain tests for DuckDBSink."""
         all_content = _read_all_test_content(AGENTFOX_TESTS)
         assert "DuckDBSink" in all_content, (
-            "DuckDBSink tests should remain in agentfox/tests/ "
-            "(they require agentfox infrastructure)"
+            "DuckDBSink tests should remain in agentfox/tests/ (they require agentfox infrastructure)"
         )
 
     def test_calculate_session_cost_tests_remain_in_agentfox(self) -> None:

@@ -197,8 +197,7 @@ class TestEnforceFileRetentionMissingDir:
             cleanup.enforce_file_retention(nonexistent, max_runs=20)
 
         assert len(captured.records) == 0, (
-            f"Expected no log messages, got {len(captured.records)}: "
-            f"{[r.getMessage() for r in captured.records]}"
+            f"Expected no log messages, got {len(captured.records)}: {[r.getMessage() for r in captured.records]}"
         )
 
 

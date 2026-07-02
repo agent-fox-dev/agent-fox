@@ -57,10 +57,7 @@ class TestAgentfoxDependency:
             toml = tomllib.load(f)
         deps = toml["project"]["dependencies"]
         matching = [d for d in deps if "afaudit" in d]
-        assert len(matching) > 0, (
-            "afaudit not found in agentfox [project.dependencies]; "
-            f"current deps: {deps}"
-        )
+        assert len(matching) > 0, f"afaudit not found in agentfox [project.dependencies]; current deps: {deps}"
         # Verify version constraint
         dep_str = matching[0]
         assert "4.0.2" in dep_str, f"Expected version constraint with 4.0.2, got: {dep_str}"
@@ -83,25 +80,19 @@ class TestNoOldImportPaths:
         """No old audit module imports should remain in agentfox/ source."""
         content = _read_all_py_content(AGENTFOX_PKG)
         for old_path in self.OLD_MODULE_PATHS:
-            assert old_path not in content, (
-                f"Old import path '{old_path}' still found in agentfox/"
-            )
+            assert old_path not in content, f"Old import path '{old_path}' still found in agentfox/"
 
     def test_no_old_imports_in_af(self) -> None:
         """No old audit module imports should remain in af/ source."""
         content = _read_all_py_content(AF_PKG)
         for old_path in self.OLD_MODULE_PATHS:
-            assert old_path not in content, (
-                f"Old import path '{old_path}' still found in af/"
-            )
+            assert old_path not in content, f"Old import path '{old_path}' still found in af/"
 
     def test_no_old_imports_in_nightshift(self) -> None:
         """No old audit module imports should remain in nightshift/ source."""
         content = _read_all_py_content(NIGHTSHIFT_PKG)
         for old_path in self.OLD_MODULE_PATHS:
-            assert old_path not in content, (
-                f"Old import path '{old_path}' still found in nightshift/"
-            )
+            assert old_path not in content, f"Old import path '{old_path}' still found in nightshift/"
 
 
 class TestNoReexportShims:
@@ -144,18 +135,14 @@ class TestAfNightshiftDependencies:
         with open(AF_PKG / "pyproject.toml", "rb") as f:
             toml = tomllib.load(f)
         deps = toml["project"]["dependencies"]
-        assert any("afaudit" in d for d in deps), (
-            f"afaudit not found in af [project.dependencies]: {deps}"
-        )
+        assert any("afaudit" in d for d in deps), f"afaudit not found in af [project.dependencies]: {deps}"
 
     def test_nightshift_depends_on_afaudit(self) -> None:
         """nightshift/pyproject.toml must list afaudit in [project.dependencies]."""
         with open(NIGHTSHIFT_PKG / "pyproject.toml", "rb") as f:
             toml = tomllib.load(f)
         deps = toml["project"]["dependencies"]
-        assert any("afaudit" in d for d in deps), (
-            f"afaudit not found in nightshift [project.dependencies]: {deps}"
-        )
+        assert any("afaudit" in d for d in deps), f"afaudit not found in nightshift [project.dependencies]: {deps}"
 
     def test_af_imports_from_afaudit(self) -> None:
         """af source must import symbols from afaudit (not old agentfox paths)."""
@@ -190,17 +177,13 @@ class TestAgentspecSpecNoAuditImports:
         """agentspec/ must have zero direct audit imports."""
         content = _read_all_py_content(AGENTSPEC_PKG)
         for pattern in self.AUDIT_IMPORT_PATTERNS:
-            assert pattern not in content, (
-                f"Unexpected audit import '{pattern}' found in agentspec/"
-            )
+            assert pattern not in content, f"Unexpected audit import '{pattern}' found in agentspec/"
 
     def test_spec_no_audit_imports(self) -> None:
         """spec/ must have zero direct audit imports."""
         content = _read_all_py_content(SPEC_PKG)
         for pattern in self.AUDIT_IMPORT_PATTERNS:
-            assert pattern not in content, (
-                f"Unexpected audit import '{pattern}' found in spec/"
-            )
+            assert pattern not in content, f"Unexpected audit import '{pattern}' found in spec/"
 
 
 class TestDbRetentionSplit:
@@ -221,8 +204,7 @@ class TestDbRetentionSplit:
         """afaudit/cleanup.py must not contain SQL statements."""
         source = (AFAUDIT_SRC / "cleanup.py").read_text(encoding="utf-8")
         assert "DELETE FROM" not in source, (
-            "afaudit/cleanup.py must not contain SQL — "
-            "DB operations belong in agentfox.knowledge.duckdb_sink"
+            "afaudit/cleanup.py must not contain SQL — DB operations belong in agentfox.knowledge.duckdb_sink"
         )
 
     def test_duckdb_sink_has_retention_logic(self) -> None:
