@@ -1,0 +1,1670 @@
+{
+  "$schema": null,
+  "spec_id": "01",
+  "spec_name": "afaudit_package",
+  "schema_version": 1,
+  "test_commands": {
+    "spec_tests": "pytest packages/afaudit/tests/ -q",
+    "all_tests": "pytest -q",
+    "linter": "ruff check packages/afaudit/"
+  },
+  "dependencies": [],
+  "task_groups": [
+    {
+      "id": 1,
+      "kind": "tests",
+      "title": "Write tests: package scaffold, public API, and event model",
+      "subtasks": [
+        {
+          "id": "1.1",
+          "title": "Write pyproject.toml structure and filesystem layout tests",
+          "details": [
+            "Create packages/afaudit/tests/test_scaffold.py",
+            "TS-01-1: parse pyproject.toml and assert version==4.0.2, requires-python>=3.12, hatchling build-backend, empty dependencies, no optional-dependencies",
+            "TS-01-2: assert flat layout — packages/afaudit/afaudit/ exists, no src/ dir, all 8 module files present, tests/ dir exists",
+            "TS-01-3: run pip show afaudit subprocess and assert Requires field is empty",
+            "TS-01-E1: assert [project.dependencies] == [] (catches accidental third-party additions)"
+          ],
+          "test_spec_refs": [
+            "TS-01-1",
+            "TS-01-2",
+            "TS-01-3",
+            "TS-01-E1"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.1",
+            "01-REQ-1.2",
+            "01-REQ-1.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.2",
+          "title": "Write public API re-export tests (events, sink, trace symbols)",
+          "details": [
+            "Create packages/afaudit/tests/test_public_api.py",
+            "TS-01-4: import all 8 event symbols from afaudit and assert __module__.startswith('afaudit.events')",
+            "TS-01-5: import all 5 sink symbols from afaudit and assert __module__.startswith('afaudit.sink')",
+            "TS-01-6: import all 3 trace symbols from afaudit and assert __module__.startswith('afaudit.trace')",
+            "TS-01-9: assert AuditJsonlSink defined in afaudit.events; assert afaudit.sink has no AuditJsonlSink attribute"
+          ],
+          "test_spec_refs": [
+            "TS-01-4",
+            "TS-01-5",
+            "TS-01-6",
+            "TS-01-9"
+          ],
+          "requirement_refs": [
+            "01-REQ-2.1",
+            "01-REQ-2.2",
+            "01-REQ-2.3",
+            "01-REQ-2.6"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.3",
+          "title": "Write public API re-export tests (postmortem, emit, cleanup, constants symbols)",
+          "details": [
+            "Extend packages/afaudit/tests/test_public_api.py",
+            "TS-01-7: import all 5 postmortem symbols from afaudit and assert __module__.startswith('afaudit.postmortem')",
+            "TS-01-8: import emit_audit_event, purge_stale_audit_files, enforce_file_retention, AUDIT_DIR; assert AUDIT_DIR == Path('.agent-fox/audit')"
+          ],
+          "test_spec_refs": [
+            "TS-01-7",
+            "TS-01-8"
+          ],
+          "requirement_refs": [
+            "01-REQ-2.4",
+            "01-REQ-2.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.4",
+          "title": "Write private API boundary tests",
+          "details": [
+            "Create packages/afaudit/tests/test_private_api_boundary.py",
+            "TS-01-E2: grep all .py files in packages/afaudit/tests/, af/, nightshift/, agentfox/ (excluding sink.py itself) for '_dispatch_optional'; assert no occurrences",
+            "TS-01-E6: grep all test files in packages/afaudit/tests/ for '_dispatch_optional'; assert no occurrences"
+          ],
+          "test_spec_refs": [
+            "TS-01-E2",
+            "TS-01-E6"
+          ],
+          "requirement_refs": [
+            "01-REQ-2.E1",
+            "01-REQ-11.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.5",
+          "title": "Write event model unit tests (types, serialization round-trip)",
+          "details": [
+            "Create packages/afaudit/tests/test_events.py",
+            "TS-01-10: assert AuditEvent is dataclass, AuditEventType is StrEnum with exactly 49 members, AuditSeverity is StrEnum, AuditJsonlSink is class, all 4 helpers callable",
+            "TS-01-11: read events.py source; assert 'import logging' present, getLogger('afaudit.events') present, no loguru/structlog",
+            "TS-01-12: construct minimal AuditEvent, call event_to_json, assert returns valid JSON string",
+            "TS-01-13: serialize then deserialize AuditEvent via event_to_json/event_from_json; assert round-tripped event equals original"
+          ],
+          "test_spec_refs": [
+            "TS-01-10",
+            "TS-01-11",
+            "TS-01-12",
+            "TS-01-13"
+          ],
+          "requirement_refs": [
+            "01-REQ-3.1",
+            "01-REQ-3.2",
+            "01-REQ-3.3",
+            "01-REQ-3.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.6",
+          "title": "Write sink module and logging discipline tests",
+          "details": [
+            "Create packages/afaudit/tests/test_sink.py",
+            "TS-01-14: import afaudit.sink; assert SessionSink is Protocol-like type, SinkDispatcher is class, SessionOutcome/ToolCall/ToolError are dataclasses",
+            "TS-01-15: read sink.py source; assert stdlib logging with 'afaudit.sink' logger name, no third-party logging",
+            "TS-01-46: read each module source file and assert getLogger name matches afaudit.<module> pattern for all 6 modules",
+            "TS-01-47: grep all afaudit module files for 'loguru' and 'structlog'; assert neither present"
+          ],
+          "test_spec_refs": [
+            "TS-01-14",
+            "TS-01-15",
+            "TS-01-46",
+            "TS-01-47"
+          ],
+          "requirement_refs": [
+            "01-REQ-4.1",
+            "01-REQ-4.2",
+            "01-REQ-13.1",
+            "01-REQ-13.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "1.V",
+        "checks": [
+          "All test stubs in packages/afaudit/tests/ are syntactically valid Python: python -m py_compile packages/afaudit/tests/*.py",
+          "ruff check packages/afaudit/tests/ reports no linting errors",
+          "All test files import only from afaudit.* and stdlib — no agentfox imports in tests covering 01-REQ-1 through 01-REQ-4",
+          "Requirements 01-REQ-1.1, 01-REQ-1.2, 01-REQ-1.3, 01-REQ-2.1 through 01-REQ-2.6, 01-REQ-3.1 through 01-REQ-3.4, 01-REQ-4.1, 01-REQ-4.2 test coverage is in place"
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "kind": "tests",
+      "title": "Write tests: trace, postmortem, cleanup, emit, constants, and migration",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Write trace module tests",
+          "details": [
+            "Create packages/afaudit/tests/test_trace.py",
+            "TS-01-17: import AgentTraceSink, reconstruct_transcript, truncate_tool_input from afaudit.trace; assert AgentTraceSink is class, others callable",
+            "TS-01-18: from afaudit import truncate_tool_input; assert callable",
+            "TS-01-19: read trace.py source; assert stdlib logging with 'afaudit.trace' logger, no third-party logging"
+          ],
+          "test_spec_refs": [
+            "TS-01-17",
+            "TS-01-18",
+            "TS-01-19"
+          ],
+          "requirement_refs": [
+            "01-REQ-5.1",
+            "01-REQ-5.2",
+            "01-REQ-5.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.2",
+          "title": "Write postmortem protocol definition and build_postmortem tests",
+          "details": [
+            "Create packages/afaudit/tests/test_postmortem.py",
+            "TS-01-20: assert PostmortemInput Protocol has exactly 11 attributes with correct names via typing.get_type_hints",
+            "TS-01-21: assert SessionRecordLike Protocol has exactly 12 attributes with correct names via typing.get_type_hints",
+            "TS-01-22: import afaudit.postmortem; assert all 6 symbols callable (build_postmortem, write_postmortem, should_dump, _build_task_summary, _build_blocked_tasks, _build_session_history)",
+            "TS-01-23: construct stub objects satisfying PostmortemInput and SessionRecordLike; call build_postmortem; assert non-None result returned with no ImportError",
+            "TS-01-24: read postmortem.py source; assert stdlib logging with 'afaudit.postmortem' logger, no third-party logging"
+          ],
+          "test_spec_refs": [
+            "TS-01-20",
+            "TS-01-21",
+            "TS-01-22",
+            "TS-01-23",
+            "TS-01-24"
+          ],
+          "requirement_refs": [
+            "01-REQ-6.1",
+            "01-REQ-6.2",
+            "01-REQ-6.3",
+            "01-REQ-6.4",
+            "01-REQ-6.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.3",
+          "title": "Write cleanup function signature and normal-path tests",
+          "details": [
+            "Create packages/afaudit/tests/test_cleanup.py",
+            "TS-01-27: import purge_stale_audit_files and enforce_file_retention; inspect signature — audit_dir positional, max_runs keyword-only with default=20, return annotation int",
+            "TS-01-28: create temp audit dir with 4 valid run sets (12 files); call enforce_file_retention(tmp, max_runs=2); assert returns 6; assert 2 newest sets remain",
+            "TS-01-29: read cleanup.py source; assert stdlib logging with 'afaudit.cleanup' logger, no third-party logging"
+          ],
+          "test_spec_refs": [
+            "TS-01-27",
+            "TS-01-28",
+            "TS-01-29"
+          ],
+          "requirement_refs": [
+            "01-REQ-7.1",
+            "01-REQ-7.2",
+            "01-REQ-7.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.4",
+          "title": "Write enforce_file_retention edge case tests",
+          "details": [
+            "Extend packages/afaudit/tests/test_cleanup.py",
+            "TS-01-E3: call enforce_file_retention(Path('/tmp/nonexistent_afaudit_xyz'), max_runs=20); assert returns 0; assert no exception raised; assert no WARNING logs emitted",
+            "TS-01-E4: create temp dir with 'audit_BADNAME.jsonl'; call enforce_file_retention(tmp, max_runs=0); assert file not deleted; assert WARNING log emitted identifying file",
+            "TS-01-E5: create temp dir with 2 valid run sets; patch Path.unlink to raise PermissionError on first call; call enforce_file_retention(tmp, max_runs=0); assert returns 5; assert WARNING log emitted"
+          ],
+          "test_spec_refs": [
+            "TS-01-E3",
+            "TS-01-E4",
+            "TS-01-E5"
+          ],
+          "requirement_refs": [
+            "01-REQ-7.E1",
+            "01-REQ-7.E2",
+            "01-REQ-7.E3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.5",
+          "title": "Write emit module, constants, and AUDIT_DIR tests",
+          "details": [
+            "Create packages/afaudit/tests/test_emit.py and packages/afaudit/tests/test_constants.py",
+            "TS-01-30: import afaudit.emit; assert emit_audit_event callable; assert calculate_session_cost not present in afaudit.emit",
+            "TS-01-31: read emit.py source; assert stdlib logging with 'afaudit.emit' logger, no third-party logging",
+            "TS-01-32: from afaudit.constants import AUDIT_DIR; from afaudit import AUDIT_DIR; assert both equal Path('.agent-fox/audit')"
+          ],
+          "test_spec_refs": [
+            "TS-01-30",
+            "TS-01-31",
+            "TS-01-32"
+          ],
+          "requirement_refs": [
+            "01-REQ-8.1",
+            "01-REQ-8.2",
+            "01-REQ-9.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.6",
+          "title": "Write migration, isolation, and workspace-level tests",
+          "details": [
+            "Create packages/afaudit/tests/test_migration.py for workspace-level grep/parse assertions",
+            "TS-01-34: parse agentfox/pyproject.toml; assert afaudit>=4.0.2 in [project.dependencies]",
+            "TS-01-35: grep agentfox/, af/, nightshift/ .py files for old module paths (agentfox.knowledge.audit etc.); assert none found",
+            "TS-01-36: read agentfox/__init__.py; assert none of the moved audit symbols are re-exported",
+            "TS-01-37: parse af/ and nightshift/ pyproject.toml; assert afaudit in direct deps; grep source for afaudit imports",
+            "TS-01-38: grep agentspec/ and spec/ for any afaudit or old audit module imports; assert none",
+            "TS-01-39: read cleanup.py; assert no duckdb import; read duckdb_sink.py; assert retention logic present",
+            "TS-01-43/48/49: document as integration/CI tests — assert pytest packages/afaudit/tests/ exit 0 in env without duckdb/anthropic; assert make check exit 0"
+          ],
+          "test_spec_refs": [
+            "TS-01-34",
+            "TS-01-35",
+            "TS-01-36",
+            "TS-01-37",
+            "TS-01-38",
+            "TS-01-39",
+            "TS-01-43",
+            "TS-01-48",
+            "TS-01-49"
+          ],
+          "requirement_refs": [
+            "01-REQ-10.1",
+            "01-REQ-10.2",
+            "01-REQ-10.3",
+            "01-REQ-10.4",
+            "01-REQ-10.5",
+            "01-REQ-10.6",
+            "01-REQ-11.4",
+            "01-REQ-14.1",
+            "01-REQ-14.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "2.V",
+        "checks": [
+          "All new test files in packages/afaudit/tests/ are syntactically valid: python -m py_compile packages/afaudit/tests/*.py",
+          "ruff check packages/afaudit/tests/ reports no linting errors",
+          "Test files for cleanup edge cases (TS-01-E3, TS-01-E4, TS-01-E5) are present and cover all three edge conditions",
+          "Requirements 01-REQ-5.1 through 01-REQ-10.6, 01-REQ-11.4, 01-REQ-14.1, 01-REQ-14.2 test coverage is in place"
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "kind": "tests",
+      "title": "Write integration tests: protocol boundaries, full file production, and agentfox interop",
+      "subtasks": [
+        {
+          "id": "3.1",
+          "title": "Write Protocol boundary integration tests (ExecutionState, SessionRecord)",
+          "details": [
+            "Create packages/afaudit/tests/test_protocol_boundaries.py",
+            "TS-01-25: import PostmortemInput from afaudit.postmortem and ExecutionState from agentfox.engine.state; verify all 11 protocol attributes present on ExecutionState via get_type_hints check",
+            "TS-01-26: import SessionRecordLike and SessionRecord; verify all 12 protocol attributes present on SessionRecord",
+            "TS-01-41: run pytest packages/afaudit/tests/ -k protocol -v via subprocess; assert returncode==0",
+            "These tests are tagged to run in environments with agentfox available; mark with pytest.mark.integration"
+          ],
+          "test_spec_refs": [
+            "TS-01-25",
+            "TS-01-26",
+            "TS-01-41"
+          ],
+          "requirement_refs": [
+            "01-REQ-6.6",
+            "01-REQ-6.7",
+            "01-REQ-11.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.2",
+          "title": "Write DuckDBSink SessionSink protocol satisfaction test",
+          "details": [
+            "Create packages/afaudit/tests/test_duckdbsink_protocol.py (integration, requires agentfox)",
+            "TS-01-16: import SessionSink from afaudit.sink and DuckDBSink from agentfox.knowledge.duckdb_sink; perform structural protocol check — verify DuckDBSink has all methods required by SessionSink",
+            "Mark with pytest.mark.integration"
+          ],
+          "test_spec_refs": [
+            "TS-01-16"
+          ],
+          "requirement_refs": [
+            "01-REQ-4.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.3",
+          "title": "Write AUDIT_DIR uniqueness and agentfox.core.node_id removal tests",
+          "details": [
+            "Extend packages/afaudit/tests/test_constants.py with integration test",
+            "TS-01-33: attempt `from agentfox.core.node_id import AUDIT_DIR`; assert raises ImportError or AttributeError",
+            "Mark with pytest.mark.integration"
+          ],
+          "test_spec_refs": [
+            "TS-01-33"
+          ],
+          "requirement_refs": [
+            "01-REQ-9.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.4",
+          "title": "Write end-to-end all-three-file-types production test",
+          "details": [
+            "Create packages/afaudit/tests/test_file_production.py",
+            "TS-01-45: in a process where agentfox is not imported, use AuditJsonlSink, AgentTraceSink, build_postmortem, write_postmortem from afaudit to produce all three file types in a tempdir; assert each glob pattern matches exactly one file",
+            "TS-01-SMOKE-1: same scenario as TS-01-45 expressed as the smoke test — verify no agentfox module appears in sys.modules after the test"
+          ],
+          "test_spec_refs": [
+            "TS-01-45",
+            "TS-01-SMOKE-1"
+          ],
+          "requirement_refs": [
+            "01-REQ-12.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.5",
+          "title": "Write test location and test isolation verification tests",
+          "details": [
+            "Create packages/afaudit/tests/test_test_location.py",
+            "TS-01-40: list packages/afaudit/tests/ files; assert each of AuditEvent, AuditJsonlSink, AgentTraceSink, build_postmortem, write_postmortem, should_dump, purge_stale_audit_files, enforce_file_retention appears in combined test content",
+            "TS-01-42: read all test content; assert presence of patterns indicating missing-dir, unparseable-filename, and deletion-failure edge cases",
+            "TS-01-44: read agentfox/tests/ files; assert DuckDBSink and calculate_session_cost tests present; assert any audit symbol imports use afaudit.*"
+          ],
+          "test_spec_refs": [
+            "TS-01-40",
+            "TS-01-42",
+            "TS-01-44"
+          ],
+          "requirement_refs": [
+            "01-REQ-11.1",
+            "01-REQ-11.3",
+            "01-REQ-11.5"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "3.V",
+        "checks": [
+          "Integration test files are syntactically valid: python -m py_compile packages/afaudit/tests/test_protocol_boundaries.py packages/afaudit/tests/test_file_production.py",
+          "ruff check packages/afaudit/tests/ reports no linting errors",
+          "Protocol boundary tests reference only afaudit protocols and agentfox state classes — no fabricated attribute lists",
+          "Requirements 01-REQ-4.3, 01-REQ-6.6, 01-REQ-6.7, 01-REQ-9.2, 01-REQ-11.1 through 01-REQ-11.5, 01-REQ-12.1 test coverage is in place"
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "kind": "standard",
+      "title": "Create afaudit package scaffold (pyproject.toml, directory structure, constants)",
+      "subtasks": [
+        {
+          "id": "4.1",
+          "title": "Create packages/afaudit/ directory structure and pyproject.toml",
+          "details": [
+            "Create packages/afaudit/pyproject.toml using afspec/pyproject.toml as template",
+            "Set version='4.0.2', requires-python='>=3.12', build-backend='hatchling.build'",
+            "Set [project.dependencies] = [] with no [project.optional-dependencies] section",
+            "Create flat layout: packages/afaudit/afaudit/ (not packages/afaudit/src/)",
+            "Create empty stub files: __init__.py, events.py, sink.py, trace.py, postmortem.py, cleanup.py, emit.py, constants.py",
+            "Create packages/afaudit/tests/__init__.py (empty) and packages/afaudit/tests/ directory"
+          ],
+          "test_spec_refs": [
+            "TS-01-1",
+            "TS-01-2"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.1",
+            "01-REQ-1.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.2",
+          "title": "Implement afaudit/constants.py with AUDIT_DIR",
+          "details": [
+            "Implement afaudit/constants.py: from pathlib import Path; AUDIT_DIR = Path('.agent-fox/audit')",
+            "No logger needed in constants.py (no logic requiring logging)",
+            "In the same atomic change: remove AUDIT_DIR from agentfox/core/node_id.py",
+            "Verify no other module defines AUDIT_DIR by searching workspace"
+          ],
+          "test_spec_refs": [
+            "TS-01-32",
+            "TS-01-33"
+          ],
+          "requirement_refs": [
+            "01-REQ-9.1",
+            "01-REQ-9.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.3",
+          "title": "Register afaudit in workspace uv monorepo configuration",
+          "details": [
+            "Add packages/afaudit to uv workspace members in root pyproject.toml / uv.lock (if applicable)",
+            "Add afaudit>=4.0.2 to agentfox/pyproject.toml [project.dependencies] BEFORE any import updates",
+            "Verify workspace can resolve afaudit: uv sync --all-packages",
+            "This step is a prerequisite for all subsequent import migration steps"
+          ],
+          "test_spec_refs": [
+            "TS-01-34"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.1",
+            "01-REQ-10.1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "4.V",
+        "checks": [
+          "ruff check packages/afaudit/ reports no errors",
+          "python -c 'from afaudit.constants import AUDIT_DIR; from pathlib import Path; assert AUDIT_DIR == Path(\".agent-fox/audit\")' succeeds",
+          "python -m pip show afaudit lists no Requires entries (empty dependencies)",
+          "agentfox/pyproject.toml contains afaudit>=4.0.2 in [project.dependencies]",
+          "agentfox/core/node_id.py no longer defines AUDIT_DIR",
+          "Requirements 01-REQ-1.1, 01-REQ-1.2, 01-REQ-9.1, 01-REQ-9.2, 01-REQ-10.1 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "kind": "standard",
+      "title": "Implement afaudit.events module",
+      "subtasks": [
+        {
+          "id": "5.1",
+          "title": "Migrate AuditEvent dataclass and AuditEventType/AuditSeverity StrEnums",
+          "details": [
+            "Copy AuditEvent dataclass, AuditEventType StrEnum (49 values), AuditSeverity StrEnum from agentfox/knowledge/audit.py into afaudit/events.py",
+            "Add module-level logger: import logging; logger = logging.getLogger('afaudit.events')",
+            "Ensure no third-party imports remain; only stdlib (enum, dataclasses, logging, json, pathlib, etc.)",
+            "Verify AuditEventType has exactly 49 members"
+          ],
+          "test_spec_refs": [
+            "TS-01-10",
+            "TS-01-11"
+          ],
+          "requirement_refs": [
+            "01-REQ-3.1",
+            "01-REQ-13.1",
+            "01-REQ-13.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.2",
+          "title": "Migrate AuditJsonlSink class and helper functions into afaudit.events",
+          "details": [
+            "Copy AuditJsonlSink (lines 216-259 of agentfox.knowledge.audit) into afaudit/events.py — NOT into afaudit/sink.py",
+            "Copy default_severity_for(), generate_run_id(), event_to_json(), event_from_json() into afaudit/events.py",
+            "Preserve all behaviour; update any internal imports to use afaudit.* equivalents",
+            "Confirm event_to_json returns valid JSON string, event_from_json round-trips correctly"
+          ],
+          "test_spec_refs": [
+            "TS-01-9",
+            "TS-01-12",
+            "TS-01-13"
+          ],
+          "requirement_refs": [
+            "01-REQ-3.1",
+            "01-REQ-3.2",
+            "01-REQ-3.3",
+            "01-REQ-3.4",
+            "01-REQ-2.6"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.3",
+          "title": "Delete source audit module from agentfox and update agentfox internal imports",
+          "details": [
+            "Delete agentfox/knowledge/audit.py (no shim; per Design Decision #3)",
+            "Update all agentfox internal import sites that imported from agentfox.knowledge.audit to import from afaudit.events instead",
+            "Verify agentfox/__init__.py does not re-export any moved symbol",
+            "Run grep to confirm no remaining 'from agentfox.knowledge.audit import' in agentfox/ source"
+          ],
+          "test_spec_refs": [
+            "TS-01-35",
+            "TS-01-36"
+          ],
+          "requirement_refs": [
+            "01-REQ-10.2",
+            "01-REQ-10.3"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "5.V",
+        "checks": [
+          "pytest packages/afaudit/tests/test_events.py -q passes with exit code 0",
+          "pytest packages/afaudit/tests/test_public_api.py::test_events_reexports -q passes",
+          "ruff check packages/afaudit/afaudit/events.py reports no errors",
+          "python -c 'from afaudit.events import AuditJsonlSink, AuditEvent, AuditEventType; assert len(AuditEventType) == 49' succeeds",
+          "grep -r 'from agentfox.knowledge.audit import' agentfox/ returns no results",
+          "Requirements 01-REQ-3.1 through 01-REQ-3.4, 01-REQ-2.6 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "kind": "standard",
+      "title": "Implement afaudit.sink module",
+      "subtasks": [
+        {
+          "id": "6.1",
+          "title": "Migrate SessionSink Protocol and data classes into afaudit.sink",
+          "details": [
+            "Copy entire agentfox/knowledge/sink.py content into afaudit/sink.py",
+            "Add module-level logger: import logging; logger = logging.getLogger('afaudit.sink')",
+            "Ensure SessionSink is a typing.Protocol, SinkDispatcher is a concrete class",
+            "Ensure SessionOutcome, ToolCall, ToolError are dataclasses",
+            "Retain _dispatch_optional as private implementation detail on SinkDispatcher (single underscore)",
+            "Remove all non-stdlib imports; update internal cross-references to afaudit.*"
+          ],
+          "test_spec_refs": [
+            "TS-01-14",
+            "TS-01-15"
+          ],
+          "requirement_refs": [
+            "01-REQ-4.1",
+            "01-REQ-13.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.2",
+          "title": "Delete agentfox/knowledge/sink.py and update agentfox internal imports",
+          "details": [
+            "Delete agentfox/knowledge/sink.py",
+            "Update all agentfox internal import sites that imported from agentfox.knowledge.sink to import from afaudit.sink",
+            "Verify agentfox/__init__.py does not re-export SessionSink, SinkDispatcher, SessionOutcome, ToolCall, ToolError",
+            "grep -r 'from agentfox.knowledge.sink import' agentfox/ returns no results"
+          ],
+          "test_spec_refs": [
+            "TS-01-35",
+            "TS-01-36"
+          ],
+          "requirement_refs": [
+            "01-REQ-10.2",
+            "01-REQ-10.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.3",
+          "title": "Verify DuckDBSink implements afaudit.SessionSink structurally",
+          "details": [
+            "Update agentfox/knowledge/duckdb_sink.py to import SessionSink from afaudit.sink (for type annotation purposes if needed)",
+            "Verify DuckDBSink has all methods required by SessionSink protocol via manual inspection and the integration test",
+            "Run: pytest packages/afaudit/tests/test_duckdbsink_protocol.py -q and confirm pass",
+            "No changes to DuckDBSink's implementation logic — only import paths updated"
+          ],
+          "test_spec_refs": [
+            "TS-01-16"
+          ],
+          "requirement_refs": [
+            "01-REQ-4.3"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "6.V",
+        "checks": [
+          "pytest packages/afaudit/tests/test_sink.py -q passes with exit code 0",
+          "pytest packages/afaudit/tests/test_duckdbsink_protocol.py -q passes (requires agentfox available)",
+          "ruff check packages/afaudit/afaudit/sink.py reports no errors",
+          "python -c 'from afaudit.sink import SessionSink, SinkDispatcher, SessionOutcome, ToolCall, ToolError' succeeds",
+          "grep -r 'from agentfox.knowledge.sink import' agentfox/ returns no results",
+          "Requirements 01-REQ-4.1, 01-REQ-4.2, 01-REQ-4.3 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "kind": "standard",
+      "title": "Implement afaudit.trace module",
+      "subtasks": [
+        {
+          "id": "7.1",
+          "title": "Migrate AgentTraceSink, reconstruct_transcript, truncate_tool_input into afaudit.trace",
+          "details": [
+            "Copy entire agentfox/knowledge/agent_trace.py into afaudit/trace.py",
+            "Add module-level logger: import logging; logger = logging.getLogger('afaudit.trace')",
+            "Update all internal imports to use afaudit.events, afaudit.sink etc. instead of agentfox.knowledge.*",
+            "Ensure truncate_tool_input is a top-level function (not private) — part of guaranteed public API",
+            "Remove all non-stdlib imports"
+          ],
+          "test_spec_refs": [
+            "TS-01-17",
+            "TS-01-18",
+            "TS-01-19"
+          ],
+          "requirement_refs": [
+            "01-REQ-5.1",
+            "01-REQ-5.2",
+            "01-REQ-5.3",
+            "01-REQ-13.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.2",
+          "title": "Delete agentfox/knowledge/agent_trace.py and update agentfox internal imports",
+          "details": [
+            "Delete agentfox/knowledge/agent_trace.py",
+            "Update all agentfox internal import sites that imported from agentfox.knowledge.agent_trace to import from afaudit.trace",
+            "grep -r 'from agentfox.knowledge.agent_trace import' agentfox/ returns no results",
+            "Verify agentfox/__init__.py does not re-export AgentTraceSink, reconstruct_transcript, or truncate_tool_input"
+          ],
+          "test_spec_refs": [
+            "TS-01-35",
+            "TS-01-36"
+          ],
+          "requirement_refs": [
+            "01-REQ-10.2",
+            "01-REQ-10.3"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "7.V",
+        "checks": [
+          "pytest packages/afaudit/tests/test_trace.py -q passes with exit code 0",
+          "ruff check packages/afaudit/afaudit/trace.py reports no errors",
+          "python -c 'from afaudit import AgentTraceSink, reconstruct_transcript, truncate_tool_input' succeeds",
+          "grep -r 'from agentfox.knowledge.agent_trace import' agentfox/ returns no results",
+          "Requirements 01-REQ-5.1, 01-REQ-5.2, 01-REQ-5.3 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 8,
+      "kind": "standard",
+      "title": "Implement afaudit.postmortem module",
+      "subtasks": [
+        {
+          "id": "8.1",
+          "title": "Define PostmortemInput and SessionRecordLike Protocols in afaudit.postmortem",
+          "details": [
+            "Create afaudit/postmortem.py with PostmortemInput Protocol (exactly 11 attributes: run_id, run_status, node_states, total_cost, total_input_tokens, total_output_tokens, total_sessions, blocked_reasons, session_history, started_at, updated_at)",
+            "Define SessionRecordLike Protocol (exactly 12 attributes: node_id, attempt, status, archetype, model, duration_ms, cost, error_message, timestamp, is_transport_error, is_budget_exhausted, is_non_retryable)",
+            "Use typing.Protocol; annotate with @runtime_checkable if needed for tests",
+            "Add module-level logger: import logging; logger = logging.getLogger('afaudit.postmortem')"
+          ],
+          "test_spec_refs": [
+            "TS-01-20",
+            "TS-01-21"
+          ],
+          "requirement_refs": [
+            "01-REQ-6.1",
+            "01-REQ-6.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.2",
+          "title": "Migrate postmortem functions from agentfox.engine.run (lines 394-541)",
+          "details": [
+            "Copy build_postmortem(), write_postmortem(), should_dump(), _build_task_summary(), _build_blocked_tasks(), _build_session_history() from agentfox/engine/run.py lines 394-541 into afaudit/postmortem.py",
+            "Replace all ExecutionState and SessionRecord type references with PostmortemInput and SessionRecordLike protocol types",
+            "Ensure no agentfox imports remain in afaudit/postmortem.py",
+            "Verify build_postmortem works with a stub PostmortemInput object"
+          ],
+          "test_spec_refs": [
+            "TS-01-22",
+            "TS-01-23",
+            "TS-01-24"
+          ],
+          "requirement_refs": [
+            "01-REQ-6.3",
+            "01-REQ-6.4",
+            "01-REQ-6.5",
+            "01-REQ-13.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.3",
+          "title": "Remove postmortem functions from agentfox.engine.run and update its imports",
+          "details": [
+            "Remove lines 394-541 (postmortem functions) from agentfox/engine/run.py",
+            "Add import of build_postmortem, write_postmortem, should_dump from afaudit.postmortem in agentfox/engine/run.py at the call-sites",
+            "grep -r 'from agentfox.engine.run import.*postmortem' returns no agentfox-internal references to postmortem functions",
+            "Verify agentfox.engine.state.ExecutionState and SessionRecord definitions are unchanged"
+          ],
+          "test_spec_refs": [
+            "TS-01-35",
+            "TS-01-36"
+          ],
+          "requirement_refs": [
+            "01-REQ-10.2",
+            "01-REQ-10.3"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "8.V",
+        "checks": [
+          "pytest packages/afaudit/tests/test_postmortem.py -q passes with exit code 0",
+          "pytest packages/afaudit/tests/test_protocol_boundaries.py -q passes (with agentfox available)",
+          "ruff check packages/afaudit/afaudit/postmortem.py reports no errors",
+          "python -c 'from afaudit import PostmortemInput, SessionRecordLike, build_postmortem, write_postmortem, should_dump' succeeds",
+          "grep 'agentfox' packages/afaudit/afaudit/postmortem.py returns no results",
+          "Requirements 01-REQ-6.1 through 01-REQ-6.7 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 9,
+      "kind": "standard",
+      "title": "Implement afaudit.cleanup and afaudit.emit modules",
+      "subtasks": [
+        {
+          "id": "9.1",
+          "title": "Migrate purge_stale_audit_files into afaudit.cleanup",
+          "details": [
+            "Create afaudit/cleanup.py",
+            "Copy purge_stale_audit_files() from agentfox/workspace/audit_cleanup.py into afaudit/cleanup.py",
+            "Add module-level logger: import logging; logger = logging.getLogger('afaudit.cleanup')",
+            "Ensure no non-stdlib imports remain",
+            "Update any internal references to AUDIT_DIR to import from afaudit.constants"
+          ],
+          "test_spec_refs": [
+            "TS-01-27",
+            "TS-01-29"
+          ],
+          "requirement_refs": [
+            "01-REQ-7.1",
+            "01-REQ-7.3",
+            "01-REQ-13.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "9.2",
+          "title": "Implement enforce_file_retention in afaudit.cleanup with edge case handling",
+          "details": [
+            "Implement enforce_file_retention(audit_dir: Path, *, max_runs: int = 20) -> int in afaudit/cleanup.py",
+            "Glob audit_dir for audit_*.jsonl; parse YYYYMMDD_HHMMSS_hex timestamp from each filename; sort chronologically",
+            "Delete all 3 files (audit_*.jsonl, agent_*.jsonl, postmortem_*.json) for each run beyond max_runs",
+            "Edge case: if audit_dir does not exist, return 0 silently (no log, no exception)",
+            "Edge case: if filename does not match timestamp pattern, log WARNING via afaudit.cleanup logger, skip file, continue",
+            "Edge case: if file deletion fails (OSError/PermissionError), log WARNING, continue, count only successfully deleted files",
+            "Return total count of successfully deleted files (int)"
+          ],
+          "test_spec_refs": [
+            "TS-01-28",
+            "TS-01-E3",
+            "TS-01-E4",
+            "TS-01-E5"
+          ],
+          "requirement_refs": [
+            "01-REQ-7.2",
+            "01-REQ-7.E1",
+            "01-REQ-7.E2",
+            "01-REQ-7.E3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "9.3",
+          "title": "Migrate emit_audit_event into afaudit.emit; split DB-retention into agentfox.knowledge.duckdb_sink",
+          "details": [
+            "Create afaudit/emit.py; copy emit_audit_event() from agentfox/engine/audit_helpers.py (only this function, not calculate_session_cost)",
+            "Add module-level logger: import logging; logger = logging.getLogger('afaudit.emit')",
+            "Ensure calculate_session_cost remains in agentfox/engine/audit_helpers.py unchanged",
+            "Move DB-retention half of enforce_audit_retention() from agentfox/workspace/audit_cleanup.py to agentfox/knowledge/duckdb_sink.py as a new function/method",
+            "Delete agentfox/workspace/audit_cleanup.py (or remove migrated functions); no shim"
+          ],
+          "test_spec_refs": [
+            "TS-01-30",
+            "TS-01-31",
+            "TS-01-39"
+          ],
+          "requirement_refs": [
+            "01-REQ-8.1",
+            "01-REQ-8.2",
+            "01-REQ-10.6",
+            "01-REQ-13.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "9.4",
+          "title": "Delete agentfox cleanup/emit source modules and update all import sites",
+          "details": [
+            "Delete agentfox/engine/audit_helpers.py emit_audit_event function (or whole file if only emit_audit_event was there)",
+            "Update all agentfox import sites for emit_audit_event to use from afaudit.emit import emit_audit_event",
+            "Update all agentfox/af/nightshift import sites for purge_stale_audit_files, enforce_file_retention (now enforce_file_retention) to use afaudit.cleanup",
+            "grep -r 'from agentfox.workspace.audit_cleanup import' returns no results across workspace"
+          ],
+          "test_spec_refs": [
+            "TS-01-35",
+            "TS-01-36"
+          ],
+          "requirement_refs": [
+            "01-REQ-10.2",
+            "01-REQ-10.3"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "9.V",
+        "checks": [
+          "pytest packages/afaudit/tests/test_cleanup.py -q passes with exit code 0",
+          "pytest packages/afaudit/tests/test_emit.py -q passes with exit code 0",
+          "ruff check packages/afaudit/afaudit/cleanup.py packages/afaudit/afaudit/emit.py reports no errors",
+          "python -c 'from afaudit import purge_stale_audit_files, enforce_file_retention, emit_audit_event' succeeds",
+          "grep -r 'from agentfox.workspace.audit_cleanup import' agentfox/ af/ nightshift/ returns no results",
+          "python -c 'import afaudit.cleanup; import inspect; sig=inspect.signature(afaudit.cleanup.enforce_file_retention); assert sig.parameters[\"max_runs\"].default==20' succeeds",
+          "Requirements 01-REQ-7.1 through 01-REQ-7.E3, 01-REQ-8.1, 01-REQ-8.2, 01-REQ-10.6 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 10,
+      "kind": "standard",
+      "title": "Implement afaudit/__init__.py public API re-exports",
+      "subtasks": [
+        {
+          "id": "10.1",
+          "title": "Implement afaudit/__init__.py with all public API re-exports",
+          "details": [
+            "Implement afaudit/__init__.py with all re-exports as specified in the PRD Public API section",
+            "from afaudit.events import AuditEvent, AuditEventType, AuditSeverity, AuditJsonlSink, default_severity_for, generate_run_id, event_to_json, event_from_json",
+            "from afaudit.sink import SessionSink, SinkDispatcher, SessionOutcome, ToolCall, ToolError",
+            "from afaudit.trace import AgentTraceSink, reconstruct_transcript, truncate_tool_input",
+            "from afaudit.postmortem import PostmortemInput, SessionRecordLike, build_postmortem, write_postmortem, should_dump",
+            "from afaudit.emit import emit_audit_event",
+            "from afaudit.cleanup import purge_stale_audit_files, enforce_file_retention",
+            "from afaudit.constants import AUDIT_DIR",
+            "Do NOT re-export _dispatch_optional or any private symbol"
+          ],
+          "test_spec_refs": [
+            "TS-01-4",
+            "TS-01-5",
+            "TS-01-6",
+            "TS-01-7",
+            "TS-01-8",
+            "TS-01-9"
+          ],
+          "requirement_refs": [
+            "01-REQ-2.1",
+            "01-REQ-2.2",
+            "01-REQ-2.3",
+            "01-REQ-2.4",
+            "01-REQ-2.5",
+            "01-REQ-2.6"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "10.2",
+          "title": "Update af and nightshift pyproject.toml and import sites",
+          "details": [
+            "Add afaudit to af/pyproject.toml [project.dependencies]",
+            "Add afaudit to nightshift/pyproject.toml [project.dependencies]",
+            "Update all af/ import sites for purge_stale_audit_files and AUDIT_DIR to import from afaudit",
+            "Update all nightshift/ import sites for purge_stale_audit_files and AUDIT_DIR to import from afaudit",
+            "grep -r 'from agentfox' af/ nightshift/ | grep -E 'audit|AUDIT_DIR' returns no results"
+          ],
+          "test_spec_refs": [
+            "TS-01-37"
+          ],
+          "requirement_refs": [
+            "01-REQ-10.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "10.3",
+          "title": "Verify agentspec and spec require no changes",
+          "details": [
+            "Run: grep -r 'afaudit\\|agentfox.knowledge.audit\\|agentfox.knowledge.sink\\|agentfox.knowledge.agent_trace\\|agentfox.workspace.audit_cleanup' agentspec/ spec/ — assert zero results",
+            "Confirm these packages consume audit functionality only transitively via agentfox",
+            "Document confirmation in a comment or PR description note"
+          ],
+          "test_spec_refs": [
+            "TS-01-38"
+          ],
+          "requirement_refs": [
+            "01-REQ-10.5"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "10.V",
+        "checks": [
+          "pytest packages/afaudit/tests/test_public_api.py -q passes with exit code 0",
+          "ruff check packages/afaudit/afaudit/__init__.py reports no errors",
+          "python -c 'import afaudit; symbols=[\"AuditEvent\",\"AuditEventType\",\"AuditSeverity\",\"AuditJsonlSink\",\"SessionSink\",\"SinkDispatcher\",\"AgentTraceSink\",\"truncate_tool_input\",\"PostmortemInput\",\"SessionRecordLike\",\"build_postmortem\",\"emit_audit_event\",\"purge_stale_audit_files\",\"enforce_file_retention\",\"AUDIT_DIR\"]; [getattr(afaudit,s) for s in symbols]' succeeds",
+          "grep 'afaudit' af/pyproject.toml nightshift/pyproject.toml confirms direct dependency declared in both",
+          "grep -r 'agentspec\\|spec' agentspec/ spec/ confirms zero direct audit imports",
+          "Requirements 01-REQ-2.1 through 01-REQ-2.6, 01-REQ-10.4, 01-REQ-10.5 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 11,
+      "kind": "checkpoint",
+      "title": "Checkpoint: afaudit unit test suite passes in isolation",
+      "subtasks": [
+        {
+          "id": "11.1",
+          "title": "Run afaudit test suite in environment without duckdb or anthropic",
+          "details": [
+            "Create a clean virtual environment: uv venv .venv-afaudit-isolation",
+            "Install only afaudit and pytest (no duckdb, no anthropic): uv pip install packages/afaudit/ pytest",
+            "Run: pytest packages/afaudit/tests/ -q --ignore=packages/afaudit/tests/test_protocol_boundaries.py --ignore=packages/afaudit/tests/test_duckdbsink_protocol.py",
+            "Assert exit code 0; assert no ImportError for duckdb or anthropic in output",
+            "Document the result in the PR description"
+          ],
+          "test_spec_refs": [
+            "TS-01-43",
+            "TS-01-P1",
+            "TS-01-P7"
+          ],
+          "requirement_refs": [
+            "01-REQ-11.4",
+            "01-REQ-1.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.2",
+          "title": "Verify all three audit file types producible with only afaudit imports",
+          "details": [
+            "In the isolated venv (no agentfox), run: pytest packages/afaudit/tests/test_file_production.py -q",
+            "Assert audit_*.jsonl, agent_*.jsonl, postmortem_*.json are all created in a tempdir",
+            "Assert agentfox does not appear in sys.modules after the test",
+            "Assert exit code 0"
+          ],
+          "test_spec_refs": [
+            "TS-01-45",
+            "TS-01-SMOKE-1"
+          ],
+          "requirement_refs": [
+            "01-REQ-12.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.3",
+          "title": "Verify logging discipline across all afaudit modules",
+          "details": [
+            "Run: pytest packages/afaudit/tests/test_sink.py::test_logging_discipline packages/afaudit/tests/test_events.py::test_logging_discipline -q",
+            "Additionally run the source-scan tests: TS-01-46 (logger name map), TS-01-47 (no third-party loggers)",
+            "Assert all module source files use getLogger('afaudit.<module>') pattern and contain no loguru/structlog imports"
+          ],
+          "test_spec_refs": [
+            "TS-01-46",
+            "TS-01-47",
+            "TS-01-P8"
+          ],
+          "requirement_refs": [
+            "01-REQ-13.1",
+            "01-REQ-13.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "11.V",
+        "checks": [
+          "pytest packages/afaudit/tests/ -q (excluding integration-marked tests) exits with code 0 in a venv without duckdb and anthropic",
+          "pytest packages/afaudit/tests/test_file_production.py -q exits with code 0",
+          "ruff check packages/afaudit/ exits with code 0 — no linting errors across entire afaudit package",
+          "pip show afaudit | grep Requires shows empty Requires field",
+          "Requirements 01-REQ-11.4, 01-REQ-12.1, 01-REQ-13.1, 01-REQ-13.2 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 12,
+      "kind": "checkpoint",
+      "title": "Checkpoint: workspace-wide import migration complete and agentfox tests pass",
+      "subtasks": [
+        {
+          "id": "12.1",
+          "title": "Verify no old agentfox audit module paths remain in any workspace file",
+          "details": [
+            "Run: grep -r 'from agentfox.knowledge.audit import\\|from agentfox.knowledge.sink import\\|from agentfox.knowledge.agent_trace import\\|from agentfox.workspace.audit_cleanup import\\|from agentfox.engine.audit_helpers import emit_audit_event' agentfox/ af/ nightshift/",
+            "Assert zero results (all import sites migrated)",
+            "Run: grep 'AuditEvent\\|AuditJsonlSink\\|SessionSink\\|AgentTraceSink\\|build_postmortem\\|AUDIT_DIR' agentfox/__init__.py",
+            "Assert zero results (no shim re-exports)"
+          ],
+          "test_spec_refs": [
+            "TS-01-35",
+            "TS-01-36",
+            "TS-01-P6"
+          ],
+          "requirement_refs": [
+            "01-REQ-10.2",
+            "01-REQ-10.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "12.2",
+          "title": "Run agentfox, af, and nightshift test suites with updated imports",
+          "details": [
+            "Run: pytest agentfox/tests/ af/tests/ nightshift/tests/ -q",
+            "Assert exit code 0 — no test regressions after import path migration",
+            "If failures occur, fix import sites until all tests pass before proceeding to wiring verification"
+          ],
+          "test_spec_refs": [
+            "TS-01-49"
+          ],
+          "requirement_refs": [
+            "01-REQ-14.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "12.3",
+          "title": "Run protocol boundary integration tests with full workspace available",
+          "details": [
+            "With agentfox and afaudit both installed, run: pytest packages/afaudit/tests/test_protocol_boundaries.py packages/afaudit/tests/test_duckdbsink_protocol.py -v",
+            "Assert ExecutionState satisfies PostmortemInput structurally (all 11 attributes present)",
+            "Assert SessionRecord satisfies SessionRecordLike structurally (all 12 attributes present)",
+            "Assert DuckDBSink satisfies SessionSink protocol",
+            "Assert exit code 0"
+          ],
+          "test_spec_refs": [
+            "TS-01-25",
+            "TS-01-26",
+            "TS-01-41",
+            "TS-01-P4"
+          ],
+          "requirement_refs": [
+            "01-REQ-6.6",
+            "01-REQ-6.7",
+            "01-REQ-11.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "12.4",
+          "title": "Verify AUDIT_DIR uniqueness and agentfox.core.node_id removal",
+          "details": [
+            "Run: grep -rn 'AUDIT_DIR' $(find . -name '*.py' | grep -v afaudit/constants.py) | grep '=' — assert zero assignment results outside afaudit/constants.py",
+            "Run: pytest packages/afaudit/tests/test_constants.py -q — assert agentfox.core.node_id raises ImportError/AttributeError for AUDIT_DIR",
+            "Run the property test TS-01-P5 workspace grep scan"
+          ],
+          "test_spec_refs": [
+            "TS-01-33",
+            "TS-01-P5"
+          ],
+          "requirement_refs": [
+            "01-REQ-9.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "12.V",
+        "checks": [
+          "grep -r 'from agentfox.knowledge.audit\\|from agentfox.knowledge.sink\\|from agentfox.knowledge.agent_trace\\|from agentfox.workspace.audit_cleanup' agentfox/ af/ nightshift/ returns zero results",
+          "pytest agentfox/tests/ af/tests/ nightshift/tests/ -q exits with code 0",
+          "pytest packages/afaudit/tests/test_protocol_boundaries.py packages/afaudit/tests/test_duckdbsink_protocol.py -q exits with code 0",
+          "AUDIT_DIR defined only in afaudit/constants.py — grep confirms uniqueness",
+          "Requirements 01-REQ-9.2, 01-REQ-10.2, 01-REQ-10.3, 01-REQ-14.2 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 13,
+      "kind": "wiring_verification",
+      "title": "Wiring verification: end-to-end integration, smoke tests, and dead-code audit",
+      "subtasks": [
+        {
+          "id": "13.1",
+          "title": "Trace all execution paths and verify no stubs remain",
+          "details": [
+            "PATH-1 (produce all three file types): trace AuditJsonlSink.write() → event_to_json() → file write; AgentTraceSink; build_postmortem() → write_postmortem() — verify no raise NotImplementedError, no pass-only function bodies, no return None in non-trivial paths",
+            "PATH-2 (enforce_file_retention normal): verify glob → parse timestamp → sort → unlink chain is fully wired with no stubs",
+            "PATH-3 (missing audit_dir): verify early return 0 is in place (not raise NotImplementedError)",
+            "PATH-4 (atomic migration): verify all 7 migration steps are reflected in the actual file state — source modules deleted, import sites updated, pyproject.toml updated",
+            "PATH-5 (protocol boundary): verify protocol check test calls get_type_hints on actual afaudit protocols and actual agentfox state classes",
+            "Scan for Python stub markers: grep -r 'raise NotImplementedError\\|pass  # TODO\\|return None  # TODO' packages/afaudit/afaudit/ — assert zero results"
+          ],
+          "test_spec_refs": [
+            "TS-01-SMOKE-1",
+            "TS-01-SMOKE-2",
+            "TS-01-SMOKE-3",
+            "TS-01-SMOKE-4",
+            "TS-01-SMOKE-5"
+          ],
+          "requirement_refs": [
+            "01-REQ-12.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "13.2",
+          "title": "Verify return value propagation across all key functions",
+          "details": [
+            "Verify enforce_file_retention returns int equal to count of successfully unlinked files (not a bool, not None)",
+            "Verify callers of enforce_file_retention in agentfox/af/nightshift use the return value or intentionally discard it (no silent swallowing that masks errors)",
+            "Run TS-01-P3 property test: pytest packages/afaudit/tests/ -k 'test_enforce_file_retention' -v — verify count invariant holds for multiple run-set sizes",
+            "Verify emit_audit_event's return value (if any) is correctly propagated to callers"
+          ],
+          "test_spec_refs": [
+            "TS-01-P3"
+          ],
+          "requirement_refs": [
+            "01-REQ-7.2",
+            "01-REQ-7.E1",
+            "01-REQ-7.E2",
+            "01-REQ-7.E3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "13.3",
+          "title": "Run all smoke tests with real components",
+          "details": [
+            "SMOKE-1: run end-to-end file production test in agentfox-free environment — all 3 file types created, exit 0",
+            "SMOKE-2: enforce_file_retention with 5 run sets and max_runs=2 — assert 9 files deleted, returns 9",
+            "SMOKE-3: enforce_file_retention with non-existent audit_dir — assert returns 0, no exception",
+            "SMOKE-4: run make check from workspace root — assert exit code 0, all lint and tests pass",
+            "SMOKE-5: pytest packages/afaudit/tests/ -k protocol -v — assert protocol boundary tests pass with real agentfox classes"
+          ],
+          "test_spec_refs": [
+            "TS-01-SMOKE-1",
+            "TS-01-SMOKE-2",
+            "TS-01-SMOKE-3",
+            "TS-01-SMOKE-4",
+            "TS-01-SMOKE-5",
+            "TS-01-48"
+          ],
+          "requirement_refs": [
+            "01-REQ-12.1",
+            "01-REQ-14.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "13.4",
+          "title": "Perform full stub and dead-code audit across afaudit package",
+          "details": [
+            "grep -r 'raise NotImplementedError' packages/afaudit/afaudit/ — assert zero results",
+            "grep -r 'pass$' packages/afaudit/afaudit/*.py — assert only appears in abstract protocol method bodies (expected) or __init__ stubs that have been fully replaced",
+            "grep -r 'TODO\\|FIXME\\|HACK\\|XXX' packages/afaudit/afaudit/ — review and resolve any found",
+            "Verify all 8 module files have substantive implementations (not empty stubs): wc -l packages/afaudit/afaudit/*.py — each non-trivial module should exceed 10 lines",
+            "Confirm no agentfox import appears in any afaudit submodule: grep -r 'import agentfox\\|from agentfox' packages/afaudit/afaudit/ — assert zero results"
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [
+            "01-REQ-3.1",
+            "01-REQ-4.1",
+            "01-REQ-5.1",
+            "01-REQ-6.3",
+            "01-REQ-7.1",
+            "01-REQ-8.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "13.5",
+          "title": "Run make check and document test isolation verification",
+          "details": [
+            "Run: make check from workspace root — assert exit code 0",
+            "If make check fails: identify failures, amend feature branch, re-run until exit 0 (no partial merge per Design Decision rollout rules)",
+            "Document in PR description: (1) result of running pytest packages/afaudit/tests/ in isolation env without duckdb/anthropic; (2) result of make check; (3) confirmation that agentfox.core.node_id no longer defines AUDIT_DIR; (4) confirmation afaudit pyproject.toml has empty [project.dependencies]",
+            "Run final: pytest -q to confirm zero test regressions across entire workspace"
+          ],
+          "test_spec_refs": [
+            "TS-01-48",
+            "TS-01-49"
+          ],
+          "requirement_refs": [
+            "01-REQ-14.1",
+            "01-REQ-14.2",
+            "01-REQ-11.4"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "13.V",
+        "checks": [
+          "make check exits with code 0 — all lint and tests pass across the entire workspace",
+          "grep -r 'raise NotImplementedError\\|pass  # stub' packages/afaudit/afaudit/ returns zero results",
+          "grep -r 'import agentfox\\|from agentfox' packages/afaudit/afaudit/ returns zero results",
+          "pytest packages/afaudit/tests/ -q exits with code 0 in isolation environment (no duckdb, no anthropic)",
+          "All five smoke tests (TS-01-SMOKE-1 through TS-01-SMOKE-5) pass with real components",
+          "PR description contains documented test isolation verification result",
+          "python -c 'from afaudit import AuditEvent, AuditJsonlSink, SessionSink, SinkDispatcher, AgentTraceSink, truncate_tool_input, PostmortemInput, SessionRecordLike, build_postmortem, write_postmortem, should_dump, emit_audit_event, purge_stale_audit_files, enforce_file_retention, AUDIT_DIR; print(\"All public API symbols imported successfully\")' succeeds"
+        ]
+      }
+    }
+  ],
+  "traceability": [
+    {
+      "requirement_id": "01-REQ-1.1",
+      "test_spec_id": "TS-01-1",
+      "task_id": "1.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-1.2",
+      "test_spec_id": "TS-01-2",
+      "task_id": "1.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-1.3",
+      "test_spec_id": "TS-01-3",
+      "task_id": "1.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-1.E1",
+      "test_spec_id": "TS-01-E1",
+      "task_id": "1.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-2.1",
+      "test_spec_id": "TS-01-4",
+      "task_id": "1.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-2.2",
+      "test_spec_id": "TS-01-5",
+      "task_id": "1.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-2.3",
+      "test_spec_id": "TS-01-6",
+      "task_id": "1.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-2.4",
+      "test_spec_id": "TS-01-7",
+      "task_id": "1.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-2.5",
+      "test_spec_id": "TS-01-8",
+      "task_id": "1.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-2.6",
+      "test_spec_id": "TS-01-9",
+      "task_id": "1.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-2.E1",
+      "test_spec_id": "TS-01-E2",
+      "task_id": "1.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-3.1",
+      "test_spec_id": "TS-01-10",
+      "task_id": "1.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-3.2",
+      "test_spec_id": "TS-01-11",
+      "task_id": "1.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-3.3",
+      "test_spec_id": "TS-01-12",
+      "task_id": "1.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-3.4",
+      "test_spec_id": "TS-01-13",
+      "task_id": "1.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-4.1",
+      "test_spec_id": "TS-01-14",
+      "task_id": "1.6",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-4.2",
+      "test_spec_id": "TS-01-15",
+      "task_id": "1.6",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-4.3",
+      "test_spec_id": "TS-01-16",
+      "task_id": "6.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-5.1",
+      "test_spec_id": "TS-01-17",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-5.2",
+      "test_spec_id": "TS-01-18",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-5.3",
+      "test_spec_id": "TS-01-19",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-6.1",
+      "test_spec_id": "TS-01-20",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-6.2",
+      "test_spec_id": "TS-01-21",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-6.3",
+      "test_spec_id": "TS-01-22",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-6.4",
+      "test_spec_id": "TS-01-23",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-6.5",
+      "test_spec_id": "TS-01-24",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-6.6",
+      "test_spec_id": "TS-01-25",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-6.7",
+      "test_spec_id": "TS-01-26",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-7.1",
+      "test_spec_id": "TS-01-27",
+      "task_id": "2.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-7.2",
+      "test_spec_id": "TS-01-28",
+      "task_id": "2.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-7.3",
+      "test_spec_id": "TS-01-29",
+      "task_id": "2.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-7.E1",
+      "test_spec_id": "TS-01-E3",
+      "task_id": "2.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-7.E2",
+      "test_spec_id": "TS-01-E4",
+      "task_id": "2.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-7.E3",
+      "test_spec_id": "TS-01-E5",
+      "task_id": "2.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-8.1",
+      "test_spec_id": "TS-01-30",
+      "task_id": "2.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-8.2",
+      "test_spec_id": "TS-01-31",
+      "task_id": "2.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-9.1",
+      "test_spec_id": "TS-01-32",
+      "task_id": "2.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-9.2",
+      "test_spec_id": "TS-01-33",
+      "task_id": "3.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-10.1",
+      "test_spec_id": "TS-01-34",
+      "task_id": "2.6",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-10.2",
+      "test_spec_id": "TS-01-35",
+      "task_id": "2.6",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-10.3",
+      "test_spec_id": "TS-01-36",
+      "task_id": "2.6",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-10.4",
+      "test_spec_id": "TS-01-37",
+      "task_id": "2.6",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-10.5",
+      "test_spec_id": "TS-01-38",
+      "task_id": "2.6",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-10.6",
+      "test_spec_id": "TS-01-39",
+      "task_id": "2.6",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-11.1",
+      "test_spec_id": "TS-01-40",
+      "task_id": "3.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-11.2",
+      "test_spec_id": "TS-01-41",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-11.3",
+      "test_spec_id": "TS-01-42",
+      "task_id": "3.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-11.4",
+      "test_spec_id": "TS-01-43",
+      "task_id": "2.6",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-11.5",
+      "test_spec_id": "TS-01-44",
+      "task_id": "3.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-11.E1",
+      "test_spec_id": "TS-01-E6",
+      "task_id": "1.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-12.1",
+      "test_spec_id": "TS-01-45",
+      "task_id": "3.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-13.1",
+      "test_spec_id": "TS-01-46",
+      "task_id": "1.6",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-13.2",
+      "test_spec_id": "TS-01-47",
+      "task_id": "1.6",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-14.1",
+      "test_spec_id": "TS-01-48",
+      "task_id": "2.6",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-14.2",
+      "test_spec_id": "TS-01-49",
+      "task_id": "2.6",
+      "test_path": null
+    }
+  ]
+}

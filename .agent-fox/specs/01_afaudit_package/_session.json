@@ -1,0 +1,441 @@
+{
+  "state": "generated",
+  "prd_path": "prd.md",
+  "assessment_history": [
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD for `afaudit_package` is well-structured and technically detailed. It clearly articulates the refactoring intent, defines an explicit scope with in/out-of-scope items, describes the package layout, module mapping, dependency graph, and design decisions. However, it is missing a formal **Goals** section with measurable outcomes, lacks a **Background** section providing broader context and motivation beyond the immediate problem, and has no explicit **Non-Goals** section (though out-of-scope items are listed under Scope). Additionally, some operational and migration concerns \u2014 such as versioning strategy, rollout sequencing, and test coverage expectations \u2014 are underspecified. These gaps prevent a \"ready\" verdict but are addressable with targeted answers.",
+      "gaps": [
+        "No formal 'Goals' section with measurable, verifiable outcomes (e.g., reduction in dependency surface, performance targets, adoption milestones).",
+        "No formal 'Background' section \u2014 the Problem section touches on motivation but lacks broader context (e.g., which consumers are blocked today, history of prior attempts, why now).",
+        "No formal 'Non-Goals' section \u2014 out-of-scope items are buried inside the Scope section rather than being explicitly called out as deliberate exclusions with rationale.",
+        "No versioning or release strategy \u2014 it is unclear whether `afaudit` will follow semver, what the initial version will be, or how breaking changes will be managed.",
+        "No rollout or migration sequencing plan \u2014 with ~60 production and ~30 test import sites, there is no phased plan or feature-flag strategy described.",
+        "Owner field is empty \u2014 no accountable person is identified for this PRD.",
+        "Test coverage expectations are vague \u2014 'all existing tests pass' is stated but there is no mention of new unit tests for `afaudit` itself or coverage targets.",
+        "No explicit statement of which downstream consumers (`af`, `nightshift`, `agentspec`, `spec`) are expected to adopt `afaudit` directly vs. transitively through `agentfox`.",
+        "The AUDIT_DIR duplication decision (Design Decision #5) creates a long-term maintenance risk but no deprecation timeline or migration path for the agentfox copy is specified."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What are the measurable goals for this refactoring? For example: which specific downstream packages or external projects should be unblocked, and what dependency reduction is expected (e.g., 'consumers of afaudit pull in 0 third-party packages vs. 12 today')?",
+          "context": "The PRD lacks a Goals section with verifiable outcomes. Measurable goals are essential for confirming success after delivery and for prioritizing trade-offs during implementation.",
+          "options": [
+            "Enable af and nightshift to import audit utilities without depending on agentfox",
+            "Enable external projects to use audit file writers with only stdlib dependencies",
+            "Reduce agentfox's internal coupling so audit code can be tested in isolation",
+            "All of the above \u2014 specify any metrics (e.g., test execution time, dependency count)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "Can you provide background on what triggered this refactoring now? For example: is there a specific blocked project, a recurring pain point, or a recent architectural decision that makes this the right time?",
+          "context": "A Background section helps reviewers and implementers understand the 'why now' and prioritize accordingly. It also surfaces any prior attempts or related work that should inform implementation choices.",
+          "options": [
+            "A new consumer package needs audit utilities without agentfox's heavy deps",
+            "A recurring test-isolation problem caused by the mixed dependency",
+            "Part of a broader modularization initiative across the workspace",
+            "Other \u2014 please describe"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "Should the out-of-scope items (DuckDBSink, calculate_session_cost, markdown audit reports, etc.) be formally documented as Non-Goals with explicit rationale, or is the current Scope/Out-of-scope listing sufficient for your team's conventions?",
+          "context": "Formal Non-Goals sections prevent scope creep and make explicit that certain exclusions are deliberate decisions rather than oversights. This is especially important for refactoring PRDs where boundaries are easily blurred.",
+          "options": [
+            "Promote the existing out-of-scope list to a formal Non-Goals section",
+            "The current Scope section listing is sufficient for this team",
+            "Add a Non-Goals section and expand rationale for each exclusion"
+          ],
+          "required": false
+        },
+        {
+          "id": "q4",
+          "text": "What is the rollout strategy for migrating ~60 production and ~30 test import sites? Will this be done in a single atomic PR, or in phases (e.g., create package \u2192 migrate agentfox \u2192 migrate af/nightshift \u2192 migrate agentspec)?",
+          "context": "The scale of the import migration is significant. A phased approach reduces risk but requires intermediate states where both old and new import paths coexist, which conflicts with Design Decision #3 (no re-export shims). Clarifying this is critical for implementation planning.",
+          "options": [
+            "Single atomic PR \u2014 all import sites migrated at once, no shims",
+            "Phased: create package first, then migrate packages one at a time (temporary shims allowed)",
+            "Phased: create package and migrate agentfox atomically, then migrate leaf packages separately",
+            "Other \u2014 please describe"
+          ],
+          "required": true
+        },
+        {
+          "id": "q5",
+          "text": "What is the deprecation or migration timeline for the duplicate `AUDIT_DIR` constant in `agentfox.core.node_id` (Design Decision #5)? Is there a target version or date by which the agentfox copy should be removed?",
+          "context": "Leaving the constant duplicated indefinitely creates a maintenance burden and risks divergence. A concrete deprecation timeline converts this from an open-ended risk into a tracked work item.",
+          "options": [
+            "Remove from agentfox.core.node_id in the same PR (accept the breaking change now)",
+            "Deprecate with a warning in the next minor release, remove in the following major",
+            "No timeline \u2014 leave it duplicated indefinitely and rely on gradual migration",
+            "Other \u2014 please specify"
+          ],
+          "required": false
+        },
+        {
+          "id": "q6",
+          "text": "Who is the owner of this PRD and the resulting package? The 'owner' field is currently blank.",
+          "context": "An identified owner is necessary for accountability, review sign-off, and post-delivery maintenance of the new afaudit package.",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "q7",
+          "text": "Are there explicit test coverage requirements for the new `afaudit` package itself (beyond migrating existing tests)? For example: minimum coverage percentage, required new unit tests for the Protocol boundaries, or integration tests?",
+          "context": "The acceptance criteria only states 'all existing tests pass.' New packages typically require their own test suite to validate the refactored interfaces, especially the new Protocol-based postmortem inputs.",
+          "options": [
+            "Migrate existing tests only \u2014 no new tests required beyond what already exists",
+            "Require new unit tests for PostmortemInput and SessionRecordLike Protocol boundaries",
+            "Require a minimum coverage threshold (e.g., 80%) for afaudit modules",
+            "Full test suite migration plus new tests for any new public API surface"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD is well-structured and technically detailed for a refactoring task. It clearly defines scope, module mapping, dependency graph, design decisions, and acceptance criteria. The atomic migration strategy and protocol-based decoupling rationale are well-articulated. However, several areas need clarification before implementation can begin confidently: the exact public API surface of `afaudit.__init__` is unspecified, the `PostmortemInput` and `SessionRecordLike` Protocol attribute lists are mentioned but not defined, error handling / logging strategy for the new package is absent, versioning/release strategy for the new package is missing, and the test migration strategy lacks specifics about new test coverage expectations.",
+      "gaps": [
+        "The public API surface re-exported from `afaudit/__init__.py` is not specified \u2014 only described as 'matching afspec pattern', which is not defined in this document.",
+        "The `PostmortemInput` Protocol attributes (~8 attributes) and `SessionRecordLike` Protocol attributes (12 attributes) are referenced but never enumerated, leaving implementers to reverse-engineer them from `agentfox.engine.run` lines 394-541.",
+        "No versioning or release strategy is defined for `afaudit` as a new workspace package (initial version, semver policy, changelog requirements).",
+        "Error handling and logging strategy for `afaudit` is absent \u2014 the package cannot use third-party loggers, so it is unclear whether it uses stdlib `logging`, `print`, or raises exceptions only.",
+        "The test migration section lacks specifics: which existing tests move verbatim, which require rewriting due to removed agentfox fixtures, and what the minimum new test coverage target is for the Protocol boundary tests.",
+        "The `SinkDispatcher._dispatch_optional` trace methods are listed as in-scope but not described \u2014 it is unclear how many methods this covers or whether any have agentfox-internal type hints that need protocol substitution.",
+        "No rollback plan is described \u2014 if `make check` fails mid-PR, the strategy for unwinding the atomic change is not addressed.",
+        "The `enforce_file_retention` function in `cleanup.py` is mentioned in the package structure but the split logic from `enforce_audit_retention` is only partially described (file-glob + unlink), leaving the exact function signature undefined.",
+        "It is unclear whether `afaudit` will have its own `CHANGELOG`, `README`, or documentation requirements consistent with other workspace packages like `afspec`.",
+        "The dependency graph diagram shows `af` and `nightshift` depending on `afaudit` directly, but the table also says `agentspec/spec` depends transitively via `agentfox` \u2014 it is not confirmed whether `agentspec/spec` has zero direct audit imports (this is asserted but not verified in the document)."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What symbols should be re-exported from `afaudit/__init__.py`? Please list the intended public API (e.g., which classes, functions, and constants are exported at the top level vs. accessed via submodule).",
+          "context": "The PRD says __init__.py 're-exports key symbols (matching afspec pattern)' but afspec's pattern is not described here. Implementers need an explicit list to avoid accidental API surface changes.",
+          "options": [
+            "Export all symbols from all submodules (star exports)",
+            "Export only the most commonly used symbols (AuditEvent, AuditEventType, AuditSeverity, SessionSink, SinkDispatcher, AgentTraceSink, emit_audit_event, purge_stale_audit_files, AUDIT_DIR, build_postmortem, write_postmortem)",
+            "No top-level re-exports \u2014 consumers must import from submodules directly (e.g., afaudit.events, afaudit.sink)",
+            "Provide an explicit enumerated list of exported names"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "Can you enumerate the ~8 attributes of the `PostmortemInput` Protocol and the 12 attributes of the `SessionRecordLike` Protocol that the postmortem functions actually read?",
+          "context": "These protocols are central to the design (Decision #2) and are called out in acceptance criteria, but their attribute lists are never defined. Without this, implementers must read agentfox source lines 394-541 and may make mistakes about what is required vs. incidental.",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "What is the initial version number for `afaudit`, and what versioning policy applies (e.g., independent semver, pinned to workspace version, no version bumps until first external release)?",
+          "context": "As a new workspace package, afaudit needs a version in pyproject.toml and a policy for how it evolves, especially since agentfox, af, and nightshift will declare version constraints against it.",
+          "options": [
+            "0.1.0, independent semver",
+            "Match the current agentfox version at time of extraction",
+            "0.1.0, no semver policy yet \u2014 treated as internal-only for now",
+            "1.0.0, since it is extracted from stable production code"
+          ],
+          "required": false
+        },
+        {
+          "id": "q4",
+          "text": "How should `afaudit` handle logging and internal errors? The package is stdlib-only, so what is the approved pattern?",
+          "context": "afaudit cannot use loguru, structlog, or other third-party loggers. The choice of stdlib logging vs. no logging vs. raising exceptions affects the API contract and test expectations.",
+          "options": [
+            "Use stdlib `logging` module with a named logger (`logging.getLogger('afaudit')`)",
+            "No logging \u2014 raise exceptions only; callers handle observability",
+            "Mirror whatever pattern agentfox uses internally for the code being extracted",
+            "Use a simple `warnings.warn` for non-fatal issues, exceptions for fatal ones"
+          ],
+          "required": true
+        },
+        {
+          "id": "q5",
+          "text": "What is the exact function signature for `enforce_file_retention()` in `afaudit.cleanup`, and how does it differ from the current `enforce_audit_retention()` in agentfox?",
+          "context": "The PRD describes splitting enforce_audit_retention into a file-half (afaudit) and a DB-half (agentfox), but only says 'JSONL file glob + unlink'. The new function name, parameters, and return type are not defined.",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "q6",
+          "text": "Should `afaudit` include a README and/or CHANGELOG consistent with other workspace packages? Are there documentation generation requirements (e.g., docstrings for mkdocs)?",
+          "context": "The PRD describes the package structure but omits documentation artifacts. If afspec sets a documentation precedent, afaudit should follow it.",
+          "options": [
+            "Yes \u2014 README.md and CHANGELOG.md required, matching afspec",
+            "README only (no changelog until first external release)",
+            "No docs required \u2014 internal package, code comments are sufficient",
+            "Docstrings only, no separate markdown files"
+          ],
+          "required": false
+        },
+        {
+          "id": "q7",
+          "text": "Have you confirmed that `agentspec` and `spec` have zero direct imports of the audit symbols being moved? If not, should they be added to the import migration list?",
+          "context": "The PRD asserts 'no direct audit imports; no change required' for agentspec/spec but does not cite a dependency analysis. If this is wrong, the atomic PR scope is understated.",
+          "options": [
+            "Yes, confirmed via grep/dependency analysis \u2014 no changes needed",
+            "Not yet confirmed \u2014 needs verification before PR",
+            "There are a small number of sites \u2014 they should be added to the migration list"
+          ],
+          "required": true
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "This is a well-structured, detailed PRD for a focused refactoring initiative. The scope, goals, design decisions, and acceptance criteria are clearly articulated. The document covers the module mapping, public API, protocol definitions, dependency graph, and rollout strategy comprehensively. However, several gaps remain that could create ambiguity or risk during implementation: the `AuditJsonlSink` symbol appears in the public API but has no corresponding source or description; the `sink.py` migration source is listed as \"entire module\" but the public API exports a symbol not mentioned in the scope section; error handling and edge cases for `enforce_file_retention` are underspecified; and the test migration strategy lacks detail on what new tests are required beyond the protocol boundary tests. A few clarifying questions will help close these gaps.",
+      "gaps": [
+        "AuditJsonlSink is listed in the public API re-exports from afaudit.sink but is never mentioned in the Scope or Module Mapping sections \u2014 its source, purpose, and definition are undefined.",
+        "The sink.py scope section lists SessionSink, SinkDispatcher, SessionOutcome, ToolCall, ToolError, and SinkDispatcher._dispatch_optional trace methods, but does not mention AuditJsonlSink at all, creating an inconsistency with the public API.",
+        "enforce_file_retention edge cases are unspecified: behavior when audit_dir does not exist, when filenames don't match the expected pattern, or when file deletion fails (permissions error, race condition).",
+        "The test migration strategy mentions migrating ~30 test import sites and adding Protocol boundary tests, but does not specify which existing agentfox test modules map to which afaudit test files, or what test coverage targets apply.",
+        "The public API section lists truncate_tool_input as exported from afaudit.trace, but it is not clear whether this is intended as part of the guaranteed public API or is an internal helper that was inadvertently promoted.",
+        "No CI or environment isolation mechanism is described for verifying the 'no duckdb/anthropic in import graph' acceptance criterion \u2014 it is unclear whether this is a manual check, a CI job, or a tox/uv environment constraint.",
+        "The pyproject.toml structure for afaudit is not specified \u2014 required fields (name, version, dependencies, build-system, optional-dependencies for tests) are not listed, leaving room for inconsistency with other workspace packages.",
+        "The behavior of agentfox after source module deletion is not fully specified: it is unclear whether agentfox re-imports afaudit symbols under its own namespace or whether callers must always use afaudit paths directly (design decision #3 covers this but the agentfox __init__.py impact is not addressed)."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What is AuditJsonlSink? It appears in the public API re-exports from afaudit.sink but is absent from the Scope and Module Mapping sections. Is it a new class introduced during the extraction, a rename of an existing class, or was it included in the public API by mistake?",
+          "context": "This is the most significant inconsistency in the PRD. Without knowing what AuditJsonlSink is, implementers cannot correctly build sink.py or the public API, and the acceptance criteria cannot be verified.",
+          "options": [
+            "It is a new lightweight JSONL-file-based SessionSink implementation introduced in afaudit (i.e., the file-writing sink extracted from agentfox)",
+            "It is a rename or alias of an existing class (please specify which one)",
+            "It was included in the public API by mistake and should be removed"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "How should enforce_file_retention behave in error and edge cases? Specifically: (a) what happens if audit_dir does not exist, (b) what happens if a file matching the glob has an unparseable timestamp in its name, and (c) what happens if a file deletion fails due to a permissions error?",
+          "context": "enforce_file_retention is a public API function with a defined signature and return type. These edge cases will directly affect implementation and test coverage. Without specifying them, different implementers may make incompatible choices.",
+          "options": [
+            "(a) Return 0 silently; (b) skip unparseable files with a logged warning; (c) log the error and continue, returning count of successfully deleted files",
+            "(a) Raise FileNotFoundError; (b) raise ValueError; (c) raise PermissionError and abort",
+            "(a) Return 0 silently; (b) skip with warning; (c) raise and abort",
+            "Other \u2014 please specify"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "Is truncate_tool_input intended to be part of the guaranteed public API (exported from afaudit/__init__.py), or is it an internal helper that should only be accessible via afaudit.trace direct import?",
+          "context": "The public API section explicitly re-exports truncate_tool_input from afaudit.trace. If it is genuinely public, it should be covered by acceptance criteria and stability guarantees. If it is internal, it should be removed from __init__.py to avoid accidental coupling by downstream consumers.",
+          "options": [
+            "It is intentionally public \u2014 keep it in __init__.py and add it to acceptance criteria",
+            "It is an internal helper \u2014 remove it from __init__.py re-exports"
+          ],
+          "required": false
+        },
+        {
+          "id": "q4",
+          "text": "How will the 'no duckdb or anthropic in the import graph' acceptance criterion be enforced in CI? Is this a manual check, an automated CI job (e.g., a separate tox/uv environment), or a static import graph analysis tool?",
+          "context": "This is one of the core goals of the extraction (Goal #2: Test isolation). Without an automated enforcement mechanism, it is easy to accidentally reintroduce a transitive dependency and not notice until a consumer fails. Specifying the enforcement method makes the acceptance criterion verifiable.",
+          "options": [
+            "A dedicated CI job that installs only afaudit and its stdlib deps, then runs the afaudit test suite",
+            "A static analysis check (e.g., import-linter or grimp rule) added to make check",
+            "A manual check documented in the PR checklist \u2014 no CI automation at this stage",
+            "Other \u2014 please specify"
+          ],
+          "required": false
+        },
+        {
+          "id": "q5",
+          "text": "Should the afaudit pyproject.toml be specified in the PRD (name, version, build-system, dependencies table, test optional-dependency group)? Or is it sufficient to reference the existing afspec pyproject.toml as the template without reproducing it here?",
+          "context": "The PRD states afaudit uses Hatchling, version 4.0.2, and zero third-party dependencies, but does not show the actual pyproject.toml. Given that pyproject.toml correctness is an acceptance criterion (verifiable via pip show afaudit), having the structure specified avoids ambiguity.",
+          "options": [
+            "Include a minimal pyproject.toml template in the PRD",
+            "Reference afspec/pyproject.toml as the template \u2014 no need to reproduce it here",
+            "Leave it to the implementer \u2014 the constraints stated are sufficient"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "This is a well-structured and detailed PRD for a code extraction/refactoring task. It covers the background, goals, scope, tech stack, package structure, public API, protocol definitions, function signatures, module mapping, dependency graph, migration strategy, design decisions, and acceptance criteria thoroughly. The document is largely implementer-ready. A small number of gaps remain: (1) the test migration strategy is underspecified \u2014 it's unclear which existing tests move to afaudit vs. stay in agentfox, and whether new coverage targets exist; (2) the `SinkDispatcher._dispatch_optional` trace methods are referenced in scope but not described in the public API or acceptance criteria; (3) `pyproject.toml` optional test dependencies are mentioned but not specified; (4) the `agentfox` `pyproject.toml` update (adding `afaudit` as a dependency) is implied but not explicitly listed in the rollout sequence; (5) there is no explicit call out of how `agentfox` re-imports from `afaudit` internally after deletion (i.e., whether internal agentfox modules replace their old local imports with `afaudit.*` imports).",
+      "gaps": [
+        "Test migration strategy is underspecified: it is unclear which of the ~30 test import sites move their test files into afaudit/tests/ vs. simply updating the import path while the test file stays in agentfox/tests/.",
+        "SinkDispatcher._dispatch_optional trace methods are mentioned in scope but absent from the public API table and acceptance criteria \u2014 it is ambiguous whether they are public or private.",
+        "The optional test dependencies for afaudit's pyproject.toml are mentioned as a possibility but never specified (e.g., pytest version, any test-only packages).",
+        "The rollout sequence (step 3) says 'update all ~60 production import sites across agentfox, af, and nightshift' but does not explicitly call out that agentfox's own internal modules must replace their old local imports with afaudit.* imports \u2014 this is the most impactful and error-prone step and deserves explicit mention.",
+        "No explicit acceptance criterion or rollout step confirms that agentfox's pyproject.toml is updated to declare afaudit as a direct dependency."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "Which existing audit-related test files move physically into packages/afaudit/tests/, and which ones stay in their current package (agentfox/tests/, af/tests/, etc.) with only import paths updated?",
+          "context": "The PRD mentions ~30 test import sites being updated but does not clarify whether any test files relocate. Misunderstanding this could result in duplicate test coverage or tests running in the wrong package environment, defeating the test-isolation goal.",
+          "options": [
+            "All audit unit tests that test afaudit symbols move into packages/afaudit/tests/; integration tests that require agentfox stay in agentfox/tests/",
+            "Only new tests (Protocol boundary tests, enforce_file_retention edge cases) are added to packages/afaudit/tests/; existing tests stay in place with import paths updated",
+            "All ~30 test files physically move to packages/afaudit/tests/ regardless of what they test",
+            "Test files stay in their original packages; only import statements are updated"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "Are any of SinkDispatcher's _dispatch_optional trace methods part of the guaranteed public API of afaudit, or are they intentionally private (single-underscore prefix implies private)?",
+          "context": "The Scope section explicitly lists '_dispatch_optional trace methods' as moving to afaudit, but the Public API section and acceptance criteria make no mention of them. This ambiguity could cause an implementer to either expose them publicly or keep them private without understanding the intent.",
+          "options": [
+            "They are private implementation details of SinkDispatcher; the underscore prefix is intentional and they are not part of the public API",
+            "They are public and should be added to the Public API section and acceptance criteria",
+            "They are public but only accessible via submodule import (afaudit.sink), not re-exported from afaudit/__init__.py"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "What test-only dependencies (if any) should be listed in afaudit's pyproject.toml under [project.optional-dependencies] test group?",
+          "context": "The PRD says 'A [project.optional-dependencies] test group may be added for test-only tooling consistent with other workspace packages' but never specifies what goes in it. The implementer needs to know whether to add pytest, pytest-cov, or any other tooling.",
+          "options": [
+            "pytest only (matching afspec/pyproject.toml)",
+            "pytest + pytest-cov",
+            "No optional test dependencies \u2014 rely on the workspace-level tool configuration",
+            "Specify exact versions to match the workspace lock file"
+          ],
+          "required": false
+        },
+        {
+          "id": "q4",
+          "text": "Should the rollout sequence explicitly include a step to update agentfox's pyproject.toml to declare afaudit as a direct dependency, and if so, where in the sequence does it belong?",
+          "context": "The dependency graph section and acceptance criteria imply agentfox will depend on afaudit, but the 7-step rollout sequence never explicitly mentions updating agentfox's pyproject.toml. Missing this step could cause the workspace build to fail.",
+          "options": [
+            "Yes \u2014 add it as Step 1 (create afaudit package and immediately wire it into agentfox's pyproject.toml so subsequent steps can validate imports)",
+            "Yes \u2014 add it as a sub-step within Step 3 (update import sites), since the pyproject.toml change is a prerequisite for the import changes to resolve",
+            "It is already implied by Step 1 and does not need to be explicit",
+            "Yes \u2014 add it as a separate step between Step 1 and Step 2"
+          ],
+          "required": true
+        }
+      ]
+    },
+    {
+      "quality": "ready",
+      "summary": "This is an exceptionally well-written PRD for a refactoring task. It demonstrates senior-level specification quality: the scope is precisely bounded, design decisions are explicitly documented with rationale, the public API is fully enumerated, edge case behaviors are tabulated, protocol contracts are defined with exact attribute counts, rollout sequencing is ordered with dependency awareness, and acceptance criteria are concrete and verifiable. The document is internally consistent \u2014 earlier ambiguities (e.g., `AuditJsonlSink` placement, `_dispatch_optional` visibility, `truncate_tool_input` public status) are explicitly resolved in the Design Decisions section. There are no significant gaps that would block implementation. The minor questions below are refinements rather than blockers.",
+      "gaps": [
+        "The `emit_audit_event()` function signature is not documented. Its parameters, return type, and behavior are not specified \u2014 only its source location is given.",
+        "The `reconstruct_transcript()` function signature and behavior are not described anywhere in the PRD, despite being listed as in-scope.",
+        "The `AgentTraceSink` class interface (constructor parameters, key methods) is not specified, making it harder to verify a correct port from `agentfox.knowledge.agent_trace`.",
+        "There is no explicit statement about what happens to `agentfox.engine.run` after lines 394\u2013541 are extracted \u2014 specifically whether the remaining module structure or any call-sites within `run.py` itself are updated.",
+        "The `generate_run_id()` function return type and format are not documented (e.g., whether it returns a UUID string, a timestamp-prefixed string, etc.), which matters for filename parsing in `enforce_file_retention`.",
+        "The `SinkDispatcher` constructor signature and the session/sink wiring it performs are not described, which could lead to ambiguity when porting from `agentfox.knowledge.sink`.",
+        "No mention of how `af` and `nightshift` declare the new `afaudit` dependency \u2014 whether it's added to `[project.dependencies]` or `[dependency-groups]` in their respective `pyproject.toml` files."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What is the signature and behavior of `emit_audit_event()`? Please provide the parameter names, types, return type, and a one-sentence description of what it does.",
+          "context": "The function is listed as in-scope and part of the public API, but its interface is entirely undocumented. An implementer cannot confidently port it without knowing what it takes and returns.",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "What is the signature and purpose of `reconstruct_transcript()`? Is it part of the guaranteed public API (i.e., should it be re-exported from `afaudit/__init__.py`)?",
+          "context": "`reconstruct_transcript` is listed as in-scope from `agentfox.knowledge.agent_trace` but does not appear in the Public API `__init__.py` listing. It's unclear if the omission is intentional (submodule-only access) or an oversight.",
+          "options": [
+            "It is intentionally submodule-only (accessible via `afaudit.trace` but not re-exported from `afaudit/__init__.py`)",
+            "It should be added to the public API re-exports in `afaudit/__init__.py`"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "After extracting lines 394\u2013541 from `agentfox/engine/run.py`, does the remainder of `run.py` still call `build_postmortem()` / `write_postmortem()` / `should_dump()`? If so, should those call-sites be updated to import from `afaudit.postmortem`?",
+          "context": "The rollout sequence lists updating ~60 production import sites, but `run.py` is both a source of extracted code and likely a consumer of it. Clarifying this avoids a missed import update.",
+          "options": [
+            "Yes \u2014 `run.py` still calls these functions and its import is updated to `from afaudit.postmortem import ...`",
+            "No \u2014 after extraction, the call-sites in `run.py` are also removed or restructured"
+          ],
+          "required": false
+        },
+        {
+          "id": "q4",
+          "text": "How do `af` and `nightshift` declare their new direct dependency on `afaudit`? Should it be added to `[project.dependencies]` in their `pyproject.toml` files, or handled differently in the `uv` monorepo context?",
+          "context": "The PRD states both packages depend on `afaudit` directly, but doesn't specify the exact `pyproject.toml` mechanism. In a `uv` workspace, the declaration pattern matters for correct resolution.",
+          "options": [
+            "Added to `[project.dependencies]` in each package's `pyproject.toml` (same pattern as `agentfox` declaring `afaudit>=4.0.2`)",
+            "Handled at the workspace root level only"
+          ],
+          "required": false
+        },
+        {
+          "id": "q5",
+          "text": "What is the format of the run ID embedded in audit filenames (e.g., `audit_YYYYMMDD_HHMMSS_hex.jsonl`)? Is this produced by `generate_run_id()`, and is the parsing logic for `enforce_file_retention` already present in the existing `purge_stale_audit_files` implementation that can be reused?",
+          "context": "`enforce_file_retention` must parse timestamps from filenames to sort runs chronologically. Knowing the exact format and whether a parser already exists prevents duplicate or divergent implementations.",
+          "options": [
+            "Yes \u2014 `generate_run_id()` produces this format and the parsing logic already exists in `purge_stale_audit_files` and can be reused",
+            "The format is correct but parsing logic needs to be written fresh for `enforce_file_retention`"
+          ],
+          "required": false
+        }
+      ]
+    }
+  ],
+  "qa_exchanges": [
+    {
+      "assessment_index": 0,
+      "answers": {
+        "q1": "All of the above. The key measurable outcome is: afaudit has 0 third-party dependencies (vs 12+ for agentfox). Secondary: audit-related unit tests run without duckdb/anthropic in the import graph, reducing test isolation issues.",
+        "q2": "Part of a broader modularization initiative. The workspace already extracted afspec into a standalone package. Audit code is the next candidate because dependency analysis shows it has clean boundaries (zero inward agentfox dependencies for the core modules).",
+        "q3": "The current Scope section listing is sufficient for this team's conventions.",
+        "q4": "Single atomic change \u2014 create the package and migrate all imports at once. The codebase is a uv workspace where all packages are developed together, and feature branches are local-only. ~90 import sites is manageable in one pass, and no re-export shims means no intermediate state is possible.",
+        "q5": "Remove AUDIT_DIR from agentfox.core.node_id in the same change. Since all import sites are being updated anyway, there is no reason to leave the duplicate.",
+        "q6": "Leave blank \u2014 this is an autonomous agent project, the owner is the repository maintainer.",
+        "q7": "Migrate existing tests plus require new unit tests for PostmortemInput and SessionRecordLike Protocol boundaries. No minimum coverage percentage required."
+      },
+      "timestamp": "2026-07-02T09:28:44.520231+00:00"
+    },
+    {
+      "assessment_index": 1,
+      "answers": {
+        "q1": "Export the most commonly used symbols: AuditEvent, AuditEventType, AuditSeverity, default_severity_for, generate_run_id, event_to_json, event_from_json, AuditJsonlSink, SessionSink, SinkDispatcher, SessionOutcome, ToolCall, ToolError, AgentTraceSink, reconstruct_transcript, truncate_tool_input, PostmortemInput, SessionRecordLike, build_postmortem, write_postmortem, should_dump, emit_audit_event, purge_stale_audit_files, enforce_file_retention, AUDIT_DIR.",
+        "q2": "PostmortemInput Protocol attributes (11 total): run_id: str, run_status: str (may be a StrEnum with .value), node_states: dict[str, str], total_cost: float, total_input_tokens: int, total_output_tokens: int, total_sessions: int, blocked_reasons: dict[str, str], session_history: list[SessionRecordLike], started_at: str, updated_at: str. SessionRecordLike Protocol attributes (12 total): node_id: str, attempt: int, status: str, archetype: str, model: str, duration_ms: int, cost: float, error_message: str | None, timestamp: str, is_transport_error: bool, is_budget_exhausted: bool, is_non_retryable: bool.",
+        "q3": "Match the current workspace version (4.0.2). All workspace packages use the same version.",
+        "q4": "Mirror the existing pattern: stdlib logging with named loggers (logging.getLogger('afaudit.events'), etc.). This is exactly what the code being extracted already uses \u2014 just change the logger name prefix from 'agentfox.knowledge.audit' to 'afaudit.events', etc.",
+        "q5": "enforce_file_retention(audit_dir: Path, *, max_runs: int = 20) -> int. Discovers run_ids from audit_*.jsonl filenames, parses the embedded timestamp (YYYYMMDD_HHMMSS_hex), sorts chronologically, deletes the oldest beyond max_runs along with corresponding agent_*.jsonl and postmortem_*.json files. Returns the number of files removed. No DB parameter \u2014 pure filesystem operation.",
+        "q6": "No docs required \u2014 internal workspace package, docstrings are sufficient. No README or CHANGELOG needed at this stage.",
+        "q7": "Confirmed via grep \u2014 agentspec and spec have zero direct imports of any audit symbol. They are excluded from the migration list."
+      },
+      "timestamp": "2026-07-02T09:31:13.962307+00:00"
+    },
+    {
+      "assessment_index": 2,
+      "answers": {
+        "q1": "AuditJsonlSink is the existing JSONL file writer class from agentfox.knowledge.audit (lines 216-259). It is listed in the Scope under 'Event model' via the module mapping: events.py gets 'Everything except enforce_audit_retention' from agentfox.knowledge.audit, which includes AuditJsonlSink. It should be re-exported from afaudit.events, not afaudit.sink. The public API listing was slightly ambiguous \u2014 AuditJsonlSink comes from afaudit.events alongside AuditEvent/AuditEventType/etc.",
+        "q2": "(a) Return 0 silently (matching purge_stale_audit_files pattern); (b) skip unparseable files with a logged warning; (c) log the error at WARNING level and continue, returning the count of successfully deleted files. This matches the best-effort error handling pattern used throughout the existing audit cleanup code.",
+        "q3": "It is intentionally public \u2014 keep it in __init__.py. It is useful for any code that needs to write audit traces with large tool inputs.",
+        "q4": "Manual check documented in the PR description \u2014 no CI automation at this stage. The uv workspace already isolates package dependency graphs; pyproject.toml having zero dependencies is self-documenting.",
+        "q5": "Reference afspec/pyproject.toml as the template. The constraints stated (hatchling, version 4.0.2, zero deps, requires-python >=3.12) are sufficient for the implementer."
+      },
+      "timestamp": "2026-07-02T09:35:52.147647+00:00"
+    },
+    {
+      "assessment_index": 3,
+      "answers": {
+        "q1": "Tests that only exercise afaudit symbols (AuditEvent, AuditJsonlSink, AgentTraceSink, postmortem builders, cleanup functions) move physically into packages/afaudit/tests/. Tests that require agentfox infrastructure (DuckDB fixtures, config objects, full orchestrator setup) stay in agentfox/tests/ with only their import paths updated. New Protocol boundary tests are added to packages/afaudit/tests/.",
+        "q2": "They are private implementation details of SinkDispatcher \u2014 the underscore prefix is intentional. SinkDispatcher itself is public; its _dispatch_optional methods are not part of the guaranteed public API.",
+        "q3": "No optional test dependencies \u2014 rely on the workspace-level tool configuration in the root pyproject.toml which already declares pytest in [dependency-groups] dev.",
+        "q4": "Yes \u2014 add it as a sub-step within the import migration step (Step 3 equivalent). Updating agentfox/pyproject.toml to add afaudit>=4.0.2 as a dependency is a prerequisite for the import changes to resolve."
+      },
+      "timestamp": "2026-07-02T09:38:27.968630+00:00"
+    }
+  ],
+  "generated_artifacts": [
+    "requirements",
+    "test_spec",
+    "tasks"
+  ],
+  "mode": "interactive"
+}

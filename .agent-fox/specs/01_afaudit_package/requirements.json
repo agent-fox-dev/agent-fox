@@ -1,0 +1,966 @@
+{
+  "$schema": null,
+  "spec_id": "01",
+  "spec_name": "afaudit_package",
+  "schema_version": 1,
+  "introduction": "The `afaudit` package extracts all audit file-writing infrastructure from the `agentfox` core into a standalone, stdlib-only Python package, enabling lightweight consumers to depend on audit primitives without transitive heavy dependencies. It provides the event model, sink protocol, agent trace sink, postmortem writer, cleanup utilities, and supporting constants for producing the three audit file types (`audit_*.jsonl`, `agent_*.jsonl`, `postmortem_*.json`).",
+  "glossary": {
+    "AUDIT_DIR": "The constant Path value `.agent-fox/audit` defined in afaudit.constants, previously defined in agentfox.core.node_id.",
+    "AgentTraceSink": "A sink class in afaudit.trace that writes agent trace files (agent_*.jsonl).",
+    "AuditEvent": "The dataclass representing a single audit event, defined in afaudit.events.",
+    "AuditEventType": "A StrEnum with 49 values enumerating the types of audit events, defined in afaudit.events.",
+    "AuditJsonlSink": "The JSONL file writer class (from agentfox.knowledge.audit lines 216\u2013259) that serializes AuditEvent objects to .jsonl files; lives in afaudit.events.",
+    "AuditSeverity": "A StrEnum enumerating the severity levels for audit events, defined in afaudit.events.",
+    "DuckDBSink": "A heavy sink implementation that remains in agentfox.knowledge.duckdb_sink and implements the afaudit.SessionSink protocol.",
+    "ExecutionState": "An agentfox-internal dataclass that satisfies the PostmortemInput protocol structurally.",
+    "PostmortemInput": "A Protocol in afaudit.postmortem defining the 11 attributes read from an execution state when building a postmortem file.",
+    "SessionOutcome": "A dataclass in afaudit.sink representing the outcome of a session.",
+    "SessionRecord": "An agentfox-internal dataclass that satisfies the SessionRecordLike protocol structurally.",
+    "SessionRecordLike": "A Protocol in afaudit.postmortem defining the 12 attributes accessed on each session record when building the session history section of a postmortem.",
+    "SessionSink": "A Protocol defined in afaudit.sink that describes the interface any audit sink must implement.",
+    "SinkDispatcher": "A class in afaudit.sink that dispatches audit events to one or more SessionSink implementations.",
+    "ToolCall": "A dataclass in afaudit.sink representing a single tool invocation recorded in the audit trail.",
+    "ToolError": "A dataclass in afaudit.sink representing a tool invocation error recorded in the audit trail.",
+    "_dispatch_optional": "Private trace methods on SinkDispatcher; implementation details not part of the public API.",
+    "af": "A downstream consumer CLI package that imports audit symbols directly and will depend on afaudit after migration.",
+    "afaudit": "The new standalone Python package extracted from agentfox that contains all audit file-writing infrastructure with zero third-party dependencies.",
+    "afaudit.cleanup": "The submodule of afaudit containing purge_stale_audit_files and enforce_file_retention.",
+    "afaudit.constants": "The submodule of afaudit containing the AUDIT_DIR constant.",
+    "afaudit.emit": "The submodule of afaudit containing emit_audit_event.",
+    "afaudit.events": "The submodule of afaudit containing AuditEvent, AuditEventType, AuditSeverity, AuditJsonlSink, and helper functions.",
+    "afaudit.postmortem": "The submodule of afaudit containing postmortem protocols, build_postmortem, write_postmortem, and should_dump.",
+    "afaudit.sink": "The submodule of afaudit containing SessionSink, SinkDispatcher, and data classes.",
+    "afaudit.trace": "The submodule of afaudit containing AgentTraceSink, reconstruct_transcript, and truncate_tool_input.",
+    "afspec": "A previously extracted standalone workspace package used as the template for afaudit's pyproject.toml structure.",
+    "agentfox": "The core orchestrator package from which audit code is being extracted; it will depend on afaudit after the migration.",
+    "agentspec": "A workspace package confirmed to have zero direct audit imports; no changes required during migration.",
+    "audit_dir": "The filesystem directory where audit files are stored, typically the path given by AUDIT_DIR.",
+    "build_postmortem": "A function in afaudit.postmortem that constructs the postmortem data structure from a PostmortemInput.",
+    "calculate_session_cost": "A function that remains in agentfox.engine.audit_helpers because it depends on agentfox-internal pricing models.",
+    "emit_audit_event": "A convenience function in afaudit.emit for emitting a single audit event to a sink.",
+    "enforce_audit_retention": "The original combined function in agentfox.workspace.audit_cleanup that performs both DuckDB row deletion and JSONL file deletion; split during migration.",
+    "enforce_file_retention": "A function in afaudit.cleanup that deletes the oldest audit file sets beyond a configured maximum run count, returning the number of files successfully deleted.",
+    "hatchling": "The build backend used for all workspace packages, declared in pyproject.toml.",
+    "make check": "The workspace-level command that runs both lint and the full test suite.",
+    "max_runs": "The keyword-only parameter to enforce_file_retention specifying the maximum number of audit run file sets to retain.",
+    "nightshift": "A downstream consumer package similar to af that imports audit symbols directly and will depend on afaudit after migration.",
+    "purge_stale_audit_files": "A function in afaudit.cleanup that removes audit files for runs that no longer have corresponding state.",
+    "pyproject.toml": "The Python packaging configuration file declaring build system, version, dependencies, and metadata for a package.",
+    "reconstruct_transcript": "A function in afaudit.trace that reconstructs a conversation transcript from trace data.",
+    "run_id": "A unique identifier for an audit run, embedded in audit filenames as a timestamp-hex string (YYYYMMDD_HHMMSS_hex).",
+    "should_dump": "A function in afaudit.postmortem that determines whether a postmortem should be written for a given run.",
+    "spec": "A workspace package confirmed to have zero direct audit imports; no changes required during migration.",
+    "truncate_tool_input": "A public utility function in afaudit.trace that truncates large tool inputs before writing audit traces.",
+    "uv": "The monorepo package manager used to manage workspace packages and their dependency graphs.",
+    "write_postmortem": "A function in afaudit.postmortem that writes the postmortem data structure to a postmortem_*.json file.",
+    "4.0.2": "The shared version number used by all workspace packages.",
+    "AUDIT_DIR = Path(\".agent-fox/audit\")": "The exact definition of the AUDIT_DIR constant in afaudit.constants.",
+    "SinkDispatcher._dispatch_optional": "Private trace dispatch methods on SinkDispatcher; not part of the public API.",
+    "YYYYMMDD_HHMMSS_hex": "The timestamp-hex format used by generate_run_id for audit filenames.",
+    "[project.dependencies]": "The pyproject.toml section listing a package's runtime dependencies.",
+    "[project.optional-dependencies]": "The pyproject.toml section for optional dependency groups.",
+    "__init__.py": "Python package initializer module; used for re-exporting public API symbols.",
+    "_build_blocked_tasks": "Internal helper function in afaudit.postmortem that builds the blocked tasks section of a postmortem.",
+    "_build_session_history": "Internal helper function in afaudit.postmortem that builds the session history section of a postmortem.",
+    "_build_task_summary": "Internal helper function in afaudit.postmortem that builds the task summary section of a postmortem.",
+    "af/tests/": "The test directory for the af CLI package.",
+    "afaudit.*": "Import path prefix for all afaudit submodule imports.",
+    "afaudit.<module>": "The naming pattern for stdlib loggers in each afaudit submodule.",
+    "afaudit.SessionSink": "The fully qualified import path for the SessionSink protocol in afaudit.",
+    "afaudit/__init__.py": "The package initializer for afaudit that re-exports public API symbols.",
+    "afaudit/pyproject.toml": "The packaging configuration file for the afaudit package.",
+    "afaudit>=4.0.2": "The version constraint used when declaring afaudit as a dependency.",
+    "afspec/pyproject.toml": "The packaging configuration file for afspec, used as the template for afaudit.",
+    "agent_*.jsonl": "Glob pattern matching agent trace JSONL files produced by AgentTraceSink.",
+    "agentfox.core.node_id": "The agentfox module that previously defined AUDIT_DIR alongside other constants.",
+    "agentfox.engine.audit_helpers": "The agentfox module containing emit_audit_event and calculate_session_cost.",
+    "agentfox.engine.run": "The agentfox module containing the postmortem functions being extracted.",
+    "agentfox.engine.state.ExecutionState": "The agentfox dataclass that satisfies PostmortemInput structurally.",
+    "agentfox.engine.state.SessionRecord": "The agentfox dataclass that satisfies SessionRecordLike structurally.",
+    "agentfox.knowledge.agent_trace": "The agentfox module from which AgentTraceSink is migrated.",
+    "agentfox.knowledge.audit": "The agentfox module from which AuditEvent and related types are migrated.",
+    "agentfox.knowledge.duckdb_sink": "The agentfox module containing DuckDBSink; receives the DB-retention logic.",
+    "agentfox.knowledge.sink": "The agentfox module from which SessionSink and SinkDispatcher are migrated.",
+    "agentfox.workspace.audit_cleanup": "The agentfox module from which purge_stale_audit_files is migrated.",
+    "agentfox/__init__.py": "The agentfox package initializer; must not re-export audit symbols after migration.",
+    "agentfox/pyproject.toml": "The packaging configuration file for agentfox; updated to declare afaudit dependency.",
+    "agentfox/tests/": "The test directory for the agentfox core package.",
+    "anthropic": "A third-party Python package for the Anthropic API; must not appear in afaudit's import graph.",
+    "archetype: str": "A SessionRecordLike Protocol attribute specifying the session archetype.",
+    "attempt: int": "A SessionRecordLike Protocol attribute specifying the attempt number.",
+    "audit_*.jsonl": "Glob pattern matching audit event JSONL files produced by AuditJsonlSink.",
+    "blocked_reasons: dict[str, str]": "A PostmortemInput Protocol attribute mapping node IDs to block reasons.",
+    "build-system = hatchling": "The pyproject.toml build system declaration used by all workspace packages.",
+    "build_postmortem()": "Function in afaudit.postmortem that constructs a postmortem data structure.",
+    "cleanup.py": "The afaudit submodule containing cleanup and retention functions.",
+    "constants.py": "The afaudit submodule containing the AUDIT_DIR constant.",
+    "cost: float": "A SessionRecordLike Protocol attribute specifying session cost.",
+    "default_severity_for": "Function in afaudit.events returning the default severity for an event type.",
+    "default_severity_for()": "Function in afaudit.events returning the default severity for an event type.",
+    "duckdb": "A third-party Python package for DuckDB; must not appear in afaudit's import graph.",
+    "duration_ms: int": "A SessionRecordLike Protocol attribute specifying session duration in milliseconds.",
+    "emit.py": "The afaudit submodule containing the emit_audit_event convenience function.",
+    "emit_audit_event()": "Convenience function in afaudit.emit for emitting audit events to a sink.",
+    "enforce_audit_retention()": "The original combined function being split into file-retention and DB-retention halves.",
+    "enforce_file_retention()": "The file-only retention function in afaudit.cleanup.",
+    "enforce_file_retention(audit_dir: Path, *, max_runs: int = 20) -> int": "Full signature of the file-retention function in afaudit.cleanup.",
+    "error_message: str | None": "A SessionRecordLike Protocol attribute for the error message, if any.",
+    "event_from_json": "Function in afaudit.events for deserializing JSON to AuditEvent.",
+    "event_from_json()": "Function in afaudit.events for deserializing JSON to AuditEvent.",
+    "event_to_json": "Function in afaudit.events for serializing AuditEvent to JSON.",
+    "event_to_json()": "Function in afaudit.events for serializing AuditEvent to JSON.",
+    "events.py": "The afaudit submodule containing AuditEvent, enums, and AuditJsonlSink.",
+    "from afaudit import <symbol>": "The import pattern for accessing afaudit public API symbols.",
+    "generate_run_id": "Function in afaudit.events that generates a unique run identifier.",
+    "generate_run_id()": "Function in afaudit.events that generates a unique run identifier.",
+    "is_budget_exhausted: bool": "A SessionRecordLike Protocol attribute indicating budget exhaustion.",
+    "is_non_retryable: bool": "A SessionRecordLike Protocol attribute indicating non-retryable failure.",
+    "is_transport_error: bool": "A SessionRecordLike Protocol attribute indicating transport-level error.",
+    "logging": "The Python stdlib logging module used exclusively by afaudit.",
+    "model: str": "A SessionRecordLike Protocol attribute specifying the model ID.",
+    "node_id: str": "A SessionRecordLike Protocol attribute specifying the node identifier.",
+    "node_states: dict[str, str]": "A PostmortemInput Protocol attribute mapping node IDs to status strings.",
+    "packages/afaudit/afaudit/": "The filesystem path for the afaudit package using flat layout.",
+    "packages/afaudit/tests/": "The filesystem path for afaudit's test directory.",
+    "pip show afaudit": "CLI command to verify afaudit's installed dependencies.",
+    "postmortem.py": "The afaudit submodule containing postmortem protocols and functions.",
+    "postmortem_*.json": "Glob pattern matching postmortem JSON files.",
+    "purge_stale_audit_files()": "Function in afaudit.cleanup that removes all stale audit files.",
+    "reconstruct_transcript()": "Function in afaudit.trace that reconstructs conversation transcripts from traces.",
+    "requires-python = \">=3.12\"": "The minimum Python version constraint for afaudit.",
+    "run_id: str": "A PostmortemInput Protocol attribute specifying the run identifier.",
+    "run_status: str": "A PostmortemInput Protocol attribute specifying the run status.",
+    "session_history": "The session history field on PostmortemInput containing SessionRecordLike items.",
+    "session_history: list[SessionRecordLike]": "A PostmortemInput Protocol attribute listing session records.",
+    "should_dump()": "Function in afaudit.postmortem that determines whether to write a postmortem.",
+    "sink.py": "The afaudit submodule containing SessionSink protocol and SinkDispatcher.",
+    "src/": "A Python package layout convention not used by this workspace (flat layout is used).",
+    "started_at: str": "A PostmortemInput Protocol attribute for the run start timestamp.",
+    "status: str": "A SessionRecordLike Protocol attribute specifying session status.",
+    "tests/": "A test directory within a package.",
+    "timestamp: str": "A SessionRecordLike Protocol attribute for the session timestamp.",
+    "total_cost: float": "A PostmortemInput Protocol attribute for total run cost.",
+    "total_input_tokens: int": "A PostmortemInput Protocol attribute for total input tokens.",
+    "total_output_tokens: int": "A PostmortemInput Protocol attribute for total output tokens.",
+    "total_sessions: int": "A PostmortemInput Protocol attribute for total session count.",
+    "trace.py": "The afaudit submodule containing AgentTraceSink and transcript utilities.",
+    "truncate_tool_input()": "Public utility in afaudit.trace for truncating large tool input values.",
+    "updated_at: str": "A PostmortemInput Protocol attribute for the last update timestamp.",
+    "write_postmortem()": "Function in afaudit.postmortem that writes a postmortem dict to a JSON file."
+  },
+  "requirements": [
+    {
+      "id": "01-REQ-1",
+      "title": "Package scaffold with zero third-party dependencies",
+      "user_story": {
+        "role": "developer consuming audit infrastructure",
+        "goal": "install afaudit without pulling in any third-party libraries",
+        "benefit": "lightweight consumers such as af and nightshift can depend on audit primitives without transitive dependency bloat"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-1.1",
+          "ears_pattern": "ubiquitous",
+          "system": "afaudit package",
+          "action": "declare version `4.0.2`, `requires-python = \">=3.12\"`, `build-system = hatchling`, and an empty `[project.dependencies]` table in `pyproject.toml`, with no `[project.optional-dependencies]` section, using `afspec/pyproject.toml` as the template",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-1.2",
+          "ears_pattern": "ubiquitous",
+          "system": "afaudit package",
+          "action": "reside at `packages/afaudit/afaudit/` using a flat layout (no `src/` directory), following the structure: `__init__.py`, `events.py`, `sink.py`, `trace.py`, `postmortem.py`, `cleanup.py`, `emit.py`, `constants.py`, and a `tests/` directory",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-1.3",
+          "ears_pattern": "ubiquitous",
+          "system": "afaudit package",
+          "action": "have zero third-party runtime dependencies, verifiable by inspecting `pyproject.toml` and running `pip show afaudit`",
+          "return_contract": "pip show afaudit lists no third-party packages under Requires"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "01-REQ-1.E1",
+          "ears_pattern": "unwanted",
+          "system": "afaudit package",
+          "action": "fail the dependency isolation check, which is verified manually by the implementer as part of PR review and documented in the PR description",
+          "return_contract": null,
+          "error_condition": "a third-party dependency is added to `[project.dependencies]` in `pyproject.toml`"
+        }
+      ]
+    },
+    {
+      "id": "01-REQ-2",
+      "title": "Public API re-exported from afaudit __init__.py",
+      "user_story": {
+        "role": "developer using audit functionality",
+        "goal": "import all key audit symbols directly from the top-level afaudit namespace",
+        "benefit": "consumers have a stable, ergonomic import surface without needing to know internal submodule structure"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-2.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`afaudit/__init__.py`",
+          "action": "re-export `AuditEvent`, `AuditEventType`, `AuditSeverity`, `AuditJsonlSink`, `default_severity_for`, `generate_run_id`, `event_to_json`, `event_from_json` from `afaudit.events`",
+          "return_contract": "all eight symbols are importable via `from afaudit import <symbol>`"
+        },
+        {
+          "id": "01-REQ-2.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`afaudit/__init__.py`",
+          "action": "re-export `SessionSink`, `SinkDispatcher`, `SessionOutcome`, `ToolCall`, `ToolError` from `afaudit.sink`",
+          "return_contract": "all five symbols are importable via `from afaudit import <symbol>`"
+        },
+        {
+          "id": "01-REQ-2.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`afaudit/__init__.py`",
+          "action": "re-export `AgentTraceSink`, `reconstruct_transcript`, `truncate_tool_input` from `afaudit.trace`",
+          "return_contract": "all three symbols are importable via `from afaudit import <symbol>`"
+        },
+        {
+          "id": "01-REQ-2.4",
+          "ears_pattern": "ubiquitous",
+          "system": "`afaudit/__init__.py`",
+          "action": "re-export `PostmortemInput`, `SessionRecordLike`, `build_postmortem`, `write_postmortem`, `should_dump` from `afaudit.postmortem`",
+          "return_contract": "all five symbols are importable via `from afaudit import <symbol>`"
+        },
+        {
+          "id": "01-REQ-2.5",
+          "ears_pattern": "ubiquitous",
+          "system": "`afaudit/__init__.py`",
+          "action": "re-export `emit_audit_event` from `afaudit.emit`, `purge_stale_audit_files` and `enforce_file_retention` from `afaudit.cleanup`, and `AUDIT_DIR` from `afaudit.constants`",
+          "return_contract": "all four symbols are importable via `from afaudit import <symbol>`"
+        },
+        {
+          "id": "01-REQ-2.6",
+          "ears_pattern": "ubiquitous",
+          "system": "`afaudit.events` module",
+          "action": "define `AuditJsonlSink` (the JSONL file writer class sourced from `agentfox.knowledge.audit` lines 216\u2013259) co-located with the event model it serializes, not in `afaudit.sink`",
+          "return_contract": "`from afaudit.events import AuditJsonlSink` succeeds; `afaudit.sink` does not define `AuditJsonlSink`"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "01-REQ-2.E1",
+          "ears_pattern": "unwanted",
+          "system": "`afaudit/__init__.py`",
+          "action": "reject the reference as a violation of the private API boundary; `_dispatch_optional` must not appear in external call-sites or test files",
+          "return_contract": null,
+          "error_condition": "`SinkDispatcher._dispatch_optional` methods are referenced in any external call-site or test"
+        }
+      ]
+    },
+    {
+      "id": "01-REQ-3",
+      "title": "Event model module (afaudit.events)",
+      "user_story": {
+        "role": "developer producing audit logs",
+        "goal": "create, serialize, and deserialize AuditEvent objects using only afaudit",
+        "benefit": "audit event creation is decoupled from agentfox internals and usable in lightweight consumers"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-3.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`afaudit.events`",
+          "action": "define `AuditEvent` dataclass, `AuditEventType` StrEnum (49 values), `AuditSeverity` StrEnum, `AuditJsonlSink` class, `default_severity_for()`, `generate_run_id()`, `event_to_json()`, and `event_from_json()` \u2014 migrated from `agentfox.knowledge.audit` with behaviour preserved",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-3.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`afaudit.events` module",
+          "action": "use stdlib `logging` with the named logger `afaudit.events`",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-3.3",
+          "ears_pattern": "event_driven",
+          "system": "`event_to_json()`",
+          "action": "serialize the event to a JSON string",
+          "return_contract": "returns a valid JSON string representing the event",
+          "trigger": "called with an `AuditEvent` instance"
+        },
+        {
+          "id": "01-REQ-3.4",
+          "ears_pattern": "event_driven",
+          "system": "`event_from_json()`",
+          "action": "deserialize the string back to an `AuditEvent` instance",
+          "return_contract": "returns an `AuditEvent` equal to the original",
+          "trigger": "called with a valid JSON string produced by `event_to_json()`"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "01-REQ-4",
+      "title": "Sink protocol and data models (afaudit.sink)",
+      "user_story": {
+        "role": "developer implementing a custom audit sink",
+        "goal": "depend on the SessionSink Protocol and SinkDispatcher without importing agentfox",
+        "benefit": "custom sinks can be developed and tested in isolation from agentfox's heavy dependency graph"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-4.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`afaudit.sink`",
+          "action": "define `SessionSink` Protocol, `SinkDispatcher` class (including private `_dispatch_optional` trace methods as implementation details), `SessionOutcome` dataclass, `ToolCall` dataclass, and `ToolError` dataclass \u2014 migrated from `agentfox.knowledge.sink` with behaviour preserved",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-4.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`afaudit.sink` module",
+          "action": "use stdlib `logging` with the named logger `afaudit.sink`",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-4.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`DuckDBSink` in `agentfox`",
+          "action": "implement `afaudit.SessionSink` structurally so that it satisfies the protocol without any import of `afaudit` inside `DuckDBSink` itself being required",
+          "return_contract": "structural type check against `afaudit.SessionSink` passes for `DuckDBSink`"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "01-REQ-5",
+      "title": "Agent trace sink (afaudit.trace)",
+      "user_story": {
+        "role": "developer writing agent trace files",
+        "goal": "produce agent_*.jsonl files and reconstruct transcripts using only afaudit",
+        "benefit": "agent trace writing is available to consumers without pulling in agentfox"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-5.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`afaudit.trace`",
+          "action": "define `AgentTraceSink`, `reconstruct_transcript()`, and `truncate_tool_input()` \u2014 migrated from `agentfox.knowledge.agent_trace` with behaviour preserved",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-5.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`truncate_tool_input`",
+          "action": "be part of the guaranteed public API, re-exported from `afaudit/__init__.py`, so that any consumer writing audit traces with large tool inputs can access it",
+          "return_contract": "`from afaudit import truncate_tool_input` succeeds"
+        },
+        {
+          "id": "01-REQ-5.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`afaudit.trace` module",
+          "action": "use stdlib `logging` with the named logger `afaudit.trace`",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "01-REQ-6",
+      "title": "Postmortem writer with Protocol-based inputs (afaudit.postmortem)",
+      "user_story": {
+        "role": "developer generating postmortem reports",
+        "goal": "produce postmortem_*.json files by passing any object satisfying PostmortemInput, without importing agentfox types",
+        "benefit": "postmortem writing is decoupled from agentfox.engine.state.ExecutionState and testable without agentfox"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-6.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`afaudit.postmortem`",
+          "action": "define `PostmortemInput` Protocol with exactly 11 attributes: `run_id: str`, `run_status: str`, `node_states: dict[str, str]`, `total_cost: float`, `total_input_tokens: int`, `total_output_tokens: int`, `total_sessions: int`, `blocked_reasons: dict[str, str]`, `session_history: list[SessionRecordLike]`, `started_at: str`, `updated_at: str`",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-6.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`afaudit.postmortem`",
+          "action": "define `SessionRecordLike` Protocol with exactly 12 attributes: `node_id: str`, `attempt: int`, `status: str`, `archetype: str`, `model: str`, `duration_ms: int`, `cost: float`, `error_message: str | None`, `timestamp: str`, `is_transport_error: bool`, `is_budget_exhausted: bool`, `is_non_retryable: bool`",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-6.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`afaudit.postmortem`",
+          "action": "define `build_postmortem()`, `write_postmortem()`, `should_dump()`, and internal helpers `_build_task_summary`, `_build_blocked_tasks`, `_build_session_history` \u2014 migrated from `agentfox.engine.run` lines 394\u2013541 with behaviour preserved",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-6.4",
+          "ears_pattern": "event_driven",
+          "system": "`build_postmortem()`",
+          "action": "construct and return the postmortem data structure using only the protocol-defined attributes, without importing any `agentfox` type",
+          "return_contract": "returns a dict or dataclass representing the postmortem; no ImportError from agentfox",
+          "trigger": "called with any object satisfying `PostmortemInput` whose `session_history` items satisfy `SessionRecordLike`"
+        },
+        {
+          "id": "01-REQ-6.5",
+          "ears_pattern": "ubiquitous",
+          "system": "`afaudit.postmortem` module",
+          "action": "use stdlib `logging` with the named logger `afaudit.postmortem`",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-6.6",
+          "ears_pattern": "ubiquitous",
+          "system": "`agentfox.engine.state.ExecutionState`",
+          "action": "satisfy `PostmortemInput` structurally with no changes to its definition",
+          "return_contract": "structural protocol check passes; `isinstance(ExecutionState(...), PostmortemInput)` or static type-checker verification succeeds"
+        },
+        {
+          "id": "01-REQ-6.7",
+          "ears_pattern": "ubiquitous",
+          "system": "`agentfox.engine.state.SessionRecord`",
+          "action": "satisfy `SessionRecordLike` structurally with no changes to its definition",
+          "return_contract": "structural protocol check passes"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "01-REQ-7",
+      "title": "Cleanup utilities (afaudit.cleanup)",
+      "user_story": {
+        "role": "developer managing audit file retention",
+        "goal": "purge stale and over-limit audit files using only afaudit with no database interaction",
+        "benefit": "audit file cleanup is available to lightweight consumers without agentfox or duckdb"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-7.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`afaudit.cleanup`",
+          "action": "define `purge_stale_audit_files()` migrated from `agentfox.workspace.audit_cleanup` with behaviour preserved, and `enforce_file_retention(audit_dir: Path, *, max_runs: int = 20) -> int` as the file-only half of the former `enforce_audit_retention()`",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-7.2",
+          "ears_pattern": "event_driven",
+          "system": "`enforce_file_retention()`",
+          "action": "discover `run_id`s from `audit_*.jsonl` filenames, parse the embedded timestamp (`YYYYMMDD_HHMMSS_hex`) from each filename, sort runs chronologically, delete all three corresponding files (`audit_*.jsonl`, `agent_*.jsonl`, `postmortem_*.json`) for each run beyond `max_runs`, and return the total number of files successfully removed",
+          "return_contract": "returns an int equal to the count of files successfully deleted; pure filesystem operation with no database interaction",
+          "trigger": "called with a valid `audit_dir` containing more than `max_runs` run file sets"
+        },
+        {
+          "id": "01-REQ-7.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`afaudit.cleanup` module",
+          "action": "use stdlib `logging` with the named logger `afaudit.cleanup`",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "01-REQ-7.E1",
+          "ears_pattern": "unwanted",
+          "system": "`enforce_file_retention()`",
+          "action": "return 0 silently without raising any exception, matching the best-effort pattern of `purge_stale_audit_files`",
+          "return_contract": "returns 0",
+          "error_condition": "`audit_dir` does not exist on the filesystem"
+        },
+        {
+          "id": "01-REQ-7.E2",
+          "ears_pattern": "unwanted",
+          "system": "`enforce_file_retention()`",
+          "action": "log a WARNING via `afaudit.cleanup` logger, skip the file, and continue processing remaining files",
+          "return_contract": "the unrecognised file is not counted in the return value and is not deleted",
+          "error_condition": "an `audit_*.jsonl` filename does not match the expected `YYYYMMDD_HHMMSS_hex` timestamp pattern"
+        },
+        {
+          "id": "01-REQ-7.E3",
+          "ears_pattern": "unwanted",
+          "system": "`enforce_file_retention()`",
+          "action": "log the error at WARNING level via `afaudit.cleanup` logger, continue deleting remaining files, and count only successfully deleted files in the return value",
+          "return_contract": "returns the count of files successfully deleted, excluding any that failed",
+          "error_condition": "a file deletion fails (e.g. permissions error or race condition)"
+        }
+      ]
+    },
+    {
+      "id": "01-REQ-8",
+      "title": "Emit helper (afaudit.emit)",
+      "user_story": {
+        "role": "developer emitting discrete audit events",
+        "goal": "call a single convenience function to emit an audit event to a sink",
+        "benefit": "avoids boilerplate and provides a stable, testable entry point for event emission"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-8.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`afaudit.emit`",
+          "action": "define `emit_audit_event()` migrated from `agentfox.engine.audit_helpers` (only this function, not `calculate_session_cost`) with behaviour preserved",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-8.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`afaudit.emit` module",
+          "action": "use stdlib `logging` with the named logger `afaudit.emit`",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "01-REQ-9",
+      "title": "AUDIT_DIR constant (afaudit.constants)",
+      "user_story": {
+        "role": "developer referencing the canonical audit directory path",
+        "goal": "import AUDIT_DIR from afaudit.constants as the single source of truth",
+        "benefit": "eliminates the duplicate definition and ensures all consumers reference the same constant"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-9.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`afaudit.constants`",
+          "action": "define `AUDIT_DIR = Path(\".agent-fox/audit\")` as the single authoritative definition of the audit directory path",
+          "return_contract": "`from afaudit.constants import AUDIT_DIR` returns `Path('.agent-fox/audit')`"
+        },
+        {
+          "id": "01-REQ-9.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`agentfox.core.node_id`",
+          "action": "have the `AUDIT_DIR` constant removed in the same atomic change that creates `afaudit`, so that the constant exists only in `afaudit.constants`",
+          "return_contract": "`AUDIT_DIR` is not importable from `agentfox.core.node_id` after migration"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "01-REQ-10",
+      "title": "Atomic import migration across workspace",
+      "user_story": {
+        "role": "workspace maintainer",
+        "goal": "migrate all audit import sites in a single atomic change with no re-export shims",
+        "benefit": "the workspace remains in a consistent state throughout; no dead compatibility shims accumulate"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-10.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`agentfox` package",
+          "action": "declare `afaudit>=4.0.2` as a direct dependency in `agentfox/pyproject.toml` before any internal import sites are updated, so that the workspace dependency resolver can locate the new package",
+          "return_contract": "`afaudit>=4.0.2` appears in `agentfox/pyproject.toml` [project.dependencies]"
+        },
+        {
+          "id": "01-REQ-10.2",
+          "ears_pattern": "ubiquitous",
+          "system": "all ~60 production import sites in `agentfox`, `af`, and `nightshift`",
+          "action": "replace imports from `agentfox.knowledge.audit`, `agentfox.knowledge.sink`, `agentfox.knowledge.agent_trace`, `agentfox.engine.audit_helpers`, `agentfox.workspace.audit_cleanup`, and `agentfox.core.node_id` (for `AUDIT_DIR`) with equivalent `afaudit.*` imports in a single atomic change",
+          "return_contract": "no import site in `agentfox`, `af`, or `nightshift` references the old module paths for moved symbols after migration"
+        },
+        {
+          "id": "01-REQ-10.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`agentfox` package",
+          "action": "contain no re-export shims for moved audit symbols; `agentfox/__init__.py` must not re-expose audit symbols",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-10.4",
+          "ears_pattern": "ubiquitous",
+          "system": "`af` and `nightshift` packages",
+          "action": "declare `afaudit` as a direct dependency in their respective `pyproject.toml` files and import `purge_stale_audit_files` and `AUDIT_DIR` directly from `afaudit`",
+          "return_contract": "`afaudit` appears in the direct dependencies of both `af` and `nightshift` `pyproject.toml` files"
+        },
+        {
+          "id": "01-REQ-10.5",
+          "ears_pattern": "ubiquitous",
+          "system": "`agentspec` and `spec` packages",
+          "action": "require no import changes, having zero direct audit imports confirmed via grep",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-10.6",
+          "ears_pattern": "ubiquitous",
+          "system": "DB-retention half of `enforce_audit_retention()`",
+          "action": "be moved to `agentfox.knowledge.duckdb_sink` as part of the same atomic change, so that `afaudit.cleanup` contains only the file-retention half",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "01-REQ-11",
+      "title": "Test migration and isolation",
+      "user_story": {
+        "role": "developer running the afaudit test suite",
+        "goal": "run afaudit tests in an environment without duckdb or anthropic installed",
+        "benefit": "confirms the audit package is truly free of heavy transitive dependencies and test isolation issues are eliminated"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-11.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`packages/afaudit/tests/`",
+          "action": "physically contain all test files that exclusively exercise `afaudit` symbols, including tests for `AuditEvent`, `AuditJsonlSink`, `AgentTraceSink`, `build_postmortem`, `write_postmortem`, `should_dump`, `purge_stale_audit_files`, `enforce_file_retention`, and related helpers",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-11.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`packages/afaudit/tests/`",
+          "action": "contain new Protocol boundary tests verifying that `agentfox.engine.state.ExecutionState` satisfies `PostmortemInput` and that `agentfox.engine.state.SessionRecord` satisfies `SessionRecordLike` structurally",
+          "return_contract": "tests pass; no structural mismatch detected"
+        },
+        {
+          "id": "01-REQ-11.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`packages/afaudit/tests/`",
+          "action": "contain new unit tests covering all three `enforce_file_retention` edge cases: missing `audit_dir`, unparseable filenames, and failed file deletions",
+          "return_contract": "all three edge case tests pass"
+        },
+        {
+          "id": "01-REQ-11.4",
+          "ears_pattern": "state_driven",
+          "system": "`packages/afaudit/tests/` suite",
+          "action": "pass completely with no import errors, and the implementer documents this verification result in the PR description",
+          "return_contract": "all tests pass; no ImportError for duckdb or anthropic",
+          "state": "running in an environment where `duckdb` and `anthropic` are not installed"
+        },
+        {
+          "id": "01-REQ-11.5",
+          "ears_pattern": "ubiquitous",
+          "system": "test files requiring `agentfox` infrastructure (DuckDB fixtures, `PricingConfig`, full orchestrator setup)",
+          "action": "remain in their original package test directories (`agentfox/tests/`, `af/tests/`, etc.) with only their import paths updated to use `afaudit.*`",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "01-REQ-11.E1",
+          "ears_pattern": "unwanted",
+          "system": "`packages/afaudit/tests/`",
+          "action": "reject the test reference as a violation of the private API boundary; tests must only interact with public `SinkDispatcher` methods",
+          "return_contract": null,
+          "error_condition": "`_dispatch_optional` methods of `SinkDispatcher` are referenced in any test"
+        }
+      ]
+    },
+    {
+      "id": "01-REQ-12",
+      "title": "Full audit file production via afaudit alone",
+      "user_story": {
+        "role": "developer producing all three audit file types",
+        "goal": "generate audit_*.jsonl, agent_*.jsonl, and postmortem_*.json files using only afaudit imports",
+        "benefit": "no agentfox import is required to produce a complete audit trail"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-12.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`afaudit` package",
+          "action": "enable production of `audit_*.jsonl` files via `AuditJsonlSink` from `afaudit.events`, `agent_*.jsonl` files via `AgentTraceSink` from `afaudit.trace`, and `postmortem_*.json` files via `build_postmortem` and `write_postmortem` from `afaudit.postmortem`, all without any `agentfox` import",
+          "return_contract": "all three file types can be produced in a Python process where agentfox is not installed"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "01-REQ-13",
+      "title": "Logging discipline across all afaudit modules",
+      "user_story": {
+        "role": "operator monitoring audit infrastructure",
+        "goal": "see clearly namespaced log output from each afaudit submodule",
+        "benefit": "log filtering and routing is straightforward; no third-party logging dependencies are introduced"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-13.1",
+          "ears_pattern": "ubiquitous",
+          "system": "every `afaudit` module",
+          "action": "use stdlib `logging` exclusively and create a module-level logger with the name `afaudit.<module>` (e.g. `afaudit.events`, `afaudit.sink`, `afaudit.trace`, `afaudit.postmortem`, `afaudit.cleanup`, `afaudit.emit`)",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-13.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`afaudit` package",
+          "action": "not import or reference any third-party logging library (loguru, structlog, or similar)",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "01-REQ-14",
+      "title": "Workspace-level verification (make check)",
+      "user_story": {
+        "role": "workspace maintainer",
+        "goal": "confirm that lint and all tests pass after the complete migration",
+        "benefit": "provides confidence that the atomic change has not broken any existing functionality"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-14.1",
+          "ears_pattern": "event_driven",
+          "system": "workspace",
+          "action": "run lint and the full test suite across all workspace packages",
+          "return_contract": "exits with code 0; all linting and tests pass",
+          "trigger": "`make check` is executed after the complete atomic migration"
+        },
+        {
+          "id": "01-REQ-14.2",
+          "ears_pattern": "ubiquitous",
+          "system": "all existing tests across `agentfox/tests/`, `af/tests/`, and `nightshift/tests/`",
+          "action": "continue to pass after import paths are updated to use `afaudit.*` equivalents",
+          "return_contract": "no test regressions; exit code 0"
+        }
+      ],
+      "edge_cases": []
+    }
+  ],
+  "correctness_properties": [
+    {
+      "id": "01-PROP-1",
+      "title": "Zero third-party runtime dependencies",
+      "for_any": "installation of `afaudit` in a clean virtual environment",
+      "invariant": "`pip show afaudit` reports no third-party packages under Requires, and `afaudit/pyproject.toml` has an empty `[project.dependencies]` table with no `[project.optional-dependencies]` section",
+      "validates": [
+        "01-REQ-1.1",
+        "01-REQ-1.3"
+      ]
+    },
+    {
+      "id": "01-PROP-2",
+      "title": "Complete public API importability",
+      "for_any": "symbol listed in the Public API section of the PRD",
+      "invariant": "the symbol is importable via `from afaudit import <symbol>` and resolves to the correct definition in the corresponding `afaudit.<module>` submodule",
+      "validates": [
+        "01-REQ-2.1",
+        "01-REQ-2.2",
+        "01-REQ-2.3",
+        "01-REQ-2.4",
+        "01-REQ-2.5",
+        "01-REQ-2.6"
+      ]
+    },
+    {
+      "id": "01-PROP-3",
+      "title": "enforce_file_retention return value consistency",
+      "for_any": "invocation of `enforce_file_retention()` on any `audit_dir`",
+      "invariant": "the return value equals exactly the number of files that were successfully unlinked from the filesystem; files that failed deletion or were skipped due to unparseable filenames are never counted",
+      "validates": [
+        "01-REQ-7.2",
+        "01-REQ-7.E2",
+        "01-REQ-7.E3"
+      ]
+    },
+    {
+      "id": "01-PROP-4",
+      "title": "Protocol structural compatibility",
+      "for_any": "`agentfox.engine.state.ExecutionState` instance and `agentfox.engine.state.SessionRecord` instance",
+      "invariant": "`ExecutionState` satisfies `PostmortemInput` and `SessionRecord` satisfies `SessionRecordLike` structurally without any modification to their definitions",
+      "validates": [
+        "01-REQ-6.6",
+        "01-REQ-6.7",
+        "01-REQ-11.2"
+      ]
+    },
+    {
+      "id": "01-PROP-5",
+      "title": "AUDIT_DIR uniqueness",
+      "for_any": "state of the workspace after migration",
+      "invariant": "`AUDIT_DIR` is defined exactly once, in `afaudit.constants`, and is not defined in `agentfox.core.node_id` or any other module",
+      "validates": [
+        "01-REQ-9.1",
+        "01-REQ-9.2"
+      ]
+    },
+    {
+      "id": "01-PROP-6",
+      "title": "No shim re-exports in agentfox",
+      "for_any": "module in the `agentfox` package after migration",
+      "invariant": "no `agentfox` module re-exports any symbol that was moved to `afaudit`; `agentfox/__init__.py` does not expose any audit symbol",
+      "validates": [
+        "01-REQ-10.3"
+      ]
+    },
+    {
+      "id": "01-PROP-7",
+      "title": "Test suite isolation from heavy dependencies",
+      "for_any": "test in `packages/afaudit/tests/`",
+      "invariant": "the test passes in a Python environment where `duckdb` and `anthropic` are not installed; no ImportError for these packages occurs",
+      "validates": [
+        "01-REQ-11.4"
+      ]
+    },
+    {
+      "id": "01-PROP-8",
+      "title": "Stdlib-only logging",
+      "for_any": "`afaudit` module",
+      "invariant": "the module uses only stdlib `logging` with a logger named `afaudit.<module>`; no third-party logging library is imported",
+      "validates": [
+        "01-REQ-13.1",
+        "01-REQ-13.2"
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "01-PATH-1",
+      "title": "Produce all three audit file types using only afaudit",
+      "steps": [
+        {
+          "actor": "Consumer (e.g. af or nightshift)",
+          "action": "imports `AuditJsonlSink`, `AgentTraceSink`, `build_postmortem`, `write_postmortem`, and `AUDIT_DIR` from `afaudit` with no agentfox import"
+        },
+        {
+          "actor": "Consumer",
+          "action": "instantiates `AuditJsonlSink` pointed at `AUDIT_DIR` and writes `AuditEvent` objects, producing an `audit_*.jsonl` file"
+        },
+        {
+          "actor": "Consumer",
+          "action": "instantiates `AgentTraceSink` and records agent turn data, producing an `agent_*.jsonl` file"
+        },
+        {
+          "actor": "Consumer",
+          "action": "calls `build_postmortem()` with an object satisfying `PostmortemInput`, then calls `write_postmortem()` to persist the result, producing a `postmortem_*.json` file"
+        },
+        {
+          "actor": "Filesystem",
+          "action": "contains all three audit file types in `audit_dir` with no agentfox module having been imported"
+        }
+      ]
+    },
+    {
+      "id": "01-PATH-2",
+      "title": "Enforce file retention \u2014 normal path",
+      "steps": [
+        {
+          "actor": "Caller (af, nightshift, or agentfox)",
+          "action": "calls `enforce_file_retention(audit_dir=AUDIT_DIR, max_runs=20)` from `afaudit.cleanup`"
+        },
+        {
+          "actor": "`enforce_file_retention`",
+          "action": "globs `audit_dir` for `audit_*.jsonl` files, parses the `YYYYMMDD_HHMMSS_hex` timestamp from each filename, and sorts runs chronologically"
+        },
+        {
+          "actor": "`enforce_file_retention`",
+          "action": "identifies runs beyond `max_runs` (the oldest ones) and deletes all three corresponding files (`audit_*.jsonl`, `agent_*.jsonl`, `postmortem_*.json`) for each such run"
+        },
+        {
+          "actor": "`enforce_file_retention`",
+          "action": "returns the total count of successfully deleted files to the caller"
+        }
+      ]
+    },
+    {
+      "id": "01-PATH-3",
+      "title": "Enforce file retention \u2014 missing audit directory",
+      "steps": [
+        {
+          "actor": "Caller",
+          "action": "calls `enforce_file_retention(audit_dir=Path('/nonexistent'), max_runs=20)`"
+        },
+        {
+          "actor": "`enforce_file_retention`",
+          "action": "detects that `audit_dir` does not exist on the filesystem"
+        },
+        {
+          "actor": "`enforce_file_retention`",
+          "action": "returns 0 silently without logging or raising any exception"
+        }
+      ]
+    },
+    {
+      "id": "01-PATH-4",
+      "title": "Atomic workspace migration \u2014 single PR sequence",
+      "steps": [
+        {
+          "actor": "Implementer",
+          "action": "creates `packages/afaudit/` with all modules, tests, and `pyproject.toml` on a feature branch"
+        },
+        {
+          "actor": "Implementer",
+          "action": "deletes the source modules from `agentfox` (no shims left behind)"
+        },
+        {
+          "actor": "Implementer",
+          "action": "adds `afaudit>=4.0.2` to `agentfox/pyproject.toml` [project.dependencies] so the workspace resolver can locate the new package"
+        },
+        {
+          "actor": "Implementer",
+          "action": "updates all ~60 production import sites in `agentfox`, `af`, and `nightshift` to use `afaudit.*` equivalents"
+        },
+        {
+          "actor": "Implementer",
+          "action": "updates all ~30 test import sites, physically relocating test files that exclusively exercise `afaudit` symbols into `packages/afaudit/tests/`"
+        },
+        {
+          "actor": "Implementer",
+          "action": "removes `AUDIT_DIR` from `agentfox.core.node_id` and moves the DB-retention logic to `agentfox.knowledge.duckdb_sink`"
+        },
+        {
+          "actor": "Workspace CI / Implementer",
+          "action": "runs `make check`; all lint and tests pass; implementer documents test isolation verification in the PR description"
+        }
+      ]
+    },
+    {
+      "id": "01-PATH-5",
+      "title": "Protocol boundary verification for postmortem inputs",
+      "steps": [
+        {
+          "actor": "Test suite in `packages/afaudit/tests/`",
+          "action": "imports `PostmortemInput` and `SessionRecordLike` from `afaudit.postmortem` and `ExecutionState`, `SessionRecord` from `agentfox.engine.state`"
+        },
+        {
+          "actor": "Test suite",
+          "action": "performs structural protocol checks verifying `ExecutionState` satisfies `PostmortemInput` and `SessionRecord` satisfies `SessionRecordLike`"
+        },
+        {
+          "actor": "Test suite",
+          "action": "asserts all checks pass with no structural mismatches, confirming agentfox types require no modification"
+        }
+      ]
+    }
+  ],
+  "error_handling": [
+    {
+      "id": "01-ERR-1",
+      "condition": "`audit_dir` does not exist when `enforce_file_retention()` is called",
+      "behavior": "Return 0 silently without raising any exception or emitting any log message",
+      "requirement_id": "01-REQ-7.E1"
+    },
+    {
+      "id": "01-ERR-2",
+      "condition": "An `audit_*.jsonl` filename does not match the expected `YYYYMMDD_HHMMSS_hex` timestamp pattern during `enforce_file_retention()` execution",
+      "behavior": "Log a WARNING via the `afaudit.cleanup` logger identifying the unparseable filename, skip the file entirely (do not delete it), and continue processing remaining files",
+      "requirement_id": "01-REQ-7.E2"
+    },
+    {
+      "id": "01-ERR-3",
+      "condition": "A file deletion operation fails during `enforce_file_retention()` (e.g. due to a permissions error or race condition)",
+      "behavior": "Log the error at WARNING level via the `afaudit.cleanup` logger, continue attempting deletion of remaining files, and exclude the failed file from the return value count",
+      "requirement_id": "01-REQ-7.E3"
+    },
+    {
+      "id": "01-ERR-4",
+      "condition": "A third-party dependency is added to `afaudit/pyproject.toml` [project.dependencies]",
+      "behavior": "The dependency isolation check fails; the implementer must remove the dependency and document the verification in the PR description before the PR can be merged",
+      "requirement_id": "01-REQ-1.E1"
+    },
+    {
+      "id": "01-ERR-5",
+      "condition": "`SinkDispatcher._dispatch_optional` is referenced in an external call-site or test file",
+      "behavior": "Treat as a private API violation; the reference must be removed. The method's single-underscore prefix signals it is an implementation detail of `SinkDispatcher` and not part of the guaranteed public API",
+      "requirement_id": "01-REQ-2.E1"
+    },
+    {
+      "id": "01-ERR-6",
+      "condition": "`make check` fails after the atomic migration is applied",
+      "behavior": "The feature branch is amended or rebased locally until all lint and tests pass; no partial merge is permitted since the branch is local-only",
+      "requirement_id": "01-REQ-14.1"
+    }
+  ]
+}

@@ -1,0 +1,882 @@
+{
+  "$schema": null,
+  "spec_id": "01",
+  "spec_name": "afaudit_package",
+  "schema_version": 1,
+  "test_cases": [
+    {
+      "id": "TS-01-1",
+      "requirement_id": "01-REQ-1.1",
+      "kind": "unit",
+      "description": "Verify that afaudit's pyproject.toml declares version 4.0.2, requires-python >=3.12, build-system hatchling, an empty [project.dependencies] table, and no [project.optional-dependencies] section.",
+      "preconditions": [
+        "packages/afaudit/pyproject.toml exists in the workspace"
+      ],
+      "input": "Read and parse packages/afaudit/pyproject.toml",
+      "expected": "version == '4.0.2', requires-python == '>=3.12', build-backend == 'hatchling.build', project.dependencies is an empty list, no [project.optional-dependencies] key present",
+      "assertion_pseudocode": "toml = parse('packages/afaudit/pyproject.toml')\nassert toml['project']['version'] == '4.0.2'\nassert toml['project']['requires-python'] == '>=3.12'\nassert toml['build-system']['build-backend'] == 'hatchling.build'\nassert toml['project']['dependencies'] == []\nassert 'optional-dependencies' not in toml['project']"
+    },
+    {
+      "id": "TS-01-2",
+      "requirement_id": "01-REQ-1.2",
+      "kind": "unit",
+      "description": "Verify that the afaudit package uses a flat layout at packages/afaudit/afaudit/ with all required module files and a tests/ directory.",
+      "preconditions": [
+        "packages/afaudit/ directory exists in the workspace"
+      ],
+      "input": "Inspect the filesystem structure of packages/afaudit/",
+      "expected": "The directory packages/afaudit/afaudit/ exists (not packages/afaudit/src/afaudit/) and contains __init__.py, events.py, sink.py, trace.py, postmortem.py, cleanup.py, emit.py, constants.py; packages/afaudit/tests/ directory exists",
+      "assertion_pseudocode": "base = Path('packages/afaudit/afaudit')\nassert base.is_dir()\nfor fname in ['__init__.py','events.py','sink.py','trace.py','postmortem.py','cleanup.py','emit.py','constants.py']:\n    assert (base / fname).exists()\nassert Path('packages/afaudit/tests').is_dir()\nassert not Path('packages/afaudit/src').exists()"
+    },
+    {
+      "id": "TS-01-3",
+      "requirement_id": "01-REQ-1.3",
+      "kind": "unit",
+      "description": "Verify that afaudit has zero third-party runtime dependencies by inspecting the installed package metadata.",
+      "preconditions": [
+        "afaudit is installed in the current Python environment",
+        "pip is available"
+      ],
+      "input": "Run `pip show afaudit` and inspect its Requires field",
+      "expected": "The Requires field is empty or lists no packages",
+      "assertion_pseudocode": "result = run_subprocess(['pip', 'show', 'afaudit'])\nrequires_line = extract_field(result.stdout, 'Requires')\nassert requires_line.strip() == '' or requires_line.strip() == 'UNKNOWN'"
+    },
+    {
+      "id": "TS-01-4",
+      "requirement_id": "01-REQ-2.1",
+      "kind": "unit",
+      "description": "Verify that all eight event-model symbols from afaudit.events are re-exported from the top-level afaudit namespace.",
+      "preconditions": [
+        "afaudit package is installed or available on sys.path"
+      ],
+      "input": "Import each of the eight symbols from afaudit directly",
+      "expected": "All eight imports succeed without ImportError and each symbol resolves to its definition in afaudit.events",
+      "assertion_pseudocode": "import afaudit\nfor sym in ['AuditEvent','AuditEventType','AuditSeverity','AuditJsonlSink','default_severity_for','generate_run_id','event_to_json','event_from_json']:\n    assert hasattr(afaudit, sym)\n    assert getattr(afaudit, sym).__module__.startswith('afaudit.events')"
+    },
+    {
+      "id": "TS-01-5",
+      "requirement_id": "01-REQ-2.2",
+      "kind": "unit",
+      "description": "Verify that all five sink symbols are re-exported from the top-level afaudit namespace.",
+      "preconditions": [
+        "afaudit package is installed or available on sys.path"
+      ],
+      "input": "Import each of the five symbols from afaudit directly",
+      "expected": "All five imports succeed and each resolves to its definition in afaudit.sink",
+      "assertion_pseudocode": "import afaudit\nfor sym in ['SessionSink','SinkDispatcher','SessionOutcome','ToolCall','ToolError']:\n    assert hasattr(afaudit, sym)\n    assert getattr(afaudit, sym).__module__.startswith('afaudit.sink')"
+    },
+    {
+      "id": "TS-01-6",
+      "requirement_id": "01-REQ-2.3",
+      "kind": "unit",
+      "description": "Verify that AgentTraceSink, reconstruct_transcript, and truncate_tool_input are re-exported from the top-level afaudit namespace.",
+      "preconditions": [
+        "afaudit package is installed or available on sys.path"
+      ],
+      "input": "Import each of the three symbols from afaudit directly",
+      "expected": "All three imports succeed and each resolves to its definition in afaudit.trace",
+      "assertion_pseudocode": "import afaudit\nfor sym in ['AgentTraceSink','reconstruct_transcript','truncate_tool_input']:\n    assert hasattr(afaudit, sym)\n    assert getattr(afaudit, sym).__module__.startswith('afaudit.trace')"
+    },
+    {
+      "id": "TS-01-7",
+      "requirement_id": "01-REQ-2.4",
+      "kind": "unit",
+      "description": "Verify that all five postmortem symbols are re-exported from the top-level afaudit namespace.",
+      "preconditions": [
+        "afaudit package is installed or available on sys.path"
+      ],
+      "input": "Import each of the five symbols from afaudit directly",
+      "expected": "All five imports succeed and each resolves to its definition in afaudit.postmortem",
+      "assertion_pseudocode": "import afaudit\nfor sym in ['PostmortemInput','SessionRecordLike','build_postmortem','write_postmortem','should_dump']:\n    assert hasattr(afaudit, sym)\n    assert getattr(afaudit, sym).__module__.startswith('afaudit.postmortem')"
+    },
+    {
+      "id": "TS-01-8",
+      "requirement_id": "01-REQ-2.5",
+      "kind": "unit",
+      "description": "Verify that emit_audit_event, purge_stale_audit_files, enforce_file_retention, and AUDIT_DIR are re-exported from the top-level afaudit namespace.",
+      "preconditions": [
+        "afaudit package is installed or available on sys.path"
+      ],
+      "input": "Import each of the four symbols from afaudit directly",
+      "expected": "All four imports succeed; emit_audit_event resolves to afaudit.emit, purge_stale_audit_files and enforce_file_retention to afaudit.cleanup, AUDIT_DIR to afaudit.constants",
+      "assertion_pseudocode": "import afaudit\nassert hasattr(afaudit, 'emit_audit_event')\nassert hasattr(afaudit, 'purge_stale_audit_files')\nassert hasattr(afaudit, 'enforce_file_retention')\nassert hasattr(afaudit, 'AUDIT_DIR')\nassert afaudit.AUDIT_DIR == Path('.agent-fox/audit')"
+    },
+    {
+      "id": "TS-01-9",
+      "requirement_id": "01-REQ-2.6",
+      "kind": "unit",
+      "description": "Verify that AuditJsonlSink is defined in afaudit.events and not in afaudit.sink.",
+      "preconditions": [
+        "afaudit package is installed or available on sys.path"
+      ],
+      "input": "Inspect module membership of AuditJsonlSink",
+      "expected": "`from afaudit.events import AuditJsonlSink` succeeds; afaudit.sink module has no AuditJsonlSink attribute",
+      "assertion_pseudocode": "from afaudit.events import AuditJsonlSink\nassert AuditJsonlSink.__module__ == 'afaudit.events'\nimport afaudit.sink\nassert not hasattr(afaudit.sink, 'AuditJsonlSink')"
+    },
+    {
+      "id": "TS-01-10",
+      "requirement_id": "01-REQ-3.1",
+      "kind": "unit",
+      "description": "Verify that afaudit.events defines all required symbols with correct types: AuditEvent dataclass, AuditEventType StrEnum with 49 values, AuditSeverity StrEnum, AuditJsonlSink class, and four helper functions.",
+      "preconditions": [
+        "afaudit package is installed or available on sys.path"
+      ],
+      "input": "Import afaudit.events and inspect each symbol",
+      "expected": "AuditEvent is a dataclass, AuditEventType is a StrEnum with exactly 49 members, AuditSeverity is a StrEnum, AuditJsonlSink is a class, and all four helper functions are callable",
+      "assertion_pseudocode": "import afaudit.events as e\nimport dataclasses, enum\nassert dataclasses.is_dataclass(e.AuditEvent)\nassert issubclass(e.AuditEventType, str) and issubclass(e.AuditEventType, enum.Enum)\nassert len(e.AuditEventType) == 49\nassert issubclass(e.AuditSeverity, str) and issubclass(e.AuditSeverity, enum.Enum)\nassert isinstance(e.AuditJsonlSink, type)\nfor fn in ['default_severity_for','generate_run_id','event_to_json','event_from_json']:\n    assert callable(getattr(e, fn))"
+    },
+    {
+      "id": "TS-01-11",
+      "requirement_id": "01-REQ-3.2",
+      "kind": "unit",
+      "description": "Verify that afaudit.events uses stdlib logging with the named logger 'afaudit.events'.",
+      "preconditions": [
+        "afaudit.events module is importable"
+      ],
+      "input": "Inspect the module-level logger in afaudit.events source",
+      "expected": "The module contains `logging.getLogger('afaudit.events')` and no third-party logging library is imported",
+      "assertion_pseudocode": "source = read_file('packages/afaudit/afaudit/events.py')\nassert 'import logging' in source\nassert \"getLogger('afaudit.events')\" in source or 'getLogger(\"afaudit.events\")' in source\nassert 'loguru' not in source\nassert 'structlog' not in source"
+    },
+    {
+      "id": "TS-01-12",
+      "requirement_id": "01-REQ-3.3",
+      "kind": "unit",
+      "description": "Verify that event_to_json serializes an AuditEvent to a valid JSON string.",
+      "preconditions": [
+        "afaudit package is installed or available on sys.path",
+        "A valid AuditEvent can be constructed"
+      ],
+      "input": "Construct a minimal AuditEvent and call event_to_json on it",
+      "expected": "Returns a string that is valid JSON and contains the event's fields",
+      "assertion_pseudocode": "from afaudit.events import AuditEvent, AuditEventType, AuditSeverity, event_to_json, generate_run_id\nimport json\nevent = AuditEvent(run_id=generate_run_id(), event_type=AuditEventType.values()[0], severity=AuditSeverity.values()[0])\nresult = event_to_json(event)\nassert isinstance(result, str)\nparsed = json.loads(result)\nassert parsed is not None"
+    },
+    {
+      "id": "TS-01-13",
+      "requirement_id": "01-REQ-3.4",
+      "kind": "unit",
+      "description": "Verify that event_from_json correctly deserializes a JSON string produced by event_to_json back to an equal AuditEvent.",
+      "preconditions": [
+        "afaudit package is installed or available on sys.path",
+        "A valid AuditEvent can be constructed"
+      ],
+      "input": "Serialize an AuditEvent with event_to_json, then deserialize with event_from_json",
+      "expected": "The deserialized AuditEvent equals the original AuditEvent",
+      "assertion_pseudocode": "from afaudit.events import AuditEvent, AuditEventType, AuditSeverity, event_to_json, event_from_json, generate_run_id\nevent = AuditEvent(run_id=generate_run_id(), event_type=AuditEventType.values()[0], severity=AuditSeverity.values()[0])\njson_str = event_to_json(event)\nroundtripped = event_from_json(json_str)\nassert roundtripped == event"
+    },
+    {
+      "id": "TS-01-14",
+      "requirement_id": "01-REQ-4.1",
+      "kind": "unit",
+      "description": "Verify that afaudit.sink defines SessionSink Protocol, SinkDispatcher class, SessionOutcome, ToolCall, and ToolError dataclasses.",
+      "preconditions": [
+        "afaudit package is installed or available on sys.path"
+      ],
+      "input": "Import afaudit.sink and inspect each symbol",
+      "expected": "SessionSink is a Protocol, SinkDispatcher is a class, SessionOutcome/ToolCall/ToolError are dataclasses; _dispatch_optional exists on SinkDispatcher as a private method",
+      "assertion_pseudocode": "import afaudit.sink as s, dataclasses\nfrom typing import get_protocol_members\nassert isinstance(s.SessionSink, type)\nassert isinstance(s.SinkDispatcher, type)\nfor dc in ['SessionOutcome','ToolCall','ToolError']:\n    assert dataclasses.is_dataclass(getattr(s, dc))\nassert hasattr(s.SinkDispatcher, '_dispatch_optional') or any('_dispatch_optional' in m for m in dir(s.SinkDispatcher))"
+    },
+    {
+      "id": "TS-01-15",
+      "requirement_id": "01-REQ-4.2",
+      "kind": "unit",
+      "description": "Verify that afaudit.sink uses stdlib logging with the named logger 'afaudit.sink'.",
+      "preconditions": [
+        "afaudit.sink module file exists at packages/afaudit/afaudit/sink.py"
+      ],
+      "input": "Read the source of packages/afaudit/afaudit/sink.py",
+      "expected": "The file imports stdlib logging and creates a logger named 'afaudit.sink'; no third-party logging library is imported",
+      "assertion_pseudocode": "source = read_file('packages/afaudit/afaudit/sink.py')\nassert 'import logging' in source\nassert \"getLogger('afaudit.sink')\" in source or 'getLogger(\"afaudit.sink\")' in source\nassert 'loguru' not in source"
+    },
+    {
+      "id": "TS-01-16",
+      "requirement_id": "01-REQ-4.3",
+      "kind": "integration",
+      "description": "Verify that DuckDBSink in agentfox satisfies the afaudit.SessionSink protocol structurally.",
+      "preconditions": [
+        "agentfox and afaudit are both installed or on sys.path",
+        "agentfox.knowledge.duckdb_sink.DuckDBSink is importable"
+      ],
+      "input": "Perform a runtime structural protocol check of DuckDBSink against SessionSink",
+      "expected": "DuckDBSink implements all methods required by SessionSink; no AttributeError or protocol violation",
+      "assertion_pseudocode": "from afaudit.sink import SessionSink\nfrom agentfox.knowledge.duckdb_sink import DuckDBSink\nimport typing\nassert issubclass(DuckDBSink, SessionSink) or runtime_checkable_protocol_satisfied(DuckDBSink, SessionSink)"
+    },
+    {
+      "id": "TS-01-17",
+      "requirement_id": "01-REQ-5.1",
+      "kind": "unit",
+      "description": "Verify that afaudit.trace defines AgentTraceSink, reconstruct_transcript, and truncate_tool_input.",
+      "preconditions": [
+        "afaudit package is installed or available on sys.path"
+      ],
+      "input": "Import each symbol from afaudit.trace",
+      "expected": "All three symbols are importable from afaudit.trace; AgentTraceSink is a class, the other two are callable",
+      "assertion_pseudocode": "from afaudit.trace import AgentTraceSink, reconstruct_transcript, truncate_tool_input\nassert isinstance(AgentTraceSink, type)\nassert callable(reconstruct_transcript)\nassert callable(truncate_tool_input)"
+    },
+    {
+      "id": "TS-01-18",
+      "requirement_id": "01-REQ-5.2",
+      "kind": "unit",
+      "description": "Verify that truncate_tool_input is re-exported from the top-level afaudit namespace as part of the public API.",
+      "preconditions": [
+        "afaudit package is installed or available on sys.path"
+      ],
+      "input": "Import truncate_tool_input from afaudit directly",
+      "expected": "Import succeeds and truncate_tool_input is callable",
+      "assertion_pseudocode": "from afaudit import truncate_tool_input\nassert callable(truncate_tool_input)"
+    },
+    {
+      "id": "TS-01-19",
+      "requirement_id": "01-REQ-5.3",
+      "kind": "unit",
+      "description": "Verify that afaudit.trace uses stdlib logging with the named logger 'afaudit.trace'.",
+      "preconditions": [
+        "afaudit.trace module file exists at packages/afaudit/afaudit/trace.py"
+      ],
+      "input": "Read the source of packages/afaudit/afaudit/trace.py",
+      "expected": "File imports stdlib logging and creates logger named 'afaudit.trace'; no third-party logging library present",
+      "assertion_pseudocode": "source = read_file('packages/afaudit/afaudit/trace.py')\nassert 'import logging' in source\nassert \"getLogger('afaudit.trace')\" in source or 'getLogger(\"afaudit.trace\")' in source\nassert 'loguru' not in source"
+    },
+    {
+      "id": "TS-01-20",
+      "requirement_id": "01-REQ-6.1",
+      "kind": "unit",
+      "description": "Verify that PostmortemInput Protocol defines exactly 11 attributes with the correct names and types.",
+      "preconditions": [
+        "afaudit package is installed or available on sys.path"
+      ],
+      "input": "Inspect the PostmortemInput Protocol definition in afaudit.postmortem",
+      "expected": "PostmortemInput has exactly the 11 specified attributes: run_id, run_status, node_states, total_cost, total_input_tokens, total_output_tokens, total_sessions, blocked_reasons, session_history, started_at, updated_at",
+      "assertion_pseudocode": "import afaudit.postmortem as p\nimport typing\nhints = typing.get_type_hints(p.PostmortemInput)\nexpected_attrs = {'run_id','run_status','node_states','total_cost','total_input_tokens','total_output_tokens','total_sessions','blocked_reasons','session_history','started_at','updated_at'}\nassert set(hints.keys()) == expected_attrs\nassert len(hints) == 11"
+    },
+    {
+      "id": "TS-01-21",
+      "requirement_id": "01-REQ-6.2",
+      "kind": "unit",
+      "description": "Verify that SessionRecordLike Protocol defines exactly 12 attributes with the correct names and types.",
+      "preconditions": [
+        "afaudit package is installed or available on sys.path"
+      ],
+      "input": "Inspect the SessionRecordLike Protocol definition in afaudit.postmortem",
+      "expected": "SessionRecordLike has exactly the 12 specified attributes: node_id, attempt, status, archetype, model, duration_ms, cost, error_message, timestamp, is_transport_error, is_budget_exhausted, is_non_retryable",
+      "assertion_pseudocode": "import afaudit.postmortem as p\nimport typing\nhints = typing.get_type_hints(p.SessionRecordLike)\nexpected_attrs = {'node_id','attempt','status','archetype','model','duration_ms','cost','error_message','timestamp','is_transport_error','is_budget_exhausted','is_non_retryable'}\nassert set(hints.keys()) == expected_attrs\nassert len(hints) == 12"
+    },
+    {
+      "id": "TS-01-22",
+      "requirement_id": "01-REQ-6.3",
+      "kind": "unit",
+      "description": "Verify that afaudit.postmortem defines build_postmortem, write_postmortem, should_dump, and internal helpers _build_task_summary, _build_blocked_tasks, _build_session_history.",
+      "preconditions": [
+        "afaudit package is installed or available on sys.path"
+      ],
+      "input": "Import afaudit.postmortem and inspect each symbol",
+      "expected": "All six symbols are present and callable",
+      "assertion_pseudocode": "import afaudit.postmortem as p\nfor sym in ['build_postmortem','write_postmortem','should_dump','_build_task_summary','_build_blocked_tasks','_build_session_history']:\n    assert callable(getattr(p, sym)), f'{sym} is not callable'"
+    },
+    {
+      "id": "TS-01-23",
+      "requirement_id": "01-REQ-6.4",
+      "kind": "unit",
+      "description": "Verify that build_postmortem accepts any object satisfying PostmortemInput without importing agentfox types and returns a postmortem data structure.",
+      "preconditions": [
+        "afaudit package is installed or available on sys.path",
+        "A minimal stub object satisfying PostmortemInput can be constructed in-test"
+      ],
+      "input": "Construct a plain Python object with all 11 PostmortemInput attributes and call build_postmortem",
+      "expected": "build_postmortem returns a non-None dict or object without raising ImportError or TypeError",
+      "assertion_pseudocode": "from afaudit.postmortem import build_postmortem, SessionRecordLike\nclass StubRecord:\n    node_id='n1'; attempt=1; status='done'; archetype='arc'; model='m'; duration_ms=100; cost=0.01; error_message=None; timestamp='2024-01-01T00:00:00Z'; is_transport_error=False; is_budget_exhausted=False; is_non_retryable=False\nclass StubInput:\n    run_id='run1'; run_status='success'; node_states={}; total_cost=0.01; total_input_tokens=10; total_output_tokens=5; total_sessions=1; blocked_reasons={}; session_history=[StubRecord()]; started_at='2024-01-01T00:00:00Z'; updated_at='2024-01-01T00:01:00Z'\nresult = build_postmortem(StubInput())\nassert result is not None"
+    },
+    {
+      "id": "TS-01-24",
+      "requirement_id": "01-REQ-6.5",
+      "kind": "unit",
+      "description": "Verify that afaudit.postmortem uses stdlib logging with the named logger 'afaudit.postmortem'.",
+      "preconditions": [
+        "afaudit.postmortem module file exists at packages/afaudit/afaudit/postmortem.py"
+      ],
+      "input": "Read the source of packages/afaudit/afaudit/postmortem.py",
+      "expected": "File imports stdlib logging and creates logger named 'afaudit.postmortem'; no third-party logging library present",
+      "assertion_pseudocode": "source = read_file('packages/afaudit/afaudit/postmortem.py')\nassert 'import logging' in source\nassert \"getLogger('afaudit.postmortem')\" in source or 'getLogger(\"afaudit.postmortem\")' in source\nassert 'loguru' not in source"
+    },
+    {
+      "id": "TS-01-25",
+      "requirement_id": "01-REQ-6.6",
+      "kind": "integration",
+      "description": "Verify that agentfox.engine.state.ExecutionState satisfies PostmortemInput structurally without any changes to its definition.",
+      "preconditions": [
+        "agentfox and afaudit are both installed or on sys.path",
+        "agentfox.engine.state.ExecutionState is importable"
+      ],
+      "input": "Perform a structural protocol check of ExecutionState against PostmortemInput",
+      "expected": "ExecutionState has all 11 attributes required by PostmortemInput; protocol check passes",
+      "assertion_pseudocode": "from afaudit.postmortem import PostmortemInput\nfrom agentfox.engine.state import ExecutionState\nimport typing\nif hasattr(typing, 'runtime_checkable'):\n    assert runtime_protocol_check(ExecutionState, PostmortemInput)\nelse:\n    hints = typing.get_type_hints(PostmortemInput)\n    for attr in hints:\n        assert hasattr(ExecutionState, attr) or attr_in_init(ExecutionState, attr)"
+    },
+    {
+      "id": "TS-01-26",
+      "requirement_id": "01-REQ-6.7",
+      "kind": "integration",
+      "description": "Verify that agentfox.engine.state.SessionRecord satisfies SessionRecordLike structurally without any changes to its definition.",
+      "preconditions": [
+        "agentfox and afaudit are both installed or on sys.path",
+        "agentfox.engine.state.SessionRecord is importable"
+      ],
+      "input": "Perform a structural protocol check of SessionRecord against SessionRecordLike",
+      "expected": "SessionRecord has all 12 attributes required by SessionRecordLike; protocol check passes",
+      "assertion_pseudocode": "from afaudit.postmortem import SessionRecordLike\nfrom agentfox.engine.state import SessionRecord\nimport typing\nhints = typing.get_type_hints(SessionRecordLike)\nfor attr in hints:\n    assert hasattr(SessionRecord, attr) or attr_in_init(SessionRecord, attr), f'Missing: {attr}'"
+    },
+    {
+      "id": "TS-01-27",
+      "requirement_id": "01-REQ-7.1",
+      "kind": "unit",
+      "description": "Verify that afaudit.cleanup defines purge_stale_audit_files and enforce_file_retention with the correct signature.",
+      "preconditions": [
+        "afaudit package is installed or available on sys.path"
+      ],
+      "input": "Import both functions from afaudit.cleanup and inspect their signatures",
+      "expected": "Both functions are callable; enforce_file_retention has signature (audit_dir: Path, *, max_runs: int = 20) -> int",
+      "assertion_pseudocode": "from afaudit.cleanup import purge_stale_audit_files, enforce_file_retention\nimport inspect\nassert callable(purge_stale_audit_files)\nassert callable(enforce_file_retention)\nsig = inspect.signature(enforce_file_retention)\nparams = sig.parameters\nassert 'audit_dir' in params\nassert 'max_runs' in params\nassert params['max_runs'].default == 20\nassert params['max_runs'].kind == inspect.Parameter.KEYWORD_ONLY"
+    },
+    {
+      "id": "TS-01-28",
+      "requirement_id": "01-REQ-7.2",
+      "kind": "unit",
+      "description": "Verify that enforce_file_retention deletes oldest run file sets beyond max_runs and returns the count of successfully deleted files.",
+      "preconditions": [
+        "A temporary audit directory is created with more than max_runs sets of audit files (audit_*.jsonl, agent_*.jsonl, postmortem_*.json) named with valid YYYYMMDD_HHMMSS_hex timestamps"
+      ],
+      "input": "Call enforce_file_retention(tmp_audit_dir, max_runs=2) with 4 run sets present",
+      "expected": "The two oldest runs' three files each are deleted (6 files total); the function returns 6; the two newest run sets remain",
+      "assertion_pseudocode": "from afaudit.cleanup import enforce_file_retention\nfrom pathlib import Path\ntmp = create_temp_audit_dir(run_sets=4)  # creates 4 sets of 3 files with valid timestamps\nresult = enforce_file_retention(tmp, max_runs=2)\nassert result == 6\nremaining = list(tmp.glob('audit_*.jsonl'))\nassert len(remaining) == 2\n# verify 2 newest runs remain\nfor f in remaining:\n    assert 'newest' in str(f) or is_one_of_two_newest(f, tmp)"
+    },
+    {
+      "id": "TS-01-29",
+      "requirement_id": "01-REQ-7.3",
+      "kind": "unit",
+      "description": "Verify that afaudit.cleanup uses stdlib logging with the named logger 'afaudit.cleanup'.",
+      "preconditions": [
+        "afaudit.cleanup module file exists at packages/afaudit/afaudit/cleanup.py"
+      ],
+      "input": "Read the source of packages/afaudit/afaudit/cleanup.py",
+      "expected": "File imports stdlib logging and creates logger named 'afaudit.cleanup'; no third-party logging library present",
+      "assertion_pseudocode": "source = read_file('packages/afaudit/afaudit/cleanup.py')\nassert 'import logging' in source\nassert \"getLogger('afaudit.cleanup')\" in source or 'getLogger(\"afaudit.cleanup\")' in source\nassert 'loguru' not in source"
+    },
+    {
+      "id": "TS-01-30",
+      "requirement_id": "01-REQ-8.1",
+      "kind": "unit",
+      "description": "Verify that afaudit.emit defines emit_audit_event migrated from agentfox.engine.audit_helpers and that calculate_session_cost is not present in afaudit.emit.",
+      "preconditions": [
+        "afaudit package is installed or available on sys.path"
+      ],
+      "input": "Import afaudit.emit and inspect its contents",
+      "expected": "emit_audit_event is callable in afaudit.emit; afaudit.emit does not define calculate_session_cost",
+      "assertion_pseudocode": "import afaudit.emit as e\nassert callable(e.emit_audit_event)\nassert not hasattr(e, 'calculate_session_cost')"
+    },
+    {
+      "id": "TS-01-31",
+      "requirement_id": "01-REQ-8.2",
+      "kind": "unit",
+      "description": "Verify that afaudit.emit uses stdlib logging with the named logger 'afaudit.emit'.",
+      "preconditions": [
+        "afaudit.emit module file exists at packages/afaudit/afaudit/emit.py"
+      ],
+      "input": "Read the source of packages/afaudit/afaudit/emit.py",
+      "expected": "File imports stdlib logging and creates logger named 'afaudit.emit'; no third-party logging library present",
+      "assertion_pseudocode": "source = read_file('packages/afaudit/afaudit/emit.py')\nassert 'import logging' in source\nassert \"getLogger('afaudit.emit')\" in source or 'getLogger(\"afaudit.emit\")' in source\nassert 'loguru' not in source"
+    },
+    {
+      "id": "TS-01-32",
+      "requirement_id": "01-REQ-9.1",
+      "kind": "unit",
+      "description": "Verify that AUDIT_DIR is defined in afaudit.constants as Path('.agent-fox/audit') and is importable from afaudit.",
+      "preconditions": [
+        "afaudit package is installed or available on sys.path"
+      ],
+      "input": "Import AUDIT_DIR from afaudit.constants and from afaudit",
+      "expected": "Both imports succeed; the value equals Path('.agent-fox/audit')",
+      "assertion_pseudocode": "from afaudit.constants import AUDIT_DIR as AUDIT_DIR_constants\nfrom afaudit import AUDIT_DIR\nfrom pathlib import Path\nassert AUDIT_DIR_constants == Path('.agent-fox/audit')\nassert AUDIT_DIR == Path('.agent-fox/audit')"
+    },
+    {
+      "id": "TS-01-33",
+      "requirement_id": "01-REQ-9.2",
+      "kind": "integration",
+      "description": "Verify that AUDIT_DIR is not importable from agentfox.core.node_id after migration.",
+      "preconditions": [
+        "agentfox is installed or on sys.path and has been fully migrated"
+      ],
+      "input": "Attempt to import AUDIT_DIR from agentfox.core.node_id",
+      "expected": "ImportError or AttributeError is raised; AUDIT_DIR does not exist in agentfox.core.node_id",
+      "assertion_pseudocode": "try:\n    from agentfox.core.node_id import AUDIT_DIR\n    assert False, 'Expected ImportError or AttributeError'\nexcept (ImportError, AttributeError):\n    pass  # expected"
+    },
+    {
+      "id": "TS-01-34",
+      "requirement_id": "01-REQ-10.1",
+      "kind": "unit",
+      "description": "Verify that agentfox/pyproject.toml declares afaudit>=4.0.2 as a direct dependency.",
+      "preconditions": [
+        "agentfox/pyproject.toml exists in the workspace"
+      ],
+      "input": "Parse agentfox/pyproject.toml and inspect [project.dependencies]",
+      "expected": "The dependencies list contains an entry matching 'afaudit>=4.0.2'",
+      "assertion_pseudocode": "toml = parse('agentfox/pyproject.toml')\ndeps = toml['project']['dependencies']\nassert any('afaudit' in d and '4.0.2' in d for d in deps)"
+    },
+    {
+      "id": "TS-01-35",
+      "requirement_id": "01-REQ-10.2",
+      "kind": "integration",
+      "description": "Verify that no production import site in agentfox, af, or nightshift still references the old agentfox audit module paths for moved symbols.",
+      "preconditions": [
+        "All production source files in agentfox/, af/, and nightshift/ are accessible"
+      ],
+      "input": "Grep all .py files in agentfox/, af/, nightshift/ for imports of the old module paths",
+      "expected": "No file contains imports from agentfox.knowledge.audit, agentfox.knowledge.sink, agentfox.knowledge.agent_trace, agentfox.engine.audit_helpers (for emit_audit_event), agentfox.workspace.audit_cleanup, or agentfox.core.node_id (for AUDIT_DIR)",
+      "assertion_pseudocode": "old_paths = ['agentfox.knowledge.audit','agentfox.knowledge.sink','agentfox.knowledge.agent_trace','agentfox.workspace.audit_cleanup']\nfor path in ['agentfox/','af/','nightshift/']:\n    for py_file in glob_py_files(path):\n        content = read_file(py_file)\n        for old_path in old_paths:\n            assert old_path not in content, f'{old_path} still referenced in {py_file}'"
+    },
+    {
+      "id": "TS-01-36",
+      "requirement_id": "01-REQ-10.3",
+      "kind": "integration",
+      "description": "Verify that agentfox contains no re-export shims for moved audit symbols and that agentfox/__init__.py does not expose any audit symbol.",
+      "preconditions": [
+        "agentfox package source is accessible"
+      ],
+      "input": "Read agentfox/__init__.py and grep for audit symbol names",
+      "expected": "agentfox/__init__.py does not import or re-export AuditEvent, AuditJsonlSink, SessionSink, AgentTraceSink, build_postmortem, emit_audit_event, purge_stale_audit_files, enforce_file_retention, or AUDIT_DIR",
+      "assertion_pseudocode": "content = read_file('agentfox/__init__.py')\naudit_symbols = ['AuditEvent','AuditJsonlSink','SessionSink','AgentTraceSink','build_postmortem','emit_audit_event','purge_stale_audit_files','enforce_file_retention','AUDIT_DIR']\nfor sym in audit_symbols:\n    assert sym not in content, f'{sym} is re-exported in agentfox/__init__.py'"
+    },
+    {
+      "id": "TS-01-37",
+      "requirement_id": "01-REQ-10.4",
+      "kind": "integration",
+      "description": "Verify that af and nightshift each declare afaudit as a direct dependency in their pyproject.toml and import purge_stale_audit_files and AUDIT_DIR from afaudit.",
+      "preconditions": [
+        "af/pyproject.toml and nightshift/pyproject.toml exist in the workspace"
+      ],
+      "input": "Parse both pyproject.toml files and grep their source for import sites",
+      "expected": "Both pyproject.toml files list afaudit in [project.dependencies]; both packages import purge_stale_audit_files and AUDIT_DIR from afaudit (not from agentfox)",
+      "assertion_pseudocode": "for pkg in ['af','nightshift']:\n    toml = parse(f'{pkg}/pyproject.toml')\n    deps = toml['project']['dependencies']\n    assert any('afaudit' in d for d in deps), f'{pkg} missing afaudit dependency'\nfor pkg in ['af','nightshift']:\n    src = read_all_py_files(f'{pkg}/')\n    assert 'from afaudit import' in src or 'from afaudit.' in src"
+    },
+    {
+      "id": "TS-01-38",
+      "requirement_id": "01-REQ-10.5",
+      "kind": "integration",
+      "description": "Verify that agentspec and spec packages have zero direct audit imports and require no changes.",
+      "preconditions": [
+        "agentspec/ and spec/ directories exist in the workspace"
+      ],
+      "input": "Grep all .py files in agentspec/ and spec/ for any import of audit symbols",
+      "expected": "No .py file in agentspec/ or spec/ directly imports any symbol from afaudit.* or from the old agentfox audit modules",
+      "assertion_pseudocode": "for pkg in ['agentspec','spec']:\n    for py_file in glob_py_files(f'{pkg}/'):\n        content = read_file(py_file)\n        assert 'afaudit' not in content\n        assert 'agentfox.knowledge.audit' not in content\n        assert 'agentfox.knowledge.sink' not in content"
+    },
+    {
+      "id": "TS-01-39",
+      "requirement_id": "01-REQ-10.6",
+      "kind": "integration",
+      "description": "Verify that the DB-retention half of enforce_audit_retention is moved to agentfox.knowledge.duckdb_sink and not present in afaudit.cleanup.",
+      "preconditions": [
+        "agentfox and afaudit are both installed or on sys.path"
+      ],
+      "input": "Inspect agentfox.knowledge.duckdb_sink and afaudit.cleanup for DuckDB row-deletion logic",
+      "expected": "agentfox.knowledge.duckdb_sink contains DB-retention logic; afaudit.cleanup has no duckdb import or DB row deletion",
+      "assertion_pseudocode": "cleanup_src = read_file('packages/afaudit/afaudit/cleanup.py')\nassert 'duckdb' not in cleanup_src\nassert 'DELETE FROM' not in cleanup_src\nduckdb_sink_src = read_file('agentfox/knowledge/duckdb_sink.py')\nassert 'retain' in duckdb_sink_src.lower() or 'retention' in duckdb_sink_src.lower()"
+    },
+    {
+      "id": "TS-01-40",
+      "requirement_id": "01-REQ-11.1",
+      "kind": "unit",
+      "description": "Verify that packages/afaudit/tests/ physically contains test files for all afaudit-exclusive symbols.",
+      "preconditions": [
+        "packages/afaudit/tests/ directory exists"
+      ],
+      "input": "List test files in packages/afaudit/tests/ and check their content",
+      "expected": "Test files cover AuditEvent, AuditJsonlSink, AgentTraceSink, build_postmortem, write_postmortem, should_dump, purge_stale_audit_files, and enforce_file_retention",
+      "assertion_pseudocode": "test_files = glob_py_files('packages/afaudit/tests/')\nall_content = ''.join(read_file(f) for f in test_files)\nfor sym in ['AuditEvent','AuditJsonlSink','AgentTraceSink','build_postmortem','write_postmortem','should_dump','purge_stale_audit_files','enforce_file_retention']:\n    assert sym in all_content, f'No test found for {sym}'"
+    },
+    {
+      "id": "TS-01-41",
+      "requirement_id": "01-REQ-11.2",
+      "kind": "integration",
+      "description": "Verify that packages/afaudit/tests/ contains Protocol boundary tests verifying ExecutionState satisfies PostmortemInput and SessionRecord satisfies SessionRecordLike.",
+      "preconditions": [
+        "packages/afaudit/tests/ exists",
+        "agentfox and afaudit are both importable in the test environment"
+      ],
+      "input": "Run the protocol boundary tests in packages/afaudit/tests/",
+      "expected": "Tests pass confirming both structural protocol relationships without structural mismatch",
+      "assertion_pseudocode": "result = run_subprocess(['pytest', 'packages/afaudit/tests/', '-k', 'protocol', '-v'])\nassert result.returncode == 0\nassert 'PostmortemInput' in result.stdout or 'protocol' in result.stdout.lower()"
+    },
+    {
+      "id": "TS-01-42",
+      "requirement_id": "01-REQ-11.3",
+      "kind": "unit",
+      "description": "Verify that packages/afaudit/tests/ contains unit tests for all three enforce_file_retention edge cases: missing audit_dir, unparseable filenames, and failed file deletions.",
+      "preconditions": [
+        "packages/afaudit/tests/ exists"
+      ],
+      "input": "Inspect test files for edge case coverage of enforce_file_retention",
+      "expected": "Test files contain tests exercising: (1) missing audit_dir, (2) unparseable filenames, (3) failed deletions",
+      "assertion_pseudocode": "all_content = ''.join(read_file(f) for f in glob_py_files('packages/afaudit/tests/'))\nassert 'nonexistent' in all_content or 'does not exist' in all_content or 'missing' in all_content.lower()\nassert 'unparseable' in all_content or 'invalid' in all_content.lower() or 'timestamp' in all_content\nassert 'permission' in all_content.lower() or 'OSError' in all_content or 'deletion fail' in all_content.lower()"
+    },
+    {
+      "id": "TS-01-43",
+      "requirement_id": "01-REQ-11.4",
+      "kind": "integration",
+      "description": "Verify that the packages/afaudit/tests/ suite passes completely in an environment where duckdb and anthropic are not installed.",
+      "preconditions": [
+        "A Python virtual environment exists with afaudit and agentfox installed but without duckdb or anthropic",
+        "pytest is available in the environment"
+      ],
+      "input": "Run `pytest packages/afaudit/tests/` in the isolated environment",
+      "expected": "All tests pass with exit code 0; no ImportError for duckdb or anthropic appears in output",
+      "assertion_pseudocode": "result = run_subprocess(['pytest', 'packages/afaudit/tests/', '-v'], env=env_without_duckdb_anthropic)\nassert result.returncode == 0\nassert 'duckdb' not in result.stderr\nassert 'anthropic' not in result.stderr\nassert 'ImportError' not in result.stdout"
+    },
+    {
+      "id": "TS-01-44",
+      "requirement_id": "01-REQ-11.5",
+      "kind": "integration",
+      "description": "Verify that test files requiring agentfox infrastructure remain in their original package test directories with only import paths updated.",
+      "preconditions": [
+        "agentfox/tests/, af/tests/ directories exist after migration"
+      ],
+      "input": "Check that agentfox/tests/ still contains test files for DuckDBSink, calculate_session_cost, and DB-retention logic; verify their imports use afaudit.*",
+      "expected": "agentfox/tests/ contains tests for DuckDBSink and calculate_session_cost; these files import audit symbols from afaudit.* not from old agentfox module paths",
+      "assertion_pseudocode": "agentfox_tests = glob_py_files('agentfox/tests/')\nassert any('DuckDBSink' in read_file(f) for f in agentfox_tests)\nassert any('calculate_session_cost' in read_file(f) for f in agentfox_tests)\nfor f in agentfox_tests:\n    content = read_file(f)\n    if 'AuditEvent' in content or 'SessionSink' in content:\n        assert 'from afaudit' in content"
+    },
+    {
+      "id": "TS-01-45",
+      "requirement_id": "01-REQ-12.1",
+      "kind": "integration",
+      "description": "Verify that all three audit file types can be produced using only afaudit imports without any agentfox import.",
+      "preconditions": [
+        "afaudit is installed in an environment where agentfox is NOT installed",
+        "A temporary directory is available for file output"
+      ],
+      "input": "In the agentfox-free environment, import afaudit symbols and produce all three file types",
+      "expected": "audit_*.jsonl, agent_*.jsonl, and postmortem_*.json files are created; no ImportError occurs",
+      "assertion_pseudocode": "# In isolated env without agentfox:\nfrom afaudit import AuditJsonlSink, AgentTraceSink, build_postmortem, write_postmortem, AUDIT_DIR, generate_run_id, AuditEvent, AuditEventType, AuditSeverity\ntmp = create_temp_dir()\nrun_id = generate_run_id()\n# Produce audit_*.jsonl\nsink = AuditJsonlSink(tmp, run_id)\nsink.write(AuditEvent(run_id=run_id, event_type=AuditEventType.values()[0], severity=AuditSeverity.values()[0]))\nassert len(list(tmp.glob('audit_*.jsonl'))) == 1\n# Produce agent_*.jsonl\ntrace = AgentTraceSink(tmp, run_id)\ntrace.close()\nassert len(list(tmp.glob('agent_*.jsonl'))) >= 1\n# Produce postmortem_*.json\npm = build_postmortem(StubInput())\nwrite_postmortem(pm, tmp, run_id)\nassert len(list(tmp.glob('postmortem_*.json'))) == 1"
+    },
+    {
+      "id": "TS-01-46",
+      "requirement_id": "01-REQ-13.1",
+      "kind": "unit",
+      "description": "Verify that every afaudit module uses stdlib logging with the correct afaudit.<module> logger name.",
+      "preconditions": [
+        "packages/afaudit/afaudit/ directory exists with all module files"
+      ],
+      "input": "Read each module source file and check logger name declarations",
+      "expected": "Each module file contains getLogger('afaudit.<module>') matching its filename",
+      "assertion_pseudocode": "module_logger_map = {'events.py':'afaudit.events','sink.py':'afaudit.sink','trace.py':'afaudit.trace','postmortem.py':'afaudit.postmortem','cleanup.py':'afaudit.cleanup','emit.py':'afaudit.emit'}\nfor filename, logger_name in module_logger_map.items():\n    source = read_file(f'packages/afaudit/afaudit/{filename}')\n    assert f\"'{logger_name}'\" in source or f'\"{logger_name}\"' in source, f'Wrong logger name in {filename}'"
+    },
+    {
+      "id": "TS-01-47",
+      "requirement_id": "01-REQ-13.2",
+      "kind": "unit",
+      "description": "Verify that no afaudit module imports or references any third-party logging library.",
+      "preconditions": [
+        "packages/afaudit/afaudit/ directory exists with all module files"
+      ],
+      "input": "Read all afaudit module source files and scan for third-party logging imports",
+      "expected": "No file contains 'loguru', 'structlog', or any other third-party logging library import",
+      "assertion_pseudocode": "for py_file in glob_py_files('packages/afaudit/afaudit/'):\n    source = read_file(py_file)\n    assert 'loguru' not in source, f'loguru found in {py_file}'\n    assert 'structlog' not in source, f'structlog found in {py_file}'"
+    },
+    {
+      "id": "TS-01-48",
+      "requirement_id": "01-REQ-14.1",
+      "kind": "integration",
+      "description": "Verify that make check passes with exit code 0 after the complete atomic migration.",
+      "preconditions": [
+        "The complete atomic migration has been applied on the feature branch",
+        "The workspace Makefile defines a 'check' target running lint and full test suite"
+      ],
+      "input": "Run `make check` from the workspace root",
+      "expected": "Process exits with code 0; no lint errors and no test failures are reported",
+      "assertion_pseudocode": "result = run_subprocess(['make', 'check'], cwd=workspace_root)\nassert result.returncode == 0, f'make check failed:\\n{result.stdout}\\n{result.stderr}'"
+    },
+    {
+      "id": "TS-01-49",
+      "requirement_id": "01-REQ-14.2",
+      "kind": "integration",
+      "description": "Verify that all existing tests in agentfox/tests/, af/tests/, and nightshift/tests/ continue to pass after import path migration.",
+      "preconditions": [
+        "All import paths have been updated to use afaudit.* equivalents",
+        "pytest is available"
+      ],
+      "input": "Run pytest across agentfox/tests/, af/tests/, nightshift/tests/",
+      "expected": "All tests pass with no regressions; exit code 0",
+      "assertion_pseudocode": "result = run_subprocess(['pytest', 'agentfox/tests/', 'af/tests/', 'nightshift/tests/', '-v'])\nassert result.returncode == 0\nassert 'error' not in result.stdout.lower() or 'passed' in result.stdout.lower()"
+    }
+  ],
+  "property_tests": [
+    {
+      "id": "TS-01-P1",
+      "property_id": "01-PROP-1",
+      "validates": [
+        "01-REQ-1.1",
+        "01-REQ-1.3"
+      ],
+      "description": "For any installation of afaudit in a clean virtual environment, pip show afaudit reports no third-party Requires and pyproject.toml has empty dependencies.",
+      "for_any_strategy": "Any clean virtual environment created with uv venv and afaudit installed via pip install",
+      "invariant_check": "pip_show_output = run(['pip','show','afaudit']); assert requires_field(pip_show_output) == ''; toml = parse('packages/afaudit/pyproject.toml'); assert toml['project']['dependencies'] == []; assert 'optional-dependencies' not in toml['project']"
+    },
+    {
+      "id": "TS-01-P2",
+      "property_id": "01-PROP-2",
+      "validates": [
+        "01-REQ-2.1",
+        "01-REQ-2.2",
+        "01-REQ-2.3",
+        "01-REQ-2.4",
+        "01-REQ-2.5",
+        "01-REQ-2.6"
+      ],
+      "description": "For any symbol listed in the Public API section, it is importable from afaudit and resolves to the correct submodule definition.",
+      "for_any_strategy": "Each of the 25 symbols enumerated in the Public API section of the PRD",
+      "invariant_check": "for sym in PUBLIC_API_SYMBOLS: obj = getattr(importlib.import_module('afaudit'), sym); assert obj is not None; assert obj.__module__.startswith('afaudit.')"
+    },
+    {
+      "id": "TS-01-P3",
+      "property_id": "01-PROP-3",
+      "validates": [
+        "01-REQ-7.2",
+        "01-REQ-7.E2",
+        "01-REQ-7.E3"
+      ],
+      "description": "For any invocation of enforce_file_retention, the return value equals exactly the number of files successfully unlinked from the filesystem.",
+      "for_any_strategy": "Hypothesis: generate random audit directories with 0-50 run sets, random max_runs values, and random subsets of files patched to fail deletion",
+      "invariant_check": "before = count_files(audit_dir); result = enforce_file_retention(audit_dir, max_runs=max_runs); after = count_files(audit_dir); assert result == before - after"
+    },
+    {
+      "id": "TS-01-P4",
+      "property_id": "01-PROP-4",
+      "validates": [
+        "01-REQ-6.6",
+        "01-REQ-6.7",
+        "01-REQ-11.2"
+      ],
+      "description": "For any ExecutionState instance, it satisfies PostmortemInput, and for any SessionRecord instance, it satisfies SessionRecordLike, without modification to either class.",
+      "for_any_strategy": "Inspect type annotations of PostmortemInput and SessionRecordLike; verify each required attribute is present on ExecutionState and SessionRecord respectively using getattr checks",
+      "invariant_check": "pi_attrs = get_type_hints(PostmortemInput); sr_attrs = get_type_hints(SessionRecordLike); for attr in pi_attrs: assert hasattr(ExecutionState, attr) or attr_in_init(ExecutionState, attr); for attr in sr_attrs: assert hasattr(SessionRecord, attr) or attr_in_init(SessionRecord, attr)"
+    },
+    {
+      "id": "TS-01-P5",
+      "property_id": "01-PROP-5",
+      "validates": [
+        "01-REQ-9.1",
+        "01-REQ-9.2"
+      ],
+      "description": "For the state of the workspace after migration, AUDIT_DIR is defined exactly once in afaudit.constants and not in agentfox.core.node_id or any other module.",
+      "for_any_strategy": "Grep all .py files in the workspace for AUDIT_DIR definitions",
+      "invariant_check": "definitions = grep_workspace_for(r'^AUDIT_DIR\\s*='); assert len(definitions) == 1; assert 'packages/afaudit/afaudit/constants.py' in definitions[0]; assert not any('agentfox/core/node_id.py' in d for d in definitions)"
+    },
+    {
+      "id": "TS-01-P6",
+      "property_id": "01-PROP-6",
+      "validates": [
+        "01-REQ-10.3"
+      ],
+      "description": "For any module in the agentfox package after migration, no audit symbol moved to afaudit is re-exported or defined within it.",
+      "for_any_strategy": "Each .py file under agentfox/ (including agentfox/__init__.py)",
+      "invariant_check": "MOVED_SYMBOLS = ['AuditEvent','AuditJsonlSink','SessionSink','SinkDispatcher','AgentTraceSink','build_postmortem','write_postmortem','should_dump','emit_audit_event','purge_stale_audit_files','enforce_file_retention','AUDIT_DIR']; for py_file in glob_py_files('agentfox/'): content = read_file(py_file); for sym in MOVED_SYMBOLS: assert f'__all__' not in content or sym not in extract_all(content)"
+    },
+    {
+      "id": "TS-01-P7",
+      "property_id": "01-PROP-7",
+      "validates": [
+        "01-REQ-11.4"
+      ],
+      "description": "For any test in packages/afaudit/tests/, it passes in a Python environment where duckdb and anthropic are not installed.",
+      "for_any_strategy": "Each test collected by pytest in packages/afaudit/tests/ when run in a venv without duckdb and anthropic",
+      "invariant_check": "result = run_subprocess(['pytest', 'packages/afaudit/tests/', '--tb=short'], env=minimal_env_without_heavy_deps); assert result.returncode == 0; assert 'duckdb' not in result.stderr; assert 'anthropic' not in result.stderr"
+    },
+    {
+      "id": "TS-01-P8",
+      "property_id": "01-PROP-8",
+      "validates": [
+        "01-REQ-13.1",
+        "01-REQ-13.2"
+      ],
+      "description": "For any afaudit module, it uses only stdlib logging with a logger named afaudit.<module> and imports no third-party logging library.",
+      "for_any_strategy": "Each .py file in packages/afaudit/afaudit/ (excluding __init__.py which may not need a logger)",
+      "invariant_check": "MODULE_LOGGER_MAP = {'events':'afaudit.events','sink':'afaudit.sink','trace':'afaudit.trace','postmortem':'afaudit.postmortem','cleanup':'afaudit.cleanup','emit':'afaudit.emit'}; for mod, logger_name in MODULE_LOGGER_MAP.items(): src = read_file(f'packages/afaudit/afaudit/{mod}.py'); assert 'import logging' in src; assert logger_name in src; assert 'loguru' not in src; assert 'structlog' not in src"
+    }
+  ],
+  "edge_case_tests": [
+    {
+      "id": "TS-01-E1",
+      "requirement_id": "01-REQ-1.E1",
+      "kind": "unit",
+      "description": "Verify that adding a third-party dependency to afaudit/pyproject.toml [project.dependencies] is detectable as a dependency isolation violation.",
+      "preconditions": [
+        "A copy of packages/afaudit/pyproject.toml is available for inspection"
+      ],
+      "input": "Parse packages/afaudit/pyproject.toml and check [project.dependencies]",
+      "expected": "[project.dependencies] is empty; any non-empty entry would constitute a violation caught by the manual PR review check",
+      "assertion_pseudocode": "toml = parse('packages/afaudit/pyproject.toml')\nassert toml['project'].get('dependencies', []) == [], 'Third-party dependency found in afaudit [project.dependencies]'"
+    },
+    {
+      "id": "TS-01-E2",
+      "requirement_id": "01-REQ-2.E1",
+      "kind": "unit",
+      "description": "Verify that _dispatch_optional is not referenced in any test file or external call-site, enforcing the private API boundary.",
+      "preconditions": [
+        "All test files in packages/afaudit/tests/ and all external call-sites in agentfox/, af/, nightshift/ are accessible"
+      ],
+      "input": "Grep all .py files in packages/afaudit/tests/, af/, nightshift/, and agentfox/ (excluding afaudit.sink itself) for '_dispatch_optional'",
+      "expected": "No occurrence of '_dispatch_optional' is found outside of afaudit/afaudit/sink.py",
+      "assertion_pseudocode": "for search_dir in ['packages/afaudit/tests/','af/','nightshift/','agentfox/']:\n    for py_file in glob_py_files(search_dir):\n        content = read_file(py_file)\n        assert '_dispatch_optional' not in content, f'Private method _dispatch_optional referenced in {py_file}'"
+    },
+    {
+      "id": "TS-01-E3",
+      "requirement_id": "01-REQ-7.E1",
+      "kind": "unit",
+      "description": "Verify that enforce_file_retention returns 0 silently when audit_dir does not exist.",
+      "preconditions": [
+        "A Path pointing to a non-existent directory is available"
+      ],
+      "input": "Call enforce_file_retention(Path('/tmp/nonexistent_audit_dir_xyz'), max_runs=20)",
+      "expected": "Returns 0; no exception is raised; no log message is emitted",
+      "assertion_pseudocode": "from afaudit.cleanup import enforce_file_retention\nfrom pathlib import Path\nimport logging\nwith capture_logs('afaudit.cleanup') as captured:\n    result = enforce_file_retention(Path('/tmp/nonexistent_audit_dir_xyz_test'), max_runs=20)\nassert result == 0\nassert len(captured) == 0  # no log messages emitted"
+    },
+    {
+      "id": "TS-01-E4",
+      "requirement_id": "01-REQ-7.E2",
+      "kind": "unit",
+      "description": "Verify that enforce_file_retention logs a WARNING and skips files with unparseable timestamp patterns without deleting them.",
+      "preconditions": [
+        "A temporary audit directory exists containing one audit_*.jsonl file with an invalid (unparseable) timestamp in its name and one valid run set beyond max_runs"
+      ],
+      "input": "Call enforce_file_retention(tmp_dir, max_runs=0) where tmp_dir contains 'audit_BADNAME.jsonl'",
+      "expected": "Returns 0 (or count of only successfully deleted valid files); the unparseable file is not deleted; a WARNING log is emitted identifying the file",
+      "assertion_pseudocode": "from afaudit.cleanup import enforce_file_retention\nfrom pathlib import Path\ntmp = create_temp_dir()\n(tmp / 'audit_BADNAME.jsonl').write_text('')\nwith capture_logs('afaudit.cleanup', level=logging.WARNING) as captured:\n    result = enforce_file_retention(tmp, max_runs=0)\nassert (tmp / 'audit_BADNAME.jsonl').exists()  # not deleted\nassert any('BADNAME' in r.getMessage() or 'unparseable' in r.getMessage().lower() or 'WARNING' in str(r.levelname) for r in captured)"
+    },
+    {
+      "id": "TS-01-E5",
+      "requirement_id": "01-REQ-7.E3",
+      "kind": "unit",
+      "description": "Verify that enforce_file_retention logs a WARNING on file deletion failure, continues processing, and counts only successfully deleted files.",
+      "preconditions": [
+        "A temporary audit directory with two run sets beyond max_runs; one file's deletion is mocked to raise PermissionError"
+      ],
+      "input": "Call enforce_file_retention(tmp_dir, max_runs=0) with one file deletion patched to raise PermissionError",
+      "expected": "Returns count of successfully deleted files (excluding the failed one); a WARNING log is emitted for the failure; other deletions proceed normally",
+      "assertion_pseudocode": "from afaudit.cleanup import enforce_file_retention\nfrom pathlib import Path\nfrom unittest.mock import patch\ntmp = create_temp_audit_dir(run_sets=2)  # 2 sets of 3 files each = 6 files\ncall_count = [0]\norig_unlink = Path.unlink\ndef mock_unlink(self, *a, **kw):\n    call_count[0] += 1\n    if call_count[0] == 1:\n        raise PermissionError('denied')\n    orig_unlink(self, *a, **kw)\nwith patch.object(Path, 'unlink', mock_unlink):\n    with capture_logs('afaudit.cleanup', level=logging.WARNING) as captured:\n        result = enforce_file_retention(tmp, max_runs=0)\nassert result == 5  # 6 - 1 failed\nassert any('WARNING' in str(r.levelname) for r in captured)"
+    },
+    {
+      "id": "TS-01-E6",
+      "requirement_id": "01-REQ-11.E1",
+      "kind": "unit",
+      "description": "Verify that no test in packages/afaudit/tests/ references the private _dispatch_optional methods of SinkDispatcher.",
+      "preconditions": [
+        "packages/afaudit/tests/ directory exists with all test files"
+      ],
+      "input": "Grep all test files in packages/afaudit/tests/ for '_dispatch_optional'",
+      "expected": "No test file contains '_dispatch_optional'",
+      "assertion_pseudocode": "for test_file in glob_py_files('packages/afaudit/tests/'):\n    content = read_file(test_file)\n    assert '_dispatch_optional' not in content, f'Private _dispatch_optional referenced in test: {test_file}'"
+    }
+  ],
+  "smoke_tests": [
+    {
+      "id": "TS-01-SMOKE-1",
+      "execution_path_id": "01-PATH-1",
+      "description": "End-to-end smoke test: produce all three audit file types (audit_*.jsonl, agent_*.jsonl, postmortem_*.json) using only afaudit imports in a process where agentfox is not installed.",
+      "trigger": "Consumer imports afaudit symbols and writes all three audit file types to a temporary directory",
+      "real_components": [
+        "afaudit.events.AuditJsonlSink",
+        "afaudit.trace.AgentTraceSink",
+        "afaudit.postmortem.build_postmortem",
+        "afaudit.postmortem.write_postmortem",
+        "afaudit.constants.AUDIT_DIR"
+      ],
+      "mockable": [
+        "PostmortemInput-satisfying stub object",
+        "SessionRecordLike-satisfying stub object"
+      ],
+      "expected_effects": [
+        "One audit_*.jsonl file is created in the temporary directory",
+        "One agent_*.jsonl file is created in the temporary directory",
+        "One postmortem_*.json file is created in the temporary directory",
+        "No ImportError occurs",
+        "agentfox is not imported at any point during the test"
+      ]
+    },
+    {
+      "id": "TS-01-SMOKE-2",
+      "execution_path_id": "01-PATH-2",
+      "description": "End-to-end smoke test for enforce_file_retention normal path: given more than max_runs run sets, oldest sets are deleted and correct count is returned.",
+      "trigger": "Caller invokes enforce_file_retention(audit_dir, max_runs=2) with 5 run sets present",
+      "real_components": [
+        "afaudit.cleanup.enforce_file_retention"
+      ],
+      "mockable": [
+        "filesystem audit directory (use tempfile)"
+      ],
+      "expected_effects": [
+        "The 3 oldest run sets' files are deleted (9 files total)",
+        "The 2 newest run sets remain",
+        "Function returns 9",
+        "No exception is raised",
+        "No database interaction occurs"
+      ]
+    },
+    {
+      "id": "TS-01-SMOKE-3",
+      "execution_path_id": "01-PATH-3",
+      "description": "Smoke test for enforce_file_retention missing-directory path: calling with a non-existent audit_dir returns 0 silently.",
+      "trigger": "Caller invokes enforce_file_retention(Path('/tmp/does_not_exist_afaudit_smoke'), max_runs=20)",
+      "real_components": [
+        "afaudit.cleanup.enforce_file_retention"
+      ],
+      "mockable": [],
+      "expected_effects": [
+        "Function returns 0",
+        "No exception is raised",
+        "No WARNING or ERROR log message is emitted to the afaudit.cleanup logger"
+      ]
+    },
+    {
+      "id": "TS-01-SMOKE-4",
+      "execution_path_id": "01-PATH-4",
+      "description": "Smoke test for the atomic workspace migration sequence: after all migration steps, the workspace builds cleanly and make check passes.",
+      "trigger": "Implementer completes all 7 migration steps on the feature branch and runs make check",
+      "real_components": [
+        "packages/afaudit/ package",
+        "agentfox/ package",
+        "af/ package",
+        "nightshift/ package",
+        "workspace Makefile"
+      ],
+      "mockable": [],
+      "expected_effects": [
+        "make check exits with code 0",
+        "All lint checks pass across the workspace",
+        "All tests pass across all packages",
+        "No import errors for old agentfox audit module paths",
+        "PR description documents test isolation verification result"
+      ]
+    },
+    {
+      "id": "TS-01-SMOKE-5",
+      "execution_path_id": "01-PATH-5",
+      "description": "Smoke test for Protocol boundary verification: the test suite in packages/afaudit/tests/ structurally verifies that ExecutionState satisfies PostmortemInput and SessionRecord satisfies SessionRecordLike.",
+      "trigger": "Run `pytest packages/afaudit/tests/ -k protocol -v` in an environment with both afaudit and agentfox installed",
+      "real_components": [
+        "afaudit.postmortem.PostmortemInput",
+        "afaudit.postmortem.SessionRecordLike",
+        "agentfox.engine.state.ExecutionState",
+        "agentfox.engine.state.SessionRecord"
+      ],
+      "mockable": [],
+      "expected_effects": [
+        "Protocol boundary tests are collected and executed",
+        "All protocol tests pass with no structural mismatch errors",
+        "pytest exits with code 0",
+        "No changes to ExecutionState or SessionRecord definitions are required"
+      ]
+    }
+  ],
+  "coverage": {
+    "requirements_covered": [],
+    "properties_covered": [],
+    "paths_covered": [],
+    "gaps": []
+  }
+}
