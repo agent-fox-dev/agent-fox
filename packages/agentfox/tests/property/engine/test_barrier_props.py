@@ -109,7 +109,7 @@ class TestWorktreeVerificationNeverRaises:
                 return (0, "", "")
 
             with patch("agentfox.engine.barrier.run_git", side_effect=_mock_git):
-                result = asyncio.get_event_loop().run_until_complete(verify_worktrees(repo_root))
+                result = asyncio.run(verify_worktrees(repo_root))
             assert isinstance(result, list)
 
 
