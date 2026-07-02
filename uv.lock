@@ -9,6 +9,7 @@ resolution-markers = [
 [manifest]
 members = [
     "af",
+    "afaudit",
     "afspec",
     "agent-fox",
     "agentfox",
@@ -35,6 +36,11 @@ requires-dist = [
     { name = "duckdb", specifier = ">=1.5.4" },
     { name = "rich", specifier = ">=15.0" },
 ]
+
+[[package]]
+name = "afaudit"
+version = "4.0.2"
+source = { editable = "packages/afaudit" }
 
 [[package]]
 name = "afspec"
