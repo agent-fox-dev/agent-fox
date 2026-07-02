@@ -1,11 +1,14 @@
-"""Tests for afaudit.constants module — AUDIT_DIR definition.
+"""Tests for afaudit.constants module — AUDIT_DIR definition and uniqueness.
 
 TS-01-32: AUDIT_DIR defined in afaudit.constants and re-exported from afaudit
+TS-01-33: AUDIT_DIR not importable from agentfox.core.node_id after migration
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+
+import pytest
 
 
 class TestAuditDirConstant:
@@ -38,3 +41,30 @@ class TestAuditDirConstant:
         from afaudit.constants import AUDIT_DIR
 
         assert isinstance(AUDIT_DIR, Path)
+
+
+@pytest.mark.integration
+class TestAuditDirRemovedFromAgentfox:
+    """TS-01-33: AUDIT_DIR not importable from agentfox.core.node_id after migration.
+
+    Requirement: 01-REQ-9.2
+    """
+
+    def test_audit_dir_not_in_agentfox_core_node_id(self) -> None:
+        """Importing AUDIT_DIR from agentfox.core.node_id must fail.
+
+        After migration, AUDIT_DIR is defined exclusively in
+        afaudit.constants. The old definition in agentfox.core.node_id
+        must be removed.
+        """
+        try:
+            from agentfox.core.node_id import AUDIT_DIR  # noqa: F811
+
+            # If we get here, the import succeeded — which means
+            # the migration hasn't removed it yet.
+            pytest.fail(
+                f"AUDIT_DIR is still importable from agentfox.core.node_id "
+                f"(value={AUDIT_DIR!r}). It must be removed per 01-REQ-9.2."
+            )
+        except (ImportError, AttributeError):
+            pass  # Expected — AUDIT_DIR has been removed
