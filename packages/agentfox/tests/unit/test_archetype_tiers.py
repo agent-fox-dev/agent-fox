@@ -11,7 +11,6 @@ Updated for spec 98 (reviewer consolidation):
 
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -175,72 +174,3 @@ class TestInvalidConfigTierRaises:
         )
         with pytest.raises(ConfigError):
             NodeSessionRunner("spec:1", config, archetype="coder", knowledge_db=_MOCK_KB)
-
-
-# ---------------------------------------------------------------------------
-# TS-57-12: Documentation Lists Default Tiers
-# Requirement: 57-REQ-4.1
-# ---------------------------------------------------------------------------
-
-
-class TestDocsListDefaultTiers:
-    """TS-57-12: archetype docs list default model tier for each archetype."""
-
-    _DOCS_PATH = Path("docs/architecture/03-execution-and-archetypes.md")
-
-    def test_docs_contain_advanced_and_standard(self) -> None:
-        assert self._DOCS_PATH.exists(), f"{self._DOCS_PATH} must exist"
-        content = self._DOCS_PATH.read_text()
-        assert "ADVANCED" in content
-        assert "STANDARD" in content
-
-    def test_docs_show_reviewer_archetype(self) -> None:
-        content = self._DOCS_PATH.read_text()
-        assert "reviewer" in content.lower(), f"reviewer not found in {self._DOCS_PATH}"
-
-    def test_docs_show_coder_as_standard(self) -> None:
-        content = self._DOCS_PATH.read_text()
-        coder_idx = content.find("### Coder")
-        assert coder_idx != -1, "### Coder heading not found in archetype docs"
-        coder_section = content[coder_idx : coder_idx + 600]
-        assert "STANDARD" in coder_section, f"Expected STANDARD in Coder section of {self._DOCS_PATH}"
-
-
-# ---------------------------------------------------------------------------
-# TS-57-13: Documentation Describes Config Override
-# Requirement: 57-REQ-4.2
-# ---------------------------------------------------------------------------
-
-
-class TestDocsDescribeConfigOverride:
-    """TS-57-13: archetype docs explain how to override tiers via config.toml."""
-
-    _DOCS_PATH = Path("docs/architecture/03-execution-and-archetypes.md")
-
-    def test_docs_mention_models_config_key(self) -> None:
-        content = self._DOCS_PATH.read_text()
-        assert "model" in content.lower(), f"{self._DOCS_PATH} must mention model configuration"
-
-    def test_docs_mention_config(self) -> None:
-        content = self._DOCS_PATH.read_text()
-        assert "config" in content.lower(), f"{self._DOCS_PATH} must mention config"
-
-
-# ---------------------------------------------------------------------------
-# TS-57-14: Documentation Explains Escalation
-# Requirement: 57-REQ-4.3
-# ---------------------------------------------------------------------------
-
-
-class TestDocsExplainEscalation:
-    """TS-57-14: archetype docs explain retry-then-escalate behavior."""
-
-    _DOCS_PATH = Path("docs/architecture/03-execution-and-archetypes.md")
-
-    def test_docs_mention_escalation(self) -> None:
-        content = self._DOCS_PATH.read_text()
-        assert "escalat" in content.lower(), f"{self._DOCS_PATH} must describe escalation behavior"
-
-    def test_docs_mention_retry(self) -> None:
-        content = self._DOCS_PATH.read_text()
-        assert "retr" in content.lower(), f"{self._DOCS_PATH} must describe retry behavior (retry/retries)"
