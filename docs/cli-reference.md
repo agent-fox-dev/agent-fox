@@ -82,33 +82,28 @@ agent-fox init [OPTIONS]
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
+| `--config` | flag | off | Create a local `.agent-fox/config.toml` (overwrites if present) |
 | `--skills` | flag | off | Install bundled Claude Code skills into `.claude/skills/` |
 | `--profiles` | flag | off | Copy default archetype profiles into `.agent-fox/profiles/` |
 
-Creates the `.agent-fox/` directory structure with a default configuration file,
-sets up the integration branch (configured via `workspace.integration_branch`, default: `main`), updates `.gitignore`, creates
-`.claude/settings.local.json` with canonical permissions, scaffolds an
-`AGENTS.md` template with project instructions for coding agents, and creates
-`.agent-fox/steering.md` as a placeholder for project-level agent directives. If
-`AGENTS.md` already exists it is silently skipped to preserve customizations.
-If `.agent-fox/steering.md` already exists it is also silently skipped.
+Creates the `.agent-fox/` directory structure, sets up the integration branch
+(configured via `workspace.integration_branch`, default: `main`), updates
+`.gitignore`, creates `.claude/settings.local.json` with canonical permissions,
+scaffolds an `AGENTS.md` template with project instructions for coding agents,
+and creates `.agent-fox/steering.md` as a placeholder for project-level agent
+directives. If `AGENTS.md` already exists it is silently skipped to preserve
+customizations. If `.agent-fox/steering.md` already exists it is also silently
+skipped.
 
-**Fresh init:** Generates `config.toml` programmatically from the Pydantic
-configuration models. Every available option appears as a commented-out entry
-with its description, valid range (if constrained), and default value.
+**Local config (`--config`):** A local `.agent-fox/config.toml` is only created
+when `--config` is explicitly passed. When present, the local config is the
+**sole** config source — the global `~/.agent-fox/config.toml` is ignored
+entirely. Without a local config, the global config applies. If a local
+`config.toml` already exists, `--config` overwrites it with a fresh template.
 
-**Re-init (config merge):** When `config.toml` already exists, `init` merges
-it with the current schema non-destructively:
-
-- **Preserves** all active (uncommented) user values.
-- **Adds** new schema fields as commented-out entries with descriptions and
-  defaults.
-- **Marks deprecated** any active fields not recognized by the current schema
-  with a `# DEPRECATED` prefix.
-- **Preserves** user comments and formatting.
-- **No-op** if the config is already up to date (byte-for-byte identical).
-- If the existing file contains invalid TOML, a warning is logged and the
-  file is left untouched.
+**Config loading precedence:**
+- **No local config** → global config at `~/.agent-fox/config.toml` applies
+- **Local config present** → only local config applies (global ignored)
 
 **Steering document:** `init` creates `.agent-fox/steering.md` as an empty
 placeholder on first run. This file is the user's persistent directive surface

@@ -834,26 +834,42 @@ def _load_config_single_file(path: Path) -> AgentFoxConfig:
 
 
 def _load_config_global_local() -> AgentFoxConfig:
-    """Load config using the global+local merge scheme.
+    """Load config from local or global source.
 
-    1. Check for AF_CONFIG deprecation.
-    2. Resolve $HOME and load/auto-create the global config.
-    3. Load the local config from CWD/.agent-fox/config.toml.
-    4. Merge using shallow section replacement.
-    5. Validate through AgentFoxConfig.
+    If a local config (``.agent-fox/config.toml``) exists in CWD, it is
+    used as the **sole** config source — the global config is not read.
 
-    Requirements: 13-REQ-1.2, 13-REQ-2.1, 13-REQ-2.2, 13-REQ-2.3,
-                  13-REQ-3.1, 13-REQ-3.2, 13-REQ-5.1, 13-REQ-5.2,
-                  13-REQ-7.1, 13-REQ-7.2, 13-REQ-7.3, 13-REQ-7.4
+    Otherwise, the global config (``~/.agent-fox/config.toml``) is loaded,
+    auto-created if absent.
     """
-    # --- Global config ---
+    # --- Check for local config first ---
+    local_path = Path.cwd() / ".agent-fox" / "config.toml"
+
+    if local_path.exists():
+        _check_symlink(local_path)
+        local_dict = _parse_toml_file(local_path)
+
+        logger.debug(
+            "Local config found at %s — using as sole config source (global ignored)",
+            local_path,
+        )
+
+        config = _validate_config_dict(local_dict, source=str(local_path))
+
+        if "spec_tool" in local_dict:
+            config._spec_tool_explicit = True
+
+        return config
+
+    # --- No local config — fall through to global ---
+    logger.debug("No local config found at %s", local_path)
+
     global_dict: dict = {}
     home: Path | None = None
 
     try:
         home = Path.home()
     except (RuntimeError, OSError):
-        # 13-REQ-2.3, 13-REQ-7.4: HOME unresolvable
         logger.debug("$HOME could not be resolved; global config loading skipped")
 
     if home is not None:
@@ -863,19 +879,15 @@ def _load_config_global_local() -> AgentFoxConfig:
         try:
             config_exists = global_config_path.exists()
         except OSError as exc:
-            # 13-REQ-2.E2: can't even stat the path — directory is
-            # inaccessible, so we can't create or read the global config.
             raise ConfigError(
                 f"Failed to create directory {global_dir}: {exc}",
                 path=str(global_dir),
             ) from exc
 
         if not config_exists:
-            # 13-REQ-2.1: auto-create global config
             try:
                 os.makedirs(str(global_dir), mode=0o700, exist_ok=True)
             except OSError as exc:
-                # 13-REQ-2.E2: directory creation failure
                 raise ConfigError(
                     f"Failed to create directory {global_dir}: {exc}",
                     path=str(global_dir),
@@ -885,52 +897,13 @@ def _load_config_global_local() -> AgentFoxConfig:
 
             global_config_path.write_text(generate_default_config(), encoding="utf-8")
 
-        # 13-REQ-2.E1: symlink rejection on final file
         _check_symlink(global_config_path)
-
-        # 13-REQ-4.1: malformed global TOML -> fail fast
         global_dict = _parse_toml_file(global_config_path)
-
-        # 13-REQ-7.1: debug log after successful load
         logger.debug("Loaded global config from %s", global_config_path)
 
-    # --- Local config ---
-    local_path = Path.cwd() / ".agent-fox" / "config.toml"
+    config = _validate_config_dict(global_dict, source="global config")
 
-    if local_path.exists():
-        # 13-REQ-3.E1: symlink rejection on final file
-        _check_symlink(local_path)
-
-        # 13-REQ-4.2: malformed local TOML -> ConfigError
-        local_dict = _parse_toml_file(local_path)
-
-        # Track which local keys are sections (dicts) for debug logging
-        overridden_sections = [k for k, v in local_dict.items() if isinstance(v, dict)]
-
-        # 13-REQ-3.1, 13-REQ-3.3: shallow section replacement merge
-        merged_dict = shallow_merge(global_dict, local_dict)
-
-        # 13-REQ-7.2: debug log with overridden section names
-        logger.debug(
-            "Merging local config from %s (sections overridden: %s)",
-            local_path,
-            overridden_sections,
-        )
-    else:
-        merged_dict = global_dict
-        # 13-REQ-7.3: debug log when no local config found
-        logger.debug(
-            "No local config found at %s",
-            local_path,
-        )
-
-    # 13-REQ-1.3: validate and apply defaults via Pydantic
-    config = _validate_config_dict(merged_dict, source="merged config")
-
-    # 13-REQ-6.3: track whether [spec_tool] was explicitly present in the
-    # raw merged dict (before Pydantic filled in defaults).  Used by
-    # agentspec to decide whether to fall back to ~/.af/settings.yaml.
-    if "spec_tool" in merged_dict:
+    if "spec_tool" in global_dict:
         config._spec_tool_explicit = True
 
     return config

@@ -178,13 +178,27 @@ class TestExistingGlobalConfig:
 
 
 # ===================================================================
-# TS-13-6: $HOME unresolvable — skip global, use local/defaults
+# TS-13-6: $HOME unresolvable — skip global, use defaults
 # ===================================================================
 class TestHomeUnresolvable:
     """TS-13-6: HOME unresolvable skips global config."""
 
-    def test_home_unresolvable_uses_defaults(self, tmp_path, monkeypatch, caplog, clean_af_env):
-        """When HOME cannot be resolved, DEBUG log emitted, no exception."""
+    def test_home_unresolvable_no_local(self, tmp_path, monkeypatch, caplog, clean_af_env):
+        """When HOME cannot be resolved and no local config, use defaults."""
+        repo = tmp_path / "repo"
+        repo.mkdir(exist_ok=True)
+        monkeypatch.chdir(repo)
+        monkeypatch.delenv("HOME", raising=False)
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: (_ for _ in ()).throw(RuntimeError("no home"))))
+
+        with caplog.at_level(logging.DEBUG):
+            config = load_config()
+
+        assert isinstance(config, AgentFoxConfig)
+        assert any("HOME" in msg and ("could not be resolved" in msg or "skipped" in msg) for msg in caplog.messages)
+
+    def test_home_unresolvable_with_local(self, tmp_path, monkeypatch, caplog, clean_af_env):
+        """When HOME cannot be resolved but local config exists, local is used."""
         repo = tmp_path / "repo"
         repo.mkdir(exist_ok=True)
         local_dir = repo / ".agent-fox"
@@ -198,8 +212,8 @@ class TestHomeUnresolvable:
             config = load_config()
 
         assert isinstance(config, AgentFoxConfig)
-        # TS-13-6: same message must contain BOTH 'HOME' AND 'could not be resolved'/'skipped'
-        assert any("HOME" in msg and ("could not be resolved" in msg or "skipped" in msg) for msg in caplog.messages)
+        assert config.orchestrator.parallel == 5
+        assert any("sole config source" in msg for msg in caplog.messages)
 
 
 # ===================================================================
@@ -253,13 +267,13 @@ class TestGlobalDirCreationFailure:
 
 
 # ===================================================================
-# TS-13-7: Shallow section replacement
+# TS-13-7: Local config is sole source (no merge with global)
 # ===================================================================
-class TestShallowSectionReplacement:
-    """TS-13-7: Local section entirely replaces global section."""
+class TestLocalSoleSource:
+    """TS-13-7: Local config takes full precedence — global is ignored."""
 
-    def test_shallow_replacement(self, fake_home, global_config_dir, tmp_path, monkeypatch, clean_af_env):
-        """Local [orchestrator] replaces global wholesale; [routing] inherited."""
+    def test_local_sole_source(self, fake_home, global_config_dir, tmp_path, monkeypatch, clean_af_env):
+        """Local config is sole source; global is ignored entirely."""
         (global_config_dir / "config.toml").write_text(
             textwrap.dedent("""\
             [orchestrator]
@@ -280,8 +294,8 @@ class TestShallowSectionReplacement:
         config = load_config()
 
         assert config.orchestrator.parallel == 8
-        # Routing inherited from global
-        assert config.routing.max_timeout_retries == 3
+        # routing uses Pydantic default (2), NOT global value (3)
+        assert config.routing.max_timeout_retries == 2
 
 
 # ===================================================================
@@ -392,9 +406,26 @@ class TestMalformedGlobalConfig:
     def test_malformed_global_raises_config_error(
         self, fake_home, global_config_dir, tmp_path, monkeypatch, clean_af_env
     ):
-        """Global config with invalid TOML raises ConfigError."""
+        """Global config with invalid TOML raises ConfigError (no local config)."""
         global_config_path = global_config_dir / "config.toml"
         global_config_path.write_text("[broken = unterminated")
+        repo = tmp_path / "repo"
+        repo.mkdir(exist_ok=True)
+        monkeypatch.chdir(repo)
+
+        with pytest.raises(ConfigError) as exc_info:
+            load_config()
+
+        error_msg = str(exc_info.value)
+        assert str(global_config_path) in error_msg
+        assert "parse" in error_msg.lower() or "TOML" in error_msg
+
+    def test_malformed_global_ignored_with_local(
+        self, fake_home, global_config_dir, tmp_path, monkeypatch, clean_af_env
+    ):
+        """Malformed global is ignored when local config exists."""
+        global_config_dir_path = global_config_dir / "config.toml"
+        global_config_dir_path.write_text("[broken = unterminated")
         repo = tmp_path / "repo"
         repo.mkdir(exist_ok=True)
         local_dir = repo / ".agent-fox"
@@ -402,14 +433,8 @@ class TestMalformedGlobalConfig:
         (local_dir / "config.toml").write_text("[orchestrator]\nparallel = 1\n")
         monkeypatch.chdir(repo)
 
-        with pytest.raises(ConfigError) as exc_info:
-            load_config()
-
-        error_msg = str(exc_info.value)
-        # TS-13-10: must identify the global config file path specifically
-        assert str(global_config_path) in error_msg
-        # TS-13-10: must mention parse error or TOML
-        assert "parse" in error_msg.lower() or "TOML" in error_msg
+        config = load_config()
+        assert config.orchestrator.parallel == 1
 
 
 # ===================================================================
@@ -616,13 +641,13 @@ class TestDebugLogGlobalLoaded:
 
 
 # ===================================================================
-# TS-13-21: DEBUG log — local config merged with sections
+# TS-13-21: DEBUG log — local config used as sole source
 # ===================================================================
-class TestDebugLogMerge:
-    """TS-13-21: DEBUG log with overridden section names."""
+class TestDebugLogLocalSoleSource:
+    """TS-13-21: DEBUG log when local config used as sole source."""
 
-    def test_debug_log_merge(self, fake_home, global_config, tmp_path, monkeypatch, caplog, clean_af_env):
-        """DEBUG log 'Merging local config from' with section names."""
+    def test_debug_log_local_sole_source(self, fake_home, global_config, tmp_path, monkeypatch, caplog, clean_af_env):
+        """DEBUG log 'sole config source' when local config exists."""
         repo = tmp_path / "repo"
         repo.mkdir(exist_ok=True)
         local_dir = repo / ".agent-fox"
@@ -633,7 +658,7 @@ class TestDebugLogMerge:
         with caplog.at_level(logging.DEBUG):
             load_config()
 
-        assert any("Merging local config from" in msg and "orchestrator" in msg for msg in caplog.messages)
+        assert any("sole config source" in msg for msg in caplog.messages)
 
 
 # ===================================================================
@@ -702,13 +727,13 @@ class TestAfInitGlobalConfig:
 
 
 # ===================================================================
-# TS-13-25: af init --force preserves global config
+# TS-13-25: af init --config preserves global config
 # ===================================================================
 class TestAfInitGlobalPreserved:
-    """TS-13-25: af init --force never overwrites global config."""
+    """TS-13-25: af init --config never overwrites global config."""
 
-    def test_af_init_force_preserves_global(self, fake_home, global_config_dir, tmp_path, monkeypatch, clean_af_env):
-        """Global config with custom content is preserved even with --force."""
+    def test_af_init_config_preserves_global(self, fake_home, global_config_dir, tmp_path, monkeypatch, clean_af_env):
+        """Global config with custom content is preserved even with --config."""
         from af.app import main as af_main
         from click.testing import CliRunner
 
@@ -719,20 +744,20 @@ class TestAfInitGlobalPreserved:
         monkeypatch.chdir(repo)
 
         runner = CliRunner()
-        result = runner.invoke(af_main, ["init", "--force"])
+        result = runner.invoke(af_main, ["init", "--config"])
 
         assert result.exit_code == 0
         assert (global_config_dir / "config.toml").read_text() == original_content
 
 
 # ===================================================================
-# TS-13-26: af init creates all-comments local config
+# TS-13-26: af init does NOT create local config; --config creates one
 # ===================================================================
-class TestAfInitLocalCommentedOut:
-    """TS-13-26: af init creates local config with all values commented out."""
+class TestAfInitLocalOptIn:
+    """TS-13-26: af init without --config does not create local config."""
 
-    def test_af_init_local_all_comments(self, fake_home, global_config, tmp_path, monkeypatch, clean_af_env):
-        """Local config template has only comment lines."""
+    def test_af_init_no_local_config(self, fake_home, global_config, tmp_path, monkeypatch, clean_af_env):
+        """af init without --config does not create a local config."""
         from af.app import main as af_main
         from click.testing import CliRunner
 
@@ -745,22 +770,35 @@ class TestAfInitLocalCommentedOut:
 
         assert result.exit_code == 0
         local_config = repo / ".agent-fox" / "config.toml"
+        assert not local_config.exists()
+
+    def test_af_init_config_creates_local(self, fake_home, global_config, tmp_path, monkeypatch, clean_af_env):
+        """af init --config creates a local config with promoted-fields style."""
+        from af.app import main as af_main
+        from click.testing import CliRunner
+
+        repo = tmp_path / "repo"
+        repo.mkdir(exist_ok=True)
+        monkeypatch.chdir(repo)
+
+        runner = CliRunner()
+        result = runner.invoke(af_main, ["init", "--config"])
+
+        assert result.exit_code == 0
+        local_config = repo / ".agent-fox" / "config.toml"
         assert local_config.exists()
         content = local_config.read_text()
-        for line in content.splitlines():
-            stripped = line.strip()
-            if stripped and not stripped.startswith("#"):
-                pytest.fail(f"Unexpected non-comment line: {line}")
+        assert "local configuration" in content.lower()
 
 
 # ===================================================================
-# TS-13-27: af init without --force preserves local
+# TS-13-27: af init preserves existing local config
 # ===================================================================
 class TestAfInitLocalPreserved:
-    """TS-13-27: af init without --force preserves existing local config."""
+    """TS-13-27: af init without --config preserves existing local config."""
 
     def test_af_init_preserves_local(self, fake_home, global_config, tmp_path, monkeypatch, clean_af_env):
-        """Existing local config is not overwritten without --force."""
+        """Existing local config is not overwritten without --config."""
         from af.app import main as af_main
         from click.testing import CliRunner
 
@@ -780,13 +818,13 @@ class TestAfInitLocalPreserved:
 
 
 # ===================================================================
-# TS-13-28: af init --force overwrites local only
+# TS-13-28: af init --config overwrites local, preserves global
 # ===================================================================
-class TestAfInitForceOverwritesLocal:
-    """TS-13-28: af init --force overwrites local, preserves global."""
+class TestAfInitConfigOverwritesLocal:
+    """TS-13-28: af init --config overwrites local, preserves global."""
 
-    def test_af_init_force_overwrites_local(self, fake_home, global_config_dir, tmp_path, monkeypatch, clean_af_env):
-        """--force regenerates local config as all-comments template."""
+    def test_af_init_config_overwrites_local(self, fake_home, global_config_dir, tmp_path, monkeypatch, clean_af_env):
+        """--config regenerates local config template."""
         from af.app import main as af_main
         from click.testing import CliRunner
 
@@ -801,16 +839,13 @@ class TestAfInitForceOverwritesLocal:
         monkeypatch.chdir(repo)
 
         runner = CliRunner()
-        result = runner.invoke(af_main, ["init", "--force"])
+        result = runner.invoke(af_main, ["init", "--config"])
 
         assert result.exit_code == 0
 
-        # Local config should be all comments
+        # Local config should be the promoted-fields template
         local_content = (local_dir / "config.toml").read_text()
-        for line in local_content.splitlines():
-            stripped = line.strip()
-            if stripped and not stripped.startswith("#"):
-                pytest.fail(f"Non-comment line after --force: {line}")
+        assert "local configuration" in local_content.lower()
 
         # Global config should be unchanged
         assert (global_config_dir / "config.toml").read_text() == global_content
@@ -928,10 +963,10 @@ class TestNonexistentCWD:
 # TS-13-E7: af init with HOME unset
 # ===================================================================
 class TestAfInitNoHome:
-    """TS-13-E7: af init with HOME unset creates local only."""
+    """TS-13-E7: af init with HOME unset still succeeds."""
 
     def test_af_init_no_home(self, tmp_path, monkeypatch, caplog, clean_af_env):
-        """af init without HOME skips global, creates local template."""
+        """af init without HOME skips global config, still succeeds."""
         from af.app import main as af_main
         from click.testing import CliRunner
 
@@ -946,14 +981,9 @@ class TestAfInitNoHome:
             result = runner.invoke(af_main, ["init"])
 
         assert result.exit_code == 0
+        # No local config without --config
         local_config = repo / ".agent-fox" / "config.toml"
-        assert local_config.exists()
-        # Local config should be all comments
-        for line in local_config.read_text().splitlines():
-            stripped = line.strip()
-            if stripped and not stripped.startswith("#"):
-                pytest.fail(f"Unexpected non-comment line: {line}")
-        # TS-13-E7: debug log must mention HOME
+        assert not local_config.exists()
         assert any("HOME" in msg for msg in caplog.messages)
 
 
@@ -1212,11 +1242,11 @@ class TestAfInitNeverOverwritesGlobalProperty:
                 "[routing]\nmax_timeout_retries = 3\n",
             ]
         )
-        use_force = st.booleans()
+        use_config = st.booleans()
 
-        @given(content=valid_toml, force=use_force)
+        @given(content=valid_toml, config_flag=use_config)
         @settings(max_examples=10)
-        def check(content, force):
+        def check(content, config_flag):
             global_dir = fake_home / ".agent-fox"
             global_dir.mkdir(exist_ok=True)
             config_path = global_dir / "config.toml"
@@ -1227,7 +1257,7 @@ class TestAfInitNeverOverwritesGlobalProperty:
             monkeypatch.chdir(repo)
 
             runner = CliRunner()
-            args = ["init", "--force"] if force else ["init"]
+            args = ["init", "--config"] if config_flag else ["init"]
             runner.invoke(af_main, args)
 
             assert config_path.read_text() == content
@@ -1269,12 +1299,12 @@ class TestSmoke1ZeroConfigFirstRun:
         assert any("No local config found" in msg for msg in caplog.messages)
 
 
-class TestSmoke2GlobalLocalMerge:
-    """TS-13-SMOKE-2: Global + local config merge with section override."""
+class TestSmoke2LocalTakesPrecedence:
+    """TS-13-SMOKE-2: Local config is sole source when present."""
 
     @pytest.mark.smoke
-    def test_global_local_merge(self, fake_home, global_config_dir, tmp_path, monkeypatch, caplog, clean_af_env):
-        """PATH-2: Merge global+local, DEBUG log lists overridden sections."""
+    def test_local_sole_source(self, fake_home, global_config_dir, tmp_path, monkeypatch, caplog, clean_af_env):
+        """PATH-2: Local config present — global is ignored entirely."""
         (global_config_dir / "config.toml").write_text(
             textwrap.dedent("""\
             [orchestrator]
@@ -1295,25 +1325,40 @@ class TestSmoke2GlobalLocalMerge:
         with caplog.at_level(logging.DEBUG):
             config = load_config()
 
-        # Merged config has local values
         assert config.orchestrator.parallel == 8
-        # Routing inherited from global
-        assert config.routing.max_timeout_retries == 3
-        # Shallow replace: session_timeout gone from global's [orchestrator]
-        assert config.orchestrator.session_timeout != 60
+        # routing NOT inherited from global — local is the sole source
+        assert config.routing.max_timeout_retries == 2  # Pydantic default
 
-        # DEBUG log: 'Loaded global config from ...'
-        assert any("Loaded global config from" in msg for msg in caplog.messages)
-        # DEBUG log: 'Merging local config from ... (sections overridden: ...)'
-        assert any("Merging local config from" in msg and "orchestrator" in msg for msg in caplog.messages)
+        assert any("sole config source" in msg for msg in caplog.messages)
 
 
 class TestSmoke3MalformedGlobalFailFast:
-    """TS-13-SMOKE-3: Malformed global config causes fail-fast exit."""
+    """TS-13-SMOKE-3: Malformed global config causes fail-fast exit (no local)."""
 
     @pytest.mark.smoke
-    def test_malformed_global_fail_fast(self, fake_home, global_config_dir, tmp_path, monkeypatch, clean_af_env):
-        """PATH-3: Invalid TOML in global config -> ConfigError, local never read."""
+    def test_malformed_global_fail_fast_no_local(
+        self, fake_home, global_config_dir, tmp_path, monkeypatch, clean_af_env
+    ):
+        """PATH-3a: Invalid TOML in global config -> ConfigError when no local config."""
+        global_config_path = global_config_dir / "config.toml"
+        global_config_path.write_text("[broken = ")
+
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        monkeypatch.chdir(repo)
+
+        with pytest.raises(ConfigError) as exc_info:
+            load_config()
+
+        assert str(global_config_path) in str(exc_info.value)
+        error_msg = str(exc_info.value)
+        assert "parse" in error_msg.lower() or "TOML" in error_msg
+
+    @pytest.mark.smoke
+    def test_malformed_global_ignored_when_local_exists(
+        self, fake_home, global_config_dir, tmp_path, monkeypatch, clean_af_env
+    ):
+        """PATH-3b: With local config, malformed global is ignored entirely."""
         global_config_path = global_config_dir / "config.toml"
         global_config_path.write_text("[broken = ")
 
@@ -1321,18 +1366,11 @@ class TestSmoke3MalformedGlobalFailFast:
         repo.mkdir()
         local_dir = repo / ".agent-fox"
         local_dir.mkdir()
-        local_config_path = local_dir / "config.toml"
-        local_config_path.write_text("[orchestrator]\nparallel = 1\n")
+        (local_dir / "config.toml").write_text("[orchestrator]\nparallel = 1\n")
         monkeypatch.chdir(repo)
 
-        with pytest.raises(ConfigError) as exc_info:
-            load_config()
-
-        # Error identifies global config path
-        assert str(global_config_path) in str(exc_info.value)
-        # Error mentions parse/TOML
-        error_msg = str(exc_info.value)
-        assert "parse" in error_msg.lower() or "TOML" in error_msg
+        config = load_config()
+        assert config.orchestrator.parallel == 1
 
 
 class TestSmoke5AgentspecMigrationFallback:
@@ -1368,11 +1406,11 @@ class TestSmoke5AgentspecMigrationFallback:
 
 
 class TestSmoke6AfInitCleanEnvironment:
-    """TS-13-SMOKE-6: af init creates both global and local configs."""
+    """TS-13-SMOKE-6: af init creates global config only (local is opt-in)."""
 
     @pytest.mark.smoke
     def test_af_init_clean_e2e(self, fake_home, tmp_path, monkeypatch, clean_af_env):
-        """PATH-6: af init with no existing configs creates both."""
+        """PATH-6: af init creates global config; no local config without --config."""
         from af.app import main as af_main
         from click.testing import CliRunner
 
@@ -1391,30 +1429,24 @@ class TestSmoke6AfInitCleanEnvironment:
         assert global_dir.exists()
         assert oct(global_dir.stat().st_mode & 0o777) == "0o700"
         assert global_config.exists()
-        # Default config should be parseable TOML
         import tomllib
 
         tomllib.loads(global_config.read_text())
 
-        # Local config created with all values commented out
+        # No local config created without --config
         local_config = repo / ".agent-fox" / "config.toml"
-        assert local_config.exists()
-        for line in local_config.read_text().splitlines():
-            stripped = line.strip()
-            if stripped and not stripped.startswith("#"):
-                pytest.fail(f"Non-comment line in local config: {line}")
+        assert not local_config.exists()
 
 
-class TestSmoke7AfInitForce:
-    """TS-13-SMOKE-7: af init --force regenerates local only."""
+class TestSmoke7AfInitConfig:
+    """TS-13-SMOKE-7: af init --config creates/overwrites local config."""
 
     @pytest.mark.smoke
-    def test_af_init_force_e2e(self, fake_home, global_config_dir, tmp_path, monkeypatch, clean_af_env):
-        """PATH-7: --force overwrites local, leaves global unchanged."""
+    def test_af_init_config_e2e(self, fake_home, global_config_dir, tmp_path, monkeypatch, clean_af_env):
+        """PATH-7: --config overwrites local, leaves global unchanged."""
         from af.app import main as af_main
         from click.testing import CliRunner
 
-        # Set up existing global and local configs
         global_content = "# my custom global\n[orchestrator]\nparallel = 7\n"
         (global_config_dir / "config.toml").write_text(global_content)
 
@@ -1426,19 +1458,16 @@ class TestSmoke7AfInitForce:
         monkeypatch.chdir(repo)
 
         runner = CliRunner()
-        result = runner.invoke(af_main, ["init", "--force"])
+        result = runner.invoke(af_main, ["init", "--config"])
 
         assert result.exit_code == 0
 
         # Global config byte-for-byte identical
         assert (global_config_dir / "config.toml").read_text() == global_content
 
-        # Local config regenerated as all-comments template
+        # Local config regenerated as promoted-fields template
         local_content = (local_dir / "config.toml").read_text()
-        for line in local_content.splitlines():
-            stripped = line.strip()
-            if stripped and not stripped.startswith("#"):
-                pytest.fail(f"Non-comment line after --force: {line}")
+        assert "local configuration" in local_content.lower()
 
 
 class TestSmoke8HomeUnsetLocalUsed:
@@ -1446,7 +1475,7 @@ class TestSmoke8HomeUnsetLocalUsed:
 
     @pytest.mark.smoke
     def test_home_unset_local_used(self, tmp_path, monkeypatch, caplog, clean_af_env):
-        """PATH-8: Unresolvable HOME -> skip global, use local config."""
+        """PATH-8: Unresolvable HOME + local config present -> local used as sole source."""
         repo = tmp_path / "repo"
         repo.mkdir()
         local_dir = repo / ".agent-fox"
@@ -1459,9 +1488,7 @@ class TestSmoke8HomeUnsetLocalUsed:
         with caplog.at_level(logging.DEBUG):
             config = load_config()
 
-        # No exception raised
         assert isinstance(config, AgentFoxConfig)
-        # Local config values used
         assert config.orchestrator.parallel == 3
-        # DEBUG warning about HOME
-        assert any("HOME" in msg and ("could not be resolved" in msg or "skipped" in msg) for msg in caplog.messages)
+        # Local config used as sole source — HOME never checked
+        assert any("sole config source" in msg for msg in caplog.messages)

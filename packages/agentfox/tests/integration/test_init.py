@@ -27,13 +27,19 @@ class TestInitCreatesStructure:
         assert result.exit_code == 0
         assert (tmp_git_repo / ".agent-fox").is_dir()
 
-    def test_init_creates_config_toml(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
-        """init creates .agent-fox/config.toml."""
+    def test_init_does_not_create_config_toml_without_flag(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
+        """init without --config does not create .agent-fox/config.toml."""
         cli_runner.invoke(main, ["init"])
 
         config_path = tmp_git_repo / ".agent-fox" / "config.toml"
+        assert not config_path.exists()
+
+    def test_init_config_creates_config_toml(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
+        """init --config creates .agent-fox/config.toml."""
+        cli_runner.invoke(main, ["init", "--config"])
+
+        config_path = tmp_git_repo / ".agent-fox" / "config.toml"
         assert config_path.exists()
-        # Should be valid TOML (at minimum, not empty)
         content = config_path.read_text()
         assert isinstance(content, str)
 
@@ -43,9 +49,9 @@ class TestInitCreatesStructure:
 
         assert (tmp_git_repo / ".agent-fox" / "worktrees").is_dir()
 
-    def test_init_creates_agent_fox_config(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
-        """init creates a config.toml under .agent-fox/."""
-        cli_runner.invoke(main, ["init"])
+    def test_init_config_creates_agent_fox_config(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
+        """init --config creates a config.toml under .agent-fox/."""
+        cli_runner.invoke(main, ["init", "--config"])
 
         config_path = tmp_git_repo / ".agent-fox" / "config.toml"
         assert config_path.exists()
@@ -63,30 +69,28 @@ class TestInitIdempotent:
     """TS-01-7: Init is idempotent."""
 
     def test_second_init_preserves_config(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
-        """Running init twice doesn't overwrite existing config."""
+        """Running init twice doesn't overwrite existing config created manually."""
         # First init
         cli_runner.invoke(main, ["init"])
 
-        # Modify config
+        # Manually create config
         config_path = tmp_git_repo / ".agent-fox" / "config.toml"
         config_path.write_text("[orchestrator]\nparallel = 8\n")
 
-        # Second init
+        # Second init (without --config)
         result = cli_runner.invoke(main, ["init"])
 
         assert result.exit_code == 0
-        # Config should be unchanged
         content = config_path.read_text()
         assert "parallel = 8" in content
 
-    def test_second_init_reports_skipped(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
-        """Second init reports that config was skipped."""
+    def test_second_init_succeeds(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
+        """Second init succeeds without errors."""
         cli_runner.invoke(main, ["init"])
 
         result = cli_runner.invoke(main, ["init"])
 
         assert result.exit_code == 0
-        assert "skipped existing local config" in result.output.lower()
 
 
 class TestInitGitignore:
@@ -249,20 +253,19 @@ class TestInitConfigGeneration:
         """
         from agentfox.core.config import AgentFoxConfig, load_config
 
-        cli_runner.invoke(main, ["init"])
+        cli_runner.invoke(main, ["init", "--config"])
 
         config_path = tmp_git_repo / ".agent-fox" / "config.toml"
         assert config_path.exists()
 
         config = load_config(config_path)
         assert isinstance(config, AgentFoxConfig)
-        # Verify key defaults
         assert config.orchestrator.parallel == 2
         assert config.theme.playful is True
 
     def test_fresh_config_contains_core_sections(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
         """Fresh config.toml contains section headers for core sections."""
-        cli_runner.invoke(main, ["init"])
+        cli_runner.invoke(main, ["init", "--config"])
 
         config_path = tmp_git_repo / ".agent-fox" / "config.toml"
         content = config_path.read_text()
@@ -273,11 +276,8 @@ class TestInitConfigGeneration:
         assert "[models]" not in content, "[models] section should have been removed"
 
     def test_reinit_preserves_existing_config(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
-        """Re-init preserves existing config file unchanged.
-
-        Requirements: 33-REQ-2.1, 33-REQ-2.2
-        """
-        cli_runner.invoke(main, ["init"])
+        """Re-init without --config preserves existing config file unchanged."""
+        cli_runner.invoke(main, ["init", "--config"])
 
         config_path = tmp_git_repo / ".agent-fox" / "config.toml"
         config_path.write_text("[orchestrator]\nparallel = 4\n")
@@ -289,11 +289,8 @@ class TestInitConfigGeneration:
         assert "parallel = 4" in content
 
     def test_reinit_skips_existing_config(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
-        """Re-init skips existing config without modifying it.
-
-        Requirements: 33-REQ-2.4
-        """
-        cli_runner.invoke(main, ["init"])
+        """Re-init without --config does not modify existing config."""
+        cli_runner.invoke(main, ["init", "--config"])
 
         config_path = tmp_git_repo / ".agent-fox" / "config.toml"
         config_path.write_text("[orchestrator]\nparallel = 4\nobsolete_setting = true\n")
@@ -305,29 +302,9 @@ class TestInitConfigGeneration:
         assert "obsolete_setting" in content
         assert "parallel = 4" in content
 
-    def test_reinit_no_changes_leaves_file_unchanged(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
-        """Re-init on an up-to-date config leaves file byte-for-byte identical.
-
-        Requirements: 33-REQ-2.5
-        """
-        # First init
-        cli_runner.invoke(main, ["init"])
-
-        config_path = tmp_git_repo / ".agent-fox" / "config.toml"
-        content_before = config_path.read_text()
-
-        # Re-init
-        cli_runner.invoke(main, ["init"])
-
-        content_after = config_path.read_text()
-        assert content_before == content_after
-
     def test_config_no_memory_section(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
-        """Generated config does not contain a [memory] section.
-
-        Requirements: 33-REQ-5.1
-        """
-        cli_runner.invoke(main, ["init"])
+        """Generated config does not contain a [memory] section."""
+        cli_runner.invoke(main, ["init", "--config"])
 
         config_path = tmp_git_repo / ".agent-fox" / "config.toml"
         content = config_path.read_text()
@@ -339,7 +316,7 @@ class TestInitOutsideGitRepo:
     """TS-01-E4: Init outside git repo fails gracefully."""
 
     def test_init_outside_git_exits_zero(self, cli_runner: CliRunner, tmp_path: Path) -> None:
-        """Init outside a git repository still succeeds (creates local config)."""
+        """Init outside a git repository still succeeds."""
         original_dir = os.getcwd()
         os.chdir(tmp_path)
         try:
@@ -350,7 +327,7 @@ class TestInitOutsideGitRepo:
             os.chdir(original_dir)
 
     def test_init_outside_git_mentions_git(self, cli_runner: CliRunner, tmp_path: Path) -> None:
-        """Init outside a git repository mentions 'git' in error."""
+        """Init outside a git repository mentions 'git' in output."""
         original_dir = os.getcwd()
         os.chdir(tmp_path)
         try:
