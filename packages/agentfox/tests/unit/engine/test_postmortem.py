@@ -67,7 +67,7 @@ class TestShouldDumpTriggerStatuses:
     )
     def test_should_dump_returns_true(self, status: str) -> None:
         """should_dump() returns True for each trigger status."""
-        from agentfox.engine.run import should_dump
+        from afaudit.postmortem import should_dump
 
         state = ExecutionState(plan_hash="h", node_states={}, run_status=status)
         assert should_dump(state) is True
@@ -88,7 +88,7 @@ class TestShouldDumpNonTriggerStatuses:
     )
     def test_should_dump_returns_false(self, status: str) -> None:
         """should_dump() returns False for non-trigger statuses."""
-        from agentfox.engine.run import should_dump
+        from afaudit.postmortem import should_dump
 
         state = ExecutionState(plan_hash="h", node_states={}, run_status=status)
         assert should_dump(state) is False
@@ -105,7 +105,7 @@ class TestBuildPostmortemRequiredKeys:
 
     def test_required_keys_and_schema_version(self) -> None:
         """Output dict has all required keys and schema_version is 1."""
-        from agentfox.engine.run import build_postmortem
+        from afaudit.postmortem import build_postmortem
 
         state = ExecutionState(
             plan_hash="h",
@@ -143,7 +143,7 @@ class TestBuildPostmortemTaskSummary:
 
     def test_task_summary_counts(self) -> None:
         """task_summary counts are derived correctly from node_states."""
-        from agentfox.engine.run import build_postmortem
+        from afaudit.postmortem import build_postmortem
 
         state = ExecutionState(
             plan_hash="h",
@@ -180,7 +180,7 @@ class TestBuildPostmortemCostSummary:
 
     def test_cost_summary_matches_state(self) -> None:
         """cost_summary fields match ExecutionState aggregates."""
-        from agentfox.engine.run import build_postmortem
+        from afaudit.postmortem import build_postmortem
 
         state = ExecutionState(
             plan_hash="h",
@@ -212,7 +212,7 @@ class TestBuildPostmortemBlockedTasks:
 
     def test_blocked_tasks_sorted_by_node_id(self) -> None:
         """Blocked tasks are included and sorted by node_id."""
-        from agentfox.engine.run import build_postmortem
+        from afaudit.postmortem import build_postmortem
 
         state = ExecutionState(
             plan_hash="h",
@@ -245,7 +245,7 @@ class TestBuildPostmortemSessionHistory:
 
     def test_session_history_contains_all_records_with_required_fields(self) -> None:
         """All SessionRecords are serialized with all required fields."""
-        from agentfox.engine.run import build_postmortem
+        from afaudit.postmortem import build_postmortem
 
         records = [
             _make_session_record(
@@ -301,7 +301,7 @@ class TestWritePostmortemFile:
 
     def test_write_creates_correct_file(self, tmp_path: Path) -> None:
         """File is written to the correct path with valid JSON."""
-        from agentfox.engine.run import write_postmortem
+        from afaudit.postmortem import write_postmortem
 
         postmortem = {
             "schema_version": 1,
@@ -327,7 +327,7 @@ class TestWritePostmortemCreatesDirectory:
 
     def test_creates_missing_directory(self, tmp_path: Path) -> None:
         """The audit directory is created when it doesn't exist."""
-        from agentfox.engine.run import write_postmortem
+        from afaudit.postmortem import write_postmortem
 
         audit_dir = tmp_path / "nonexistent" / "audit"
         assert not audit_dir.exists()
@@ -369,7 +369,7 @@ class TestGenerationFailureNonBlocking:
 
     def test_build_error_leaves_state_valid(self) -> None:
         """If build_postmortem raises, state remains valid with empty postmortem_path."""
-        from agentfox.engine import run as pm_mod
+        import afaudit.postmortem as pm_mod
 
         state = ExecutionState(
             plan_hash="h",
@@ -404,7 +404,7 @@ class TestFallbackRunId:
 
     def test_empty_run_id_gets_fallback(self) -> None:
         """When run_id is empty, build_postmortem uses a fallback."""
-        from agentfox.engine.run import build_postmortem
+        from afaudit.postmortem import build_postmortem
 
         state = ExecutionState(
             plan_hash="",
@@ -427,7 +427,7 @@ class TestBlockedTaskMissingReason:
 
     def test_missing_reason_defaults_to_unknown(self) -> None:
         """A blocked node not in blocked_reasons gets reason 'unknown'."""
-        from agentfox.engine.run import build_postmortem
+        from afaudit.postmortem import build_postmortem
 
         state = ExecutionState(
             plan_hash="h",
@@ -451,7 +451,7 @@ class TestEmptySessionHistory:
 
     def test_empty_state_produces_valid_output(self) -> None:
         """Empty session_history produces empty arrays and zero cost values."""
-        from agentfox.engine.run import build_postmortem
+        from afaudit.postmortem import build_postmortem
 
         state = ExecutionState(
             plan_hash="h",
@@ -478,7 +478,7 @@ class TestWriteFailureNonBlocking:
 
     def test_write_failure_propagates_to_caller(self, tmp_path: Path) -> None:
         """write_postmortem propagates PermissionError so run_code can catch it."""
-        from agentfox.engine.run import write_postmortem
+        from afaudit.postmortem import write_postmortem
 
         postmortem = {"schema_version": 1, "run_id": "20260603_100000_abc123"}
 

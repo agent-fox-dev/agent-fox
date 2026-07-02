@@ -14,7 +14,7 @@ import json
 from pathlib import Path
 
 import click
-from agentfox.engine.run import build_postmortem, should_dump, write_postmortem
+from afaudit.postmortem import build_postmortem, should_dump, write_postmortem
 from agentfox.engine.state import ExecutionState, SessionRecord
 
 # -- Helpers ------------------------------------------------------------------

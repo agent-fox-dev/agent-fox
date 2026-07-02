@@ -135,7 +135,7 @@ class TestTriggerCompleteness:
     @settings(max_examples=50)
     def test_trigger_completeness(self, status: str) -> None:
         """should_dump returns True for every trigger status."""
-        from agentfox.engine.run import should_dump
+        from afaudit.postmortem import should_dump
 
         state = ExecutionState(plan_hash="h", node_states={}, run_status=status)
         assert should_dump(state) is True
@@ -157,7 +157,7 @@ class TestNoFalseTriggers:
     @settings(max_examples=50)
     def test_no_false_triggers(self, status: str) -> None:
         """should_dump returns False for every non-trigger status."""
-        from agentfox.engine.run import should_dump
+        from afaudit.postmortem import should_dump
 
         state = ExecutionState(plan_hash="h", node_states={}, run_status=status)
         assert should_dump(state) is False
@@ -177,7 +177,7 @@ class TestSchemaCompleteness:
     @settings(max_examples=50)
     def test_schema_completeness(self, state: ExecutionState) -> None:
         """All required keys present and schema_version == 1."""
-        from agentfox.engine.run import build_postmortem
+        from afaudit.postmortem import build_postmortem
 
         result = build_postmortem(state)
         required = {
@@ -209,7 +209,7 @@ class TestBlockedTaskFidelity:
     @settings(max_examples=50)
     def test_blocked_task_fidelity(self, state: ExecutionState) -> None:
         """Blocked task count matches node_states; each has non-empty fields."""
-        from agentfox.engine.run import build_postmortem
+        from afaudit.postmortem import build_postmortem
 
         result = build_postmortem(state)
         blocked_count = sum(1 for s in state.node_states.values() if s == "blocked")
@@ -233,7 +233,7 @@ class TestSessionHistoryFidelity:
     @settings(max_examples=50)
     def test_session_history_fidelity(self, state: ExecutionState) -> None:
         """session_history length matches state."""
-        from agentfox.engine.run import build_postmortem
+        from afaudit.postmortem import build_postmortem
 
         result = build_postmortem(state)
         assert len(result["session_history"]) == len(state.session_history)
@@ -253,7 +253,7 @@ class TestCostSummaryAccuracy:
     @settings(max_examples=50)
     def test_cost_summary_accuracy(self, state: ExecutionState) -> None:
         """cost_summary matches state totals exactly."""
-        from agentfox.engine.run import build_postmortem
+        from afaudit.postmortem import build_postmortem
 
         result = build_postmortem(state)
         assert result["cost_summary"]["total_cost_usd"] == state.total_cost
@@ -276,7 +276,7 @@ class TestFileRoundTrip:
     @settings(max_examples=20)
     def test_file_round_trip(self, state: ExecutionState) -> None:
         """json.loads(path.read_text()) == postmortem."""
-        from agentfox.engine.run import build_postmortem, write_postmortem
+        from afaudit.postmortem import build_postmortem, write_postmortem
 
         with tempfile.TemporaryDirectory() as tmp_dir:
             pm = build_postmortem(state)
@@ -299,7 +299,7 @@ class TestTaskSummaryAccuracy:
     @settings(max_examples=50)
     def test_task_summary_accuracy(self, state: ExecutionState) -> None:
         """total == len(node_states) and status counts sum <= total."""
-        from agentfox.engine.run import build_postmortem
+        from afaudit.postmortem import build_postmortem
 
         result = build_postmortem(state)
         ts = result["task_summary"]

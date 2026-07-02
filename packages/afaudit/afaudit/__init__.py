@@ -15,6 +15,13 @@ from afaudit.events import (
     event_to_json,
     generate_run_id,
 )
+from afaudit.postmortem import (
+    PostmortemInput,
+    SessionRecordLike,
+    build_postmortem,
+    should_dump,
+    write_postmortem,
+)
 from afaudit.sink import (
     SessionOutcome,
     SessionSink,
@@ -50,4 +57,10 @@ __all__ = [
     "AgentTraceSink",
     "reconstruct_transcript",
     "truncate_tool_input",
+    # postmortem
+    "PostmortemInput",
+    "SessionRecordLike",
+    "build_postmortem",
+    "should_dump",
+    "write_postmortem",
 ]
