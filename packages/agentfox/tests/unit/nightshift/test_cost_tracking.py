@@ -552,7 +552,7 @@ class TestEmitAuxiliaryCost:
         mock_pricing.models = {}
 
         with patch(
-            "agentfox.engine.audit_helpers.emit_audit_event",
+            "afaudit.emit.emit_audit_event",
         ) as mock_emit:
             emit_auxiliary_cost(
                 mock_sink,
@@ -641,8 +641,8 @@ class TestEngineUsesStandardAudit:
         assert "from agentfox.nightshift.audit" not in source, (
             "engine.py must not import from agentfox.nightshift.audit (that module is being removed)"
         )
-        assert "from agentfox.engine.audit_helpers" in source, (
-            "engine.py must import emit_audit_event from agentfox.engine.audit_helpers"
+        assert "from afaudit.emit" in source or "from agentfox.engine.audit_helpers" in source, (
+            "engine.py must import emit_audit_event from afaudit.emit or agentfox.engine.audit_helpers"
         )
 
 
@@ -787,7 +787,7 @@ class TestEmptyRunIdSkipsEmission:
         the foundation for graceful degradation across all nightshift audit calls.
         """
         from afaudit.events import AuditEventType
-        from agentfox.engine.audit_helpers import emit_audit_event
+        from afaudit.emit import emit_audit_event
 
         mock_sink = MagicMock(spec=SinkDispatcher)
 

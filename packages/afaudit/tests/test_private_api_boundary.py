@@ -40,9 +40,14 @@ class TestDispatchOptionalBoundary:
         # The definition site is allowed
         sink_path = WORKSPACE_ROOT / "packages" / "afaudit" / "afaudit" / "sink.py"
 
+        # This test file itself mentions _dispatch_optional in strings/docs
+        this_file = Path(__file__).resolve()
+
         violations: list[str] = []
         for py_file in _collect_py_files(*search_dirs):
             if py_file.resolve() == sink_path.resolve():
+                continue
+            if py_file.resolve() == this_file:
                 continue
             try:
                 content = py_file.read_text(encoding="utf-8")

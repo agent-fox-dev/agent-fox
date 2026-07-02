@@ -72,8 +72,8 @@ def _run_daemon(ctx, om, config):  # noqa: C901
     # Purge stale audit files from the previous run (agent_*.jsonl,
     # audit_*.jsonl, postmortem_*.json).  Best-effort — failures are logged
     # as warnings and never abort the startup sequence.
+    from afaudit.cleanup import purge_stale_audit_files
     from afaudit.constants import AUDIT_DIR
-    from agentfox.workspace.audit_cleanup import purge_stale_audit_files
 
     purge_stale_audit_files(AUDIT_DIR)
 

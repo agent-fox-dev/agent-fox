@@ -45,7 +45,7 @@ class TestCodeCallsAuditCleanup:
             patch("af.code.run_code", AsyncMock(return_value=state)),
             patch("agentfox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
             patch("agentfox.nightshift.pid.check_pid_file", return_value=(PidStatus.ABSENT, None)),
-            patch("agentfox.workspace.audit_cleanup.purge_stale_audit_files") as mock_purge,
+            patch("afaudit.cleanup.purge_stale_audit_files") as mock_purge,
         ):
             mock_db_path.exists.return_value = True
             result = cli_runner.invoke(main, ["code"])

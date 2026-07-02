@@ -28,7 +28,7 @@ from afaudit.events import (
     generate_run_id,
 )
 from afaudit.sink import SinkDispatcher
-from agentfox.knowledge.audit import enforce_audit_retention
+from agentfox.knowledge.duckdb_sink import enforce_audit_retention
 from agentfox.knowledge.duckdb_sink import DuckDBSink
 from hypothesis import given, settings
 from hypothesis import strategies as st

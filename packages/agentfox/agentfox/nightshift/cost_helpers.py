@@ -48,10 +48,10 @@ def emit_auxiliary_cost(
         return
 
     try:
+        from afaudit.emit import emit_audit_event
         from afaudit.events import AuditEventType
 
         from agentfox.core.models import calculate_cost
-        from agentfox.engine.audit_helpers import emit_audit_event
 
         usage = getattr(response, "usage", None)
         input_tokens = getattr(usage, "input_tokens", 0) if usage is not None else 0
@@ -124,9 +124,8 @@ def emit_auxiliary_cost_fail(
         return
 
     try:
+        from afaudit.emit import emit_audit_event
         from afaudit.events import AuditEventType
-
-        from agentfox.engine.audit_helpers import emit_audit_event
 
         emit_audit_event(
             sink,

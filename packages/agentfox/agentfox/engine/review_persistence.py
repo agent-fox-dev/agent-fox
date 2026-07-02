@@ -16,11 +16,11 @@ from collections import Counter
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from afaudit.emit import emit_audit_event
 from afaudit.events import AuditEventType, AuditSeverity
 from afaudit.sink import SessionSink, SinkDispatcher
 
 from agentfox.core.json_extraction import extract_json_array
-from agentfox.engine.audit_helpers import emit_audit_event
 
 if TYPE_CHECKING:
     from agentfox.knowledge.review_store import ReviewFinding

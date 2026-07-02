@@ -17,6 +17,7 @@ import logging
 from datetime import UTC, datetime
 from pathlib import Path
 
+from afaudit.emit import emit_audit_event
 from afaudit.events import AuditEventType, AuditSeverity
 from afaudit.sink import SessionOutcome, SinkDispatcher
 
@@ -25,7 +26,7 @@ from agentfox.core.errors import IntegrationError
 from agentfox.core.models import resolve_model
 from agentfox.core.node_id import parse_node_id
 from agentfox.core.prompt_safety import sanitize_prompt_content
-from agentfox.engine.audit_helpers import calculate_session_cost, emit_audit_event
+from agentfox.engine.audit_helpers import calculate_session_cost
 from agentfox.engine.review_persistence import persist_review_findings
 from agentfox.engine.sdk_params import (
     clamp_instances,

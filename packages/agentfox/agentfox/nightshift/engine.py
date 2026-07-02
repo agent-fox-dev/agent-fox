@@ -14,10 +14,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from afaudit.emit import emit_audit_event as _emit_audit_event
 from afaudit.events import AuditEventType, generate_run_id
 
 from agentfox.core.config import AgentFoxConfig
-from agentfox.engine.audit_helpers import emit_audit_event as _emit_audit_event
 from agentfox.nightshift.dep_graph import build_graph, merge_edges
 from agentfox.nightshift.fix_pipeline import FixPipeline
 from agentfox.nightshift.reference_parser import (

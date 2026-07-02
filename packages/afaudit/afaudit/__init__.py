@@ -1,10 +1,11 @@
 """afaudit — audit file-writing infrastructure for agent-fox.
 
 Re-exports the public API so consumers can ``from afaudit import <symbol>``.
-Symbols are added incrementally as submodules are implemented.
 """
 
+from afaudit.cleanup import enforce_file_retention, purge_stale_audit_files
 from afaudit.constants import AUDIT_DIR
+from afaudit.emit import emit_audit_event
 from afaudit.events import (
     AuditEvent,
     AuditEventType,
@@ -36,8 +37,13 @@ from afaudit.trace import (
 )
 
 __all__ = [
+    # cleanup
+    "enforce_file_retention",
+    "purge_stale_audit_files",
     # constants
     "AUDIT_DIR",
+    # emit
+    "emit_audit_event",
     # events
     "AuditEvent",
     "AuditEventType",
@@ -47,6 +53,12 @@ __all__ = [
     "event_from_json",
     "event_to_json",
     "generate_run_id",
+    # postmortem
+    "PostmortemInput",
+    "SessionRecordLike",
+    "build_postmortem",
+    "should_dump",
+    "write_postmortem",
     # sink
     "SessionOutcome",
     "SessionSink",
@@ -57,10 +69,4 @@ __all__ = [
     "AgentTraceSink",
     "reconstruct_transcript",
     "truncate_tool_input",
-    # postmortem
-    "PostmortemInput",
-    "SessionRecordLike",
-    "build_postmortem",
-    "should_dump",
-    "write_postmortem",
 ]

@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-from agentfox.workspace.audit_cleanup import purge_stale_audit_files
+from afaudit.cleanup import purge_stale_audit_files
 
 
 @pytest.fixture()
@@ -98,7 +98,7 @@ class TestDebugLogging:
         (audit_dir / "agent_foo.jsonl").write_text("{}")
         (audit_dir / "audit_bar.jsonl").write_text("{}")
 
-        with caplog.at_level(logging.DEBUG, logger="agentfox.workspace.audit_cleanup"):
+        with caplog.at_level(logging.DEBUG, logger="afaudit.cleanup"):
             purge_stale_audit_files(audit_dir)
 
         debug_msgs = [r.message for r in caplog.records if r.levelno == logging.DEBUG]
@@ -106,7 +106,7 @@ class TestDebugLogging:
 
     def test_debug_message_references_audit_dir(self, audit_dir: Path, caplog: pytest.LogCaptureFixture) -> None:
         """The DEBUG log message includes the audit directory path."""
-        with caplog.at_level(logging.DEBUG, logger="agentfox.workspace.audit_cleanup"):
+        with caplog.at_level(logging.DEBUG, logger="afaudit.cleanup"):
             purge_stale_audit_files(audit_dir)
 
         debug_msgs = [r.message for r in caplog.records if r.levelno == logging.DEBUG]
@@ -128,7 +128,7 @@ class TestErrorHandling:
         """A WARNING is emitted when a file cannot be deleted."""
         (audit_dir / "agent_fail.jsonl").write_text("{}")
 
-        with caplog.at_level(logging.WARNING, logger="agentfox.workspace.audit_cleanup"):
+        with caplog.at_level(logging.WARNING, logger="afaudit.cleanup"):
             with patch.object(Path, "unlink", side_effect=OSError("permission denied")):
                 purge_stale_audit_files(audit_dir)
 
@@ -149,7 +149,7 @@ class TestErrorHandling:
                 raise OSError("simulated failure")
             original_unlink(self, missing_ok=missing_ok)
 
-        with caplog.at_level(logging.WARNING, logger="agentfox.workspace.audit_cleanup"):
+        with caplog.at_level(logging.WARNING, logger="afaudit.cleanup"):
             with patch.object(Path, "unlink", _selective_unlink):
                 count = purge_stale_audit_files(audit_dir)
 

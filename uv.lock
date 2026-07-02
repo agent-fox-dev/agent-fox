@@ -23,6 +23,7 @@ name = "af"
 version = "4.0.2"
 source = { editable = "packages/af" }
 dependencies = [
+    { name = "afaudit" },
     { name = "agentfox" },
     { name = "click" },
     { name = "duckdb" },
@@ -31,6 +32,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "afaudit", editable = "packages/afaudit" },
     { name = "agentfox", editable = "packages/agentfox" },
     { name = "click", specifier = ">=8.1" },
     { name = "duckdb", specifier = ">=1.5.4" },
@@ -1270,6 +1272,7 @@ name = "nightshift"
 version = "4.0.2"
 source = { editable = "packages/nightshift" }
 dependencies = [
+    { name = "afaudit" },
     { name = "agentfox" },
     { name = "click" },
     { name = "duckdb" },
@@ -1278,6 +1281,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "afaudit", editable = "packages/afaudit" },
     { name = "agentfox", editable = "packages/agentfox" },
     { name = "click", specifier = ">=8.1" },
     { name = "duckdb", specifier = ">=1.5.4" },

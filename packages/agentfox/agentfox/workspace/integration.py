@@ -10,10 +10,10 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
+from afaudit.emit import emit_audit_event
 from afaudit.events import AuditEventType, AuditSeverity
 
 from agentfox.core.errors import WorkspaceError
-from agentfox.engine.audit_helpers import emit_audit_event
 from agentfox.workspace.git import (
     detect_default_branch,
     local_branch_exists,

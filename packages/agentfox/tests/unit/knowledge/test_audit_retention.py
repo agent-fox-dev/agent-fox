@@ -14,9 +14,7 @@ from pathlib import Path
 
 import duckdb
 import pytest
-from agentfox.knowledge.audit import (
-    enforce_audit_retention,
-)
+from agentfox.knowledge.duckdb_sink import enforce_audit_retention
 
 
 def _insert_run_events(

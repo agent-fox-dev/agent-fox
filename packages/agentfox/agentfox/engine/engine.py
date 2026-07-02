@@ -35,6 +35,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from agentfox.platform.protocol import PlatformProtocol
 
+from afaudit.emit import emit_audit_event
 from afaudit.events import (
     AuditEventType,
     AuditJsonlSink,
@@ -52,7 +53,6 @@ from agentfox.core.config import (
 )
 from agentfox.core.errors import PlanError
 from agentfox.core.models import ModelTier  # noqa: F401 — used by assess_node() implementation (task group 9)
-from agentfox.engine.audit_helpers import emit_audit_event
 from agentfox.engine.barrier import _count_node_status, run_sync_barrier_sequence
 from agentfox.engine.circuit import CircuitBreaker
 from agentfox.engine.config_reload import (  # noqa: F401 — ReloadResult, diff_configs re-exported
@@ -82,7 +82,7 @@ from agentfox.engine.state_manager import (
 from agentfox.graph.injection import ensure_graph_archetypes
 from agentfox.graph.persistence import load_plan, save_plan
 from agentfox.graph.types import TaskGraph
-from agentfox.knowledge.audit import enforce_audit_retention
+from agentfox.knowledge.duckdb_sink import enforce_audit_retention
 from agentfox.ui.progress import TaskCallback
 
 logger = logging.getLogger(__name__)

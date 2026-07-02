@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+from pathlib import Path
 
 import duckdb  # noqa: F401
 from afaudit.events import AuditEvent
@@ -130,3 +131,63 @@ class DuckDBSink:
     def close(self) -> None:
         """No-op. Connection lifecycle is managed by KnowledgeDB."""
         pass
+
+
+def enforce_audit_retention(
+    audit_dir: Path,
+    conn: object,
+    *,
+    max_runs: int = 20,
+) -> None:
+    """Delete audit data for runs beyond the retention limit.
+
+    This function handles both the DuckDB row-deletion and the
+    file-deletion for ``audit_*.jsonl`` files.  It was moved here from
+    ``agentfox.knowledge.audit`` so that the DuckDB dependency stays in
+    the agentfox package while the file-only retention half lives in
+    ``afaudit.cleanup``.
+
+    Args:
+        audit_dir: Path to the audit directory.
+        conn: A DuckDB connection.
+        max_runs: Maximum number of runs to retain.
+    """
+    import duckdb as _duckdb
+
+    if not isinstance(conn, _duckdb.DuckDBPyConnection):
+        return
+
+    # 1. Query distinct run_ids ordered by oldest timestamp
+    rows = conn.execute(
+        """
+        SELECT run_id, MIN(timestamp) AS earliest
+        FROM audit_events
+        GROUP BY run_id
+        ORDER BY earliest ASC
+        """
+    ).fetchall()
+
+    if len(rows) <= max_runs:
+        return
+
+    # 2. Identify runs to delete (oldest beyond retention limit)
+    runs_to_delete = [row[0] for row in rows[: len(rows) - max_runs]]
+
+    # 3. Delete from DuckDB
+    for run_id in runs_to_delete:
+        conn.execute("DELETE FROM audit_events WHERE run_id = ?", [run_id])
+
+    # 4. Delete JSONL files
+    for run_id in runs_to_delete:
+        jsonl_path = audit_dir / f"audit_{run_id}.jsonl"
+        try:
+            if jsonl_path.exists():
+                jsonl_path.unlink()
+        except OSError:
+            logger.warning("Failed to delete audit JSONL file: %s", jsonl_path)
+
+    logger.info(
+        "Audit retention: deleted %d old run(s), kept %d",
+        len(runs_to_delete),
+        max_runs,
+    )
