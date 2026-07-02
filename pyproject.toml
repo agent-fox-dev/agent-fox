@@ -23,7 +23,7 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["packages/agentfox/tests", "packages/af/tests", "packages/afspec/tests", "packages/agentspec/tests", "packages/nightshift/tests"]
+testpaths = ["packages/agentfox/tests", "packages/af/tests", "packages/afaudit/tests", "packages/afspec/tests", "packages/agentspec/tests", "packages/nightshift/tests"]
 pythonpath = ["packages/agentfox"]
 asyncio_mode = "auto"
 addopts = "-n auto --dist=loadfile --timeout=15 -m 'not smoke'"
@@ -38,6 +38,7 @@ members = ["packages/*"]
 
 [tool.uv.sources]
 af = { workspace = true }
+afaudit = { workspace = true }
 agentfox = { workspace = true }
 afspec = { workspace = true }
 agentspec = { workspace = true }

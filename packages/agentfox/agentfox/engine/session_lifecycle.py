@@ -736,7 +736,8 @@ class NodeSessionRunner:
         Requirements: 27-REQ-3.1, 113-REQ-1.1, 113-REQ-1.E1, 113-REQ-1.E2
         """
         # 113-REQ-1.1: Reconstruct full transcript from agent trace JSONL
-        from agentfox.core.node_id import AUDIT_DIR
+        from afaudit.constants import AUDIT_DIR
+
         from agentfox.knowledge.agent_trace import reconstruct_transcript
 
         audit_dir = getattr(self, "_audit_dir", None) or AUDIT_DIR

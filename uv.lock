@@ -134,6 +134,7 @@ name = "agentfox"
 version = "4.0.2"
 source = { editable = "packages/agentfox" }
 dependencies = [
+    { name = "afaudit" },
     { name = "afspec" },
     { name = "anthropic", extra = ["bedrock", "vertex"] },
     { name = "claude-agent-sdk" },
@@ -170,6 +171,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "afaudit", editable = "packages/afaudit" },
     { name = "afspec", editable = "packages/afspec" },
     { name = "anthropic", extras = ["vertex", "bedrock"], specifier = ">=0.111" },
     { name = "claude-agent-sdk", specifier = ">=0.2.108" },

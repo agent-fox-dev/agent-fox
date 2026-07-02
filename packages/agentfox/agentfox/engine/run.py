@@ -100,7 +100,8 @@ def _setup_infrastructure(
 
     Requirements: 108-REQ-5.1
     """
-    from agentfox.core.node_id import AUDIT_DIR
+    from afaudit.constants import AUDIT_DIR
+
     from agentfox.engine.session_lifecycle import NodeSessionRunner
     from agentfox.nightshift.platform_factory import create_platform_safe
 
@@ -351,7 +352,7 @@ async def run_code(
         # post-mortem generation never block returning the state.
         try:
             if should_dump(state):
-                from agentfox.core.node_id import AUDIT_DIR
+                from afaudit.constants import AUDIT_DIR
 
                 pm = build_postmortem(state)
                 pm_path = write_postmortem(pm, AUDIT_DIR)

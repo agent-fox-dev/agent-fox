@@ -12,7 +12,6 @@ from typing import NamedTuple
 
 AGENT_FOX_DIR = ".agent-fox"
 DEFAULT_DB_PATH = Path(".agent-fox/knowledge.duckdb")
-AUDIT_DIR = Path(".agent-fox/audit")
 SESSION_SUMMARY_FILENAME = "session-summary.json"
 
 

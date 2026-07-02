@@ -95,20 +95,38 @@ class TestZeroDependencies:
     """
 
     def test_pip_show_requires_is_empty(self) -> None:
-        """pip show afaudit reports no third-party packages under Requires."""
-        result = subprocess.run(
-            [sys.executable, "-m", "pip", "show", "afaudit"],
-            capture_output=True,
-            text=True,
-        )
-        assert result.returncode == 0, f"pip show afaudit failed: {result.stderr}"
-        for line in result.stdout.splitlines():
-            if line.startswith("Requires:"):
-                requires_value = line.split(":", 1)[1].strip()
-                assert requires_value == "", f"Expected empty Requires, got: {requires_value!r}"
-                return
-        # If no Requires line found, that also means no dependencies
-        assert True
+        """afaudit has no third-party runtime dependencies.
+
+        Uses importlib.metadata (stdlib) for environments where pip may
+        not be installed (e.g. uv-managed virtualenvs).  Falls back to
+        ``pip show`` if metadata lookup fails.
+        """
+        import importlib.metadata
+
+        try:
+            dist = importlib.metadata.distribution("afaudit")
+            requires = dist.requires
+            # requires is None or a list of strings (PEP 508 markers).
+            # Filter out extras; only check mandatory (no marker or no extra).
+            if requires:
+                mandatory = [
+                    r for r in requires
+                    if "extra ==" not in r and "extra==" not in r
+                ]
+                assert mandatory == [], f"Expected no mandatory deps, got: {mandatory}"
+        except importlib.metadata.PackageNotFoundError:
+            # Fall back to pip show
+            result = subprocess.run(
+                [sys.executable, "-m", "pip", "show", "afaudit"],
+                capture_output=True,
+                text=True,
+            )
+            assert result.returncode == 0, f"pip show afaudit failed: {result.stderr}"
+            for line in result.stdout.splitlines():
+                if line.startswith("Requires:"):
+                    requires_value = line.split(":", 1)[1].strip()
+                    assert requires_value == "", f"Expected empty Requires, got: {requires_value!r}"
+                    return
 
 
 class TestDependencyIsolation:
