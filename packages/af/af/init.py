@@ -90,8 +90,7 @@ def _ensure_global_config_for_init() -> str | None:
     """Create the global config at ``$HOME/.agent-fox/config.toml`` if absent.
 
     Returns a user-facing message string, or ``None`` when HOME is
-    unresolvable.  Never overwrites an existing global config (even when
-    ``--force`` is passed to ``af init``).
+    unresolvable.  Never overwrites an existing global config.
 
     Requirements: 13-REQ-8.1, 13-REQ-8.2, 13-REQ-8.E1
     """
@@ -122,41 +121,31 @@ def _ensure_global_config_for_init() -> str | None:
     return f"Created global config at {global_config}"
 
 
-def _ensure_local_config_for_init(project_root: Path, *, force: bool) -> str:
-    """Create or overwrite the local config template at ``.agent-fox/config.toml``.
+def _create_local_config(project_root: Path) -> str:
+    """Create or overwrite the local config at ``.agent-fox/config.toml``.
 
-    The local config is always an all-comments template produced by
-    :func:`generate_local_config_template`.
-
-    Requirements: 13-REQ-8.3, 13-REQ-8.4, 13-REQ-8.5
+    Called only when ``--config`` is passed to ``af init``.  Always
+    writes the promoted-fields template, overwriting any existing file.
     """
     from agentfox.core.config_gen import generate_local_config_template
 
     local_dir = project_root / ".agent-fox"
     config_path = local_dir / "config.toml"
 
-    if config_path.exists() and not force:
-        # 13-REQ-8.4: leave existing local config unmodified
-        return "Skipped existing local config (use --force to regenerate)"
-
-    # Ensure directory exists
     local_dir.mkdir(parents=True, exist_ok=True)
-
-    # 13-REQ-8.3, 13-REQ-8.5: write all-comments template
     config_path.write_text(generate_local_config_template(), encoding="utf-8")
 
-    if force:
-        return f"Regenerated local config at {config_path}"
     return f"Created local config at {config_path}"
 
 
 @exit_codes(**{"0": "Success", "1": "Error"})
 @click.command("init")
 @click.option(
-    "--force",
+    "--config",
+    "create_config",
     is_flag=True,
     default=False,
-    help="Force overwrite of the local config template.",
+    help="Create a local .agent-fox/config.toml (overwrites if present).",
 )
 @click.option(
     "--skills",
@@ -171,64 +160,51 @@ def _ensure_local_config_for_init(project_root: Path, *, force: bool) -> str:
     help="Copy default archetype profiles into .agent-fox/profiles/.",
 )
 @click.pass_context
-def init_cmd(ctx: click.Context, force: bool, skills: bool, profiles: bool) -> None:
+def init_cmd(ctx: click.Context, create_config: bool, skills: bool, profiles: bool) -> None:
     """Initialize the current project for agent-fox.
 
-    Creates the .agent-fox/ directory structure with a default
-    configuration file, sets up the integration branch, and
-    updates .gitignore.
+    Creates the .agent-fox/ directory structure, sets up the integration
+    branch, and updates .gitignore.  Pass --config to also create a
+    local config.toml for per-project overrides.
     """
-    # 04-REQ-2.1, 04-REQ-2.6: retrieve OutputManager from context
     om = get_output_manager(ctx)
     json_mode = om.json_mode
 
     project_root = Path.cwd()
 
-    # --- Config scaffolding (13-REQ-8.*) ---
-    # Global and local config creation happens before the git check
-    # so config files are always created even outside a git repository.
+    # --- Global config scaffolding ---
     global_msg = _ensure_global_config_for_init()
-    local_msg = _ensure_local_config_for_init(project_root, force=force)
+
+    # --- Local config (opt-in via --config) ---
+    local_msg: str | None = None
+    if create_config:
+        local_msg = _create_local_config(project_root)
 
     # --- Git-dependent initialization ---
-    # 01-REQ-3.5: check we are in a git repository for the rest of init
     if not _is_git_repo():
         if json_mode:
-            om.emit(
-                {
-                    "status": "ok",
-                    "global_config": global_msg,
-                    "local_config": local_msg,
-                }
-            )
+            data: dict = {"status": "ok", "global_config": global_msg}
+            if local_msg:
+                data["local_config"] = local_msg
+            om.emit(data)
             return
         if global_msg:
             click.echo(global_msg)
-        click.echo(local_msg)
+        if local_msg:
+            click.echo(local_msg)
         return
-
-    config_path = project_root / ".agent-fox" / "config.toml"
-    # Save local config content before init_project may modify it
-    local_content_before = config_path.read_text(encoding="utf-8") if config_path.exists() else None
 
     result = init_project(project_root, skills=skills, quiet=json_mode)
 
-    # Restore local config content — init_project's merge_existing_config
-    # may have modified the all-comments template or existing config.
-    # Spec 13 requires: new -> all-comments template; existing+no-force ->
-    # original content; existing+force -> all-comments template.
-    if local_content_before is not None:
-        config_path.write_text(local_content_before, encoding="utf-8")
-
-    # 23-REQ-4.1, 04-REQ-2.6: JSON output via OutputManager
     if json_mode:
         result_data: dict = {
             "status": "ok",
             "agents_md": result.agents_md,
             "steering_md": result.steering_md,
             "global_config": global_msg,
-            "local_config": local_msg,
         }
+        if local_msg:
+            result_data["local_config"] = local_msg
         if result.skills_installed:
             result_data["skills_installed"] = result.skills_installed
         if result.labels_ensured:
@@ -236,10 +212,10 @@ def init_cmd(ctx: click.Context, force: bool, skills: bool, profiles: bool) -> N
         om.emit(result_data)
         return
 
-    # Text output — config messages
     if global_msg:
         click.echo(global_msg)
-    click.echo(local_msg)
+    if local_msg:
+        click.echo(local_msg)
 
     if result.agents_md == "created":
         click.echo("Created AGENTS.md.")

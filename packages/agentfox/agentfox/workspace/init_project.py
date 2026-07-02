@@ -478,7 +478,6 @@ def _ensure_specs_dirs(project_root: Path) -> None:
 def init_project(
     path: Path,
     *,
-    force: bool = False,
     skills: bool = False,
     quiet: bool = False,
 ) -> InitResult:
@@ -488,7 +487,6 @@ def init_project(
 
     Args:
         path: Project root directory.
-        force: Force re-initialization even if already set up.
         skills: Install bundled Claude Code skills.
         quiet: Suppress human-readable output.
 
@@ -500,21 +498,13 @@ def init_project(
     agent_fox_dir = path / ".agent-fox"
     config_path = agent_fox_dir / "config.toml"
 
-    already_initialized = config_path.exists()
+    already_initialized = agent_fox_dir.exists()
 
-    if already_initialized and not force:
-        # Re-init: merge existing config with schema
+    if already_initialized:
         from agentfox.core.config import load_config
-        from agentfox.core.config_gen import merge_existing_config
 
-        existing_content = config_path.read_text(encoding="utf-8")
-        merged_content = merge_existing_config(existing_content)
-        if merged_content != existing_content:
-            config_path.write_text(merged_content, encoding="utf-8")
+        cfg = load_config(config_path) if config_path.exists() else load_config()
 
-        cfg = load_config(config_path)
-
-        # Ensure structure is complete
         (agent_fox_dir / "worktrees").mkdir(parents=True, exist_ok=True)
         _ensure_specs_dirs(path)
         _update_gitignore(path)
@@ -541,10 +531,6 @@ def init_project(
     _secure_mkdir(agent_fox_dir)
     (agent_fox_dir / "worktrees").mkdir(exist_ok=True)
     _ensure_specs_dirs(path)
-
-    from agentfox.core.config_gen import generate_default_config
-
-    _secure_write_text(config_path, generate_default_config())
 
     _ensure_integration_branch("develop", quiet=quiet)
     _update_gitignore(path)

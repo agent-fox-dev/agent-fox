@@ -181,4 +181,3 @@ class TestSkillsWorkOnReinit:
 
         assert result.exit_code == 0
         assert (tmp_git_repo / ".claude" / "skills" / "af-spec" / "SKILL.md").exists()
-        assert "skipped existing local config" in result.output.lower()
