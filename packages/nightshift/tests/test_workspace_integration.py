@@ -10,6 +10,7 @@ import fnmatch
 import subprocess
 import sys
 import tomllib
+from importlib.metadata import version as get_version
 from pathlib import Path
 
 import pytest
@@ -45,8 +46,9 @@ class TestWorkspaceDependency:
     def test_nightshift_in_root_dependencies(self) -> None:
         config = _load_root_toml()
         deps = config["project"]["dependencies"]
-        assert any("nightshift" in d and "4.0.0" in d for d in deps), (
-            f"nightshift>=4.0.0 not found in root dependencies: {deps}"
+        _ns_ver = get_version("nightshift")
+        assert any("nightshift" in d and _ns_ver in d for d in deps), (
+            f"nightshift>={_ns_ver} not found in root dependencies: {deps}"
         )
 
     def test_nightshift_workspace_source(self) -> None:

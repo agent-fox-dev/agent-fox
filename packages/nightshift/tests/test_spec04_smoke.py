@@ -12,12 +12,13 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from importlib.metadata import version as get_version
 
 import pytest
 
 
 class TestSmoke4VersionOutput:
-    """TS-07-SMOKE-4: nightshift --version prints 4.0.0 and exits 0."""
+    """TS-07-SMOKE-4: nightshift --version prints the installed version and exits 0."""
 
     def test_version_output(self) -> None:
         """nightshift --version outputs version string and exits 0."""
@@ -28,7 +29,7 @@ class TestSmoke4VersionOutput:
             timeout=30,
         )
         assert result.returncode == 0
-        assert "4.0.0" in result.stdout
+        assert get_version("nightshift") in result.stdout
 
 
 class TestSmoke5CIDiscovery:

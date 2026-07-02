@@ -14,6 +14,7 @@ import signal
 import subprocess
 import sys
 import time
+from importlib.metadata import version as get_version
 
 import pytest
 from click.testing import CliRunner
@@ -195,7 +196,7 @@ class TestVersionFlag:
         from nightshift.app import main
 
         result = cli_runner.invoke(main, ["--version"])
-        assert "4.0.0" in result.output
+        assert get_version("nightshift") in result.output
 
 
 class TestConfigLoading:
@@ -495,7 +496,8 @@ class TestBehavioralParity:
             text=True,
             timeout=30,
         )
-        assert "4.0.0" in result.stdout, f"Version output does not contain '4.0.0': {result.stdout}"
+        _expected = get_version("nightshift")
+        assert _expected in result.stdout, f"Version output does not contain '{_expected}': {result.stdout}"
 
     def test_help_output_contains_daemon_description(self) -> None:
         """--help contains descriptive text about the nightshift daemon."""

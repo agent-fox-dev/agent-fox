@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import tomllib
+from importlib.metadata import version as get_version
 from pathlib import Path
 
 
@@ -57,7 +58,7 @@ class TestPyprojectMetadata:
 
     def test_project_version(self) -> None:
         config = _load_nightshift_toml()
-        assert config["project"]["version"] == "4.0.0"
+        assert config["project"]["version"] == get_version("nightshift")
 
     def test_project_description(self) -> None:
         config = _load_nightshift_toml()
@@ -95,7 +96,8 @@ class TestDirectDependencies:
         config = _load_nightshift_toml()
         deps = config["project"]["dependencies"]
         assert any("agentfox" in d for d in deps)
-        assert any("agentfox" in d and "4.0.0" in d for d in deps)
+        _af_ver = get_version("agentfox")
+        assert any("agentfox" in d and _af_ver in d for d in deps)
 
     def test_click_dependency(self) -> None:
         config = _load_nightshift_toml()
