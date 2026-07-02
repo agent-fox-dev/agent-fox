@@ -36,6 +36,7 @@ check-all: clear lint test test-unit test-property test-integration
 clean-branches:
 	@git branch --list 'feature/*' | xargs -r git branch -D
 	@git branch --list 'fix/*' | xargs -r git branch -D
+	@git branch --list 'refactor/*' | xargs -r git branch -D
 
 SKILLS_TEMPLATES_DIR := $(CURDIR)/packages/agentfox/agentfox/_templates/skills
 CLAUDE_SKILLS_DIR := $(HOME)/.claude/skills
