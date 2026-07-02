@@ -152,7 +152,7 @@ class TestEngineInitSmoke:
             patch("agentfox.engine.run.open_knowledge_store") as mock_store,
             patch("agentfox.engine.run.DuckDBSink"),
             patch("agentfox.engine.run.SinkDispatcher") as mock_sink_cls,
-            patch("agentfox.knowledge.agent_trace.AgentTraceSink"),
+            patch("afaudit.trace.AgentTraceSink"),
         ):
             mock_db = MagicMock()
             mock_db.connection = MagicMock()
@@ -201,7 +201,7 @@ class TestReviewFindingsSmoke:
         workspace.worktree_path = MagicMock()
 
         with (
-            patch("agentfox.knowledge.agent_trace.reconstruct_transcript", return_value="test transcript"),
+            patch("afaudit.trace.reconstruct_transcript", return_value="test transcript"),
             patch.object(runner, "_persist_review_findings"),
         ):
             await runner._extract_knowledge_and_findings("spec_01:1", 1, workspace)

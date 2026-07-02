@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from agentfox.knowledge.agent_trace import AgentTraceSink, truncate_tool_input
+from afaudit.trace import AgentTraceSink, truncate_tool_input
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 

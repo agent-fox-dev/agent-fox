@@ -22,6 +22,11 @@ from afaudit.sink import (
     ToolCall,
     ToolError,
 )
+from afaudit.trace import (
+    AgentTraceSink,
+    reconstruct_transcript,
+    truncate_tool_input,
+)
 
 __all__ = [
     # constants
@@ -41,4 +46,8 @@ __all__ = [
     "SinkDispatcher",
     "ToolCall",
     "ToolError",
+    # trace
+    "AgentTraceSink",
+    "reconstruct_transcript",
+    "truncate_tool_input",
 ]

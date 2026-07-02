@@ -120,7 +120,7 @@ def _setup_infrastructure(
 
     # Attach agent trace sink unconditionally so that trace-based transcript
     # reconstruction is available for knowledge extraction (113-REQ-1.1).
-    from agentfox.knowledge.agent_trace import AgentTraceSink
+    from afaudit.trace import AgentTraceSink
 
     sink_dispatcher.add(AgentTraceSink(AUDIT_DIR, ""))
 

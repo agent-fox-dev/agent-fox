@@ -12,7 +12,7 @@ from pathlib import Path
 
 import duckdb
 from afaudit.sink import SessionSink, ToolCall, ToolError
-from agentfox.knowledge.agent_trace import AgentTraceSink
+from afaudit.trace import AgentTraceSink
 from agentfox.knowledge.duckdb_sink import DuckDBSink
 from hypothesis import given, settings
 from hypothesis import strategies as st

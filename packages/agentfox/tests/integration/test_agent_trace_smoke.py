@@ -17,8 +17,8 @@ from pathlib import Path
 from typing import Any
 
 from afaudit.sink import SinkDispatcher
+from afaudit.trace import AgentTraceSink
 from agentfox.core.config import AgentFoxConfig
-from agentfox.knowledge.agent_trace import AgentTraceSink
 from agentfox.session.backends.types import (
     AgentMessage,
     AssistantMessage,

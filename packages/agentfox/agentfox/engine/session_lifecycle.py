@@ -22,7 +22,7 @@ from afaudit.sink import SessionOutcome, SinkDispatcher
 
 from agentfox.core.config import AgentFoxConfig
 from agentfox.core.errors import IntegrationError
-from agentfox.core.models import ModelTier, resolve_model
+from agentfox.core.models import resolve_model
 from agentfox.core.node_id import parse_node_id
 from agentfox.core.prompt_safety import sanitize_prompt_content
 from agentfox.engine.audit_helpers import calculate_session_cost, emit_audit_event
@@ -738,8 +738,7 @@ class NodeSessionRunner:
         """
         # 113-REQ-1.1: Reconstruct full transcript from agent trace JSONL
         from afaudit.constants import AUDIT_DIR
-
-        from agentfox.knowledge.agent_trace import reconstruct_transcript
+        from afaudit.trace import reconstruct_transcript
 
         audit_dir = getattr(self, "_audit_dir", None) or AUDIT_DIR
         transcript = reconstruct_transcript(audit_dir, self._run_id, node_id)

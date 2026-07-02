@@ -370,7 +370,7 @@ class TestStartupConstruction:
             patch("agentfox.engine.run.open_knowledge_store") as mock_store,
             patch("agentfox.engine.run.DuckDBSink"),
             patch("agentfox.engine.run.SinkDispatcher") as mock_sink_cls,
-            patch("agentfox.knowledge.agent_trace.AgentTraceSink"),
+            patch("afaudit.trace.AgentTraceSink"),
         ):
             mock_db = MagicMock()
             mock_db.connection = MagicMock()
@@ -405,7 +405,7 @@ class TestReplacesNoop:
             patch("agentfox.engine.run.open_knowledge_store") as mock_store,
             patch("agentfox.engine.run.DuckDBSink"),
             patch("agentfox.engine.run.SinkDispatcher") as mock_sink_cls,
-            patch("agentfox.knowledge.agent_trace.AgentTraceSink"),
+            patch("afaudit.trace.AgentTraceSink"),
         ):
             mock_db = MagicMock()
             mock_db.connection = MagicMock()
@@ -440,7 +440,6 @@ class TestImportBoundary:
             "audit",
             "sink",
             "duckdb_sink",
-            "agent_trace",
             "migrations",
             "fox_provider",
             "errata",

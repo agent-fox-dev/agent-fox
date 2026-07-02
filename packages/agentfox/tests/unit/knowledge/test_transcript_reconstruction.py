@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 # Import the new function — will fail with ImportError until implemented (task 2.1).
-from agentfox.knowledge.agent_trace import reconstruct_transcript
+from afaudit.trace import reconstruct_transcript
 
 
 class TestReconstructTranscript:
