@@ -147,19 +147,22 @@ or by your own decisions if the user delegated to you).
 
 ### Verify External API Surface
 
-If the PRD references external libraries or packages (e.g., `afspec`, `afaudit`,
-a database client, a framework SDK), verify the assumed API before locking
-the PRD. This prevents specs from being generated with function signatures,
-return types, or import paths that don't match the installed library.
+If the PRD references external libraries or packages (e.g., a spec format
+library, an audit SDK, a database client, a framework), verify the assumed API
+before locking the PRD. This prevents specs from being generated with function
+signatures, return types, or import paths that don't match the installed
+library.
 
 For each external dependency mentioned in the PRD:
 
-1. **Locate the package.** Check if it is installed in the current environment
-   (`pip show <package>`) or available as a local path dependency. If the PRD
-   specifies a local path, use that.
-2. **Read the public API.** Read the package's `__init__.py` to find re-exported
-   symbols. For key functions/classes the PRD assumes, read their actual
-   signatures (parameters, return types, exceptions raised).
+1. **Locate the package.** Use the project's package manager to confirm it is
+   installed (e.g., `pip show` for Python, `go list -m` for Go, `npm ls` for
+   Node, `cargo metadata` for Rust) or check any local path specified in the
+   PRD.
+2. **Read the public API.** Read the package's public entry point — the main
+   module, header file, package index, or type definitions — to find exported
+   symbols. For key functions, types, or methods the PRD assumes, read their
+   actual signatures (parameters, return types, errors/exceptions).
 3. **Cross-check PRD assumptions.** Compare what the PRD claims (function names,
    parameter lists, return values, types) against what the code actually
    provides. Flag any mismatches.
@@ -169,14 +172,24 @@ For each external dependency mentioned in the PRD:
 ```markdown
 ## Verified External API
 
-### `afspec` (v4.0.3)
+### `afspec` (v4.0.3, Python)
 
-| Symbol | Import path | Signature | Notes |
-|--------|-------------|-----------|-------|
+| Symbol | Module / path | Signature | Notes |
+|--------|---------------|-----------|-------|
 | `discover_specs` | `afspec.discover` | `(spec_root: Path) -> list[SpecMeta]` | |
-| `load_spec` | `afspec.io` | `(spec_dir: Path) -> Spec` | raises `LoadError` on missing files |
-| `validate` | `afspec.validation` | `(spec: Spec) -> ValidationResult` | does NOT raise; returns result object |
+| `validate` | `afspec.validation` | `(spec: Spec) -> ValidationResult` | returns result; does NOT raise |
+
+### `slog` (v1.3, Go)
+
+| Symbol | Package | Signature | Notes |
+|--------|---------|-----------|-------|
+| `New` | `log/slog` | `func New(h Handler) *Logger` | |
+| `With` | `log/slog` | `func (l *Logger) With(args ...any) *Logger` | |
 ```
+
+Adapt the column headers to the project's language — "Module / path" for
+Python, "Package" for Go, "Module" for TypeScript, "Crate::module" for Rust,
+etc.
 
 If a function the PRD assumes **does not exist** in the library, flag it
 explicitly in the Verified External API section as `NOT FOUND` and note what
@@ -184,7 +197,7 @@ the PRD assumed. This becomes a design decision: the project must implement
 it locally or the PRD must be revised.
 
 **Skip this step** if the PRD has no external library dependencies beyond
-standard library and well-known frameworks (e.g., Click, FastAPI, pytest)
+standard library and well-known frameworks (e.g., Click, Gin, Express, Axum)
 whose APIs are stable and widely known.
 
 After the PRD is finalized, proceed through Steps 2-7 without pausing for

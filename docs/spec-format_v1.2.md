@@ -479,15 +479,15 @@ Maps error conditions to system behavior, cross-referencing requirement IDs.
 
 ### 6.6 External APIs (optional)
 
-Verified function signatures for external library dependencies. When a spec
-depends on external packages (not stdlib, not well-known frameworks), listing
-the verified API surface prevents requirements from being written against
-assumed signatures that don't match reality.
+Verified function/method signatures for external library dependencies. When a
+spec depends on external packages (not stdlib, not well-known frameworks),
+listing the verified API surface prevents requirements from being written
+against assumed signatures that don't match reality.
 
 This section is **optional**. Omit it when the spec has no external library
-dependencies, or when all dependencies are well-known (e.g., Click, FastAPI,
-pytest). When present, the coding agent should treat this as the authoritative
-reference for external function signatures.
+dependencies, or when all dependencies are well-known (e.g., Click, Gin,
+Express, Axum). When present, the coding agent should treat this as the
+authoritative reference for external API signatures.
 
 ```json
 {
@@ -516,7 +516,7 @@ reference for external function signatures.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `package` | string | yes | Package name as it appears in `import` statements or `pip show`. |
+| `package` | string | yes | Package, module, or crate name as used by the project's import system. |
 | `version` | string | yes | Version that was verified against. |
 | `symbols` | array | yes | Verified symbols from this package. At least one required per entry. |
 
@@ -524,10 +524,10 @@ Each symbol:
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `name` | string | yes | Function, class, or constant name. |
-| `import_path` | string | yes | Full dotted import path (e.g. `afspec.validation`). |
-| `signature` | string | yes | Python-style signature string including parameter names, types, and return type. |
-| `notes` | string | no | Clarifications — e.g., "raises LoadError on missing files", "NOT FOUND in library". |
+| `name` | string | yes | Function, method, class, type, or constant name. |
+| `import_path` | string | yes | Qualified path to the symbol using the project language's module syntax (e.g., `afspec.validation` for Python, `log/slog` for Go, `@org/pkg` for TypeScript, `crate::module` for Rust). |
+| `signature` | string | yes | Signature string using the project language's conventions — parameter names, types, and return type. |
+| `notes` | string | no | Clarifications — e.g., "raises LoadError on missing files", "NOT FOUND in library", "returns error as second value". |
 
 Symbols marked `NOT FOUND` in the notes indicate functions the PRD assumed
 but the library does not provide. Requirements referencing these must
