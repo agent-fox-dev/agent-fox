@@ -940,11 +940,13 @@ class NodeSessionRunner:
         # execute() can preserve the feature branch for recovery.
         is_harvest_failure = outcome.status == "completed" and status == "failed"
 
+        total_input = outcome.input_tokens + outcome.cache_read_input_tokens + outcome.cache_creation_input_tokens
+
         return SessionRecord(
             node_id=node_id,
             attempt=attempt,
             status=status,
-            input_tokens=outcome.input_tokens,
+            input_tokens=total_input,
             output_tokens=outcome.output_tokens,
             cost=cost,
             duration_ms=outcome.duration_ms,
