@@ -368,10 +368,28 @@ mechanism:
 2. **[review guidance]** Every function whose output is consumed by another
    part of the system should have a non-null `return_contract`. (Cannot be
    schema-enforced — requires knowledge of callers that don't exist yet.)
-3. **[review guidance]** Edge cases should address: empty/null input,
-   boundary values, operation failure, authorization failure, concurrent
-   operations.
-4. **[review guidance]** Prefer measurable constraints over qualitative
+3. **[generation instruction]** Edge cases must systematically address:
+   empty/null input, boundary values, operation failure, authorization
+   failure, and concurrent operations. This is not optional review
+   guidance — the coordinator must generate edge cases covering these
+   categories for every requirement where they apply.
+4. **[generation instruction]** Defensive design edge cases. For any
+   requirement that involves subprocesses, external commands, loops, retries,
+   or external service calls, generate edge cases for:
+   - **(a) Timeout / hang** — the subprocess or call does not return within
+     a reasonable time.
+   - **(b) Resource cleanup on failure** — partial state (temp files,
+     worktrees, connections, child processes) must be released when the
+     operation fails midway.
+   - **(c) Unbounded iteration** — loops and retry paths must have a
+     maximum iteration cap or be explicitly delegated to a named safety
+     mechanism (e.g., a circuit breaker). If delegated, the edge case must
+     state what happens when the safety mechanism is absent or disabled.
+   - **(d) Library vs. application boundary** — library code must signal
+     errors via return values or exceptions, never by terminating the
+     process (e.g., calling `exit()`, `os.Exit()`, `process.exit()`). Only
+     the top-level CLI or application entry point may terminate.
+5. **[review guidance]** Prefer measurable constraints over qualitative
    language.
 
 ### 6.3 Correctness properties

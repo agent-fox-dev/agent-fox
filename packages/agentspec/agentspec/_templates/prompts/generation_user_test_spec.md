@@ -22,5 +22,13 @@ project's actual components, tooling, and file paths (e.g. "SQLite database is
 initialised with the events table" not "database fixture is set up") to be
 useful to implementers working in the project's language.
 
+### Termination and bounded iteration
+For every correctness property or requirement involving a loop, retry path, or
+iterative process, generate at least one property test that asserts
+**termination or bounded iteration** — e.g., "for any input, the loop
+executes at most N iterations" or "the retry count never exceeds the
+configured maximum." These properties catch unbounded loops that only manifest
+when the happy path fails, which unit tests for the happy path will not cover.
+
 ### Coverage object
 The `coverage` object is computed by the validation library. Submit it with empty arrays: `{"requirements_covered": [], "properties_covered": [], "paths_covered": [], "gaps": []}`

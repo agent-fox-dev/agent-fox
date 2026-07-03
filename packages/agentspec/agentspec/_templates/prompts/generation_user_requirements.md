@@ -34,6 +34,28 @@ Set `return_contract` to a non-null string on every criterion whose action produ
 ### Correctness properties
 Each property's `validates` array must reference acceptance criterion IDs that exist in `requirements`.
 
+### Defensive design edge cases
+For any requirement that involves subprocesses, external commands, loops,
+retries, or calls to external services, you MUST generate edge cases covering:
+
+- **Timeout / hang** — the subprocess or call does not return. The edge case
+  must specify a maximum wait time or timeout mechanism and what happens when
+  it fires (error returned, process killed, state cleaned up).
+- **Resource cleanup on failure** — when the operation fails midway, partial
+  state (temporary files, worktrees, open connections, child processes) must
+  be released. The edge case must specify what gets cleaned up and how.
+- **Unbounded iteration** — loops and retry paths must have a maximum
+  iteration cap or be explicitly delegated to a named safety mechanism (e.g.,
+  a circuit breaker). If delegated, the edge case must state what happens
+  when the safety mechanism is absent or disabled.
+- **Library vs. application boundary** — if the system is structured as a
+  library consumed by a CLI or application, library code must never terminate
+  the process directly. The edge case must specify that errors are signaled
+  via return values or exceptions, not process termination.
+
+These are the most common source of "works on happy path, breaks in
+production" defects. Do not skip them.
+
 ### External library references
 If the PRD contains a `## Verified External API` section, use **only** the
 function names, signatures, return types, and import paths listed there when
