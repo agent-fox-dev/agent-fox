@@ -152,7 +152,7 @@ def sort_findings(
         findings,
         key=lambda f: (
             _SEVERITY_RANK.get(f.severity, 99),
-            -_score_relevance(f"{f.category or ''} {f.description}", keywords),
+            -_score_relevance(f"{getattr(f, 'category', '') or ''} {f.description}", keywords),
             f.description,
         ),
     )
