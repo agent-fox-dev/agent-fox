@@ -447,6 +447,14 @@ Each step:
    to code is a wiring-verification concern at implementation time.
 4. Every execution path must have a corresponding smoke test in
    `test_spec.json`.
+5. **[cross-spec]** When a PRD produces multiple specs with dependency
+   edges, at least one spec (typically the last in the dependency chain)
+   must include an execution path that traces the **full end-to-end user
+   flow** across spec boundaries — from the user-facing entry point
+   through every layer to the final observable side effect. This path
+   must name actors from each upstream spec it depends on. Without such a
+   path, no spec owns the integration glue and the wiring verification
+   step cannot verify that the layers connect.
 
 ### 6.5 Error handling
 

@@ -33,3 +33,21 @@ Set `return_contract` to a non-null string on every criterion whose action produ
 
 ### Correctness properties
 Each property's `validates` array must reference acceptance criterion IDs that exist in `requirements`.
+
+### Cross-spec integration (multi-spec PRDs)
+When the PRD describes a system split into multiple specs with dependency edges
+(e.g. layers, pipeline stages, or separate subsystems that compose at runtime),
+the **last spec in the dependency chain** must include at least one execution
+path that traces the **full end-to-end user flow** — from the user-facing entry
+point (CLI command, API call) through every upstream layer to the final
+observable side effect. This path must name actors from each upstream spec it
+depends on.
+
+Without this path, no spec owns the integration glue between layers, and the
+wiring verification step cannot verify that the layers actually connect. This is
+the most common cause of "individually correct but collectively broken"
+implementations.
+
+If this spec is the terminal spec in a multi-spec dependency chain, include
+such a path. If it is an upstream dependency consumed by a later spec, this
+rule does not apply — the downstream spec is responsible.

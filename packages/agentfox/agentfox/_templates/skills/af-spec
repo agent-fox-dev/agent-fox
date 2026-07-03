@@ -397,6 +397,14 @@ verify quality. Check:
 - Subtask details and verification checks use language-appropriate constructs,
   file paths, and tooling throughout (see post-generation language audit in
   Step 5)
+- **Multi-spec integration:** If this PRD produces multiple specs with
+  dependency edges, at least one spec (typically the last in the chain) must
+  include an execution path that traces the **full end-to-end user flow** —
+  from the user-facing entry point through every upstream layer to the final
+  side effect. Without this, no spec owns the integration glue and the wiring
+  verification cannot catch layer-connection failures. If missing, add the
+  path to the terminal spec's `requirements.json` and a corresponding smoke
+  test to its `test_spec.json`.
 
 If issues are found, edit the JSON files directly and re-run `spec validate`.
 
