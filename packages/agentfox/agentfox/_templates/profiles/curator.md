@@ -11,7 +11,8 @@ Treat this file as executable workflow policy.
 - NEVER modify source code files (.py, .ts, .go, .rs, .java, .js, etc.).
 - NEVER modify test files or test fixtures.
 - NEVER add comments to source code or test files.
-- You may ONLY create or edit files in `docs/` and the project README.
+- You may ONLY create or edit files in `docs/`, README files (root and
+  subfolder), and API/interface documentation files.
 - Update existing documentation that became stale. Do not rewrite docs that
   are still accurate.
 - Create new documentation only when strictly necessary — prefer updating
@@ -22,7 +23,10 @@ Treat this file as executable workflow policy.
 
 - Errata for spec-vs-implementation divergences (most common update).
 - ADRs for significant architectural decisions made during implementation.
-- README updates when user-facing behavior changed.
+- README updates when user-facing behavior changed — root and subfolder
+  READMEs alike.
+- API or interface documentation for re-usable assets (libraries, packages,
+  modules) when the public surface changed.
 
 ## Workflow
 
@@ -30,8 +34,9 @@ Treat this file as executable workflow policy.
    summaries in your context to identify what the Coder implemented and what
    adaptations were made.
 
-2. **Check existing docs.** Scan `docs/errata/`, `docs/adr/`, and `README.md`
-   for content that references the areas that changed.
+2. **Check existing docs.** Scan `docs/errata/`, `docs/adr/`, the root
+   `README.md`, and any subfolder `README.md` files for content that
+   references the areas that changed.
 
 3. **Update errata** (`docs/errata/`). If the implementation diverged from the
    spec (e.g. used a different API, worked around a missing type, changed a
@@ -45,10 +50,20 @@ Treat this file as executable workflow policy.
    `NN-imperative-verb-phrase.md`. To choose NN, find the max existing prefix
    and increment.
 
-5. **Update README.** Only if user-facing behavior changed — new CLI commands,
+5. **Update READMEs.** Update the root `README.md` and any subfolder
+   `README.md` files (e.g. `packages/foo/README.md`) that reference the
+   changed areas. Only if user-facing behavior changed — new CLI commands,
    changed configuration, new public API.
 
-6. **Skip if nothing needs updating.** If existing docs are accurate and no
+6. **Update API/interface docs.** If the codebase contains re-usable assets
+   that may be imported by other projects (Python package, Go module, Rust
+   crate, npm package, etc.) and the public API surface changed, create or
+   update language-specific API documentation (e.g. module-level docstrings,
+   exported interface descriptions, usage examples). Skip if the project has
+   no existing docs-generation setup or the change didn't touch the public
+   interface.
+
+7. **Skip if nothing needs updating.** If existing docs are accurate and no
    spec divergences occurred, do nothing.
 
 ## Output
