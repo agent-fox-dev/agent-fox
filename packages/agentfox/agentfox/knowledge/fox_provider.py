@@ -453,7 +453,13 @@ class FoxKnowledgeProvider:
         def _do_query():
             from agentfox.knowledge.summary_store import query_same_spec_summaries
 
-            return query_same_spec_summaries(conn, spec_name, task_group, run_id)
+            return query_same_spec_summaries(
+                conn,
+                spec_name,
+                task_group,
+                run_id,
+                max_items=self._config.max_summary_items,
+            )
 
         records = _query_safe(_do_query, (), label="same-spec summaries", spec_name=spec_name)
 

@@ -218,6 +218,10 @@ class KnowledgeProviderConfig(BaseModel):
 
     max_items: int = Field(default=10, description="Max total retrieval items")
     max_cross_group_items: int = Field(default=3, description="Max cross-group retrieval items")
+    max_summary_items: int = Field(
+        default=20,
+        description="Max session summaries from prior task groups injected as context",
+    )
 
 
 class KnowledgeConfig(BaseModel):
