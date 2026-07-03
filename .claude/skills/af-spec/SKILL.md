@@ -145,6 +145,61 @@ If posting fails, warn the user but do not block the rest of the workflow.
 **Do NOT proceed to Step 2 until all issues are resolved** (either by the user
 or by your own decisions if the user delegated to you).
 
+### Verify External API Surface
+
+If the PRD references external libraries or packages (e.g., a spec format
+library, an audit SDK, a database client, a framework), verify the assumed API
+before locking the PRD. This prevents specs from being generated with function
+signatures, return types, or import paths that don't match the installed
+library.
+
+For each external dependency mentioned in the PRD:
+
+1. **Locate the package.** Use the project's package manager to confirm it is
+   installed (e.g., `pip show` for Python, `go list -m` for Go, `npm ls` for
+   Node, `cargo metadata` for Rust) or check any local path specified in the
+   PRD.
+2. **Read the public API.** Read the package's public entry point — the main
+   module, header file, package index, or type definitions — to find exported
+   symbols. For key functions, types, or methods the PRD assumes, read their
+   actual signatures (parameters, return types, errors/exceptions).
+3. **Cross-check PRD assumptions.** Compare what the PRD claims (function names,
+   parameter lists, return values, types) against what the code actually
+   provides. Flag any mismatches.
+4. **Add a `## Verified External API` section** to the PRD listing each
+   dependency with its verified symbols:
+
+```markdown
+## Verified External API
+
+### `afspec` (v4.0.3, Python)
+
+| Symbol | Module / path | Signature | Notes |
+|--------|---------------|-----------|-------|
+| `discover_specs` | `afspec.discover` | `(spec_root: Path) -> list[SpecMeta]` | |
+| `validate` | `afspec.validation` | `(spec: Spec) -> ValidationResult` | returns result; does NOT raise |
+
+### `slog` (v1.3, Go)
+
+| Symbol | Package | Signature | Notes |
+|--------|---------|-----------|-------|
+| `New` | `log/slog` | `func New(h Handler) *Logger` | |
+| `With` | `log/slog` | `func (l *Logger) With(args ...any) *Logger` | |
+```
+
+Adapt the column headers to the project's language — "Module / path" for
+Python, "Package" for Go, "Module" for TypeScript, "Crate::module" for Rust,
+etc.
+
+If a function the PRD assumes **does not exist** in the library, flag it
+explicitly in the Verified External API section as `NOT FOUND` and note what
+the PRD assumed. This becomes a design decision: the project must implement
+it locally or the PRD must be revised.
+
+**Skip this step** if the PRD has no external library dependencies beyond
+standard library and well-known frameworks (e.g., Click, Gin, Express, Axum)
+whose APIs are stable and widely known.
+
 After the PRD is finalized, proceed through Steps 2-7 without pausing for
 review. Generate all remaining spec documents in sequence. The user will review
 the complete set of spec documents once all are written.
@@ -397,6 +452,14 @@ verify quality. Check:
 - Subtask details and verification checks use language-appropriate constructs,
   file paths, and tooling throughout (see post-generation language audit in
   Step 5)
+- **Multi-spec integration:** If this PRD produces multiple specs with
+  dependency edges, at least one spec (typically the last in the chain) must
+  include an execution path that traces the **full end-to-end user flow** —
+  from the user-facing entry point through every upstream layer to the final
+  side effect. Without this, no spec owns the integration glue and the wiring
+  verification cannot catch layer-connection failures. If missing, add the
+  path to the terminal spec's `requirements.json` and a corresponding smoke
+  test to its `test_spec.json`.
 
 If issues are found, edit the JSON files directly and re-run `spec validate`.
 

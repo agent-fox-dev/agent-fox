@@ -1,6 +1,6 @@
 # Spec Format Specification
 
-Version 1.2 — Draft
+Version 1.3 — Draft
 
 ## 1. Scope
 
