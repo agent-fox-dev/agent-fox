@@ -63,6 +63,7 @@ class ArchetypeEntry:
     default_max_turns: int = 200
     default_thinking_mode: str = "disabled"
     default_thinking_budget: int = 10000
+    injection_order: int = 100
     modes: dict[str, ModeConfig] = field(default_factory=dict)  # 97-REQ-1.2
 
 
@@ -121,11 +122,22 @@ ARCHETYPE_REGISTRY: dict[str, ArchetypeEntry] = {
             ),
         },
     ),
+    "curator": ArchetypeEntry(
+        name="curator",
+        default_model_tier="STANDARD",
+        default_model_variant="standard",
+        injection="auto_post",
+        injection_order=10,
+        task_assignable=False,
+        default_allowlist=["ls", "cat", "git", "grep", "find", "head", "tail", "wc", "make"],
+        default_max_turns=80,
+    ),
     "verifier": ArchetypeEntry(
         name="verifier",
         default_model_tier="STANDARD",  # Changed from ADVANCED (98-REQ-6.1)
         default_model_variant="standard",  # 15-REQ-8.3
         injection="auto_post",
+        injection_order=20,
         task_assignable=True,
         retry_predecessor=True,
         default_max_turns=120,

@@ -141,6 +141,12 @@ def clamp_instances(archetype: str, instances: int, *, mode: str | None = None) 
             instances,
         )
         return 1
+    if archetype == "curator" and instances != 1:
+        logger.warning(
+            "Curator archetype is always single-instance; clamped instances from %d to 1",
+            instances,
+        )
+        return 1
     if archetype == "verifier" and instances != 1:
         logger.warning(
             "Verifier archetype is always single-instance; clamped instances from %d to 1",

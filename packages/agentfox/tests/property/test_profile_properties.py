@@ -12,7 +12,7 @@ from pathlib import Path
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-BUILTIN_ARCHETYPES = ["coder", "reviewer", "verifier", "maintainer"]
+BUILTIN_ARCHETYPES = ["coder", "reviewer", "curator", "verifier", "maintainer"]
 
 
 @given(st.sampled_from(BUILTIN_ARCHETYPES))

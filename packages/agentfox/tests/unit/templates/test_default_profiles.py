@@ -5,7 +5,7 @@ Covers: TS-99-4, TS-99-5
 
 from __future__ import annotations
 
-BUILTIN_ARCHETYPES = ["coder", "reviewer", "verifier", "maintainer"]
+BUILTIN_ARCHETYPES = ["coder", "reviewer", "curator", "verifier", "maintainer"]
 
 
 def test_defaults_exist() -> None:

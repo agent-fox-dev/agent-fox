@@ -90,7 +90,7 @@ class TestRemainingArchetypesStandard:
     Spec 15 moved coder from ADVANCED to STANDARD.
     """
 
-    @pytest.mark.parametrize("name", ["reviewer", "verifier"])
+    @pytest.mark.parametrize("name", ["reviewer", "curator", "verifier"])
     def test_archetype_defaults_to_standard(self, name: str) -> None:
         from agentfox.archetypes import ARCHETYPE_REGISTRY
 
