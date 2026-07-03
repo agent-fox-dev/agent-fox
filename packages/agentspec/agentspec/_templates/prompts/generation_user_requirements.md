@@ -34,6 +34,20 @@ Set `return_contract` to a non-null string on every criterion whose action produ
 ### Correctness properties
 Each property's `validates` array must reference acceptance criterion IDs that exist in `requirements`.
 
+### External library references
+If the PRD contains a `## Verified External API` section, use **only** the
+function names, signatures, return types, and import paths listed there when
+writing requirements that reference external libraries. Do not assume functions
+or types that are not in the verified table — if a requirement needs a function
+not listed, note the gap in the requirement's `action` field (e.g., "calls a
+local wrapper around X since the library does not provide Y directly").
+
+If the PRD references external libraries but has **no** Verified External API
+section, note this in the `introduction` field (e.g., "Note: requirements
+referencing afspec/afaudit APIs are based on unverified PRD assumptions and
+should be cross-checked against the installed library before implementation").
+This warns the coding agent to verify signatures before coding.
+
 ### Cross-spec integration (multi-spec PRDs)
 When the PRD describes a system split into multiple specs with dependency edges
 (e.g. layers, pipeline stages, or separate subsystems that compose at runtime),

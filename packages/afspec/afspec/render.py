@@ -132,6 +132,19 @@ def render_requirements(req: Requirements) -> str:
         lines.append(f"| {entry.id} | {entry.condition} | {entry.behavior} | {entry.requirement_id} |")
     lines.append("")
 
+    if req.external_apis:
+        lines.append("## External APIs")
+        lines.append("")
+        for api in req.external_apis:
+            lines.append(f"### `{api.package}` (v{api.version})")
+            lines.append("")
+            lines.append("| Symbol | Import Path | Signature | Notes |")
+            lines.append("|--------|-------------|-----------|-------|")
+            for sym in api.symbols:
+                notes = sym.notes or ""
+                lines.append(f"| `{sym.name}` | `{sym.import_path}` | `{sym.signature}` | {notes} |")
+            lines.append("")
+
     return "\n".join(lines)
 
 

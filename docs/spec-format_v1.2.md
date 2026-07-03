@@ -275,6 +275,7 @@ paths), and how errors are handled.
 | `correctness_properties` | array | yes | Correctness property objects (§6.3). May be empty. |
 | `execution_paths` | array | yes | Execution path objects (§6.4). May be empty. |
 | `error_handling` | array | yes | Error handling objects (§6.5). May be empty. |
+| `external_apis` | array | no | Verified external API entries (§6.6). May be absent or empty. |
 
 ### 6.2 Requirements
 
@@ -475,6 +476,62 @@ Maps error conditions to system behavior, cross-referencing requirement IDs.
 | `condition` | string | yes | The error condition. |
 | `behavior` | string | yes | What the system does in response. |
 | `requirement_id` | string | yes | The requirement or edge case that specifies this behavior. Must exist in `requirements`. |
+
+### 6.6 External APIs (optional)
+
+Verified function signatures for external library dependencies. When a spec
+depends on external packages (not stdlib, not well-known frameworks), listing
+the verified API surface prevents requirements from being written against
+assumed signatures that don't match reality.
+
+This section is **optional**. Omit it when the spec has no external library
+dependencies, or when all dependencies are well-known (e.g., Click, FastAPI,
+pytest). When present, the coding agent should treat this as the authoritative
+reference for external function signatures.
+
+```json
+{
+  "external_apis": [
+    {
+      "package": "afspec",
+      "version": "4.0.3",
+      "symbols": [
+        {
+          "name": "discover_specs",
+          "import_path": "afspec.discover",
+          "signature": "(spec_root: Path) -> list[SpecMeta]",
+          "notes": ""
+        },
+        {
+          "name": "validate",
+          "import_path": "afspec.validation",
+          "signature": "(spec: Spec) -> ValidationResult",
+          "notes": "Returns result object; does NOT raise"
+        }
+      ]
+    }
+  ]
+}
+```
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `package` | string | yes | Package name as it appears in `import` statements or `pip show`. |
+| `version` | string | yes | Version that was verified against. |
+| `symbols` | array | yes | Verified symbols from this package. At least one required per entry. |
+
+Each symbol:
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `name` | string | yes | Function, class, or constant name. |
+| `import_path` | string | yes | Full dotted import path (e.g. `afspec.validation`). |
+| `signature` | string | yes | Python-style signature string including parameter names, types, and return type. |
+| `notes` | string | no | Clarifications — e.g., "raises LoadError on missing files", "NOT FOUND in library". |
+
+Symbols marked `NOT FOUND` in the notes indicate functions the PRD assumed
+but the library does not provide. Requirements referencing these must
+implement the functionality locally or be revised.
 
 ---
 

@@ -203,6 +203,23 @@ class ErrorHandlingEntry(BaseModel):
     requirement_id: str = ""
 
 
+class ExternalAPISymbol(BaseModel):
+    """A verified symbol from an external package."""
+
+    name: str = ""
+    import_path: str = ""
+    signature: str = ""
+    notes: str = ""
+
+
+class ExternalAPI(BaseModel):
+    """Verified API surface for an external dependency."""
+
+    package: str = ""
+    version: str = ""
+    symbols: list[ExternalAPISymbol] = Field(default_factory=list)
+
+
 class Requirements(BaseModel):
     """The requirements.json artifact."""
 
@@ -216,6 +233,7 @@ class Requirements(BaseModel):
     correctness_properties: list[CorrectnessProperty] = Field(default_factory=list)
     execution_paths: list[ExecutionPath] = Field(default_factory=list)
     error_handling: list[ErrorHandlingEntry] = Field(default_factory=list)
+    external_apis: list[ExternalAPI] = Field(default_factory=list)
 
     model_config = {"populate_by_name": True}
 

@@ -145,6 +145,48 @@ If posting fails, warn the user but do not block the rest of the workflow.
 **Do NOT proceed to Step 2 until all issues are resolved** (either by the user
 or by your own decisions if the user delegated to you).
 
+### Verify External API Surface
+
+If the PRD references external libraries or packages (e.g., `afspec`, `afaudit`,
+a database client, a framework SDK), verify the assumed API before locking
+the PRD. This prevents specs from being generated with function signatures,
+return types, or import paths that don't match the installed library.
+
+For each external dependency mentioned in the PRD:
+
+1. **Locate the package.** Check if it is installed in the current environment
+   (`pip show <package>`) or available as a local path dependency. If the PRD
+   specifies a local path, use that.
+2. **Read the public API.** Read the package's `__init__.py` to find re-exported
+   symbols. For key functions/classes the PRD assumes, read their actual
+   signatures (parameters, return types, exceptions raised).
+3. **Cross-check PRD assumptions.** Compare what the PRD claims (function names,
+   parameter lists, return values, types) against what the code actually
+   provides. Flag any mismatches.
+4. **Add a `## Verified External API` section** to the PRD listing each
+   dependency with its verified symbols:
+
+```markdown
+## Verified External API
+
+### `afspec` (v4.0.3)
+
+| Symbol | Import path | Signature | Notes |
+|--------|-------------|-----------|-------|
+| `discover_specs` | `afspec.discover` | `(spec_root: Path) -> list[SpecMeta]` | |
+| `load_spec` | `afspec.io` | `(spec_dir: Path) -> Spec` | raises `LoadError` on missing files |
+| `validate` | `afspec.validation` | `(spec: Spec) -> ValidationResult` | does NOT raise; returns result object |
+```
+
+If a function the PRD assumes **does not exist** in the library, flag it
+explicitly in the Verified External API section as `NOT FOUND` and note what
+the PRD assumed. This becomes a design decision: the project must implement
+it locally or the PRD must be revised.
+
+**Skip this step** if the PRD has no external library dependencies beyond
+standard library and well-known frameworks (e.g., Click, FastAPI, pytest)
+whose APIs are stable and widely known.
+
 After the PRD is finalized, proceed through Steps 2-7 without pausing for
 review. Generate all remaining spec documents in sequence. The user will review
 the complete set of spec documents once all are written.

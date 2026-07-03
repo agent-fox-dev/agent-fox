@@ -52,6 +52,12 @@
       "items": {
         "$ref": "#/$defs/error_handling_entry"
       }
+    },
+    "external_apis": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/external_api"
+      }
     }
   },
   "required": ["spec_id", "spec_name", "schema_version", "introduction"],
@@ -261,6 +267,31 @@
         "requirement_id": { "type": "string" }
       },
       "required": ["id", "condition", "behavior", "requirement_id"],
+      "additionalProperties": false
+    },
+    "external_api_symbol": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "import_path": { "type": "string", "minLength": 1 },
+        "signature": { "type": "string", "minLength": 1 },
+        "notes": { "type": "string" }
+      },
+      "required": ["name", "import_path", "signature"],
+      "additionalProperties": false
+    },
+    "external_api": {
+      "type": "object",
+      "properties": {
+        "package": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 },
+        "symbols": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/external_api_symbol" },
+          "minItems": 1
+        }
+      },
+      "required": ["package", "version", "symbols"],
       "additionalProperties": false
     }
   }
