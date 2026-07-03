@@ -585,12 +585,12 @@ def supersede_injected_findings(
     conn: duckdb.DuckDBPyConnection,
     session_id: str,
 ) -> None:
-    """Supersede all review findings injected into a completed session.
+    """Supersede all findings (review and drift) injected into a completed session.
 
     Looks up the finding_injections table for the given session_id, then marks
-    each referenced row in ``review_findings`` as superseded (sets
-    ``superseded_by`` to the session_id string).  Only rows that are still
-    active (``superseded_by IS NULL``) are updated.
+    each referenced row in both ``review_findings`` and ``drift_findings`` as
+    superseded (sets ``superseded_by`` to the session_id string).  Only rows
+    that are still active (``superseded_by IS NULL``) are updated.
 
     A missing ``finding_injections`` table (pre-v23 DB) raises no exception —
     the caller is responsible for catching and logging the error.
@@ -611,6 +611,10 @@ def supersede_injected_findings(
     for finding_id in finding_ids:
         conn.execute(
             "UPDATE review_findings SET superseded_by = ? WHERE id::VARCHAR = ? AND superseded_by IS NULL",
+            [marker, finding_id],
+        )
+        conn.execute(
+            "UPDATE drift_findings SET superseded_by = ? WHERE id::VARCHAR = ? AND superseded_by IS NULL",
             [marker, finding_id],
         )
 
