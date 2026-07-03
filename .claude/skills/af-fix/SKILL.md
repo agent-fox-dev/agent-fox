@@ -130,7 +130,7 @@ Print progress:
 
 Read these files if they exist:
 - `README.md`
-- `prd.md` or `{{SPEC_ROOT}}/prd.md`
+- `prd.md` or `.agent-fox/specs/prd.md`
 - `AGENTS.md` or `CLAUDE.md`
 
 ### 3.2 Explore project structure
