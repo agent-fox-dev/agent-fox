@@ -512,7 +512,7 @@ authoritative reference for external API signatures.
   "external_apis": [
     {
       "package": "afspec",
-      "version": "4.0.3",
+      "version": "4.1.0",
       "symbols": [
         {
           "name": "discover_specs",
