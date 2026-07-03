@@ -80,6 +80,7 @@ class ClaudeBackend:
         cwd: str,
         permission_callback: PermissionCallback | None = None,
         activity_callback: ActivityCallback | None = None,
+        tool_error_callback: Any | None = None,
         node_id: str = "",
         archetype: str | None = None,
         max_turns: int | None = None,
@@ -140,17 +141,23 @@ class ClaudeBackend:
             except TypeError as exc:
                 logger.warning("SDK does not support 'thinking' parameter, omitting: %s", exc)
 
-        # Register a Notification hook when an activity_callback is provided.
-        # The hook converts SDK NotificationHookInput to ActivityEvent and
-        # forwards it to the callback. (AC-1, AC-2, AC-7 — issue #320)
+        # Register hooks for Notification (activity tracking) and
+        # PostToolUseFailure (tool error tracking).
+        hooks: dict[str, list[HookMatcher]] = {}
         if activity_callback is not None:
-            options.hooks = {
-                "Notification": [
-                    HookMatcher(
-                        hooks=[_build_notification_hook(activity_callback, node_id=node_id, archetype=archetype)],
-                    )
-                ]
-            }
+            hooks["Notification"] = [
+                HookMatcher(
+                    hooks=[_build_notification_hook(activity_callback, node_id=node_id, archetype=archetype)],
+                )
+            ]
+        if tool_error_callback is not None:
+            hooks["PostToolUseFailure"] = [
+                HookMatcher(
+                    hooks=[_build_tool_error_hook(tool_error_callback)],
+                )
+            ]
+        if hooks:
+            options.hooks = hooks
 
         # Transport-layer retry loop (AC-1 through AC-4).
         # Transient errors (connection failure or missing ResultMessage) are
@@ -409,6 +416,37 @@ def _build_notification_hook(
         return {}
 
     return _notification_hook
+
+
+def _build_tool_error_hook(callback: Any) -> Any:
+    """Return an async PostToolUseFailure hook that records tool errors.
+
+    ``PostToolUseFailureHookInput`` is a TypedDict with keys:
+    ``tool_name`` (str), ``error`` (str), ``tool_use_id`` (str).
+
+    Calls ``callback(tool_name, error)`` for each failure.
+    """
+
+    async def _tool_error_hook(
+        hook_input: Any,
+        tool_use_id: Any,  # noqa: ARG001
+        context: Any,  # noqa: ARG001
+    ) -> dict[str, Any]:
+        if isinstance(hook_input, dict):
+            tool_name = hook_input.get("tool_name", "unknown")
+            error = hook_input.get("error", "")
+        else:
+            tool_name = getattr(hook_input, "tool_name", "unknown")
+            error = getattr(hook_input, "error", "")
+
+        try:
+            callback(tool_name, error)
+        except Exception:
+            logger.debug("Tool error callback raised; ignoring")
+
+        return {}
+
+    return _tool_error_hook
 
 
 def _coerce_int(value: Any) -> int:

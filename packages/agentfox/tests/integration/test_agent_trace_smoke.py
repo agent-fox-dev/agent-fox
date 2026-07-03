@@ -59,6 +59,7 @@ class MockBackend:
         max_turns: int | None = None,
         max_budget_usd: float | None = None,
         thinking: dict[str, Any] | None = None,
+        **kwargs: Any,
     ) -> AsyncIterator[AgentMessage]:
         for msg in self._messages:
             yield msg

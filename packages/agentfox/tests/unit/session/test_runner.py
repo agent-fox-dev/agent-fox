@@ -14,6 +14,7 @@ Requirements: 03-REQ-3.1 through 03-REQ-3.E2, 03-REQ-6.1, 03-REQ-6.2,
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -68,6 +69,7 @@ class MockBackend:
         max_turns: int | None = None,
         max_budget_usd: float | None = None,
         thinking: dict | None = None,
+        **kwargs: Any,
     ) -> AsyncIterator[AgentMessage]:
         self.last_prompt = prompt
         self.last_system_prompt = system_prompt

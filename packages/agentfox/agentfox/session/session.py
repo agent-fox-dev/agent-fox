@@ -236,6 +236,16 @@ async def _execute_query(
             task_prompt=task_prompt,
         )
 
+    def _on_tool_error(tool_name: str, error_message: str) -> None:
+        if sink_dispatcher is not None:
+            sink_dispatcher.record_tool_error(ToolError(session_id=run_id, node_id=node_id, tool_name=tool_name))
+            sink_dispatcher.record_tool_error_trace(
+                run_id=run_id,
+                node_id=node_id,
+                tool_name=tool_name,
+                error_message=error_message,
+            )
+
     async for message in backend.execute(  # type: ignore[attr-defined]
         task_prompt,
         system_prompt=system_prompt,
@@ -243,6 +253,7 @@ async def _execute_query(
         cwd=cwd,
         permission_callback=_permission_callback,
         activity_callback=activity_callback,
+        tool_error_callback=_on_tool_error if sink_dispatcher else None,
         node_id=node_id,
         archetype=archetype,
         max_turns=max_turns,
