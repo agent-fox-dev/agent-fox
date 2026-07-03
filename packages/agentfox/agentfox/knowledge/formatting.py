@@ -110,6 +110,23 @@ def format_finding_parts(finding: Any) -> str:
     return " ".join(parts)
 
 
+def format_drift_finding_parts(finding: Any) -> str:
+    """Format a drift finding's severity, refs, and description into a text fragment.
+
+    Returns a string like ``[critical] spec_ref (artifact_ref): description``.
+    """
+    parts = [f"[{finding.severity}]"]
+    refs = []
+    if finding.spec_ref:
+        refs.append(finding.spec_ref)
+    if finding.artifact_ref:
+        refs.append(finding.artifact_ref)
+    if refs:
+        parts.append(f"{' '.join(refs)}:")
+    parts.append(finding.description)
+    return " ".join(parts)
+
+
 def format_verdict_parts(verdict: Any) -> str:
     """Format a verdict's requirement ID and evidence into a text fragment.
 

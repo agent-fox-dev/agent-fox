@@ -209,9 +209,12 @@ class FoxKnowledgeProvider:
             conn, spec_name, task_group=task_group, task_description=task_description
         )
 
-        # Build a parallel list of (text, review_id) so we can track which
-        # finding IDs survive the max_items cap.
-        items_with_ids: list[tuple[str, str]] = list(zip(reviews, review_ids))
+        drift, drift_ids = self._query_drift(conn, spec_name, task_group=task_group, task_description=task_description)
+
+        # Build a parallel list of (text, finding_id) so we can track which
+        # finding IDs survive the max_items cap.  Review and drift findings
+        # share the same cap and injection lifecycle.
+        items_with_ids: list[tuple[str, str]] = list(zip(reviews, review_ids)) + list(zip(drift, drift_ids))
 
         # Cross-group items: findings from other task groups in the same spec.
         # These are informational (not tracked for injection) and have their
@@ -229,8 +232,9 @@ class FoxKnowledgeProvider:
         result.extend(same_spec_summaries)
 
         logger.debug(
-            "Retrieved %d review + %d cross-group + %d context items for %s",
+            "Retrieved %d review + %d drift + %d cross-group + %d context items for %s",
             len(reviews),
+            len(drift),
             len(cross_group_items),
             len(same_spec_summaries),
             spec_name,
@@ -428,6 +432,43 @@ class FoxKnowledgeProvider:
         for f in actionable:
             result.append(f"[CROSS-GROUP] (group {f.task_group}) {format_finding_parts(f)}")
         return result
+
+    def _query_drift(
+        self,
+        conn: Any,
+        spec_name: str,
+        task_group: str | None = None,
+        task_description: str = "",
+    ) -> tuple[list[str], list[str]]:
+        """Query unresolved critical/major drift findings for the spec.
+
+        Mirrors ``_query_reviews()`` but queries ``drift_findings`` via
+        ``query_active_drift_findings()``.  Returns ``(formatted_strings,
+        finding_ids)`` for injection tracking.
+        """
+        include_prereview = task_group is not None and task_group != "0"
+
+        def _do_query():
+            from agentfox.knowledge.review_store import query_active_drift_findings
+
+            return query_active_drift_findings(
+                conn, spec_name, task_group=task_group, include_prereview=include_prereview
+            )
+
+        findings = _query_safe(_do_query, (), label="drift findings", spec_name=spec_name)
+
+        keywords = _extract_keywords(task_description)
+        actionable = [f for f in findings if f.severity in ("critical", "major")]
+        actionable = sort_findings(actionable, keywords)
+
+        from agentfox.knowledge.formatting import format_drift_finding_parts
+
+        result: list[str] = []
+        ids: list[str] = []
+        for f in actionable:
+            result.append(f"[DRIFT] {format_drift_finding_parts(f)}")
+            ids.append(f.id)
+        return result, ids
 
     # ------------------------------------------------------------------
     # Session summary helpers (spec 119)

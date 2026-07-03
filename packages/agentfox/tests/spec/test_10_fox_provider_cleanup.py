@@ -225,16 +225,16 @@ class TestCrossGroupItemsReviewsOnly:
 
 
 # ---------------------------------------------------------------------------
-# TS-10-11: retrieve() log line matches three-field format
+# TS-10-11: retrieve() log line matches four-field format
 # ---------------------------------------------------------------------------
 
 
 class TestRetrieveLogFormat:
     """TS-10-11: Log message has exactly three item-count fields."""
 
-    def test_log_format_three_fields(self, caplog: pytest.LogCaptureFixture) -> None:
+    def test_log_format_four_fields(self, caplog: pytest.LogCaptureFixture) -> None:
         """The log line must match:
-        'Retrieved {N} review + {N} cross-group + {N} context items for {spec}'
+        'Retrieved {N} review + {N} drift + {N} cross-group + {N} context items for {spec}'
         """
         conn = _migrated_conn()
         provider = _make_provider(conn)
@@ -245,8 +245,8 @@ class TestRetrieveLogFormat:
         log_lines = [r.message for r in caplog.records if "Retrieved" in r.message and "items for" in r.message]
         assert len(log_lines) == 1, f"Expected exactly one 'Retrieved ... items for ...' log line, got {len(log_lines)}"
 
-        pattern = r"Retrieved \d+ review \+ \d+ cross-group \+ \d+ context items for my-spec"
-        assert re.search(pattern, log_lines[0]), f"Log line does not match three-field format:\n  {log_lines[0]}"
+        pattern = r"Retrieved \d+ review \+ \d+ drift \+ \d+ cross-group \+ \d+ context items for my-spec"
+        assert re.search(pattern, log_lines[0]), f"Log line does not match four-field format:\n  {log_lines[0]}"
         conn.close()
 
 
@@ -282,7 +282,7 @@ class TestNoVerdictIdsInInit:
 
 
 class TestLogFormatProperty:
-    """TS-10-P3: For any retrieve() invocation, log matches three-field format."""
+    """TS-10-P3: For any retrieve() invocation, log matches four-field format."""
 
     @pytest.mark.parametrize(
         "scenario",
@@ -322,8 +322,8 @@ class TestLogFormatProperty:
         matching = [r.message for r in caplog.records if "Retrieved" in r.message]
         assert len(matching) == 1
 
-        pattern = r"Retrieved \d+ review \+ \d+ cross-group \+ \d+ context items for test-spec"
-        assert re.search(pattern, matching[0]), f"Log line does not match three-field pattern:\n  {matching[0]}"
+        pattern = r"Retrieved \d+ review \+ \d+ drift \+ \d+ cross-group \+ \d+ context items for test-spec"
+        assert re.search(pattern, matching[0]), f"Log line does not match four-field pattern:\n  {matching[0]}"
         conn.close()
 
 
@@ -382,9 +382,9 @@ class TestSmokeThreeChannelRetrieval:
         for tag in removed_tags:
             assert tag not in prompt, f"Removed tag {tag} found in smoke retrieval"
 
-        # Log line must match three-field format
+        # Log line must match four-field format
         matching = [r.message for r in caplog.records if "Retrieved" in r.message]
         assert len(matching) == 1
-        pattern = r"Retrieved \d+ review \+ \d+ cross-group \+ \d+ context items for smoke-spec"
-        assert re.search(pattern, matching[0]), f"Smoke log line doesn't match three-field format: {matching[0]}"
+        pattern = r"Retrieved \d+ review \+ \d+ drift \+ \d+ cross-group \+ \d+ context items for smoke-spec"
+        assert re.search(pattern, matching[0]), f"Smoke log line doesn't match four-field format: {matching[0]}"
         conn.close()
