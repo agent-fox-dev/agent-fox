@@ -132,11 +132,13 @@ def collect_enabled_auto_post(
     """
     from agentfox.archetypes import ARCHETYPE_REGISTRY
 
-    return [
+    entries = [
         ArchetypeEntry(arch_name, entry)
         for arch_name, entry in ARCHETYPE_REGISTRY.items()
         if entry.injection == "auto_post" and is_archetype_enabled(arch_name, archetypes_config)
     ]
+    entries.sort(key=lambda a: a.entry.injection_order)
+    return entries
 
 
 class AuditorConfig(NamedTuple):
@@ -255,19 +257,17 @@ def ensure_graph_archetypes(
                 node_id,
             )
 
-        # auto_post injection
-        # Node IDs use a 3-part format "{spec}:0:{arch}" to clearly distinguish
-        # auto_post nodes from real coder group nodes (which use the 2-part format
-        # "{spec}:{N}").  group_number is set to the sentinel value 0, which is
-        # never a real task group number, so it cannot coincide with any entry
-        # returned by parse_tasks().  The edge still originates from the last real
-        # coder group, preserving correct dispatch order.  Fixes #534 (AC-1, AC-5).
+        # auto_post injection — chained sequentially by injection_order.
+        # Fixes #534 (AC-1, AC-5).
         enabled_auto_post = collect_enabled_auto_post(archetypes_config)
+        prev_post_id = f"{spec}:{last_group}"
         for arch in enabled_auto_post:
-            node_id = f"{spec}:0:{arch.name}"
-            if node_id in nodes:
+            existing_id = f"{spec}:0:{arch.name}"
+            if existing_id in nodes:
+                prev_post_id = existing_id
                 continue
             instances = resolve_instances(archetypes_config, arch.name)
+            node_id = f"{spec}:0:{arch.name}"
             nodes[node_id] = Node(
                 id=node_id,
                 spec_name=spec,
@@ -277,9 +277,9 @@ def ensure_graph_archetypes(
                 archetype=arch.name,
                 instances=instances,
             )
-            last_id = f"{spec}:{last_group}"
-            if last_id in nodes:
-                edges.append(Edge(source=last_id, target=node_id, kind="intra_spec"))
+            if prev_post_id in nodes:
+                edges.append(Edge(source=prev_post_id, target=node_id, kind="intra_spec"))
+            prev_post_id = node_id
             graph.order.append(node_id)
             injected = True
             logger.info("Injected %s node '%s' at runtime", arch.name, node_id)

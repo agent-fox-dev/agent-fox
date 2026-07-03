@@ -315,6 +315,7 @@ def _inject_archetype_nodes(
         # returned by parse_tasks().  The edge still originates from the last real
         # coder group, preserving correct dispatch order.  Fixes #534 (AC-1).
         enabled_auto_post = collect_enabled_auto_post(archetypes_config)
+        prev_post_id = f"{spec.name}:{last_group}"
         for arch in enabled_auto_post:
             node_id = f"{spec.name}:0:{arch.name}"
             instances = resolve_instances(archetypes_config, arch.name)
@@ -327,10 +328,9 @@ def _inject_archetype_nodes(
                 archetype=arch.name,
                 instances=instances,
             )
-            # Edge from last Coder group to this post node
-            last_id = f"{spec.name}:{last_group}"
-            if last_id in nodes:
-                edges.append(Edge(source=last_id, target=node_id, kind="intra_spec"))
+            if prev_post_id in nodes:
+                edges.append(Edge(source=prev_post_id, target=node_id, kind="intra_spec"))
+            prev_post_id = node_id
 
     # auto_mid injection (e.g., Auditor after test-writing groups)
     _inject_auto_mid_nodes(nodes, edges, specs, task_groups, archetypes_config)

@@ -267,7 +267,7 @@ class TestEnsureGraphArchetypesAutoPostFix:
 
         n_groups = 6
         graph = _make_multigroup_coder_graph(n_groups=n_groups)
-        config = ArchetypesConfig(verifier=True)
+        config = ArchetypesConfig(curator=False, verifier=True)
 
         injected = ensure_graph_archetypes(graph, config)
         assert injected, "Expected at least one node to be injected"
@@ -298,7 +298,7 @@ class TestEnsureGraphArchetypesAutoPostFix:
         from agentfox.graph.injection import ensure_graph_archetypes
 
         graph = _make_multigroup_coder_graph(n_groups=3)
-        config = ArchetypesConfig(verifier=True)
+        config = ArchetypesConfig(curator=False, verifier=True)
 
         ensure_graph_archetypes(graph, config)
         ensure_graph_archetypes(graph, config)
@@ -307,3 +307,38 @@ class TestEnsureGraphArchetypesAutoPostFix:
         assert len(verifier_nodes) == 1, (
             f"Expected exactly 1 verifier node after 2 injection calls, got {len(verifier_nodes)}"
         )
+
+    def test_runtime_curator_verifier_chained(self) -> None:
+        """Runtime injection chains curator before verifier."""
+        from agentfox.core.config import ArchetypesConfig
+        from agentfox.graph.injection import ensure_graph_archetypes
+
+        graph = _make_multigroup_coder_graph(n_groups=3)
+        config = ArchetypesConfig(curator=True, verifier=True)
+
+        injected = ensure_graph_archetypes(graph, config)
+        assert injected
+
+        curator_nodes = [n for n in graph.nodes.values() if n.archetype == "curator"]
+        verifier_nodes = [n for n in graph.nodes.values() if n.archetype == "verifier"]
+        assert len(curator_nodes) == 1
+        assert len(verifier_nodes) == 1
+
+        cn = curator_nodes[0]
+        vn = verifier_nodes[0]
+        assert any(e.source == "myspec:3" and e.target == cn.id for e in graph.edges)
+        assert any(e.source == cn.id and e.target == vn.id for e in graph.edges)
+
+    def test_runtime_curator_idempotent(self) -> None:
+        """Calling ensure_graph_archetypes twice must not inject duplicate curators."""
+        from agentfox.core.config import ArchetypesConfig
+        from agentfox.graph.injection import ensure_graph_archetypes
+
+        graph = _make_multigroup_coder_graph(n_groups=3)
+        config = ArchetypesConfig(curator=True, verifier=True)
+
+        ensure_graph_archetypes(graph, config)
+        ensure_graph_archetypes(graph, config)
+
+        curator_nodes = [n for n in graph.nodes.values() if n.archetype == "curator"]
+        assert len(curator_nodes) == 1

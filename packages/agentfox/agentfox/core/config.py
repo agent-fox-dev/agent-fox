@@ -406,6 +406,7 @@ class ArchetypesConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     reviewer: bool = Field(default=True, description="Enable reviewer archetype")
+    curator: bool = Field(default=True, description="Enable curator archetype")
     verifier: bool = Field(default=True, description="Enable verifier archetype")
 
     instances: ArchetypeInstancesConfig = Field(
