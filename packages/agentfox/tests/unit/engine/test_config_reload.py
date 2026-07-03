@@ -469,7 +469,7 @@ class TestMissingFileKeepsConfig:
         tmp_path: Path,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """Config unchanged and warning logged when file doesn't exist."""
+        """Config unchanged and debug logged when file doesn't exist."""
         config_file = tmp_path / "nonexistent_config.toml"
         # Do NOT create the file
 
@@ -481,11 +481,11 @@ class TestMissingFileKeepsConfig:
 
         original_max_cost = orch._config.max_cost
 
-        with caplog.at_level(logging.WARNING, logger="agentfox.engine.config_reload"):
+        with caplog.at_level(logging.DEBUG, logger="agentfox.engine.config_reload"):
             orch._reload_config()  # type: ignore[attr-defined]  # AttributeError — will fail
 
         assert orch._config.max_cost == original_max_cost
-        assert caplog.text != ""
+        assert "does not exist" in caplog.text
 
 
 # ---------------------------------------------------------------------------

@@ -120,9 +120,13 @@ class ConfigReloader:
         if self._config_path is None:
             return None
 
+        if not self._config_path.exists():
+            logger.debug("Config hot-reload: %s does not exist, skipping", self._config_path)
+            return None
+
         try:
             raw = self._config_path.read_text(encoding="utf-8")
-        except (FileNotFoundError, OSError) as exc:
+        except OSError as exc:
             logger.warning("Config hot-reload: cannot read %s: %s", self._config_path, exc)
             return None
 
