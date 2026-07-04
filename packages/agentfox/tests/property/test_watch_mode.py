@@ -211,7 +211,10 @@ class TestHotLoadGate:
         orch._watch = True  # type: ignore[attr-defined]
 
         async def run() -> Any:
-            with patch("asyncio.sleep", new_callable=AsyncMock):
+            with (
+                patch("asyncio.sleep", new_callable=AsyncMock),
+                patch.object(Orchestrator, "_post_merge_check_passes", return_value=True),
+            ):
                 return await orch.run()
 
         state = asyncio.run(run())

@@ -28,6 +28,12 @@ from tests.unit.engine.conftest import (
 # ---------------------------------------------------------------------------
 
 
+@pytest.fixture(autouse=True)
+def _skip_post_merge_check():
+    with patch.object(Orchestrator, "_post_merge_check_passes", return_value=True):
+        yield
+
+
 def _make_orchestrator(
     runner: MockSessionRunner,
     *,

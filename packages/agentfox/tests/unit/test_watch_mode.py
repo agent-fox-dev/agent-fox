@@ -221,7 +221,10 @@ class TestWatchActivation:
         orch, sink = _make_orchestrator(tmp_path, config=config)
         orch._watch = True  # type: ignore[attr-defined]
 
-        with patch("asyncio.sleep", new_callable=AsyncMock):
+        with (
+            patch("asyncio.sleep", new_callable=AsyncMock),
+            patch.object(Orchestrator, "_post_merge_check_passes", return_value=True),
+        ):
             state = await orch.run()
 
         assert state.run_status == "completed"

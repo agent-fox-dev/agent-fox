@@ -34,6 +34,7 @@ class RunStatus(StrEnum):
 
     RUNNING = "running"
     COMPLETED = "completed"
+    COMPLETED_DIRTY = "completed_dirty"
     INTERRUPTED = "interrupted"
     COST_LIMIT = "cost_limit"
     SESSION_LIMIT = "session_limit"

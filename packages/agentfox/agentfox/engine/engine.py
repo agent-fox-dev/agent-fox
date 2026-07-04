@@ -552,7 +552,10 @@ class Orchestrator:
                             if watch_result is None:
                                 continue
                             return watch_result
-                    state.run_status = RunStatus.COMPLETED
+                    if self._post_merge_check_passes():
+                        state.run_status = RunStatus.COMPLETED
+                    else:
+                        state.run_status = RunStatus.COMPLETED_DIRTY
                     return state
 
                 if self._is_parallel and self._dispatch_mgr.parallel_runner is not None:
@@ -700,6 +703,61 @@ class Orchestrator:
             knowledge_db_conn=self._knowledge_db_conn,
             reload_config_fn=self._reload_config,
         )
+
+    def _post_merge_check_passes(self) -> bool:
+        """Run ``make check`` on the merged integration branch.
+
+        Called after all tasks complete to validate the combined result.
+        Returns True if the check passes (or no Makefile exists), False
+        if the quality suite fails.
+        """
+        cwd = self._repo_root or Path.cwd()
+        makefile = cwd / "Makefile"
+        if not makefile.exists():
+            logger.debug("No Makefile found, skipping post-merge check")
+            return True
+
+        logger.info("Post-merge validation: running make check")
+        try:
+            result = subprocess.run(
+                ["make", "check"],
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                timeout=600,
+            )
+            if result.returncode == 0:
+                logger.info("Post-merge validation passed")
+                return True
+
+            # Fall back to make test if make check target doesn't exist
+            if "No rule to make target" in (result.stderr or ""):
+                result = subprocess.run(
+                    ["make", "test"],
+                    cwd=cwd,
+                    capture_output=True,
+                    text=True,
+                    timeout=600,
+                )
+                if result.returncode == 0:
+                    logger.info("Post-merge validation passed (make test)")
+                    return True
+
+            stderr_tail = (result.stderr or "").strip().splitlines()[-10:]
+            stdout_tail = (result.stdout or "").strip().splitlines()[-10:]
+            output_summary = "\n".join(stderr_tail or stdout_tail)
+            logger.error(
+                "Post-merge validation FAILED (exit %d):\n%s",
+                result.returncode,
+                output_summary,
+            )
+            return False
+        except subprocess.TimeoutExpired:
+            logger.error("Post-merge validation timed out after 600s")
+            return False
+        except Exception:
+            logger.warning("Post-merge validation could not run", exc_info=True)
+            return True
 
     async def _try_end_of_run_discovery(self, state: ExecutionState) -> bool:
         if not self._config.hot_load:
