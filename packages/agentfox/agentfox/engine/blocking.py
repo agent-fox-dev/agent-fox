@@ -40,34 +40,43 @@ def _format_block_reason(
 ) -> str:
     """Format an enriched blocking reason string with finding IDs and descriptions.
 
-    Includes the count of critical findings, up to 3 finding IDs as `F-<8hex>`
-    short prefixes, truncated descriptions (max 60 chars each), and "and N more"
-    when there are more than 3 critical findings.
+    Includes the count of actionable findings (critical + major), up to 3
+    finding IDs as `F-<8hex>` short prefixes, truncated descriptions (max 60
+    chars each), and "and N more" when there are more than 3 findings.
 
     Requirements: 84-REQ-3.1, 84-REQ-3.E1
     """
-    critical_findings = [f for f in findings if f.severity.lower() == "critical"]
-    n = len(critical_findings)
+    actionable = [f for f in findings if f.severity.lower() in ("critical", "major")]
+    critical_count = sum(1 for f in actionable if f.severity.lower() == "critical")
+    major_count = len(actionable) - critical_count
+
+    parts_label = []
+    if critical_count:
+        parts_label.append(f"{critical_count} critical")
+    if major_count:
+        parts_label.append(f"{major_count} major")
+    count_label = " + ".join(parts_label) if parts_label else "0"
 
     header = (
-        f"{archetype.capitalize()} found {n} critical finding(s) (threshold: {threshold}) for {spec_name}:{task_group}"
+        f"{archetype.capitalize()} found {count_label} finding(s) "
+        f"(threshold: {threshold}) for {spec_name}:{task_group}"
     )
 
+    n = len(actionable)
     if n == 0:
         return header
 
-    shown = critical_findings[:3]
-    parts = []
+    shown = actionable[:3]
+    detail_parts = []
     for finding in shown:
-        # Build F-<8hex> short ID from the UUID
         raw_id = finding.id.replace("-", "")[:8]
         short_id = f"F-{raw_id}"
         desc = finding.description[:60]
         if len(finding.description) > 60:
             desc += "…"
-        parts.append(f"{short_id}: {desc}")
+        detail_parts.append(f"{short_id}: {desc}")
 
-    detail = ", ".join(parts)
+    detail = ", ".join(detail_parts)
     if n > 3:
         detail += f", and {n - 3} more"
 
@@ -195,6 +204,82 @@ def _evaluate_audit_review_blocking(
         return BlockDecision(should_block=False)
 
 
+def _evaluate_drift_review_blocking(
+    knowledge_db_conn: Any,
+    spec_name: str,
+    task_group: str,
+    coder_node_id: str,
+    node_id: str,
+    archetypes_config: ArchetypesConfig | None,
+) -> BlockDecision:
+    """Evaluate drift-review blocking using the drift_findings table.
+
+    Counts both critical and major drift findings toward the configured
+    ``drift_review_block_threshold``.  When the threshold is ``None``
+    (advisory mode), returns ``should_block=False`` unconditionally.
+    """
+    try:
+        from agentfox.knowledge.review_store import query_active_drift_findings
+
+        threshold: int | None = None
+        if archetypes_config is not None:
+            threshold = archetypes_config.reviewer_config.drift_review_block_threshold
+        if threshold is None:
+            return BlockDecision(should_block=False)
+
+        drift_findings = query_active_drift_findings(
+            knowledge_db_conn, spec_name, task_group
+        )
+        if not drift_findings:
+            return BlockDecision(should_block=False)
+
+        actionable = [f for f in drift_findings if f.severity.lower() in ("critical", "major")]
+        if len(actionable) < threshold:
+            return BlockDecision(should_block=False)
+
+        critical_count = sum(1 for f in actionable if f.severity.lower() == "critical")
+        major_count = len(actionable) - critical_count
+
+        parts_label = []
+        if critical_count:
+            parts_label.append(f"{critical_count} critical")
+        if major_count:
+            parts_label.append(f"{major_count} major")
+        count_label = " + ".join(parts_label)
+
+        header = (
+            f"Reviewer:drift-review found {count_label} finding(s) "
+            f"(threshold: {threshold}) for {spec_name}:{task_group}"
+        )
+        shown = actionable[:3]
+        detail_parts = []
+        for f in shown:
+            raw_id = f.id.replace("-", "")[:8]
+            short_id = f"F-{raw_id}"
+            desc = f.description[:60]
+            if len(f.description) > 60:
+                desc += "…"
+            detail_parts.append(f"{short_id}: {desc}")
+        detail = ", ".join(detail_parts)
+        if len(actionable) > 3:
+            detail += f", and {len(actionable) - 3} more"
+        reason = f"{header} — {detail}"
+
+        logger.warning("DRIFT-REVIEW blocking %s: %s", coder_node_id, reason)
+        return BlockDecision(
+            should_block=True,
+            coder_node_id=coder_node_id,
+            reason=reason,
+        )
+    except Exception:
+        logger.warning(
+            "Failed to evaluate drift-review blocking for %s",
+            node_id,
+            exc_info=True,
+        )
+        return BlockDecision(should_block=False)
+
+
 def evaluate_review_blocking(
     record: SessionRecord,
     archetypes_config: ArchetypesConfig | None,
@@ -248,6 +333,11 @@ def evaluate_review_blocking(
     if mode == "audit-review":
         return _evaluate_audit_review_blocking(knowledge_db_conn, spec_name, task_group, coder_node_id, record.node_id)
 
+    if mode == "drift-review":
+        return _evaluate_drift_review_blocking(
+            knowledge_db_conn, spec_name, task_group, coder_node_id, record.node_id, archetypes_config
+        )
+
     try:
         from agentfox.knowledge.review_store import query_findings_by_session
 
@@ -258,9 +348,9 @@ def evaluate_review_blocking(
         # a spec-wide reviewer session) must not block an unrelated coder group.
         findings = [f for f in findings if f.task_group == task_group]
 
-        critical_count = sum(1 for f in findings if f.severity.lower() == "critical")
+        actionable_count = sum(1 for f in findings if f.severity.lower() in ("critical", "major"))
 
-        if critical_count == 0:
+        if actionable_count == 0:
             return BlockDecision(should_block=False)
 
         # Security bypass: critical findings with category='security' always block,
@@ -299,19 +389,14 @@ def evaluate_review_blocking(
                 reason=reason,
             )
 
-        # Resolve threshold from ReviewerConfig by mode (or legacy archetype name)
+        # Resolve threshold from ReviewerConfig by mode
         configured_threshold = 3  # conservative default
         if archetypes_config is not None:
             rc = archetypes_config.reviewer_config
-            if archetype == "reviewer":
-                if mode == "pre-review":
-                    configured_threshold = rc.pre_review_block_threshold
-                elif mode == "drift-review":
-                    if rc.drift_review_block_threshold is None:
-                        return BlockDecision(should_block=False)
-                    configured_threshold = rc.drift_review_block_threshold
+            if archetype == "reviewer" and mode == "pre-review":
+                configured_threshold = rc.pre_review_block_threshold
 
-        blocked = critical_count >= configured_threshold
+        blocked = actionable_count >= configured_threshold
 
         if blocked:
             reason = _format_block_reason(

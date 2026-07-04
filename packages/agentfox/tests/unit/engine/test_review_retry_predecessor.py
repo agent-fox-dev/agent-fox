@@ -176,12 +176,12 @@ class TestPreReviewRetryPredecessor:
         resolved = resolve_effective_config(entry, "audit-review")
         assert resolved.retry_predecessor is True
 
-    def test_drift_review_does_not_have_retry_predecessor(self) -> None:
+    def test_drift_review_has_retry_predecessor(self) -> None:
         from agentfox.archetypes import get_archetype, resolve_effective_config
 
         entry = get_archetype("reviewer")
         resolved = resolve_effective_config(entry, "drift-review")
-        assert resolved.retry_predecessor is False
+        assert resolved.retry_predecessor is True
 
 
 class TestRetryOnReviewBlock:
@@ -281,35 +281,52 @@ class TestRetryOnReviewBlock:
         assert blocked is False
         block_task_fn.assert_not_called()
 
-    def test_drift_review_block_is_permanent(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
-        """Drift-review blocking without retry_predecessor permanently blocks."""
-        finding = _make_finding(
+    def test_drift_review_block_converts_to_retry(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
+        """Drift-review blocking with retry_predecessor converts block to retry."""
+        from agentfox.knowledge.review_store import DriftFinding, insert_drift_findings
+
+        drift_finding = DriftFinding(
+            id=str(uuid.uuid4()),
             severity="critical",
-            description="Missing validation",
-            session_id="test_spec:1:1",
+            description="Function signature mismatch",
+            spec_ref=None,
+            artifact_ref=None,
+            spec_name="test_spec",
+            task_group="1",
+            session_id="test_spec:0:reviewer:drift-review:1",
         )
-        insert_findings(knowledge_conn, [finding])
+        insert_drift_findings(knowledge_conn, [drift_finding])
 
         node_states = {
             "test_spec:1": "completed",
+            "test_spec:0:reviewer:drift-review": "completed",
         }
         graph_sync = MagicMock()
         graph_sync.node_states = node_states
+        graph_sync.predecessors.return_value = ["test_spec:1"]
 
         graph = TaskGraph(
             nodes={
+                "test_spec:0:reviewer:drift-review": Node(
+                    id="test_spec:0:reviewer:drift-review",
+                    spec_name="test_spec",
+                    group_number=0,
+                    title="Reviewer",
+                    optional=False,
+                    archetype="reviewer",
+                    mode="drift-review",
+                ),
                 "test_spec:1": Node(
                     id="test_spec:1",
                     spec_name="test_spec",
                     group_number=1,
                     title="Coder",
                     optional=False,
-                    archetype="reviewer",
-                    mode="drift-review",
+                    archetype="coder",
                 ),
             },
             edges=[],
-            order=["test_spec:1"],
+            order=["test_spec:0:reviewer:drift-review", "test_spec:1"],
         )
 
         block_task_fn = MagicMock()
@@ -336,14 +353,15 @@ class TestRetryOnReviewBlock:
         )
 
         record = _make_session_record(
-            node_id="test_spec:1",
+            node_id="test_spec:0:reviewer:drift-review",
             archetype="reviewer",
         )
 
         blocked = handler.check_review_blocking(record, state)
 
-        assert blocked is True
-        block_task_fn.assert_called_once()
+        # retry_predecessor=True means block is converted to retry, not permanent
+        assert blocked is False
+        block_task_fn.assert_not_called()
 
 
 class TestDefaultThreshold:

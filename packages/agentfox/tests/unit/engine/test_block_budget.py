@@ -247,7 +247,8 @@ class TestReviewerBlocking:
             finding = MagicMock()
             finding.severity = "critical"
             finding.description = f"Critical issue {i}"
-            finding.task_group = "1"  # must match reviewer's group_number
+            finding.id = f"0000000{i}-0000-0000-0000-000000000000"
+            finding.task_group = "1"
             mock_findings.append(finding)
 
         archetypes_config = ArchetypesConfig(
@@ -271,7 +272,7 @@ class TestReviewerBlocking:
         )
 
         with patch(
-            "agentfox.knowledge.review_store.query_findings_by_session",
+            "agentfox.knowledge.review_store.query_active_drift_findings",
             return_value=mock_findings,
         ):
             state = await orch.run()

@@ -363,8 +363,8 @@ class ReviewerConfig(BaseModel):
         description="Finding count to block merge for pre-review mode",
     )
     drift_review_block_threshold: int | None = Field(
-        default=None,
-        description="Drift count to block for drift-review mode (None = advisory only)",
+        default=1,
+        description="Actionable finding count to block for drift-review mode (None = advisory only)",
     )
     audit_min_ts_entries: Annotated[int, Clamped(ge=1, cast=int)] = Field(
         default=5,

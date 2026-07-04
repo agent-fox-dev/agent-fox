@@ -106,6 +106,7 @@ ARCHETYPE_REGISTRY: dict[str, ArchetypeEntry] = {
                 model_variant="standard",  # 15-REQ-8.2
                 injection="auto_pre",
                 allowlist=["ls", "cat", "git", "grep", "find", "head", "tail", "wc"],
+                retry_predecessor=True,
             ),
             "audit-review": ModeConfig(
                 model_tier="ADVANCED",  # 15-REQ-8.2

@@ -314,8 +314,8 @@ class TestReviewerConfig:
         assert rc.pre_review_block_threshold == 1, (
             f"pre_review_block_threshold should be 1, got {rc.pre_review_block_threshold}"
         )
-        assert rc.drift_review_block_threshold is None, (
-            f"drift_review_block_threshold should be None (advisory), got {rc.drift_review_block_threshold}"
+        assert rc.drift_review_block_threshold == 1, (
+            f"drift_review_block_threshold should be 1, got {rc.drift_review_block_threshold}"
         )
         assert rc.audit_min_ts_entries == 5, f"audit_min_ts_entries should be 5, got {rc.audit_min_ts_entries}"
         assert rc.audit_max_retries == 2, f"audit_max_retries should be 2, got {rc.audit_max_retries}"

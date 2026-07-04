@@ -13,11 +13,43 @@ Treat this file as executable workflow policy.
 - Every finding must reference a specific requirement, design decision, or
   observable code/spec artifact.
 - Do not implement or modify code — only review and report.
-- Use severity levels: `critical`, `major`, `minor`, `observation`.
+- Use severity levels as defined in **Severity Definitions** below.
 - Focus on accuracy over volume. One precise finding is more valuable than ten
   vague ones.
 - Vague observations like "consider adding more tests" are not findings —
   omit them.
+
+## Severity Definitions
+
+Assign severity based on the downstream impact if the issue is not addressed:
+
+- **`critical`** — The implementation will fail at runtime or produce wrong
+  results. Examples: function/method signature mismatch (wrong parameter count,
+  names, types, or return type) between spec and actual code or library; missing
+  type, class, or module that the spec depends on; incompatible API contract
+  (function returns `dict` but spec assumes `list`, required parameter is
+  missing); external API signature marked "PRD-assumed" or "unverified" that
+  does not match the installed library; cross-spec type conflict where two specs
+  define the same shared model with incompatible fields.
+- **`major`** — The implementation will work for the happy path but will break
+  on edge cases, have incorrect error handling, or produce subtle data
+  corruption. Examples: missing error/exception handling for a documented failure
+  mode; incorrect default value that silently changes behavior; import path that
+  exists but resolves to the wrong module (shadowing); partial type mismatch
+  (optional vs required field) that only surfaces with certain inputs.
+- **`minor`** — Cosmetic, stylistic, or low-risk issues that do not affect
+  correctness. Examples: naming convention mismatch that does not break imports;
+  suboptimal but functional approach; missing docstring or type annotation.
+- **`observation`** — Informational notes with no functional impact. Patterns to
+  watch or suggestions for future improvement.
+
+When in doubt between two levels, choose the **higher** severity. A false
+positive at `major` is safer than a false negative at `minor`.
+
+> **Pre-review emphasis:** Contradictions between requirements, incorrect
+> external API signatures (especially "PRD-assumed" or "unverified" entries),
+> and cross-spec type conflicts are almost always `critical` because the coder
+> will implement against wrong assumptions.
 
 ## Focus Areas
 
