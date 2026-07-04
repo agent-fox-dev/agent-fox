@@ -74,13 +74,16 @@ with five packages:
 | `packages/nightshift/` | Standalone CLI for the night-shift fix daemon (`nightshift` command) |
 | `packages/agentfox/` | Core library — spec engine, graph planner, session runtime, workspace tools |
 | `packages/afspec/` | Standalone library for the agent-fox specification format (v1.2) |
+| `packages/afaudit/` | Standalone audit infrastructure — structured events, sinks, postmortem, traces (zero dependencies) |
 | `packages/agentspec/` | AI-powered spec creation library |
 | `packages/spec/` | CLI for AI-powered spec creation (`spec` command) |
 
 ```
 af  ──▶  agentfox  ──▶  afspec
-              ▲
-spec ──▶ agentspec ──┘──▶  afspec
+              │              ▲
+              └──▶  afaudit  │
+                             │
+spec ──▶ agentspec ──────────┘
 
 nightshift ──▶ agentfox
 ```
@@ -105,6 +108,24 @@ version explicitly (rather than a globally installed release):
 ```bash
 uv run af <command>
 ```
+
+## Using afspec and afaudit as standalone libraries
+
+`afspec` and `afaudit` are designed for reuse outside agent-fox. Install either
+package directly from git:
+
+```bash
+pip install "afspec @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.1.2#subdirectory=packages/afspec"
+pip install "afaudit @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.1.2#subdirectory=packages/afaudit"
+```
+
+- **afspec** — load, validate, mutate, and render spec packs. See
+  [`packages/afspec/README.md`](packages/afspec/README.md) for the full API
+  reference.
+- **afaudit** — structured audit events, sink protocol, postmortem generation,
+  trace reconstruction. Zero dependencies. See
+  [`packages/afaudit/README.md`](packages/afaudit/README.md) for the full API
+  reference.
 
 ## Documentation
 
