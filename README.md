@@ -109,16 +109,21 @@ version explicitly (rather than a globally installed release):
 uv run af <command>
 ```
 
-## Using afspec and afaudit as standalone libraries
+## Using packages as standalone libraries
 
-`afspec` and `afaudit` are designed for reuse outside agent-fox. Install either
-package directly from git:
+`agentfox`, `afspec`, and `afaudit` are designed for reuse outside the CLI tools.
+Install any package directly from git:
 
 ```bash
+pip install "agentfox @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.1.3#subdirectory=packages/agentfox"
 pip install "afspec @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.1.3#subdirectory=packages/afspec"
 pip install "afaudit @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.1.3#subdirectory=packages/afaudit"
 ```
 
+- **agentfox** — core orchestrator library: execution engine, session runtime,
+  configuration, workspace management, knowledge store, Anthropic client
+  helpers. See [`packages/agentfox/README.md`](packages/agentfox/README.md)
+  for the full API reference.
 - **afspec** — load, validate, mutate, and render spec packs. See
   [`packages/afspec/README.md`](packages/afspec/README.md) for the full API
   reference.
