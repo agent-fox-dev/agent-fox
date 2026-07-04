@@ -22,8 +22,14 @@ Treat this file as executable workflow policy.
 ## Focus Areas
 
 - Completeness — all stories covered by acceptance criteria?
-- Consistency — requirements contradict each other?
-- Feasibility — referenced modules exist?
+- Consistency — requirements contradict each other? Do `external_apis`
+  signatures match across specs that share the same libraries?
+- Feasibility — referenced modules exist? Are `external_apis` entries
+  marked "PRD-assumed" or "unverified" actually correct?
+- Cross-spec coherence — does this spec's package layout, import paths,
+  and type definitions align with what other specs assume? Check for
+  conflicting assumptions about shared types, config models, or exception
+  hierarchies.
 - Testability — each criterion verifiable by automated test?
 - Edge cases — empty, null, boundary, concurrent, failure paths.
 - Security — input validation, auth, secrets.

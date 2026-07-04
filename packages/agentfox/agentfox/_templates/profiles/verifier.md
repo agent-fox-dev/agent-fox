@@ -55,8 +55,10 @@ row and confirm or reject each item.
   items, check whether an erratum in `docs/errata/` documents the deviation.
 - **Test execution:** Run spec tests for the task group first, then the full
   suite to check for regressions.
-- **Code quality:** Does the implementation follow the design document's
-  architecture? Are there bugs, logic errors, or incomplete implementations?
+- **Code quality:** Does the implementation follow the architecture described
+  in `prd.md` (and `architecture.md` if present)? Do function signatures
+  match `external_apis` contracts in `requirements.json`? Are there bugs,
+  logic errors, or incomplete implementations?
 - **Regression check:** Do all previously passing tests still pass? Run the
   linter and confirm no new warnings.
 - **Documentation:** If the task changed user-facing behavior, confirm

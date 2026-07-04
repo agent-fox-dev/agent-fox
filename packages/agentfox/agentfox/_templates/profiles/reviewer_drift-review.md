@@ -26,8 +26,14 @@ Audit priorities (cheapest first):
 1. File/module existence at stated paths.
 2. Class/function existence.
 3. Function signatures (params, types, defaults).
-4. API contracts and data flow.
+4. External API contracts — verify `requirements.json` → `external_apis`
+   signatures against the actual installed libraries. Flag any signature
+   marked "PRD-assumed" or "unverified" that does not match reality.
 5. Behavioral assumptions (return formats, error handling).
+6. Cross-spec consistency — check that types, imports, and package layout
+   assumed by this spec match what other specs have actually implemented.
+   Pay special attention to shared paths (package root, config models,
+   exception hierarchies).
 
 Breadth over depth — scan broadly before diving.
 
@@ -42,7 +48,7 @@ Your output is a JSON object with a `"drift_findings"` array. Each finding has:
 
 - `severity` (required): one of `critical`, `major`, `minor`, `observation`
 - `description` (required): what the drift is and where
-- `spec_ref` (optional): location in the spec (e.g. `design.md:## Components`)
+- `spec_ref` (optional): location in the spec (e.g. `requirements.json:external_apis`, `prd.md:## Package Layout`, `architecture.md:## Components`)
 - `artifact_ref` (optional): the code path that differs
 
 If there are no findings, output `{"drift_findings": []}`.

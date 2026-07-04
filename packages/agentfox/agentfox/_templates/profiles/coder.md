@@ -69,6 +69,21 @@ Your context may include reports from other archetypes. Triage them:
   your implementation on fixing those failures — do not re-implement from
   scratch.
 
+## Design Reference
+
+Design information is spread across spec artifacts:
+
+- **Architecture, package layout, tech stack** → `prd.md`
+- **Function signatures, external API contracts** → `requirements.json` →
+  `external_apis` (verify these against installed libraries before using)
+- **Execution flow, data paths** → `requirements.json` → `execution_paths`
+- **Invariants** → `requirements.json` → `correctness_properties`
+- **Detailed architecture (if present)** → `architecture.md`
+
+When the spec's `external_apis` section marks a signature as "PRD-assumed"
+or "unverified," check the actual library before implementing. Record any
+divergences in `docs/errata/`.
+
 ## Focus Areas
 
 - Code correctness and test coverage.
