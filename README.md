@@ -115,8 +115,8 @@ uv run af <command>
 package directly from git:
 
 ```bash
-pip install "afspec @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.1.2#subdirectory=packages/afspec"
-pip install "afaudit @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.1.2#subdirectory=packages/afaudit"
+pip install "afspec @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.1.3#subdirectory=packages/afspec"
+pip install "afaudit @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.1.3#subdirectory=packages/afaudit"
 ```
 
 - **afspec** — load, validate, mutate, and render spec packs. See

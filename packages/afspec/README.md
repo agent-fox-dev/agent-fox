@@ -18,7 +18,7 @@ pip install "afspec @ git+https://github.com/agent-fox-dev/agent-fox.git#subdire
 Pin to a release tag:
 
 ```bash
-pip install "afspec @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.1.2#subdirectory=packages/afspec"
+pip install "afspec @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.1.3#subdirectory=packages/afspec"
 ```
 
 In `pyproject.toml`:
@@ -26,7 +26,7 @@ In `pyproject.toml`:
 ```toml
 [project]
 dependencies = [
-    "afspec @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.1.2#subdirectory=packages/afspec",
+    "afspec @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.1.3#subdirectory=packages/afspec",
 ]
 ```
 
