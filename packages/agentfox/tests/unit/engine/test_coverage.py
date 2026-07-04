@@ -98,6 +98,67 @@ class TestDetectCoverageTool:
         (tmp_path / "pyproject.toml").write_text("[tool.ruff]\nline-length = 88\n")
         assert detect_coverage_tool(tmp_path) is None
 
+    def test_detects_jest(self, tmp_path: Path) -> None:
+        (tmp_path / "package.json").write_text(json.dumps({
+            "devDependencies": {"jest": "^29.0.0"},
+        }))
+        tool = detect_coverage_tool(tmp_path)
+        assert tool is not None
+        assert tool.name == "jest"
+        assert "--coverage" in tool.command
+
+    def test_detects_vitest_with_coverage_v8(self, tmp_path: Path) -> None:
+        (tmp_path / "package.json").write_text(json.dumps({
+            "devDependencies": {"vitest": "^1.0.0", "@vitest/coverage-v8": "^1.0.0"},
+        }))
+        tool = detect_coverage_tool(tmp_path)
+        assert tool is not None
+        assert tool.name == "vitest"
+
+    def test_detects_vitest_with_coverage_istanbul(self, tmp_path: Path) -> None:
+        (tmp_path / "package.json").write_text(json.dumps({
+            "devDependencies": {"vitest": "^1.0.0", "@vitest/coverage-istanbul": "^1.0.0"},
+        }))
+        tool = detect_coverage_tool(tmp_path)
+        assert tool is not None
+        assert tool.name == "vitest"
+
+    def test_vitest_without_coverage_provider_returns_none(self, tmp_path: Path) -> None:
+        (tmp_path / "package.json").write_text(json.dumps({
+            "devDependencies": {"vitest": "^1.0.0"},
+        }))
+        assert detect_coverage_tool(tmp_path) is None
+
+    def test_vitest_takes_precedence_over_jest(self, tmp_path: Path) -> None:
+        (tmp_path / "package.json").write_text(json.dumps({
+            "devDependencies": {
+                "vitest": "^1.0.0",
+                "@vitest/coverage-v8": "^1.0.0",
+                "jest": "^29.0.0",
+            },
+        }))
+        tool = detect_coverage_tool(tmp_path)
+        assert tool is not None
+        assert tool.name == "vitest"
+
+    def test_jest_in_dependencies(self, tmp_path: Path) -> None:
+        (tmp_path / "package.json").write_text(json.dumps({
+            "dependencies": {"jest": "^29.0.0"},
+        }))
+        tool = detect_coverage_tool(tmp_path)
+        assert tool is not None
+        assert tool.name == "jest"
+
+    def test_package_json_without_test_runner_returns_none(self, tmp_path: Path) -> None:
+        (tmp_path / "package.json").write_text(json.dumps({
+            "dependencies": {"express": "^4.0.0"},
+        }))
+        assert detect_coverage_tool(tmp_path) is None
+
+    def test_handles_unparseable_package_json(self, tmp_path: Path) -> None:
+        (tmp_path / "package.json").write_text("{invalid json")
+        assert detect_coverage_tool(tmp_path) is None
+
 
 class TestFileCoverage:
     def test_percentage_calculation(self) -> None:
@@ -309,6 +370,40 @@ class TestMeasureCoverage:
         assert fc is not None
         assert fc.covered_lines == 2
         assert fc.total_lines == 3
+
+    def test_parses_istanbul_output(self, tmp_path: Path) -> None:
+        istanbul_data = {
+            "/abs/src/utils.ts": {
+                "path": "/abs/src/utils.ts",
+                "s": {"0": 5, "1": 0, "2": 3, "3": 0},
+            },
+            "/abs/src/index.ts": {
+                "path": "/abs/src/index.ts",
+                "s": {"0": 10, "1": 10},
+            },
+        }
+        cov_dir = tmp_path / "coverage"
+        cov_dir.mkdir()
+        (cov_dir / "coverage-final.json").write_text(json.dumps(istanbul_data))
+
+        tool = CoverageTool(
+            name="jest",
+            command=["echo", "done"],
+            result_path="coverage/coverage-final.json",
+        )
+        with patch("agentfox.engine.result_handler.subprocess.run"):
+            result = measure_coverage(tmp_path, tool)
+
+        assert result is not None
+        assert len(result.files) == 2
+        utils = result.coverage_for("/abs/src/utils.ts")
+        assert utils is not None
+        assert utils.covered_lines == 2
+        assert utils.total_lines == 4
+        index = result.coverage_for("/abs/src/index.ts")
+        assert index is not None
+        assert index.covered_lines == 2
+        assert index.total_lines == 2
 
     def test_cleans_up_result_file(self, tmp_path: Path) -> None:
         cov_data = {"files": {}}

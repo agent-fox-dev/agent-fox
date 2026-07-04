@@ -1186,6 +1186,39 @@ def detect_coverage_tool(project_root: Path) -> CoverageTool | None:
             result_path="coverage.out",
         )
 
+    package_json = project_root / "package.json"
+    if package_json.exists():
+        try:
+            pkg = json.loads(package_json.read_text(encoding="utf-8"))
+            tool = _detect_js_coverage_tool(pkg)
+            if tool is not None:
+                return tool
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    return None
+
+
+def _js_has_dep(pkg: dict[str, Any], name: str) -> bool:
+    """Check if a JS package is in dependencies or devDependencies."""
+    return name in pkg.get("dependencies", {}) or name in pkg.get("devDependencies", {})
+
+
+def _detect_js_coverage_tool(pkg: dict[str, Any]) -> CoverageTool | None:
+    if _js_has_dep(pkg, "vitest") and (
+        _js_has_dep(pkg, "@vitest/coverage-v8") or _js_has_dep(pkg, "@vitest/coverage-istanbul")
+    ):
+        return CoverageTool(
+            name="vitest",
+            command=["npx", "vitest", "run", "--coverage.enabled", "--coverage.reporter=json"],
+            result_path="coverage/coverage-final.json",
+        )
+    if _js_has_dep(pkg, "jest"):
+        return CoverageTool(
+            name="jest",
+            command=["npx", "jest", "--coverage", "--coverageReporters=json", "--silent"],
+            result_path="coverage/coverage-final.json",
+        )
     return None
 
 
@@ -1217,6 +1250,8 @@ def measure_coverage(project_root: Path, tool: CoverageTool) -> CoverageResult |
             return _parse_tarpaulin(result_path)
         if tool.name == "go-cover":
             return _parse_go_cover(result_path)
+        if tool.name in ("vitest", "jest"):
+            return _parse_istanbul(result_path)
     except Exception:
         logger.debug("Failed to parse coverage output from %s", tool.name, exc_info=True)
     finally:
@@ -1280,6 +1315,28 @@ def _parse_go_cover(result_path: Path) -> CoverageResult:
                 prev_t + num_statements,
             )
     files = {path: FileCoverage(file_path=path, covered_lines=c, total_lines=t) for path, (c, t) in file_stats.items()}
+    return CoverageResult(files=files)
+
+
+def _parse_istanbul(result_path: Path) -> CoverageResult:
+    """Parse Istanbul/NYC coverage-final.json (used by Jest and Vitest)."""
+    data = json.loads(result_path.read_text())
+    files: dict[str, FileCoverage] = {}
+    for file_path, info in data.items():
+        rel_path = file_path
+        if Path(file_path).is_absolute():
+            try:
+                rel_path = str(Path(file_path).relative_to(result_path.parent.parent))
+            except ValueError:
+                pass
+        stmts = info.get("s", {})
+        total = len(stmts)
+        covered = sum(1 for count in stmts.values() if count > 0)
+        files[rel_path] = FileCoverage(
+            file_path=rel_path,
+            covered_lines=covered,
+            total_lines=total,
+        )
     return CoverageResult(files=files)
 
 
