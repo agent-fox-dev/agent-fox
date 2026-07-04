@@ -14,6 +14,7 @@ import json
 import logging
 import math
 import re
+import shutil
 import subprocess
 import time
 import tomllib
@@ -1121,13 +1122,32 @@ class CoverageRegression:
     delta: float
 
 
+def _has_pytest_cov_dependency(data: dict[str, Any]) -> bool:
+    """Check if pytest-cov is declared anywhere in pyproject.toml dependencies."""
+    sources: list[Any] = []
+    project = data.get("project", {})
+    sources.append(project.get("dependencies", []))
+    sources.append(project.get("optional-dependencies", {}).values())
+    for group_deps in data.get("dependency-groups", {}).values():
+        sources.append(group_deps)
+    for src in sources:
+        if isinstance(src, list):
+            items = src
+        else:
+            items = [item for sub in src for item in (sub if isinstance(sub, list) else [sub])]
+        for dep in items:
+            if isinstance(dep, str) and dep.lower().startswith("pytest-cov"):
+                return True
+    return False
+
+
 def detect_coverage_tool(project_root: Path) -> CoverageTool | None:
     pyproject = project_root / "pyproject.toml"
     if pyproject.exists():
         try:
             data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
             tool = data.get("tool", {})
-            if "pytest" in tool:
+            if "pytest" in tool and _has_pytest_cov_dependency(data):
                 return CoverageTool(
                     name="pytest-cov",
                     command=[
@@ -1146,7 +1166,7 @@ def detect_coverage_tool(project_root: Path) -> CoverageTool | None:
             pass
 
     cargo = project_root / "Cargo.toml"
-    if cargo.exists():
+    if cargo.exists() and shutil.which("cargo-tarpaulin") is not None:
         try:
             data = tomllib.loads(cargo.read_text(encoding="utf-8"))
             if "package" in data:

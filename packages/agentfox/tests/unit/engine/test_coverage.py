@@ -24,17 +24,52 @@ from agentfox.engine.result_handler import (
 
 class TestDetectCoverageTool:
     def test_detects_pytest_cov(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").write_text('[tool.pytest.ini_options]\ntestpaths = ["tests"]\n')
+        (tmp_path / "pyproject.toml").write_text(
+            '[tool.pytest.ini_options]\ntestpaths = ["tests"]\n\n'
+            "[dependency-groups]\ndev = [\n    \"pytest-cov>=4.0\",\n]\n"
+        )
         tool = detect_coverage_tool(tmp_path)
         assert tool is not None
         assert tool.name == "pytest-cov"
         assert "--cov" in tool.command
 
-    def test_detects_cargo_tarpaulin(self, tmp_path: Path) -> None:
-        (tmp_path / "Cargo.toml").write_text('[package]\nname = "foo"\n')
+    def test_pytest_without_pytest_cov_dep_returns_none(self, tmp_path: Path) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            '[tool.pytest.ini_options]\ntestpaths = ["tests"]\n\n'
+            "[dependency-groups]\ndev = [\n    \"pytest>=9.0\",\n]\n"
+        )
+        assert detect_coverage_tool(tmp_path) is None
+
+    def test_pytest_cov_in_project_dependencies(self, tmp_path: Path) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            "[tool.pytest]\n\n"
+            '[project]\ndependencies = ["pytest-cov"]\n'
+        )
         tool = detect_coverage_tool(tmp_path)
         assert tool is not None
+        assert tool.name == "pytest-cov"
+
+    def test_pytest_cov_in_optional_dependencies(self, tmp_path: Path) -> None:
+        (tmp_path / "pyproject.toml").write_text(
+            "[tool.pytest]\n\n"
+            "[project.optional-dependencies]\ndev = [\"pytest-cov>=5.0\"]\n"
+        )
+        tool = detect_coverage_tool(tmp_path)
+        assert tool is not None
+        assert tool.name == "pytest-cov"
+
+    def test_detects_cargo_tarpaulin(self, tmp_path: Path) -> None:
+        (tmp_path / "Cargo.toml").write_text('[package]\nname = "foo"\n')
+        with patch("agentfox.engine.result_handler.shutil.which", return_value="/usr/bin/cargo-tarpaulin"):
+            tool = detect_coverage_tool(tmp_path)
+        assert tool is not None
         assert tool.name == "cargo-tarpaulin"
+
+    def test_cargo_without_tarpaulin_returns_none(self, tmp_path: Path) -> None:
+        (tmp_path / "Cargo.toml").write_text('[package]\nname = "foo"\n')
+        with patch("agentfox.engine.result_handler.shutil.which", return_value=None):
+            tool = detect_coverage_tool(tmp_path)
+        assert tool is None
 
     def test_detects_go_cover(self, tmp_path: Path) -> None:
         (tmp_path / "go.mod").write_text("module example.com/foo\n")
@@ -46,7 +81,10 @@ class TestDetectCoverageTool:
         assert detect_coverage_tool(tmp_path) is None
 
     def test_python_takes_precedence_over_makefile(self, tmp_path: Path) -> None:
-        (tmp_path / "pyproject.toml").write_text("[tool.pytest]\n")
+        (tmp_path / "pyproject.toml").write_text(
+            "[tool.pytest]\n\n"
+            '[project]\ndependencies = ["pytest-cov"]\n'
+        )
         (tmp_path / "Makefile").write_text("test:\n\techo hi\n")
         tool = detect_coverage_tool(tmp_path)
         assert tool is not None
