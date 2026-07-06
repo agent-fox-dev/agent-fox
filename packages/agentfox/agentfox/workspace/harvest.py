@@ -452,6 +452,17 @@ async def _harvest_under_lock(
         dev_branch,
     )
 
+    # Remove any untracked files left over after the squash merge.
+    # Prior sessions may have created files (tests, configs) that now
+    # exist as committed on the integration branch but also linger as
+    # untracked artifacts in the working tree.  If left behind, they
+    # block the pre-dispatch health check for subsequent tasks.
+    await run_git(
+        ["clean", "-fd", "--exclude", ".agent-fox"],
+        cwd=repo_root,
+        check=False,
+    )
+
     # Push develop to origin inside the lock (121-REQ-1.1, 121-REQ-1.3).
     # The push happens while the merge lock is still held so concurrent
     # sessions cannot interleave their pushes.
