@@ -527,10 +527,22 @@ spec render <spec> [--combined]
 Run schema and cross-file checks.
 
 ```
-spec validate <spec>
+spec validate [SPEC] [--cross]
 ```
 
-**stdout:** `{"valid": true}` or `{"valid": false, "errors": [...]}`.
+| Argument / Option | Type | Description |
+|--------|------|-------------|
+| `SPEC` | string (optional) | Spec name or prefix. When omitted, validates all spec packs in the spec directory. |
+| `--cross` | flag | Run cross-spec interface consistency checks |
+
+**Single-spec mode** (`spec validate <spec>`): validates one spec pack.
+
+**stdout:** `{"valid": true, "errors": []}` or `{"valid": false, "errors": [...]}`.
+
+**Multi-spec mode** (`spec validate`): discovers and validates all spec packs.
+
+**stdout:** `{"valid": true, "specs": {"01_foo": {...}, "02_bar": {...}}}`.
+Each entry under `specs` contains `valid`, `errors`, and optionally `warnings`.
 
 **Exit codes:** `0` if valid, `1` if validation errors found.
 

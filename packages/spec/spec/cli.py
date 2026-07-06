@@ -604,18 +604,20 @@ def _build_integrity_errors(spec_obj: Any) -> list[dict[str, Any]]:
     return errors
 
 
-@main.command("validate")
-@click.argument("spec")
-@click.option("--cross", "cross_check", is_flag=True, default=False, help="Run cross-spec interface consistency checks")
-@click.pass_context
-def validate_cmd(ctx: click.Context, spec: str, cross_check: bool) -> None:
-    """Run schema and cross-file checks."""
+def _validate_single_spec(target: Path) -> dict[str, Any]:
+    """Run full validation on a single spec pack and return a result dict.
+
+    Returns a dict with ``valid``, ``errors``, and optionally ``warnings``
+    keys.  Does not emit output or set exit codes — the caller decides
+    how to present results.
+    """
     import afspec as _afspec
+    from afspec.validation import (
+        _check_group_subtask_count,
+        _check_group_test_spec_refs,
+        _check_subtask_overload,
+    )
 
-    spec_dir: Path = ctx.obj["spec_dir"]
-    target = _resolve_spec(spec_dir, spec)
-
-    # Check for missing artifact files (IO errors) ----------------------------
     required_files = ["prd.md", "requirements.json", "test_spec.json", "tasks.json"]
     io_errors: list[dict[str, Any]] = []
     for filename in required_files:
@@ -630,11 +632,8 @@ def validate_cmd(ctx: click.Context, spec: str, cross_check: bool) -> None:
             )
 
     if io_errors:
-        emit({"valid": False, "errors": io_errors})
-        ctx.exit(1)
-        return
+        return {"valid": False, "errors": io_errors}
 
-    # Load raw JSON for schema validation -------------------------------------
     artifact_data: dict[str, dict[str, Any]] = {}
     for filename in ["requirements.json", "test_spec.json", "tasks.json"]:
         fpath = target / filename
@@ -650,32 +649,18 @@ def validate_cmd(ctx: click.Context, spec: str, cross_check: bool) -> None:
             )
 
     if io_errors:
-        emit({"valid": False, "errors": io_errors})
-        ctx.exit(1)
-        return
+        return {"valid": False, "errors": io_errors}
 
-    # Schema validation (raw JSON against JSON schemas) -----------------------
     schema_errors = _build_schema_errors(target, artifact_data)
 
-    # Load spec object for model-level and cross-file validation --------------
     try:
         spec_obj = _afspec.load_spec(target)
     except Exception:
         session = SpecSession.resume(target)
         spec_obj = session._load_spec_from_artifacts()
 
-    # Model-level schema checks (EARS constraints, task group structure)
     schema_errors.extend(_build_model_schema_errors(spec_obj))
-
-    # Cross-file integrity validation -----------------------------------------
     integrity_errors = _build_integrity_errors(spec_obj)
-
-    # Collect validation warnings (non-blocking sizing diagnostics) -----------
-    from afspec.validation import (
-        _check_group_subtask_count,
-        _check_group_test_spec_refs,
-        _check_subtask_overload,
-    )
 
     warning_dicts: list[dict[str, Any]] = []
     for group in spec_obj.tasks.task_groups:
@@ -686,54 +671,117 @@ def validate_cmd(ctx: click.Context, spec: str, cross_check: bool) -> None:
         for w in _check_subtask_overload(group):
             warning_dicts.append({"category": "warning", "message": w.message, "entity_id": w.entity_id})
 
-    # Cross-spec validation (optional) -----------------------------------------
+    all_errors = schema_errors + integrity_errors
+    result: dict[str, Any] = {
+        "valid": len(all_errors) == 0,
+        "errors": all_errors,
+    }
+    if warning_dicts:
+        result["warnings"] = warning_dicts
+    return result
+
+
+def _run_cross_spec_checks(spec_dir: Path) -> list[dict[str, Any]]:
+    """Run cross-spec interface consistency checks across all specs."""
+    import afspec as _afspec
+    from afspec.discovery import build_dependency_graph, discover_specs
+    from afspec.validation import validate_cross_spec
+
     cross_spec_errors: list[dict[str, Any]] = []
-    if cross_check:
-        from afspec.discovery import build_dependency_graph, discover_specs
-        from afspec.validation import validate_cross_spec
+    try:
+        metas = discover_specs(spec_dir)
+        graph = build_dependency_graph(metas, spec_dir)
 
-        try:
-            metas = discover_specs(spec_dir)
-            graph = build_dependency_graph(metas, spec_dir)
-
-            # Load all specs
-            all_specs: dict[str, _afspec.Spec] = {}
-            for meta in metas:
-                meta_path = Path(meta.dir)
+        all_specs: dict[str, _afspec.Spec] = {}
+        for meta in metas:
+            meta_path = Path(meta.dir)
+            try:
+                loaded = _afspec.load_spec(meta_path)
+            except Exception:
                 try:
-                    loaded = _afspec.load_spec(meta_path)
+                    session = SpecSession.resume(meta_path)
+                    loaded = session._load_spec_from_artifacts()
                 except Exception:
-                    try:
-                        session = SpecSession.resume(meta_path)
-                        loaded = session._load_spec_from_artifacts()
-                    except Exception:
-                        continue
-                all_specs[meta.spec_id] = loaded
+                    continue
+            all_specs[meta.spec_id] = loaded
 
-            for err in validate_cross_spec(all_specs, graph):
-                error_dict: dict[str, Any] = {
+        for err in validate_cross_spec(all_specs, graph):
+            cross_spec_errors.append(
+                {
                     "category": "cross-spec",
                     "check": err.rule,
                     "message": err.message,
                 }
-                cross_spec_errors.append(error_dict)
-        except Exception:
-            pass  # Graceful degradation if discovery fails
+            )
+    except Exception:
+        pass
+    return cross_spec_errors
 
-    # Emit results ------------------------------------------------------------
-    all_errors = schema_errors + integrity_errors + cross_spec_errors
-    if not all_errors:
-        result_data: dict[str, Any] = {"valid": True, "errors": []}
-        if warning_dicts:
-            result_data["warnings"] = warning_dicts
-        emit_ok(**result_data)
+
+@main.command("validate")
+@click.argument("spec", required=False, default=None)
+@click.option("--cross", "cross_check", is_flag=True, default=False, help="Run cross-spec interface consistency checks")
+@click.pass_context
+def validate_cmd(ctx: click.Context, spec: str | None, cross_check: bool) -> None:
+    """Run schema and cross-file checks.
+
+    When SPEC is given, validates that single spec pack.
+    When omitted, discovers and validates all spec packs in the spec directory.
+    """
+    from afspec.discovery import discover_specs
+
+    spec_dir: Path = ctx.obj["spec_dir"]
+
+    # --- Multi-spec mode: no argument given -----------------------------------
+    if spec is None:
+        try:
+            metas = discover_specs(spec_dir)
+        except Exception:
+            metas = []
+
+        if not metas:
+            emit({"valid": False, "errors": [{"category": "io", "message": f"No spec packs found in {spec_dir}"}]})
+            ctx.exit(1)
+            return
+
+        all_valid = True
+        specs_results: dict[str, Any] = {}
+        for meta in metas:
+            target = Path(meta.dir)
+            result = _validate_single_spec(target)
+            specs_results[target.name] = result
+            if not result["valid"]:
+                all_valid = False
+
+        if cross_check:
+            cross_errors = _run_cross_spec_checks(spec_dir)
+            if cross_errors:
+                all_valid = False
+                specs_results["_cross_spec"] = {"valid": False, "errors": cross_errors}
+
+        output: dict[str, Any] = {"valid": all_valid, "specs": specs_results}
+        if all_valid:
+            emit_ok(**output)
+        else:
+            emit(output)
+            ctx.exit(1)
         return
 
-    result_data = {"valid": False, "errors": all_errors}
-    if warning_dicts:
-        result_data["warnings"] = warning_dicts
-    emit(result_data)
-    ctx.exit(1)
+    # --- Single-spec mode: argument given -------------------------------------
+    target = _resolve_spec(spec_dir, spec)
+    result = _validate_single_spec(target)
+
+    if cross_check:
+        cross_errors = _run_cross_spec_checks(spec_dir)
+        result["errors"].extend(cross_errors)
+        if cross_errors:
+            result["valid"] = False
+
+    if result["valid"]:
+        emit_ok(**result)
+    else:
+        emit(result)
+        ctx.exit(1)
 
 
 # ---------------------------------------------------------------------------
