@@ -86,14 +86,14 @@ class TestModelRegistryHaiku:
     """Verify MODEL_REGISTRY contains claude-haiku-4-5 with correct tier and variant."""
 
     def test_haiku_in_registry(self) -> None:
-        """TS-14-4: claude-haiku-4-5 entry has tier=SIMPLE and variant=None."""
+        """TS-14-4: claude-haiku-4-5 entry has tier=SIMPLE and variant='standard'."""
         entry = MODEL_REGISTRY["claude-haiku-4-5"]
         assert entry.tier == ModelTier.SIMPLE
-        assert entry.variant is None
+        assert entry.variant == "standard"
 
 
 # ---------------------------------------------------------------------------
-# TS-14-5: MODEL_REGISTRY contains claude-sonnet-4-6 with tier=STANDARD, variant=None
+# TS-14-5: MODEL_REGISTRY contains claude-sonnet-4-6 with tier=STANDARD, variant='standard'
 # Requirement: 14-REQ-2.2
 # ---------------------------------------------------------------------------
 
@@ -102,10 +102,10 @@ class TestModelRegistrySonnet:
     """Verify MODEL_REGISTRY contains claude-sonnet-4-6 with correct tier and variant."""
 
     def test_sonnet_in_registry(self) -> None:
-        """TS-14-5: claude-sonnet-4-6 entry has tier=STANDARD and variant=None."""
+        """TS-14-5: claude-sonnet-4-6 entry has tier=STANDARD and variant='standard'."""
         entry = MODEL_REGISTRY["claude-sonnet-4-6"]
         assert entry.tier == ModelTier.STANDARD
-        assert entry.variant is None
+        assert entry.variant == "standard"
 
 
 # ---------------------------------------------------------------------------

@@ -155,21 +155,22 @@ class TestResolveModelFallbackLogLevel:
 # ---------------------------------------------------------------------------
 
 
-class TestResolveModelCanonicalVariantUnavailable:
-    """Verify that a canonical variant unavailable for the tier triggers fallback."""
+class TestResolveModelCanonicalVariantAvailable:
+    """Verify that the 'standard' variant resolves directly for all tiers."""
 
-    def test_simple_standard_variant_falls_back(self, caplog: pytest.LogCaptureFixture) -> None:
-        """TS-14-E7: resolve_model('SIMPLE', variant='standard') returns
-        TIER_DEFAULTS['SIMPLE'] and emits a DEBUG log.
+    def test_simple_standard_variant_resolves_directly(self, caplog: pytest.LogCaptureFixture) -> None:
+        """TS-14-E7 (updated): resolve_model('SIMPLE', variant='standard')
+        resolves directly to claude-haiku-4-5 without a fallback log.
         """
         with caplog.at_level(logging.DEBUG, logger="agentfox.core.models"):
             result = resolve_model("SIMPLE", variant="standard")
 
-        assert result == TIER_DEFAULTS["SIMPLE"]
         assert result == "claude-haiku-4-5"
-        assert any(record.levelno == logging.DEBUG for record in caplog.records), (
-            "Expected a DEBUG log for unavailable canonical variant"
-        )
+        fallback_logs = [
+            r for r in caplog.records
+            if "fallback" in r.message.lower() or "falling back" in r.message.lower()
+        ]
+        assert not fallback_logs, "No fallback log expected for valid (SIMPLE, standard) match"
 
 
 # ---------------------------------------------------------------------------

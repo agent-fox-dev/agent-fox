@@ -50,8 +50,8 @@ class ModelEntry:
 VARIANT_ORDER: dict[str, int] = {"fast": 0, "standard": 1, "extended": 2}
 
 MODEL_REGISTRY: dict[str, ModelEntry] = {
-    "claude-haiku-4-5": ModelEntry("claude-haiku-4-5", ModelTier.SIMPLE),
-    "claude-sonnet-4-6": ModelEntry("claude-sonnet-4-6", ModelTier.STANDARD),
+    "claude-haiku-4-5": ModelEntry("claude-haiku-4-5", ModelTier.SIMPLE, variant="standard"),
+    "claude-sonnet-4-6": ModelEntry("claude-sonnet-4-6", ModelTier.STANDARD, variant="standard"),
     "claude-opus-4-6": ModelEntry("claude-opus-4-6", ModelTier.ADVANCED, variant="standard"),
     "claude-opus-4-6[1m]": ModelEntry("claude-opus-4-6[1m]", ModelTier.ADVANCED, variant="extended"),
 }
