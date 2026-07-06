@@ -491,7 +491,7 @@ def _migrate_v11(conn: duckdb.DuckDBPyConnection) -> None:
     """)
     # Extend session_outcomes with columns from the legacy SessionRecord.
     # Uses ADD COLUMN IF NOT EXISTS for idempotency on fresh databases that
-    # already have the updated _BASE_SCHEMA_DDL. Skips if the table does not
+    # already have the updated _CURRENT_SCHEMA_DDL. Skips if the table does not
     # exist (e.g., during testing with minimal schema fixtures).
     tables = {
         r[0]
@@ -1046,10 +1046,13 @@ MIGRATIONS: list[Migration] = [
 
 
 # ---------------------------------------------------------------------------
-# Base schema DDL for fresh databases (used by run_migrations)
+# Current schema DDL — the full set of tables that survive after all
+# migrations.  Used by run_migrations() to create fresh databases in a
+# single step, skipping the create-then-drop churn of incremental
+# migrations.  Existing databases are upgraded via apply_pending_migrations().
 # ---------------------------------------------------------------------------
 
-_BASE_SCHEMA_DDL = """
+_CURRENT_SCHEMA_DDL = """
 CREATE TABLE IF NOT EXISTS schema_version (
     version     INTEGER PRIMARY KEY,
     applied_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -1076,6 +1079,63 @@ CREATE TABLE IF NOT EXISTS session_outcomes (
     error_message       TEXT,
     is_transport_error  BOOLEAN DEFAULT FALSE
 );
+
+CREATE TABLE IF NOT EXISTS tool_calls (
+    id         UUID PRIMARY KEY,
+    session_id TEXT,
+    node_id    TEXT,
+    tool_name  TEXT,
+    called_at  TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS tool_errors (
+    id         UUID PRIMARY KEY,
+    session_id TEXT,
+    node_id    TEXT,
+    tool_name  TEXT,
+    failed_at  TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS review_findings (
+    id              UUID PRIMARY KEY,
+    severity        TEXT NOT NULL,
+    description     TEXT NOT NULL,
+    requirement_ref TEXT,
+    spec_name       TEXT NOT NULL,
+    task_group      TEXT NOT NULL,
+    session_id      TEXT NOT NULL,
+    superseded_by   TEXT,
+    created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    category        TEXT
+);
+
+CREATE TABLE IF NOT EXISTS drift_findings (
+    id              UUID PRIMARY KEY,
+    severity        VARCHAR NOT NULL,
+    description     VARCHAR NOT NULL,
+    spec_ref        VARCHAR,
+    artifact_ref    VARCHAR,
+    spec_name       VARCHAR NOT NULL,
+    task_group      VARCHAR NOT NULL,
+    session_id      VARCHAR NOT NULL,
+    superseded_by   TEXT,
+    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS audit_events (
+    id          VARCHAR PRIMARY KEY,
+    timestamp   TIMESTAMP NOT NULL,
+    run_id      VARCHAR NOT NULL,
+    event_type  VARCHAR NOT NULL,
+    node_id     VARCHAR,
+    session_id  VARCHAR,
+    archetype   VARCHAR,
+    severity    VARCHAR NOT NULL,
+    payload     JSON NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_audit_run_id ON audit_events (run_id);
+CREATE INDEX IF NOT EXISTS idx_audit_event_type ON audit_events (event_type);
 
 CREATE TABLE IF NOT EXISTS plan_nodes (
     id              VARCHAR PRIMARY KEY,
@@ -1124,21 +1184,15 @@ CREATE TABLE IF NOT EXISTS runs (
     total_sessions      INTEGER NOT NULL DEFAULT 0
 );
 
-CREATE TABLE IF NOT EXISTS tool_calls (
-    id         UUID PRIMARY KEY,
-    session_id TEXT,
-    node_id    TEXT,
-    tool_name  TEXT,
-    called_at  TIMESTAMP
+CREATE TABLE IF NOT EXISTS finding_injections (
+    id          VARCHAR PRIMARY KEY,
+    finding_id  VARCHAR NOT NULL,
+    session_id  VARCHAR NOT NULL,
+    injected_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS tool_errors (
-    id         UUID PRIMARY KEY,
-    session_id TEXT,
-    node_id    TEXT,
-    tool_name  TEXT,
-    failed_at  TIMESTAMP
-);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_finding_injections_dedup
+    ON finding_injections (finding_id, session_id);
 
 CREATE TABLE IF NOT EXISTS session_summaries (
     id          UUID PRIMARY KEY,
@@ -1151,28 +1205,29 @@ CREATE TABLE IF NOT EXISTS session_summaries (
     summary     TEXT NOT NULL,
     created_at  TIMESTAMP NOT NULL
 );
-
-INSERT INTO schema_version (version, description)
-    SELECT 1, 'initial schema'
-    WHERE NOT EXISTS (SELECT 1 FROM schema_version WHERE version = 1);
 """
 
 
 def run_migrations(conn: duckdb.DuckDBPyConnection) -> None:
-    """Initialize base schema and apply all pending migrations.
+    """Initialize schema and apply any pending migrations.
 
-    Convenience function for tests and the onboarding pipeline that need a
-    fully initialized database without going through the full
-    ``KnowledgeDB.open()`` path (which loads VSS and creates the embedding
-    table with a configurable dimension).
+    For fresh databases (no ``schema_version`` table), creates the full
+    current schema in one step and stamps the latest migration version,
+    avoiding the overhead of running every historical migration.
 
-    Creates all base tables (including ``memory_facts`` with the
-    ``keywords`` column) and runs every registered migration.
+    For existing databases, applies only the pending migrations needed
+    to reach the latest version.
 
     Args:
         conn: An open DuckDB connection (in-memory or file-backed).
     """
-    conn.execute(_BASE_SCHEMA_DDL)
+    current = get_current_version(conn)
+    if current == 0:
+        conn.execute(_CURRENT_SCHEMA_DDL)
+        max_version = MIGRATIONS[-1].version
+        record_version(conn, max_version, "fresh install (current schema)")
+        logger.info("Created fresh schema at version %d", max_version)
+        return
     apply_pending_migrations(conn)
 
 

@@ -13,7 +13,7 @@ import duckdb  # noqa: F401
 
 from agentfox.core.config import KnowledgeConfig
 from agentfox.core.errors import KnowledgeStoreError  # noqa: F401
-from agentfox.knowledge.migrations import apply_pending_migrations
+from agentfox.knowledge.migrations import run_migrations
 
 logger = logging.getLogger("agentfox.knowledge.db")
 
@@ -49,8 +49,7 @@ class KnowledgeDB:
             self._conn = duckdb.connect(self._config.store_path, read_only=self._read_only)
             if not self._read_only:
                 self._setup_vss()
-                self._initialize_schema()
-                apply_pending_migrations(self._conn)
+                run_migrations(self._conn)
         except KnowledgeStoreError:
             raise
         except Exception as exc:
@@ -83,61 +82,6 @@ class KnowledgeDB:
                 self._conn.execute("INSTALL vss; LOAD vss;")
             except Exception as exc:
                 logger.warning("VSS extension unavailable: %s", exc)
-
-    def _initialize_schema(self) -> None:
-        """Create all tables if schema_version does not exist.
-
-        Uses IF NOT EXISTS on all CREATE TABLE statements for
-        idempotency. Records schema version 1 only if no version
-        row exists yet.
-
-        Note: Tables like memory_facts, memory_embeddings, and
-        fact_causes were removed in spec 116 (migration v18).
-        They are created by earlier migrations and dropped by v18.
-        """
-        assert self._conn is not None
-
-        ddl = """
-        CREATE TABLE IF NOT EXISTS schema_version (
-            version     INTEGER PRIMARY KEY,
-            applied_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            description TEXT
-        );
-
-        CREATE TABLE IF NOT EXISTS session_outcomes (
-            id            UUID PRIMARY KEY,
-            spec_name     TEXT,
-            task_group    TEXT,
-            node_id       TEXT,
-            touched_path  TEXT,
-            status        TEXT,
-            input_tokens  INTEGER,
-            output_tokens INTEGER,
-            duration_ms   INTEGER,
-            created_at    TIMESTAMP
-        );
-
-        CREATE TABLE IF NOT EXISTS tool_calls (
-            id         UUID PRIMARY KEY,
-            session_id TEXT,
-            node_id    TEXT,
-            tool_name  TEXT,
-            called_at  TIMESTAMP
-        );
-
-        CREATE TABLE IF NOT EXISTS tool_errors (
-            id        UUID PRIMARY KEY,
-            session_id TEXT,
-            node_id    TEXT,
-            tool_name  TEXT,
-            failed_at  TIMESTAMP
-        );
-
-        INSERT INTO schema_version (version, description)
-            SELECT 1, 'initial schema'
-            WHERE NOT EXISTS (SELECT 1 FROM schema_version WHERE version = 1);
-        """
-        self._conn.execute(ddl)
 
     def __enter__(self) -> KnowledgeDB:
         self.open()

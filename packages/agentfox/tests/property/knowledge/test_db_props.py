@@ -48,7 +48,7 @@ class TestSchemaInitializationIdempotency:
     @given(n=st.integers(min_value=1, max_value=5))
     @settings(max_examples=5, deadline=None)
     def test_n_open_close_cycles_produce_same_state(self, n: int, tmp_path_factory: object) -> None:
-        """Opening the database N times yields exactly 2 version rows and 9 tables."""
+        """Opening the database N times yields exactly 1 version row and 13 tables."""
         # Use a unique path per hypothesis example
         import tempfile
 
@@ -67,7 +67,7 @@ class TestSchemaInitializationIdempotency:
 
             version_count = db.connection.execute("SELECT COUNT(*) FROM schema_version").fetchone()
             assert version_count is not None
-            assert version_count[0] == 26
+            assert version_count[0] == 1
 
             tables = {r[0] for r in db.connection.execute("SHOW TABLES").fetchall()}
             assert tables == EXPECTED_TABLES

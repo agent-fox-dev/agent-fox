@@ -69,18 +69,16 @@ class TestSchemaVersionRecordedOnCreation:
     """
 
     def test_version_1_recorded(self, knowledge_config: KnowledgeConfig) -> None:
-        """Verify initial schema creation records version 1 and migrations run."""
+        """Verify fresh install stamps the current schema version."""
         db = KnowledgeDB(knowledge_config)
         db.open()
         rows = db.connection.execute(
             "SELECT version, applied_at, description FROM schema_version ORDER BY version"
         ).fetchall()
-        assert len(rows) == 26
-        assert rows[0][0] == 1
+        assert len(rows) == 1
+        assert rows[0][0] == 26
         assert rows[0][1] is not None  # applied_at is a valid timestamp
         assert len(rows[0][2]) > 0  # description is non-empty
-        for i, expected_version in enumerate(range(1, 27)):
-            assert rows[i][0] == expected_version
         db.close()
 
 
@@ -136,7 +134,7 @@ class TestSchemaInitializationIdempotent:
         db2.open()
         count = db2.connection.execute("SELECT COUNT(*) FROM schema_version").fetchone()
         assert count is not None
-        assert count[0] == 26
+        assert count[0] == 1
         db2.close()
 
 

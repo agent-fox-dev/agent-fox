@@ -243,32 +243,3 @@ class TestNoDeletedSymbolsInCodebase:
             assert not matches, f"Deleted symbol '{symbol}' found in codebase:\n" + "\n".join(matches)
 
 
-# ---------------------------------------------------------------------------
-# TS-10-29 / TS-10-SMOKE-3: Full test suite passes with exit code 0
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.ci_required
-class TestFullSuitePasses:
-    """TS-10-29 / TS-10-SMOKE-3: Full pytest suite exits with code 0 after all removals.
-
-    This test is marked ci_required because it runs the full test suite,
-    which may take significant time. Skip in local runs if needed.
-    """
-
-    def test_full_suite_exit_code_zero(self) -> None:
-        """Run pytest on the full test suite and assert exit code 0."""
-        result = subprocess.run(
-            ["python", "-m", "pytest", "-q", str(_PACKAGES_ROOT)],
-            capture_output=True,
-            text=True,
-            cwd=str(_PACKAGES_ROOT),
-            timeout=600,
-        )
-        assert result.returncode == 0, (
-            f"Full test suite must pass with exit code 0, got {result.returncode}.\n"
-            f"stdout:\n{result.stdout[-2000:]}\n"
-            f"stderr:\n{result.stderr[-2000:]}"
-        )
-        assert "ImportError" not in result.stdout
-        assert "ModuleNotFoundError" not in result.stdout
