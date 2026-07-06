@@ -171,6 +171,51 @@ class TestSquashCommitMessage:
         assert "Date:" not in full_msg
 
 
+    @pytest.mark.asyncio
+    async def test_squash_skips_housekeeping_tip(
+        self,
+        tmp_worktree_repo: Path,
+    ) -> None:
+        """When the tip commit is an orchestrator housekeeping commit,
+        the squash message should use the last substantive commit instead."""
+        ws = await create_worktree(tmp_worktree_repo, "test_spec", 1, base_branch="develop")
+        add_commit_to_branch(
+            ws.path,
+            "impl.py",
+            "implementation\n",
+            message="feat: implement the feature\n\nDetailed description of the changes\nmade in this commit.",
+        )
+        add_commit_to_branch(
+            ws.path,
+            "tasks.json",
+            '{"done": true}\n',
+            message="chore: mark task group 1 subtasks done",
+        )
+
+        await harvest(tmp_worktree_repo, ws, dev_branch="develop")
+
+        result = subprocess.run(
+            ["git", "log", "-1", "--format=%s", "develop"],
+            cwd=tmp_worktree_repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        subject = result.stdout.strip()
+        assert subject == "feat: implement the feature"
+
+        body_result = subprocess.run(
+            ["git", "log", "-1", "--format=%b", "develop"],
+            cwd=tmp_worktree_repo,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        body = body_result.stdout.strip()
+        assert "Detailed description" in body
+        assert "- chore: mark task group 1 subtasks done" in body
+
+
 class TestHarvesterDivergedSquashMerge:
     """TS-03-11: Harvester squash-merges diverged branches."""
 

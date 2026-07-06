@@ -297,6 +297,12 @@ async def _clean_conflicting_untracked(
                 logger.debug("Could not remove untracked file %s", full)
 
 
+_HOUSEKEEPING_PREFIXES = (
+    "chore: mark task group ",
+    "fix: auto-commit uncommitted changes",
+)
+
+
 async def _build_squash_message(
     repo_root: Path,
     feature_branch: str,
@@ -304,38 +310,46 @@ async def _build_squash_message(
 ) -> str:
     """Build a clean commit message for a squash merge.
 
-    Uses the tip commit's full message as the commit message.  For
-    multi-commit branches, appends the earlier commit subjects as a
-    bullet list so they are not lost.
+    Uses the last substantive (non-housekeeping) commit's full message
+    as the primary message.  For multi-commit branches, appends the
+    other commit subjects as a bullet list so they are not lost.
     """
-    _, tip_msg, _ = await run_git(
-        ["log", "-1", "--format=%B", feature_branch],
+    _, all_messages_raw, _ = await run_git(
+        ["log", "--format=%B%x00", f"{dev_branch}..{feature_branch}"],
         cwd=repo_root,
         check=False,
     )
-    msg = tip_msg.strip() if tip_msg else ""
-    if not msg:
+    if not all_messages_raw or not all_messages_raw.strip():
         return f"Squash merge {feature_branch}"
 
-    _, count_str, _ = await run_git(
-        ["rev-list", "--count", f"{dev_branch}..{feature_branch}"],
-        cwd=repo_root,
-        check=False,
-    )
-    count = int(count_str.strip()) if count_str and count_str.strip().isdigit() else 1
+    all_messages = [m.strip() for m in all_messages_raw.split("\x00") if m.strip()]
 
-    if count > 1:
+    primary_msg = ""
+    for m in all_messages:
+        subject = m.splitlines()[0]
+        if not any(subject.startswith(p) for p in _HOUSEKEEPING_PREFIXES):
+            primary_msg = m
+            break
+    if not primary_msg:
+        primary_msg = all_messages[0]
+
+    if len(all_messages) > 1:
         _, all_subjects, _ = await run_git(
             ["log", "--format=- %s", f"{dev_branch}..{feature_branch}"],
             cwd=repo_root,
             check=False,
         )
         if all_subjects:
-            other_lines = all_subjects.strip().splitlines()[1:]
+            primary_subject = primary_msg.splitlines()[0]
+            other_lines = [
+                line
+                for line in all_subjects.strip().splitlines()
+                if line.lstrip("- ") != primary_subject
+            ]
             if other_lines:
-                msg += "\n\n" + "\n".join(other_lines)
+                primary_msg += "\n\n" + "\n".join(other_lines)
 
-    return msg
+    return primary_msg
 
 
 async def _harvest_under_lock(
