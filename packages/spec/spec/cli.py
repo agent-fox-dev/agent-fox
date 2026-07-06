@@ -606,8 +606,9 @@ def _build_integrity_errors(spec_obj: Any) -> list[dict[str, Any]]:
 
 @main.command("validate")
 @click.argument("spec")
+@click.option("--cross", "cross_check", is_flag=True, default=False, help="Run cross-spec interface consistency checks")
 @click.pass_context
-def validate_cmd(ctx: click.Context, spec: str) -> None:
+def validate_cmd(ctx: click.Context, spec: str, cross_check: bool) -> None:
     """Run schema and cross-file checks."""
     import afspec as _afspec
 
@@ -685,8 +686,42 @@ def validate_cmd(ctx: click.Context, spec: str) -> None:
         for w in _check_subtask_overload(group):
             warning_dicts.append({"category": "warning", "message": w.message, "entity_id": w.entity_id})
 
+    # Cross-spec validation (optional) -----------------------------------------
+    cross_spec_errors: list[dict[str, Any]] = []
+    if cross_check:
+        from afspec.discovery import build_dependency_graph, discover_specs
+        from afspec.validation import validate_cross_spec
+
+        try:
+            metas = discover_specs(spec_dir)
+            graph = build_dependency_graph(metas, spec_dir)
+
+            # Load all specs
+            all_specs: dict[str, _afspec.Spec] = {}
+            for meta in metas:
+                meta_path = Path(meta.dir)
+                try:
+                    loaded = _afspec.load_spec(meta_path)
+                except Exception:
+                    try:
+                        session = SpecSession.resume(meta_path)
+                        loaded = session._load_spec_from_artifacts()
+                    except Exception:
+                        continue
+                all_specs[meta.spec_id] = loaded
+
+            for err in validate_cross_spec(all_specs, graph):
+                error_dict: dict[str, Any] = {
+                    "category": "cross-spec",
+                    "check": err.rule,
+                    "message": err.message,
+                }
+                cross_spec_errors.append(error_dict)
+        except Exception:
+            pass  # Graceful degradation if discovery fails
+
     # Emit results ------------------------------------------------------------
-    all_errors = schema_errors + integrity_errors
+    all_errors = schema_errors + integrity_errors + cross_spec_errors
     if not all_errors:
         result_data: dict[str, Any] = {"valid": True, "errors": []}
         if warning_dicts:

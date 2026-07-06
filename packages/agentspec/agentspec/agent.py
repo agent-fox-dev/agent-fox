@@ -203,6 +203,7 @@ class SpecAgent:
         *,
         existing_artifacts: dict[str, Any] | None = None,
         on_artifact: Any = None,
+        dependent_interfaces: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """Generate requirements, test_spec, and tasks content.
 
@@ -223,6 +224,8 @@ class SpecAgent:
                 ``(artifact_name, model)`` after each artifact is
                 generated and validated.  Used for incremental disk
                 writes.
+            dependent_interfaces: Optional list of interface summaries
+                from upstream dependency specs.
 
         Returns:
             A dict mapping artifact name (``"requirements"``,
@@ -247,7 +250,13 @@ class SpecAgent:
                 continue
 
             prior = self._prior_artifacts_context(results) if results else None
-            user_msg = generation_user_prompt(prd_text, artifact_name, prior_artifacts=prior, spec_id=spec_id)
+            user_msg = generation_user_prompt(
+                prd_text,
+                artifact_name,
+                prior_artifacts=prior,
+                spec_id=spec_id,
+                dependent_interfaces=dependent_interfaces,
+            )
             messages: list[dict[str, str]] = [
                 {"role": "user", "content": user_msg},
             ]

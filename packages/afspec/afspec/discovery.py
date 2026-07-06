@@ -12,12 +12,12 @@ import json
 import re
 from collections import defaultdict, deque
 from pathlib import Path
-from typing import Union
+from typing import Any, Union
 
 import yaml
 
 from afspec.exceptions import LoadError, SpecError
-from afspec.models import DependencyEdge, PRDFrontmatter, SpecMeta
+from afspec.models import DependencyEdge, PRDFrontmatter, Requirements, SpecMeta
 
 # Pattern for spec folder names: one or more digits, underscore, then
 # a lowercase letter followed by lowercase letters/digits/underscores.
@@ -249,3 +249,79 @@ def _check_cycles(spec_ids: list[str], edges: list[DependencyEdge]) -> None:
             if cycle is not None:
                 cycle_str = " -> ".join(cycle)
                 raise SpecError(f"Dependency cycle detected: {cycle_str}")
+
+
+def load_dependent_interfaces(
+    spec_id: str,
+    spec_root: Path,
+) -> list[dict[str, Any]]:
+    """Load interface summaries from upstream dependency specs.
+
+    Discovers all specs under *spec_root*, builds the dependency graph,
+    and for each spec that *spec_id* depends on, extracts the
+    introduction, glossary, external APIs, and interface symbols from
+    the upstream ``requirements.json``.
+
+    Returns a list of dicts, one per upstream spec, each containing:
+    ``spec_id``, ``spec_name``, ``introduction``, ``glossary``,
+    ``external_apis``, and ``interface_symbols``.
+
+    Returns ``[]`` on any failure (graceful degradation).
+    """
+    try:
+        metas = discover_specs(spec_root)
+        graph = build_dependency_graph(metas, spec_root)
+        upstream_edges = graph.dependencies(spec_id)
+
+        # Deduplicate upstream spec_ids
+        seen_upstream: set[str] = set()
+        unique_upstream: list[str] = []
+        for edge in upstream_edges:
+            if edge.from_spec not in seen_upstream:
+                seen_upstream.add(edge.from_spec)
+                unique_upstream.append(edge.from_spec)
+
+        # Build a lookup from spec_id to SpecMeta
+        meta_by_id = {m.spec_id: m for m in metas}
+
+        results: list[dict[str, Any]] = []
+        for upstream_id in unique_upstream:
+            meta = meta_by_id.get(upstream_id)
+            if meta is None:
+                continue
+
+            req_path = Path(meta.dir) / "requirements.json"
+            if not req_path.is_file():
+                continue
+
+            try:
+                reqs = Requirements.model_validate_json(req_path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+
+            # Extract interface symbols from criteria
+            interface_symbols: list[dict[str, Any]] = []
+            for req in reqs.requirements:
+                for criterion in req.acceptance_criteria + req.edge_cases:
+                    interface_symbols.append(
+                        {
+                            "criterion_id": criterion.id,
+                            "action": criterion.action,
+                            "return_contract": criterion.return_contract or "",
+                        }
+                    )
+
+            results.append(
+                {
+                    "spec_id": upstream_id,
+                    "spec_name": reqs.spec_name,
+                    "introduction": reqs.introduction,
+                    "glossary": dict(reqs.glossary),
+                    "external_apis": [api.model_dump() for api in reqs.external_apis],
+                    "interface_symbols": interface_symbols,
+                }
+            )
+
+        return results
+    except Exception:
+        return []

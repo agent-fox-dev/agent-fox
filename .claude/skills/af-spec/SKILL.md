@@ -378,6 +378,42 @@ to validation.
 
 ---
 
+## Step 5b: Verify Interface Consistency
+
+If this spec has cross-spec dependencies (recorded in Step 2), verify that the
+generated artifacts are consistent with the upstream specs' interfaces.
+
+For each dependency listed in the PRD's `## Dependencies` section:
+
+1. **Read the upstream spec's `requirements.json`** — specifically its
+   `external_apis`, `glossary`, and requirement `action`/`return_contract`
+   fields.
+
+2. **Cross-check function signatures:** Every function name, type name, or
+   import path that this spec references and the upstream spec defines must
+   match exactly — same parameters, same return type, same import path. If the
+   generated artifacts assume a different signature, fix them now.
+
+3. **Cross-check glossary terms:** If both specs define the same glossary term,
+   the definitions must be identical. If they differ, align to the upstream
+   spec's definition (it was authored first).
+
+4. **Cross-check return contracts:** If this spec's criteria reference functions
+   or types from the upstream spec, verify that the `return_contract` values are
+   consistent with the upstream spec's definitions.
+
+5. **Run cross-spec validation** to catch any remaining inconsistencies:
+   ```bash
+   spec validate <spec_dir_name> --cross
+   ```
+
+If mismatches are found, edit the JSON files directly and re-run
+`spec validate --cross` until no cross-spec errors remain.
+
+**Skip this step** if this spec has no cross-spec dependencies.
+
+---
+
 ## Step 6: Create the Architecture Document (Optional)
 
 If the spec involves complex design decisions, multiple modules, or non-trivial
@@ -452,6 +488,9 @@ verify quality. Check:
 - Subtask details and verification checks use language-appropriate constructs,
   file paths, and tooling throughout (see post-generation language audit in
   Step 5)
+- **Cross-spec interfaces consistent:** If this spec depends on other specs,
+  function signatures, type names, glossary definitions, and return contracts
+  match the upstream specs exactly. Run `spec validate --cross` to verify.
 - **Multi-spec integration:** If this PRD produces multiple specs with
   dependency edges, at least one spec (typically the last in the chain) must
   include an execution path that traces the **full end-to-end user flow** —

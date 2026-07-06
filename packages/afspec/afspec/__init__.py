@@ -68,6 +68,7 @@ from afspec.validation import (
     ValidationWarning,
     validate,
     validate_cross_file,
+    validate_cross_spec,
     validate_schema,
 )
 
@@ -114,6 +115,7 @@ __all__ = [
     "validate",
     "validate_schema",
     "validate_cross_file",
+    "validate_cross_spec",
     "transition",
     "transition_subtask",
     "complete_subtask_states",

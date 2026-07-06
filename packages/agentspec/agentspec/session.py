@@ -390,6 +390,15 @@ class SpecSession:
         prd_text = (self._spec_dir / self._prd_path).read_text()
         spec_id, spec_name = _parse_spec_dir_name(self._spec_dir.name)
 
+        dependent_interfaces: list[dict[str, Any]] | None = None
+        try:
+            from afspec.discovery import load_dependent_interfaces
+
+            spec_root = self._spec_dir.parent
+            dependent_interfaces = load_dependent_interfaces(spec_id, spec_root) or None
+        except Exception:
+            pass
+
         agent = _create_agent()
 
         # Detect existing artifacts for resume (03-REQ-6.E2)
@@ -416,6 +425,7 @@ class SpecSession:
                 spec_name,
                 existing_artifacts=existing if existing else None,
                 on_artifact=_write_artifact,
+                dependent_interfaces=dependent_interfaces,
             )
         except AgentError as exc:
             self._last_error = _error_to_dict(exc)

@@ -9,6 +9,7 @@ from typing import Any
 import jsonschema
 from pydantic import BaseModel
 
+from afspec.discovery import DependencyGraph
 from afspec.models import (
     EARSPattern,
     Spec,
@@ -627,6 +628,112 @@ def validate_cross_file(spec: Spec) -> list[ValidationError]:
                 )
             )
         seen_pairs.add(pair)
+
+    return errors
+
+
+# ---------------------------------------------------------------------------
+# Cross-spec validation
+# ---------------------------------------------------------------------------
+
+
+def validate_cross_spec(
+    specs: dict[str, Spec],
+    graph: DependencyGraph,
+) -> list[ValidationError]:
+    """Check cross-spec interface consistency rules.
+
+    Validates three rules across all specs in the dependency graph:
+
+    1. **cross-spec-1**: Duplicate external API symbol with different
+       signature across any two specs.
+    2. **cross-spec-2**: Glossary term conflict — same term defined with
+       different definitions across specs.
+    3. **cross-spec-3**: Dependency on unknown spec — a task dependency
+       references a spec not present in *specs*.
+
+    Args:
+        specs: Mapping of spec_id to loaded ``Spec`` objects.
+        graph: The dependency graph for the spec root.
+
+    Returns:
+        A list of ``ValidationError`` values for all violations found.
+    """
+    errors: list[ValidationError] = []
+
+    # ------------------------------------------------------------------
+    # Check 1 (cross-spec-1): Duplicate external API symbol with
+    # different signature.
+    # ------------------------------------------------------------------
+    # Key: (name, import_path) -> (signature, first_spec_id)
+    symbol_registry: dict[tuple[str, str], tuple[str, str]] = {}
+    for spec_id, spec in specs.items():
+        for api in spec.requirements.external_apis:
+            for sym in api.symbols:
+                key = (sym.name, sym.import_path)
+                if key in symbol_registry:
+                    existing_sig, existing_spec = symbol_registry[key]
+                    if sym.signature != existing_sig:
+                        errors.append(
+                            ValidationError(
+                                file="requirements.json",
+                                path=f"external_apis.{sym.name}",
+                                message=(
+                                    f"External API symbol '{sym.name}' (import: "
+                                    f"'{sym.import_path}') has different signatures "
+                                    f"across specs: spec {existing_spec} defines "
+                                    f"'{existing_sig}', spec {spec_id} defines "
+                                    f"'{sym.signature}'"
+                                ),
+                                rule="cross-spec-1",
+                            )
+                        )
+                else:
+                    symbol_registry[key] = (sym.signature, spec_id)
+
+    # ------------------------------------------------------------------
+    # Check 2 (cross-spec-2): Glossary term conflict.
+    # ------------------------------------------------------------------
+    # Collect all (term, definition, spec_id) tuples, group by term.
+    term_definitions: dict[str, list[tuple[str, str]]] = {}
+    for spec_id, spec in specs.items():
+        for term, definition in spec.requirements.glossary.items():
+            if term not in term_definitions:
+                term_definitions[term] = []
+            term_definitions[term].append((definition, spec_id))
+
+    for term, defs in term_definitions.items():
+        # Deduplicate definitions for comparison
+        unique_defs = {d for d, _ in defs}
+        if len(unique_defs) > 1:
+            spec_list = ", ".join(sorted({sid for _, sid in defs}))
+            errors.append(
+                ValidationError(
+                    file="requirements.json",
+                    path=f"glossary.{term}",
+                    message=(f"Glossary term '{term}' has conflicting definitions across specs: {spec_list}"),
+                    rule="cross-spec-2",
+                )
+            )
+
+    # ------------------------------------------------------------------
+    # Check 3 (cross-spec-3): Dependency on unknown spec.
+    # ------------------------------------------------------------------
+    for spec_id, spec in specs.items():
+        for dep in spec.tasks.dependencies:
+            if dep.depends_on_spec and dep.depends_on_spec not in specs:
+                errors.append(
+                    ValidationError(
+                        file="tasks.json",
+                        path=f"dependencies.{dep.depends_on_spec}",
+                        message=(
+                            f"Spec {spec_id} depends on spec "
+                            f"'{dep.depends_on_spec}' which is not present "
+                            f"in the loaded specs"
+                        ),
+                        rule="cross-spec-3",
+                    )
+                )
 
     return errors
 

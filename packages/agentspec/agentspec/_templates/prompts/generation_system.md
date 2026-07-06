@@ -57,3 +57,12 @@ language-agnostic pseudocode and flag the ambiguity in a task group note.
 - Ensure all cross-references (requirement IDs, test IDs) are consistent across artifacts.
 - Write clear, specific, and testable requirements.
 - Each artifact must be self-contained and complete.
+
+## Cross-spec interface consistency
+
+When a `## Dependent Spec Interfaces` section is present in the user message,
+you MUST use the exact function names, type names, parameter signatures, return
+types, and field names from the upstream specs. Do not rename, re-type, or
+re-parameterize symbols defined by upstream specs. If this spec needs a function
+that does not appear in the upstream spec's interface, note the gap explicitly
+in the requirement's `action` field rather than assuming it exists.

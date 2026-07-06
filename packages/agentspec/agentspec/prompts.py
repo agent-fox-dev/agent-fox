@@ -63,6 +63,47 @@ def _format_prior_artifacts(prior_artifacts: dict[str, Any] | None) -> str:
     return "\n".join(parts)
 
 
+def _format_dependent_interfaces(dependent_interfaces: list[dict[str, Any]] | None) -> str:
+    """Format dependent spec interfaces into a markdown section."""
+    if not dependent_interfaces:
+        return ""
+
+    parts: list[str] = [
+        "## Dependent Spec Interfaces\n",
+        "The following interfaces are defined by upstream specs that this spec depends on. "
+        "Use the exact names, types, and signatures below.\n",
+    ]
+
+    for iface in dependent_interfaces:
+        parts.append(f"### Spec {iface['spec_id']} — {iface.get('spec_name', '')}\n")
+
+        glossary = iface.get("glossary", {})
+        if glossary:
+            parts.append("**Glossary:**\n")
+            for term, definition in glossary.items():
+                parts.append(f"- **{term}**: {definition}")
+            parts.append("")
+
+        external_apis = iface.get("external_apis", [])
+        if external_apis:
+            parts.append("**External APIs:**\n")
+            parts.append(f"```json\n{json.dumps(external_apis, indent=2)}\n```\n")
+
+        symbols = iface.get("interface_symbols", [])
+        if symbols:
+            parts.append("**Interface Symbols:**\n")
+            parts.append("| Criterion ID | Action | Return Contract |")
+            parts.append("|---|---|---|")
+            for sym in symbols:
+                cid = sym.get("criterion_id", "")
+                action = sym.get("action", "").replace("\n", " ")
+                rc = sym.get("return_contract", "").replace("\n", " ")
+                parts.append(f"| {cid} | {action} | {rc} |")
+            parts.append("")
+
+    return "\n".join(parts)
+
+
 _LANGUAGE_MARKERS: list[tuple[str, str, str]] = [
     ("go.mod", "Go", "go test ./... -count=1, go vet ./..."),
     ("Cargo.toml", "Rust", "cargo test, cargo clippy"),
@@ -192,12 +233,15 @@ def generation_user_prompt(
     *,
     spec_id: str = "",
     project_dir: Path | None = None,
+    dependent_interfaces: list[dict[str, Any]] | None = None,
 ) -> str:
     """Return the user message for generating one artifact.
 
     *prior_artifacts* is a dict of already-generated artifacts
     (e.g., ``{"requirements": {...}}``) to provide as context.
     *spec_id* is the spec identifier used as prefix in all IDs.
+    *dependent_interfaces* is a list of interface summaries from
+    upstream dependency specs.
 
     Raises ``ValueError`` if *prd_text* is empty.
     """
@@ -213,6 +257,7 @@ def generation_user_prompt(
 
     prior_artifacts_block = _format_prior_artifacts(prior_artifacts)
     project_context_block = _format_project_context(project_dir)
+    dependent_interfaces_block = _format_dependent_interfaces(dependent_interfaces)
 
     additional_instructions = ""
     try:
@@ -230,6 +275,7 @@ def generation_user_prompt(
         spec_id_block=spec_id_block,
         project_context_block=project_context_block,
         prd_text=prd_text,
+        dependent_interfaces_block=dependent_interfaces_block,
         prior_artifacts_block=prior_artifacts_block,
         additional_instructions=additional_instructions,
     )
