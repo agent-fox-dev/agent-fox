@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -130,6 +131,26 @@ def extract_subtask_descriptions(spec_dir: Path, task_group: int) -> list[str]:
                     found_first = True
 
     return descriptions
+
+
+_DESIGN_FILE_REF = re.compile(
+    r"\*\*`([a-zA-Z0-9_/.\-]+\.\w+)`\*\*\s*\(modified\)",
+)
+
+
+def _extract_spec_file_footprint(spec_dir: Path) -> list[str]:
+    """Extract the list of files a spec modifies from its architecture.md.
+
+    Returns file paths marked ``(modified)`` in the spec's
+    ``architecture.md``.  Returns an empty list when the file is
+    missing, unreadable, or contains no ``(modified)`` references.
+    """
+    target = spec_dir / "architecture.md"
+    try:
+        content = target.read_text(encoding="utf-8")
+        return _DESIGN_FILE_REF.findall(content)
+    except Exception:
+        return []
 
 
 async def _capture_integration_head(repo_root: Path, branch: str) -> str:
@@ -305,11 +326,13 @@ class NodeSessionRunner:
         try:
             descriptions = extract_subtask_descriptions(spec_dir, self._task_group)
             task_description = "\n".join(descriptions) if descriptions else self._spec_name
+            footprint = _extract_spec_file_footprint(spec_dir)
             retrieved = self._knowledge_provider.retrieve(
                 self._spec_name,
                 task_description,
                 task_group=str(self._task_group),
                 session_id=self._node_id,
+                file_footprint=footprint,
             )
             if retrieved:
                 memory_facts = retrieved

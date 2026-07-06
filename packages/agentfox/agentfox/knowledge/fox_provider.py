@@ -97,6 +97,7 @@ class KnowledgeProvider(Protocol):
         task_description: str,
         task_group: str | None = None,
         session_id: str | None = None,
+        file_footprint: list[str] | None = None,
     ) -> list[str]:
         """Retrieve knowledge context for an upcoming session."""
         ...
@@ -124,6 +125,7 @@ class NoOpKnowledgeProvider:
         task_description: str,
         task_group: str | None = None,
         session_id: str | None = None,
+        file_footprint: list[str] | None = None,
     ) -> list[str]:
         """Return an empty list --- no knowledge is available."""
         return []
@@ -167,6 +169,7 @@ class FoxKnowledgeProvider:
         task_description: str,
         task_group: str | None = None,
         session_id: str | None = None,
+        file_footprint: list[str] | None = None,
     ) -> list[str]:
         """Retrieve knowledge context for an upcoming session.
 
@@ -190,6 +193,9 @@ class FoxKnowledgeProvider:
                 deduplication.  Callers that omit this parameter get the
                 same retrieval behaviour as before (backward-compatible
                 default).
+            file_footprint: Optional list of file paths the current spec
+                modifies.  Used to find cross-spec drift findings from
+                other specs that reference overlapping files.
 
         Returns:
             List of formatted text blocks ready for prompt injection.
@@ -224,18 +230,26 @@ class FoxKnowledgeProvider:
             cross_reviews = self._query_cross_group_reviews(conn, spec_name, task_group, task_description)
             cross_group_items = cross_reviews[: self._config.max_cross_group_items]
 
+        # Cross-spec drift items: drift findings from other specs that
+        # reference the same files.  Informational only, not tracked.
+        cross_spec_items: list[str] = []
+        if task_group is not None and file_footprint:
+            cross_spec = self._query_cross_spec_drift(conn, spec_name, file_footprint, task_description)
+            cross_spec_items = cross_spec[: self._config.max_cross_spec_items]
+
         capped = items_with_ids[: self._config.max_items]
-        result = [text for text, _ in capped] + cross_group_items
+        result = [text for text, _ in capped] + cross_group_items + cross_spec_items
 
         # Session summary injection (119-REQ-2.1)
         same_spec_summaries = self._query_same_spec_summaries(conn, spec_name, task_group)
         result.extend(same_spec_summaries)
 
         logger.debug(
-            "Retrieved %d review + %d drift + %d cross-group + %d context items for %s",
+            "Retrieved %d review + %d drift + %d cross-group + %d cross-spec + %d context items for %s",
             len(reviews),
             len(drift),
             len(cross_group_items),
+            len(cross_spec_items),
             len(same_spec_summaries),
             spec_name,
         )
@@ -431,6 +445,41 @@ class FoxKnowledgeProvider:
         result: list[str] = []
         for f in actionable:
             result.append(f"[CROSS-GROUP] (group {f.task_group}) {format_finding_parts(f)}")
+        return result
+
+    def _query_cross_spec_drift(
+        self,
+        conn: Any,
+        spec_name: str,
+        file_footprint: list[str],
+        task_description: str,
+    ) -> list[str]:
+        """Query active drift findings from OTHER specs referencing overlapping files.
+
+        Returns formatted strings with a ``[CROSS-SPEC]`` prefix that includes
+        the source spec name.  Uses relevance scoring so the most relevant
+        cross-spec findings surface first.
+
+        These items are informational — they are NOT tracked in
+        ``finding_injections``.
+        """
+
+        def _do_query():
+            from agentfox.knowledge.review_store import query_cross_spec_drift_findings
+
+            return query_cross_spec_drift_findings(conn, spec_name, file_footprint)
+
+        findings = _query_safe(_do_query, (), label="cross-spec drift findings", spec_name=spec_name)
+
+        keywords = _extract_keywords(task_description)
+        actionable = [f for f in findings if f.severity in ("critical", "major")]
+        actionable = sort_findings(actionable, keywords)
+
+        from agentfox.knowledge.formatting import format_drift_finding_parts
+
+        result: list[str] = []
+        for f in actionable:
+            result.append(f"[CROSS-SPEC] (spec: {f.spec_name}) {format_drift_finding_parts(f)}")
         return result
 
     def _query_drift(

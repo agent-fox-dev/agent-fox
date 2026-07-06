@@ -58,6 +58,7 @@ class MockKnowledgeProvider:
         task_description: str,
         task_group: str | None = None,
         session_id: str | None = None,
+        file_footprint: list[str] | None = None,
     ) -> list[str]:
         self.retrieve_called = True
         self.retrieve_args = (spec_name, task_description)

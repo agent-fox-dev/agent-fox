@@ -26,7 +26,9 @@ import pytest
 from agentfox.core.errors import KnowledgeStoreError
 from agentfox.knowledge.migrations import run_migrations
 from agentfox.knowledge.review_store import (
+    DriftFinding,
     ReviewFinding,
+    insert_drift_findings,
     insert_findings,
 )
 
@@ -846,3 +848,146 @@ class TestCrossGroupReviewRetrieval:
         cross_group = [r for r in result if r.startswith("[CROSS-GROUP]")]
         assert len(cross_group) == 1
         assert "group 1" in cross_group[0], f"Expected source group reference, got: {cross_group[0]!r}"
+
+
+# ---------------------------------------------------------------------------
+# Helpers for cross-spec drift tests
+# ---------------------------------------------------------------------------
+
+
+def _insert_drift_finding(
+    conn: duckdb.DuckDBPyConnection,
+    spec_name: str,
+    description: str,
+    *,
+    artifact_ref: str | None = None,
+    severity: str = "critical",
+) -> str:
+    """Insert a drift finding. Returns the finding ID."""
+    finding_id = str(uuid.uuid4())
+    finding = DriftFinding(
+        id=finding_id,
+        severity=severity,
+        description=description,
+        spec_ref=None,
+        artifact_ref=artifact_ref,
+        spec_name=spec_name,
+        task_group="0",
+        session_id="sess-drift",
+    )
+    insert_drift_findings(conn, [finding])
+    return finding_id
+
+
+class TestCrossSpecDriftRetrieval:
+    """Issue #677: cross-spec drift findings surfaced with [CROSS-SPEC] prefix.
+
+    When a session requests knowledge and provides a file_footprint,
+    active critical/major drift findings from OTHER specs that reference
+    overlapping files should appear with a [CROSS-SPEC] prefix.
+    """
+
+    def test_cross_spec_drift_findings_appear_with_prefix(self, provider_db, provider_conn) -> None:
+        """Drift findings from other specs referencing overlapping files get [CROSS-SPEC] prefix."""
+        _insert_drift_finding(provider_conn, "spec_a", "API mismatch in module", artifact_ref="src/api.py")
+        _insert_drift_finding(provider_conn, "spec_b", "same-spec finding", artifact_ref="src/api.py")
+
+        provider = _make_provider(provider_db)
+        result = provider.retrieve(
+            "spec_b",
+            "desc",
+            task_group="1",
+            file_footprint=["src/api.py"],
+        )
+
+        cross_spec = [r for r in result if r.startswith("[CROSS-SPEC]")]
+        assert len(cross_spec) == 1, f"Expected 1 cross-spec item, got: {cross_spec}"
+        assert "API mismatch in module" in cross_spec[0]
+        assert "spec_a" in cross_spec[0]
+
+    def test_cross_spec_excludes_same_spec(self, provider_db, provider_conn) -> None:
+        """Cross-spec items must not include findings from the requesting spec."""
+        _insert_drift_finding(provider_conn, "spec_x", "own-spec drift", artifact_ref="lib/core.py")
+        _insert_drift_finding(provider_conn, "spec_y", "other-spec drift", artifact_ref="lib/core.py")
+
+        provider = _make_provider(provider_db)
+        result = provider.retrieve(
+            "spec_x",
+            "desc",
+            task_group="1",
+            file_footprint=["lib/core.py"],
+        )
+
+        cross_spec = [r for r in result if r.startswith("[CROSS-SPEC]")]
+        cross_text = "\n".join(cross_spec)
+        assert "other-spec drift" in cross_text
+        assert "own-spec drift" not in cross_text
+
+    def test_cross_spec_respects_max_cap(self, provider_db, provider_conn) -> None:
+        """Cross-spec items are capped at max_cross_spec_items."""
+        from agentfox.core.config import KnowledgeProviderConfig
+
+        for i in range(10):
+            _insert_drift_finding(
+                provider_conn,
+                f"other_spec_{i}",
+                f"drift-{i}",
+                artifact_ref="shared/mod.py",
+            )
+
+        config = KnowledgeProviderConfig(max_cross_spec_items=3)
+        provider = _make_provider(provider_db, config=config)
+        result = provider.retrieve(
+            "my_spec",
+            "desc",
+            task_group="1",
+            file_footprint=["shared/mod.py"],
+        )
+
+        cross_spec = [r for r in result if r.startswith("[CROSS-SPEC]")]
+        assert len(cross_spec) == 3, f"Expected 3 cross-spec items (cap), got {len(cross_spec)}"
+
+    def test_cross_spec_empty_footprint_returns_nothing(self, provider_db, provider_conn) -> None:
+        """When file_footprint is empty or None, no cross-spec items appear."""
+        _insert_drift_finding(provider_conn, "spec_other", "some drift", artifact_ref="src/x.py")
+
+        provider = _make_provider(provider_db)
+
+        result_none = provider.retrieve("spec_mine", "desc", task_group="1", file_footprint=None)
+        cross_none = [r for r in result_none if r.startswith("[CROSS-SPEC]")]
+        assert len(cross_none) == 0
+
+        result_empty = provider.retrieve("spec_mine", "desc", task_group="1", file_footprint=[])
+        cross_empty = [r for r in result_empty if r.startswith("[CROSS-SPEC]")]
+        assert len(cross_empty) == 0
+
+    def test_cross_spec_not_tracked_in_injections(self, provider_db, provider_conn) -> None:
+        """Cross-spec items must NOT be recorded in finding_injections."""
+        _insert_drift_finding(provider_conn, "spec_other", "cross-spec finding", artifact_ref="src/a.py")
+
+        provider = _make_provider(provider_db)
+        provider.retrieve(
+            "spec_mine",
+            "desc",
+            task_group="1",
+            session_id="test-session",
+            file_footprint=["src/a.py"],
+        )
+
+        rows = provider_conn.execute("SELECT * FROM finding_injections WHERE session_id = 'test-session'").fetchall()
+        assert len(rows) == 0
+
+    def test_cross_spec_no_overlap_returns_nothing(self, provider_db, provider_conn) -> None:
+        """When no drift findings reference overlapping files, cross-spec is empty."""
+        _insert_drift_finding(provider_conn, "spec_other", "unrelated drift", artifact_ref="src/unrelated.py")
+
+        provider = _make_provider(provider_db)
+        result = provider.retrieve(
+            "spec_mine",
+            "desc",
+            task_group="1",
+            file_footprint=["src/different.py"],
+        )
+
+        cross_spec = [r for r in result if r.startswith("[CROSS-SPEC]")]
+        assert len(cross_spec) == 0

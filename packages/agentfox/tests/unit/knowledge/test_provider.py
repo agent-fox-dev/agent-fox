@@ -43,7 +43,7 @@ class TestProtocolDefinition:
         assert hasattr(KnowledgeProvider, "retrieve")
 
     def test_retrieve_parameter_names(self) -> None:
-        """retrieve() has (self, spec_name, task_description, task_group, session_id) parameters."""
+        """retrieve() has expected parameters."""
         sig = inspect.signature(KnowledgeProvider.retrieve)
         assert list(sig.parameters.keys()) == [
             "self",
@@ -51,6 +51,7 @@ class TestProtocolDefinition:
             "task_description",
             "task_group",
             "session_id",
+            "file_footprint",
         ]
 
     def test_retrieve_return_annotation(self) -> None:

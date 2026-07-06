@@ -245,7 +245,9 @@ class TestRetrieveLogFormat:
         log_lines = [r.message for r in caplog.records if "Retrieved" in r.message and "items for" in r.message]
         assert len(log_lines) == 1, f"Expected exactly one 'Retrieved ... items for ...' log line, got {len(log_lines)}"
 
-        pattern = r"Retrieved \d+ review \+ \d+ drift \+ \d+ cross-group \+ \d+ context items for my-spec"
+        pattern = (
+            r"Retrieved \d+ review \+ \d+ drift \+ \d+ cross-group \+ \d+ cross-spec \+ \d+ context items for my-spec"
+        )
         assert re.search(pattern, log_lines[0]), f"Log line does not match four-field format:\n  {log_lines[0]}"
         conn.close()
 
@@ -322,7 +324,9 @@ class TestLogFormatProperty:
         matching = [r.message for r in caplog.records if "Retrieved" in r.message]
         assert len(matching) == 1
 
-        pattern = r"Retrieved \d+ review \+ \d+ drift \+ \d+ cross-group \+ \d+ context items for test-spec"
+        pattern = (
+            r"Retrieved \d+ review \+ \d+ drift \+ \d+ cross-group \+ \d+ cross-spec \+ \d+ context items for test-spec"
+        )
         assert re.search(pattern, matching[0]), f"Log line does not match four-field pattern:\n  {matching[0]}"
         conn.close()
 
@@ -378,13 +382,13 @@ class TestSmokeThreeChannelRetrieval:
 
         # Context payload must contain no removed tags
         prompt = "\n".join(result)
-        removed_tags = ["[ERRATA]", "[ADR]", "[VERIFY]", "[CROSS-SPEC]", "[PRIOR-RUN]"]
+        removed_tags = ["[ERRATA]", "[ADR]", "[VERIFY]", "[PRIOR-RUN]"]
         for tag in removed_tags:
             assert tag not in prompt, f"Removed tag {tag} found in smoke retrieval"
 
         # Log line must match four-field format
         matching = [r.message for r in caplog.records if "Retrieved" in r.message]
         assert len(matching) == 1
-        pattern = r"Retrieved \d+ review \+ \d+ drift \+ \d+ cross-group \+ \d+ context items for smoke-spec"
+        pattern = r"Retrieved \d+ review \+ \d+ drift \+ \d+ cross-group \+ \d+ cross-spec \+ \d+ context items for smoke-spec"
         assert re.search(pattern, matching[0]), f"Smoke log line doesn't match four-field format: {matching[0]}"
         conn.close()

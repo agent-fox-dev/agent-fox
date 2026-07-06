@@ -45,11 +45,17 @@ The default output schema for finding-based modes is:
     {
       "severity": "critical",
       "description": "Concrete description of the issue",
-      "requirement_ref": "NN-REQ-X.Y"
+      "requirement_ref": "NN-REQ-X.Y",
+      "task_group": "3"
     }
   ]
 }
 ```
+
+The `task_group` field is optional. When a finding is relevant to a different
+task group than the one you are reviewing, set it to the target group number.
+This surfaces the finding to coders working on that group. Omit to tag the
+finding with your current group (the default).
 
 DO NOT wrap output in markdown fences or add surrounding prose.
 

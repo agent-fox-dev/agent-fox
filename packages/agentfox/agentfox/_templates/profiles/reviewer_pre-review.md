@@ -78,6 +78,11 @@ Your output is a JSON object with a `"findings"` array. Each finding has:
 - `severity` (required): one of `critical`, `major`, `minor`, `observation`
 - `description` (required): what the problem is and where
 - `requirement_ref` (optional): the requirement ID (e.g. `05-REQ-1.1`)
+- `task_group` (optional): if a finding is relevant to a task group other
+  than the one you are reviewing, set this to the target group number
+  (e.g. `"3"`). This surfaces the finding to coders working on that group.
+  Use for API contracts, shared interfaces, or dependencies between groups.
+  Omit to tag the finding with your current group (the default).
 
 If there are no findings, output `{"findings": []}`.
 

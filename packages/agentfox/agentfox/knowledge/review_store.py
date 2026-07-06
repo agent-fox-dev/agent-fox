@@ -343,6 +343,41 @@ def query_cross_group_findings(
     return findings
 
 
+def query_cross_spec_drift_findings(
+    conn: duckdb.DuckDBPyConnection,
+    spec_name: str,
+    file_footprint: list[str],
+) -> list[DriftFinding]:
+    """Query active critical/major drift findings from OTHER specs referencing overlapping files.
+
+    Returns drift findings where ``spec_name != ?`` and ``artifact_ref``
+    matches any path in *file_footprint*.  Only ``critical`` and ``major``
+    findings are returned.
+
+    Args:
+        spec_name: The current spec name (excluded from results).
+        file_footprint: List of file paths the current spec touches.
+            Matched against ``artifact_ref`` in ``drift_findings``.
+
+    Returns:
+        List of ``DriftFinding`` objects from other specs.
+    """
+    if not file_footprint:
+        return []
+
+    placeholders = ", ".join("?" for _ in file_footprint)
+    rows = conn.execute(
+        f"SELECT {_DRIFT_COLS} FROM drift_findings "  # noqa: S608
+        f"WHERE spec_name != ? AND artifact_ref IN ({placeholders}) "
+        "AND superseded_by IS NULL "
+        "ORDER BY severity, created_at DESC",
+        [spec_name, *file_footprint],
+    ).fetchall()
+    findings = [_row_to_drift_finding(r) for r in rows if r[1] in ACTIONABLE_SEVERITIES]
+    findings.sort(key=lambda f: (_SEVERITY_ORDER.get(f.severity, 99), f.description))
+    return findings
+
+
 def query_active_findings(
     conn: duckdb.DuckDBPyConnection,
     spec_name: str,
