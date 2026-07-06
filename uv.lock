@@ -20,7 +20,7 @@ members = [
 
 [[package]]
 name = "af"
-version = "4.1.4"
+version = "4.1.5"
 source = { editable = "packages/af" }
 dependencies = [
     { name = "afaudit" },
@@ -41,12 +41,12 @@ requires-dist = [
 
 [[package]]
 name = "afaudit"
-version = "4.1.4"
+version = "4.1.5"
 source = { editable = "packages/afaudit" }
 
 [[package]]
 name = "afspec"
-version = "4.1.4"
+version = "4.1.5"
 source = { editable = "packages/afspec" }
 dependencies = [
     { name = "jsonschema" },
@@ -90,7 +90,7 @@ dev = [
 
 [[package]]
 name = "agent-fox"
-version = "4.1.4"
+version = "4.1.5"
 source = { virtual = "." }
 dependencies = [
     { name = "af" },
@@ -133,7 +133,7 @@ dev = [
 
 [[package]]
 name = "agentfox"
-version = "4.1.4"
+version = "4.1.5"
 source = { editable = "packages/agentfox" }
 dependencies = [
     { name = "afaudit" },
@@ -210,7 +210,7 @@ requires-dist = [
 
 [[package]]
 name = "agentspec"
-version = "4.1.4"
+version = "4.1.5"
 source = { editable = "packages/agentspec" }
 dependencies = [
     { name = "afspec" },
@@ -1269,7 +1269,7 @@ wheels = [
 
 [[package]]
 name = "nightshift"
-version = "4.1.4"
+version = "4.1.5"
 source = { editable = "packages/nightshift" }
 dependencies = [
     { name = "afaudit" },
@@ -2269,7 +2269,7 @@ wheels = [
 
 [[package]]
 name = "spec"
-version = "4.1.4"
+version = "4.1.5"
 source = { editable = "packages/spec" }
 dependencies = [
     { name = "afspec" },
