@@ -219,6 +219,10 @@ class KnowledgeProviderConfig(BaseModel):
     max_items: int = Field(default=10, description="Max total retrieval items")
     max_cross_group_items: int = Field(default=3, description="Max cross-group retrieval items")
     max_cross_spec_items: int = Field(default=3, description="Max cross-spec drift items")
+    max_drift_age_days: int | None = Field(
+        default=30,
+        description="Max age in days for active drift findings; None disables age-based pruning",
+    )
     max_summary_items: int = Field(
         default=20,
         description="Max session summaries from prior task groups injected as context",

@@ -1171,3 +1171,144 @@ def test_ts12_36_knowledge_system_architecture_updated() -> None:
     # Must reference sections 4.1, 8, and 9 per spec pseudocode
     assert "4.1" in content, "Section 4.1 reference missing"
     assert any(s in content for s in ["## 8", "### 8", "Section 8"]), "Section 8 reference missing"
+
+
+# ---------------------------------------------------------------------------
+# Issue #676: supersede_stale_pre_code_findings
+# ---------------------------------------------------------------------------
+
+
+class TestSupersedeStalePreCodeFindings:
+    """Verify that pre-code drift findings (group 0, artifact_ref IS NULL)
+    are superseded after a successful coder session."""
+
+    def test_supersedes_group0_null_artifact_ref(self, conn: duckdb.DuckDBPyConnection) -> None:
+        """Findings with group 0 and artifact_ref=NULL are superseded."""
+        from agentfox.knowledge.review_store import supersede_stale_pre_code_findings
+
+        fid = _insert_finding(conn, spec_name="spec_a", task_group="0", artifact_ref=None)
+        count = supersede_stale_pre_code_findings(conn, "spec_a", "coder-session-1")
+        assert count == 1
+
+        active = query_active_drift_findings(conn, "spec_a")
+        assert len(active) == 0
+
+    def test_preserves_group0_with_artifact_ref(self, conn: duckdb.DuckDBPyConnection) -> None:
+        """Findings with group 0 but a real artifact_ref are NOT superseded."""
+        from agentfox.knowledge.review_store import supersede_stale_pre_code_findings
+
+        _insert_finding(conn, spec_name="spec_b", task_group="0", artifact_ref="src/module.py")
+        count = supersede_stale_pre_code_findings(conn, "spec_b", "coder-session-2")
+        assert count == 0
+
+        active = query_active_drift_findings(conn, "spec_b")
+        assert len(active) == 1
+
+    def test_preserves_non_group0_findings(self, conn: duckdb.DuckDBPyConnection) -> None:
+        """Findings from groups other than 0 are NOT superseded."""
+        from agentfox.knowledge.review_store import supersede_stale_pre_code_findings
+
+        _insert_finding(conn, spec_name="spec_c", task_group="1", artifact_ref=None)
+        count = supersede_stale_pre_code_findings(conn, "spec_c", "coder-session-3")
+        assert count == 0
+
+        active = query_active_drift_findings(conn, "spec_c", task_group="1")
+        assert len(active) == 1
+
+    def test_preserves_other_spec_findings(self, conn: duckdb.DuckDBPyConnection) -> None:
+        """Findings from a different spec are NOT superseded."""
+        from agentfox.knowledge.review_store import supersede_stale_pre_code_findings
+
+        _insert_finding(conn, spec_name="spec_other", task_group="0", artifact_ref=None)
+        count = supersede_stale_pre_code_findings(conn, "spec_mine", "coder-session-4")
+        assert count == 0
+
+        active = query_active_drift_findings(conn, "spec_other")
+        assert len(active) == 1
+
+    def test_skips_already_superseded(self, conn: duckdb.DuckDBPyConnection) -> None:
+        """Already-superseded findings are not double-superseded."""
+        from agentfox.knowledge.review_store import supersede_stale_pre_code_findings
+
+        _insert_finding(
+            conn,
+            spec_name="spec_d",
+            task_group="0",
+            artifact_ref=None,
+            superseded_by="prior",
+        )
+        count = supersede_stale_pre_code_findings(conn, "spec_d", "coder-session-5")
+        assert count == 0
+
+    def test_sets_superseded_by_to_session_id(self, conn: duckdb.DuckDBPyConnection) -> None:
+        """The superseded_by marker is the session_id of the completing coder."""
+        from agentfox.knowledge.review_store import supersede_stale_pre_code_findings
+
+        fid = _insert_finding(conn, spec_name="spec_e", task_group="0", artifact_ref=None)
+        supersede_stale_pre_code_findings(conn, "spec_e", "coder:spec_e:2:1")
+
+        row = conn.execute(
+            "SELECT superseded_by FROM drift_findings WHERE id = ?::UUID",
+            [fid],
+        ).fetchone()
+        assert row[0] == "coder:spec_e:2:1"
+
+
+class TestIngestCallsPreCodeSupersession:
+    """Verify that ingest() calls supersede_stale_pre_code_findings for coder sessions."""
+
+    def test_ingest_calls_pre_code_supersession_for_coder(self, conn: duckdb.DuckDBPyConnection) -> None:
+        """After a successful coder ingest, stale pre-code findings are superseded."""
+        from agentfox.core.config import KnowledgeProviderConfig
+        from agentfox.knowledge.db import KnowledgeDB
+        from agentfox.knowledge.fox_provider import FoxKnowledgeProvider
+
+        _insert_finding(conn, spec_name="ingest_spec", task_group="0", artifact_ref=None)
+
+        db = KnowledgeDB.__new__(KnowledgeDB)
+        db._conn = conn
+        provider = FoxKnowledgeProvider(db, KnowledgeProviderConfig())
+
+        provider.ingest(
+            session_id="ingest_spec:1",
+            spec_name="ingest_spec",
+            context={
+                "session_status": "completed",
+                "archetype": "coder",
+                "touched_files": [],
+                "task_group": "1",
+                "attempt": 1,
+            },
+        )
+
+        active = query_active_drift_findings(conn, "ingest_spec")
+        assert len(active) == 0, f"Expected 0 active findings, got {len(active)}"
+
+    def test_ingest_does_not_call_pre_code_supersession_for_reviewer(
+        self,
+        conn: duckdb.DuckDBPyConnection,
+    ) -> None:
+        """Reviewer ingest must NOT supersede pre-code findings."""
+        from agentfox.core.config import KnowledgeProviderConfig
+        from agentfox.knowledge.db import KnowledgeDB
+        from agentfox.knowledge.fox_provider import FoxKnowledgeProvider
+
+        _insert_finding(conn, spec_name="rev_spec", task_group="0", artifact_ref=None)
+
+        db = KnowledgeDB.__new__(KnowledgeDB)
+        db._conn = conn
+        provider = FoxKnowledgeProvider(db, KnowledgeProviderConfig())
+
+        provider.ingest(
+            session_id="rev_spec:0:reviewer:pre-review",
+            spec_name="rev_spec",
+            context={
+                "session_status": "completed",
+                "archetype": "reviewer",
+                "task_group": "0",
+                "attempt": 1,
+            },
+        )
+
+        active = query_active_drift_findings(conn, "rev_spec")
+        assert len(active) == 1, "Reviewer should NOT supersede pre-code findings"

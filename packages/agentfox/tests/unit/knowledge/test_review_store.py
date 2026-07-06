@@ -21,6 +21,7 @@ from agentfox.knowledge.review_store import (
     ReviewFinding,
     insert_drift_findings,
     insert_findings,
+    query_active_drift_findings,
     query_active_findings,
     query_cross_spec_drift_findings,
     query_findings_by_session,
@@ -490,3 +491,40 @@ class TestCrossSpecDriftFindings:
         descriptions = [r.description for r in results]
         assert "critical drift" in descriptions
         assert "observation drift" not in descriptions
+
+
+class TestDriftFindingAgeFilter:
+    """Issue #676: max_age_days parameter filters old drift findings."""
+
+    def test_max_age_days_excludes_old_findings(self, schema_conn: duckdb.DuckDBPyConnection) -> None:
+        """Findings older than max_age_days are excluded."""
+        schema_conn.execute(
+            "INSERT INTO drift_findings "
+            "(id, severity, description, spec_name, task_group, session_id, created_at) "
+            "VALUES (gen_random_uuid(), 'critical', 'old finding', 'spec_age', '0', 's1', "
+            "CURRENT_TIMESTAMP - INTERVAL 60 DAY)",
+        )
+        schema_conn.execute(
+            "INSERT INTO drift_findings "
+            "(id, severity, description, spec_name, task_group, session_id, created_at) "
+            "VALUES (gen_random_uuid(), 'critical', 'recent finding', 'spec_age', '0', 's2', "
+            "CURRENT_TIMESTAMP - INTERVAL 5 DAY)",
+        )
+
+        results = query_active_drift_findings(schema_conn, "spec_age", max_age_days=30)
+        descriptions = [r.description for r in results]
+        assert "recent finding" in descriptions
+        assert "old finding" not in descriptions
+
+    def test_max_age_days_none_returns_all(self, schema_conn: duckdb.DuckDBPyConnection) -> None:
+        """When max_age_days is None, all findings are returned regardless of age."""
+        schema_conn.execute(
+            "INSERT INTO drift_findings "
+            "(id, severity, description, spec_name, task_group, session_id, created_at) "
+            "VALUES (gen_random_uuid(), 'critical', 'ancient finding', 'spec_noage', '0', 's1', "
+            "CURRENT_TIMESTAMP - INTERVAL 365 DAY)",
+        )
+
+        results = query_active_drift_findings(schema_conn, "spec_noage", max_age_days=None)
+        assert len(results) == 1
+        assert results[0].description == "ancient finding"

@@ -340,6 +340,17 @@ class FoxKnowledgeProvider:
                         exc_info=True,
                     )
 
+                try:
+                    from agentfox.knowledge.review_store import supersede_stale_pre_code_findings
+
+                    supersede_stale_pre_code_findings(conn, spec_name, session_id)
+                except Exception:
+                    logger.warning(
+                        "Failed to supersede stale pre-code findings for session %s",
+                        session_id,
+                        exc_info=True,
+                    )
+
         # Session summary storage (119-REQ-5.2).
         # Only store for completed sessions with a non-empty summary.
         summary_text = context.get("summary")
@@ -501,7 +512,11 @@ class FoxKnowledgeProvider:
             from agentfox.knowledge.review_store import query_active_drift_findings
 
             return query_active_drift_findings(
-                conn, spec_name, task_group=task_group, include_prereview=include_prereview
+                conn,
+                spec_name,
+                task_group=task_group,
+                include_prereview=include_prereview,
+                max_age_days=self._config.max_drift_age_days,
             )
 
         findings = _query_safe(_do_query, (), label="drift findings", spec_name=spec_name)

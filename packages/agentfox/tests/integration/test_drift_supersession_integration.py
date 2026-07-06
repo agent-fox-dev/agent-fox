@@ -209,18 +209,18 @@ def test_ts12_smoke1_full_coder_merge_path(
         },
     )
 
-    # Verify 3 superseded, 2 active
+    # Verify 4 superseded (3 file-matched + 1 pre-code null-ref), 1 active
     superseded_count = conn.execute(
         "SELECT COUNT(*) FROM drift_findings WHERE spec_name = ? AND superseded_by = ?",
         [spec_name, node_id],
     ).fetchone()[0]
-    assert superseded_count == 3
+    assert superseded_count == 4
 
     active_count = conn.execute(
         "SELECT COUNT(*) FROM drift_findings WHERE spec_name = ? AND superseded_by IS NULL",
         [spec_name],
     ).fetchone()[0]
-    assert active_count == 2
+    assert active_count == 1
 
 
 # ---------------------------------------------------------------------------

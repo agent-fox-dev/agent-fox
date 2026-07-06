@@ -443,6 +443,7 @@ def query_active_drift_findings(
     spec_name: str,
     task_group: str | None = None,
     include_prereview: bool = False,
+    max_age_days: int | None = None,
 ) -> list[DriftFinding]:
     """Query non-superseded drift findings for a spec, sorted by severity.
 
@@ -452,24 +453,37 @@ def query_active_drift_findings(
     ``query_active_findings`` so callers can surface drift-review findings
     on the first coder attempt without a separate query.
 
+    When *max_age_days* is set, findings older than that many days are
+    excluded.  This is a safety net for abandoned specs whose drift
+    findings would otherwise persist indefinitely.
+
     Requirements: 32-REQ-7.4
     """
+    age_clause = ""
+    if max_age_days is not None:
+        age_clause = f" AND created_at > CURRENT_TIMESTAMP - INTERVAL {int(max_age_days)} DAY"
+
     if include_prereview and task_group is not None and task_group != "0":
         rows = conn.execute(
             f"SELECT {_DRIFT_COLS} FROM drift_findings "  # noqa: S608
-            "WHERE spec_name = ? AND task_group IN (?, '0') AND superseded_by IS NULL "
+            f"WHERE spec_name = ? AND task_group IN (?, '0') AND superseded_by IS NULL{age_clause} "
+            "ORDER BY severity, description",
+            [spec_name, task_group],
+        ).fetchall()
+    elif task_group is not None:
+        rows = conn.execute(
+            f"SELECT {_DRIFT_COLS} FROM drift_findings "  # noqa: S608
+            f"WHERE spec_name = ? AND task_group = ? AND superseded_by IS NULL{age_clause} "
             "ORDER BY severity, description",
             [spec_name, task_group],
         ).fetchall()
     else:
-        rows = _query_active(
-            conn,
-            "drift_findings",
-            _DRIFT_COLS,
-            spec_name,
-            task_group,
-            "severity, description",
-        )
+        rows = conn.execute(
+            f"SELECT {_DRIFT_COLS} FROM drift_findings "  # noqa: S608
+            f"WHERE spec_name = ? AND superseded_by IS NULL{age_clause} "
+            "ORDER BY severity, description",
+            [spec_name],
+        ).fetchall()
     findings = [_row_to_drift_finding(r) for r in rows]
     findings.sort(key=lambda f: (_SEVERITY_ORDER.get(f.severity, 99), f.description))
     return findings
@@ -792,3 +806,35 @@ def supersede_drift_findings_by_files(
         )
 
     return len(matched_ids)
+
+
+def supersede_stale_pre_code_findings(
+    conn: duckdb.DuckDBPyConnection,
+    spec_name: str,
+    session_id: str,
+) -> int:
+    """Supersede active pre-code drift findings that have no artifact reference.
+
+    These are findings from group ``"0"`` (pre-coder drift-review) with
+    ``artifact_ref IS NULL`` — typically observations like "no source code
+    exists yet" that become stale once any coder has successfully completed.
+
+    Returns the number of findings superseded.
+    """
+    result = conn.execute(
+        "UPDATE drift_findings "
+        "SET superseded_by = ? "
+        "WHERE spec_name = ? "
+        "AND task_group = '0' "
+        "AND artifact_ref IS NULL "
+        "AND superseded_by IS NULL",
+        [session_id, spec_name],
+    )
+    count = result.fetchone()[0] if result.description else 0
+    if count:
+        logger.debug(
+            "Superseded %d stale pre-code drift finding(s) for %s",
+            count,
+            spec_name,
+        )
+    return count
