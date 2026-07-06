@@ -117,12 +117,15 @@ Record their answers and ask if they want:
 
 ### Source Tracking
 
-Every PRD **must** end with a `## Source` section that records where the PRD
-input came from. This section is mandatory — never omit it.
+The PRD's origin is recorded in the YAML frontmatter `source` field — this is
+the **single authoritative location** (spec format v1.3). There is no
+`## Source` body section.
 
-- **GitHub issue:** `Source: <full issue URL>`
-- **File:** `Source: <path to the file that was read>`
-- **User prompt:** `Source: Input provided by <user> via interactive prompt`
+Set the frontmatter `source` field based on origin:
+
+- **GitHub issue:** `source: "https://github.com/owner/repo/issues/NNN"`
+- **File:** `source: "<path to the file that was read>"`
+- **User prompt:** `source: "interactive"`
 
 ### Post Finalized PRD to GitHub
 
@@ -285,7 +288,6 @@ create the spec directory structure.
 3. Parse the JSON output to get the spec directory name (e.g. `{"spec_dir": "136_my_feature", "state": "init"}`).
 
 4. Edit the generated `prd.md` to add:
-   - The `## Source` section if not already present
    - The `## Dependencies` section from Step 2 (if any)
    - The `## Clarifications` or `## Design Decisions` section from Step 1 (if any)
    - Update the `source` field in the YAML frontmatter to reflect the actual origin (GitHub URL, file path, or "interactive")

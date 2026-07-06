@@ -1,7 +1,8 @@
 """Unit tests for issue_summary module.
 
-Test Spec: TS-108-1 through TS-108-17, TS-108-E1, TS-108-E2
-Requirements: 108-REQ-1 through 108-REQ-6
+Test Spec: TS-108-1 through TS-108-17, TS-108-E1, TS-108-E2,
+           TS-NS-1 through TS-NS-4
+Requirements: 108-REQ-1 through 108-REQ-6, NS-REQ-1 through NS-REQ-4
 """
 
 from __future__ import annotations
@@ -12,39 +13,79 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+# Helper to build a prd.md with YAML frontmatter and optional body.
+_FM_TEMPLATE = "---\n{fields}\n---\n{body}"
+
+
+def _make_prd(path: Path, *, source: str | None = None, body: str = "") -> Path:
+    """Write a prd.md with frontmatter ``source`` and optional body text."""
+    lines = ['title: "Test PRD"']
+    if source is not None:
+        lines.append(f'source: "{source}"')
+    path.write_text(_FM_TEMPLATE.format(fields="\n".join(lines), body=body))
+    return path
+
+
 # ---------------------------------------------------------------------------
-# TS-108-1, TS-108-2, TS-108-3, TS-108-4, TS-108-5
-# Requirements: 108-REQ-1.1, 108-REQ-1.2, 108-REQ-1.3, 108-REQ-1.E1,
-#               108-REQ-1.E2, 108-REQ-1.E3
+# TS-NS-1, TS-NS-2, TS-NS-3
+# Requirements: NS-REQ-1, NS-REQ-2, NS-REQ-3
 # ---------------------------------------------------------------------------
 
 
 class TestParseSourceUrl:
-    """Tests for parse_source_url() function."""
+    """Tests for parse_source_url() — reads frontmatter ``source`` field."""
 
-    def test_github_url_returns_source_issue(self, tmp_path: Path) -> None:
-        """TS-108-1: parse_source_url returns SourceIssue for GitHub URL.
+    def test_github_url_in_frontmatter_returns_source_issue(self, tmp_path: Path) -> None:
+        """TS-NS-1: Frontmatter source with valid GitHub issue URL.
 
-        Requirements: 108-REQ-1.1, 108-REQ-1.2
+        Requirements: NS-REQ-1
         """
         from agentfox.engine.engine import SourceIssue, parse_source_url
 
         prd_path = tmp_path / "prd.md"
-        prd_path.write_text("# PRD\n\n## Source\n\nSource: https://github.com/agent-fox-dev/agent-fox/issues/359\n")
+        _make_prd(prd_path, source="https://github.com/owner/repo/issues/42")
 
         result = parse_source_url(prd_path)
 
         assert result is not None
         assert isinstance(result, SourceIssue)
         assert result.forge == "github"
-        assert result.owner == "agent-fox-dev"
-        assert result.repo == "agent-fox"
-        assert result.issue_number == 359
+        assert result.owner == "owner"
+        assert result.repo == "repo"
+        assert result.issue_number == 42
+
+    def test_interactive_source_returns_none(self, tmp_path: Path) -> None:
+        """TS-NS-2: Frontmatter source='interactive' → None.
+
+        Requirements: NS-REQ-2
+        """
+        from agentfox.engine.engine import parse_source_url
+
+        prd_path = tmp_path / "prd.md"
+        _make_prd(prd_path, source="interactive")
+
+        result = parse_source_url(prd_path)
+
+        assert result is None
+
+    def test_non_github_url_source_returns_none(self, tmp_path: Path) -> None:
+        """TS-NS-2: Frontmatter source with non-GitHub-issue-URL string → None.
+
+        Requirements: NS-REQ-2
+        """
+        from agentfox.engine.engine import parse_source_url
+
+        prd_path = tmp_path / "prd.md"
+        _make_prd(prd_path, source="Input provided by user via interactive prompt")
+
+        result = parse_source_url(prd_path)
+
+        assert result is None
 
     def test_missing_prd_returns_none(self, tmp_path: Path) -> None:
-        """TS-108-2: parse_source_url returns None for missing prd.md.
+        """TS-NS-3: prd.md does not exist → None.
 
-        Requirements: 108-REQ-1.E3
+        Requirements: NS-REQ-3
         """
         from agentfox.engine.engine import parse_source_url
 
@@ -55,39 +96,52 @@ class TestParseSourceUrl:
 
         assert result is None
 
-    def test_no_source_section_returns_none(self, tmp_path: Path) -> None:
-        """TS-108-3: parse_source_url returns None for missing Source section.
+    def test_no_frontmatter_returns_none(self, tmp_path: Path) -> None:
+        """TS-NS-3: prd.md has no YAML frontmatter delimiters → None.
 
-        Requirements: 108-REQ-1.E1
+        Requirements: NS-REQ-3
         """
         from agentfox.engine.engine import parse_source_url
 
         prd_path = tmp_path / "prd.md"
-        prd_path.write_text("# PRD\n\nNo source section here.\n\n## Overview\n\nSome text.\n")
+        prd_path.write_text("# PRD\n\nNo frontmatter here.\n")
 
         result = parse_source_url(prd_path)
 
         assert result is None
 
-    def test_non_url_source_returns_none(self, tmp_path: Path) -> None:
-        """TS-108-4: parse_source_url returns None for non-URL source.
+    def test_frontmatter_missing_source_key_returns_none(self, tmp_path: Path) -> None:
+        """TS-NS-3: Frontmatter present but no source key → None.
 
-        Requirements: 108-REQ-1.E2
+        Requirements: NS-REQ-3
         """
         from agentfox.engine.engine import parse_source_url
 
         prd_path = tmp_path / "prd.md"
-        prd_path.write_text("## Source\n\nSource: Input provided by user via interactive prompt\n")
+        _make_prd(prd_path)  # no source kwarg → no source field
+
+        result = parse_source_url(prd_path)
+
+        assert result is None
+
+    def test_malformed_frontmatter_returns_none(self, tmp_path: Path) -> None:
+        """TS-NS-3: Malformed frontmatter → None without raising.
+
+        Requirements: NS-REQ-3
+        """
+        from agentfox.engine.engine import parse_source_url
+
+        prd_path = tmp_path / "prd.md"
+        prd_path.write_text("---\n[invalid yaml\n---\nBody text\n")
 
         result = parse_source_url(prd_path)
 
         assert result is None
 
     def test_pure_function_no_exceptions(self, tmp_path: Path) -> None:
-        """TS-108-5: parse_source_url is a pure function (no exceptions).
+        """parse_source_url is a pure function — never raises.
 
-        Requirements: 108-REQ-1.3
-        Each variant returns either SourceIssue or None; nothing raises.
+        Requirements: NS-REQ-3
         """
         from agentfox.engine.engine import SourceIssue, parse_source_url
 
@@ -98,73 +152,66 @@ class TestParseSourceUrl:
         empty = tmp_path / "empty.md"
         empty.write_text("")
 
-        # Variant 3: Source with file path (not a URL)
+        # Variant 3: frontmatter with file path source
         file_src = tmp_path / "file_path_src.md"
-        file_src.write_text("## Source\n\nSource: /some/file/path.txt\n")
+        _make_prd(file_src, source="/some/file/path.txt")
 
-        # Variant 4: Source with GitHub URL
+        # Variant 4: frontmatter with GitHub URL
         github_src = tmp_path / "github_src.md"
-        github_src.write_text("## Source\n\nSource: https://github.com/org/repo/issues/1\n")
+        _make_prd(github_src, source="https://github.com/org/repo/issues/1")
 
-        # Variant 5: Source with unknown URL format
+        # Variant 5: frontmatter with unknown URL format
         unknown_src = tmp_path / "unknown_src.md"
-        unknown_src.write_text("## Source\n\nSource: https://linear.app/team/issue/123\n")
+        _make_prd(unknown_src, source="https://linear.app/team/issue/123")
 
         variants = [missing, empty, file_src, github_src, unknown_src]
 
         for path in variants:
             result = parse_source_url(path)
-            # Must be None or a valid SourceIssue, never an exception
             assert result is None or isinstance(result, SourceIssue), (
                 f"Expected None or SourceIssue for {path.name}, got {type(result)}"
             )
 
 
 # ---------------------------------------------------------------------------
-# TS-108-E1, TS-108-E2
-# Requirements: 108-REQ-1.E1, 108-REQ-1.1
+# Edge cases for frontmatter-based parse_source_url
 # ---------------------------------------------------------------------------
 
 
 class TestParseSourceUrlEdgeCases:
-    """Edge case tests for parse_source_url()."""
+    """Edge case tests for parse_source_url() with frontmatter."""
 
-    def test_source_section_without_source_line_returns_none(self, tmp_path: Path) -> None:
-        """TS-108-E1: ## Source heading present but no Source: line.
-
-        Requirements: 108-REQ-1.E1
-        """
+    def test_empty_source_value_returns_none(self, tmp_path: Path) -> None:
+        """Frontmatter source is empty string → None."""
         from agentfox.engine.engine import parse_source_url
 
         prd_path = tmp_path / "prd.md"
-        prd_path.write_text("# PRD\n\n## Source\n\nThis section has text but no 'Source:' prefix line.\n")
+        _make_prd(prd_path, source="")
 
         result = parse_source_url(prd_path)
 
         assert result is None
 
-    def test_multiple_source_sections_uses_first(self, tmp_path: Path) -> None:
-        """TS-108-E2: Multiple ## Source sections — uses first one.
+    def test_source_with_body_section_ignored(self, tmp_path: Path) -> None:
+        """Only frontmatter is authoritative; ## Source body section is ignored.
 
-        Requirements: 108-REQ-1.1
+        A prd.md with the URL only in a ## Source body section (not in
+        frontmatter) must return None — frontmatter is the single source
+        of truth per spec format v1.3.
         """
-        from agentfox.engine.engine import SourceIssue, parse_source_url
+        from agentfox.engine.engine import parse_source_url
 
         prd_path = tmp_path / "prd.md"
         prd_path.write_text(
-            "## Source\n\n"
-            "Source: https://github.com/first/repo/issues/10\n\n"
-            "## Source\n\n"
-            "Source: https://github.com/second/repo/issues/20\n"
+            '---\ntitle: "Test"\nsource: "interactive"\n---\n'
+            "## Source\n\nSource: https://github.com/owner/repo/issues/99\n"
         )
 
         result = parse_source_url(prd_path)
 
-        # Must return from the FIRST Source section, not raise
-        assert result is not None
-        assert isinstance(result, SourceIssue)
-        assert result.issue_number == 10
-        assert result.owner == "first"
+        # Must return None because frontmatter source is "interactive",
+        # even though the body has a valid GitHub URL.
+        assert result is None
 
 
 # ---------------------------------------------------------------------------
@@ -253,10 +300,12 @@ class TestPostIssueSummaries:
     """Tests for post_issue_summaries() function."""
 
     def _make_spec_dir(self, base: Path, spec_name: str, issue_url: str) -> Path:
-        """Create a minimal spec directory with prd.md and tasks.md."""
+        """Create a minimal spec directory with prd.md (frontmatter source) and tasks.md."""
         spec_dir = base / spec_name
         spec_dir.mkdir(parents=True)
-        (spec_dir / "prd.md").write_text(f"## Source\n\nSource: {issue_url}\n")
+        (spec_dir / "prd.md").write_text(
+            f'---\ntitle: "Test"\nsource: "{issue_url}"\n---\n# PRD\n'
+        )
         (spec_dir / "tasks.md").write_text("- [x] 1. Implement feature\n")
         return spec_dir
 
@@ -349,8 +398,10 @@ class TestPostIssueSummaries:
         specs_dir = tmp_path / "specs"
         spec_dir = specs_dir / spec_name
         spec_dir.mkdir(parents=True)
-        # Non-URL source
-        (spec_dir / "prd.md").write_text("## Source\n\nSource: Input provided by user via interactive prompt\n")
+        # Non-URL source in frontmatter
+        (spec_dir / "prd.md").write_text(
+            '---\ntitle: "Test"\nsource: "interactive"\n---\n# PRD\n'
+        )
         (spec_dir / "tasks.md").write_text("- [x] 1. Feature\n")
 
         platform = self._make_mock_platform()
@@ -542,8 +593,10 @@ class TestPostIssueSummariesForgeMismatch:
         specs_dir = tmp_path / "specs"
         spec_dir = specs_dir / spec_name
         spec_dir.mkdir(parents=True)
-        # GitHub source URL — forge = "github"
-        (spec_dir / "prd.md").write_text("## Source\n\nSource: https://github.com/owner/repo/issues/42\n")
+        # GitHub source URL in frontmatter — forge = "github"
+        (spec_dir / "prd.md").write_text(
+            '---\ntitle: "Test"\nsource: "https://github.com/owner/repo/issues/42"\n---\n# PRD\n'
+        )
         (spec_dir / "tasks.md").write_text("- [x] 1. Feature\n")
 
         # Platform is NOT github (simulating a GitLab platform)

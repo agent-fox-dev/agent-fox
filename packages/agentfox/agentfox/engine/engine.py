@@ -874,14 +874,16 @@ class Orchestrator:
 #   https://github.com/{owner}/{repo}/issues/{number}
 _GITHUB_ISSUE_RE = re.compile(r"^https://github\.com/(?P<owner>[^/\s]+)/(?P<repo>[^/\s]+)/issues/(?P<number>\d+)\s*$")
 
-# Source line pattern within ## Source section:
-#   Source: <value>
-_SOURCE_LINE_RE = re.compile(r"^Source:\s*(.+)$")
+# YAML frontmatter delimiters (must start at the very beginning of the file)
+_FRONTMATTER_RE = re.compile(r"\A---\r?\n(.*?)^---\r?\n", re.DOTALL | re.MULTILINE)
+
+# source: value line within YAML frontmatter
+_YAML_SOURCE_RE = re.compile(r"^source:\s*[\"']?(.+?)[\"']?\s*$", re.MULTILINE)
 
 
 @dataclass(frozen=True)
 class SourceIssue:
-    """Parsed issue reference from a prd.md Source section.
+    """Parsed issue reference from a prd.md frontmatter source field.
 
     Requirements: 108-REQ-1.2, 108-REQ-1.3
     """
@@ -892,62 +894,65 @@ class SourceIssue:
     issue_number: int  # e.g., 359
 
 
+def _match_github_issue_url(url: str) -> SourceIssue | None:
+    """Match a URL against the GitHub issue pattern.
+
+    Returns a ``SourceIssue`` if the URL is a valid GitHub issue URL,
+    or ``None`` otherwise.
+    """
+    gh_match = _GITHUB_ISSUE_RE.match(url.strip())
+    if gh_match:
+        return SourceIssue(
+            forge="github",
+            owner=gh_match.group("owner"),
+            repo=gh_match.group("repo"),
+            issue_number=int(gh_match.group("number")),
+        )
+    return None
+
+
 def parse_source_url(prd_path: Path) -> SourceIssue | None:
-    """Extract the issue URL from prd.md's ## Source section.
+    """Extract a GitHub issue reference from the PRD's frontmatter ``source`` field.
+
+    Reads the YAML frontmatter from prd.md and checks the ``source`` field
+    for a recognized issue URL pattern.  This is the single authoritative
+    location per spec format v1.3 — there is no ``## Source`` body section.
 
     Returns None (never raises) if:
     - prd.md does not exist
-    - ## Source section is missing
-    - Source: line is absent within the section
-    - Source line value does not match any known issue URL pattern
+    - frontmatter is missing or malformed
+    - ``source`` key is absent or empty
+    - ``source`` value does not match any known issue URL pattern
 
     Requirements: 108-REQ-1.1, 108-REQ-1.2, 108-REQ-1.3,
                   108-REQ-1.E1, 108-REQ-1.E2, 108-REQ-1.E3
     """
     try:
-        # 108-REQ-1.E3: prd.md does not exist
         if not prd_path.exists():
             return None
 
         text = prd_path.read_text(encoding="utf-8")
-        lines = text.splitlines()
 
-        in_source_section = False
-        for line in lines:
-            stripped = line.strip()
+        # Extract YAML frontmatter block
+        fm_match = _FRONTMATTER_RE.match(text)
+        if fm_match is None:
+            return None
 
-            # Detect the ## Source section heading (exact match)
-            if stripped == "## Source":
-                in_source_section = True
-                continue
+        yaml_text = fm_match.group(1)
 
-            # Stop at the next markdown heading after entering the section
-            if in_source_section and stripped.startswith("#"):
-                break
+        # Extract the source value from frontmatter
+        source_match = _YAML_SOURCE_RE.search(yaml_text)
+        if source_match is None:
+            return None
 
-            # Look for a "Source: <value>" line within the section
-            if in_source_section:
-                source_match = _SOURCE_LINE_RE.match(stripped)
-                if source_match:
-                    url = source_match.group(1).strip()
-                    # Try GitHub issue URL pattern
-                    gh_match = _GITHUB_ISSUE_RE.match(url)
-                    if gh_match:
-                        return SourceIssue(
-                            forge="github",
-                            owner=gh_match.group("owner"),
-                            repo=gh_match.group("repo"),
-                            issue_number=int(gh_match.group("number")),
-                        )
-                    # URL present but matches no known forge — return None
-                    # 108-REQ-1.E2: non-issue-URL source
-                    return None
+        source_value = source_match.group(1).strip()
+        if not source_value:
+            return None
 
-        # 108-REQ-1.E1: ## Source missing or Source: line absent
-        return None
+        return _match_github_issue_url(source_value)
 
     except Exception:
-        # 108-REQ-1.3: Pure function — never propagate exceptions
+        # Pure function — never propagate exceptions
         logger.debug("parse_source_url encountered an error", exc_info=True)
         return None
 
