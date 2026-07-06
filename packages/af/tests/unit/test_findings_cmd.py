@@ -49,7 +49,7 @@ class TestInsightsCommandRegistration:
         """AC-3: All former 'findings' flags are present under 'insights'."""
         result = cli_runner.invoke(main, ["insights", "--help"])
         assert result.exit_code == 0
-        for flag in ("--spec", "--severity", "--archetype", "--run", "--json"):
+        for flag in ("--spec", "--severity", "--archetype", "--run"):
             assert flag in result.output
 
     def test_click_command_name_is_insights(self) -> None:

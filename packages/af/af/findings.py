@@ -35,7 +35,6 @@ DEFAULT_DB_PATH: Path = _DEFAULT_DB_PATH
     help="Filter by archetype (reviewer, verifier, reviewer/pre-review, reviewer/drift-review)",
 )
 @click.option("--run", "run_id", default=None, help="Filter by run ID")
-@click.option("--json", "json_output", is_flag=True, help="Output as JSON array")
 @click.option(
     "--dismiss",
     nargs=2,
@@ -50,7 +49,6 @@ def findings_cmd(
     severity: str | None,
     archetype: str | None,
     run_id: str | None,
-    json_output: bool,
     dismiss: tuple[str, str] | None,
 ) -> None:
     """Query review findings from the knowledge database.
@@ -142,9 +140,9 @@ def findings_cmd(
         ]
         for f in rows
     ]
-    output = format_table(headers=headers, rows=table_rows, json_mode=json_output)
+    output = format_table(headers=headers, rows=table_rows, json_mode=om.json_mode)
 
-    if json_output or om.json_mode:
+    if om.json_mode:
         om.emit({"findings": output})
     else:
         from rich.console import Console
