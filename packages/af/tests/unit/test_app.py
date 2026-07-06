@@ -280,18 +280,17 @@ class TestTopLevelExceptionHandler:
         finally:
             main.commands.pop("boom", None)
 
-    def test_click_exception_json_mode_emits_error_message(self, cli_runner: CliRunner) -> None:
-        """ClickException in JSON mode emits the error message."""
+    def test_click_exception_agent_mode_emits_error_message(self, cli_runner: CliRunner) -> None:
+        """ClickException in agent mode emits the error message."""
         import json
 
         cmd = _make_failing_subcommand(click.ClickException("bad input value"))
         main.add_command(cmd, name="boom")
         try:
-            result = cli_runner.invoke(main, ["--json", "boom"])
+            result = cli_runner.invoke(main, ["boom"], env={"AF_AGENT": "1"})
             data = json.loads(result.output)
             assert "error" in data
             assert "bad input value" in data["error"]
-            # Must NOT contain the subcommand name as the error
             assert data["error"] != "boom"
         finally:
             main.commands.pop("boom", None)

@@ -25,6 +25,13 @@ _SUBCOMMANDS = [
     "insights",
 ]
 
+_JSON_SUBCOMMANDS = [
+    "code",
+    "plan",
+    "standup",
+    "insights",
+]
+
 
 # --- TS-04-27: Full test suite collectible ---
 
@@ -115,7 +122,7 @@ class TestSmoke1CodeJsonlStreaming:
         """
         from af.app import main
 
-        result = cli_runner_separated.invoke(main, ["--json", "code"])
+        result = cli_runner_separated.invoke(main, ["code", "--json"])
         assert result.exit_code == 0
         # stdout: final JSON result
         final = json.loads(result.output)
@@ -144,7 +151,7 @@ class TestSmoke2StandupJson:
         """
         from af.app import main
 
-        result = cli_runner.invoke(main, ["--json", "standup"])
+        result = cli_runner.invoke(main, ["standup", "--json"])
         assert result.exit_code == 0
         obj = json.loads(result.output)
         assert isinstance(obj, dict)

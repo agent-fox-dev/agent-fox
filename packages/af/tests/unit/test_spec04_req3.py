@@ -104,7 +104,7 @@ class TestStdoutStderrSeparation:
         """
         from af.app import main
 
-        result = cli_runner_separated.invoke(main, ["--json", "code"])
+        result = cli_runner_separated.invoke(main, ["code", "--json"])
         assert result.exit_code == 0
 
         # All stdout lines must be valid JSON (the final result)
@@ -138,7 +138,7 @@ class TestCodeJsonlEvents:
         """
         from af.app import main
 
-        result = cli_runner_separated.invoke(main, ["--json", "code"])
+        result = cli_runner_separated.invoke(main, ["code", "--json"])
         assert result.exit_code == 0
 
         # stdout: final JSON result

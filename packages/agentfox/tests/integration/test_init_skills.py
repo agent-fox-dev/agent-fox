@@ -7,7 +7,6 @@ Test Spec: TS-47-1 through TS-47-7
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import agentfox
@@ -116,48 +115,6 @@ class TestOutputReportsSkillCount:
         expected_count = len(_bundled_skill_names())
         assert "installed" in result.output.lower()
         assert str(expected_count) in result.output
-
-
-# ---------------------------------------------------------------------------
-# TS-47-5: JSON output includes skills_installed
-# ---------------------------------------------------------------------------
-
-
-class TestJsonIncludesSkillsInstalled:
-    """TS-47-5: JSON output includes skills_installed when --skills provided.
-
-    Requirement: 47-REQ-3.1
-    """
-
-    def test_json_includes_skills_installed(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
-        """JSON output has skills_installed integer matching bundled count."""
-        result = cli_runner.invoke(main, ["--json", "init", "--skills"])
-
-        assert result.exit_code == 0
-        data = json.loads(result.output)
-        expected_count = len(_bundled_skill_names())
-        assert "skills_installed" in data
-        assert data["skills_installed"] == expected_count
-
-
-# ---------------------------------------------------------------------------
-# TS-47-6: JSON output excludes skills_installed without flag
-# ---------------------------------------------------------------------------
-
-
-class TestJsonExcludesSkillsInstalled:
-    """TS-47-6: JSON output does not include skills_installed without --skills.
-
-    Requirement: 47-REQ-3.2
-    """
-
-    def test_json_excludes_skills_installed(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
-        """JSON output has no skills_installed key without --skills."""
-        result = cli_runner.invoke(main, ["--json", "init"])
-
-        assert result.exit_code == 0
-        data = json.loads(result.output)
-        assert "skills_installed" not in data
 
 
 # ---------------------------------------------------------------------------

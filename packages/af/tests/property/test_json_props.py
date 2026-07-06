@@ -144,7 +144,7 @@ class TestJsonExclusivity:
         spec = _BATCH_COMMANDS_WITH_MOCKS[cmd_name]
         with patch(spec["patch_target"]) as mock_fn:  # type: ignore[call-overload]
             mock_fn.return_value = spec["mock_return"]
-            result = cli_runner.invoke(main, ["--json", cmd_name])
+            result = cli_runner.invoke(main, [cmd_name, "--json"])
             data = json.loads(result.output)
             assert isinstance(data, dict)
 
@@ -173,7 +173,7 @@ class TestErrorEnvelopeStructure:
         specs_dir = tmp_project / ".specs"
         if specs_dir.exists():
             shutil.rmtree(specs_dir)
-        result = cli_runner.invoke(main, ["--json", "plan"])
+        result = cli_runner.invoke(main, ["plan", "--json"])
         data = json.loads(result.output)
         assert "error" in data
         assert len(data["error"]) > 0
@@ -203,7 +203,7 @@ class TestExitCodePreservation:
         with patch(spec["patch_target"]) as mock_fn:  # type: ignore[call-overload]
             mock_fn.return_value = spec["mock_return"]
             result_text = cli_runner.invoke(main, [cmd_name])
-            result_json = cli_runner.invoke(main, ["--json", cmd_name])
+            result_json = cli_runner.invoke(main, [cmd_name, "--json"])
             assert result_text.exit_code == result_json.exit_code
 
 

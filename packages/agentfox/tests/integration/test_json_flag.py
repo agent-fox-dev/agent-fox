@@ -1,4 +1,4 @@
-"""Integration tests for the global --json flag.
+"""Integration tests for the per-command --json flag.
 
 Test Spec: TS-23-1 through TS-23-18, TS-23-21 through TS-23-23,
            TS-23-E1 through TS-23-E8
@@ -127,19 +127,18 @@ def tmp_project(tmp_path: Path) -> Generator[Path, None, None]:
 
 
 # ---------------------------------------------------------------------------
-# TS-23-1: Global flag accessible to subcommands
+# TS-23-1: Per-command --json flag accessible
 # ---------------------------------------------------------------------------
 
 
 class TestGlobalFlagAccepted:
-    """TS-23-1: --json is accepted by the main group."""
+    """TS-23-1: --json is accepted by subcommands that support it."""
 
     def test_global_flag_accepted(self, cli_runner: CliRunner, tmp_project: Path) -> None:
-        """--json does not produce a Click usage error."""
+        """--json on standup does not produce a Click usage error."""
         with patch("af.standup.generate_standup") as mock_gen:
             mock_gen.return_value = _make_standup_report()
-            result = cli_runner.invoke(main, ["--json", "standup"])
-            # Exit code 2 means Click usage error
+            result = cli_runner.invoke(main, ["standup", "--json"])
             assert result.exit_code != 2, f"--json caused usage error: {result.output}"
 
 
@@ -172,7 +171,7 @@ class TestBannerSuppressed:
         """stdout does not contain banner markers."""
         with patch("af.standup.generate_standup") as mock_gen:
             mock_gen.return_value = _make_standup_report()
-            result = cli_runner.invoke(main, ["--json", "standup"])
+            result = cli_runner.invoke(main, ["standup", "--json"])
             assert "/\\_/\\" not in result.output
             assert "agent-fox v" not in result.output
 
@@ -189,7 +188,7 @@ class TestNoNonJsonStdout:
         """json.loads(stdout) succeeds."""
         with patch("af.standup.generate_standup") as mock_gen:
             mock_gen.return_value = _make_standup_report()
-            result = cli_runner.invoke(main, ["--json", "standup"])
+            result = cli_runner.invoke(main, ["standup", "--json"])
             data = json.loads(result.output)
             assert isinstance(data, dict)
 
@@ -206,14 +205,9 @@ class TestStandupJson:
         """standup with --json produces valid JSON."""
         with patch("af.standup.generate_standup") as mock_gen:
             mock_gen.return_value = _make_standup_report()
-            result = cli_runner.invoke(main, ["--json", "standup"])
+            result = cli_runner.invoke(main, ["standup", "--json"])
             data = json.loads(result.output)
             assert isinstance(data, dict)
-
-
-# ---------------------------------------------------------------------------
-# TS-23-7: Lint-spec command JSON output
-# ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------
@@ -226,46 +220,9 @@ class TestPlanJson:
 
     def test_plan_json_output(self, cli_runner: CliRunner, tmp_project: Path) -> None:
         """plan with --json produces valid JSON (even if error envelope)."""
-        result = cli_runner.invoke(main, ["--json", "plan"])
+        result = cli_runner.invoke(main, ["plan", "--json"])
         data = json.loads(result.output)
         assert isinstance(data, dict)
-
-
-# ---------------------------------------------------------------------------
-# TS-23-11: Init command JSON output
-# ---------------------------------------------------------------------------
-
-
-class TestInitJson:
-    """TS-23-11: init --json emits JSON."""
-
-    def test_init_json_output(self, cli_runner: CliRunner, tmp_project: Path) -> None:
-        """init with --json produces valid JSON."""
-        result = cli_runner.invoke(main, ["--json", "init"])
-        data = json.loads(result.output)
-        assert isinstance(data, dict)
-
-
-# ---------------------------------------------------------------------------
-# TS-23-13: Reset command JSON output
-# ---------------------------------------------------------------------------
-
-
-class TestResetJson:
-    """TS-23-13: reset --json emits JSON."""
-
-    def test_reset_json_output(self, cli_runner: CliRunner, tmp_project: Path) -> None:
-        """reset --json produces valid JSON."""
-
-        def fake_handler(*_args: object, **_kwargs: object) -> None:
-            from agentfox.io import emit
-
-            emit({"tasks_reset": 0, "sessions_cleared": 0})
-
-        with patch("af.reset._handle_soft_reset_all", fake_handler):
-            result = cli_runner.invoke(main, ["--json", "reset", "--yes"])
-            data = json.loads(result.output)
-            assert isinstance(data, dict)
 
 
 # ---------------------------------------------------------------------------
@@ -289,7 +246,7 @@ class TestCodeJsonl:
             db_path = tmp_project / ".agent-fox" / "knowledge.duckdb"
             db_path.write_text("")
 
-            result = cli_runner.invoke(main, ["--json", "code"])
+            result = cli_runner.invoke(main, ["code", "--json"])
             for line in result.output.strip().splitlines():
                 if line.strip():
                     data = json.loads(line)
@@ -306,16 +263,14 @@ class TestErrorEnvelope:
 
     def test_error_envelope_on_failure(self, cli_runner: CliRunner, tmp_project: Path) -> None:
         """Failure emits {"error": "..."}."""
-        # plan with no .specs/ should fail
-        result = cli_runner.invoke(main, ["--json", "plan"])
+        result = cli_runner.invoke(main, ["plan", "--json"])
         data = json.loads(result.output)
         assert "error" in data
         assert isinstance(data["error"], str)
 
     def test_no_unstructured_text_on_error(self, cli_runner: CliRunner, tmp_project: Path) -> None:
         """No unstructured text mixed into error output."""
-        result = cli_runner.invoke(main, ["--json", "plan"])
-        # Every line should be valid JSON
+        result = cli_runner.invoke(main, ["plan", "--json"])
         for line in result.output.strip().splitlines():
             if line.strip():
                 json.loads(line)
@@ -332,7 +287,7 @@ class TestExitCodePreserved:
     def test_exit_code_preserved(self, cli_runner: CliRunner, tmp_project: Path) -> None:
         """Same failing command has same exit code with and without --json."""
         result_text = cli_runner.invoke(main, ["plan"])
-        result_json = cli_runner.invoke(main, ["--json", "plan"])
+        result_json = cli_runner.invoke(main, ["plan", "--json"])
         assert result_text.exit_code == result_json.exit_code
 
 
@@ -364,10 +319,9 @@ class TestJsonWithVerbose:
 
         with patch("af.standup.generate_standup") as mock_gen:
             mock_gen.return_value = _make_standup_report()
-            # Suppress logging output that leaks into CliRunner's captured stdout
             logging.disable(logging.CRITICAL)
             try:
-                result = cli_runner.invoke(main, ["--json", "--verbose", "standup"])
+                result = cli_runner.invoke(main, ["--verbose", "standup", "--json"])
             finally:
                 logging.disable(logging.NOTSET)
             data = json.loads(result.output)
@@ -386,8 +340,7 @@ class TestLogsToStderr:
         """stdout contains only JSON — no log lines."""
         with patch("af.standup.generate_standup") as mock_gen:
             mock_gen.return_value = _make_standup_report()
-            result = cli_runner.invoke(main, ["--json", "standup"])
-            # stdout must be pure JSON
+            result = cli_runner.invoke(main, ["standup", "--json"])
             data = json.loads(result.output)
             assert isinstance(data, dict)
 
@@ -402,8 +355,7 @@ class TestEmptyDataValidJson:
 
     def test_empty_data_valid_json(self, cli_runner: CliRunner, tmp_project: Path) -> None:
         """plan with empty specs still emits valid JSON."""
-        # No .specs/ directory exists -> should produce error envelope or empty
-        result = cli_runner.invoke(main, ["--json", "plan"])
+        result = cli_runner.invoke(main, ["plan", "--json"])
         data = json.loads(result.output)
         assert isinstance(data, dict)
 
@@ -425,11 +377,10 @@ class TestStreamingInterrupted:
                 side_effect=_fake_asyncio_run(side_effect=KeyboardInterrupt()),
             ),
         ):
-            # DB file is required for plan existence check
             db_path = tmp_project / ".agent-fox" / "knowledge.duckdb"
             db_path.write_text("")
 
-            result = cli_runner.invoke(main, ["--json", "code"])
+            result = cli_runner.invoke(main, ["code", "--json"])
             last_line = result.output.strip().splitlines()[-1]
             data = json.loads(last_line)
             assert data["status"] == "interrupted"
@@ -447,7 +398,7 @@ class TestUnhandledExceptionEnvelope:
         """Unexpected exception produces {"error": "..."}."""
         with patch("af.standup.generate_standup") as mock_gen:
             mock_gen.side_effect = RuntimeError("unexpected boom")
-            result = cli_runner.invoke(main, ["--json", "standup"])
+            result = cli_runner.invoke(main, ["standup", "--json"])
             data = json.loads(result.output)
             assert "error" in data
             assert result.exit_code == 1

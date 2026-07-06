@@ -69,11 +69,17 @@ def _build_cost_tables(
     default=24,
     help="Reporting window in hours (default: 24)",
 )
+@click.option("--json/--no-json", default=None, help="Enable/disable JSON output mode")
 @click.pass_context
-def standup_cmd(ctx: click.Context, hours: int) -> None:
+def standup_cmd(ctx: click.Context, hours: int, json: bool | None) -> None:
     """Generate daily activity report."""
-    # 04-REQ-2.1, 04-REQ-2.5: retrieve OutputManager from context
+    import os
+
     om = get_output_manager(ctx)
+    if json is not None:
+        om.json_mode = json
+    elif os.environ.get("AF_AGENT") == "1":
+        om.json_mode = True
     json_mode = om.json_mode
     project_root = Path.cwd()
 

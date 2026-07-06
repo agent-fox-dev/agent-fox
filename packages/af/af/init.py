@@ -31,8 +31,6 @@ from agentfox.workspace.init_project import (
     init_project,
 )
 
-from af import get_output_manager
-
 logger = logging.getLogger(__name__)
 
 # Package-embedded default profiles directory (mirrors profiles.py resolution)
@@ -167,9 +165,6 @@ def init_cmd(ctx: click.Context, create_config: bool, skills: bool, profiles: bo
     branch, and updates .gitignore.  Pass --config to also create a
     local config.toml for per-project overrides.
     """
-    om = get_output_manager(ctx)
-    json_mode = om.json_mode
-
     project_root = Path.cwd()
 
     # --- Global config scaffolding ---
@@ -182,35 +177,13 @@ def init_cmd(ctx: click.Context, create_config: bool, skills: bool, profiles: bo
 
     # --- Git-dependent initialization ---
     if not _is_git_repo():
-        if json_mode:
-            data: dict = {"status": "ok", "global_config": global_msg}
-            if local_msg:
-                data["local_config"] = local_msg
-            om.emit(data)
-            return
         if global_msg:
             click.echo(global_msg)
         if local_msg:
             click.echo(local_msg)
         return
 
-    result = init_project(project_root, skills=skills, quiet=json_mode)
-
-    if json_mode:
-        result_data: dict = {
-            "status": "ok",
-            "agents_md": result.agents_md,
-            "steering_md": result.steering_md,
-            "global_config": global_msg,
-        }
-        if local_msg:
-            result_data["local_config"] = local_msg
-        if result.skills_installed:
-            result_data["skills_installed"] = result.skills_installed
-        if result.labels_ensured:
-            result_data["labels_ensured"] = result.labels_ensured
-        om.emit(result_data)
-        return
+    result = init_project(project_root, skills=skills, quiet=False)
 
     if global_msg:
         click.echo(global_msg)

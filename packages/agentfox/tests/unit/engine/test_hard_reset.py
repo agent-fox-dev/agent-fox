@@ -537,40 +537,6 @@ class TestConfirmationRequired:
 
 
 # ===========================================================================
-# TS-35-16: JSON Output for Hard Reset
-# Requirement: 35-REQ-6.2, 35-REQ-5.3
-# ===========================================================================
-
-
-class TestJsonOutput:
-    """TS-35-16: Hard reset produces structured JSON output in JSON mode."""
-
-    def test_json_output_structure(self, tmp_path: Path) -> None:
-        """JSON output contains reset_tasks, compaction, rollback keys."""
-        from af.reset import reset_cmd
-        from click.testing import CliRunner
-
-        runner = CliRunner()
-        with runner.isolated_filesystem(temp_dir=tmp_path) as td:
-            iso_agent_dir = Path(td) / ".agent-fox"
-            iso_agent_dir.mkdir(parents=True, exist_ok=True)
-            nodes = {"s:1": {"title": "T1"}}
-            (iso_agent_dir / "plan.json").write_text(_make_plan_json(nodes=nodes))
-            (iso_agent_dir / "worktrees").mkdir(exist_ok=True)
-            (iso_agent_dir / "memory.jsonl").write_text("")
-
-            mock_result = _make_hard_reset_result(reset_tasks=["s:1"])
-            with patch("af.reset.hard_reset_all", return_value=mock_result):
-                result = runner.invoke(reset_cmd, ["--hard", "--yes"], obj={"json": True})
-
-        assert result.exit_code == 0
-        data = json.loads(result.output)
-        assert "reset_tasks" in data
-        assert "compaction" in data
-        assert "rollback" in data
-
-
-# ===========================================================================
 # TS-35-17: Hard Reset Resets Tasks.md Checkboxes
 # Requirement: 35-REQ-7.1, 35-REQ-7.3
 # ===========================================================================

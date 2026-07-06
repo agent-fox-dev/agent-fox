@@ -9,6 +9,7 @@ Requirements: 02-REQ-7.1, 02-REQ-7.2, 02-REQ-7.3, 02-REQ-7.4, 02-REQ-7.5,
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -169,6 +170,7 @@ def _metadata_to_dict(meta: object) -> dict:
     default=False,
     help="Cross-check spec files against database plan states",
 )
+@click.option("--json/--no-json", default=None, help="Enable/disable JSON output mode")
 @click.pass_context
 def plan_cmd(
     ctx: click.Context,
@@ -177,10 +179,14 @@ def plan_cmd(
     filter_spec: str | None,
     specs_dir: str | None,
     verify: bool,
+    json: bool | None,
 ) -> None:
     """Build an execution plan from specifications."""
-    # 04-REQ-2.1: retrieve OutputManager from context
     om = get_output_manager(ctx)
+    if json is not None:
+        om.json_mode = json
+    elif os.environ.get("AF_AGENT") == "1":
+        om.json_mode = True
     json_mode = om.json_mode
 
     # 85-REQ-3.2: Refuse to run when daemon is active.

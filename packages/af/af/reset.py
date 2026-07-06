@@ -27,8 +27,6 @@ from agentfox.engine.reset import (
 )
 from agentfox.io import exit_codes
 
-from af import get_output_manager
-
 if TYPE_CHECKING:
     import duckdb
 
@@ -58,34 +56,6 @@ def _get_db_conn() -> duckdb.DuckDBPyConnection | None:
     except Exception:
         logger.debug("DuckDB unavailable for reset", exc_info=True)
         return None
-
-
-def _result_to_dict(result: ResetResult) -> dict:
-    """Convert a ResetResult to a JSON-serializable dict."""
-    return {
-        "reset_tasks": list(result.reset_tasks),
-        "unblocked_tasks": list(result.unblocked_tasks),
-        "cleaned_worktrees": list(result.cleaned_worktrees),
-        "cleaned_branches": list(result.cleaned_branches),
-        "skipped_completed": list(result.skipped_completed),
-    }
-
-
-def _hard_result_to_dict(result: HardResetResult) -> dict:
-    """Convert a HardResetResult to a JSON-serializable dict."""
-    return {
-        "reset_tasks": list(result.reset_tasks),
-        "cleaned_worktrees": list(result.cleaned_worktrees),
-        "cleaned_branches": list(result.cleaned_branches),
-        "compaction": {
-            "original_count": result.compaction[0],
-            "surviving_count": result.compaction[1],
-        },
-        "rollback": {
-            "target_sha": result.rollback_sha,
-            "skipped": result.rollback_sha is None,
-        },
-    }
 
 
 def _display_result(result: ResetResult) -> None:
@@ -150,19 +120,6 @@ def _display_hard_result(result: HardResetResult) -> None:
         click.echo("Code rollback skipped (no tracked commits).")
 
 
-def _spec_result_to_dict(result: ResetResult) -> dict:
-    """Convert a spec-reset ResetResult to a JSON-serializable dict.
-
-    Uses the keys required by 50-REQ-3.4: reset_tasks,
-    cleaned_worktrees, cleaned_branches.
-    """
-    return {
-        "reset_tasks": list(result.reset_tasks),
-        "cleaned_worktrees": list(result.cleaned_worktrees),
-        "cleaned_branches": list(result.cleaned_branches),
-    }
-
-
 def _display_spec_result(result: ResetResult, spec_name: str) -> None:
     """Display a human-readable summary of a spec-scoped reset.
 
@@ -219,8 +176,6 @@ def reset_cmd(
 
     With --spec, reset all tasks belonging to a single spec.
     """
-    # 04-REQ-2.1: retrieve OutputManager from context
-    om = get_output_manager(ctx)
     project_root = Path.cwd()
     agent_dir = project_root / AGENT_FOX_DIR
     worktrees_dir = agent_dir / "worktrees"
@@ -250,7 +205,6 @@ def reset_cmd(
                 ctx,
                 filter_spec,
                 yes,
-                om,
                 db_conn,
                 worktrees_dir,
                 project_root,
@@ -260,7 +214,6 @@ def reset_cmd(
                 ctx,
                 task_id,
                 yes,
-                om,
                 db_conn,
                 worktrees_dir,
                 project_root,
@@ -270,7 +223,6 @@ def reset_cmd(
             _handle_soft_task_reset(
                 ctx,
                 task_id,
-                om,
                 db_conn,
                 worktrees_dir,
                 project_root,
@@ -279,7 +231,6 @@ def reset_cmd(
             _handle_soft_reset_all(
                 ctx,
                 yes,
-                om,
                 db_conn,
                 worktrees_dir,
                 project_root,
@@ -293,19 +244,16 @@ def _handle_spec_reset(
     ctx: click.Context,
     spec_name: str,
     yes: bool,
-    om: object,
     db_conn: duckdb.DuckDBPyConnection | None,
     worktrees_dir: Path,
     project_root: Path,
 ) -> None:
     """Handle --spec reset (spec-scoped).
 
-    Requirements: 04-REQ-2.1, 50-REQ-1.1 .. 50-REQ-1.8,
+    Requirements: 50-REQ-1.1 .. 50-REQ-1.8,
                   50-REQ-3.1 .. 50-REQ-3.5, 50-REQ-4.1, 50-REQ-4.2
     """
-    json_mode = om.json_mode
-    # Confirmation: skip if --yes or --json (50-REQ-3.1, 50-REQ-3.3, 50-REQ-3.4)
-    if not json_mode and not yes:
+    if not yes:
         msg = f"Reset all tasks for spec '{spec_name}'?"
         if not click.confirm(msg):
             click.echo("Reset cancelled.")
@@ -318,29 +266,20 @@ def _handle_spec_reset(
         db_conn=db_conn,
     )
 
-    if json_mode:
-        om.emit(_spec_result_to_dict(result))
-    else:
-        _display_spec_result(result, spec_name)
+    _display_spec_result(result, spec_name)
 
 
 def _handle_hard_reset(
     ctx: click.Context,
     task_id: str | None,
     yes: bool,
-    om: object,
     db_conn: duckdb.DuckDBPyConnection | None,
     worktrees_dir: Path,
     project_root: Path,
     memory_path: Path,
 ) -> None:
-    """Handle --hard reset (full or partial).
-
-    Requirements: 04-REQ-2.1
-    """
-    json_mode = om.json_mode
-    # Confirmation: skip if --yes or --json (35-REQ-5.2, 35-REQ-5.3)
-    if not json_mode and not yes:
+    """Handle --hard reset (full or partial)."""
+    if not yes:
         if task_id:
             msg = f"Hard reset task {task_id} (rolls back code, resets affected tasks)?"
         else:
@@ -365,24 +304,17 @@ def _handle_hard_reset(
             db_conn=db_conn,
         )
 
-    if json_mode:
-        om.emit(_hard_result_to_dict(result))
-    else:
-        _display_hard_result(result)
+    _display_hard_result(result)
 
 
 def _handle_soft_task_reset(
     ctx: click.Context,
     task_id: str,
-    om: object,
     db_conn: duckdb.DuckDBPyConnection | None,
     worktrees_dir: Path,
     project_root: Path,
 ) -> None:
-    """Handle single-task soft reset.
-
-    Requirements: 04-REQ-2.1
-    """
+    """Handle single-task soft reset."""
     result = reset_task(
         task_id=task_id,
         worktrees_dir=worktrees_dir,
@@ -390,61 +322,38 @@ def _handle_soft_task_reset(
         db_conn=db_conn,
     )
 
-    if om.json_mode:
-        om.emit(_result_to_dict(result))
-    else:
-        _display_result(result)
+    _display_result(result)
 
 
 def _handle_soft_reset_all(
     ctx: click.Context,
     yes: bool,
-    om: object,
     db_conn: duckdb.DuckDBPyConnection | None,
     worktrees_dir: Path,
     project_root: Path,
 ) -> None:
-    """Handle full soft reset (existing behavior).
-
-    Requirements: 04-REQ-2.1
-    """
+    """Handle full soft reset (existing behavior)."""
     from agentfox.engine.reset import (
         _RESETTABLE_STATUSES,
         _load_state_or_raise,
     )
 
-    json_mode = om.json_mode
     state = _load_state_or_raise(db_conn)
 
     # Find tasks that would be reset
     resettable = [(tid, status) for tid, status in state.node_states.items() if status in _RESETTABLE_STATUSES]
 
     if not resettable:
-        if json_mode:
-            om.emit(
-                _result_to_dict(
-                    ResetResult(
-                        reset_tasks=[],
-                        unblocked_tasks=[],
-                        cleaned_worktrees=[],
-                        cleaned_branches=[],
-                    )
-                )
-            )
-            return
         click.echo(
             "Nothing to reset. No failed, blocked, or in-progress tasks found.",
         )
         return
 
-    if not json_mode:
-        click.echo("The following tasks will be reset to pending:")
-        for tid, status in resettable:
-            click.echo(f"  - {tid} ({status})")
+    click.echo("The following tasks will be reset to pending:")
+    for tid, status in resettable:
+        click.echo(f"  - {tid} ({status})")
 
-    # Prompt for confirmation unless --yes (07-REQ-4.4)
-    # In JSON mode, skip confirmation (non-interactive)
-    if not json_mode and not yes:
+    if not yes:
         if not click.confirm("\nProceed with reset?"):
             click.echo("Reset cancelled.")
             return
@@ -455,7 +364,4 @@ def _handle_soft_reset_all(
         db_conn=db_conn,
     )
 
-    if json_mode:
-        om.emit(_result_to_dict(result))
-    else:
-        _display_result(result)
+    _display_result(result)

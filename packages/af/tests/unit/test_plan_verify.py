@@ -207,7 +207,7 @@ class TestVerifyJsonOutput:
             mock_ks.return_value = mock_db
             result = cli_runner.invoke(
                 main,
-                ["--json", "plan", "--verify", "--specs-dir", str(tmp_path)],
+                ["plan", "--verify", "--specs-dir", str(tmp_path), "--json"],
             )
 
         assert result.exit_code == 1

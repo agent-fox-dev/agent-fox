@@ -22,20 +22,16 @@ _SUBCOMMAND_FILES = [
     "code.py",
     "plan.py",
     "standup.py",
-    "init.py",
-    "reset.py",
     "findings.py",
 ]
 
 _ALL_AF_PY_FILES = _SUBCOMMAND_FILES + ["__init__.py", "app.py"]
 
-# Subcommands that can be invoked with --json for property testing
+# Subcommands that support --json for property testing
 _SUBCOMMANDS = [
     "code",
     "plan",
     "standup",
-    "init",
-    "reset",
     "insights",
 ]
 
@@ -138,19 +134,14 @@ class TestProp4JsonModeValidOutput:
             ),
             "plan",
             "standup",
-            "init",
-            "reset",
             "insights",
         ],
     )
     def test_json_mode_stdout_is_valid_json(self, cli_runner, command: str) -> None:
-        """af --json <cmd> produces valid JSON on stdout and exits 0.
-
-        Note: --json is a group-level flag, so it must precede the subcommand.
-        """
+        """af <cmd> --json produces valid JSON on stdout and exits 0."""
         from af.app import main
 
-        result = cli_runner.invoke(main, ["--json", command])
+        result = cli_runner.invoke(main, [command, "--json"])
         assert result.exit_code == 0
         obj = json.loads(result.output)
         assert isinstance(obj, dict)

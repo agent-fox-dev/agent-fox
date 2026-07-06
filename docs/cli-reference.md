@@ -25,15 +25,16 @@ agent-fox [OPTIONS] COMMAND [ARGS]
 | `--verbose` | `-v` | Enable debug logging |
 | `--quiet` | `-q` | Suppress info messages and banner |
 | `--trace` | | Enable trace logging (includes bulk AI prompt/response payloads; implies `--verbose`) |
-| `--json` | | Switch to structured JSON I/O mode |
 | `--help` | | Show help and exit |
 
 When invoked without a subcommand, displays help text.
 
 ### JSON Mode (`--json`)
 
-The `--json` flag switches every command to structured JSON input/output mode,
-designed for agent-to-agent and script-driven workflows.
+The `--json` flag is available on commands that produce structured output:
+`plan`, `code`, `standup`, and `insights`. It switches the command to
+structured JSON input/output mode, designed for agent-to-agent and
+script-driven workflows.
 
 **Behavior when active:**
 
@@ -49,21 +50,25 @@ designed for agent-to-agent and script-driven workflows.
   object from stdin and uses its fields as parameter defaults. CLI flags
   take precedence over stdin fields. Unknown fields are silently ignored.
 
+**Agent mode:** When `AF_AGENT=1` is set, commands that support `--json`
+automatically enable JSON output mode. This can be overridden with
+`--no-json`.
+
 **Examples:**
 
 ```bash
 # Get structured output from standup
-agent-fox --json standup
+agent-fox standup --json
 
 # Combine with --verbose for JSON output + debug logs on stderr
-agent-fox --json --verbose code
+agent-fox code --json --verbose
 ```
 
 **Error handling:**
 
 ```bash
 # Invalid JSON on stdin produces an error envelope
-echo 'not json' | agent-fox --json code
+echo 'not json' | agent-fox code --json
 # stdout: {"error": "invalid JSON input: ..."}
 # exit code: 1
 ```
@@ -124,8 +129,7 @@ bundled skill templates from the agent-fox package into
 `.claude/skills/{name}/SKILL.md`. Each skill becomes available as a slash
 command in Claude Code (e.g., `/af-spec`). Existing skill files are
 overwritten with the latest bundled versions. Works on both fresh init and
-re-init. The output reports the number of skills installed. In JSON mode, the
-output includes a `skills_installed` integer field.
+re-init. The output reports the number of skills installed.
 
 **GitHub labels:** When a `[platform]` section with `type = "github"` is
 configured, `init` automatically creates labels on the repository for the
@@ -150,6 +154,7 @@ agent-fox plan [OPTIONS]
 | `--fast` | flag | off | Exclude optional tasks |
 | `--spec NAME` | string | all | Plan a single spec |
 | `--specs-dir PATH` | path | from config | Path to specs directory (default: from config, or `.agent-fox/specs`) |
+| `--json` / `--no-json` | flag | off | Enable/disable JSON output mode |
 
 Scans `.agent-fox/specs/` for specification folders, parses task groups, builds a
 dependency graph, resolves topological ordering, and persists the plan to the
@@ -203,6 +208,7 @@ agent-fox code [OPTIONS]
 | `--watch` | flag | off | Keep running and poll for new specs after all tasks complete |
 | `--watch-interval N` | int | 60 | Seconds between watch polls (minimum: 10) |
 | `--force-clean` | flag | off | Automatically remove untracked files and reset dirty index before dispatch |
+| `--json` / `--no-json` | flag | off | Enable/disable JSON output mode |
 
 Runs the orchestrator, which dispatches coding sessions to a Claude agent for
 each ready task in the plan. Sessions execute in isolated git worktrees with
@@ -242,8 +248,8 @@ incompatible flags.
 bypasses the nightshift daemon PID guard. You can run `code --dry-run` even
 while the daemon is active.
 
-**JSON output:** `--dry-run` composes with the global `--json` flag. When both
-are set, the command outputs a JSON object with the following keys:
+**JSON output:** `--dry-run` composes with `--json`. When both are set, the
+command outputs a JSON object with the following keys:
 
 - `nodes` — remaining (non-completed) nodes keyed by ID.
 - `edges` — dependency edges between remaining nodes.
@@ -263,7 +269,7 @@ empty collections for `nodes`, `edges`, and `order`.
 agent-fox code --dry-run
 
 # Get structured JSON output for scripting
-agent-fox --json code --dry-run
+agent-fox code --dry-run --json
 ```
 
 **Edge cases:**
@@ -324,11 +330,12 @@ agent-fox standup [OPTIONS]
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `--hours N` | int | 24 | Reporting window in hours |
+| `--json` / `--no-json` | flag | off | Enable/disable JSON output mode |
 
 Covers agent activity (sessions, tokens, cost), human commits, file overlaps
 between agent and human work, and queue status (ready/pending/blocked tasks).
 
-Use `agent-fox --json standup` for structured JSON output.
+Use `agent-fox standup --json` for structured JSON output.
 
 **Exit codes:** `0` success.
 
@@ -379,7 +386,7 @@ With `--hard <TASK_ID>`, performs a partial rollback:
   (cascaded reset).
 - Earlier tasks remain completed.
 
-Hard reset requires confirmation unless `--yes` or `--json` is provided.
+Hard reset requires confirmation unless `--yes` is provided.
 
 **Exit codes:** `0` success, `1` error.
 
@@ -400,7 +407,7 @@ agent-fox insights [OPTIONS]
 | `--archetype NAME` | string | all | Filter by archetype (`reviewer`, `verifier`, `reviewer/pre-review`, `reviewer/drift-review`) |
 | `--run ID` | string | all | Filter by run ID |
 | `--dismiss ID REASON` | string pair | | Dismiss a finding by ID with a reason |
-| `--json` | flag | off | Output as JSON array |
+| `--json` / `--no-json` | flag | off | Enable/disable JSON output mode |
 
 Displays active (non-superseded) review findings from the knowledge store.
 Findings are produced by Reviewer (pre-review, drift-review, audit-review

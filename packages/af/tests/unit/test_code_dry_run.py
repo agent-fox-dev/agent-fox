@@ -319,7 +319,7 @@ class TestJsonOutput:
             ),
         ):
             mock_db_path.exists.return_value = True
-            result = cli_runner.invoke(main, ["--json", "code", "--dry-run"])
+            result = cli_runner.invoke(main, ["code", "--dry-run", "--json"])
 
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -494,7 +494,7 @@ class TestEmptyPlanJsonDryRun:
             patch("af.code.load_plan", return_value=graph),
         ):
             mock_db_path.exists.return_value = True
-            result = cli_runner.invoke(main, ["--json", "code", "--dry-run"])
+            result = cli_runner.invoke(main, ["code", "--dry-run", "--json"])
 
         assert result.exit_code == 0
         data = json.loads(result.output)
@@ -788,7 +788,7 @@ class TestSmokeJsonOutput:
             ),
         ):
             mock_db_path.exists.return_value = True
-            result = cli_runner.invoke(main, ["--json", "code", "--dry-run"])
+            result = cli_runner.invoke(main, ["code", "--dry-run", "--json"])
 
         assert result.exit_code == 0
         data = json.loads(result.output)

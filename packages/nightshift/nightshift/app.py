@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import signal
 import sys
 from pathlib import Path
@@ -20,9 +21,10 @@ logger = logging.getLogger(__name__)
 @exit_codes(**{"0": "Success", "1": "Startup failure", "130": "Immediate abort"})
 @click.group(cls=AgentFoxGroup, invoke_without_command=True)
 @click.version_option(version=None, package_name="nightshift")
+@click.option("--json/--no-json", "json_flag", default=None, help="Enable/disable JSON output mode")
 @common_options
 @click.pass_context
-def main(ctx: click.Context, **kwargs) -> None:  # noqa: ARG001
+def main(ctx: click.Context, json_flag: bool | None = None, **kwargs) -> None:  # noqa: ARG001
     """Run the nightshift autonomous fix daemon.
 
     Polls for issues labelled ``af:fix`` and processes them through the
@@ -31,8 +33,12 @@ def main(ctx: click.Context, **kwargs) -> None:  # noqa: ARG001
     ctx.ensure_object(dict)
     om = ctx.obj.get("output")
     if om is None:
-        om = OutputManager(json_mode=bool(kwargs.get("json", False)))
+        om = OutputManager(json_mode=False)
         ctx.obj["output"] = om
+    if json_flag is not None:
+        om.json_mode = json_flag
+    elif os.environ.get("AF_AGENT") == "1":
+        om.json_mode = True
     effective_quiet = om.quiet or (om.json_mode and not om.verbose)
     setup_logging(verbose=om.verbose, quiet=effective_quiet)
     config = load_config()

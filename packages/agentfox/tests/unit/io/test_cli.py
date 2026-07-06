@@ -1,10 +1,8 @@
 """Unit tests for agentfox.io.cli — common_options and AgentFoxGroup.
 
-Test Spec: TS-03-8, TS-03-9, TS-03-10, TS-03-11, TS-03-12, TS-03-13,
-           TS-03-47, TS-03-48, TS-03-49, TS-03-E3
-Requirements: 03-REQ-3.1, 03-REQ-3.2, 03-REQ-3.3, 03-REQ-3.4,
-              03-REQ-3.5, 03-REQ-3.6, 03-REQ-3.E1, 03-REQ-9.1,
-              03-REQ-9.2, 03-REQ-9.3
+Test Spec: TS-03-8, TS-03-10, TS-03-47, TS-03-48, TS-03-49, TS-03-E3
+Requirements: 03-REQ-3.1, 03-REQ-3.3, 03-REQ-3.5, 03-REQ-3.E1,
+              03-REQ-9.1, 03-REQ-9.2, 03-REQ-9.3
 """
 
 from __future__ import annotations
@@ -35,52 +33,26 @@ def _make_test_cli() -> tuple[click.Group, list[Any]]:
     return cli, captured
 
 
-class TestAfAgentDefaultJsonQuiet:
-    """TS-03-8: AF_AGENT=1 defaults json_mode=True and quiet=True."""
+class TestAfAgentDefaultQuiet:
+    """TS-03-8: AF_AGENT=1 defaults quiet=True."""
 
     def test_af_agent_1_defaults(self) -> None:
-        """03-REQ-3.1: OutputManager has json_mode=True and quiet=True."""
+        """03-REQ-3.1: OutputManager has quiet=True. json_mode is per-command."""
         cli, captured = _make_test_cli()
         runner = CliRunner(env={"AF_AGENT": "1"})
         runner.invoke(cli, ["sub"])
         assert len(captured) == 1
-        assert captured[0].json_mode is True
-        assert captured[0].quiet is True
-
-
-class TestAfAgentOverrideNoJson:
-    """TS-03-9: --no-json overrides AF_AGENT=1 json_mode while quiet stays True."""
-
-    def test_no_json_overrides_af_agent(self) -> None:
-        """03-REQ-3.2: json_mode=False, quiet=True."""
-        cli, captured = _make_test_cli()
-        runner = CliRunner(env={"AF_AGENT": "1"})
-        runner.invoke(cli, ["--no-json", "sub"])
-        assert captured[0].json_mode is False
         assert captured[0].quiet is True
 
 
 class TestAfAgentOverrideVerbose:
-    """TS-03-10: --verbose overrides AF_AGENT=1 quiet while json_mode stays True."""
+    """TS-03-10: --verbose overrides AF_AGENT=1 quiet."""
 
     def test_verbose_overrides_af_agent_quiet(self) -> None:
-        """03-REQ-3.3: json_mode=True, quiet=False."""
+        """03-REQ-3.3: quiet=False when --verbose passed."""
         cli, captured = _make_test_cli()
         runner = CliRunner(env={"AF_AGENT": "1"})
         runner.invoke(cli, ["--verbose", "sub"])
-        assert captured[0].json_mode is True
-        assert captured[0].quiet is False
-
-
-class TestAfAgentOverrideBoth:
-    """TS-03-11: --no-json --verbose overrides both AF_AGENT=1 defaults."""
-
-    def test_no_json_verbose_overrides_both(self) -> None:
-        """03-REQ-3.4: json_mode=False, quiet=False."""
-        cli, captured = _make_test_cli()
-        runner = CliRunner(env={"AF_AGENT": "1"})
-        runner.invoke(cli, ["--no-json", "--verbose", "sub"])
-        assert captured[0].json_mode is False
         assert captured[0].quiet is False
 
 
@@ -93,76 +65,15 @@ class TestAfAgentNon1ValuesIgnored:
         ids=["true", "yes", "on", "zero", "empty"],
     )
     def test_non_1_values_ignored(self, bad_val: str) -> None:
-        """03-REQ-3.5: json_mode=False and quiet=False for non-'1' values."""
+        """03-REQ-3.5: quiet=False for non-'1' values."""
         cli, captured = _make_test_cli()
         runner = CliRunner(env={"AF_AGENT": bad_val})
         runner.invoke(cli, ["sub"])
-        assert captured[0].json_mode is False, f"AF_AGENT={bad_val!r} should not activate json_mode"
         assert captured[0].quiet is False, f"AF_AGENT={bad_val!r} should not activate quiet"
 
 
 class TestSentinelKeys:
-    """TS-03-13: _json_explicit and _quiet_explicit sentinels set correctly."""
-
-    def test_json_flag_sets_sentinel(self) -> None:
-        """03-REQ-3.6: _json_explicit=True when --json passed."""
-        from agentfox.io import AgentFoxGroup, common_options
-
-        ctx_capture: list[dict] = []
-
-        @click.group(cls=AgentFoxGroup)
-        @common_options
-        def cli(**kwargs: object) -> None:
-            pass
-
-        @cli.command()
-        @click.pass_context
-        def sub(ctx: click.Context) -> None:
-            ctx_capture.append(dict(ctx.obj))
-
-        runner = CliRunner()
-        runner.invoke(cli, ["--json", "sub"])
-        assert ctx_capture[-1].get("_json_explicit") is True
-
-    def test_no_flag_no_sentinel(self) -> None:
-        """03-REQ-3.6: _json_explicit absent when no flag passed."""
-        from agentfox.io import AgentFoxGroup, common_options
-
-        ctx_capture: list[dict] = []
-
-        @click.group(cls=AgentFoxGroup)
-        @common_options
-        def cli(**kwargs: object) -> None:
-            pass
-
-        @cli.command()
-        @click.pass_context
-        def sub(ctx: click.Context) -> None:
-            ctx_capture.append(dict(ctx.obj))
-
-        runner = CliRunner()
-        runner.invoke(cli, ["sub"])
-        assert ctx_capture[-1].get("_json_explicit") is None or (ctx_capture[-1].get("_json_explicit") is False)
-
-    def test_no_json_flag_also_sets_json_sentinel(self) -> None:
-        """03-REQ-3.6: _json_explicit=True when --no-json passed (either flag in pair)."""
-        from agentfox.io import AgentFoxGroup, common_options
-
-        ctx_capture: list[dict] = []
-
-        @click.group(cls=AgentFoxGroup)
-        @common_options
-        def cli(**kwargs: object) -> None:
-            pass
-
-        @cli.command()
-        @click.pass_context
-        def sub(ctx: click.Context) -> None:
-            ctx_capture.append(dict(ctx.obj))
-
-        runner = CliRunner()
-        runner.invoke(cli, ["--no-json", "sub"])
-        assert ctx_capture[-1].get("_json_explicit") is True
+    """TS-03-13: _quiet_explicit sentinel set correctly."""
 
     def test_quiet_flag_sets_sentinel(self) -> None:
         """03-REQ-3.6: _quiet_explicit=True when --quiet passed."""
@@ -206,10 +117,10 @@ class TestSentinelKeys:
 
 
 class TestCommonOptionsAddsFlags:
-    """TS-03-47: common_options adds all flag groups to the root Click group."""
+    """TS-03-47: common_options adds --verbose and --quiet to the root Click group."""
 
     def test_all_flags_registered(self) -> None:
-        """03-REQ-9.1: Group has --verbose, --quiet, --json params (no --trace)."""
+        """03-REQ-9.1: Group has --verbose and --quiet params."""
         from agentfox.io import common_options
 
         @click.group()
@@ -221,10 +132,6 @@ class TestCommonOptionsAddsFlags:
         assert "verbose" in param_names
         assert "quiet" in param_names
         assert "trace" not in param_names, "--trace must not be registered after removal"
-        # json may be registered as 'json' or 'json_mode' depending on impl
-        assert any(name in param_names for name in ("json", "json_mode", "no_json")), (
-            f"No json-related param found in {param_names}"
-        )
 
 
 class TestCommonOptionsRejectsNonGroup:
@@ -260,19 +167,17 @@ class TestCommonOptionsNameCollision:
         with caplog.at_level(logging.DEBUG):
 
             @click.group()
-            @click.option("--json", is_flag=True)
+            @click.option("--verbose", is_flag=True)
             @common_options
             def cli(**kwargs: object) -> None:
                 pass
 
-        # Count json params — MUST be exactly 1, not 0 and not 2
-        json_params = [p for p in cli.params if p.name == "json"]
-        assert len(json_params) == 1, f"expected exactly 1 json param, got {len(json_params)}"
+        verbose_params = [p for p in cli.params if p.name == "verbose"]
+        assert len(verbose_params) == 1, f"expected exactly 1 verbose param, got {len(verbose_params)}"
 
-        # Verify a debug-level warning was logged about the name collision
         debug_records = [r for r in caplog.records if r.levelno == logging.DEBUG]
         assert any(
-            "json" in r.message.lower()
+            "verbose" in r.message.lower()
             and (
                 "skip" in r.message.lower()
                 or "conflict" in r.message.lower()
@@ -280,7 +185,7 @@ class TestCommonOptionsNameCollision:
                 or "already" in r.message.lower()
             )
             for r in debug_records
-        ), "expected debug log about json flag collision"
+        ), "expected debug log about verbose flag collision"
 
 
 class TestAfAgentNon1Comprehensive:
@@ -292,9 +197,8 @@ class TestAfAgentNon1Comprehensive:
         ids=["true", "yes", "on", "zero", "empty"],
     )
     def test_non_1_values_no_agent_mode(self, bad_val: str) -> None:
-        """03-REQ-3.E1: json_mode=False and quiet=False for non-'1' values."""
+        """03-REQ-3.E1: quiet=False for non-'1' values."""
         cli, captured = _make_test_cli()
         runner = CliRunner(env={"AF_AGENT": bad_val})
         runner.invoke(cli, ["sub"])
-        assert captured[0].json_mode is False, f"AF_AGENT={bad_val!r} wrongly activated json_mode"
         assert captured[0].quiet is False, f"AF_AGENT={bad_val!r} wrongly activated quiet"

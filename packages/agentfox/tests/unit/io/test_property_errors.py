@@ -160,14 +160,12 @@ class TestPropExplicitFlagsOverrideAfAgent:
     @pytest.mark.property
     @given(
         af_agent_set=st.booleans(),
-        json_flag=st.sampled_from(["--json", "--no-json", None]),
         quiet_flag=st.sampled_from(["--quiet", "--verbose", None]),
     )
     @settings(max_examples=30)
     def test_flag_precedence(
         self,
         af_agent_set: bool,
-        json_flag: str | None,
         quiet_flag: str | None,
     ) -> None:
         from agentfox.io import AgentFoxGroup, OutputManager, common_options
@@ -187,8 +185,6 @@ class TestPropExplicitFlagsOverrideAfAgent:
 
         env = {"AF_AGENT": "1"} if af_agent_set else {}
         args: list[str] = []
-        if json_flag is not None:
-            args.append(json_flag)
         if quiet_flag is not None:
             args.append(quiet_flag)
         args.append("sub")
@@ -201,13 +197,8 @@ class TestPropExplicitFlagsOverrideAfAgent:
 
         om = captured[0]
 
-        # When explicit json flag is passed, it always wins
-        if json_flag == "--json":
-            assert om.json_mode is True
-        elif json_flag == "--no-json":
-            assert om.json_mode is False
-        elif af_agent_set:
-            assert om.json_mode is True  # AF_AGENT=1 default
+        # json_mode is always False at group level (now per-command)
+        assert om.json_mode is False
 
         # When explicit quiet/verbose flag is passed, it always wins
         if quiet_flag == "--quiet":

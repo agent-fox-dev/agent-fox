@@ -42,6 +42,7 @@ DEFAULT_DB_PATH: Path = _DEFAULT_DB_PATH
     metavar="ID REASON",
     help="Dismiss a finding by ID: --dismiss <finding-id> <reason>",
 )
+@click.option("--json/--no-json", default=None, help="Enable/disable JSON output mode")
 @click.pass_context
 def findings_cmd(
     ctx: click.Context,
@@ -50,6 +51,7 @@ def findings_cmd(
     archetype: str | None,
     run_id: str | None,
     dismiss: tuple[str, str] | None,
+    json: bool | None,
 ) -> None:
     """Query review findings from the knowledge database.
 
@@ -64,10 +66,15 @@ def findings_cmd(
     Requirements: 04-REQ-2.1, 84-REQ-4.1 through 84-REQ-4.6,
                   84-REQ-4.E1, 84-REQ-4.E2, 592-AC-3, 592-AC-4
     """
-    # 04-REQ-2.1: retrieve OutputManager from context
+    import os
+
     from af import get_output_manager
 
     om = get_output_manager(ctx)
+    if json is not None:
+        om.json_mode = json
+    elif os.environ.get("AF_AGENT") == "1":
+        om.json_mode = True
 
     from agentfox.knowledge.review_store import dismiss_finding_by_id
     from agentfox.reporting.findings import query_findings

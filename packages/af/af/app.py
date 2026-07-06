@@ -1,9 +1,8 @@
 """CLI entry point for agent-fox.
 
 Defines the Click command group with global options (--version,
---verbose, --quiet, --json/--no-json), banner display when invoked
-without a subcommand, and configuration loading. Subcommands are
-registered at module level.
+--verbose, --quiet), banner display when invoked without a subcommand,
+and configuration loading. Subcommands are registered at module level.
 
 Requirements: 01-REQ-1.1, 01-REQ-1.2, 01-REQ-1.3, 01-REQ-1.4,
               01-REQ-1.E1, 01-REQ-4.E1,
@@ -35,15 +34,14 @@ logger = logging.getLogger(__name__)
 #   - SystemExit / KeyboardInterrupt propagation (not caught)
 #   - OutputManager construction and storage at ctx.obj["output"]
 #   - setup_logging() invocation with base resolved flags
-#   - common_options sentinel mechanism: _json_explicit, _quiet_explicit
-#     enable explicit --no-json / --verbose to override AF_AGENT=1 defaults
+#   - common_options sentinel mechanism: _quiet_explicit
+#     enables explicit --verbose to override AF_AGENT=1 quiet default
 # Covered here in main() callback (app-level behavior):
-#   - Banner rendering (render_banner) -- suppressed when json_mode or quiet
+#   - Banner rendering (render_banner) -- suppressed when quiet
 #   - Config loading (load_config) and ctx.obj wiring for subcommands
-#   - setup_logging with effective_quiet (json_mode implies quiet for logs)
 #   - Uses OutputManager from AgentFoxGroup (does not construct a new one)
-# Completed in Spec 04:
-#   - JSON IO compatibility shim removal (json_io module)
+# Per-command:
+#   - --json/--no-json is a per-subcommand option (plan, code, standup, insights)
 #   - Structured JSON help via --json --help
 # ---
 @click.group(cls=AgentFoxGroup, invoke_without_command=True)
@@ -59,18 +57,10 @@ def main(ctx: click.Context, **kwargs) -> None:  # noqa: ARG001
     # AF_AGENT=1 support and sentinel-based flag overrides.
     om = ctx.obj.get("output")
     if om is None:
-        # Fallback for tests that invoke main() directly without the
-        # AgentFoxGroup invoke cycle.
-        om = OutputManager(json_mode=bool(kwargs.get("json", False)))
+        om = OutputManager(json_mode=False)
         ctx.obj["output"] = om
 
-    # 23-REQ-1.2: store JSON flag so every subcommand can access it
-    ctx.obj["json"] = om.json_mode
-
-    # In JSON mode, suppress warning-level log output so it doesn't pollute
-    # the structured JSON stdout stream. Verbose flag overrides this.
-    effective_quiet = om.quiet or (om.json_mode and not om.verbose)
-    setup_logging(verbose=om.verbose, quiet=effective_quiet)
+    setup_logging(verbose=om.verbose, quiet=om.quiet)
 
     config = load_config()
 
@@ -78,12 +68,10 @@ def main(ctx: click.Context, **kwargs) -> None:  # noqa: ARG001
     ctx.obj["verbose"] = om.verbose
     ctx.obj["quiet"] = om.quiet
 
-    # 14-REQ-4.1: render banner on every invocation (suppressed by --quiet)
-    # 23-REQ-2.1: suppress banner in JSON mode
-    # 03-REQ-4.8: AgentFoxGroup no longer renders banner in invoke();
-    # all banner rendering is consolidated here. Render when not in
-    # JSON mode and not quiet.
-    if not om.json_mode and not om.quiet:
+    # 14-REQ-4.1: render banner on every invocation (suppressed by --quiet
+    # or when a subcommand will use --json for structured output)
+    json_in_sub = ctx.obj.get("_json_in_subcommand_args", False)
+    if not om.quiet and not json_in_sub:
         theme_config = config.theme if config else ThemeConfig()
         theme = create_theme(theme_config)
         render_banner(theme, quiet=om.quiet)

@@ -74,8 +74,8 @@ class TestSmoke1AgentMode:
         with patch("agentfox.core.logging.setup_logging"):
             result = runner.invoke(cli, ["sub"])
 
-        # OutputManager constructed with json_mode=True, quiet=True
-        assert captured[0].json_mode is True
+        # json_mode is now per-command, not set at group level by AF_AGENT
+        assert captured[0].json_mode is False
         assert captured[0].quiet is True
 
         # stdout receives pretty-printed JSON with ok=true
@@ -106,12 +106,16 @@ class TestSmoke2JsonError:
         cli = _make_cli_with_common_options()
 
         @cli.command()
-        def fail():
+        @click.option("--json/--no-json", "json_flag", default=None)
+        @click.pass_context
+        def fail(ctx, json_flag):
+            if json_flag:
+                ctx.obj["output"].json_mode = True
             raise ConfigError("Config not found")
 
         runner = CliRunner()
         with patch("agentfox.core.logging.setup_logging"):
-            result = runner.invoke(cli, ["--json", "fail"])
+            result = runner.invoke(cli, ["fail", "--json"])
 
         assert result.exit_code == 1
 
@@ -181,40 +185,6 @@ class TestSmoke4SpinnerNonTTY:
         output = err.getvalue()
         assert "Step 1 complete" in output
         assert "Detail logged" in output
-
-
-# ---------------------------------------------------------------------------
-# TS-03-SMOKE-5: AF_AGENT=1 overridden by explicit --no-json flag
-# PATH-5: AF_AGENT=1 + --no-json -> json_mode=False, quiet=True
-# ---------------------------------------------------------------------------
-
-
-class TestSmoke5AgentOverrideNoJson:
-    """TS-03-SMOKE-5: AF_AGENT=1 overridden by --no-json."""
-
-    def test_no_json_overrides_agent(self) -> None:
-        """PATH-5: --no-json forces json_mode=False while quiet stays True."""
-        cli = _make_cli_with_common_options()
-        captured: list = []
-
-        @cli.command()
-        @click.pass_context
-        def sub(ctx):
-            om = ctx.obj["output"]
-            captured.append(om)
-            om.emit_human("plain text output")
-
-        runner = CliRunner(env={"AF_AGENT": "1"})
-        with patch("agentfox.core.logging.setup_logging"):
-            result = runner.invoke(cli, ["--no-json", "sub"])
-
-        # OutputManager has json_mode=False, quiet=True
-        assert captured[0].json_mode is False
-        assert captured[0].quiet is True
-
-        # stdout receives plain text (not JSON)
-        assert "plain text output" in result.output
-        assert result.exit_code == 0
 
 
 # ---------------------------------------------------------------------------

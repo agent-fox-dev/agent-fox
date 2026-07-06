@@ -20,8 +20,6 @@ _SUBCOMMAND_FILES = [
     "code.py",
     "plan.py",
     "standup.py",
-    "init.py",
-    "reset.py",
     "findings.py",
 ]
 
@@ -139,29 +137,10 @@ class TestStandupJsonOutput:
     """TS-04-8: af standup --json emits structured JSON."""
 
     def test_standup_json_exits_zero_with_valid_json(self, cli_runner) -> None:
-        """af standup --json returns exit 0 and valid JSON.
-
-        Note: --json is a group-level flag, so it must precede the subcommand.
-        """
+        """af standup --json returns exit 0 and valid JSON."""
         from af.app import main
 
-        result = cli_runner.invoke(main, ["--json", "standup"])
-        assert result.exit_code == 0
-        obj = json.loads(result.output)
-        assert isinstance(obj, dict)
-
-
-class TestInitJsonOutput:
-    """TS-04-9: af init --json emits structured JSON."""
-
-    def test_init_json_exits_zero_with_valid_json(self, cli_runner) -> None:
-        """af init --json returns exit 0 and valid JSON.
-
-        Note: --json is a group-level flag, so it must precede the subcommand.
-        """
-        from af.app import main
-
-        result = cli_runner.invoke(main, ["--json", "init"])
+        result = cli_runner.invoke(main, ["standup", "--json"])
         assert result.exit_code == 0
         obj = json.loads(result.output)
         assert isinstance(obj, dict)

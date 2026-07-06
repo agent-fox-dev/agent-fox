@@ -751,7 +751,7 @@ class TestPerSpecSummary:
             patch("agentfox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
         ):
             mock_db_path.exists.return_value = True
-            result = cli_runner.invoke(main, ["--json", "code"], input="")
+            result = cli_runner.invoke(main, ["code", "--json"], input="")
 
         # The OutputManager may emit a pretty-printed multi-line JSON object.
         # Accumulate full blocks and try to parse each boundary-complete chunk.

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -432,6 +433,7 @@ def _check_dry_run_conflicts(
     default=False,
     help="Move completed specs to specs/archive/ after execution",
 )
+@click.option("--json/--no-json", default=None, help="Enable/disable JSON output mode")
 @click.pass_context
 def code_cmd(
     ctx: click.Context,
@@ -441,10 +443,14 @@ def code_cmd(
     force_clean: bool,
     dry_run: bool,
     archive: bool,
+    json: bool | None,
 ) -> None:
     """Execute the task plan."""
-    # 04-REQ-2.1: retrieve OutputManager from context
     om = get_output_manager(ctx)
+    if json is not None:
+        om.json_mode = json
+    elif os.environ.get("AF_AGENT") == "1":
+        om.json_mode = True
     json_mode: bool = om.json_mode
 
     # 16-REQ-1.2: load config from Click context

@@ -42,7 +42,7 @@ class _UniqueParamList(list):
 
 
 def common_options(fn: Any) -> Any:
-    """Add --verbose, --quiet, and --json/--no-json flags.
+    """Add --verbose and --quiet flags.
 
     Must be applied to a Click Group (the root group), not a subcommand.
     Raises ``TypeError`` if applied to a non-Group ``click.Command``.
@@ -63,29 +63,11 @@ def common_options(fn: Any) -> Any:
     if hasattr(fn, "__click_params__"):
         existing_names |= {p.name for p in fn.__click_params__ if p.name}
 
-    def _json_callback(ctx, param, value):
-        ctx.ensure_object(dict)
-        if value is not None:
-            ctx.obj["_json_explicit"] = True
-        return value
-
     def _quiet_verbose_callback(ctx, param, value):
         ctx.ensure_object(dict)
         if value is not None and value is not False:
             ctx.obj["_quiet_explicit"] = True
         return value
-
-    if "json" not in existing_names:
-        fn = click.option(
-            "--json/--no-json",
-            default=None,
-            help="Enable/disable JSON output mode",
-            callback=_json_callback,
-            expose_value=True,
-            is_eager=False,
-        )(fn)
-    else:
-        logger.debug("Skipping --json/--no-json: name collision with existing flag")
 
     if "quiet" not in existing_names:
         fn = click.option(
@@ -137,18 +119,6 @@ class AgentFoxGroup(click.Group):
         obj = ctx.obj if isinstance(ctx.obj, dict) else {}
         af_agent = os.environ.get("AF_AGENT") == "1"
 
-        json_explicit = obj.get("_json_explicit", False)
-        if json_explicit:
-            json_mode = ctx.params.get("json", False)
-            if json_mode is None:
-                json_mode = False
-        elif af_agent:
-            json_mode = True
-        else:
-            json_mode = ctx.params.get("json", False) or ctx.params.get("json_mode", False)
-            if json_mode is None:
-                json_mode = False
-
         quiet_explicit = obj.get("_quiet_explicit", False)
         if quiet_explicit:
             verbose_val = ctx.params.get("verbose", False)
@@ -165,10 +135,10 @@ class AgentFoxGroup(click.Group):
         verbose = ctx.params.get("verbose", False) or False
 
         return {
-            "json_mode": bool(json_mode),
+            "json_mode": False,
             "quiet": bool(quiet),
             "verbose": bool(verbose),
-            "agent_mode": af_agent or bool(json_mode),
+            "agent_mode": af_agent,
         }
 
     def invoke(self, ctx):
@@ -205,19 +175,20 @@ class AgentFoxGroup(click.Group):
             pass
 
         # 04-REQ-5.1, 04-REQ-5.3: intercept --json --help for subcommands.
-        # When both --json and --help appear in the subcommand args (or
-        # --json was parsed as a group-level flag), render a JSON command
-        # description instead of Click's standard text help.
-        # Use _protected_args to avoid Click 8.3+ deprecation warning on
-        # the public protected_args property (removed in Click 9.0).
+        # When both --json and --help appear in the subcommand args,
+        # render a JSON command description instead of Click's standard
+        # text help.
         _prot = getattr(ctx, "_protected_args", None) or []
         sub_args = list(ctx.args or [])
         all_remaining = list(_prot) + sub_args
         help_in_args = "--help" in all_remaining
         json_in_args = "--json" in all_remaining
-        json_from_group = flags.get("json_mode", False)
 
-        if help_in_args and (json_from_group or json_in_args):
+        # Expose to group callbacks so they can suppress the banner
+        # when a subcommand will use --json (json_mode is per-command).
+        ctx.obj["_json_in_subcommand_args"] = json_in_args
+
+        if help_in_args and json_in_args:
             # Find the subcommand name (first non-option token).
             cmd_name: str | None = None
             for tok in all_remaining:
@@ -243,13 +214,18 @@ class AgentFoxGroup(click.Group):
         except click.exceptions.Exit:
             raise
         except click.ClickException as exc:
-            if flags.get("json_mode"):
+            if flags.get("agent_mode"):
                 from agentfox.io.json import emit as _emit
 
                 _emit({"ok": False, "error": exc.format_message()})
                 sys.exit(exc.exit_code)
             raise
         except Exception as exc:
+            if flags.get("agent_mode"):
+                from agentfox.io.json import emit_error as _emit_error
+
+                _emit_error(exc)
+                sys.exit(1)
             cli_error_handler(ctx, exc)
             sys.exit(1)
 

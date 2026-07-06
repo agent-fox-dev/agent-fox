@@ -8,7 +8,6 @@ Requirements: 44-REQ-1.1, 44-REQ-1.2, 44-REQ-1.3, 44-REQ-1.E1,
 
 from __future__ import annotations
 
-import json
 import os
 import subprocess
 from pathlib import Path
@@ -212,24 +211,6 @@ class TestInitDisplaysMessage:
 
 
 # ---------------------------------------------------------------------------
-# Integration: TS-44-6 JSON output contains agents_md created
-# ---------------------------------------------------------------------------
-
-
-class TestInitJsonCreated:
-    """TS-44-6: JSON output includes agents_md: created on fresh init."""
-
-    def test_init_json_agents_md_created(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
-        """44-REQ-2.3: JSON output contains agents_md=created."""
-        from af.app import main
-
-        result = cli_runner.invoke(main, ["--json", "init"])
-
-        assert result.exit_code == 0
-        data = json.loads(result.output)
-        assert data["agents_md"] == "created"
-
-
 # ---------------------------------------------------------------------------
 # Integration: TS-44-8 Silent skip — no message on re-init
 # ---------------------------------------------------------------------------
@@ -248,27 +229,6 @@ class TestInitSilentSkip:
 
         assert result.exit_code == 0
         assert "AGENTS.md" not in result.output
-
-
-# ---------------------------------------------------------------------------
-# Integration: TS-44-9 JSON output contains agents_md skipped
-# ---------------------------------------------------------------------------
-
-
-class TestInitJsonSkipped:
-    """TS-44-9: JSON output includes agents_md: skipped on re-init."""
-
-    def test_init_json_agents_md_skipped(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
-        """44-REQ-3.3: JSON output contains agents_md=skipped."""
-        from af.app import main
-
-        (tmp_git_repo / "AGENTS.md").write_text("existing", encoding="utf-8")
-
-        result = cli_runner.invoke(main, ["--json", "init"])
-
-        assert result.exit_code == 0
-        data = json.loads(result.output)
-        assert data["agents_md"] == "skipped"
 
 
 # ---------------------------------------------------------------------------

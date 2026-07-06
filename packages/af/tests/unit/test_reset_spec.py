@@ -6,14 +6,12 @@ Requirements: 50-REQ-2.1, 50-REQ-2.2, 50-REQ-3.1, 50-REQ-3.2, 50-REQ-3.4
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from af.reset import reset_cmd
 from agentfox.engine.state import ExecutionState
 from click.testing import CliRunner
-from tests.unit.engine.conftest import write_plan_to_db
 
 
 def _setup_project(
@@ -120,47 +118,3 @@ class TestConfirmationRequired:
         assert state.node_states["alpha:1"] == "completed"
 
 
-# ---------------------------------------------------------------------------
-# TS-50-11: JSON output
-# Requirement: 50-REQ-3.4
-# ---------------------------------------------------------------------------
-
-
-class TestJsonOutput:
-    """TS-50-11: JSON mode outputs structured result."""
-
-    def test_json_output_keys(self, tmp_path: Path) -> None:
-        """Valid JSON with required keys."""
-        node_states = {"alpha:1": "completed"}
-        nodes = {"alpha:1": {"title": "Task alpha:1", "spec_name": "alpha"}}
-        _setup_project(tmp_path, node_states, nodes=nodes)
-
-        # Create specs dir for tasks.md checkbox reset
-        specs_dir = tmp_path / ".specs" / "alpha"
-        specs_dir.mkdir(parents=True)
-        (specs_dir / "tasks.md").write_text("- [x] 1. Task\n")
-
-        db_conn = write_plan_to_db(nodes, [])
-
-        runner = CliRunner()
-        with (
-            patch("af.reset.Path.cwd", return_value=tmp_path),
-            patch("af.reset._get_db_conn", return_value=db_conn),
-            patch("agentfox.engine.reset._load_state_or_raise", return_value=_make_state(node_states)),
-            patch(
-                "agentfox.engine.reset._cleanup_task",
-                return_value=(None, None),
-            ),
-        ):
-            # Pass --json via ctx.obj
-            result = runner.invoke(
-                reset_cmd,
-                ["--spec", "alpha"],
-                catch_exceptions=False,
-                obj={"json": True},
-            )
-
-        data = json.loads(result.output)
-        assert "reset_tasks" in data
-        assert "cleaned_worktrees" in data
-        assert "cleaned_branches" in data
