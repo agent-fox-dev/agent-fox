@@ -1,10 +1,11 @@
 """Tests for DeepAgentsBackend adapter.
 
-Test Spec: TS-03-1 through TS-03-18, TS-03-31 through TS-03-41,
-           TS-03-P1, TS-03-P2, TS-03-P3, TS-03-P4, TS-03-P7,
-           TS-03-E4, TS-03-E5
+Test Spec: TS-03-1 through TS-03-26, TS-03-31 through TS-03-41,
+           TS-03-P1, TS-03-P2, TS-03-P3, TS-03-P4, TS-03-P5, TS-03-P7,
+           TS-03-E4, TS-03-E5, TS-03-E6, TS-03-E7
 Requirements: 03-REQ-1.1, 03-REQ-1.2, 03-REQ-1.3, 03-REQ-2.1-2.9,
               03-REQ-3.1-3.3, 03-REQ-4.1-4.3,
+              03-REQ-5.1-5.4, 03-REQ-6.1-6.4,
               03-REQ-8.1-8.3, 03-REQ-9.1-9.2, 03-REQ-10.1-10.3,
               03-REQ-11.1-11.2, 03-REQ-12.1
 
@@ -1996,3 +1997,905 @@ class TestPropertyPermissionsNeverPassed:
                 assert "permissions" not in call_kwargs, (
                     f"'permissions' found in create_deep_agent kwargs for model={model}"
                 )
+
+
+# ===========================================================================
+# Task Group 4: provider-specific parameter handling and retry logic tests
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# TS-03-19: thinking parameter handling based on model prefix
+# Requirement: 03-REQ-5.1
+# ---------------------------------------------------------------------------
+
+
+class TestThinkingParameterByModelPrefix:
+    """Verify thinking parameter is passed for anthropic: models and omitted for others."""
+
+    @pytest.mark.asyncio
+    async def test_thinking_passed_for_anthropic_model(self) -> None:
+        """TS-03-19: thinking parameter present for anthropic: prefix model.
+
+        When the model string carries the 'anthropic:' prefix, DeepAgentsBackend
+        should pass the 'thinking' parameter to create_deep_agent().
+        """
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+
+        backend = DeepAgentsBackend()
+        with patch(
+            "agentfox.session.backends.deepagents.create_deep_agent",
+            return_value=_make_mock_agent_empty(),
+        ) as mock_create:
+            await _collect_async(
+                backend.execute(
+                    "p",
+                    system_prompt="s",
+                    model="anthropic:claude-sonnet-4-6",
+                    cwd="/",
+                )
+            )
+
+        assert mock_create.called
+        call_kwargs = mock_create.call_args.kwargs
+        assert "thinking" in call_kwargs, (
+            "Expected 'thinking' in create_deep_agent kwargs for anthropic: model"
+        )
+
+    @pytest.mark.asyncio
+    async def test_thinking_absent_for_openai_model(self) -> None:
+        """TS-03-19: thinking parameter absent for openai: prefix model.
+
+        When the model string does NOT carry the 'anthropic:' prefix, the
+        thinking parameter should not be passed to create_deep_agent().
+        """
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+
+        backend = DeepAgentsBackend()
+        with patch(
+            "agentfox.session.backends.deepagents.create_deep_agent",
+            return_value=_make_mock_agent_empty(),
+        ) as mock_create:
+            await _collect_async(
+                backend.execute(
+                    "p",
+                    system_prompt="s",
+                    model="openai:gpt-5.5",
+                    cwd="/",
+                )
+            )
+
+        assert mock_create.called
+        call_kwargs = mock_create.call_args.kwargs
+        assert "thinking" not in call_kwargs, (
+            "Expected 'thinking' NOT in create_deep_agent kwargs for openai: model"
+        )
+
+    @pytest.mark.asyncio
+    async def test_thinking_absent_for_ollama_model(self) -> None:
+        """TS-03-19 variant: thinking parameter absent for ollama: prefix model."""
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+
+        backend = DeepAgentsBackend()
+        with patch(
+            "agentfox.session.backends.deepagents.create_deep_agent",
+            return_value=_make_mock_agent_empty(),
+        ) as mock_create:
+            await _collect_async(
+                backend.execute(
+                    "p",
+                    system_prompt="s",
+                    model="ollama:llama3",
+                    cwd="/",
+                )
+            )
+
+        assert mock_create.called
+        call_kwargs = mock_create.call_args.kwargs
+        assert "thinking" not in call_kwargs, (
+            "Expected 'thinking' NOT in create_deep_agent kwargs for ollama: model"
+        )
+
+    @pytest.mark.asyncio
+    async def test_thinking_typeerror_silently_retried(self) -> None:
+        """TS-03-19: If create_deep_agent raises TypeError with thinking, retries without it.
+
+        For anthropic: models, if the installed deepagents version does not
+        support the thinking parameter, create_deep_agent raises TypeError.
+        The backend should retry without thinking silently (provider-level handling).
+        """
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+        from agentfox.session.backends.types import ResultMessage
+
+        call_count = 0
+
+        def create_side_effect(**kwargs: Any) -> MagicMock:
+            nonlocal call_count
+            call_count += 1
+            if "thinking" in kwargs:
+                raise TypeError("unexpected keyword argument 'thinking'")
+            return _make_mock_agent_empty()
+
+        backend = DeepAgentsBackend()
+        with patch(
+            "agentfox.session.backends.deepagents.create_deep_agent",
+            side_effect=create_side_effect,
+        ):
+            messages = await _collect_async(
+                backend.execute(
+                    "p",
+                    system_prompt="s",
+                    model="anthropic:claude-sonnet-4-6",
+                    cwd="/",
+                )
+            )
+
+        # Should have retried without thinking parameter
+        assert call_count >= 2, (
+            f"Expected at least 2 create_deep_agent calls (retry without thinking), got {call_count}"
+        )
+        result = messages[-1]
+        assert isinstance(result, ResultMessage)
+
+
+# ---------------------------------------------------------------------------
+# TS-03-20: max_budget_usd TypeError handling
+# Requirement: 03-REQ-5.2
+# ---------------------------------------------------------------------------
+
+
+class TestMaxBudgetUsdTypeerror:
+    """Verify max_budget_usd TypeError triggers retry without the parameter."""
+
+    @pytest.mark.asyncio
+    async def test_max_budget_usd_typeerror_retries_without(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """TS-03-20: TypeError for max_budget_usd → retry without it + DEBUG log.
+
+        When create_deep_agent() raises TypeError because of the max_budget_usd
+        parameter, execute() should retry without it and log a DEBUG message.
+        """
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+        from agentfox.session.backends.types import ResultMessage
+
+        call_count = 0
+
+        def create_side_effect(**kwargs: Any) -> MagicMock:
+            nonlocal call_count
+            call_count += 1
+            if "max_budget_usd" in kwargs:
+                raise TypeError("unexpected keyword argument 'max_budget_usd'")
+            return _make_mock_agent_empty()
+
+        backend = DeepAgentsBackend()
+        with patch(
+            "agentfox.session.backends.deepagents.create_deep_agent",
+            side_effect=create_side_effect,
+        ):
+            with caplog.at_level(logging.DEBUG):
+                messages = await _collect_async(
+                    backend.execute(
+                        "p",
+                        system_prompt="s",
+                        model="m",
+                        cwd="/",
+                        max_budget_usd=10.0,
+                    )
+                )
+
+        # Should retry: called at least twice
+        assert call_count >= 2, (
+            f"Expected at least 2 create_deep_agent calls (retry without max_budget_usd), "
+            f"got {call_count}"
+        )
+
+        # Should log a DEBUG message about the unsupported parameter
+        debug_records = [r for r in caplog.records if r.levelno <= logging.DEBUG]
+        assert len(debug_records) >= 1, "Expected at least one DEBUG log for max_budget_usd fallback"
+
+        # Should still produce a successful result
+        result = messages[-1]
+        assert isinstance(result, ResultMessage)
+
+
+# ---------------------------------------------------------------------------
+# TS-03-21: effort TypeError handling
+# Requirement: 03-REQ-5.3
+# ---------------------------------------------------------------------------
+
+
+class TestEffortTypeerror:
+    """Verify effort TypeError triggers retry without the parameter."""
+
+    @pytest.mark.asyncio
+    async def test_effort_typeerror_retries_without(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """TS-03-21: TypeError for effort → retry without it + DEBUG log.
+
+        When create_deep_agent() raises TypeError because of the effort
+        parameter, execute() should retry without it and log a DEBUG message.
+        """
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+        from agentfox.session.backends.types import ResultMessage
+
+        call_count = 0
+
+        def create_side_effect(**kwargs: Any) -> MagicMock:
+            nonlocal call_count
+            call_count += 1
+            if "effort" in kwargs:
+                raise TypeError("unexpected keyword argument 'effort'")
+            return _make_mock_agent_empty()
+
+        backend = DeepAgentsBackend()
+        with patch(
+            "agentfox.session.backends.deepagents.create_deep_agent",
+            side_effect=create_side_effect,
+        ):
+            with caplog.at_level(logging.DEBUG):
+                messages = await _collect_async(
+                    backend.execute(
+                        "p",
+                        system_prompt="s",
+                        model="m",
+                        cwd="/",
+                        effort="high",
+                    )
+                )
+
+        # Should retry: called at least twice
+        assert call_count >= 2, (
+            f"Expected at least 2 create_deep_agent calls (retry without effort), "
+            f"got {call_count}"
+        )
+
+        # Should log a DEBUG message
+        debug_records = [r for r in caplog.records if r.levelno <= logging.DEBUG]
+        assert len(debug_records) >= 1, "Expected at least one DEBUG log for effort fallback"
+
+        # Should produce a result
+        result = messages[-1]
+        assert isinstance(result, ResultMessage)
+
+
+# ---------------------------------------------------------------------------
+# TS-03-22: compaction parameter never passed to create_deep_agent
+# Requirement: 03-REQ-5.4
+# ---------------------------------------------------------------------------
+
+
+class TestNoCompactionParameter:
+    """Verify compaction is never passed to create_deep_agent()."""
+
+    @pytest.mark.asyncio
+    async def test_compaction_never_in_create_kwargs(self) -> None:
+        """TS-03-22: 'compaction' never appears in create_deep_agent call kwargs.
+
+        Context management is delegated entirely to Deep Agents' built-in
+        automatic summarization and large-result eviction. The DeepAgentsBackend
+        must not pass a compaction argument to create_deep_agent().
+        """
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+
+        all_kwargs: list[dict[str, Any]] = []
+
+        def capture(**kwargs: Any) -> MagicMock:
+            all_kwargs.append(kwargs)
+            return _make_mock_agent_empty()
+
+        backend = DeepAgentsBackend()
+        with patch(
+            "agentfox.session.backends.deepagents.create_deep_agent",
+            side_effect=capture,
+        ):
+            await _collect_async(
+                backend.execute(
+                    "task",
+                    system_prompt="s",
+                    model="m",
+                    cwd="/",
+                )
+            )
+
+        for kwargs in all_kwargs:
+            assert "compaction" not in kwargs, (
+                "'compaction' was passed to create_deep_agent; "
+                "context management is delegated to Deep Agents"
+            )
+
+    @pytest.mark.asyncio
+    async def test_compaction_absent_even_when_passed_to_execute(self) -> None:
+        """TS-03-22 variant: compaction absent even if execute() receives it in kwargs.
+
+        Even if the caller passes compaction=True to execute() via **kwargs,
+        the DeepAgentsBackend must NOT forward it to create_deep_agent().
+        """
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+
+        all_kwargs: list[dict[str, Any]] = []
+
+        def capture(**kwargs: Any) -> MagicMock:
+            all_kwargs.append(kwargs)
+            return _make_mock_agent_empty()
+
+        backend = DeepAgentsBackend()
+        with patch(
+            "agentfox.session.backends.deepagents.create_deep_agent",
+            side_effect=capture,
+        ):
+            await _collect_async(
+                backend.execute(
+                    "task",
+                    system_prompt="s",
+                    model="m",
+                    cwd="/",
+                    compaction=True,  # type: ignore[arg-type]
+                )
+            )
+
+        for kwargs in all_kwargs:
+            assert "compaction" not in kwargs, (
+                "'compaction' forwarded to create_deep_agent from execute() kwargs"
+            )
+
+
+# ---------------------------------------------------------------------------
+# TS-03-23: Transient retry with exponential backoff, success on attempt 3
+# Requirement: 03-REQ-6.1
+# ---------------------------------------------------------------------------
+
+
+class TestTransientRetryWithBackoff:
+    """Verify transient errors trigger retry with exponential backoff."""
+
+    @pytest.mark.asyncio
+    async def test_retry_success_on_third_attempt(self) -> None:
+        """TS-03-23: Transient errors on attempts 1-2, success on 3.
+
+        With _BACKOFF_BASE=1.0, delays should be:
+        - After attempt 1 failure: 1.0s  (_BACKOFF_BASE * 2^0)
+        - After attempt 2 failure: 2.0s  (_BACKOFF_BASE * 2^1)
+        - Attempt 3 succeeds: no delay
+
+        The terminal ResultMessage should have is_error=False.
+        """
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+        from agentfox.session.backends.types import ResultMessage
+
+        attempt_count = 0
+
+        def make_agent(**_kwargs: Any) -> MagicMock:
+            nonlocal attempt_count
+            attempt_count += 1
+            agent = MagicMock()
+            if attempt_count < 3:
+                # Transient error: agent's stream raises ConnectionError
+                async def failing_stream(*_a: Any, **_kw: Any) -> Any:
+                    raise ConnectionError("transient network failure")
+                    yield  # noqa: RUF028 — async generator
+
+                agent.astream_events = failing_stream
+            else:
+                # Success on attempt 3
+                agent.astream_events = lambda *a, **kw: _async_event_stream(
+                    [_make_llm_end_event(input_tokens=10, output_tokens=5)]
+                )
+            return agent
+
+        sleep_calls: list[float] = []
+
+        async def fake_sleep(delay: float) -> None:
+            sleep_calls.append(delay)
+
+        backend = DeepAgentsBackend()
+        with (
+            patch(
+                "agentfox.session.backends.deepagents.create_deep_agent",
+                side_effect=make_agent,
+            ),
+            patch("asyncio.sleep", side_effect=fake_sleep),
+        ):
+            messages = await _collect_async(
+                backend.execute(
+                    "p",
+                    system_prompt="s",
+                    model="m",
+                    cwd="/",
+                )
+            )
+
+        # Verify backoff delays
+        assert sleep_calls == [1.0, 2.0], f"Expected backoff delays [1.0, 2.0], got {sleep_calls}"
+
+        # Verify success
+        result = messages[-1]
+        assert isinstance(result, ResultMessage)
+        assert result.is_error is False
+
+
+# ---------------------------------------------------------------------------
+# TS-03-24: All 3 retries exhausted → terminal error
+# Requirement: 03-REQ-6.2
+# ---------------------------------------------------------------------------
+
+
+class TestTransientRetryExhausted:
+    """Verify terminal error ResultMessage after all retry attempts exhausted."""
+
+    @pytest.mark.asyncio
+    async def test_all_retries_exhausted_yields_transport_error(self) -> None:
+        """TS-03-24: All 3 attempts raise transient error → is_transport_error=True.
+
+        After exhausting all 3 retry attempts, execute() must yield a terminal
+        ResultMessage with is_error=True and is_transport_error=True. No
+        exception should propagate.
+        """
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+        from agentfox.session.backends.types import ResultMessage
+
+        async def always_failing_stream(*_a: Any, **_kw: Any) -> Any:
+            raise ConnectionError("persistent transient failure")
+            yield  # noqa: RUF028
+
+        def make_failing_agent(**_kwargs: Any) -> MagicMock:
+            agent = MagicMock()
+            agent.astream_events = always_failing_stream
+            return agent
+
+        async def fake_sleep(_delay: float) -> None:
+            pass  # No-op: skip actual sleep
+
+        backend = DeepAgentsBackend()
+        with (
+            patch(
+                "agentfox.session.backends.deepagents.create_deep_agent",
+                side_effect=make_failing_agent,
+            ),
+            patch("asyncio.sleep", side_effect=fake_sleep),
+        ):
+            # No exception should propagate
+            messages = await _collect_async(
+                backend.execute(
+                    "p",
+                    system_prompt="s",
+                    model="m",
+                    cwd="/",
+                )
+            )
+
+        result = messages[-1]
+        assert isinstance(result, ResultMessage)
+        assert result.is_error is True
+        assert result.is_transport_error is True
+
+
+# ---------------------------------------------------------------------------
+# TS-03-E6: Retry bound strictly to 3 attempts
+# Requirement: 03-REQ-6.E1
+# ---------------------------------------------------------------------------
+
+
+class TestRetryBoundStrictlyThree:
+    """Verify retry loop is bounded to exactly 3 attempts."""
+
+    @pytest.mark.asyncio
+    async def test_exactly_three_attempts(self) -> None:
+        """TS-03-E6: Infinite transient errors → exactly 3 attempts, then terminal error.
+
+        Even with persistent transient errors, the retry loop must not iterate
+        beyond 3 total attempts.
+        """
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+        from agentfox.session.backends.types import ResultMessage
+
+        attempt_count = 0
+
+        def counting_create(**_kwargs: Any) -> MagicMock:
+            nonlocal attempt_count
+            attempt_count += 1
+            agent = MagicMock()
+
+            async def failing_stream(*_a: Any, **_kw: Any) -> Any:
+                raise ConnectionError("transient")
+                yield  # noqa: RUF028
+
+            agent.astream_events = failing_stream
+            return agent
+
+        async def fake_sleep(_delay: float) -> None:
+            pass
+
+        backend = DeepAgentsBackend()
+        with (
+            patch(
+                "agentfox.session.backends.deepagents.create_deep_agent",
+                side_effect=counting_create,
+            ),
+            patch("asyncio.sleep", side_effect=fake_sleep),
+        ):
+            messages = await _collect_async(
+                backend.execute(
+                    "p",
+                    system_prompt="s",
+                    model="m",
+                    cwd="/",
+                )
+            )
+
+        assert attempt_count == 3, f"Expected exactly 3 attempts, got {attempt_count}"
+
+        result = messages[-1]
+        assert isinstance(result, ResultMessage)
+        assert result.is_error is True
+        assert result.is_transport_error is True
+
+
+# ---------------------------------------------------------------------------
+# TS-03-E7: Fresh agent on retry, no duplicate events
+# Requirement: 03-REQ-6.E2
+# ---------------------------------------------------------------------------
+
+
+class TestFreshAgentOnRetry:
+    """Verify retry creates a fresh agent and does not re-yield events from failed attempt."""
+
+    @pytest.mark.asyncio
+    async def test_no_duplicate_events_on_retry(self) -> None:
+        """TS-03-E7: Retry discards events from failed attempt; only retry events yielded.
+
+        Attempt 1: yields an AssistantMessage('from-attempt-1') then raises
+        a transient error.
+        Attempt 2: yields an AssistantMessage('from-attempt-2') then completes.
+
+        Only the message from attempt 2 should appear in the final output.
+        create_deep_agent must be called twice (fresh agent per retry).
+        """
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+        from agentfox.session.backends.types import AssistantMessage, ResultMessage
+
+        call_count = 0
+
+        def make_agent(**_kwargs: Any) -> MagicMock:
+            nonlocal call_count
+            call_count += 1
+            agent = MagicMock()
+
+            if call_count == 1:
+                # Attempt 1: yield one event then fail
+                async def failing_stream(*_a: Any, **_kw: Any) -> Any:
+                    yield _make_chat_stream_event("from-attempt-1")
+                    raise ConnectionError("transient mid-stream")
+
+                agent.astream_events = failing_stream
+            else:
+                # Attempt 2: succeed
+                agent.astream_events = lambda *a, **kw: _async_event_stream(
+                    [
+                        _make_chat_stream_event("from-attempt-2"),
+                        _make_llm_end_event(input_tokens=5, output_tokens=3),
+                    ]
+                )
+            return agent
+
+        async def fake_sleep(_delay: float) -> None:
+            pass
+
+        backend = DeepAgentsBackend()
+        with (
+            patch(
+                "agentfox.session.backends.deepagents.create_deep_agent",
+                side_effect=make_agent,
+            ),
+            patch("asyncio.sleep", side_effect=fake_sleep),
+        ):
+            messages = await _collect_async(
+                backend.execute(
+                    "p",
+                    system_prompt="s",
+                    model="m",
+                    cwd="/",
+                )
+            )
+
+        # create_deep_agent called twice (fresh agent per attempt)
+        assert call_count == 2, f"Expected 2 create_deep_agent calls, got {call_count}"
+
+        # Only AssistantMessage from attempt 2 should be present
+        asst_msgs = [m for m in messages if isinstance(m, AssistantMessage)]
+        assert len(asst_msgs) == 1, (
+            f"Expected 1 AssistantMessage (from retry only), got {len(asst_msgs)}"
+        )
+        assert asst_msgs[0].content == "from-attempt-2"
+
+        # Terminal ResultMessage
+        assert isinstance(messages[-1], ResultMessage)
+        assert messages[-1].is_error is False
+
+
+# ---------------------------------------------------------------------------
+# TS-03-P5: Property - retry bound invariant
+# Property: 03-PROP-5
+# Validates: 03-REQ-6.1, 03-REQ-6.E1
+# ---------------------------------------------------------------------------
+
+
+class TestPropertyRetryBoundInvariant:
+    """Property: retry loop executes at most 3 attempts with correct backoff delays."""
+
+    @pytest.mark.asyncio
+    async def test_prop_retry_bound_with_all_transient_failures(self) -> None:
+        """TS-03-P5: With persistent transient errors, at most 3 attempts and correct delays.
+
+        For any transient error sequence:
+        - retry loop executes at most 3 total attempts
+        - backoff delay for inter-attempt gap n (0-indexed) is _BACKOFF_BASE * 2^n
+        - at most 2 sleeps for 3 attempts
+        """
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+        from agentfox.session.backends.types import ResultMessage
+
+        attempt_count = 0
+        sleep_calls: list[float] = []
+
+        def counting_create(**_kwargs: Any) -> MagicMock:
+            nonlocal attempt_count
+            attempt_count += 1
+            agent = MagicMock()
+
+            async def failing_stream(*_a: Any, **_kw: Any) -> Any:
+                raise ConnectionError("transient")
+                yield  # noqa: RUF028
+
+            agent.astream_events = failing_stream
+            return agent
+
+        async def recording_sleep(delay: float) -> None:
+            sleep_calls.append(delay)
+
+        backend = DeepAgentsBackend()
+        with (
+            patch(
+                "agentfox.session.backends.deepagents.create_deep_agent",
+                side_effect=counting_create,
+            ),
+            patch("asyncio.sleep", side_effect=recording_sleep),
+        ):
+            messages = await _collect_async(
+                backend.execute(
+                    "p",
+                    system_prompt="s",
+                    model="m",
+                    cwd="/",
+                )
+            )
+
+        # At most 3 attempts
+        assert attempt_count <= 3, f"Expected at most 3 attempts, got {attempt_count}"
+
+        # Verify backoff formula: delay(i) = _BACKOFF_BASE * 2^i
+        # (i is 0-indexed inter-attempt gap; at most 2 gaps for 3 attempts)
+        _BACKOFF_BASE = 1.0
+        for i, delay in enumerate(sleep_calls):
+            expected_delay = _BACKOFF_BASE * (2**i)
+            assert delay == expected_delay, (
+                f"Sleep delay {i} was {delay}, expected {expected_delay} "
+                f"(_BACKOFF_BASE * 2^{i})"
+            )
+
+        # At most 2 sleeps for 3 attempts
+        assert len(sleep_calls) <= 2, (
+            f"Expected at most 2 sleep calls for 3 attempts, got {len(sleep_calls)}"
+        )
+
+        # Terminal error result
+        result = messages[-1]
+        assert isinstance(result, ResultMessage)
+        assert result.is_error is True
+        assert result.is_transport_error is True
+
+    @pytest.mark.asyncio
+    async def test_prop_retry_bound_success_on_first_attempt(self) -> None:
+        """TS-03-P5 variant: Success on first attempt → zero sleeps, zero retries."""
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+        from agentfox.session.backends.types import ResultMessage
+
+        attempt_count = 0
+        sleep_calls: list[float] = []
+
+        def counting_create(**_kwargs: Any) -> MagicMock:
+            nonlocal attempt_count
+            attempt_count += 1
+            return _make_mock_agent_empty()
+
+        async def recording_sleep(delay: float) -> None:
+            sleep_calls.append(delay)
+
+        backend = DeepAgentsBackend()
+        with (
+            patch(
+                "agentfox.session.backends.deepagents.create_deep_agent",
+                side_effect=counting_create,
+            ),
+            patch("asyncio.sleep", side_effect=recording_sleep),
+        ):
+            messages = await _collect_async(
+                backend.execute(
+                    "p",
+                    system_prompt="s",
+                    model="m",
+                    cwd="/",
+                )
+            )
+
+        # One attempt, no sleeps
+        assert attempt_count == 1, f"Expected 1 attempt for success, got {attempt_count}"
+        assert sleep_calls == [], f"Expected no sleeps on first-try success, got {sleep_calls}"
+
+        result = messages[-1]
+        assert isinstance(result, ResultMessage)
+        assert result.is_error is False
+
+
+# ---------------------------------------------------------------------------
+# TS-03-25: Non-transient error → no retry, is_transport_error=False
+# Requirement: 03-REQ-6.3
+# ---------------------------------------------------------------------------
+
+
+class TestNonTransientErrorNoRetry:
+    """Verify non-transient errors yield an immediate error without retry."""
+
+    @pytest.mark.asyncio
+    async def test_auth_error_no_retry_immediate_error(self) -> None:
+        """TS-03-25: Non-transient error (auth failure) → no retry, immediate error.
+
+        Non-transient errors such as authentication failures (HTTP 401) or
+        tool execution errors should NOT trigger the retry loop. The execute()
+        method should immediately yield a ResultMessage with is_error=True and
+        is_transport_error=False.
+
+        Note: The exact exception type for authentication errors depends on the
+        deepagents/LangChain provider. We use ValueError as a stand-in for a
+        non-transient error. The implementation must classify it as non-transient.
+        """
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+        from agentfox.session.backends.types import ResultMessage
+
+        async def auth_failing_stream(*_a: Any, **_kw: Any) -> Any:
+            raise ValueError("Authentication failed: invalid API key (HTTP 401)")
+            yield  # noqa: RUF028
+
+        def make_auth_failing_agent(**_kwargs: Any) -> MagicMock:
+            agent = MagicMock()
+            agent.astream_events = auth_failing_stream
+            return agent
+
+        sleep_calls: list[float] = []
+
+        async def recording_sleep(delay: float) -> None:
+            sleep_calls.append(delay)
+
+        backend = DeepAgentsBackend()
+        with (
+            patch(
+                "agentfox.session.backends.deepagents.create_deep_agent",
+                side_effect=make_auth_failing_agent,
+            ),
+            patch("asyncio.sleep", side_effect=recording_sleep),
+        ):
+            messages = await _collect_async(
+                backend.execute(
+                    "p",
+                    system_prompt="s",
+                    model="m",
+                    cwd="/",
+                )
+            )
+
+        # No retry attempts — sleep should not be called
+        assert sleep_calls == [], f"Expected no sleep calls for non-transient error, got {sleep_calls}"
+
+        result = messages[-1]
+        assert isinstance(result, ResultMessage)
+        assert result.is_error is True
+        assert result.is_transport_error is False
+
+    @pytest.mark.asyncio
+    async def test_permission_error_no_retry(self) -> None:
+        """TS-03-25 variant: PermissionError (non-transient) → no retry.
+
+        Errors that are clearly not transport-level should not trigger retries.
+        """
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+        from agentfox.session.backends.types import ResultMessage
+
+        async def perm_failing_stream(*_a: Any, **_kw: Any) -> Any:
+            raise PermissionError("Forbidden: insufficient permissions")
+            yield  # noqa: RUF028
+
+        def make_perm_failing_agent(**_kwargs: Any) -> MagicMock:
+            agent = MagicMock()
+            agent.astream_events = perm_failing_stream
+            return agent
+
+        async def recording_sleep(delay: float) -> None:
+            pytest.fail("sleep should not be called for non-transient errors")
+
+        backend = DeepAgentsBackend()
+        with (
+            patch(
+                "agentfox.session.backends.deepagents.create_deep_agent",
+                side_effect=make_perm_failing_agent,
+            ),
+            patch("asyncio.sleep", side_effect=recording_sleep),
+        ):
+            messages = await _collect_async(
+                backend.execute(
+                    "p",
+                    system_prompt="s",
+                    model="m",
+                    cwd="/",
+                )
+            )
+
+        result = messages[-1]
+        assert isinstance(result, ResultMessage)
+        assert result.is_error is True
+        assert result.is_transport_error is False
+
+
+# ---------------------------------------------------------------------------
+# TS-03-26: _BACKOFF_BASE shared, not duplicated across backend modules
+# Requirement: 03-REQ-6.4
+# ---------------------------------------------------------------------------
+
+
+class TestBackoffBaseSharedConstant:
+    """Verify _BACKOFF_BASE is defined once and shared between backends."""
+
+    def test_backoff_base_value(self) -> None:
+        """TS-03-26: _BACKOFF_BASE equals 1.0 in both backend modules.
+
+        The constant must be 1.0 (giving delays of 1s, 2s, 4s via the
+        formula _BACKOFF_BASE * 2^(n-1)).
+        """
+        from agentfox.session.backends.claude import _BACKOFF_BASE as claude_backoff
+        from agentfox.session.backends.deepagents import _BACKOFF_BASE as da_backoff
+
+        assert claude_backoff == 1.0, f"ClaudeBackend _BACKOFF_BASE should be 1.0, got {claude_backoff}"
+        assert da_backoff == 1.0, f"DeepAgentsBackend _BACKOFF_BASE should be 1.0, got {da_backoff}"
+
+    def test_backoff_base_not_duplicated(self) -> None:
+        """TS-03-26: _BACKOFF_BASE defined exactly once across backend source files.
+
+        The constant must not be independently defined in both backend modules.
+        Either it is defined in a shared utility module and imported by both,
+        or defined in one module and imported by the other.
+        """
+        import agentfox.session.backends.claude as cl_mod
+        import agentfox.session.backends.deepagents as da_mod
+
+        da_source_path = inspect.getfile(da_mod)
+        cl_source_path = inspect.getfile(cl_mod)
+
+        with open(da_source_path, encoding="utf-8") as f:
+            da_text = f.read()
+        with open(cl_source_path, encoding="utf-8") as f:
+            cl_text = f.read()
+
+        # Count literal definitions (assignments) of _BACKOFF_BASE
+        # An import-based reference (e.g. `from ... import _BACKOFF_BASE`)
+        # is not counted as a definition.
+        da_defs = da_text.count("_BACKOFF_BASE = ")
+        cl_defs = cl_text.count("_BACKOFF_BASE = ")
+
+        total_definitions = da_defs + cl_defs
+        assert total_definitions <= 1, (
+            f"_BACKOFF_BASE is defined {total_definitions} times across "
+            f"claude.py ({cl_defs}) and deepagents.py ({da_defs}). "
+            f"It should be defined exactly once (in a shared module or one backend)."
+        )
