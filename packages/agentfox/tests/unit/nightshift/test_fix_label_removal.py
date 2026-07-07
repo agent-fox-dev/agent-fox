@@ -217,7 +217,7 @@ class TestFixPipelineLabelFixed:
             html_url="https://github.com/test/repo/issues/42",
         )
 
-        with patch.object(pipeline, "_harvest_and_push", AsyncMock(return_value="error")):
+        with patch.object(pipeline, "_harvest_and_push", AsyncMock(side_effect=RuntimeError("harvest failed"))):
             await pipeline.process_issue(issue, issue_body="Bug description.")
 
         mock_platform.close_issue.assert_not_awaited()

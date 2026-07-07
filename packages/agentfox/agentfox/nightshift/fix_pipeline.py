@@ -193,17 +193,28 @@ class FixPipeline:
         spec_name: str,
         task_description: str,
         session_id: str | None = None,
+        file_footprint: list[str] | None = None,
     ) -> list[str]:
-        """Retrieve knowledge context for the fix pipeline (best-effort)."""
+        """Retrieve knowledge context for the fix pipeline (best-effort).
+
+        Requirements: 05-REQ-5.1, 05-REQ-6.1, 05-REQ-7.1
+        """
         if self._knowledge_provider is None:
             return []
         try:
-            return self._knowledge_provider.retrieve(
+            items = self._knowledge_provider.retrieve(
                 spec_name,
                 task_description,
-                task_group=None,
+                task_group="0",
                 session_id=session_id,
+                file_footprint=file_footprint,
             )
+            logger.info(
+                "Knowledge retrieval completed for %s: task_group=0, items=%d",
+                spec_name,
+                len(items),
+            )
+            return items
         except Exception:
             logger.warning(
                 "Knowledge retrieval failed for %s, continuing without knowledge context",
@@ -981,10 +992,12 @@ class FixPipeline:
             self._knowledge_provider.set_run_id(self._run_id)
         coder_node_id = f"fix-issue-{spec.issue_number}:0:coder"
         task_description = triage.summary or spec.title
+        file_footprint = triage.affected_files if triage.affected_files else None
         knowledge_items = self._retrieve_knowledge(
             spec_name,
             task_description,
             session_id=coder_node_id,
+            file_footprint=file_footprint,
         )
         knowledge_context = self._format_knowledge_context(knowledge_items)
 
@@ -995,11 +1008,12 @@ class FixPipeline:
         issue: IssueResult,
         spec: InMemorySpec,
         workspace: WorkspaceInfo,
-    ) -> str:
+    ) -> tuple[str, list[str]]:
         """Auto-commit, optionally push, and harvest the fix branch.
 
-        Returns the harvest result string (``"merged"``, ``"no_changes"``,
-        or ``"error"``).
+        Returns ``(status, changed_files)`` where *status* is ``"merged"``,
+        ``"no_changes"``, or ``"error"`` and *changed_files* is the list of
+        file paths changed by the harvest (empty on error or no changes).
 
         Requirements: NS-REQ-4, NS-REQ-5, 93-REQ-3.1, 65-REQ-3.2
         """
@@ -1016,7 +1030,19 @@ class FixPipeline:
         # Harvest fix branch into develop and push to origin (65-REQ-3.2).
         # Must run BEFORE cleanup destroys the feature branch.
         self._update_spinner(f"Merging fix for issue #{issue.number} into develop…")
-        return await self._harvest_and_push(spec, workspace)
+        try:
+            changed_files = await self._harvest_and_push(spec, workspace)
+        except Exception as exc:
+            logger.warning(
+                "Harvest/push failed for issue #%d on branch %s: %s",
+                spec.issue_number,
+                spec.branch_name,
+                exc,
+            )
+            return "error", []
+        if not changed_files:
+            return "no_changes", []
+        return "merged", changed_files
 
     async def _handle_result(
         self,
@@ -1226,7 +1252,7 @@ class FixPipeline:
                 self._try_complete_run("completed")
                 return metrics
 
-            harvest_result = await self._integrate_fix(issue, spec, workspace)
+            harvest_result, changed_files = await self._integrate_fix(issue, spec, workspace)
 
         except Exception as exc:
             # 61-REQ-6.E1: post comment on failure
@@ -1314,35 +1340,26 @@ class FixPipeline:
         self,
         spec: InMemorySpec,
         workspace: WorkspaceInfo,
-    ) -> str:
+    ) -> list[str]:
         """Harvest the fix branch into the integration branch and push to origin.
 
-        Returns:
-            ``"merged"`` when changes were merged successfully.
-            ``"no_changes"`` when harvest found no new commits on the
-            fix branch (the fix may already be on the integration branch).
-            ``"error"`` when an error occurred during harvest or push.
+        Returns the list of changed file paths from ``harvest()``.  Returns an
+        empty list when no files were changed.  Raises on error — the caller
+        is responsible for catching and handling exceptions.
+
+        Requirements: 05-REQ-1.1, 05-REQ-1.2, 05-REQ-1.E1
         """
         from agentfox.workspace.harvest import harvest, post_harvest_integrate
 
         branch = self._config.workspace.integration_branch
         repo_root = Path.cwd()
-        try:
-            changed_files = await harvest(repo_root, workspace, dev_branch=branch)
-            if not changed_files:
-                logger.warning(
-                    "No changes produced for issue #%d on branch %s",
-                    spec.issue_number,
-                    spec.branch_name,
-                )
-                return "no_changes"
-            await post_harvest_integrate(repo_root, workspace, branch=branch, push_already_done=True)
-        except Exception as exc:
+        changed_files = await harvest(repo_root, workspace, dev_branch=branch)
+        if not changed_files:
             logger.warning(
-                "Harvest/push failed for issue #%d on branch %s: %s",
+                "No changes produced for issue #%d on branch %s",
                 spec.issue_number,
                 spec.branch_name,
-                exc,
             )
-            return "error"
-        return "merged"
+            return []
+        await post_harvest_integrate(repo_root, workspace, branch=branch, push_already_done=True)
+        return changed_files

@@ -478,7 +478,7 @@ class TestRunIdInMergeFailureComment:
         pipeline = FixPipeline(config=config, platform=mock_platform)
         pipeline._setup_workspace = AsyncMock(return_value=_mock_workspace())  # type: ignore[method-assign]
         pipeline._cleanup_workspace = AsyncMock()  # type: ignore[method-assign]
-        pipeline._harvest_and_push = AsyncMock(return_value="error")  # type: ignore[method-assign]
+        pipeline._harvest_and_push = AsyncMock(side_effect=RuntimeError("harvest failed"))  # type: ignore[method-assign]
 
         async def mock_run_session(archetype: str, workspace: object = None, **kwargs: object) -> MagicMock:
             if archetype == "maintainer":

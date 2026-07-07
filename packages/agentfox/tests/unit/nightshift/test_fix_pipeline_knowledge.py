@@ -75,8 +75,9 @@ class TestRetrieveKnowledge:
         provider.retrieve.assert_called_once_with(
             "fix-issue-42",
             "flaky test",
-            task_group=None,
+            task_group="0",
             session_id="fix-issue-42:0:coder",
+            file_footprint=None,
         )
 
     def test_returns_empty_on_exception(self) -> None:
