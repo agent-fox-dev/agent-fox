@@ -15,9 +15,9 @@ to how knowledge is harvested and fed forward to future sessions.
 ### 1.1 The Contract Model
 
 Everything agent-fox does traces back to a **spec** — a set of structured
-artifacts that together define a coherent unit of work. Specs use the v1.2
+artifacts that together define a coherent unit of work. Specs use the v1.3
 JSON-based format. See
-[Part 6: Spec Format v1.2](architecture/06-spec-format-v12.md) for details.
+[Part 6: Spec Format v1.3](architecture/06-spec-format-v13.md) for details.
 
 | Artifact | Role |
 |---|---|
@@ -732,9 +732,10 @@ The task prompt is short and archetype-specific:
 
 ## 8. Agent Archetypes in Detail
 
-The archetype registry defines four built-in entries. Two support **modes** —
-named variants that override specific fields (injection point, tool allowlist,
-model tier, max turns) while inheriting everything else from the base entry.
+The archetype registry defines six built-in entries. Several support
+**modes** — named variants that override specific fields (injection point,
+tool allowlist, model tier, effort, max turns) while inheriting everything
+else from the base entry.
 
 Custom archetypes are supported via project-level profile files at
 `.agent-fox/profiles/{name}.md` combined with a permission preset in the
@@ -753,7 +754,8 @@ session summary artifact.
 
 **Configuration:**
 - Model tier: STANDARD (variant: standard)
-- Thinking mode: adaptive, 64K budget
+- Thinking mode: adaptive
+- Effort: xhigh
 - Max turns: 300
 - Tool access: unrestricted (inherits from global security config)
 - Injection: none (assigned to task groups directly)
@@ -802,23 +804,52 @@ When both pre-review and drift-review are enabled, they execute in parallel
 before the first coder group. Either can produce blocking findings
 independently.
 
-### 8.3 Verifier
+### 8.3 Curator
+
+**Role:** Post-implementation curation. Runs after the last coder group and
+before the Verifier, forming a quality chain: last coder → Curator → Verifier.
+
+**Injection:** `auto_post` (injection order 10) — added before the Verifier.
+
+**Configuration:**
+- Model tier: STANDARD (variant: standard)
+- Effort: medium
+- Max turns: 80
+- Tool access: read-only plus `make`
+- Instances: always clamped to 1
+- Enabled by default (`archetypes.curator`)
+
+### 8.4 Verifier
 
 **Role:** Post-implementation verification. Runs the test suite, checks each
 requirement against acceptance criteria, produces per-requirement pass/fail
 assessments.
 
-**Injection:** `auto_post` — added after the last coder group in every spec.
+**Injection:** `auto_post` (injection order 20) — added after the Curator.
 Uses a sentinel group number (0) with a 3-part node ID format
 (`spec:0:verifier`) to avoid collisions with real coder group nodes.
 
 **Configuration:**
 - Model tier: STANDARD (variant: standard)
+- Effort: high
 - Max turns: 120
 - Tool access: full (needs to run tests)
 - `retry_predecessor`: true
 
-### 8.4 Maintainer
+### 8.5 Gate
+
+**Role:** Lightweight checkpoint verification for mid-spec progress checks.
+Not auto-injected — assigned automatically when a task group has
+`kind: "checkpoint"` in `tasks.json`.
+
+**Configuration:**
+- Model tier: STANDARD (variant: standard)
+- Effort: low
+- Max turns: 30
+- Thinking: disabled
+- Task assignable: yes
+
+### 8.6 Maintainer
 
 **Role:** Internal archetype used exclusively by the night-shift daemon. Not
 assignable to task groups in coding session plans (`task_assignable: false`).
@@ -1087,7 +1118,7 @@ breaker trips, or SIGINT received):
 ## 13. Spec Creation
 
 Specifications can be created manually or through the AI-powered `spec` CLI
-and the `/af-spec` skill in Claude Code. Both tools produce the same v1.2
+and the `/af-spec` skill in Claude Code. Both tools produce the same v1.3
 JSON format.
 
 ### 13.1 The Spec CLI Workflow
@@ -1163,7 +1194,7 @@ Human Intent
     │
     ▼
 Spec Artifacts (.agent-fox/specs/NN_name/)
-    │  v1.2: prd.md, requirements.json, test_spec.json, tasks.json
+    │  v1.3: prd.md, requirements.json, test_spec.json, tasks.json
     ▼
 Planner  [deterministic, zero LLM]
     │  Static validation → Graph construction → Topo sort

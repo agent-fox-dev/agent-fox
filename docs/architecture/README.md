@@ -31,11 +31,13 @@ them.
 its own feature branch. Multiple agents work simultaneously without stepping
 on each other. Integration happens through a serializing merge lock.
 
-**Separation of concerns through archetypes.** Four archetype entries (Coder,
-Reviewer, Verifier, Maintainer) with a mode system divide labor. The Reviewer
-archetype covers three distinct review roles (pre-review, drift-review,
-audit-review) through modes that override injection points and tool
-allowlists. Review modes cannot modify code. Implementation agents cannot
+**Separation of concerns through archetypes.** Six archetype entries (Coder,
+Reviewer, Curator, Verifier, Gate, Maintainer) with a mode system divide
+labor. The Reviewer archetype covers three distinct review roles (pre-review,
+drift-review, audit-review) through modes that override injection points and
+tool allowlists. Review modes cannot modify code. The Curator and Verifier
+chain as sequential post-implementation quality gates. The Gate archetype
+handles lightweight checkpoint verification. Implementation agents cannot
 skip quality checks.
 
 **Graceful degradation everywhere.** Every component handles failure
@@ -66,9 +68,9 @@ hot-load discovery.
 
 How the plan is carried out. Covers the orchestrator's dispatch loop, the
 four-phase session lifecycle (prepare, execute, harvest, assess), context
-assembly with three knowledge retrieval categories, the four-entry archetype
-registry with mode system (coder, reviewer, verifier, maintainer),
-multi-instance convergence strategies, retry handling, workspace
+assembly with three knowledge retrieval categories, the six-entry archetype
+registry with mode system (coder, reviewer, curator, verifier, gate,
+maintainer), multi-instance convergence strategies, retry handling, workspace
 isolation, merge integration, sync barriers, and reset.
 
 ### [Part 4: Night-Shift Mode](04-night-shift.md)
@@ -87,12 +89,12 @@ same-spec summaries), the closed-loop finding lifecycle
 knowledge store, the quality assurance layer (review findings, drift findings,
 multi-instance convergence), and the audit trail.
 
-### [Part 6: Spec Format v1.2](06-spec-format-v12.md)
+### [Part 6: Spec Format v1.3](06-spec-format-v13.md)
 
-The JSON-based spec format. Covers the v1.2 file structure (JSON artifacts
-validated by `afspec`), the parsing pipeline that maps `afspec` models to
-agent-fox types, context assembly and rendering, validation, and the
-verification checklist.
+The JSON-based spec format. Covers the v1.3 file structure (JSON artifacts
+validated by `afspec`), PRD frontmatter and lifecycle states, the parsing
+pipeline that maps `afspec` models to agent-fox types, context assembly and
+rendering, validation, and the verification checklist.
 
 ## See Also
 

@@ -14,7 +14,7 @@ changing code.
 
 ## Built-in Profiles
 
-agent-fox ships with profiles for all four archetypes and their modes:
+agent-fox ships with profiles for all six archetypes and their modes:
 
 | Profile file | Archetype | Mode | Purpose |
 |---|---|---|---|

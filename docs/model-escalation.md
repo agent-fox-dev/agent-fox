@@ -28,18 +28,20 @@ Tiers with no variant (variant = `None`) never participate in variant upgrades.
 Each archetype/mode pair has a default tier and variant configured in
 `ARCHETYPE_REGISTRY`. These defaults are the starting point for every session.
 
-| Agent / Mode | Default Tier / Variant |
-|---|---|
-| coder | STANDARD / standard |
-| coder (fix) | STANDARD / standard |
-| reviewer (pre-review) | ADVANCED / standard |
-| reviewer (drift-review) | STANDARD / standard |
-| reviewer (audit-review) | ADVANCED / standard |
-| reviewer (fix-review) | ADVANCED / standard |
-| verifier | STANDARD / standard |
-| maintainer (hunt) | SIMPLE / standard |
-| maintainer (fix-triage) | STANDARD / standard |
-| maintainer (extraction) | SIMPLE / standard |
+| Agent / Mode | Default Tier / Variant | Effort |
+|---|---|---|
+| coder | STANDARD / standard | xhigh |
+| coder (fix) | STANDARD / standard | xhigh |
+| reviewer (pre-review) | ADVANCED / standard | high |
+| reviewer (drift-review) | STANDARD / standard | high |
+| reviewer (audit-review) | ADVANCED / standard | high |
+| reviewer (fix-review) | ADVANCED / standard | high |
+| curator | STANDARD / standard | medium |
+| verifier | STANDARD / standard | high |
+| gate | STANDARD / standard | low |
+| maintainer (hunt) | SIMPLE / standard | medium |
+| maintainer (fix-triage) | STANDARD / standard | medium |
+| maintainer (extraction) | SIMPLE / standard | medium |
 
 ## Resolution Priority
 

@@ -57,7 +57,7 @@ For each spec with a tasks file, the planner parses task groups and creates one
 node per group. The planner calls `parse_tasks_v12()` which loads `tasks.json`
 via `afspec` and produces `TaskGroupDef` types for the rest of graph
 construction (see
-[Part 6: Spec Format v1.2](06-spec-format-v12.md#parsing-pipeline)).
+[Part 6: Spec Format v1.3](06-spec-format-v13.md#parsing-pipeline)).
 
 Each node carries the spec name, group number, completion state, optional flag,
 subtask count, and body text. Consecutive groups within a spec are connected by
@@ -94,8 +94,11 @@ contains at least a configurable minimum number of test entries — below that
 threshold, auditing has insufficient material to work with.
 
 **Post-execution agents** (injection point: `auto_post`) are added after the
-last coder group. Currently this is the Verifier, which runs the test suite and
-checks each requirement against the implemented code.
+last coder group. Two agents chain here in injection order: the **Curator**
+(injection order 10) runs first, performing a post-implementation curation
+pass, followed by the **Verifier** (injection order 20), which runs the test
+suite and checks each requirement against the implemented code. The
+dependency chain is: last coder → Curator → Verifier.
 
 Injected nodes are wired into the dependency chain with appropriate edges: a
 pre-execution node precedes the first coder group, a post-execution node follows
@@ -109,14 +112,22 @@ review and verification for specs whose implementation work is already done.
 
 ### Phase 3: Archetype Tag Overrides
 
-After injection, the planner applies archetype tag overrides from `tasks.json`.
-If a task group carries an `[archetype: skeptic]` tag, that group's node is
-reassigned from the default "coder" archetype to "skeptic." These tags are the
-highest-priority assignment mechanism — they override both the builder's default
-("coder" for all non-injected nodes) and the automatic injection rules.
+After injection, the planner applies two assignment mechanisms:
 
-This enables spec authors to place review or validation steps at arbitrary
-points in their task sequence, not just at the three automatic injection points.
+**Kind-based assignment.** Task groups with `kind: "checkpoint"` in
+`tasks.json` are automatically assigned the `gate` archetype instead of the
+default `coder`. The Gate archetype runs a lightweight verification session
+with low effort and a small turn budget (30 turns), suitable for mid-spec
+progress checks.
+
+**Archetype tag overrides.** If a task group carries an explicit archetype
+tag, that group's node is reassigned to the tagged archetype. These tags are
+the highest-priority assignment mechanism — they override both the kind-based
+assignment and the automatic injection rules.
+
+These mechanisms enable spec authors to place review, verification, or
+checkpoint steps at arbitrary points in their task sequence, not just at the
+three automatic injection points.
 
 ### Phase 4: Cross-Spec Edges
 

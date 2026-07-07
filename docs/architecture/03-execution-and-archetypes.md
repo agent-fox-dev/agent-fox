@@ -132,8 +132,10 @@ Key parameters are resolved per session:
 - **Model ID**: Determined by the archetype's default tier (see Model Routing
   below).
 - **Max turns**: Archetype-specific limit on the number of agent turns.
-- **Thinking mode**: Extended thinking with configurable token budget,
+- **Thinking mode**: Extended thinking (adaptive or disabled per archetype),
   currently enabled only for the Coder archetype in adaptive mode.
+- **Effort**: Output effort level (low, medium, high, xhigh, max) resolved
+  per archetype from registry defaults or configuration overrides.
 - **Timeout**: Configurable wall-clock limit. Timeout failures trigger
   specialized retry logic with extended limits.
 - **Budget cap**: Optional per-session USD limit.
@@ -242,7 +244,7 @@ The task context layer is assembled from the following sources, in order:
    `tasks.json`) are loaded via `afspec` and rendered to markdown;
    `architecture.md` is read directly. Missing files are logged as warnings but
    do not prevent the session from running. See
-   [Part 6: Spec Format v1.2](06-spec-format-v12.md#context-assembly) for
+   [Part 6: Spec Format v1.3](06-spec-format-v13.md#context-assembly) for
    details on the rendering pipeline.
 
 2. **DB-backed findings.** Review findings and drift findings are queried
@@ -323,12 +325,12 @@ address identified issues in the retry.
 ## Agent Archetypes
 
 An archetype defines the role, capabilities, and constraints of an agent
-session. Each archetype has a prompt profile, a model tier, a tool allowlist,
-and behavioral rules. The archetype registry contains four built-in entries.
-Two of them — the reviewer and the maintainer — support **modes**: named
-variants that override specific fields (injection point, tool allowlist,
-model tier) while inheriting everything else from the base entry. Modes are
-the mechanism by which a single registry entry serves multiple distinct roles.
+session. Each archetype has a prompt profile, a model tier, an effort level,
+a tool allowlist, and behavioral rules. The archetype registry contains six
+built-in entries. Several support **modes**: named variants that override
+specific fields (injection point, tool allowlist, model tier) while inheriting
+everything else from the base entry. Modes are the mechanism by which a single
+registry entry serves multiple distinct roles.
 
 ### The Registry
 
@@ -336,8 +338,10 @@ the mechanism by which a single registry entry serves multiple distinct roles.
 |---|---|---|
 | **coder** | `fix` | Implementation — writes code, tests, commits |
 | **reviewer** | `pre-review`, `drift-review`, `audit-review`, `fix-review` | Review — examines specs and code, produces structured findings |
+| **curator** | — | Post-implementation curation — runs after coders, before verifier |
 | **verifier** | — | Verification — runs tests, checks requirements, produces pass/fail assessments |
-| **maintainer** | `fix-triage`, `extraction` | Night-shift internal — not user-facing |
+| **gate** | — | Checkpoint verification — lightweight mid-spec progress checks |
+| **maintainer** | `hunt`, `fix-triage`, `extraction` | Night-shift internal — not user-facing |
 
 When a mode is specified, the system resolves the effective configuration by
 overlaying the mode's overrides onto the base entry. Fields set to `None` in
@@ -398,30 +402,53 @@ The reviewer archetype is controlled by a single configuration toggle
 Legacy configuration keys (`skeptic`, `oracle`, `auditor`) are accepted and
 mapped to the corresponding reviewer modes with deprecation warnings.
 
+### Curator
+
+Performs post-implementation curation (injection: `auto_post`, injection order
+10). The Curator runs after the last coder group and before the Verifier,
+forming a quality chain: last coder → Curator → Verifier. It has read-only
+tool access plus `make`, operates at the STANDARD model tier with medium
+effort, and is always clamped to exactly one instance. The Curator is enabled
+by default and controlled by the `archetypes.curator` configuration toggle.
+
 ### Verifier
 
-Performs post-implementation verification (injection: `auto_post`). It runs the
-test suite, checks each requirement against the acceptance criteria, and
-produces per-requirement results (PASS, FAIL, PARTIAL). The Verifier has full
-tool access (it needs to run tests). It can trigger retries of its predecessor
-— if verification fails, the orchestrator may re-run the preceding coder
-session with the Verifier's findings injected as context.
+Performs post-implementation verification (injection: `auto_post`, injection
+order 20). It runs the test suite, checks each requirement against the
+acceptance criteria, and produces per-requirement results (PASS, FAIL,
+PARTIAL). The Verifier runs after the Curator and has full tool access (it
+needs to run tests). It can trigger retries of its predecessor — if
+verification fails, the orchestrator may re-run the preceding coder session
+with the Verifier's findings injected as context.
+
+### Gate
+
+Performs lightweight checkpoint verification (injection: none, assigned via
+`kind: "checkpoint"` in `tasks.json`). The Gate archetype runs mid-spec
+progress checks with minimal resource usage: 30 max turns, low effort, and
+the STANDARD model tier. It is task-assignable — spec authors place
+checkpoint groups at points where they want a progress check before continuing
+to the next implementation group.
 
 ### Maintainer
 
 An internal archetype used exclusively by the night-shift daemon (see
 [Part 4](04-night-shift.md)). It is not user-facing and not assignable to
-task groups. Its modes cover issue triage (`fix-triage`) and knowledge
-extraction (`extraction`).
+task groups. Its modes cover batch issue analysis (`hunt`, SIMPLE tier with
+read-only access), individual issue triage (`fix-triage`, STANDARD tier with
+read-only access), and knowledge extraction (`extraction`, SIMPLE tier with
+no shell access).
 
 ### Design Rationale
 
 Archetypes default to either the SIMPLE or STANDARD model tier depending on
 their role, with certain reviewer modes using the ADVANCED tier for tasks that
-require deeper reasoning. Operators can override model tiers per archetype via
-configuration. On failure, tasks retry at their assigned tier up to
-`max_retries` (default 2) before being blocked — there is no automatic
-promotion to a higher tier.
+require deeper reasoning. Each archetype also has a default effort level
+(ranging from low for Gate to xhigh for Coder) that controls the depth of
+the model's output. Operators can override both model tiers and effort levels
+per archetype via configuration. On failure, tasks retry at their assigned
+tier up to `max_retries` (default 2) before being blocked — there is no
+automatic promotion to a higher tier.
 
 Read-only tool allowlists for reviewer modes enforce a separation of concerns.
 A reviewer that can modify code is no longer a pure reviewer — it might fix
@@ -432,8 +459,8 @@ The consolidation of three conceptual review roles (spec review, drift
 detection, test auditing) into a single reviewer archetype with modes reflects
 the observation that these roles share most of their configuration: same base
 model tier, same output format, same convergence semantics. Modes capture only
-the differences — injection point, tool allowlist, and prompt profile — without
-duplicating the shared structure.
+the differences — injection point, tool allowlist, effort level, and prompt
+profile — without duplicating the shared structure.
 
 ### Multi-Instance Convergence
 
@@ -502,18 +529,27 @@ do not consume normal retry attempts.
 
 ### Failure
 
-Non-timeout failures use a simple retry counter. On failure:
+Non-timeout failures are classified by cause and handled accordingly:
 
-1. If retries remain (up to `max_retries`, default 2), the task is reset to
-   PENDING for another attempt at the same model tier.
-2. If retries are exhausted, the task is marked BLOCKED and all its dependents
-   are cascade-blocked via BFS through the dependency graph.
-3. Transport errors (network failures, API errors) are retried without
-   consuming retry attempts, since they reflect environment problems rather
-   than task difficulty.
-4. Budget exhaustion blocks the task immediately without retry, since spending
-   more on the same task would violate the cost constraint that triggered
-   the failure.
+1. **Workspace-setup failures** receive exponential backoff (2^n seconds)
+   up to three attempts without consuming retry budget.
+2. **Non-retryable errors** (workspace-state corruption) block the task
+   immediately without consuming retry budget.
+3. **Budget exhaustion** blocks the task immediately without retry.
+4. **Transport errors** (network failures, API errors) reset the task to
+   PENDING without consuming retry budget. The backend also performs its
+   own internal retry with exponential backoff for transient API errors.
+5. **Environment failures** (zero tokens, zero cost — the session died
+   before reaching the LLM) receive exponential backoff up to three
+   attempts without consuming retry budget.
+6. **Retry-predecessor archetypes** (reviewer and verifier with
+   `retry_predecessor=true`) reset the preceding coder to PENDING instead
+   of the failed node, up to `max_retries`.
+7. **Standard failures** increment the failure count. If retries remain
+   (up to `max_retries`, default 2), the task is reset to PENDING for
+   another attempt at the same model tier. If retries are exhausted, the
+   task is marked BLOCKED and all its dependents are cascade-blocked via
+   BFS through the dependency graph.
 
 ### Cascade Blocking
 
@@ -530,31 +566,36 @@ succeed because their prerequisites failed.
 Each archetype entry (including its modes) has a default model tier. Model
 tiers map to concrete model IDs through a registry:
 
-| Tier | Default Model |
-|---|---|
-| SIMPLE | `claude-haiku-4-5` |
-| STANDARD | `claude-sonnet-4-6` |
-| ADVANCED | `claude-opus-4-6` |
-
-The default tier assignments across all archetype entries and modes are:
-
-| Archetype / Mode | Model Tier | Thinking |
+| Tier | Default Model | Variant |
 |---|---|---|
-| coder | STANDARD | standard |
-| coder (fix) | STANDARD | standard |
-| reviewer (base) | STANDARD | standard |
-| reviewer (pre-review) | ADVANCED | standard |
-| reviewer (drift-review) | STANDARD | standard |
-| reviewer (audit-review) | ADVANCED | standard |
-| reviewer (fix-review) | ADVANCED | standard |
-| verifier | STANDARD | standard |
-| maintainer (base) | STANDARD | standard |
-| maintainer (hunt) | SIMPLE | standard |
-| maintainer (fix-triage) | STANDARD | standard |
-| maintainer (extraction) | SIMPLE | standard |
+| SIMPLE | `claude-haiku-4-5` | standard |
+| STANDARD | `claude-sonnet-4-6` | standard |
+| ADVANCED | `claude-opus-4-6` | standard |
+| ADVANCED | `claude-opus-4-6[1m]` | extended |
 
-Operators can override model tiers per archetype via configuration. The model
-tier remains fixed for the lifetime of a task — retries reuse the same tier.
+The default tier, thinking, and effort assignments across all archetype
+entries and modes are:
+
+| Archetype / Mode | Model Tier | Thinking | Effort |
+|---|---|---|---|
+| coder | STANDARD | adaptive | xhigh |
+| coder (fix) | STANDARD | adaptive | xhigh |
+| reviewer (base) | STANDARD | disabled | high |
+| reviewer (pre-review) | ADVANCED | disabled | high |
+| reviewer (drift-review) | STANDARD | disabled | high |
+| reviewer (audit-review) | ADVANCED | disabled | high |
+| reviewer (fix-review) | ADVANCED | disabled | high |
+| curator | STANDARD | disabled | medium |
+| verifier | STANDARD | disabled | high |
+| gate | STANDARD | disabled | low |
+| maintainer (base) | STANDARD | disabled | medium |
+| maintainer (hunt) | SIMPLE | disabled | medium |
+| maintainer (fix-triage) | STANDARD | disabled | medium |
+| maintainer (extraction) | SIMPLE | disabled | medium |
+
+Operators can override model tiers and effort levels per archetype via
+configuration. The model tier remains fixed for the lifetime of a task —
+retries reuse the same tier.
 
 After each session, the actual tier used, token consumption, cost, duration,
 and success/failure outcome are recorded in the `session_outcomes` table. This

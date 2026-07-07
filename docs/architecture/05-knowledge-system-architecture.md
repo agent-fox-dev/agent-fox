@@ -284,14 +284,15 @@ The knowledge system never prevents a session from launching.
 When the orchestrator prepares a coding session, context assembly follows this
 sequence:
 
-1. **Extract subtask descriptions** from the task group in `tasks.md` to
+1. **Extract subtask descriptions** from the task group in `tasks.json` to
    form the `task_description` passed to `retrieve()`.
 
 2. **Call `KnowledgeProvider.retrieve()`** → returns prefixed text blocks.
 
-3. **Assemble context** — spec files (`requirements.md`, `design.md`,
-   `test_spec.md`, `tasks.md`), DB-backed review/drift/verification findings,
-   steering directives, the retrieved knowledge items, and prior group findings.
+3. **Assemble context** — spec files (`requirements.json`, `test_spec.json`,
+   `tasks.json`, optional `architecture.md`), DB-backed review/drift/verification
+   findings, steering directives, the retrieved knowledge items, and prior group
+   findings.
 
 4. **Build system prompt** from the three-layer assembly: agent base profile +
    archetype profile + task context.

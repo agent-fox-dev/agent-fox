@@ -24,12 +24,12 @@ lives in a numbered directory under `.agent-fox/specs/` — for example,
 order and provides a stable namespace for cross-spec references. The name after
 the prefix is a snake_case descriptor chosen by the author.
 
-For a detailed treatment of the v1.2 format, see
-[Part 6: Spec Format v1.2](06-spec-format-v12.md).
+For a detailed treatment of the v1.3 format, see
+[Part 6: Spec Format v1.3](06-spec-format-v13.md).
 
 ### Spec Artifacts
 
-Specs use the v1.2 JSON-based format with four required files and one optional
+Specs use the v1.3 JSON-based format with four required files and one optional
 file:
 
 | Artifact | Role |
@@ -40,12 +40,14 @@ file:
 | `tasks.json` | Task groups with subtask state machine, dependencies, and traceability. |
 | `architecture.md` | Optional free-form architecture documentation. Absorbs the role of the former `design.md`. |
 
-The v1.2 format moves structured data into schema-validated JSON while keeping
-narrative content in markdown. The `afspec` library provides the data models,
-validation, and rendering. The `agentspec` library drives AI-powered generation
-of the JSON artifacts from a PRD, and the `spec` CLI provides the command-line
-interface. See [Part 6](06-spec-format-v12.md) for details on format detection,
-parsing, and validation.
+The v1.3 format moves structured data into schema-validated JSON while keeping
+narrative content in markdown. The PRD carries structured YAML frontmatter
+with lifecycle state management and intent-hash protection. The `afspec`
+library provides the data models, validation, and rendering. The `agentspec`
+library drives AI-powered generation of the JSON artifacts from a PRD, and
+the `spec` CLI provides the command-line interface. See
+[Part 6](06-spec-format-v13.md) for details on format detection, parsing,
+and validation.
 
 ### Traceability
 
@@ -187,7 +189,7 @@ reference material or work-in-progress.
 Validation delegates to `afspec.validate()`, which runs JSON Schema validation
 and cross-file referential integrity checks. Results are mapped to agent-fox
 `Finding` objects so the CLI output format is unchanged. See
-[Part 6: Spec Format v1.2](06-spec-format-v12.md#validation) for details.
+[Part 6: Spec Format v1.3](06-spec-format-v13.md#validation) for details.
 
 ### Severity Model
 

@@ -13,7 +13,7 @@ integration branch (default: `main`). You come back to a finished feature branch
 The typical workflow has four stages:
 
 1. **Write specs.** Describe your feature as a structured specification
-   package under `.agent-fox/specs/`. New specs use the v1.2 JSON format: a PRD
+   package under `.agent-fox/specs/`. New specs use the v1.3 JSON format: a PRD
    (`prd.md`), requirements (`requirements.json`), test spec (`test_spec.json`),
    and tasks (`tasks.json`), plus an optional `architecture.md`. Each spec maps
    to one coherent feature or change. Use the `spec` CLI to create and refine
@@ -54,7 +54,7 @@ The typical workflow has four stages:
 
 ### Agent Archetypes
 
-agent-fox uses a four-entry archetype registry with a mode system to divide
+agent-fox uses a six-entry archetype registry with a mode system to divide
 labor:
 
 - **Coder** — the primary implementation agent. Receives the full spec
@@ -73,11 +73,15 @@ labor:
     weak, or misaligned with their specifications.
   - *fix-review* — reviews fix-mode patches (quality fixes, night-shift
     repairs) with full tool access and extended turn budget.
+- **Curator** — performs post-implementation curation after coders and
+  before the verifier. Read-only access with medium effort.
 - **Verifier** — performs post-implementation verification. Runs the test
   suite, checks each requirement against acceptance criteria, and triggers
   coder retries when verification fails.
-- **Maintainer** — drives night-shift operations with two modes (fix-triage,
-  extraction). Not assignable to spec tasks.
+- **Gate** — lightweight checkpoint verification for mid-spec progress
+  checks. Assigned automatically to `checkpoint` task groups.
+- **Maintainer** — drives night-shift operations with three modes (hunt,
+  fix-triage, extraction). Not assignable to spec tasks.
 
 Review and verification archetypes can run multiple instances in parallel on
 the same task, with outputs merged using mode-specific convergence strategies.
@@ -144,4 +148,4 @@ snippets or class hierarchies.
 | [Profiles](profiles.md) | Agent profiles, resolution, and customization |
 | [Skills](skills.md) | Claude Code skill reference |
 | [Architecture Guide](architecture/README.md) | Topic-specific architecture deep dives |
-| [Spec Format v1.2](architecture/06-spec-format-v12.md) | JSON-based spec format, parsing pipeline, validation, context assembly |
+| [Spec Format v1.3](architecture/06-spec-format-v13.md) | JSON-based spec format, parsing pipeline, validation, context assembly |

@@ -121,7 +121,7 @@ A pipeline or automation script that drives agent-fox in `--json` mode, consumin
 - WHEN configured reviewer archetypes are enabled, the system SHALL automatically insert pre-coding review sessions before the first coding group and post-coding verification sessions after the last coding group.
 - WHEN a pre-coding review produces critical findings exceeding the configured threshold, the system SHALL block coding sessions and report the blocking findings.
 - WHEN multiple reviewer instances are configured, the system SHALL run them in parallel and converge findings using majority agreement.
-- WHEN a session fails, the system SHALL retry it at the current model tier up to the configured retry limit, then escalate to the advanced model tier for one final attempt, then mark the task as blocked.
+- WHEN a session fails, the system SHALL retry it at the current model tier up to the configured retry limit, then mark the task as blocked.
 - WHEN all tasks complete successfully, the system SHALL exit with code 0.
 - WHEN a cost ceiling is reached, the system SHALL stop dispatching new sessions and exit with code 3.
 - WHEN a session limit is reached, the system SHALL stop dispatching new sessions and exit with code 3.
@@ -131,10 +131,12 @@ A pipeline or automation script that drives agent-fox in `--json` mode, consumin
 
 ### 5.4 Agent Archetypes
 
-- WHEN the Skeptic archetype is enabled, the system SHALL run one or more independent spec review sessions before the first coding group, each producing structured findings categorized by severity.
-- WHEN the Oracle archetype is enabled, the system SHALL run a codebase-verification session that checks specification assumptions against the actual codebase before coding begins.
-- WHEN the Auditor archetype is enabled, the system SHALL run a test-quality audit after each test-writing session, and trigger a coder retry if the audit finds missing, misaligned, or excessively weak tests.
-- WHEN the Verifier archetype is enabled, the system SHALL run a post-implementation quality review after the last coding session, and trigger a coder retry with verifier feedback if the review fails.
+- WHEN the Reviewer archetype is enabled in pre-review mode, the system SHALL run one or more independent spec review sessions before the first coding group, each producing structured findings categorized by severity.
+- WHEN the Reviewer archetype is enabled in drift-review mode, the system SHALL run a codebase-verification session that checks specification assumptions against the actual codebase before coding begins.
+- WHEN the Reviewer archetype is enabled in audit-review mode, the system SHALL run a test-quality audit after each test-writing session, and trigger a coder retry if the audit finds missing, misaligned, or excessively weak tests.
+- WHEN the Curator archetype is enabled, the system SHALL run a post-implementation curation session after the last coding group and before verification.
+- WHEN the Verifier archetype is enabled, the system SHALL run a post-implementation quality review after curation, and trigger a coder retry with verifier feedback if the review fails.
+- WHEN the Gate archetype is assigned to a checkpoint task group, the system SHALL run a lightweight verification session for that checkpoint.
 
 ### 5.5 Status and Reporting
 
@@ -187,7 +189,8 @@ Key configurable areas:
 | Cost ceiling | Maximum total API spend in USD before the system halts |
 | Session limit | Maximum number of sessions before the system halts |
 | Model tiers | Which Claude model tier each agent role uses (SIMPLE / STANDARD / ADVANCED) |
-| Thinking mode | Extended thinking behavior per role (enabled / adaptive / disabled) |
+| Thinking mode | Extended thinking behavior per role (adaptive / disabled) |
+| Effort | Output effort level per archetype (low / medium / high / xhigh / max) |
 | Archetype toggles | Which reviewer and specialist roles are active |
 | Archetype instances | How many independent reviewer instances run per role |
 | Blocking thresholds | How many critical findings trigger a coding block |
@@ -195,6 +198,7 @@ Key configurable areas:
 | Hot load | Whether the orchestrator watches for new specs after completion |
 | Platform | GitHub connection for Night Shift (type, credentials) |
 | Night Shift intervals | How often issue checks run |
+| Priority labels | Issue priority for night-shift processing order (high / medium / low) |
 | Prompt caching | Cache control policy for system prompts |
 
 When the user re-runs `agent-fox init` after a tool upgrade, new configuration options are added as commented-out entries and removed options are marked deprecated, without disturbing any user-set values.
@@ -256,7 +260,7 @@ When `--json` is active:
 
 | Situation | User-visible behavior |
 |-----------|----------------------|
-| Task session fails after all retries | Task marked blocked; reason shown in `agent-fox status`; coder escalated to advanced model tier before blocking |
+| Task session fails after all retries | Task marked blocked; reason shown in `agent-fox status` |
 | Pre-coding review finds too many critical issues | Coding sessions blocked; blocking findings listed; user must revise specs and re-run |
 | Cost ceiling reached | System halts, reports total spend, exits with code 3 |
 | Session limit reached | System halts, reports session count, exits with code 3 |
@@ -282,7 +286,7 @@ When `--json` is active:
 - **GitHub for Night Shift:** The Night Shift daemon requires a GitHub platform configuration and valid access token. Other issue trackers are not supported.
 - **Parallelism ceiling:** No more than 8 concurrent coding sessions are supported.
 - **Feature branches are local only:** Coding session branches are not pushed to the remote; only the integration branch is pushed.
-- **Knowledge store is local:** The SQLite-backed knowledge store lives in `.agent-fox/` and is not shared across machines.
+- **Knowledge store is local:** The DuckDB-backed knowledge store lives in `.agent-fox/` and is not shared across machines.
 - **Prompt caching minimum size:** Prompt caching is automatically skipped for system prompts below the model's minimum cacheable size.
 
 ---
