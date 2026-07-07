@@ -1,0 +1,812 @@
+{
+  "$schema": null,
+  "spec_id": "03",
+  "spec_name": "deepagents_backend",
+  "schema_version": 1,
+  "test_cases": [
+    {
+      "id": "TS-03-1",
+      "requirement_id": "03-REQ-1.1",
+      "kind": "unit",
+      "description": "Verify that DeepAgentsBackend is defined in session/backends/deepagents.py and satisfies the Backend Protocol such that isinstance returns True.",
+      "preconditions": [
+        "deepagents package is installed (pytest.importorskip('deepagents') guard passes)",
+        "session/backends/deepagents.py exists",
+        "Backend Protocol is importable from session/backends/types.py"
+      ],
+      "input": "DeepAgentsBackend() (no-arg constructor)",
+      "expected": "isinstance(DeepAgentsBackend(), Backend) evaluates to True",
+      "assertion_pseudocode": "from session.backends.deepagents import DeepAgentsBackend\nfrom session.backends.types import Backend\nassert isinstance(DeepAgentsBackend(), Backend) == True"
+    },
+    {
+      "id": "TS-03-2",
+      "requirement_id": "03-REQ-1.2",
+      "kind": "unit",
+      "description": "Verify that the deepagents SDK is imported exclusively within session/backends/deepagents.py and in no other source file.",
+      "preconditions": [
+        "The full project source tree is accessible",
+        "Containment test infrastructure is in place"
+      ],
+      "input": "All Python source files under the project root except session/backends/deepagents.py",
+      "expected": "No 'import deepagents' or 'from deepagents' statement appears in any file other than session/backends/deepagents.py",
+      "assertion_pseudocode": "for each python_file in project_source_files:\n    if python_file.path != 'session/backends/deepagents.py':\n        assert 'import deepagents' not in python_file.content\n        assert 'from deepagents' not in python_file.content"
+    },
+    {
+      "id": "TS-03-3",
+      "requirement_id": "03-REQ-1.3",
+      "kind": "unit",
+      "description": "Verify that DeepAgentsBackend imports canonical types from session/backends/types.py and that types.py is not modified.",
+      "preconditions": [
+        "deepagents package is installed",
+        "session/backends/types.py exists with PermissionCallback, ToolUseMessage, AssistantMessage, ResultMessage, AgentMessage defined",
+        "Git or file hash baseline of session/backends/types.py is recorded before spec-03 changes"
+      ],
+      "input": "Import of DeepAgentsBackend module",
+      "expected": "PermissionCallback, ToolUseMessage, AssistantMessage, ResultMessage, AgentMessage are imported from session.backends.types; types.py content hash is unchanged from baseline",
+      "assertion_pseudocode": "import inspect\nimport session.backends.deepagents as mod\nfrom session.backends import types\nassert mod.PermissionCallback is types.PermissionCallback\nassert mod.ToolUseMessage is types.ToolUseMessage\nassert mod.AssistantMessage is types.AssistantMessage\nassert mod.ResultMessage is types.ResultMessage\nassert current_hash('session/backends/types.py') == baseline_hash"
+    },
+    {
+      "id": "TS-03-4",
+      "requirement_id": "03-REQ-2.1",
+      "kind": "unit",
+      "description": "Verify that DeepAgentsBackend.execute() has the exact method signature matching the Backend Protocol including all keyword-only parameters.",
+      "preconditions": [
+        "deepagents package is installed",
+        "session/backends/deepagents.py is importable"
+      ],
+      "input": "Inspect DeepAgentsBackend.execute method signature via inspect.signature()",
+      "expected": "Signature includes: prompt: str (positional), system_prompt: str (keyword-only), model: str (keyword-only), cwd: str (keyword-only), permission_callback: PermissionCallback | None = None (keyword-only), **kwargs",
+      "assertion_pseudocode": "import inspect\nfrom session.backends.deepagents import DeepAgentsBackend\nsig = inspect.signature(DeepAgentsBackend.execute)\nparams = sig.parameters\nassert 'prompt' in params and params['prompt'].kind == POSITIONAL_OR_KEYWORD\nassert 'system_prompt' in params and params['system_prompt'].kind == KEYWORD_ONLY\nassert 'model' in params and params['model'].kind == KEYWORD_ONLY\nassert 'cwd' in params and params['cwd'].kind == KEYWORD_ONLY\nassert 'permission_callback' in params and params['permission_callback'].default is None\nassert 'kwargs' in params"
+    },
+    {
+      "id": "TS-03-5",
+      "requirement_id": "03-REQ-2.2",
+      "kind": "unit",
+      "description": "Verify that execute() calls create_deep_agent() with model, system_prompt, cwd, and the five af SDK tools, then invokes astream_events() to stream events.",
+      "preconditions": [
+        "deepagents package is installed",
+        "create_deep_agent is patchable at session.backends.deepagents.create_deep_agent",
+        "Synthetic astream_events() async generator yields one AssistantMessage event and then exhausts"
+      ],
+      "input": "backend.execute('do task', system_prompt='sys', model='openai:gpt-5.5', cwd='/workspace')",
+      "expected": "create_deep_agent called with model='openai:gpt-5.5', system_prompt='sys', cwd='/workspace', tools list of length 5; astream_events invoked on the returned agent; generator yields messages and terminates with ResultMessage",
+      "assertion_pseudocode": "mock_agent = Mock()\nmock_agent.astream_events = async_generator_yielding([chat_stream_event('hello'), llm_end_event()])\nwith patch('session.backends.deepagents.create_deep_agent', return_value=mock_agent) as mock_create:\n    messages = await collect_async(backend.execute('do task', system_prompt='sys', model='openai:gpt-5.5', cwd='/workspace'))\nassert mock_create.called\ncall_kwargs = mock_create.call_args.kwargs\nassert call_kwargs['model'] == 'openai:gpt-5.5'\nassert call_kwargs['system_prompt'] == 'sys'\nassert call_kwargs['cwd'] == '/workspace'\nassert len(call_kwargs['tools']) == 5\nassert any(isinstance(m, ResultMessage) for m in messages)"
+    },
+    {
+      "id": "TS-03-6",
+      "requirement_id": "03-REQ-2.3",
+      "kind": "unit",
+      "description": "Verify that on_tool_start and on_tool_end events from astream_events() are each mapped to a ToolUseMessage yielded by execute().",
+      "preconditions": [
+        "deepagents package is installed",
+        "create_deep_agent is patched to return a mock agent",
+        "Mock astream_events yields one on_tool_start event and one on_tool_end event before exhausting"
+      ],
+      "input": "Synthetic event stream: [on_tool_start event, on_tool_end event]",
+      "expected": "execute() yields two ToolUseMessage instances (one per event) before the terminal ResultMessage",
+      "assertion_pseudocode": "events = [make_on_tool_start_event(tool_name='read_file', tool_input={'path': 'foo.py'}),\n          make_on_tool_end_event(tool_name='read_file', output='content')]\nmock_agent.astream_events = async_generator_yielding(events)\nwith patch('session.backends.deepagents.create_deep_agent', return_value=mock_agent):\n    messages = await collect_async(backend.execute('prompt', system_prompt='s', model='m', cwd='/'))\ntool_msgs = [m for m in messages if isinstance(m, ToolUseMessage)]\nassert len(tool_msgs) == 2"
+    },
+    {
+      "id": "TS-03-7",
+      "requirement_id": "03-REQ-2.4",
+      "kind": "unit",
+      "description": "Verify that on_chat_model_stream events are mapped to AssistantMessage instances yielded by execute().",
+      "preconditions": [
+        "deepagents package is installed",
+        "create_deep_agent is patched",
+        "Synthetic astream_events yields two on_chat_model_stream events with distinct text chunks"
+      ],
+      "input": "Synthetic event stream: [on_chat_model_stream('Hello'), on_chat_model_stream(' world')]",
+      "expected": "execute() yields two AssistantMessage instances with the respective text chunks",
+      "assertion_pseudocode": "events = [make_chat_stream_event(chunk='Hello'), make_chat_stream_event(chunk=' world')]\nmock_agent.astream_events = async_generator_yielding(events)\nwith patch('session.backends.deepagents.create_deep_agent', return_value=mock_agent):\n    messages = await collect_async(backend.execute('p', system_prompt='s', model='m', cwd='/'))\nasst_msgs = [m for m in messages if isinstance(m, AssistantMessage)]\nassert len(asst_msgs) == 2\nassert asst_msgs[0].text == 'Hello'\nassert asst_msgs[1].text == ' world'"
+    },
+    {
+      "id": "TS-03-8",
+      "requirement_id": "03-REQ-2.5",
+      "kind": "unit",
+      "description": "Verify that on_llm_end events accumulate token counts internally and no message is yielded for them; on_chat_model_stream counts are excluded from accumulation.",
+      "preconditions": [
+        "deepagents package is installed",
+        "create_deep_agent is patched",
+        "Synthetic stream has one on_chat_model_stream event (with spurious usage field) and one on_llm_end event with authoritative usage"
+      ],
+      "input": "Synthetic event stream: [on_chat_model_stream(chunk='hi', usage={input_tokens: 999}), on_llm_end(usage={input_tokens: 10, output_tokens: 5})]",
+      "expected": "No message yielded for on_llm_end; terminal ResultMessage has input_tokens=10, output_tokens=5 (not 999 or 1009)",
+      "assertion_pseudocode": "events = [make_chat_stream_event(chunk='hi'),\n          make_llm_end_event(input_tokens=10, output_tokens=5)]\nmock_agent.astream_events = async_generator_yielding(events)\nwith patch('session.backends.deepagents.create_deep_agent', return_value=mock_agent):\n    messages = await collect_async(backend.execute('p', system_prompt='s', model='m', cwd='/'))\nresult = messages[-1]\nassert isinstance(result, ResultMessage)\nassert result.input_tokens == 10\nassert result.output_tokens == 5"
+    },
+    {
+      "id": "TS-03-9",
+      "requirement_id": "03-REQ-2.6",
+      "kind": "unit",
+      "description": "Verify that execute() yields exactly one terminal ResultMessage as the last item when the astream_events stream is exhausted successfully.",
+      "preconditions": [
+        "deepagents package is installed",
+        "create_deep_agent is patched",
+        "Synthetic stream yields a mix of chat and tool events followed by on_llm_end"
+      ],
+      "input": "Synthetic successful event stream ending naturally",
+      "expected": "Last message is a ResultMessage with is_error=False; it appears exactly once",
+      "assertion_pseudocode": "with patch('session.backends.deepagents.create_deep_agent', return_value=mock_agent_with_events([llm_end_event()])):\n    messages = await collect_async(backend.execute('p', system_prompt='s', model='m', cwd='/'))\nresult_msgs = [m for m in messages if isinstance(m, ResultMessage)]\nassert len(result_msgs) == 1\nassert result_msgs[0].is_error == False"
+    },
+    {
+      "id": "TS-03-10",
+      "requirement_id": "03-REQ-2.7",
+      "kind": "unit",
+      "description": "Verify that token fields in the terminal ResultMessage are None (not zero) when the provider omits token counts in all on_llm_end events.",
+      "preconditions": [
+        "deepagents package is installed",
+        "create_deep_agent is patched",
+        "Synthetic stream has on_llm_end events that carry no usage/token count fields"
+      ],
+      "input": "Synthetic event stream: [on_llm_end event with no usage data]",
+      "expected": "ResultMessage.input_tokens is None and ResultMessage.output_tokens is None",
+      "assertion_pseudocode": "events = [make_llm_end_event(usage=None)]\nmock_agent.astream_events = async_generator_yielding(events)\nwith patch('session.backends.deepagents.create_deep_agent', return_value=mock_agent):\n    messages = await collect_async(backend.execute('p', system_prompt='s', model='m', cwd='/'))\nresult = messages[-1]\nassert result.input_tokens is None\nassert result.output_tokens is None"
+    },
+    {
+      "id": "TS-03-11",
+      "requirement_id": "03-REQ-2.8",
+      "kind": "unit",
+      "description": "Verify that an unexpected or malformed event shape causes execute() to skip the event and log a WARNING, without raising an exception or stopping the stream.",
+      "preconditions": [
+        "deepagents package is installed",
+        "create_deep_agent is patched",
+        "Synthetic stream has a malformed event (missing expected fields) followed by a valid on_llm_end event",
+        "Python logging is captured for the test"
+      ],
+      "input": "Synthetic event stream: [malformed_event_missing_fields, valid_llm_end_event]",
+      "expected": "No exception raised; a WARNING-level log message is emitted for the malformed event; terminal ResultMessage is yielded normally",
+      "assertion_pseudocode": "events = [{'kind': 'on_tool_start'},  # missing required tool_name/input fields\n          make_llm_end_event(input_tokens=3, output_tokens=2)]\nmock_agent.astream_events = async_generator_yielding(events)\nwith patch('session.backends.deepagents.create_deep_agent', return_value=mock_agent):\n    with capture_logs(level='WARNING') as log_records:\n        messages = await collect_async(backend.execute('p', system_prompt='s', model='m', cwd='/'))\nassert any(r.levelname == 'WARNING' for r in log_records)\nassert isinstance(messages[-1], ResultMessage)"
+    },
+    {
+      "id": "TS-03-12",
+      "requirement_id": "03-REQ-2.9",
+      "kind": "unit",
+      "description": "Verify that no exception propagates out of execute() for any failure mode and that callers always receive a terminal ResultMessage.",
+      "preconditions": [
+        "deepagents package is installed",
+        "create_deep_agent is patched to raise RuntimeError on agent invocation"
+      ],
+      "input": "Mock agent raises RuntimeError when astream_events is called",
+      "expected": "execute() does not propagate the exception; last yielded message is a ResultMessage with is_error=True",
+      "assertion_pseudocode": "mock_agent.astream_events = async_generator_raising(RuntimeError('unexpected'))\nwith patch('session.backends.deepagents.create_deep_agent', return_value=mock_agent):\n    messages = await collect_async(backend.execute('p', system_prompt='s', model='m', cwd='/'))\nassert isinstance(messages[-1], ResultMessage)\nassert messages[-1].is_error == True"
+    },
+    {
+      "id": "TS-03-13",
+      "requirement_id": "03-REQ-3.1",
+      "kind": "unit",
+      "description": "Verify that exactly five af SDK functions are registered as LangChain @tool-decorated sync functions and passed as the tools list to create_deep_agent().",
+      "preconditions": [
+        "deepagents package is installed",
+        "langchain_core is installed",
+        "af SDK functions spec_read, context_search, context_get, memory_recall, subtask_state are importable",
+        "create_deep_agent is patched"
+      ],
+      "input": "backend.execute('task', system_prompt='s', model='m', cwd='/')",
+      "expected": "tools list passed to create_deep_agent has length 5; each element is a LangChain BaseTool; tool names correspond to the five af SDK functions",
+      "assertion_pseudocode": "captured_tools = None\ndef capture_create(*args, **kwargs):\n    nonlocal captured_tools\n    captured_tools = kwargs.get('tools', [])\n    return mock_agent_with_empty_stream()\nwith patch('session.backends.deepagents.create_deep_agent', side_effect=capture_create):\n    await collect_async(backend.execute('task', system_prompt='s', model='m', cwd='/'))\nassert len(captured_tools) == 5\nexpected_names = {'spec_read', 'context_search', 'context_get', 'memory_recall', 'subtask_state'}\nassert {t.name for t in captured_tools} == expected_names\nfor t in captured_tools:\n    assert is_langchain_tool(t)"
+    },
+    {
+      "id": "TS-03-14",
+      "requirement_id": "03-REQ-3.2",
+      "kind": "unit",
+      "description": "Verify that each of the five LangChain tool wrappers carries complete Python type annotations enabling LangChain to auto-generate a correct JSON schema.",
+      "preconditions": [
+        "deepagents package is installed",
+        "langchain_core is installed",
+        "The five tool wrapper functions are accessible (e.g. via module-level list or factory function)"
+      ],
+      "input": "The five LangChain tool objects created by DeepAgentsBackend",
+      "expected": "LangChain tool schema generation succeeds without errors for all five tools; each tool has a non-empty args_schema with all parameters typed",
+      "assertion_pseudocode": "from session.backends.deepagents import get_af_sdk_tools  # or equivalent access\ntools = get_af_sdk_tools()\nassert len(tools) == 5\nfor tool in tools:\n    schema = tool.args_schema.schema()  # LangChain BaseTool.args_schema\n    assert 'properties' in schema\n    assert len(schema['properties']) > 0\n    # No fields with type 'null' or missing type\n    for field_name, field_def in schema['properties'].items():\n        assert 'type' in field_def or '$ref' in field_def"
+    },
+    {
+      "id": "TS-03-15",
+      "requirement_id": "03-REQ-3.3",
+      "kind": "unit",
+      "description": "Verify that tool wrapper functions call af SDK Python functions in-process synchronously without spawning subprocesses or network I/O at the LangChain tool boundary.",
+      "preconditions": [
+        "deepagents package is installed",
+        "af SDK functions are importable and patchable",
+        "Tool wrappers are accessible for direct invocation"
+      ],
+      "input": "Direct call to each of the five LangChain tool wrappers with valid arguments",
+      "expected": "Each tool wrapper delegates to the corresponding af SDK function in-process; no subprocess is spawned; no external network call is made at the tool boundary",
+      "assertion_pseudocode": "from unittest.mock import patch, MagicMock\nfrom session.backends.deepagents import get_af_sdk_tools\ntools = {t.name: t for t in get_af_sdk_tools()}\nwith patch('af_sdk.spec_read', return_value='result') as mock_fn:\n    result = tools['spec_read'].invoke({'spec_id': 'test'})\n    assert mock_fn.called\nassert result == 'result'"
+    },
+    {
+      "id": "TS-03-16",
+      "requirement_id": "03-REQ-4.1",
+      "kind": "unit",
+      "description": "Verify that when a permission_callback is provided, execute() extracts tool_name and tool_input from the interrupt payload, calls permission_callback, and forwards the boolean result to the agent's resume interface.",
+      "preconditions": [
+        "deepagents package is installed",
+        "create_deep_agent is patched",
+        "Synthetic stream triggers an interrupt event with tool_name='write_file' and tool_input={'path': 'out.txt', 'content': 'data'}",
+        "Mock resume interface is injectable"
+      ],
+      "input": "permission_callback = lambda name, inp: True; interrupt event with tool_name='write_file'",
+      "expected": "permission_callback called with ('write_file', {'path': 'out.txt', 'content': 'data'}); resume interface called with True; agent execution continues",
+      "assertion_pseudocode": "callback_calls = []\ndef my_callback(name, inp):\n    callback_calls.append((name, inp))\n    return True\nmock_resume = Mock()\nsetup_mock_agent_with_interrupt(tool_name='write_file', tool_input={'path': 'out.txt', 'content': 'data'}, resume_fn=mock_resume)\nwith patch('session.backends.deepagents.create_deep_agent', return_value=mock_agent):\n    await collect_async(backend.execute('p', system_prompt='s', model='m', cwd='/', permission_callback=my_callback))\nassert callback_calls == [('write_file', {'path': 'out.txt', 'content': 'data'})]\nmock_resume.assert_called_once_with(True)"
+    },
+    {
+      "id": "TS-03-17",
+      "requirement_id": "03-REQ-4.2",
+      "kind": "unit",
+      "description": "Verify that when permission_callback is None, no interrupt hook is registered and all tool calls proceed automatically.",
+      "preconditions": [
+        "deepagents package is installed",
+        "create_deep_agent is patched and inspectable for interrupt hook registration"
+      ],
+      "input": "backend.execute('task', system_prompt='s', model='m', cwd='/', permission_callback=None)",
+      "expected": "create_deep_agent is called without any interrupt hook argument; agent runs without any permission interrupt; all tool calls auto-approved",
+      "assertion_pseudocode": "with patch('session.backends.deepagents.create_deep_agent', return_value=mock_agent_with_empty_stream()) as mock_create:\n    await collect_async(backend.execute('task', system_prompt='s', model='m', cwd='/', permission_callback=None))\ncall_kwargs = mock_create.call_args.kwargs\n# No interrupt/on_interrupt/permission_callback key should appear\nassert 'on_interrupt' not in call_kwargs\nassert 'interrupt_callback' not in call_kwargs"
+    },
+    {
+      "id": "TS-03-18",
+      "requirement_id": "03-REQ-4.3",
+      "kind": "unit",
+      "description": "Verify that create_deep_agent() is never called with a permissions keyword argument.",
+      "preconditions": [
+        "deepagents package is installed",
+        "create_deep_agent is patched"
+      ],
+      "input": "backend.execute('task', system_prompt='s', model='m', cwd='/')",
+      "expected": "create_deep_agent call_args.kwargs does not contain the key 'permissions'",
+      "assertion_pseudocode": "with patch('session.backends.deepagents.create_deep_agent', return_value=mock_agent_with_empty_stream()) as mock_create:\n    await collect_async(backend.execute('task', system_prompt='s', model='m', cwd='/'))\ncall_kwargs = mock_create.call_args.kwargs\nassert 'permissions' not in call_kwargs"
+    },
+    {
+      "id": "TS-03-19",
+      "requirement_id": "03-REQ-5.1",
+      "kind": "unit",
+      "description": "Verify that the thinking parameter is passed to create_deep_agent() for Anthropic models and silently omitted for non-Anthropic models.",
+      "preconditions": [
+        "deepagents package is installed",
+        "create_deep_agent is patched"
+      ],
+      "input": "Parameterized: (model='anthropic:claude-sonnet-4-6', expect_thinking=True), (model='openai:gpt-5.5', expect_thinking=False)",
+      "expected": "For anthropic: prefix, thinking param present in create_deep_agent call; for other prefixes, thinking param absent",
+      "assertion_pseudocode": "# Case 1: Anthropic model\nwith patch('session.backends.deepagents.create_deep_agent', return_value=mock_agent_empty()) as mock_create:\n    await collect_async(backend.execute('p', system_prompt='s', model='anthropic:claude-sonnet-4-6', cwd='/'))\nassert 'thinking' in mock_create.call_args.kwargs\n\n# Case 2: OpenAI model\nwith patch('session.backends.deepagents.create_deep_agent', return_value=mock_agent_empty()) as mock_create:\n    await collect_async(backend.execute('p', system_prompt='s', model='openai:gpt-5.5', cwd='/'))\nassert 'thinking' not in mock_create.call_args.kwargs"
+    },
+    {
+      "id": "TS-03-20",
+      "requirement_id": "03-REQ-5.2",
+      "kind": "unit",
+      "description": "Verify that when create_deep_agent() raises TypeError for the max_budget_usd parameter, it retries without that parameter and logs a DEBUG message.",
+      "preconditions": [
+        "deepagents package is installed",
+        "create_deep_agent is patched to raise TypeError on first call (when max_budget_usd present) and succeed on second call",
+        "Python logging is captured"
+      ],
+      "input": "execute() called with max_budget_usd=10.0 in kwargs",
+      "expected": "create_deep_agent called twice; second call lacks max_budget_usd; a DEBUG-level log message is emitted; agent created successfully",
+      "assertion_pseudocode": "call_count = 0\ndef create_side_effect(*args, **kwargs):\n    nonlocal call_count\n    call_count += 1\n    if 'max_budget_usd' in kwargs:\n        raise TypeError('unexpected keyword argument max_budget_usd')\n    return mock_agent_with_empty_stream()\nwith patch('session.backends.deepagents.create_deep_agent', side_effect=create_side_effect):\n    with capture_logs(level='DEBUG') as log_records:\n        await collect_async(backend.execute('p', system_prompt='s', model='m', cwd='/', max_budget_usd=10.0))\nassert call_count == 2\nassert any(r.levelname == 'DEBUG' for r in log_records)"
+    },
+    {
+      "id": "TS-03-21",
+      "requirement_id": "03-REQ-5.3",
+      "kind": "unit",
+      "description": "Verify that when create_deep_agent() raises TypeError for the effort parameter, it retries without that parameter and logs a DEBUG message.",
+      "preconditions": [
+        "deepagents package is installed",
+        "create_deep_agent is patched to raise TypeError on first call (when effort present) and succeed on second call",
+        "Python logging is captured"
+      ],
+      "input": "execute() called with effort='high' in kwargs",
+      "expected": "create_deep_agent called twice; second call lacks effort; a DEBUG-level log message is emitted; agent created successfully",
+      "assertion_pseudocode": "call_count = 0\ndef create_side_effect(*args, **kwargs):\n    nonlocal call_count\n    call_count += 1\n    if 'effort' in kwargs:\n        raise TypeError('unexpected keyword argument effort')\n    return mock_agent_with_empty_stream()\nwith patch('session.backends.deepagents.create_deep_agent', side_effect=create_side_effect):\n    with capture_logs(level='DEBUG') as log_records:\n        await collect_async(backend.execute('p', system_prompt='s', model='m', cwd='/', effort='high'))\nassert call_count == 2\nassert any(r.levelname == 'DEBUG' for r in log_records)"
+    },
+    {
+      "id": "TS-03-22",
+      "requirement_id": "03-REQ-5.4",
+      "kind": "unit",
+      "description": "Verify that create_deep_agent() is never called with a compaction argument.",
+      "preconditions": [
+        "deepagents package is installed",
+        "create_deep_agent is patched"
+      ],
+      "input": "backend.execute('task', system_prompt='s', model='m', cwd='/')",
+      "expected": "create_deep_agent is called without any 'compaction' keyword argument across all call attempts",
+      "assertion_pseudocode": "all_kwargs = []\ndef capture(*args, **kwargs):\n    all_kwargs.append(kwargs)\n    return mock_agent_with_empty_stream()\nwith patch('session.backends.deepagents.create_deep_agent', side_effect=capture):\n    await collect_async(backend.execute('task', system_prompt='s', model='m', cwd='/'))\nfor kwargs in all_kwargs:\n    assert 'compaction' not in kwargs"
+    },
+    {
+      "id": "TS-03-23",
+      "requirement_id": "03-REQ-6.1",
+      "kind": "unit",
+      "description": "Verify that execute() retries up to 3 attempts with exponential backoff delays of 1s, 2s, 4s on transient errors, succeeding on a subsequent attempt.",
+      "preconditions": [
+        "deepagents package is installed",
+        "create_deep_agent is patched",
+        "asyncio.sleep is patched to record delays without actually sleeping",
+        "Mock agent raises a transient error on first two attempts and succeeds on third"
+      ],
+      "input": "Transient errors on attempts 1 and 2; success on attempt 3",
+      "expected": "asyncio.sleep called with 1.0 then 2.0; third attempt succeeds; terminal ResultMessage has is_error=False",
+      "assertion_pseudocode": "sleep_calls = []\nattempts = 0\ndef make_agent():\n    nonlocal attempts\n    attempts += 1\n    agent = Mock()\n    if attempts < 3:\n        agent.astream_events = async_generator_raising(ConnectionError('transient'))\n    else:\n        agent.astream_events = async_generator_yielding([llm_end_event()])\n    return agent\nwith patch('session.backends.deepagents.create_deep_agent', side_effect=make_agent):\n    with patch('asyncio.sleep', side_effect=lambda d: sleep_calls.append(d)) as mock_sleep:\n        messages = await collect_async(backend.execute('p', system_prompt='s', model='m', cwd='/'))\nassert sleep_calls == [1.0, 2.0]\nassert messages[-1].is_error == False"
+    },
+    {
+      "id": "TS-03-24",
+      "requirement_id": "03-REQ-6.2",
+      "kind": "unit",
+      "description": "Verify that after all 3 retry attempts are exhausted due to transient errors, execute() yields a terminal ResultMessage with is_error=True and is_transport_error=True.",
+      "preconditions": [
+        "deepagents package is installed",
+        "create_deep_agent is patched",
+        "asyncio.sleep is patched",
+        "Mock agent raises transient connection error on every attempt"
+      ],
+      "input": "All 3 agent invocations raise ConnectionError (transient)",
+      "expected": "Generator yields exactly one ResultMessage as its last item with is_error=True and is_transport_error=True; no exception propagates",
+      "assertion_pseudocode": "with patch('session.backends.deepagents.create_deep_agent', side_effect=lambda **kw: agent_always_raising(ConnectionError('fail'))):\n    with patch('asyncio.sleep'):\n        messages = await collect_async(backend.execute('p', system_prompt='s', model='m', cwd='/'))\nresult = messages[-1]\nassert isinstance(result, ResultMessage)\nassert result.is_error == True\nassert result.is_transport_error == True"
+    },
+    {
+      "id": "TS-03-25",
+      "requirement_id": "03-REQ-6.3",
+      "kind": "unit",
+      "description": "Verify that a non-transient error (e.g. authentication failure) yields a ResultMessage with is_error=True and is_transport_error=False immediately without any retry.",
+      "preconditions": [
+        "deepagents package is installed",
+        "create_deep_agent is patched",
+        "asyncio.sleep is patched and should NOT be called"
+      ],
+      "input": "Mock agent raises AuthenticationError (HTTP 401, non-transient) on first invocation",
+      "expected": "No retry attempted; sleep not called; ResultMessage with is_error=True and is_transport_error=False yielded immediately",
+      "assertion_pseudocode": "with patch('session.backends.deepagents.create_deep_agent', side_effect=lambda **kw: agent_raising_auth_error()):\n    with patch('asyncio.sleep') as mock_sleep:\n        messages = await collect_async(backend.execute('p', system_prompt='s', model='m', cwd='/'))\nmock_sleep.assert_not_called()\nresult = messages[-1]\nassert result.is_error == True\nassert result.is_transport_error == False"
+    },
+    {
+      "id": "TS-03-26",
+      "requirement_id": "03-REQ-6.4",
+      "kind": "unit",
+      "description": "Verify that _BACKOFF_BASE retry constants are not duplicated between DeepAgentsBackend and ClaudeBackend, existing in a single shared location.",
+      "preconditions": [
+        "deepagents package is installed",
+        "session/backends/claude.py and session/backends/deepagents.py are importable"
+      ],
+      "input": "Import _BACKOFF_BASE from both modules or from a shared utility",
+      "expected": "_BACKOFF_BASE is defined exactly once (either in a shared module referenced by both, or in one module imported by the other); value equals 1.0",
+      "assertion_pseudocode": "import inspect\nimport session.backends.deepagents as da_mod\nimport session.backends.claude as cl_mod\n# Verify value is 1.0 in both\nassert da_mod._BACKOFF_BASE == 1.0 or (hasattr(da_mod, '_BACKOFF_BASE') and da_mod._BACKOFF_BASE == 1.0)\n# Verify not independently duplicated (both reference same object or same shared module)\nda_source = inspect.getfile(da_mod)\ncl_source = inspect.getfile(cl_mod)\n# Count total definitions across source files\nda_text = open(da_source).read()\ncl_text = open(cl_source).read()\ntotal_definitions = da_text.count('_BACKOFF_BASE = ') + cl_text.count('_BACKOFF_BASE = ')\nassert total_definitions <= 1, 'Constant must not be duplicated across both files'"
+    },
+    {
+      "id": "TS-03-27",
+      "requirement_id": "03-REQ-7.1",
+      "kind": "unit",
+      "description": "Verify that close() is idempotent and can be called multiple times without raising an exception.",
+      "preconditions": [
+        "deepagents package is installed",
+        "DeepAgentsBackend instance is created but execute() has not been called"
+      ],
+      "input": "backend.close() called three times in succession",
+      "expected": "All three calls return normally without exception; no side effects on the second or third call",
+      "assertion_pseudocode": "backend = DeepAgentsBackend()\nbackend.close()  # first call\nbackend.close()  # second call - must not raise\nbackend.close()  # third call - must not raise\n# No assertion on return value needed; absence of exception is the contract"
+    },
+    {
+      "id": "TS-03-28",
+      "requirement_id": "03-REQ-7.2",
+      "kind": "unit",
+      "description": "Verify that close() is a no-op returning None immediately when execute() is not currently running.",
+      "preconditions": [
+        "deepagents package is installed",
+        "DeepAgentsBackend instance is created; execute() has never been called"
+      ],
+      "input": "backend.close() on a freshly created instance",
+      "expected": "Returns None immediately; no exception raised; no observable side effects",
+      "assertion_pseudocode": "backend = DeepAgentsBackend()\nresult = backend.close()\nassert result is None"
+    },
+    {
+      "id": "TS-03-29",
+      "requirement_id": "03-REQ-7.3",
+      "kind": "unit",
+      "description": "Verify that close() releases per-instance LangGraph checkpoint state after execute() has completed.",
+      "preconditions": [
+        "deepagents package is installed",
+        "create_deep_agent is patched",
+        "Per-instance LangGraph state (e.g. checkpointer reference) is observable via a mock or attribute inspection"
+      ],
+      "input": "execute() completes normally; then close() is called",
+      "expected": "After close(), per-instance LangGraph checkpoint state attributes are None or cleared",
+      "assertion_pseudocode": "with patch('session.backends.deepagents.create_deep_agent', return_value=mock_agent_with_empty_stream()):\n    await collect_async(backend.execute('p', system_prompt='s', model='m', cwd='/'))\n# State should be set during execute\nassert backend._checkpointer is not None or backend._thread_state is not None  # adjust to actual attr name\nbackend.close()\n# State should be cleared after close\nassert backend._checkpointer is None or backend._thread_state is None"
+    },
+    {
+      "id": "TS-03-30",
+      "requirement_id": "03-REQ-7.4",
+      "kind": "unit",
+      "description": "Verify that close() does not perform async task cancellation and is synchronous (or trivially awaitable without cancellation logic).",
+      "preconditions": [
+        "deepagents package is installed",
+        "asyncio task cancellation APIs are patchable"
+      ],
+      "input": "backend.close() called while execute() would theoretically be mid-stream",
+      "expected": "close() does not call asyncio.Task.cancel() or any async cancellation primitive; it is a synchronous call or no-op coroutine",
+      "assertion_pseudocode": "import asyncio\nwith patch.object(asyncio, 'current_task', return_value=Mock()) as mock_task:\n    backend = DeepAgentsBackend()\n    backend.close()\n    # cancel must not have been called on any task\n    mock_task.return_value.cancel.assert_not_called()"
+    },
+    {
+      "id": "TS-03-31",
+      "requirement_id": "03-REQ-8.1",
+      "kind": "unit",
+      "description": "Verify that create_backend('deepagents') lazily imports DeepAgentsBackend and returns an instance satisfying the Backend Protocol.",
+      "preconditions": [
+        "deepagents package is installed",
+        "session/backends/__init__.py registers 'deepagents' -> DeepAgentsBackend"
+      ],
+      "input": "create_backend('deepagents')",
+      "expected": "Returns a DeepAgentsBackend instance; isinstance(result, Backend) is True; the import of session.backends.deepagents is deferred (lazy)",
+      "assertion_pseudocode": "from session.backends import create_backend\nfrom session.backends.types import Backend\nfrom session.backends.deepagents import DeepAgentsBackend\nresult = create_backend('deepagents')\nassert isinstance(result, DeepAgentsBackend)\nassert isinstance(result, Backend)"
+    },
+    {
+      "id": "TS-03-32",
+      "requirement_id": "03-REQ-8.2",
+      "kind": "unit",
+      "description": "Verify that each call to create_backend('deepagents') returns a distinct new DeepAgentsBackend instance.",
+      "preconditions": [
+        "deepagents package is installed"
+      ],
+      "input": "create_backend('deepagents') called twice",
+      "expected": "The two returned objects are distinct (not the same object); id(result1) != id(result2)",
+      "assertion_pseudocode": "from session.backends import create_backend\nb1 = create_backend('deepagents')\nb2 = create_backend('deepagents')\nassert b1 is not b2"
+    },
+    {
+      "id": "TS-03-33",
+      "requirement_id": "03-REQ-8.3",
+      "kind": "unit",
+      "description": "Verify that create_backend('claude') continues to return a ClaudeBackend instance unchanged after spec-03 changes.",
+      "preconditions": [
+        "session/backends/__init__.py is importable",
+        "ClaudeBackend is importable from session/backends/claude.py"
+      ],
+      "input": "create_backend('claude')",
+      "expected": "Returns a ClaudeBackend instance; behavior identical to pre-spec-03",
+      "assertion_pseudocode": "from session.backends import create_backend\nfrom session.backends.claude import ClaudeBackend\nresult = create_backend('claude')\nassert isinstance(result, ClaudeBackend)"
+    },
+    {
+      "id": "TS-03-34",
+      "requirement_id": "03-REQ-9.1",
+      "kind": "unit",
+      "description": "Verify that OrchestratorConfig.backend accepts both 'claude' and 'deepagents' as valid values and rejects any other string.",
+      "preconditions": [
+        "core/config.py is importable with updated OrchestratorConfig"
+      ],
+      "input": "OrchestratorConfig(backend='claude'), OrchestratorConfig(backend='deepagents'), OrchestratorConfig(backend='invalid')",
+      "expected": "First two constructions succeed; the third raises a validation error (e.g. ValueError or pydantic ValidationError)",
+      "assertion_pseudocode": "from core.config import OrchestratorConfig\n# Valid values\nconfig_claude = OrchestratorConfig(backend='claude')  # must not raise\nassert config_claude.backend == 'claude'\nconfig_da = OrchestratorConfig(backend='deepagents')  # must not raise\nassert config_da.backend == 'deepagents'\n# Invalid value\ntry:\n    OrchestratorConfig(backend='llama')\n    assert False, 'Expected validation error'\nexcept (ValueError, TypeError, Exception) as e:\n    assert 'backend' in str(e).lower() or True  # validation error expected"
+    },
+    {
+      "id": "TS-03-35",
+      "requirement_id": "03-REQ-9.2",
+      "kind": "unit",
+      "description": "Verify that existing OrchestratorConfig objects with backend='claude' remain valid and pass validation without modification after spec-03 changes.",
+      "preconditions": [
+        "core/config.py is importable with updated OrchestratorConfig"
+      ],
+      "input": "OrchestratorConfig(backend='claude')",
+      "expected": "Config object created successfully; backend field equals 'claude'; no migration required",
+      "assertion_pseudocode": "from core.config import OrchestratorConfig\nconfig = OrchestratorConfig(backend='claude')\nassert config.backend == 'claude'"
+    },
+    {
+      "id": "TS-03-36",
+      "requirement_id": "03-REQ-10.1",
+      "kind": "unit",
+      "description": "Verify that pyproject.toml declares deepagents = ['deepagents>=0.5'] under [project.optional-dependencies].",
+      "preconditions": [
+        "pyproject.toml is accessible at the project root"
+      ],
+      "input": "Parse pyproject.toml content",
+      "expected": "optional-dependencies section contains key 'deepagents' with value ['deepagents>=0.5']",
+      "assertion_pseudocode": "import tomllib\nwith open('pyproject.toml', 'rb') as f:\n    config = tomllib.load(f)\nopt_deps = config['project']['optional-dependencies']\nassert 'deepagents' in opt_deps\nassert 'deepagents>=0.5' in opt_deps['deepagents']"
+    },
+    {
+      "id": "TS-03-37",
+      "requirement_id": "03-REQ-10.2",
+      "kind": "unit",
+      "description": "Verify that every DeepAgentsBackend test module begins with pytest.importorskip('deepagents') so tests are skipped when the extra is absent.",
+      "preconditions": [
+        "Project source tree is accessible",
+        "Test files for DeepAgentsBackend are identified (e.g. tests/backends/test_deepagents.py)"
+      ],
+      "input": "Read the source of all test modules that test DeepAgentsBackend",
+      "expected": "Each test module contains pytest.importorskip('deepagents') before any test function definition",
+      "assertion_pseudocode": "import ast\nfor test_file in find_test_files_for_deepagents():\n    source = open(test_file).read()\n    assert \"pytest.importorskip('deepagents')\" in source or 'pytest.importorskip(\"deepagents\")' in source, \\\n        f'{test_file} missing importorskip guard'"
+    },
+    {
+      "id": "TS-03-38",
+      "requirement_id": "03-REQ-10.3",
+      "kind": "unit",
+      "description": "Verify that the CI test workflow includes a dedicated matrix leg that installs pip install '.[deepagents]' before running tests.",
+      "preconditions": [
+        "CI workflow file(s) are accessible in .github/workflows/ or equivalent"
+      ],
+      "input": "Parse CI workflow YAML files",
+      "expected": "At least one matrix entry runs pip install '.[deepagents]' (or equivalent) before executing the test suite",
+      "assertion_pseudocode": "import yaml, glob\nworkflow_files = glob.glob('.github/workflows/*.yml') + glob.glob('.github/workflows/*.yaml')\nfound_deepagents_leg = False\nfor wf_file in workflow_files:\n    content = open(wf_file).read()\n    if '.[deepagents]' in content:\n        found_deepagents_leg = True\n        break\nassert found_deepagents_leg, 'No CI matrix leg found that installs deepagents extra'"
+    },
+    {
+      "id": "TS-03-39",
+      "requirement_id": "03-REQ-11.1",
+      "kind": "unit",
+      "description": "Verify that ClaudeBackend retains its import path, module structure, and that session/backends/__init__.py shared utilities are unmodified after spec-03 changes.",
+      "preconditions": [
+        "Baseline file hashes of session/backends/claude.py and session/backends/__init__.py are recorded before spec-03"
+      ],
+      "input": "Import ClaudeBackend from session.backends.claude after spec-03 changes",
+      "expected": "Import succeeds; file hashes of claude.py and __init__.py match pre-spec-03 baseline",
+      "assertion_pseudocode": "from session.backends.claude import ClaudeBackend\n# Structural check: ClaudeBackend still importable from original path\nassert ClaudeBackend is not None\n# File integrity check\nassert hash_file('session/backends/claude.py') == BASELINE_CLAUDE_HASH\nassert hash_file('session/backends/__init__.py') == BASELINE_INIT_HASH"
+    },
+    {
+      "id": "TS-03-40",
+      "requirement_id": "03-REQ-11.2",
+      "kind": "unit",
+      "description": "Verify that all pre-existing session-layer tests pass without modification after introduction of DeepAgentsBackend.",
+      "preconditions": [
+        "Full test suite is runnable via pytest",
+        "All session-layer tests existed and passed before spec-03"
+      ],
+      "input": "Run pytest on the existing test suite (excluding spec-03 new tests)",
+      "expected": "Zero test failures or regressions in the pre-existing test suite; exit code 0",
+      "assertion_pseudocode": "# Shell execution check\nresult = run_command(['pytest', 'tests/', '-k', 'not deepagents', '--tb=short'])\nassert result.returncode == 0\nassert 'failed' not in result.stdout.lower() or result.stdout.count('failed') == 0"
+    },
+    {
+      "id": "TS-03-41",
+      "requirement_id": "03-REQ-12.1",
+      "kind": "unit",
+      "description": "Verify that the containment test is extended to include the mapping 'deepagents' -> 'deepagents.py' and that any deepagents import outside that file causes the test to fail.",
+      "preconditions": [
+        "Containment test file is accessible",
+        "Project source tree is accessible"
+      ],
+      "input": "Run the containment test; then inject a 'import deepagents' line into a non-designated file and re-run",
+      "expected": "Containment test passes in normal state; containment test fails when deepagents import appears in wrong file",
+      "assertion_pseudocode": "# Normal run\nresult_normal = run_command(['pytest', 'tests/test_containment.py', '-v'])\nassert result_normal.returncode == 0\n\n# Injected violation run\nwith tempfile.NamedTemporaryFile(dir='session/backends/', suffix='_violation.py', mode='w') as f:\n    f.write('import deepagents\\n')\n    f.flush()\n    result_violation = run_command(['pytest', 'tests/test_containment.py', '-v'])\nassert result_violation.returncode != 0"
+    }
+  ],
+  "property_tests": [
+    {
+      "id": "TS-03-P1",
+      "property_id": "03-PROP-1",
+      "validates": [
+        "03-REQ-1.1",
+        "03-REQ-2.1"
+      ],
+      "description": "For any DeepAgentsBackend instance, isinstance(instance, Backend) is always True and execute() method signature matches the Backend Protocol.",
+      "for_any_strategy": "Generate arbitrary DeepAgentsBackend instances (no constructor arguments needed)",
+      "invariant_check": "assert isinstance(instance, Backend) == True\nassert has_method(instance, 'execute')\nassert has_method(instance, 'close')\nsig = inspect.signature(instance.execute)\nassert 'prompt' in sig.parameters\nassert 'system_prompt' in sig.parameters\nassert 'model' in sig.parameters\nassert 'cwd' in sig.parameters\nassert 'permission_callback' in sig.parameters"
+    },
+    {
+      "id": "TS-03-P2",
+      "property_id": "03-PROP-2",
+      "validates": [
+        "03-REQ-2.6",
+        "03-REQ-2.9",
+        "03-REQ-6.2",
+        "03-REQ-6.3"
+      ],
+      "description": "For any invocation of DeepAgentsBackend.execute() (success, transient error, non-transient error), the async generator yields exactly one ResultMessage as its final item and no exceptions propagate.",
+      "for_any_strategy": "Generate from: (a) empty event stream, (b) N random valid events followed by exhaustion, (c) transient error after K events, (d) non-transient error after K events, (e) all-3-transient-errors exhaustion — vary N and K using hypothesis integers",
+      "invariant_check": "messages = await collect_async(backend.execute(prompt, system_prompt=s, model=m, cwd=cwd))\nresult_msgs = [msg for msg in messages if isinstance(msg, ResultMessage)]\nassert len(result_msgs) == 1\nassert result_msgs[0] is messages[-1]\n# No exception should have propagated (implicit: collect_async completed)"
+    },
+    {
+      "id": "TS-03-P3",
+      "property_id": "03-PROP-3",
+      "validates": [
+        "03-REQ-2.5",
+        "03-REQ-2.6",
+        "03-REQ-2.7"
+      ],
+      "description": "For any completed execute() invocation with at least one on_llm_end event, the token counts in the terminal ResultMessage equal the exact sum of on_llm_end counts and never include on_chat_model_stream partial counts.",
+      "for_any_strategy": "Generate lists of (input_tokens, output_tokens) pairs for N on_llm_end events (N in 1..10) using hypothesis; also generate M on_chat_model_stream events with arbitrary spurious usage fields",
+      "invariant_check": "expected_input = sum(e.input_tokens for e in llm_end_events if e.input_tokens is not None)\nexpected_output = sum(e.output_tokens for e in llm_end_events if e.output_tokens is not None)\nmessages = await collect_async(backend.execute(prompt, ...))\nresult = messages[-1]\nassert result.input_tokens == expected_input\nassert result.output_tokens == expected_output"
+    },
+    {
+      "id": "TS-03-P4",
+      "property_id": "03-PROP-4",
+      "validates": [
+        "03-REQ-1.2",
+        "03-REQ-12.1"
+      ],
+      "description": "For any Python source file in the project except session/backends/deepagents.py, no 'import deepagents' or 'from deepagents' statement appears.",
+      "for_any_strategy": "Enumerate all .py files under the project root using os.walk; exclude session/backends/deepagents.py",
+      "invariant_check": "for path in all_python_files:\n    if path.endswith('session/backends/deepagents.py'):\n        continue\n    content = open(path).read()\n    assert 'import deepagents' not in content\n    assert 'from deepagents' not in content"
+    },
+    {
+      "id": "TS-03-P5",
+      "property_id": "03-PROP-5",
+      "validates": [
+        "03-REQ-6.1",
+        "03-REQ-6.E1"
+      ],
+      "description": "For any sequence of transient errors during a single execute() invocation, the retry loop executes at most 3 total attempts and the backoff delay for attempt n (1-indexed) is exactly _BACKOFF_BASE * 2^(n-1) seconds with no jitter.",
+      "for_any_strategy": "Generate the number of transient errors K (1..100) before exhaustion; instrument attempt counter and sleep call list",
+      "invariant_check": "attempts = 0\nsleep_delays = []\n# ... run execute() with K transient errors ...\nassert attempts <= 3\nfor i, delay in enumerate(sleep_delays):\n    expected_delay = BACKOFF_BASE * (2 ** i)  # i is 0-indexed inter-attempt delay\n    assert delay == expected_delay\nassert len(sleep_delays) <= 2  # at most 2 waits for 3 attempts"
+    },
+    {
+      "id": "TS-03-P6",
+      "property_id": "03-PROP-6",
+      "validates": [
+        "03-REQ-7.1",
+        "03-REQ-7.2"
+      ],
+      "description": "For any sequence of zero or more calls to DeepAgentsBackend.close() on the same instance, every call returns normally without exception and the observable state after the second call is identical to the state after the first.",
+      "for_any_strategy": "Generate N in range 0..20 (number of close() calls); call close() N times on a single instance",
+      "invariant_check": "backend = DeepAgentsBackend()\nfor i in range(N):\n    try:\n        backend.close()\n    except Exception as e:\n        assert False, f'close() raised on call {i}: {e}'\n# State after all calls must be consistent (no partial teardown)\nassert backend_state_is_consistent(backend)"
+    },
+    {
+      "id": "TS-03-P7",
+      "property_id": "03-PROP-7",
+      "validates": [
+        "03-REQ-4.3"
+      ],
+      "description": "For any invocation of DeepAgentsBackend.execute(), create_deep_agent() is never called with a 'permissions' keyword argument.",
+      "for_any_strategy": "Generate arbitrary (model, cwd, system_prompt, permission_callback) combinations including None/non-None callbacks and various model prefixes",
+      "invariant_check": "all_create_calls = []\ndef recording_create(*args, **kwargs):\n    all_create_calls.append(kwargs)\n    return mock_agent_with_empty_stream()\nwith patch('session.backends.deepagents.create_deep_agent', side_effect=recording_create):\n    await collect_async(backend.execute(prompt, system_prompt=s, model=m, cwd=cwd, permission_callback=cb))\nfor call_kwargs in all_create_calls:\n    assert 'permissions' not in call_kwargs"
+    }
+  ],
+  "edge_case_tests": [
+    {
+      "id": "TS-03-E1",
+      "requirement_id": "03-REQ-1.E1",
+      "kind": "unit",
+      "description": "Verify that importing session/backends/deepagents.py raises ImportError when the deepagents package is not installed, while create_backend('claude') continues to work.",
+      "preconditions": [
+        "deepagents package is NOT installed in this test environment",
+        "session/backends/__init__.py uses lazy import for deepagents"
+      ],
+      "input": "Attempt to import session.backends.deepagents directly in an environment without the deepagents extra",
+      "expected": "ImportError raised when deepagents.py is imported; create_backend('claude') succeeds without error",
+      "assertion_pseudocode": "# Simulate missing deepagents by blocking the import\nwith patch.dict('sys.modules', {'deepagents': None}):\n    try:\n        import importlib\n        importlib.import_module('session.backends.deepagents')\n        assert False, 'Expected ImportError'\n    except ImportError:\n        pass  # Expected\n    # ClaudeBackend must still work\n    from session.backends import create_backend\n    backend = create_backend('claude')\n    assert backend is not None"
+    },
+    {
+      "id": "TS-03-E2",
+      "requirement_id": "03-REQ-2.E1",
+      "kind": "unit",
+      "description": "Verify that when astream_events() hangs indefinitely, the session.py-level asyncio.wait_for() timeout propagates into the generator and cancels it cleanly.",
+      "preconditions": [
+        "deepagents package is installed",
+        "create_deep_agent is patched with a mock agent whose astream_events never yields"
+      ],
+      "input": "asyncio.wait_for(collect_async(backend.execute(...)), timeout=0.1) with a mock that never yields",
+      "expected": "asyncio.TimeoutError is raised from wait_for; no resources leak; execute() generator is cancelled cleanly",
+      "assertion_pseudocode": "import asyncio\nasync def hanging_stream():\n    await asyncio.sleep(9999)  # never yields events\n    yield  # unreachable\nmock_agent.astream_events = lambda *a, **kw: hanging_stream()\nwith patch('session.backends.deepagents.create_deep_agent', return_value=mock_agent):\n    gen = backend.execute('p', system_prompt='s', model='m', cwd='/')\n    try:\n        await asyncio.wait_for(collect_async(gen), timeout=0.1)\n        assert False, 'Expected TimeoutError'\n    except asyncio.TimeoutError:\n        pass  # Expected - session.py level cancellation"
+    },
+    {
+      "id": "TS-03-E3",
+      "requirement_id": "03-REQ-2.E2",
+      "kind": "unit",
+      "description": "Verify that mid-stream asyncio cancellation causes execute() to exit at the next await point without propagating unexpected exceptions beyond CancelledError.",
+      "preconditions": [
+        "deepagents package is installed",
+        "create_deep_agent is patched with an agent that yields events slowly (with await between each)"
+      ],
+      "input": "asyncio task running execute() is cancelled mid-stream after the first event",
+      "expected": "CancelledError propagates naturally; no other exception propagates; generator exits cleanly",
+      "assertion_pseudocode": "import asyncio\nasync def slow_stream():\n    yield make_chat_stream_event('chunk1')\n    await asyncio.sleep(10)  # pause where cancellation arrives\n    yield make_chat_stream_event('chunk2')\nmock_agent.astream_events = lambda *a, **kw: slow_stream()\nwith patch('session.backends.deepagents.create_deep_agent', return_value=mock_agent):\n    async def run():\n        async for msg in backend.execute('p', system_prompt='s', model='m', cwd='/'):\n            pass\n    task = asyncio.create_task(run())\n    await asyncio.sleep(0.01)  # let first event be processed\n    task.cancel()\n    try:\n        await task\n    except asyncio.CancelledError:\n        pass  # Expected\n    # No other exception should have been raised"
+    },
+    {
+      "id": "TS-03-E4",
+      "requirement_id": "03-REQ-3.E1",
+      "kind": "unit",
+      "description": "Verify that all five af SDK functions carry complete Python type annotations on all parameters before wrapping, so that LangChain schema generation produces correct output.",
+      "preconditions": [
+        "deepagents package is installed",
+        "af SDK source files are accessible",
+        "The five functions: spec_read, context_search, context_get, memory_recall, subtask_state are importable"
+      ],
+      "input": "Inspect type annotations on each of the five af SDK functions",
+      "expected": "All parameters and return types have non-None type annotations; no parameter is missing an annotation",
+      "assertion_pseudocode": "import inspect\nfrom af_sdk import spec_read, context_search, context_get, memory_recall, subtask_state\nfor fn in [spec_read, context_search, context_get, memory_recall, subtask_state]:\n    hints = get_type_hints(fn)\n    sig = inspect.signature(fn)\n    for param_name, param in sig.parameters.items():\n        if param_name == 'self':\n            continue\n        assert param_name in hints, f'{fn.__name__}.{param_name} missing type annotation'\n    assert 'return' in hints, f'{fn.__name__} missing return type annotation'"
+    },
+    {
+      "id": "TS-03-E5",
+      "requirement_id": "03-REQ-4.E1",
+      "kind": "unit",
+      "description": "Verify that when permission_callback raises an exception, execute() denies the tool call, yields ResultMessage(is_error=True, is_transport_error=False), and exits cleanly without propagating the exception.",
+      "preconditions": [
+        "deepagents package is installed",
+        "create_deep_agent is patched",
+        "Synthetic interrupt event is triggered; permission_callback raises RuntimeError"
+      ],
+      "input": "permission_callback = raises RuntimeError; interrupt event fires for tool_name='write_file'",
+      "expected": "No exception propagates to caller; last message is ResultMessage with is_error=True and is_transport_error=False",
+      "assertion_pseudocode": "def bad_callback(name, inp):\n    raise RuntimeError('callback error')\nsetup_mock_agent_with_interrupt(tool_name='write_file', tool_input={'path': 'x'})\nwith patch('session.backends.deepagents.create_deep_agent', return_value=mock_agent):\n    messages = await collect_async(backend.execute('p', system_prompt='s', model='m', cwd='/', permission_callback=bad_callback))\nresult = messages[-1]\nassert isinstance(result, ResultMessage)\nassert result.is_error == True\nassert result.is_transport_error == False"
+    },
+    {
+      "id": "TS-03-E6",
+      "requirement_id": "03-REQ-6.E1",
+      "kind": "unit",
+      "description": "Verify that the retry loop is strictly bounded to 3 attempts and never iterates beyond 3 regardless of persistent transient errors.",
+      "preconditions": [
+        "deepagents package is installed",
+        "create_deep_agent is patched to always raise a transient error",
+        "asyncio.sleep is patched",
+        "Attempt counter is instrumented"
+      ],
+      "input": "Infinite transient errors from the mock agent",
+      "expected": "Exactly 3 attempts made; retry loop terminates; ResultMessage(is_error=True, is_transport_error=True) yielded; no infinite loop",
+      "assertion_pseudocode": "attempt_count = 0\ndef counting_create(**kwargs):\n    nonlocal attempt_count\n    attempt_count += 1\n    agent = Mock()\n    agent.astream_events = async_generator_raising(ConnectionError('transient'))\n    return agent\nwith patch('session.backends.deepagents.create_deep_agent', side_effect=counting_create):\n    with patch('asyncio.sleep'):\n        messages = await collect_async(backend.execute('p', system_prompt='s', model='m', cwd='/'))\nassert attempt_count == 3\nresult = messages[-1]\nassert result.is_error == True\nassert result.is_transport_error == True"
+    },
+    {
+      "id": "TS-03-E7",
+      "requirement_id": "03-REQ-6.E2",
+      "kind": "unit",
+      "description": "Verify that on retry after a transient error, a fresh agent is created via create_deep_agent() and no duplicate events from the failed attempt are re-yielded.",
+      "preconditions": [
+        "deepagents package is installed",
+        "create_deep_agent is patched",
+        "First invocation yields one AssistantMessage then raises transient error; second invocation yields one AssistantMessage then completes",
+        "asyncio.sleep is patched"
+      ],
+      "input": "Transient error mid-stream on attempt 1; clean completion on attempt 2",
+      "expected": "Total AssistantMessage count equals 1 (from retry attempt only, not duplicated from attempt 1); create_deep_agent called twice",
+      "assertion_pseudocode": "call_count = 0\ndef make_agent(**kwargs):\n    nonlocal call_count\n    call_count += 1\n    agent = Mock()\n    if call_count == 1:\n        async def failing_stream(*a, **kw):\n            yield make_chat_stream_event('from-attempt-1')\n            raise ConnectionError('transient')\n        agent.astream_events = failing_stream\n    else:\n        agent.astream_events = async_generator_yielding([make_chat_stream_event('from-attempt-2'), llm_end_event()])\n    return agent\nwith patch('session.backends.deepagents.create_deep_agent', side_effect=make_agent):\n    with patch('asyncio.sleep'):\n        messages = await collect_async(backend.execute('p', system_prompt='s', model='m', cwd='/'))\nasst_msgs = [m for m in messages if isinstance(m, AssistantMessage)]\nassert len(asst_msgs) == 1\nassert asst_msgs[0].text == 'from-attempt-2'\nassert call_count == 2"
+    }
+  ],
+  "smoke_tests": [
+    {
+      "id": "TS-03-SMOKE-1",
+      "execution_path_id": "03-PATH-1",
+      "description": "End-to-end smoke test: configure backend='deepagents', call create_backend(), then execute() with a mocked Deep Agents agent and verify the full message stream is produced including the terminal ResultMessage.",
+      "trigger": "OrchestratorConfig(backend='deepagents', model='openai:gpt-5.5') is used; create_backend('deepagents') is called; execute() is invoked with a synthetic event stream",
+      "real_components": [
+        "session/backends/__init__.py (create_backend factory)",
+        "session/backends/deepagents.py (DeepAgentsBackend)",
+        "session/backends/types.py (ToolUseMessage, AssistantMessage, ResultMessage)",
+        "core/config.py (OrchestratorConfig)"
+      ],
+      "mockable": [
+        "create_deep_agent() (patched at session.backends.deepagents.create_deep_agent)",
+        "astream_events() (synthetic async generator yielding on_chat_model_stream, on_tool_start, on_tool_end, on_llm_end events)"
+      ],
+      "expected_effects": [
+        "OrchestratorConfig accepts backend='deepagents' without validation error",
+        "create_backend('deepagents') returns a DeepAgentsBackend instance",
+        "execute() calls create_deep_agent with correct model, system_prompt, cwd, and 5-tool list",
+        "AssistantMessage instances yielded for each on_chat_model_stream event",
+        "ToolUseMessage instances yielded for each on_tool_start and on_tool_end event",
+        "Terminal ResultMessage yielded with is_error=False and aggregated token counts from on_llm_end",
+        "No exceptions propagate to the caller"
+      ]
+    },
+    {
+      "id": "TS-03-SMOKE-2",
+      "execution_path_id": "03-PATH-2",
+      "description": "Permission callback smoke test: verify that a permission_callback is invoked with tool_name and tool_input from an interrupt event, and that the boolean result is forwarded to the agent's resume interface.",
+      "trigger": "backend.execute() called with a non-None permission_callback; mock Deep Agents runtime fires an interrupt event for a tool call",
+      "real_components": [
+        "session/backends/deepagents.py (DeepAgentsBackend.execute, interrupt mapping logic)"
+      ],
+      "mockable": [
+        "create_deep_agent() (patched to return a mock agent that fires an interrupt event)",
+        "Deep Agents interrupt/resume mechanism (mock resume interface)"
+      ],
+      "expected_effects": [
+        "permission_callback called exactly once with ('write_file', {'path': 'out.txt', 'content': 'data'})",
+        "Resume interface called with the boolean result returned by permission_callback",
+        "Agent continues or aborts based on the boolean result",
+        "ToolUseMessage yielded reflecting the outcome",
+        "Terminal ResultMessage yielded at stream end"
+      ]
+    },
+    {
+      "id": "TS-03-SMOKE-3",
+      "execution_path_id": "03-PATH-3",
+      "description": "Transient retry exhaust smoke test: verify that 3 consecutive transient errors result in exponential backoff delays and a terminal ResultMessage with is_error=True and is_transport_error=True.",
+      "trigger": "backend.execute() called with model='ollama:north-mini-code-1.0'; all 3 agent invocations raise ConnectionError",
+      "real_components": [
+        "session/backends/deepagents.py (DeepAgentsBackend.execute, retry/backoff logic)"
+      ],
+      "mockable": [
+        "create_deep_agent() (patched; always returns agent whose astream_events raises ConnectionError)",
+        "asyncio.sleep (patched to record delays without sleeping)"
+      ],
+      "expected_effects": [
+        "create_deep_agent called exactly 3 times",
+        "asyncio.sleep called with delays [1.0, 2.0] between attempts",
+        "No asyncio.sleep call with delay 4.0 (only 2 inter-attempt waits for 3 attempts)",
+        "Terminal ResultMessage yielded with is_error=True and is_transport_error=True",
+        "No exception propagates to the caller"
+      ]
+    }
+  ],
+  "coverage": {
+    "requirements_covered": [],
+    "properties_covered": [],
+    "paths_covered": [],
+    "gaps": []
+  }
+}

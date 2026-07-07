@@ -1,0 +1,952 @@
+{
+  "$schema": null,
+  "spec_id": "04",
+  "spec_name": "google_adk_backend",
+  "schema_version": 1,
+  "test_cases": [
+    {
+      "id": "TS-04-1",
+      "requirement_id": "04-REQ-1.1",
+      "kind": "unit",
+      "description": "Verify that a GoogleADKBackend instance satisfies the Backend Protocol such that isinstance check returns True.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "session/backends/google_adk.py exists and exports GoogleADKBackend",
+        "Backend Protocol is importable from spec 02_backend_protocol"
+      ],
+      "input": "GoogleADKBackend()",
+      "expected": "isinstance(GoogleADKBackend(), Backend) is True; no TypeError is raised",
+      "assertion_pseudocode": "backend = GoogleADKBackend()\nassert isinstance(backend, Backend) == True"
+    },
+    {
+      "id": "TS-04-2",
+      "requirement_id": "04-REQ-1.2",
+      "kind": "unit",
+      "description": "Verify that GoogleADKBackend.execute() is an async generator function returning an AsyncIterator[AgentMessage].",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "GoogleADKBackend is importable from session/backends/google_adk.py",
+        "ADK Agent, Runner, and InMemorySessionService are mocked to yield an immediate terminal ResultMessage"
+      ],
+      "input": "GoogleADKBackend().execute(prompt='hello', system_prompt='sys', model='gemini-2.0-flash', cwd='/workspace')",
+      "expected": "The return value is an async iterator; collecting it yields at least one AgentMessage with the last being a ResultMessage",
+      "assertion_pseudocode": "import inspect\nbackend = GoogleADKBackend()\nresult = backend.execute(prompt='hello', system_prompt='sys', model='gemini-2.0-flash', cwd='/workspace')\nassert inspect.isasyncgen(result) == True\nmessages = await collect_async(result)\nassert isinstance(messages[-1], ResultMessage)"
+    },
+    {
+      "id": "TS-04-3",
+      "requirement_id": "04-REQ-1.3",
+      "kind": "unit",
+      "description": "Verify that execute() accepts all Backend Protocol parameters without raising a TypeError.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "GoogleADKBackend is importable",
+        "ADK components are mocked to yield an immediate terminal ResultMessage"
+      ],
+      "input": {
+        "activity_callback": null,
+        "archetype": "coder",
+        "compaction": true,
+        "cwd": "/workspace",
+        "effort": "high",
+        "max_budget_usd": 1.0,
+        "max_turns": 5,
+        "model": "gemini-2.0-flash",
+        "node_id": "n1",
+        "permission_callback": null,
+        "prompt": "test",
+        "system_prompt": "sys",
+        "thinking": {
+          "enabled": true
+        },
+        "tool_error_callback": null
+      },
+      "expected": "No TypeError is raised; the function returns an async iterator that completes with a ResultMessage",
+      "assertion_pseudocode": "backend = GoogleADKBackend()\ntry:\n    result = backend.execute(\n        'test', system_prompt='sys', model='gemini-2.0-flash', cwd='/workspace',\n        permission_callback=None, activity_callback=None, tool_error_callback=None,\n        node_id='n1', archetype='coder', max_turns=5, max_budget_usd=1.0,\n        thinking={'enabled': True}, effort='high', compaction=True\n    )\n    messages = await collect_async(result)\nexcept TypeError as e:\n    assert False, f'TypeError raised: {e}'"
+    },
+    {
+      "id": "TS-04-4",
+      "requirement_id": "04-REQ-2.1",
+      "kind": "unit",
+      "description": "Verify that execute() creates a fresh InMemorySessionService, calls create_session with correct args, builds Agent and Runner, and calls run_async with session.id and session.user_id.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "Agent, Runner, InMemorySessionService are replaced with mock objects",
+        "MockSession with id='sess-1' and user_id='user-1' is returned by create_session"
+      ],
+      "input": "backend.execute(prompt='task', system_prompt='sys', model='gemini-2.0-flash', cwd='/workspace')",
+      "expected": "InMemorySessionService() was instantiated; create_session called with app_name='agent-fox' and a UUID user_id; Agent constructed with model, name='coder', instruction='sys'; Runner constructed with agent and session_service; run_async called with session_id='sess-1', user_id='user-1'",
+      "assertion_pseudocode": "mock_session_service = MockInMemorySessionService()\nmock_session = MockSession(id='sess-1', user_id='user-1')\nmock_session_service.create_session.return_value = mock_session\nwith patch('google_adk.InMemorySessionService', return_value=mock_session_service), \\\n     patch('google_adk.Agent') as MockAgent, \\\n     patch('google_adk.Runner') as MockRunner:\n    MockRunner.return_value.run_async.return_value = async_iter([mock_terminal_event()])\n    backend = GoogleADKBackend()\n    messages = await collect_async(backend.execute('task', system_prompt='sys', model='gemini-2.0-flash', cwd='/workspace'))\n    mock_session_service.create_session.assert_called_once_with(app_name='agent-fox', user_id=ANY_UUID_STRING)\n    MockAgent.assert_called_once_with(model='gemini-2.0-flash', name='coder', instruction='sys', tools=ANY)\n    MockRunner.return_value.run_async.assert_called_once_with(session_id='sess-1', user_id='user-1', new_message=ANY)"
+    },
+    {
+      "id": "TS-04-5",
+      "requirement_id": "04-REQ-2.2",
+      "kind": "unit",
+      "description": "Verify that execute() converts the cwd string to pathlib.Path and passes the resolved Path to adk_tools constructors.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "ADK components are mocked",
+        "adk_tools module is patched to capture the cwd argument"
+      ],
+      "input": "backend.execute(prompt='task', system_prompt='sys', model='gemini-2.0-flash', cwd='/workspace')",
+      "expected": "The cwd passed to adk_tools constructors is a pathlib.Path instance equal to Path('/workspace')",
+      "assertion_pseudocode": "captured_cwds = []\nwith patch('adk_tools.make_tools', side_effect=lambda cwd: captured_cwds.append(cwd) or []):\n    backend = GoogleADKBackend()\n    await collect_async(backend.execute('task', system_prompt='sys', model='gemini-2.0-flash', cwd='/workspace'))\nassert isinstance(captured_cwds[0], Path)\nassert captured_cwds[0] == Path('/workspace')"
+    },
+    {
+      "id": "TS-04-6",
+      "requirement_id": "04-REQ-2.3",
+      "kind": "unit",
+      "description": "Verify that the model string is passed unchanged to Agent(model=...) without transformation.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "Agent is mocked to capture constructor arguments"
+      ],
+      "input": "model='litellm/openai/gpt-5.5'",
+      "expected": "Agent is instantiated with model='litellm/openai/gpt-5.5' exactly as supplied",
+      "assertion_pseudocode": "with patch('google_adk.Agent') as MockAgent:\n    MockAgent.return_value = mock_agent_with_no_tools()\n    await collect_async(backend.execute('task', system_prompt='sys', model='litellm/openai/gpt-5.5', cwd='/workspace'))\n    call_kwargs = MockAgent.call_args\n    assert call_kwargs.kwargs['model'] == 'litellm/openai/gpt-5.5'"
+    },
+    {
+      "id": "TS-04-7",
+      "requirement_id": "04-REQ-2.4",
+      "kind": "unit",
+      "description": "Verify that system_prompt is mapped directly to Agent's instruction parameter.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "Agent is mocked to capture constructor arguments"
+      ],
+      "input": "system_prompt='You are a helpful coding assistant.'",
+      "expected": "Agent is instantiated with instruction='You are a helpful coding assistant.'",
+      "assertion_pseudocode": "with patch('google_adk.Agent') as MockAgent:\n    await collect_async(backend.execute('task', system_prompt='You are a helpful coding assistant.', model='gemini-2.0-flash', cwd='/workspace'))\n    assert MockAgent.call_args.kwargs['instruction'] == 'You are a helpful coding assistant.'"
+    },
+    {
+      "id": "TS-04-8",
+      "requirement_id": "04-REQ-3.1",
+      "kind": "unit",
+      "description": "Verify that a FunctionCall event yields a ToolUseMessage immediately with the tool name and input arguments.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "Runner.run_async is mocked to yield a single FunctionCall event for tool 'read_file' with args {path: 'main.py'} followed by a terminal event"
+      ],
+      "input": "mock FunctionCall event with tool_name='read_file', args={'path': 'main.py'}",
+      "expected": "The first yielded message is a ToolUseMessage with tool_name='read_file' and input={'path': 'main.py'}",
+      "assertion_pseudocode": "mock_stream = async_iter([make_function_call_event('read_file', {'path': 'main.py'}), make_terminal_event()])\nwith patch_runner(run_async=mock_stream):\n    messages = await collect_async(backend.execute('task', system_prompt='sys', model='gemini-2.0-flash', cwd='/workspace'))\ntool_use_msgs = [m for m in messages if isinstance(m, ToolUseMessage)]\nassert len(tool_use_msgs) >= 1\nassert tool_use_msgs[0].tool_name == 'read_file'\nassert tool_use_msgs[0].input == {'path': 'main.py'}"
+    },
+    {
+      "id": "TS-04-9",
+      "requirement_id": "04-REQ-3.2",
+      "kind": "unit",
+      "description": "Verify that FunctionResponse events are consumed silently without yielding any message to the caller.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "Runner.run_async is mocked to yield a FunctionCall event, a FunctionResponse event, then a terminal event"
+      ],
+      "input": "mock stream: [FunctionCall('read_file', {}), FunctionResponse('read_file', {'content': 'hello'}), TerminalEvent()]",
+      "expected": "No message corresponding to the FunctionResponse is yielded; only ToolUseMessage and ResultMessage appear in the output",
+      "assertion_pseudocode": "mock_stream = async_iter([make_function_call_event('read_file', {}), make_function_response_event('read_file', {'content': 'hello'}), make_terminal_event()])\nwith patch_runner(run_async=mock_stream):\n    messages = await collect_async(backend.execute('task', system_prompt='sys', model='gemini-2.0-flash', cwd='/workspace'))\nmsg_types = [type(m).__name__ for m in messages]\nassert 'FunctionResponseMessage' not in msg_types\nassert all(isinstance(m, (ToolUseMessage, AssistantMessage, ResultMessage)) for m in messages)"
+    },
+    {
+      "id": "TS-04-10",
+      "requirement_id": "04-REQ-3.3",
+      "kind": "unit",
+      "description": "Verify that a text content event yields an AssistantMessage carrying the text.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "Runner.run_async is mocked to yield a text content event with text='Here is your result.' then a terminal event"
+      ],
+      "input": "mock stream: [TextEvent('Here is your result.'), TerminalEvent()]",
+      "expected": "An AssistantMessage with content='Here is your result.' is yielded",
+      "assertion_pseudocode": "mock_stream = async_iter([make_text_event('Here is your result.'), make_terminal_event()])\nwith patch_runner(run_async=mock_stream):\n    messages = await collect_async(backend.execute('task', system_prompt='sys', model='gemini-2.0-flash', cwd='/workspace'))\nassistant_msgs = [m for m in messages if isinstance(m, AssistantMessage)]\nassert len(assistant_msgs) >= 1\nassert assistant_msgs[0].content == 'Here is your result.'"
+    },
+    {
+      "id": "TS-04-11",
+      "requirement_id": "04-REQ-3.4",
+      "kind": "unit",
+      "description": "Verify that the terminal event yields a ResultMessage with is_error=False and aggregated token usage.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "Runner.run_async is mocked to yield a terminal event carrying input_tokens=100, output_tokens=50"
+      ],
+      "input": "mock stream: [TerminalEvent(usage_metadata={input_tokens: 100, output_tokens: 50})]",
+      "expected": "A ResultMessage is yielded as the last message with is_error=False and token usage reflecting input_tokens=100, output_tokens=50",
+      "assertion_pseudocode": "mock_stream = async_iter([make_terminal_event(input_tokens=100, output_tokens=50)])\nwith patch_runner(run_async=mock_stream):\n    messages = await collect_async(backend.execute('task', system_prompt='sys', model='gemini-2.0-flash', cwd='/workspace'))\nresult = messages[-1]\nassert isinstance(result, ResultMessage)\nassert result.is_error == False\nassert result.input_tokens == 100\nassert result.output_tokens == 50"
+    },
+    {
+      "id": "TS-04-12",
+      "requirement_id": "04-REQ-3.5",
+      "kind": "unit",
+      "description": "Verify that unrecognised or no-op events are silently skipped without yielding any message.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "Runner.run_async is mocked to yield an unrecognised event type then a terminal event"
+      ],
+      "input": "mock stream: [UnknownEvent(), TerminalEvent()]",
+      "expected": "Only a ResultMessage is yielded; no message corresponding to the unknown event appears",
+      "assertion_pseudocode": "mock_stream = async_iter([make_unknown_event(), make_terminal_event()])\nwith patch_runner(run_async=mock_stream):\n    messages = await collect_async(backend.execute('task', system_prompt='sys', model='gemini-2.0-flash', cwd='/workspace'))\nassert len(messages) == 1\nassert isinstance(messages[0], ResultMessage)"
+    },
+    {
+      "id": "TS-04-13",
+      "requirement_id": "04-REQ-4.1",
+      "kind": "unit",
+      "description": "Verify that the event loop stops after max_turns tool-call/response round-trips and yields a terminal ResultMessage(is_error=False).",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "Runner.run_async is mocked to yield an infinite sequence of FunctionCall/FunctionResponse pairs"
+      ],
+      "input": "max_turns=2; mock stream yields 5 FunctionCall events",
+      "expected": "Exactly 2 ToolUseMessages are yielded before the loop stops; the final message is ResultMessage(is_error=False)",
+      "assertion_pseudocode": "mock_stream = async_iter([make_function_call_event('read_file', {}) for _ in range(5)])\nwith patch_runner(run_async=mock_stream):\n    messages = await collect_async(backend.execute('task', system_prompt='sys', model='gemini-2.0-flash', cwd='/workspace', max_turns=2))\ntool_use_msgs = [m for m in messages if isinstance(m, ToolUseMessage)]\nassert len(tool_use_msgs) == 2\nresult = messages[-1]\nassert isinstance(result, ResultMessage)\nassert result.is_error == False"
+    },
+    {
+      "id": "TS-04-14",
+      "requirement_id": "04-REQ-4.2",
+      "kind": "unit",
+      "description": "Verify that when max_turns is None, the event loop runs until ADK signals completion.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "Runner.run_async is mocked to yield 3 FunctionCall events then a terminal event"
+      ],
+      "input": "max_turns=None; mock stream yields [FunctionCall, FunctionCall, FunctionCall, TerminalEvent]",
+      "expected": "All 3 ToolUseMessages are yielded and the final message is ResultMessage(is_error=False)",
+      "assertion_pseudocode": "mock_stream = async_iter([make_function_call_event('read_file', {}) for _ in range(3)] + [make_terminal_event()])\nwith patch_runner(run_async=mock_stream):\n    messages = await collect_async(backend.execute('task', system_prompt='sys', model='gemini-2.0-flash', cwd='/workspace', max_turns=None))\ntool_use_msgs = [m for m in messages if isinstance(m, ToolUseMessage)]\nassert len(tool_use_msgs) == 3\nassert isinstance(messages[-1], ResultMessage)\nassert messages[-1].is_error == False"
+    },
+    {
+      "id": "TS-04-15",
+      "requirement_id": "04-REQ-5.1",
+      "kind": "unit",
+      "description": "Verify that activity_callback is invoked before each tool call with the tool name and arguments.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "Runner.run_async yields a FunctionCall event for 'read_file' with args {'path': 'foo.py'} then a terminal event",
+        "activity_callback is a mock callable"
+      ],
+      "input": "activity_callback=mock_callback; FunctionCall event for read_file with {'path': 'foo.py'}",
+      "expected": "activity_callback is called exactly once with the tool name 'read_file' and arguments {'path': 'foo.py'} before the tool executes",
+      "assertion_pseudocode": "activity_calls = []\ndef activity_callback(tool_name, args):\n    activity_calls.append((tool_name, args))\nmock_stream = async_iter([make_function_call_event('read_file', {'path': 'foo.py'}), make_terminal_event()])\nwith patch_runner(run_async=mock_stream):\n    await collect_async(backend.execute('task', system_prompt='sys', model='gemini-2.0-flash', cwd='/workspace', activity_callback=activity_callback))\nassert len(activity_calls) == 1\nassert activity_calls[0] == ('read_file', {'path': 'foo.py'})"
+    },
+    {
+      "id": "TS-04-16",
+      "requirement_id": "04-REQ-5.2",
+      "kind": "unit",
+      "description": "Verify that a permission_callback denial blocks tool execution and returns a structured error dict to the model.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "Runner.run_async yields a FunctionCall event then a terminal event",
+        "permission_callback always returns denial"
+      ],
+      "input": "permission_callback returns denial for 'execute' tool",
+      "expected": "The tool function is not invoked; the structured error dict {'error': 'permission_denied', 'detail': ANY_STRING} is returned to the ADK model as FunctionResponse",
+      "assertion_pseudocode": "tool_was_called = []\ndef denied_permission_callback(tool_name, args):\n    return False  # denial\nmock_stream = async_iter([make_function_call_event('execute', {'command': 'rm -rf /'}), make_terminal_event()])\nwith patch_runner(run_async=mock_stream), patch_tool('execute', side_effect=lambda **kw: tool_was_called.append(True)):\n    messages = await collect_async(backend.execute('task', system_prompt='sys', model='gemini-2.0-flash', cwd='/workspace', permission_callback=denied_permission_callback))\nassert len(tool_was_called) == 0\n# Verify the error dict was returned as FunctionResponse to the model:\nfound_denial = any(hasattr(e, 'error') and e.error == 'permission_denied' for e in captured_function_responses)\nassert found_denial == True"
+    },
+    {
+      "id": "TS-04-17",
+      "requirement_id": "04-REQ-5.3",
+      "kind": "unit",
+      "description": "Verify that when permission_callback grants a tool call, the tool executes normally and returns its result.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "Runner.run_async yields a FunctionCall event for 'list_files' then a terminal event",
+        "permission_callback always returns approval",
+        "adk_tools list_files is mocked to return {'entries': ['a.py', 'b.py']}"
+      ],
+      "input": "permission_callback returns approval for 'list_files'",
+      "expected": "The list_files tool is called and its result dict {'entries': ['a.py', 'b.py']} is returned to the model",
+      "assertion_pseudocode": "def approving_callback(tool_name, args):\n    return True  # approval\nmock_tool = lambda path: {'entries': ['a.py', 'b.py']}\nmock_stream = async_iter([make_function_call_event('list_files', {'path': '.'}), make_terminal_event()])\nwith patch_runner(run_async=mock_stream), patch_tool('list_files', return_value={'entries': ['a.py', 'b.py']}) as mock_list:\n    await collect_async(backend.execute('task', system_prompt='sys', model='gemini-2.0-flash', cwd='/workspace', permission_callback=approving_callback))\nassert mock_list.was_called()\nresult_returned_to_model = captured_function_response.result\nassert result_returned_to_model == {'entries': ['a.py', 'b.py']}"
+    },
+    {
+      "id": "TS-04-18",
+      "requirement_id": "04-REQ-6.1",
+      "kind": "unit",
+      "description": "Verify that adk_tools.py exports all six required ADK function tools with correct signatures.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "adk_tools module is importable from session/backends/adk_tools.py",
+        "A tmp directory path is used as cwd"
+      ],
+      "input": "import adk_tools; inspect signatures of read_file, write_file, edit_file, execute, list_files, search_files",
+      "expected": "All six functions are present; each accepts cwd as a pathlib.Path at construction time and has the specified parameter signatures returning dict",
+      "assertion_pseudocode": "import adk_tools\nimport inspect\ncwd = Path('/tmp/workspace')\ntools = adk_tools.make_tools(cwd)\ntool_names = {t.__name__ for t in tools}\nassert 'read_file' in tool_names\nassert 'write_file' in tool_names\nassert 'edit_file' in tool_names\nassert 'execute' in tool_names\nassert 'list_files' in tool_names\nassert 'search_files' in tool_names\nfor t in tools:\n    sig = inspect.signature(t)\n    assert sig.return_annotation == dict"
+    },
+    {
+      "id": "TS-04-19",
+      "requirement_id": "04-REQ-6.2",
+      "kind": "unit",
+      "description": "Verify that all tools reject paths that escape the workspace root and return the structured error dict without performing I/O.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "A temporary workspace directory is created",
+        "All six tools are instantiated with cwd=tmp_workspace_path"
+      ],
+      "input": "path='../../etc/passwd'",
+      "expected": "Each tool returns {'error': 'path_not_allowed', 'detail': 'Path escapes workspace root'} without performing any I/O",
+      "assertion_pseudocode": "with tempfile.TemporaryDirectory() as tmp:\n    cwd = Path(tmp)\n    tools = make_tools(cwd)\n    for tool in tools:\n        if tool.__name__ in ('read_file', 'list_files'):\n            result = tool(path='../../etc/passwd')\n        elif tool.__name__ == 'write_file':\n            result = tool(path='../../etc/evil', content='x')\n        elif tool.__name__ == 'edit_file':\n            result = tool(path='../../etc/passwd', old_text='root', new_text='evil')\n        elif tool.__name__ == 'search_files':\n            result = tool(pattern='root', path='../../etc')\n        elif tool.__name__ == 'execute':\n            continue  # execute does not take a path arg for containment\n        assert result == {'error': 'path_not_allowed', 'detail': 'Path escapes workspace root'}"
+    },
+    {
+      "id": "TS-04-20",
+      "requirement_id": "04-REQ-6.3",
+      "kind": "unit",
+      "description": "Verify that read_file returns the file contents in {'content': '...'} format on the happy path.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "A temporary workspace directory is created with a file 'hello.txt' containing 'Hello, World!'"
+      ],
+      "input": "read_file(path='hello.txt') with cwd=tmp_dir",
+      "expected": "{'content': 'Hello, World!'} is returned",
+      "assertion_pseudocode": "with tempfile.TemporaryDirectory() as tmp:\n    cwd = Path(tmp)\n    (cwd / 'hello.txt').write_text('Hello, World!')\n    tools = make_tools(cwd)\n    read_file = find_tool(tools, 'read_file')\n    result = read_file(path='hello.txt')\nassert result == {'content': 'Hello, World!'}"
+    },
+    {
+      "id": "TS-04-21",
+      "requirement_id": "04-REQ-6.4",
+      "kind": "unit",
+      "description": "Verify that write_file creates or overwrites a file and returns {'ok': True}.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "A temporary workspace directory is created"
+      ],
+      "input": "write_file(path='output.txt', content='New content') with cwd=tmp_dir",
+      "expected": "{'ok': True} is returned; 'output.txt' exists in cwd with content 'New content'",
+      "assertion_pseudocode": "with tempfile.TemporaryDirectory() as tmp:\n    cwd = Path(tmp)\n    tools = make_tools(cwd)\n    write_file = find_tool(tools, 'write_file')\n    result = write_file(path='output.txt', content='New content')\nassert result == {'ok': True}\nassert (cwd / 'output.txt').read_text() == 'New content'"
+    },
+    {
+      "id": "TS-04-22",
+      "requirement_id": "04-REQ-6.5",
+      "kind": "unit",
+      "description": "Verify that edit_file replaces the first occurrence of old_text with new_text and returns {'ok': True}; returns error if old_text not found.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "A temporary workspace directory is created with 'greet.txt' containing 'Hello World'"
+      ],
+      "input": "edit_file(path='greet.txt', old_text='World', new_text='Python') with cwd=tmp_dir",
+      "expected": "{'ok': True} is returned; 'greet.txt' contains 'Hello Python'",
+      "assertion_pseudocode": "with tempfile.TemporaryDirectory() as tmp:\n    cwd = Path(tmp)\n    (cwd / 'greet.txt').write_text('Hello World')\n    tools = make_tools(cwd)\n    edit_file = find_tool(tools, 'edit_file')\n    result = edit_file(path='greet.txt', old_text='World', new_text='Python')\nassert result == {'ok': True}\nassert (cwd / 'greet.txt').read_text() == 'Hello Python'\n# Also test old_text not found\nresult2 = edit_file(path='greet.txt', old_text='NOTHERE', new_text='x')\nassert result2.get('error') == 'text_not_found'"
+    },
+    {
+      "id": "TS-04-23",
+      "requirement_id": "04-REQ-6.6",
+      "kind": "unit",
+      "description": "Verify that execute runs a shell command in cwd and returns {'stdout': ..., 'stderr': ..., 'returncode': ...}.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "A temporary workspace directory is created"
+      ],
+      "input": "execute(command='echo hello') with cwd=tmp_dir",
+      "expected": "{'stdout': 'hello\\n', 'stderr': '', 'returncode': 0} is returned",
+      "assertion_pseudocode": "with tempfile.TemporaryDirectory() as tmp:\n    cwd = Path(tmp)\n    tools = make_tools(cwd)\n    execute_tool = find_tool(tools, 'execute')\n    result = execute_tool(command='echo hello')\nassert result['returncode'] == 0\nassert 'hello' in result['stdout']\nassert isinstance(result['stderr'], str)"
+    },
+    {
+      "id": "TS-04-24",
+      "requirement_id": "04-REQ-6.7",
+      "kind": "unit",
+      "description": "Verify that list_files returns the directory entries in {'entries': [...]} format.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "A temporary workspace directory is created with files 'a.py' and 'b.py'"
+      ],
+      "input": "list_files(path='.') with cwd=tmp_dir",
+      "expected": "{'entries': ['a.py', 'b.py']} (or similar order) is returned",
+      "assertion_pseudocode": "with tempfile.TemporaryDirectory() as tmp:\n    cwd = Path(tmp)\n    (cwd / 'a.py').write_text('')\n    (cwd / 'b.py').write_text('')\n    tools = make_tools(cwd)\n    list_files = find_tool(tools, 'list_files')\n    result = list_files(path='.')\nassert 'entries' in result\nassert set(result['entries']) == {'a.py', 'b.py'}"
+    },
+    {
+      "id": "TS-04-25",
+      "requirement_id": "04-REQ-6.8",
+      "kind": "unit",
+      "description": "Verify that search_files returns matching lines with file names in {'matches': [...]} format.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "A temporary workspace directory is created with 'code.py' containing 'def foo():\\n    pass\\n'"
+      ],
+      "input": "search_files(pattern='def foo', path='.') with cwd=tmp_dir",
+      "expected": "{'matches': [{'file': 'code.py', 'line': 1, 'text': 'def foo():'}]} (or equivalent) is returned",
+      "assertion_pseudocode": "with tempfile.TemporaryDirectory() as tmp:\n    cwd = Path(tmp)\n    (cwd / 'code.py').write_text('def foo():\\n    pass\\n')\n    tools = make_tools(cwd)\n    search_files = find_tool(tools, 'search_files')\n    result = search_files(pattern='def foo', path='.')\nassert 'matches' in result\nassert len(result['matches']) >= 1\nassert result['matches'][0]['file'].endswith('code.py')\nassert 'def foo' in result['matches'][0]['text']"
+    },
+    {
+      "id": "TS-04-26",
+      "requirement_id": "04-REQ-7.1",
+      "kind": "unit",
+      "description": "Verify that google_adk.py imports the five af SDK functions using the same import paths as deepagents.py and registers them in the Agent.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "af SDK modules (spec_read, context_search, context_get, memory_recall, subtask_state) are importable",
+        "Agent is mocked to capture the tools list"
+      ],
+      "input": "Instantiate GoogleADKBackend and run execute(), capturing the tools passed to Agent",
+      "expected": "The tools list passed to Agent includes wrapped versions of all five af SDK functions: spec_read, context_search, context_get, memory_recall, subtask_state",
+      "assertion_pseudocode": "with patch('google_adk.Agent') as MockAgent:\n    await collect_async(backend.execute('task', system_prompt='sys', model='gemini-2.0-flash', cwd='/workspace'))\n    tools_passed = MockAgent.call_args.kwargs['tools']\n    tool_names = [t.__name__ for t in tools_passed]\nassert 'spec_read' in tool_names\nassert 'context_search' in tool_names\nassert 'context_get' in tool_names\nassert 'memory_recall' in tool_names\nassert 'subtask_state' in tool_names"
+    },
+    {
+      "id": "TS-04-27",
+      "requirement_id": "04-REQ-7.2",
+      "kind": "unit",
+      "description": "Verify that af SDK tool import and registration occurs inside google_adk.py at construction time without dependency injection.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "af SDK modules are importable"
+      ],
+      "input": "Inspect google_adk.py source for import statements and Agent construction",
+      "expected": "The five af SDK imports are present as top-level or module-level statements; no registry lookup or DI framework is used",
+      "assertion_pseudocode": "source = Path('session/backends/google_adk.py').read_text()\nassert 'spec_read' in source\nassert 'context_search' in source\nassert 'context_get' in source\nassert 'memory_recall' in source\nassert 'subtask_state' in source\nassert 'registry' not in source.lower() or 'lookup' not in source.lower()"
+    },
+    {
+      "id": "TS-04-28",
+      "requirement_id": "04-REQ-8.1",
+      "kind": "unit",
+      "description": "Verify that _MAX_TRANSPORT_RETRIES=3 and _BACKOFF_BASE=1.0 are defined as module-level constants in google_adk.py.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "google_adk module is importable"
+      ],
+      "input": "import google_adk; inspect module attributes",
+      "expected": "_MAX_TRANSPORT_RETRIES == 3 and _BACKOFF_BASE == 1.0",
+      "assertion_pseudocode": "import google_adk\nassert google_adk._MAX_TRANSPORT_RETRIES == 3\nassert google_adk._BACKOFF_BASE == 1.0"
+    },
+    {
+      "id": "TS-04-29",
+      "requirement_id": "04-REQ-8.2",
+      "kind": "unit",
+      "description": "Verify that ResourceExhausted triggers retry with exponential backoff up to _MAX_TRANSPORT_RETRIES times and succeeds on retry.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "Runner.run_async raises ResourceExhausted on the first call, then succeeds on the second call",
+        "asyncio.sleep is mocked to avoid real delays"
+      ],
+      "input": "run_async raises ResourceExhausted on attempt 1, yields TerminalEvent on attempt 2",
+      "expected": "run_async is called exactly twice; asyncio.sleep is called once with delay=1.0; a ResultMessage(is_error=False) is yielded",
+      "assertion_pseudocode": "call_count = [0]\nasync def mock_run_async(**kwargs):\n    call_count[0] += 1\n    if call_count[0] == 1:\n        raise ResourceExhausted('rate limit')\n    yield make_terminal_event()\n\nwith patch_runner(run_async=mock_run_async), patch('asyncio.sleep') as mock_sleep:\n    messages = await collect_async(backend.execute('task', system_prompt='sys', model='gemini-2.0-flash', cwd='/workspace'))\nassert call_count[0] == 2\nmock_sleep.assert_called_once_with(1.0)\nassert isinstance(messages[-1], ResultMessage)\nassert messages[-1].is_error == False"
+    },
+    {
+      "id": "TS-04-30",
+      "requirement_id": "04-REQ-8.3",
+      "kind": "unit",
+      "description": "Verify that a non-transient exception yields an immediate ResultMessage(is_error=True, is_transport_error=False) without retrying.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "Runner.run_async raises ValueError (non-transient) on first call"
+      ],
+      "input": "run_async raises ValueError('model not found')",
+      "expected": "run_async is called exactly once; a ResultMessage with is_error=True and is_transport_error=False is yielded",
+      "assertion_pseudocode": "call_count = [0]\nasync def mock_run_async(**kwargs):\n    call_count[0] += 1\n    raise ValueError('model not found')\n    yield  # make it async gen\n\nwith patch_runner(run_async=mock_run_async):\n    messages = await collect_async(backend.execute('task', system_prompt='sys', model='gemini-2.0-flash', cwd='/workspace'))\nassert call_count[0] == 1\nassert isinstance(messages[-1], ResultMessage)\nassert messages[-1].is_error == True\nassert messages[-1].is_transport_error == False"
+    },
+    {
+      "id": "TS-04-31",
+      "requirement_id": "04-REQ-9.1",
+      "kind": "unit",
+      "description": "Verify that when max_budget_usd is not None, a debug-level log is emitted with the specified format and execution continues.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "ADK components are mocked to yield an immediate terminal event",
+        "Python logging is configured to capture debug messages"
+      ],
+      "input": "max_budget_usd=5.0",
+      "expected": "A debug log record is emitted with message matching 'max_budget_usd=5.0 ignored: budget enforcement not supported by GoogleADKBackend'; execution completes normally with a ResultMessage",
+      "assertion_pseudocode": "import logging\nwith capture_logs(level=logging.DEBUG) as log_records:\n    messages = await collect_async(backend.execute('task', system_prompt='sys', model='gemini-2.0-flash', cwd='/workspace', max_budget_usd=5.0))\ndebug_msgs = [r.getMessage() for r in log_records if r.levelno == logging.DEBUG]\nassert any('max_budget_usd=5.0 ignored' in m and 'GoogleADKBackend' in m for m in debug_msgs)\nassert isinstance(messages[-1], ResultMessage)"
+    },
+    {
+      "id": "TS-04-32",
+      "requirement_id": "04-REQ-9.2",
+      "kind": "unit",
+      "description": "Verify that thinking, effort, compaction, tool_error_callback, node_id, and archetype are silently ignored without errors or log noise.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "ADK components are mocked to yield an immediate terminal event"
+      ],
+      "input": "thinking={'enabled': True}, effort='high', compaction=True, tool_error_callback=lambda e: None, node_id='x', archetype='coder'",
+      "expected": "No errors are raised; no warning or error log entries appear; execution completes normally",
+      "assertion_pseudocode": "import logging\nwith capture_logs(level=logging.WARNING) as log_records:\n    messages = await collect_async(backend.execute(\n        'task', system_prompt='sys', model='gemini-2.0-flash', cwd='/workspace',\n        thinking={'enabled': True}, effort='high', compaction=True,\n        tool_error_callback=lambda e: None, node_id='x', archetype='coder'\n    ))\nassert len(log_records) == 0\nassert isinstance(messages[-1], ResultMessage)\nassert messages[-1].is_error == False"
+    },
+    {
+      "id": "TS-04-33",
+      "requirement_id": "04-REQ-10.1",
+      "kind": "unit",
+      "description": "Verify that create_backend('google-adk') returns a GoogleADKBackend instance satisfying the Backend Protocol.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "create_backend is importable from the spec 02 factory module"
+      ],
+      "input": "create_backend('google-adk')",
+      "expected": "A GoogleADKBackend instance is returned; isinstance(result, Backend) is True",
+      "assertion_pseudocode": "from session.backends import create_backend\nfrom session.backends.google_adk import GoogleADKBackend\nresult = create_backend('google-adk')\nassert isinstance(result, GoogleADKBackend)\nassert isinstance(result, Backend)"
+    },
+    {
+      "id": "TS-04-34",
+      "requirement_id": "04-REQ-10.2",
+      "kind": "unit",
+      "description": "Verify that create_backend continues to return correct instances for 'claude' and 'deepagents' keys after the google-adk addition.",
+      "preconditions": [
+        "All backend dependencies (anthropic SDK, deepagents deps) are installed",
+        "create_backend is importable"
+      ],
+      "input": "create_backend('claude') and create_backend('deepagents')",
+      "expected": "Both calls return instances of ClaudeBackend and DeepAgentsBackend respectively, satisfying the Backend Protocol",
+      "assertion_pseudocode": "from session.backends import create_backend\nfrom session.backends.claude import ClaudeBackend\nfrom session.backends.deepagents import DeepAgentsBackend\nassert isinstance(create_backend('claude'), ClaudeBackend)\nassert isinstance(create_backend('deepagents'), DeepAgentsBackend)"
+    },
+    {
+      "id": "TS-04-35",
+      "requirement_id": "04-REQ-11.1",
+      "kind": "unit",
+      "description": "Verify that OrchestratorConfig accepts 'google-adk' as a valid backend value and continues to accept 'claude' and 'deepagents'.",
+      "preconditions": [
+        "agentfox/core/config.py is updated with the widened Literal",
+        "OrchestratorConfig is importable from agentfox.core.config"
+      ],
+      "input": "backend='google-adk', backend='claude', backend='deepagents'",
+      "expected": "All three values pass Pydantic validation without error",
+      "assertion_pseudocode": "from agentfox.core.config import OrchestratorConfig\nfor backend_val in ('claude', 'deepagents', 'google-adk'):\n    config = OrchestratorConfig(backend=backend_val)\n    assert config.backend == backend_val"
+    },
+    {
+      "id": "TS-04-36",
+      "requirement_id": "04-REQ-12.1",
+      "kind": "unit",
+      "description": "Verify that pyproject.toml declares google-adk>=2.0 under [project.optional-dependencies] in a google-adk extras group.",
+      "preconditions": [
+        "pyproject.toml is present at the project root"
+      ],
+      "input": "Parse pyproject.toml",
+      "expected": "The [project.optional-dependencies] section contains a 'google-adk' key with value including 'google-adk>=2.0'",
+      "assertion_pseudocode": "import tomllib\nwith open('pyproject.toml', 'rb') as f:\n    data = tomllib.load(f)\noptional_deps = data['project']['optional-dependencies']\nassert 'google-adk' in optional_deps\nassert any('google-adk>=2.0' in dep for dep in optional_deps['google-adk'])"
+    },
+    {
+      "id": "TS-04-37",
+      "requirement_id": "04-REQ-13.1",
+      "kind": "unit",
+      "description": "Verify that the containment test maps 'google.adk' to 'google_adk.py' and fails if google.adk is imported outside that file.",
+      "preconditions": [
+        "The containment test file exists and follows the deepagents.py pattern",
+        "google_adk.py exists and contains google.adk imports"
+      ],
+      "input": "Run the containment test suite",
+      "expected": "The containment test passes when google.adk is only imported in google_adk.py; the mapping entry {'google.adk': 'google_adk.py'} is present in the test",
+      "assertion_pseudocode": "# Inspect containment test source for the mapping entry\nsource = Path('tests/test_containment.py').read_text()\nassert \"'google.adk'\" in source and \"'google_adk.py'\" in source\n# Run pytest and assert it passes\nresult = subprocess.run(['pytest', 'tests/test_containment.py', '-v'], capture_output=True)\nassert result.returncode == 0"
+    },
+    {
+      "id": "TS-04-38",
+      "requirement_id": "04-REQ-14.1",
+      "kind": "unit",
+      "description": "Verify that test files are guarded with pytest.importorskip('google.adk') and pass without google-adk installed (skipping gracefully).",
+      "preconditions": [
+        "tests/backends/test_google_adk.py and tests/backends/test_adk_tools.py exist",
+        "google-adk is NOT installed in this environment"
+      ],
+      "input": "Run pytest tests/backends/test_google_adk.py tests/backends/test_adk_tools.py without google-adk installed",
+      "expected": "All tests in both files are skipped (not failed); exit code is 0",
+      "assertion_pseudocode": "result = subprocess.run(['pytest', 'tests/backends/test_google_adk.py', 'tests/backends/test_adk_tools.py', '-v'], capture_output=True)\nassert result.returncode == 0\nassert 'skipped' in result.stdout.decode()\nassert 'failed' not in result.stdout.decode()"
+    },
+    {
+      "id": "TS-04-39",
+      "requirement_id": "04-REQ-14.2",
+      "kind": "unit",
+      "description": "Verify that test_google_adk.py covers all required scenarios including event mapping, retry, max_turns, callbacks, token usage, and unrecognised tool name.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "tests/backends/test_google_adk.py is complete"
+      ],
+      "input": "Run pytest tests/backends/test_google_adk.py -v",
+      "expected": "All test scenarios listed in REQ-14.2 have at least one passing test; exit code is 0",
+      "assertion_pseudocode": "result = subprocess.run(['pytest', 'tests/backends/test_google_adk.py', '-v', '--tb=short'], capture_output=True)\nassert result.returncode == 0\noutput = result.stdout.decode()\n# Check for key test names or markers in output\nfor scenario in ['event_mapping', 'retry', 'max_turns', 'permission', 'activity', 'token', 'unrecognised']:\n    assert any(scenario.lower() in line.lower() for line in output.splitlines()), f'Missing scenario: {scenario}'"
+    },
+    {
+      "id": "TS-04-40",
+      "requirement_id": "04-REQ-14.3",
+      "kind": "unit",
+      "description": "Verify that test_adk_tools.py covers happy-path and path-containment tests for all six coding tools.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "tests/backends/test_adk_tools.py is complete"
+      ],
+      "input": "Run pytest tests/backends/test_adk_tools.py -v",
+      "expected": "Happy-path and path-containment tests exist and pass for all six tools; exit code is 0",
+      "assertion_pseudocode": "result = subprocess.run(['pytest', 'tests/backends/test_adk_tools.py', '-v', '--tb=short'], capture_output=True)\nassert result.returncode == 0\noutput = result.stdout.decode()\nfor tool in ['read_file', 'write_file', 'edit_file', 'execute', 'list_files', 'search_files']:\n    assert tool in output, f'No test for tool: {tool}'"
+    }
+  ],
+  "property_tests": [
+    {
+      "id": "TS-04-P1",
+      "property_id": "04-PROP-1",
+      "validates": [
+        "04-REQ-1.1",
+        "04-REQ-1.2"
+      ],
+      "description": "For any GoogleADKBackend instance, isinstance(b, Backend) is True and execute() returns an AsyncIterator.",
+      "for_any_strategy": "GoogleADKBackend() instances constructed with default parameters",
+      "invariant_check": "isinstance(b, Backend) == True AND inspect.isasyncgen(b.execute('prompt', system_prompt='sys', model='gemini-2.0-flash', cwd='/tmp'))"
+    },
+    {
+      "id": "TS-04-P2",
+      "property_id": "04-PROP-2",
+      "validates": [
+        "04-REQ-1.E1",
+        "04-REQ-8.2",
+        "04-REQ-8.3"
+      ],
+      "description": "For any combination of valid and invalid inputs, execute() always terminates with a ResultMessage as the last item and never propagates exceptions.",
+      "for_any_strategy": "random combinations of: model strings (valid, empty, None coerced to str), cwd paths (valid, relative, nonexistent), max_turns (None, 0, 1, large int), various exception types injected into run_async",
+      "invariant_check": "async for msg in backend.execute(...): last_msg = msg\nassert isinstance(last_msg, ResultMessage)\n# No exception was raised during iteration"
+    },
+    {
+      "id": "TS-04-P3",
+      "property_id": "04-PROP-3",
+      "validates": [
+        "04-REQ-6.2",
+        "04-REQ-6.E1"
+      ],
+      "description": "For any user-supplied path p and workspace cwd, if (cwd/p).resolve() is not relative to cwd.resolve(), no I/O is performed and the error dict is returned.",
+      "for_any_strategy": "arbitrary strings for p including '../../../etc/passwd', absolute paths like '/etc', paths with null bytes, long paths, Unicode paths; random valid tmp directories as cwd",
+      "invariant_check": "resolved = (cwd / p).resolve()\nif not resolved.is_relative_to(cwd.resolve()):\n    result = tool(path=p)\n    assert result == {'error': 'path_not_allowed', 'detail': 'Path escapes workspace root'}\n    assert no_file_was_read_or_written()"
+    },
+    {
+      "id": "TS-04-P4",
+      "property_id": "04-PROP-4",
+      "validates": [
+        "04-REQ-3.1",
+        "04-REQ-3.E1"
+      ],
+      "description": "For any FunctionCall event in the ADK event stream, regardless of whether the tool name is registered, exactly one ToolUseMessage is yielded before any tool result.",
+      "for_any_strategy": "arbitrary tool name strings (registered names, unregistered names, empty strings, unicode names) as FunctionCall event tool_name",
+      "invariant_check": "mock_stream = async_iter([make_function_call_event(tool_name, {}), make_terminal_event()])\nmessages = await collect_async(backend.execute(...))\ntool_msgs = [m for m in messages if isinstance(m, ToolUseMessage)]\nassert len(tool_msgs) == 1\nassert tool_msgs[0].tool_name == tool_name"
+    },
+    {
+      "id": "TS-04-P5",
+      "property_id": "04-PROP-5",
+      "validates": [
+        "04-REQ-8.1",
+        "04-REQ-8.2",
+        "04-REQ-8.E1"
+      ],
+      "description": "For any sequence of transient errors, the retry count never exceeds _MAX_TRANSPORT_RETRIES and a terminal ResultMessage is always yielded.",
+      "for_any_strategy": "sequences of transient exceptions (ResourceExhausted, ServiceUnavailable, ConnectionError, OSError) of length 1 to 10; asyncio.sleep is mocked",
+      "invariant_check": "call_count = 0\nmax_calls = google_adk._MAX_TRANSPORT_RETRIES + 1\nasync def counting_fail(**kwargs):\n    nonlocal call_count; call_count += 1\n    raise transient_exc()\n    yield\nwith patch_runner(run_async=counting_fail), patch('asyncio.sleep'):\n    messages = await collect_async(backend.execute(...))\nassert call_count <= max_calls\nassert isinstance(messages[-1], ResultMessage)"
+    },
+    {
+      "id": "TS-04-P6",
+      "property_id": "04-PROP-6",
+      "validates": [
+        "04-REQ-4.1",
+        "04-REQ-4.E1"
+      ],
+      "description": "For any execute() call with max_turns=N (positive integer), the event loop stops after at most N tool-call round-trips.",
+      "for_any_strategy": "positive integers N from 1 to 20 as max_turns; infinite mock stream of FunctionCall events",
+      "invariant_check": "async def infinite_stream(**kwargs):\n    while True: yield make_function_call_event('tool', {})\nwith patch_runner(run_async=infinite_stream):\n    messages = await collect_async(backend.execute(..., max_turns=N))\ntool_msgs = [m for m in messages if isinstance(m, ToolUseMessage)]\nassert len(tool_msgs) <= N\nassert isinstance(messages[-1], ResultMessage)"
+    },
+    {
+      "id": "TS-04-P7",
+      "property_id": "04-PROP-7",
+      "validates": [
+        "04-REQ-13.1"
+      ],
+      "description": "No Python source file in the project other than google_adk.py contains direct 'import google.adk' or 'from google.adk' statements.",
+      "for_any_strategy": "all .py files found under the project root via glob('**/*.py') excluding session/backends/google_adk.py",
+      "invariant_check": "for py_file in project_python_files:\n    if py_file.name == 'google_adk.py': continue\n    source = py_file.read_text()\n    assert 'import google.adk' not in source\n    assert 'from google.adk' not in source"
+    },
+    {
+      "id": "TS-04-P8",
+      "property_id": "04-PROP-8",
+      "validates": [
+        "04-REQ-5.2",
+        "04-REQ-5.3"
+      ],
+      "description": "For any FunctionCall event when permission_callback is provided, the tool function is never invoked before permission_callback is called; if denied, the tool function is never called.",
+      "for_any_strategy": "arbitrary FunctionCall events with arbitrary tool names; permission_callback that alternates between approval and denial",
+      "invariant_check": "tool_call_order = []\ndef tracking_permission(tool_name, args):\n    tool_call_order.append(('permission_check', tool_name))\n    return should_approve(tool_name)\ndef tracking_tool(**kwargs):\n    tool_call_order.append(('tool_called',))\n    return {}\n# After execute() completes:\nfor i, event in enumerate(tool_call_order):\n    if event[0] == 'tool_called':\n        assert tool_call_order[i-1][0] == 'permission_check'\n# For denied tools, assert tool was never called"
+    }
+  ],
+  "edge_case_tests": [
+    {
+      "id": "TS-04-E1",
+      "requirement_id": "04-REQ-1.E1",
+      "kind": "unit",
+      "description": "Verify that an unhandled exception inside execute() is caught and yielded as a terminal ResultMessage(is_error=True) without propagating.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "Runner.run_async is mocked to raise an unexpected RuntimeError mid-stream"
+      ],
+      "input": "run_async raises RuntimeError('unexpected failure')",
+      "expected": "No exception propagates out of execute(); the iterator terminates with ResultMessage(is_error=True)",
+      "assertion_pseudocode": "async def mock_run_async(**kwargs):\n    raise RuntimeError('unexpected failure')\n    yield  # async gen\n\nwith patch_runner(run_async=mock_run_async):\n    messages = []\n    try:\n        async for msg in backend.execute('task', system_prompt='sys', model='gemini-2.0-flash', cwd='/workspace'):\n            messages.append(msg)\n    except Exception as e:\n        assert False, f'Exception escaped: {e}'\nassert isinstance(messages[-1], ResultMessage)\nassert messages[-1].is_error == True"
+    },
+    {
+      "id": "TS-04-E2",
+      "requirement_id": "04-REQ-2.E1",
+      "kind": "unit",
+      "description": "Verify that max_turns cap prevents unbounded iteration when run_async never terminates naturally.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "Runner.run_async is mocked to yield an infinite sequence of FunctionCall events"
+      ],
+      "input": "max_turns=3; infinite mock stream of FunctionCall events",
+      "expected": "The loop stops after 3 round-trips; a terminal ResultMessage is yielded; the async generator exits cleanly",
+      "assertion_pseudocode": "async def infinite_stream(**kwargs):\n    while True:\n        yield make_function_call_event('read_file', {})\n\nwith patch_runner(run_async=infinite_stream):\n    messages = await collect_async(backend.execute('task', system_prompt='sys', model='gemini-2.0-flash', cwd='/workspace', max_turns=3))\ntool_msgs = [m for m in messages if isinstance(m, ToolUseMessage)]\nassert len(tool_msgs) == 3\nassert isinstance(messages[-1], ResultMessage)"
+    },
+    {
+      "id": "TS-04-E3",
+      "requirement_id": "04-REQ-3.E1",
+      "kind": "unit",
+      "description": "Verify that a FunctionCall event for an unrecognised tool name still yields a ToolUseMessage with the unrecognised name.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "Runner.run_async yields a FunctionCall event for tool name 'totally_unknown_tool' then a terminal event"
+      ],
+      "input": "FunctionCall event with tool_name='totally_unknown_tool'",
+      "expected": "A ToolUseMessage is yielded with tool_name='totally_unknown_tool'; no filtering or suppression occurs",
+      "assertion_pseudocode": "mock_stream = async_iter([make_function_call_event('totally_unknown_tool', {'x': 1}), make_terminal_event()])\nwith patch_runner(run_async=mock_stream):\n    messages = await collect_async(backend.execute('task', system_prompt='sys', model='gemini-2.0-flash', cwd='/workspace'))\ntool_msgs = [m for m in messages if isinstance(m, ToolUseMessage)]\nassert len(tool_msgs) == 1\nassert tool_msgs[0].tool_name == 'totally_unknown_tool'"
+    },
+    {
+      "id": "TS-04-E4",
+      "requirement_id": "04-REQ-3.E2",
+      "kind": "unit",
+      "description": "Verify that an exception raised while iterating the run_async event stream is caught and yields a terminal ResultMessage(is_error=True).",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "Runner.run_async yields one text event then raises ConnectionError"
+      ],
+      "input": "stream: [TextEvent('partial'), raise ConnectionError]",
+      "expected": "The AssistantMessage from the text event may or may not be yielded; the final message is ResultMessage(is_error=True); no exception propagates",
+      "assertion_pseudocode": "async def flaky_stream(**kwargs):\n    yield make_text_event('partial')\n    raise ConnectionError('dropped')\n\nwith patch_runner(run_async=flaky_stream), patch('asyncio.sleep'):\n    messages = []\n    try:\n        async for msg in backend.execute('task', system_prompt='sys', model='gemini-2.0-flash', cwd='/workspace'):\n            messages.append(msg)\n    except Exception as e:\n        assert False, f'Exception escaped: {e}'\nassert isinstance(messages[-1], ResultMessage)\nassert messages[-1].is_error == True"
+    },
+    {
+      "id": "TS-04-E5",
+      "requirement_id": "04-REQ-4.E1",
+      "kind": "unit",
+      "description": "Verify that when max_turns is reached with the event stream still open, the loop stops, yields ResultMessage(is_error=False), and no exception escapes.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "Runner.run_async is mocked to yield an infinite sequence of FunctionCall events"
+      ],
+      "input": "max_turns=1; infinite mock stream",
+      "expected": "Exactly 1 ToolUseMessage is yielded; the final message is ResultMessage(is_error=False); no exception escapes",
+      "assertion_pseudocode": "async def infinite_stream(**kwargs):\n    while True:\n        yield make_function_call_event('read_file', {})\n\ntry:\n    with patch_runner(run_async=infinite_stream):\n        messages = await collect_async(backend.execute('task', system_prompt='sys', model='gemini-2.0-flash', cwd='/workspace', max_turns=1))\nexcept Exception as e:\n    assert False, f'Exception escaped: {e}'\ntool_msgs = [m for m in messages if isinstance(m, ToolUseMessage)]\nassert len(tool_msgs) == 1\nassert isinstance(messages[-1], ResultMessage)\nassert messages[-1].is_error == False"
+    },
+    {
+      "id": "TS-04-E6",
+      "requirement_id": "04-REQ-5.E1",
+      "kind": "unit",
+      "description": "Verify that if activity_callback raises an exception, a terminal ResultMessage(is_error=True, is_transport_error=False) is yielded and no exception escapes.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "Runner.run_async yields a FunctionCall event then a terminal event",
+        "activity_callback raises RuntimeError"
+      ],
+      "input": "activity_callback raises RuntimeError('callback error')",
+      "expected": "ResultMessage(is_error=True, is_transport_error=False) is yielded as the final message; no exception propagates",
+      "assertion_pseudocode": "def bad_activity_callback(tool_name, args):\n    raise RuntimeError('callback error')\nmock_stream = async_iter([make_function_call_event('read_file', {}), make_terminal_event()])\ntry:\n    with patch_runner(run_async=mock_stream):\n        messages = await collect_async(backend.execute('task', system_prompt='sys', model='gemini-2.0-flash', cwd='/workspace', activity_callback=bad_activity_callback))\nexcept Exception as e:\n    assert False, f'Exception escaped: {e}'\nassert isinstance(messages[-1], ResultMessage)\nassert messages[-1].is_error == True\nassert messages[-1].is_transport_error == False"
+    },
+    {
+      "id": "TS-04-E7",
+      "requirement_id": "04-REQ-6.E1",
+      "kind": "unit",
+      "description": "Verify that a symlink within cwd that resolves outside the workspace root triggers the path_not_allowed error without I/O.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "A temporary workspace directory is created",
+        "A symlink 'evil_link' is created inside the workspace pointing to /etc"
+      ],
+      "input": "read_file(path='evil_link/passwd') with cwd=tmp_dir containing a symlink to /etc",
+      "expected": "{'error': 'path_not_allowed', 'detail': 'Path escapes workspace root'} is returned; no file I/O is performed",
+      "assertion_pseudocode": "with tempfile.TemporaryDirectory() as tmp:\n    cwd = Path(tmp)\n    (cwd / 'evil_link').symlink_to('/etc')\n    tools = make_tools(cwd)\n    read_file = find_tool(tools, 'read_file')\n    result = read_file(path='evil_link/passwd')\nassert result == {'error': 'path_not_allowed', 'detail': 'Path escapes workspace root'}"
+    },
+    {
+      "id": "TS-04-E8",
+      "requirement_id": "04-REQ-6.E2",
+      "kind": "unit",
+      "description": "Verify that a shell command that hangs beyond the timeout is terminated and returns a structured result with non-zero returncode.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "A temporary workspace directory is created",
+        "The execute tool has a defined subprocess timeout"
+      ],
+      "input": "execute(command='sleep 9999') with a short timeout configured",
+      "expected": "{'stdout': ANY, 'stderr': ANY, 'returncode': NON_ZERO} is returned; no exception escapes",
+      "assertion_pseudocode": "with tempfile.TemporaryDirectory() as tmp:\n    cwd = Path(tmp)\n    tools = make_tools(cwd, subprocess_timeout=0.1)\n    execute_tool = find_tool(tools, 'execute')\n    result = execute_tool(command='sleep 9999')\nassert 'returncode' in result\nassert result['returncode'] != 0\nassert 'stdout' in result\nassert 'stderr' in result"
+    },
+    {
+      "id": "TS-04-E9",
+      "requirement_id": "04-REQ-6.E3",
+      "kind": "unit",
+      "description": "Verify that a shell command with non-zero exit code returns stdout, stderr, and the non-zero returncode without raising.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "A temporary workspace directory is created"
+      ],
+      "input": "execute(command='exit 1') or 'false' shell command with cwd=tmp_dir",
+      "expected": "{'stdout': '', 'stderr': ANY, 'returncode': 1} is returned; no exception is raised",
+      "assertion_pseudocode": "with tempfile.TemporaryDirectory() as tmp:\n    cwd = Path(tmp)\n    tools = make_tools(cwd)\n    execute_tool = find_tool(tools, 'execute')\n    result = execute_tool(command='false')\nassert 'returncode' in result\nassert result['returncode'] != 0\nassert 'stdout' in result\nassert 'stderr' in result"
+    },
+    {
+      "id": "TS-04-E10",
+      "requirement_id": "04-REQ-6.E4",
+      "kind": "unit",
+      "description": "Verify that an OS-level exception during a file operation returns a structured error dict without raising to the caller.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "A temporary workspace directory is created"
+      ],
+      "input": "read_file(path='nonexistent_file.txt') with cwd=tmp_dir where file does not exist",
+      "expected": "{'error': ANY_STRING, 'detail': ANY_STRING} is returned; no exception is raised",
+      "assertion_pseudocode": "with tempfile.TemporaryDirectory() as tmp:\n    cwd = Path(tmp)\n    tools = make_tools(cwd)\n    read_file = find_tool(tools, 'read_file')\n    result = read_file(path='nonexistent_file.txt')\nassert 'error' in result\nassert 'detail' in result"
+    },
+    {
+      "id": "TS-04-E11",
+      "requirement_id": "04-REQ-7.E1",
+      "kind": "unit",
+      "description": "Verify that an ImportError is raised at construction time if an af SDK tool source module is unavailable.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "One of the af SDK modules is temporarily made unavailable (e.g. by patching sys.modules)"
+      ],
+      "input": "patch sys.modules to hide the module containing spec_read; instantiate GoogleADKBackend",
+      "expected": "An ImportError is raised at construction or module import time; no broken instance is returned",
+      "assertion_pseudocode": "import sys\nwith patch.dict(sys.modules, {'agentfox.sdk.spec': None}):\n    try:\n        import importlib\n        importlib.reload(google_adk)\n        assert False, 'Expected ImportError'\n    except ImportError:\n        pass  # Expected"
+    },
+    {
+      "id": "TS-04-E12",
+      "requirement_id": "04-REQ-8.E1",
+      "kind": "unit",
+      "description": "Verify that after all _MAX_TRANSPORT_RETRIES are exhausted, ResultMessage(is_error=True, is_transport_error=True) is yielded and no exception propagates.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "Runner.run_async always raises ResourceExhausted on every attempt",
+        "asyncio.sleep is mocked to avoid real delays"
+      ],
+      "input": "run_async always raises ResourceExhausted",
+      "expected": "run_async is called exactly _MAX_TRANSPORT_RETRIES+1 times (1 initial + 3 retries); final message is ResultMessage(is_error=True, is_transport_error=True); no exception propagates",
+      "assertion_pseudocode": "call_count = [0]\nasync def always_fail(**kwargs):\n    call_count[0] += 1\n    raise ResourceExhausted('quota')\n    yield\n\nwith patch_runner(run_async=always_fail), patch('asyncio.sleep'):\n    messages = []\n    try:\n        async for msg in backend.execute('task', system_prompt='sys', model='gemini-2.0-flash', cwd='/workspace'):\n            messages.append(msg)\n    except Exception as e:\n        assert False, f'Exception escaped: {e}'\nassert call_count[0] == google_adk._MAX_TRANSPORT_RETRIES + 1\nassert isinstance(messages[-1], ResultMessage)\nassert messages[-1].is_error == True\nassert messages[-1].is_transport_error == True"
+    },
+    {
+      "id": "TS-04-E13",
+      "requirement_id": "04-REQ-8.E2",
+      "kind": "unit",
+      "description": "Verify that a transient error after some messages have been yielded triggers retry without re-sending already-yielded messages.",
+      "preconditions": [
+        "google-adk>=2.0 is installed",
+        "Runner.run_async yields one AssistantMessage then raises ServiceUnavailable on first call; succeeds on second call",
+        "asyncio.sleep is mocked"
+      ],
+      "input": "First call: [TextEvent, raise ServiceUnavailable]; Second call: [TerminalEvent]",
+      "expected": "The retry proceeds; the terminal ResultMessage from the second call is the final message; no duplicate terminal message appears before the retry",
+      "assertion_pseudocode": "call_count = [0]\nasync def partial_then_succeed(**kwargs):\n    call_count[0] += 1\n    if call_count[0] == 1:\n        yield make_text_event('partial response')\n        raise ServiceUnavailable('503')\n    else:\n        yield make_terminal_event()\n\nwith patch_runner(run_async=partial_then_succeed), patch('asyncio.sleep'):\n    messages = await collect_async(backend.execute('task', system_prompt='sys', model='gemini-2.0-flash', cwd='/workspace'))\nassert call_count[0] == 2\nresult_msgs = [m for m in messages if isinstance(m, ResultMessage)]\nassert len(result_msgs) == 1\nassert result_msgs[0].is_error == False"
+    },
+    {
+      "id": "TS-04-E14",
+      "requirement_id": "04-REQ-10.E1",
+      "kind": "unit",
+      "description": "Verify that create_backend('google-adk') raises ImportError with an informative message when google-adk is not installed.",
+      "preconditions": [
+        "google-adk is NOT installed",
+        "create_backend is importable from the factory module"
+      ],
+      "input": "create_backend('google-adk') without google-adk installed",
+      "expected": "ImportError is raised; error message mentions 'google-adk' extras group; no broken backend instance is returned",
+      "assertion_pseudocode": "import sys\nwith patch.dict(sys.modules, {'google': None, 'google.adk': None}):\n    try:\n        from session.backends import create_backend\n        result = create_backend('google-adk')\n        assert False, 'Expected ImportError'\n    except ImportError as e:\n        assert 'google-adk' in str(e).lower()"
+    },
+    {
+      "id": "TS-04-E15",
+      "requirement_id": "04-REQ-11.E1",
+      "kind": "unit",
+      "description": "Verify that OrchestratorConfig raises a Pydantic ValidationError for unknown backend values.",
+      "preconditions": [
+        "OrchestratorConfig is importable from agentfox.core.config",
+        "Pydantic is installed"
+      ],
+      "input": "OrchestratorConfig(backend='unknown-backend')",
+      "expected": "A Pydantic ValidationError is raised; no instance is returned",
+      "assertion_pseudocode": "from agentfox.core.config import OrchestratorConfig\nfrom pydantic import ValidationError\ntry:\n    OrchestratorConfig(backend='unknown-backend')\n    assert False, 'Expected ValidationError'\nexcept ValidationError:\n    pass  # Expected"
+    }
+  ],
+  "smoke_tests": [
+    {
+      "id": "TS-04-SMOKE-1",
+      "execution_path_id": "04-PATH-1",
+      "description": "End-to-end coding session: create_backend('google-adk') followed by execute() with mocked ADK yielding tool calls and text, producing a stream of ToolUseMessage, AssistantMessage, and ResultMessage.",
+      "trigger": "Call create_backend('google-adk') then backend.execute(prompt='Write a hello world function', system_prompt='You are a coder', model='gemini-2.0-flash', cwd='/tmp/workspace') with a mocked ADK runner that yields FunctionCall('write_file'), FunctionResponse, TextEvent('Done'), TerminalEvent(usage)",
+      "real_components": [
+        "create_backend factory (session/backends/__init__.py)",
+        "GoogleADKBackend (session/backends/google_adk.py)",
+        "adk_tools make_tools (session/backends/adk_tools.py)"
+      ],
+      "mockable": [
+        "google.adk.agents.Agent",
+        "google.adk.runners.Runner",
+        "google.adk.sessions.InMemorySessionService"
+      ],
+      "expected_effects": [
+        "create_backend('google-adk') returns a GoogleADKBackend instance",
+        "InMemorySessionService.create_session is called with app_name='agent-fox' and a UUID user_id",
+        "Agent is constructed with model='gemini-2.0-flash', name='coder', instruction='You are a coder'",
+        "Runner.run_async is called with session_id and user_id from the session object",
+        "A ToolUseMessage for 'write_file' is yielded",
+        "An AssistantMessage with content='Done' is yielded",
+        "A final ResultMessage with is_error=False is yielded"
+      ]
+    },
+    {
+      "id": "TS-04-SMOKE-2",
+      "execution_path_id": "04-PATH-2",
+      "description": "Transient error retry: ADK raises ResourceExhausted on first run_async call, succeeds on second, producing a successful ResultMessage.",
+      "trigger": "Call backend.execute() with a mocked runner that raises ResourceExhausted on attempt 1 and yields TerminalEvent on attempt 2; asyncio.sleep is mocked",
+      "real_components": [
+        "GoogleADKBackend (session/backends/google_adk.py)",
+        "Retry logic and backoff constants"
+      ],
+      "mockable": [
+        "google.adk.agents.Agent",
+        "google.adk.runners.Runner",
+        "google.adk.sessions.InMemorySessionService",
+        "asyncio.sleep"
+      ],
+      "expected_effects": [
+        "Runner.run_async is called exactly twice",
+        "asyncio.sleep is called once with delay 1.0 (exponential backoff attempt 1)",
+        "The final message is ResultMessage(is_error=False)",
+        "No exception propagates to the caller"
+      ]
+    },
+    {
+      "id": "TS-04-SMOKE-3",
+      "execution_path_id": "04-PATH-3",
+      "description": "Tool permission denial: a FunctionCall event for a denied tool results in a ToolUseMessage being yielded but the tool not being executed, with a structured error dict returned to the model.",
+      "trigger": "Call backend.execute() with permission_callback that denies 'execute' tool; mocked runner yields FunctionCall('execute', {'command': 'rm -rf /'}) then TerminalEvent",
+      "real_components": [
+        "GoogleADKBackend (session/backends/google_adk.py)",
+        "permission_callback integration logic"
+      ],
+      "mockable": [
+        "google.adk.agents.Agent",
+        "google.adk.runners.Runner",
+        "google.adk.sessions.InMemorySessionService",
+        "adk_tools.execute function"
+      ],
+      "expected_effects": [
+        "permission_callback is invoked with tool_name='execute'",
+        "The execute tool function is never called",
+        "A ToolUseMessage is yielded for the attempted call",
+        "{'error': 'permission_denied', 'detail': ANY} is returned as the FunctionResponse to the model",
+        "The session completes with a ResultMessage"
+      ]
+    },
+    {
+      "id": "TS-04-SMOKE-4",
+      "execution_path_id": "04-PATH-4",
+      "description": "Path containment violation: the model issues a read_file FunctionCall with a path-traversal attempt, which is rejected by adk_tools without any file I/O.",
+      "trigger": "Call backend.execute() with mocked runner yielding FunctionCall('read_file', {'path': '../../etc/passwd'}) then TerminalEvent; actual adk_tools.read_file is used with a tmp workspace directory",
+      "real_components": [
+        "GoogleADKBackend (session/backends/google_adk.py)",
+        "adk_tools read_file (session/backends/adk_tools.py)",
+        "Path containment enforcement via pathlib.resolve()"
+      ],
+      "mockable": [
+        "google.adk.agents.Agent",
+        "google.adk.runners.Runner",
+        "google.adk.sessions.InMemorySessionService"
+      ],
+      "expected_effects": [
+        "read_file tool is invoked with path='../../etc/passwd'",
+        "Path resolution determines the path escapes workspace root",
+        "{'error': 'path_not_allowed', 'detail': 'Path escapes workspace root'} is returned as FunctionResponse to the model",
+        "No actual file read occurs",
+        "The session completes with a ResultMessage"
+      ]
+    }
+  ],
+  "coverage": {
+    "requirements_covered": [],
+    "properties_covered": [],
+    "paths_covered": [],
+    "gaps": []
+  }
+}

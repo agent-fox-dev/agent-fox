@@ -1,0 +1,411 @@
+{
+  "state": "generated",
+  "prd_path": "prd.md",
+  "assessment_history": [
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD for `google_adk_backend` is well-structured and detailed overall. The Intent, Background, Non-Goals, and Solution sections are clearly written with good technical depth. However, the document is missing a formal **Goals** section with measurable outcomes, and several areas have gaps or ambiguities that could affect implementation clarity. The spec is close to ready but needs a few targeted additions before artifact generation.",
+      "gaps": [
+        "No formal 'Goals' section: The PRD lacks explicit, measurable success criteria (e.g., latency targets, test coverage thresholds, compatibility benchmarks, or feature parity metrics with other backends).",
+        "Token usage extraction is underspecified: Point 5 under Design Decisions references 'event.usage_metadata or similar fields' \u2014 the actual ADK event field name and structure should be confirmed and specified precisely to avoid ambiguity during implementation.",
+        "Error handling strategy is absent: There is no description of how ADK-specific errors (e.g., quota exhaustion, model unavailability, tool execution failures) are surfaced or mapped to the canonical Backend Protocol error types.",
+        "max_budget_usd tracking is underspecified: Point 6 mentions tracking manually via token count aggregation against a pricing config, but does not identify where the pricing config lives, how it is structured, or what happens when the budget is exceeded (raise, warn, truncate?).",
+        "Event streaming contract is incomplete: The mapping from ADK events to canonical message types (ToolUseMessage, AssistantMessage, ResultMessage) is described at a high level, but intermediate events (e.g., tool result/response events, error events, or no-op events) are not addressed.",
+        "Testing strategy is missing: Beyond mentioning pytest + pytest-asyncio in the Tech Stack and a containment test update, there is no description of the test plan (unit tests for tools, integration tests for the adapter, mocking strategy for ADK Runner/Agent).",
+        "Security enforcement for symlinks is mentioned but not detailed: Point 11 says symlinks are resolved before the containment check, but the behavior when a symlink target escapes the workspace is not explicitly stated (reject with error? which error type?).",
+        "No mention of how af SDK tools are sourced or injected: The spec references wrapping af SDK functions (spec_read, context_search, etc.) as ADK function tools, but does not describe how these are provided to GoogleADKBackend at instantiation (dependency injection, import, registry?)."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What are the measurable goals or success criteria for this feature? For example: test coverage percentage, latency parity with other backends, number of Gemini models supported, or a milestone definition of 'done'.",
+          "context": "The PRD has no Goals section. Without measurable outcomes, it is difficult to validate whether the implementation is complete or successful.",
+          "options": [
+            "All coding tools pass unit tests with \u226590% coverage",
+            "GoogleADKBackend passes the same integration test suite as ClaudeBackend and DeepAgentsBackend",
+            "Gemini 1.5 Pro and Gemini 2.0 Flash are verified to work end-to-end in a coding session",
+            "Latency overhead of the ADK adapter is <10% compared to direct ADK usage",
+            "Other (please describe)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "What is the exact ADK event field used to extract token usage (e.g., `event.usage_metadata.prompt_token_count`)? Has this been verified against google-adk>=2.0's API?",
+          "context": "Design Decision 5 references 'event.usage_metadata or similar fields', which is too vague for implementation. The correct field path must be confirmed to ensure accurate token tracking and budget enforcement.",
+          "options": [
+            "event.usage_metadata.prompt_token_count / candidates_token_count / total_token_count",
+            "event.usage_metadata (raw object, structure TBD)",
+            "Not yet confirmed \u2014 needs investigation during implementation",
+            "Other (please specify)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "How should errors from the ADK layer (e.g., API quota exceeded, model not found, tool execution exception) be handled and surfaced to callers of the Backend Protocol?",
+          "context": "The PRD describes the happy path well but does not specify error handling. Since the Backend Protocol likely defines error types or exception semantics, the adapter needs a clear mapping strategy.",
+          "options": [
+            "Wrap all ADK exceptions in a generic BackendError and re-raise",
+            "Map specific ADK exceptions to canonical Backend Protocol error types",
+            "Let ADK exceptions propagate unmodified to the caller",
+            "Log and return a ResultMessage with an error flag",
+            "Other (please describe)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "For max_budget_usd enforcement: where does the pricing config live, and what action should the backend take when the budget is exceeded mid-session?",
+          "context": "The spec mentions manual token-count-based budget tracking but does not describe the pricing config source or the enforcement action, which are both needed for implementation.",
+          "options": [
+            "Pricing config is a static dict in the codebase (same as other backends)",
+            "Pricing config is loaded from an external file or environment variable",
+            "Raise an exception and terminate the session when budget is exceeded",
+            "Emit a warning and continue until the session ends naturally",
+            "Other (please describe)"
+          ],
+          "required": false
+        },
+        {
+          "id": "q5",
+          "text": "How are the af SDK tools (spec_read, context_search, context_get, memory_recall, subtask_state) provided to GoogleADKBackend \u2014 are they passed in at instantiation, imported directly, or retrieved from a registry?",
+          "context": "The spec says these are wrapped as native ADK function tools, but the injection mechanism is unspecified. This affects the constructor signature and testability of the adapter.",
+          "options": [
+            "Injected as a list at instantiation (e.g., GoogleADKBackend(af_tools=[...]))",
+            "Imported directly from a known module at construction time",
+            "Retrieved from a shared tool registry at runtime",
+            "Same pattern used by ClaudeBackend and DeepAgentsBackend (follow existing convention)",
+            "Other (please describe)"
+          ],
+          "required": false
+        },
+        {
+          "id": "q6",
+          "text": "What is the intended testing strategy for this spec \u2014 specifically, will ADK's Agent and Runner be mocked in unit tests, or will integration tests run against real Gemini endpoints?",
+          "context": "The Tech Stack mentions pytest + pytest-asyncio but no test plan is described. Knowing the testing approach (mocked vs. live) affects implementation choices around dependency injection and testability.",
+          "options": [
+            "Unit tests only, with ADK Agent/Runner fully mocked",
+            "Unit tests with mocks + at least one live integration test against Gemini",
+            "Same testing pattern as the existing ClaudeBackend and DeepAgentsBackend specs",
+            "Other (please describe)"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD is well-structured and covers the core adapter design clearly. It defines the Backend Protocol integration, tool layer, event mapping, error handling, and testing strategy with good specificity. However, several areas need clarification before implementation can begin confidently: the exact ADK event type names used for mapping, how `af SDK tools` are discovered/imported, the session/user ID lifecycle within `execute()`, the model parameter format accepted by `GoogleADKBackend`, and some ambiguity around FunctionResponse handling. These gaps could lead to implementation divergence or rework.",
+      "gaps": [
+        "ADK event type names are not specified \u2014 the mapping table references 'FunctionCall events' and 'FunctionResponse / tool result events' but does not name the actual ADK Python classes (e.g., google.adk.events.Event subtypes or event.type string values) that trigger each mapping branch.",
+        "The af SDK tool module paths and function signatures are not listed. The phrase 'imported directly from their known modules' is vague \u2014 implementers need the concrete import paths (e.g., `from agentfox.sdk.spec import spec_read`) to avoid guessing.",
+        "Session ID and user ID lifecycle is unspecified. It is unclear whether `execute()` generates a fresh UUID per call, reuses a caller-supplied identifier, or derives IDs from `SessionConfig`. ADK's Runner requires both values.",
+        "The model parameter format is not defined. It is unclear whether `model` is a bare string like `'gemini-2.0-flash'`, a prefixed string like `'google/gemini-2.0-flash'`, or a structured object \u2014 and whether any transformation/validation is applied before passing to ADK's Agent constructor.",
+        "FunctionResponse / tool result event handling is ambiguous. The spec says these events are 'consumed internally' but also 'used to populate ToolUseMessage results if needed' \u2014 it is unclear when population is required vs. when the event is silently dropped, or whether a ToolUseMessage is yielded before or after the result is received.",
+        "The `system_prompt` source is not specified. It is unclear whether it comes from `SessionConfig`, a hardcoded constant, or a constructor argument on `GoogleADKBackend`.",
+        "No explicit test file path or naming convention is given (e.g., `tests/backends/test_google_adk.py`), unlike the level of specificity provided for source file paths."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What are the concrete ADK Python event types (class names or `event.type` string values) that should trigger each mapping branch? For example, which ADK type signals a FunctionCall, which signals a text content chunk, and which signals the final/terminal event?",
+          "context": "The event mapping is the core of the adapter. Without the actual class names or discriminator field values from `google.adk`, implementers will have to reverse-engineer the ADK event model themselves, risking inconsistency and rework. Even a best-effort list based on ADK 2.x docs helps anchor the implementation.",
+          "options": [
+            "Provide the class names (e.g., `google.adk.events.FunctionCallEvent`, `google.adk.events.ContentEvent`) and/or the discriminator field path (e.g., `event.content.parts[*].function_call`).",
+            "Leave it to the implementer to discover empirically during development (document findings in code comments).",
+            "Add a spike/research task to the spec to pin down event types before implementation starts."
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "What are the exact import paths for the af SDK tool functions that must be wrapped as ADK tools? Please list each function and its source module (e.g., `from agentfox.sdk.spec import spec_read`).",
+          "context": "The spec mentions five af SDK functions (spec_read, context_search, context_get, memory_recall, subtask_state) but says only 'imported directly from their known modules.' Without the concrete paths, implementers either have to grep the codebase or guess, which is error-prone.",
+          "options": [
+            "Provide the full import path for each of the five functions.",
+            "Reference the DeepAgentsBackend implementation as the canonical source (i.e., 'mirror the imports used in deepagents.py').",
+            "Defer tool registration to a follow-up spec and exclude af SDK tools from this spec's scope."
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "How should `execute()` generate or obtain the ADK `session_id` and `user_id` required by `runner.run_async()`? Should these be derived from `SessionConfig`, generated fresh per call (e.g., `uuid4()`), or supplied via a constructor parameter?",
+          "context": "ADK's Runner requires both a session_id and user_id to route messages. Each `execute()` creates a fresh InMemorySessionService, so the values only need to be consistent within a single call \u2014 but the spec is silent on how they are produced, which could lead to divergent implementations.",
+          "options": [
+            "Generate a fresh `uuid4()` for both `session_id` and `user_id` at the start of each `execute()` call.",
+            "Derive `session_id` from `SessionConfig.session_id` (or equivalent field) and use a fixed `user_id` constant such as `'agent-fox'`.",
+            "Accept `session_id` and `user_id` as optional constructor parameters on `GoogleADKBackend` with `uuid4()` defaults."
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "What format does the `model` parameter take when passed to `GoogleADKBackend`, and should the adapter validate or transform it before passing it to ADK's `Agent(model=...)`?",
+          "context": "ADK's Agent constructor expects a specific model string format (e.g., `'gemini-2.0-flash'`). If agent-fox uses a different naming convention or namespace prefix, the adapter needs a transformation step. Additionally, the spec mentions LiteLLM integration for non-Gemini providers \u2014 it is unclear whether a different prefix (e.g., `'litellm/...'`) triggers a different code path.",
+          "options": [
+            "Accept bare Gemini model names (e.g., `'gemini-2.0-flash'`) and pass them directly to ADK with no transformation.",
+            "Accept agent-fox's canonical model identifiers and apply a mapping/prefix-strip before passing to ADK.",
+            "For non-Gemini models, prepend `'litellm/'` or use ADK's LiteLLM model class; document the routing logic explicitly."
+          ],
+          "required": true
+        },
+        {
+          "id": "q5",
+          "text": "When a `FunctionCall` event is received, should a `ToolUseMessage` be yielded immediately (before the tool result is known), or should the adapter buffer the call and yield a completed `ToolUseMessage` (with both input and output) only after the corresponding `FunctionResponse` event arrives?",
+          "context": "The spec says FunctionResponse events are 'consumed internally' and 'used to populate ToolUseMessage results if needed,' which implies buffering. But it also says FunctionResponse events are 'not yielded to caller.' Clarifying the yield point and the shape of the yielded ToolUseMessage is necessary to implement the mapping correctly and match caller expectations.",
+          "options": [
+            "Yield a ToolUseMessage immediately on FunctionCall with `result=None`, then emit a separate message or update when the FunctionResponse arrives.",
+            "Buffer the FunctionCall, wait for the matching FunctionResponse, then yield a single ToolUseMessage containing both input and output.",
+            "Mirror the ClaudeBackend behavior exactly \u2014 describe what ClaudeBackend does and replicate it."
+          ],
+          "required": true
+        },
+        {
+          "id": "q6",
+          "text": "Where does the `system_prompt` / `instruction` passed to ADK's `Agent` come from? Is it a field on `SessionConfig`, a hardcoded default in `GoogleADKBackend`, or a constructor parameter?",
+          "context": "ADK's Agent requires an `instruction` string. The spec does not specify the source, which is a required input to construct the Agent. This needs to be explicit so the implementation matches the rest of the backend pattern.",
+          "options": [
+            "Read it from `SessionConfig.system_prompt` (or equivalent field name).",
+            "Accept it as a constructor parameter on `GoogleADKBackend` with a sensible default.",
+            "Use a hardcoded default instruction defined as a module-level constant in `google_adk.py`."
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD is well-structured and covers most areas thoroughly \u2014 protocol conformance, tool design, error handling, session lifecycle, and testing strategy are all clearly defined. However, several gaps remain: the af SDK tool wrapping pattern lacks specificity (exact function signatures and docstring conventions are not defined), the `thinking` parameter handling for Gemini models is vague, the `execute()` method signature is referenced but not fully specified (missing parameters like `effort`, `max_budget_usd`, `thinking`), the retry mechanism references ClaudeBackend constants without specifying them, and the containment test update strategy needs clarification. Resolving these will make the spec self-contained and unambiguous for an implementer.",
+      "gaps": [
+        "The full `execute()` method signature is not explicitly listed \u2014 parameters like `effort`, `max_budget_usd`, and `thinking` are mentioned in passing but never consolidated into a single authoritative signature definition.",
+        "The `thinking` parameter handling says 'Applied for Gemini models if supported' but does not specify how to detect Gemini models (e.g., model name prefix check), which ADK API/parameter to use, or what 'applied' means concretely.",
+        "Retry constants (delays: 1s \u2192 2s \u2192 4s) are described as 'the same as ClaudeBackend' but are never specified inline \u2014 an implementer must chase another spec to find them, breaking self-containment.",
+        "The af SDK tool wrapping section says to mirror `deepagents.py` imports but does not state the exact function signatures, expected docstring format, or return-type conventions for the five wrapped tools (`spec_read`, `context_search`, `context_get`, `memory_recall`, `subtask_state`).",
+        "No definition of what constitutes a 'transient' vs 'non-transient' ADK error \u2014 which exception classes or HTTP status codes trigger retry logic is left entirely to the implementer.",
+        "The containment test update strategy is mentioned but the existing test structure (file name, mapping format) is not described, making the update instruction ambiguous.",
+        "Token usage aggregation strategy is underspecified: it is unclear whether token counts should be summed across all events or taken from a single terminal event, and which fields to prefer if multiple events carry partial counts.",
+        "No mention of logging conventions (log level, logger name, message format) for the `debug`-level log emitted when `max_budget_usd` is silently ignored \u2014 inconsistent with teams that enforce structured logging.",
+        "The `OrchestratorConfig.backend` Literal widening (Goal 10) does not specify which file contains this type or how to handle backward compatibility for configs already serialized with the old Literal values."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What is the complete, authoritative `execute()` method signature for `GoogleADKBackend`, including all keyword arguments and their types?",
+          "context": "The PRD references `system_prompt`, `model`, `cwd`, `effort`, `max_budget_usd`, and `thinking` in different sections but never consolidates them into a single signature. An implementer needs one canonical definition to avoid guessing.",
+          "options": [
+            "async def execute(self, prompt: str, *, system_prompt: str, model: str, cwd: Path, thinking: bool = False, effort: str | None = None, max_budget_usd: float | None = None) -> AsyncIterator[Message]",
+            "Matches ClaudeBackend's exact signature \u2014 copy it verbatim from spec 02_backend_protocol",
+            "Other \u2014 please specify"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "How should the `thinking` parameter be applied for Gemini models? Specifically: (a) how do you detect a Gemini model, (b) which ADK API/parameter enables thinking, and (c) what happens when thinking is requested for a non-Gemini model?",
+          "context": "The PRD says 'Applied for Gemini models if supported, ignored for others' but provides no implementation guidance. Without this, developers may implement incompatible detection logic.",
+          "options": [
+            "Detect via model name prefix (e.g., starts with 'gemini'); pass thinking budget via ADK GenerationConfig; silently ignore for non-Gemini models",
+            "Always pass the thinking flag to ADK and let ADK raise/ignore it based on model capability",
+            "Skip thinking support entirely in v1 \u2014 add it in a follow-up spec",
+            "Other \u2014 please specify"
+          ],
+          "required": false
+        },
+        {
+          "id": "q3",
+          "text": "Which ADK exception classes or HTTP status codes should be treated as transient (retriable) vs non-transient errors?",
+          "context": "The PRD specifies retry behavior but not which errors qualify for retry. An implementer cannot write correct retry logic without knowing which exception types to catch.",
+          "options": [
+            "Treat google.api_core.exceptions.ResourceExhausted and ServiceUnavailable (HTTP 429/503) as transient; all others as non-transient",
+            "Mirror ClaudeBackend exactly \u2014 inspect that implementation for the exception list",
+            "Catch all exceptions during streaming as transient for the first 3 attempts, then surface as non-transient",
+            "Other \u2014 please specify"
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "Should retry constants (initial delay, backoff multiplier, max retries) be defined inline in `google_adk.py`, extracted to a shared module, or imported from `ClaudeBackend`'s module?",
+          "context": "The PRD says 'same constants as ClaudeBackend' but does not provide the values or a shared location. This affects where the single source of truth lives.",
+          "options": [
+            "Define a shared `session/backends/_retry.py` module with the constants; import it in all backends",
+            "Duplicate the constants inline in `google_adk.py` (values: max_retries=3, delays=[1,2,4] seconds)",
+            "Import directly from ClaudeBackend's module",
+            "Other \u2014 please specify"
+          ],
+          "required": false
+        },
+        {
+          "id": "q5",
+          "text": "For token usage aggregation, should counts be summed across all events in the stream, or taken exclusively from a single terminal/final event?",
+          "context": "ADK 2.x may emit partial token counts on intermediate events. The aggregation strategy affects the accuracy of reported usage and must be consistent across backends.",
+          "options": [
+            "Sum all token count fields across every event in the stream",
+            "Use only the final/terminal event's token counts; ignore intermediate events",
+            "Prefer the terminal event if present; fall back to summing intermediate events",
+            "Other \u2014 please specify"
+          ],
+          "required": false
+        },
+        {
+          "id": "q6",
+          "text": "Where is `OrchestratorConfig` defined, and how should backward compatibility be handled when widening the `backend` Literal to include `'google-adk'`?",
+          "context": "Adding a new Literal value is additive and non-breaking for new configs, but existing serialized configs with the old type may fail validation if the type is used strictly. Knowing the file and validation approach resolves this.",
+          "options": [
+            "It is defined in agentfox/core/config.py; adding the new Literal value is purely additive and no migration is needed",
+            "It is defined elsewhere \u2014 specify the file and note whether Pydantic strict validation or another mechanism is used",
+            "Other \u2014 please specify"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD is thorough and well-structured, covering the adapter design, tool layer, event mapping, error handling, token usage, and testing strategy with commendable depth. Most implementation concerns are explicitly addressed. However, several areas require clarification before the spec is implementation-ready: the exact af SDK tool wrapping contract is ambiguous (docstring/signature requirements for ADK), the handling of `permission_callback` and `activity_callback` needs a concrete decision, the ADK session creation flow has a subtle ambiguity (InMemorySessionService requires a `create_session` call before `run_async`), the `max_turns` parameter behaviour is unspecified, and there is no guidance on how the async iterator contract is satisfied (generator vs. async generator pattern). These are not blockers for understanding intent, but they will cause implementation uncertainty without resolution.",
+      "gaps": [
+        "af SDK tool wrapping contract is underspecified: ADK function tools require a specific callable signature and docstring format for schema inference. The spec says 'plain Python functions with type annotations and docstrings' but does not clarify whether ADK's FunctionTool wrapper is used explicitly or whether bare callables are passed, nor the exact docstring format required for ADK to extract parameter descriptions.",
+        "The InMemorySessionService usage has a likely gap: ADK's Runner typically requires an explicit session to be created via `session_service.create_session(...)` before `runner.run_async(...)` is called. The spec only mentions generating uuid4 IDs but does not address the session creation step, which will cause a runtime error if omitted.",
+        "permission_callback and activity_callback handling is left entirely open ('may be invoked at appropriate tool/activity boundaries if implemented, otherwise accepted and ignored'). This ambiguity means implementations may diverge. A concrete decision \u2014 invoke or always ignore in v1 \u2014 should be stated.",
+        "max_turns parameter behaviour is unspecified. Unlike other ignored parameters, max_turns has a plausible ADK mapping (e.g. a loop limit in the runner or a manual turn counter). The spec should explicitly state whether this is silently ignored or mapped to an ADK construct.",
+        "The async iterator return type contract is not specified at the implementation level. The spec shows `-> AsyncIterator[AgentMessage]` but does not state whether `execute()` should be an `async def` function returning an async generator, or an `async def` returning an explicit `AsyncIterator` object. This matters for how callers use `async for` and how exceptions surface.",
+        "There is no specification for how the `cwd` parameter is typed or validated at the `execute()` boundary. The coding tools section uses `pathlib.Path` operations, but `cwd` in the `Backend` Protocol signature is typed as `str`. The spec should clarify whether `google_adk.py` converts `cwd` to a `Path` internally or whether `adk_tools.py` accepts both.",
+        "The spec does not address what happens when a FunctionCall event is received for a tool that is not one of the registered tools (e.g. an unknown tool name). Should the adapter yield a ToolUseMessage anyway, silently drop it, or surface an error?",
+        "Test file organisation for retry logic and token usage is mentioned but the mock strategy for `runner.run_async` (which returns an async iterator) is not described, leaving ambiguity about whether helpers or fixtures will be shared across test files.",
+        "The spec references `deepagents.py` as the canonical import reference for af SDK tools but does not list the actual import paths, meaning implementers must read another spec's source file. Embedding the import paths directly (as done for ADK classes in item 3) would make this spec self-contained."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "Does ADK's InMemorySessionService require an explicit `create_session(...)` call before `runner.run_async(...)`, and if so, should this step be included in the spec's session lifecycle description?",
+          "context": "ADK's Runner API typically requires a session to exist in the session service before run_async is called. If the spec omits this step, implementers may hit a runtime error. Clarifying the exact call sequence (create_session \u2192 run_async) ensures correctness.",
+          "options": [
+            "Yes \u2014 add an explicit create_session() call to the session lifecycle description in item 4",
+            "No \u2014 ADK's Runner creates the session automatically; no change needed",
+            "Needs empirical verification during implementation; add a note to confirm and document"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "How should `permission_callback` and `activity_callback` be handled in v1 \u2014 always silently ignored, or invoked at tool boundaries?",
+          "context": "The spec currently says 'may be invoked at appropriate tool/activity boundaries if implemented, otherwise accepted and ignored.' This leaves the decision to the implementer and could lead to inconsistent behaviour. A clear directive is needed.",
+          "options": [
+            "Always silently ignored in v1; a follow-up spec will add callback invocation",
+            "Invoke activity_callback before each tool call and permission_callback for destructive tools (write_file, edit_file, execute), mirroring ClaudeBackend",
+            "Invoke activity_callback only; permission_callback always ignored in v1"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "Should `max_turns` be silently ignored in v1, or mapped to an ADK runner/agent construct (e.g. a manual turn counter or agent loop limit)?",
+          "context": "Unlike parameters such as `thinking` or `compaction` that have no ADK equivalent, `max_turns` may have a natural mapping in ADK's agent loop. The spec should make an explicit decision to prevent implementers from accidentally ignoring a parameter that callers depend on for safety limits.",
+          "options": [
+            "Silently ignored in v1 \u2014 add it to the ignored-parameters list alongside thinking and effort",
+            "Map to a manual turn counter inside execute() that stops the event loop after N tool-call/response pairs",
+            "Map to an ADK-native construct if one exists; verify empirically and document"
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "Should `execute()` be implemented as an `async def` function that is itself an async generator (using `yield`), or should it return an explicit `AsyncIterator` object?",
+          "context": "The Backend Protocol specifies `-> AsyncIterator[AgentMessage]`. If execute() uses `yield` internally it becomes an async generator function, which satisfies the return type but changes how callers handle early returns and exceptions. Specifying the pattern avoids divergence from ClaudeBackend and DeepAgentsBackend.",
+          "options": [
+            "Async generator function (async def + yield) \u2014 consistent with ClaudeBackend",
+            "Returns an explicit AsyncIterator object (e.g. a helper class)",
+            "Follow whatever pattern DeepAgentsBackend uses; add a cross-reference"
+          ],
+          "required": true
+        },
+        {
+          "id": "q5",
+          "text": "How should af SDK tool import paths be specified \u2014 embedded directly in this spec, or left as a cross-reference to deepagents.py?",
+          "context": "The spec currently says 'use deepagents.py as the canonical import reference' without listing the paths. Embedding the five import paths (for spec_read, context_search, context_get, memory_recall, subtask_state) would make this spec self-contained and reduce the risk of drift if deepagents.py is refactored.",
+          "options": [
+            "Embed the exact import paths for all five af SDK functions directly in this spec",
+            "Keep the cross-reference to deepagents.py to avoid duplication",
+            "List the module paths but not the function aliases, and note that deepagents.py is authoritative"
+          ],
+          "required": false
+        },
+        {
+          "id": "q6",
+          "text": "What should happen when a FunctionCall event is received for an unrecognised tool name (one not in the registered tool list)?",
+          "context": "The event mapping section does not cover this edge case. If ADK ever emits a FunctionCall for a tool the adapter did not register, the adapter needs a defined behaviour: yield a ToolUseMessage anyway, log and skip, or surface an error.",
+          "options": [
+            "Yield a ToolUseMessage regardless of whether the tool name is recognised",
+            "Log a warning and skip (treat as a no-op event)",
+            "Yield a ResultMessage(is_error=True) immediately"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "ready",
+      "summary": "The PRD is now implementation-ready. All previously identified gaps have been resolved: the session lifecycle now includes the explicit `create_session()` call; `permission_callback` and `activity_callback` are specified as core functionality mirroring ClaudeBackend; `max_turns` is mapped to a manual turn counter with defined stop behaviour; `execute()` is unambiguously specified as an async generator function; the `cwd` str-to-Path conversion boundary is documented; unrecognised tool names are defined to still emit a `ToolUseMessage`; the test strategy now includes mock patterns for the async iterator and covers the new callback and `max_turns` behaviours. The cross-reference to `deepagents.py` for af SDK import paths is retained intentionally. The spec is internally consistent, self-contained for implementation, and aligns with the established ClaudeBackend and DeepAgentsBackend patterns throughout.",
+      "gaps": [],
+      "questions": []
+    }
+  ],
+  "qa_exchanges": [
+    {
+      "assessment_index": 0,
+      "answers": {
+        "q1": "Goals: (1) isinstance(GoogleADKBackend(), Backend) passes. (2) All six coding tools pass unit tests covering happy path and path-containment security. (3) Event mapping produces correct canonical message types for all ADK event types (verified by unit tests with mocked ADK events). (4) create_backend('google-adk') returns a GoogleADKBackend instance. (5) All existing session tests pass without modification. (6) Containment test passes with google.adk isolated to google_adk.py. No provider integration tests required at launch.",
+        "q2": "Not yet confirmed \u2014 needs investigation during implementation. ADK 2.x has changed the event model and the exact field names must be empirically verified against the installed version. The implementation should discover the token usage fields from the ADK event objects at development time.",
+        "q3": "Mirror ClaudeBackend/DeepAgentsBackend pattern: catch streaming exceptions, yield a ResultMessage with is_error=True and is_transport_error=True for transient errors. Retry transient errors (rate limits, 5xx) up to 3 times with exponential backoff (same constants as ClaudeBackend: 1s/2s/4s). Non-transient errors yield immediate ResultMessage(is_error=True, is_transport_error=False). No exceptions propagate out of execute().",
+        "q4": "max_budget_usd is out of scope for the initial implementation. ADK does not natively support it. If needed later, the pricing config already exists in agentfox.core.config.PricingConfig and agentfox.core.models.calculate_cost(). The adapter would check accumulated tokens against the budget after each model response. For now, the parameter is accepted but silently ignored with a debug log.",
+        "q5": "Imported directly from a known module at construction time, same pattern as DeepAgentsBackend. The af SDK tools are defined in the agentfox codebase and imported in google_adk.py's tool registration logic.",
+        "q6": "Unit tests only, with ADK Agent/Runner fully mocked. Same testing pattern as ClaudeBackend and DeepAgentsBackend specs. Tests use mocked ADK event streams to verify event mapping, error handling, and tool registration. deepagents tests are guarded with pytest.importorskip('google.adk')."
+      },
+      "timestamp": "2026-07-07T13:25:15.427425+00:00"
+    },
+    {
+      "assessment_index": 1,
+      "answers": {
+        "q1": "Leave it to the implementer to discover empirically during development. ADK 2.x has breaking changes to the event model and the exact class names/discriminator values must be verified against the installed version. The PRD defines the semantic mapping (tool call \u2192 ToolUseMessage, text \u2192 AssistantMessage, terminal \u2192 ResultMessage); the implementer pins the exact ADK types in code comments.",
+        "q2": "Reference the DeepAgentsBackend implementation as the canonical source \u2014 mirror the imports used in deepagents.py. The af SDK functions are part of the agentfox codebase and their import paths are discoverable from the deepagents backend implementation.",
+        "q3": "Generate a fresh uuid4() for both session_id and user_id at the start of each execute() call. Each execute() creates a fresh InMemorySessionService, so the IDs only need to be unique per-call. No external state is carried across calls.",
+        "q4": "Accept bare Gemini model names (e.g. 'gemini-2.0-flash', 'gemini-flash-latest') and pass them directly to ADK with no transformation. For non-Gemini models via LiteLLM, the model string follows ADK's LiteLLM integration convention (e.g. 'litellm/openai/gpt-5.5'). No prefix stripping or custom routing logic in the adapter.",
+        "q5": "Mirror the ClaudeBackend behavior exactly. ClaudeBackend yields a ToolUseMessage immediately when a tool call is detected (from the SDK's AssistantMessage with ToolUseBlock), before the tool result is known. The tool execution and result are handled by the SDK/framework internally. GoogleADKBackend should yield ToolUseMessage on FunctionCall, and consume FunctionResponse silently.",
+        "q6": "system_prompt is passed via the execute() method's keyword argument \u2014 it is part of the Backend Protocol signature: execute(self, prompt, *, system_prompt, model, cwd, ...). Same as ClaudeBackend and DeepAgentsBackend. It is mapped to ADK Agent's instruction parameter."
+      },
+      "timestamp": "2026-07-07T13:27:18.306373+00:00"
+    },
+    {
+      "assessment_index": 2,
+      "answers": {
+        "q1": "Matches ClaudeBackend's exact signature \u2014 it is defined by the Backend Protocol from spec 02_backend_protocol: async def execute(self, prompt: str, *, system_prompt: str, model: str, cwd: str, permission_callback: PermissionCallback | None = None, activity_callback: ActivityCallback | None = None, tool_error_callback: Any | None = None, node_id: str = '', archetype: str | None = None, max_turns: int | None = None, max_budget_usd: float | None = None, thinking: dict[str, Any] | None = None, effort: str | None = None, compaction: bool = False) -> AsyncIterator[AgentMessage]",
+        "q2": "Skip thinking support entirely in v1 \u2014 the thinking parameter is accepted but silently ignored. Gemini's thinking/reasoning features have a different API surface from Anthropic's extended thinking and need dedicated investigation. Add thinking support in a follow-up spec.",
+        "q3": "Treat google.api_core.exceptions.ResourceExhausted (HTTP 429) and ServiceUnavailable (HTTP 503) as transient. Also treat ConnectionError and OSError as transient (network-level failures). All other exceptions are non-transient. This mirrors the pattern in ClaudeBackend which treats RateLimitError, APIStatusError with status >= 500, and OSError as retryable.",
+        "q4": "Duplicate the constants inline in google_adk.py (values: _MAX_TRANSPORT_RETRIES = 3, _BACKOFF_BASE = 1.0, delay = _BACKOFF_BASE * 2^(attempt-1) giving 1s, 2s, 4s). Extracting to a shared module is a nice-to-have cleanup that can happen later when all three backends exist. For now, match ClaudeBackend's pattern of defining them as module-level constants.",
+        "q5": "Prefer the terminal event if present; fall back to summing intermediate events. ADK's final event should carry cumulative counts. If it doesn't (discovered during implementation), accumulate from intermediate events.",
+        "q6": "It is defined in agentfox/core/config.py. Adding 'google-adk' to the Literal is purely additive and non-breaking. Existing configs with backend='claude' or backend='deepagents' continue to work. Pydantic validates new configs against the widened Literal. No migration needed."
+      },
+      "timestamp": "2026-07-07T13:29:37.314188+00:00"
+    },
+    {
+      "assessment_index": 3,
+      "answers": {
+        "q1": "Yes \u2014 add an explicit create_session() call to the session lifecycle. The sequence is: InMemorySessionService() \u2192 session_service.create_session(app_name='agent-fox', user_id=uuid4()) \u2192 runner.run_async(session_id=session.id, user_id=session.user_id, new_message=...). This is the standard ADK pattern.",
+        "q2": "Invoke activity_callback before each tool call and permission_callback for all tool calls, mirroring ClaudeBackend. permission_callback checks the af security allowlist. activity_callback reports tool invocations for UI progress. Both are core functionality, not nice-to-haves.",
+        "q3": "Map to a manual turn counter inside execute() that stops the event loop after N tool-call/response round-trips. When max_turns is reached, yield a terminal ResultMessage and stop iterating. This provides the same safety limit as ClaudeBackend's max_turns.",
+        "q4": "Async generator function (async def + yield) \u2014 consistent with ClaudeBackend. The execute() method uses yield to emit canonical messages as they arrive from the ADK event stream. This satisfies AsyncIterator[AgentMessage] and matches both ClaudeBackend and DeepAgentsBackend.",
+        "q5": "Keep the cross-reference to deepagents.py to avoid duplication. The af SDK tool functions are internal to agentfox and their paths may change. deepagents.py is the authoritative source; google_adk.py mirrors its imports.",
+        "q6": "Yield a ToolUseMessage regardless of whether the tool name is recognised. The session layer's telemetry and audit logging expect to see all tool invocations. Filtering would hide agent behavior from observability."
+      },
+      "timestamp": "2026-07-07T13:32:21.318925+00:00"
+    }
+  ],
+  "generated_artifacts": [
+    "requirements",
+    "test_spec",
+    "tasks"
+  ],
+  "mode": "interactive"
+}

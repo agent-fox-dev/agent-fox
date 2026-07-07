@@ -1,0 +1,654 @@
+{
+  "$schema": null,
+  "spec_id": "02",
+  "spec_name": "backend_protocol",
+  "schema_version": 1,
+  "test_cases": [
+    {
+      "id": "TS-02-1",
+      "requirement_id": "02-REQ-1.1",
+      "kind": "unit",
+      "description": "Verifies that `Backend` is a runtime-checkable Protocol in `session/backends/protocol.py` with `execute`, `close`, and `name` members, and that `isinstance(ClaudeBackend(), Backend)` returns `True`.",
+      "preconditions": [
+        "`packages/agentfox/agentfox/session/backends/protocol.py` exists and defines `Backend`",
+        "`ClaudeBackend` is available from `agentfox.session.backends`",
+        "`claude_agent_sdk` is installed in the test environment"
+      ],
+      "input": "ClaudeBackend() instance",
+      "expected": "`isinstance(ClaudeBackend(), Backend)` returns `True`; `Backend` is importable as `from agentfox.session.backends import Backend`",
+      "assertion_pseudocode": "from agentfox.session.backends import Backend, ClaudeBackend\nassert isinstance(ClaudeBackend(), Backend) == True\nassert hasattr(Backend, '__protocol_attrs__') or is_runtime_checkable(Backend)"
+    },
+    {
+      "id": "TS-02-2",
+      "requirement_id": "02-REQ-1.2",
+      "kind": "unit",
+      "description": "Verifies that `Backend.execute()` declares the exact parameter signature matching `ClaudeBackend.execute()`, including all keyword-only arguments with correct types and defaults.",
+      "preconditions": [
+        "`session/backends/protocol.py` defines `Backend` with an `execute` method",
+        "Python `inspect` module is available"
+      ],
+      "input": "Inspect `Backend.execute` via `inspect.signature`",
+      "expected": "Signature includes `prompt: str` positional, and keyword-only params: `system_prompt`, `model`, `cwd`, `permission_callback=None`, `activity_callback=None`, `tool_error_callback=None`, `node_id=''`, `archetype=None`, `max_turns=None`, `max_budget_usd=None`, `thinking=None`, `effort=None`, `compaction=False`; return annotation is `AsyncIterator[AgentMessage]`",
+      "assertion_pseudocode": "import inspect\nfrom agentfox.session.backends.protocol import Backend\nsig = inspect.signature(Backend.execute)\nparams = sig.parameters\nassert 'prompt' in params\nassert params['system_prompt'].kind == KEYWORD_ONLY\nassert params['model'].kind == KEYWORD_ONLY\nassert params['cwd'].kind == KEYWORD_ONLY\nassert params['permission_callback'].default is None\nassert params['activity_callback'].default is None\nassert params['tool_error_callback'].default is None\nassert params['node_id'].default == ''\nassert params['archetype'].default is None\nassert params['max_turns'].default is None\nassert params['max_budget_usd'].default is None\nassert params['thinking'].default is None\nassert params['effort'].default is None\nassert params['compaction'].default == False"
+    },
+    {
+      "id": "TS-02-3",
+      "requirement_id": "02-REQ-1.3",
+      "kind": "unit",
+      "description": "Verifies that `Backend.close()` is declared `async def close(self) -> None` and that calling it multiple times on a `ClaudeBackend` instance does not raise.",
+      "preconditions": [
+        "`ClaudeBackend` is installed and importable",
+        "An async test runner (e.g. `pytest-asyncio`) is available"
+      ],
+      "input": "A `ClaudeBackend()` instance; call `await backend.close()` three times",
+      "expected": "No exception is raised on any of the three calls; return value is `None` each time",
+      "assertion_pseudocode": "import asyncio\nfrom agentfox.session.backends import ClaudeBackend\nbackend = ClaudeBackend()\nawait backend.close()  # first call\nawait backend.close()  # second call — idempotent\nawait backend.close()  # third call — still no error\n# no exception raised"
+    },
+    {
+      "id": "TS-02-4",
+      "requirement_id": "02-REQ-1.4",
+      "kind": "unit",
+      "description": "Verifies that `Backend.name` is declared as a `@property` returning a non-empty `str` and that `ClaudeBackend().name` equals `'claude'`.",
+      "preconditions": [
+        "`ClaudeBackend` is importable",
+        "`Backend` Protocol is defined in `session/backends/protocol.py`"
+      ],
+      "input": "`ClaudeBackend()` instance",
+      "expected": "`ClaudeBackend().name` returns the string `'claude'`; the value is a non-empty `str`",
+      "assertion_pseudocode": "from agentfox.session.backends import ClaudeBackend\nbackend = ClaudeBackend()\nassert isinstance(backend.name, str)\nassert len(backend.name) > 0\nassert backend.name == 'claude'"
+    },
+    {
+      "id": "TS-02-5",
+      "requirement_id": "02-REQ-1.5",
+      "kind": "unit",
+      "description": "Verifies that importing `session/backends/protocol.py` does not import any concrete backend module (e.g. `claude`) and that `AgentMessage`, `PermissionCallback`, and `ActivityCallback` are correctly sourced.",
+      "preconditions": [
+        "`sys.modules` is inspectable",
+        "Test environment may or may not have `claude_agent_sdk` installed"
+      ],
+      "input": "Fresh Python process; `import agentfox.session.backends.protocol`",
+      "expected": "`claude_agent_sdk` does NOT appear in `sys.modules`; `agentfox.session.backends.claude` is NOT imported as a side effect of importing `protocol`",
+      "assertion_pseudocode": "import sys\n# Remove any prior imports\nmodules_before = set(sys.modules.keys())\nimport agentfox.session.backends.protocol\nmodules_after = set(sys.modules.keys())\nnew_modules = modules_after - modules_before\nassert 'claude_agent_sdk' not in new_modules\nassert 'agentfox.session.backends.claude' not in new_modules\n# Verify the imports that SHOULD be present\nfrom agentfox.session.backends.protocol import Backend\nassert Backend is not None"
+    },
+    {
+      "id": "TS-02-6",
+      "requirement_id": "02-REQ-2.1",
+      "kind": "unit",
+      "description": "Verifies that `create_backend('claude')` returns a `Backend` instance whose `name` is `'claude'` and that `isinstance` check passes.",
+      "preconditions": [
+        "`claude_agent_sdk` is installed",
+        "`create_backend` is importable from `agentfox.session.backends`"
+      ],
+      "input": "`create_backend('claude')`",
+      "expected": "Returns an object where `isinstance(result, Backend)` is `True` and `result.name == 'claude'`",
+      "assertion_pseudocode": "from agentfox.session.backends import create_backend, Backend\nresult = create_backend('claude')\nassert isinstance(result, Backend) == True\nassert result.name == 'claude'"
+    },
+    {
+      "id": "TS-02-7",
+      "requirement_id": "02-REQ-2.2",
+      "kind": "unit",
+      "description": "Verifies that `create_backend` has the signature `def create_backend(name: str) -> Backend` (not `Literal`).",
+      "preconditions": [
+        "`create_backend` is importable from `agentfox.session.backends`",
+        "Python `inspect` module is available"
+      ],
+      "input": "Inspect `create_backend` via `inspect.signature`",
+      "expected": "Single parameter `name` with annotation `str`; return annotation is `Backend`",
+      "assertion_pseudocode": "import inspect\nfrom agentfox.session.backends import create_backend, Backend\nsig = inspect.signature(create_backend)\nparams = sig.parameters\nassert list(params.keys()) == ['name']\nassert params['name'].annotation == str\nassert sig.return_annotation == Backend"
+    },
+    {
+      "id": "TS-02-8",
+      "requirement_id": "02-REQ-2.3",
+      "kind": "unit",
+      "description": "Verifies that importing `agentfox.session.backends` does not load `claude_agent_sdk` into `sys.modules` until `create_backend('claude')` is called.",
+      "preconditions": [
+        "Test runs in a subprocess or a fresh import context where `agentfox.session.backends` has not yet been imported",
+        "`claude_agent_sdk` may or may not be installed"
+      ],
+      "input": "Import `agentfox.session.backends` without calling `create_backend`",
+      "expected": "`'claude_agent_sdk'` is absent from `sys.modules` after the import; it appears only after `create_backend('claude')` is invoked",
+      "assertion_pseudocode": "import sys\nimport importlib\n# Ensure fresh state\nfor key in list(sys.modules.keys()):\n    if 'agentfox' in key or 'claude_agent_sdk' in key:\n        del sys.modules[key]\nimport agentfox.session.backends\nassert 'claude_agent_sdk' not in sys.modules\n# Now call the factory\nfrom agentfox.session.backends import create_backend\ncreate_backend('claude')\nassert 'claude_agent_sdk' in sys.modules"
+    },
+    {
+      "id": "TS-02-9",
+      "requirement_id": "02-REQ-2.4",
+      "kind": "unit",
+      "description": "Verifies that `create_backend('foo')` raises `ConfigError` with a message identifying the unknown name and listing valid backends.",
+      "preconditions": [
+        "`create_backend` is importable",
+        "`agentfox.core.errors.ConfigError` is defined"
+      ],
+      "input": "`create_backend('foo')`",
+      "expected": "Raises `agentfox.core.errors.ConfigError`; error message contains `'foo'` and `'claude'` (list of valid backends)",
+      "assertion_pseudocode": "from agentfox.session.backends import create_backend\nfrom agentfox.core.errors import ConfigError\ntry:\n    create_backend('foo')\n    assert False, 'Expected ConfigError'\nexcept ConfigError as e:\n    assert 'foo' in str(e)\n    assert 'claude' in str(e)"
+    },
+    {
+      "id": "TS-02-10",
+      "requirement_id": "02-REQ-2.5",
+      "kind": "unit",
+      "description": "Verifies that if the lazy import of `claude_agent_sdk` fails with `ImportError`, `create_backend('claude')` raises `ConfigError` with a pip install hint.",
+      "preconditions": [
+        "`create_backend` is importable",
+        "Test patches/mocks the lazy import of `ClaudeBackend` to raise `ImportError`"
+      ],
+      "input": "`create_backend('claude')` with mocked `ImportError` on `claude_agent_sdk`",
+      "expected": "Raises `agentfox.core.errors.ConfigError` with message containing `'claude-agent-sdk'` and `'pip install'`",
+      "assertion_pseudocode": "from unittest.mock import patch\nfrom agentfox.session.backends import create_backend\nfrom agentfox.core.errors import ConfigError\nwith patch('builtins.__import__', side_effect=ImportError('No module named claude_agent_sdk')):\n    # OR use monkeypatching to make the lazy import inside create_backend raise\n    pass\n# Preferred: intercept at the specific import path\ndef raise_import_error(name, *args, **kwargs):\n    if name == 'claude_agent_sdk' or 'claude_agent_sdk' in name:\n        raise ImportError('No module named claude_agent_sdk')\n    return original_import(name, *args, **kwargs)\nwith patch('builtins.__import__', side_effect=raise_import_error):\n    try:\n        create_backend('claude')\n        assert False, 'Expected ConfigError'\n    except ConfigError as e:\n        assert 'pip install' in str(e)\n        assert 'claude-agent-sdk' in str(e)"
+    },
+    {
+      "id": "TS-02-11",
+      "requirement_id": "02-REQ-2.6",
+      "kind": "unit",
+      "description": "Verifies that `create_backend()` does not attempt any fallback when a `ConfigError` would be raised — the error propagates immediately with no alternative backend instantiated.",
+      "preconditions": [
+        "`create_backend` is importable",
+        "Test uses an unknown backend name to trigger `ConfigError`"
+      ],
+      "input": "`create_backend('nonexistent')`",
+      "expected": "Exactly one `ConfigError` is raised; no other backend (e.g. `ClaudeBackend`) is instantiated as a fallback",
+      "assertion_pseudocode": "from agentfox.session.backends import create_backend\nfrom agentfox.core.errors import ConfigError\ninstantiated_backends = []\n# Verify no fallback instantiation occurs\ntry:\n    result = create_backend('nonexistent')\n    assert False, 'Expected ConfigError to be raised'\nexcept ConfigError:\n    pass  # expected — no fallback, error propagated\nassert len(instantiated_backends) == 0"
+    },
+    {
+      "id": "TS-02-12",
+      "requirement_id": "02-REQ-3.1",
+      "kind": "unit",
+      "description": "Verifies that `OrchestratorConfig` has a `backend` field with a default value of `'claude'` and that instantiating it without arguments gives `backend == 'claude'`.",
+      "preconditions": [
+        "`OrchestratorConfig` is importable from `agentfox.core.config`"
+      ],
+      "input": "`OrchestratorConfig()` with no arguments",
+      "expected": "`OrchestratorConfig().backend == 'claude'`",
+      "assertion_pseudocode": "from agentfox.core.config import OrchestratorConfig\nconfig = OrchestratorConfig()\nassert config.backend == 'claude'\nassert isinstance(config.backend, str)"
+    },
+    {
+      "id": "TS-02-13",
+      "requirement_id": "02-REQ-3.2",
+      "kind": "unit",
+      "description": "Verifies that the `backend` field on `OrchestratorConfig` cannot be set via an environment variable.",
+      "preconditions": [
+        "`OrchestratorConfig` is importable",
+        "Test sets environment variable `AGENTFOX_BACKEND=deepagents` or similar before constructing config"
+      ],
+      "input": "Environment variable for backend is set; `OrchestratorConfig()` is constructed",
+      "expected": "`config.backend` still equals `'claude'` (the pydantic default), ignoring the environment variable",
+      "assertion_pseudocode": "import os\nfrom agentfox.core.config import OrchestratorConfig\nos.environ['AGENTFOX_BACKEND'] = 'deepagents'\nos.environ['ORCHESTRATOR_BACKEND'] = 'deepagents'\nconfig = OrchestratorConfig()\nassert config.backend == 'claude'  # env var has no effect\ndel os.environ['AGENTFOX_BACKEND']\ndel os.environ['ORCHESTRATOR_BACKEND']"
+    },
+    {
+      "id": "TS-02-14",
+      "requirement_id": "02-REQ-3.3",
+      "kind": "unit",
+      "description": "Verifies that loading a TOML config with an invalid `backend` value triggers `ConfigError` via the existing `load_config()` pydantic ValidationError handling.",
+      "preconditions": [
+        "`load_config()` is importable from `agentfox.core.config`",
+        "A temporary TOML file can be written with `[orchestrator]` section containing `backend = 'invalid-value'`"
+      ],
+      "input": "TOML file with `[orchestrator]\\nbackend = 'invalid-value'`",
+      "expected": "`load_config()` raises `agentfox.core.errors.ConfigError` with a user-friendly message referencing the invalid `backend` value",
+      "assertion_pseudocode": "import tempfile, os\nfrom agentfox.core.config import load_config\nfrom agentfox.core.errors import ConfigError\ntoml_content = '[orchestrator]\\nbackend = \"invalid-value\"\\n'\nwith tempfile.NamedTemporaryFile(mode='w', suffix='.toml', delete=False) as f:\n    f.write(toml_content)\n    tmp_path = f.name\ntry:\n    try:\n        load_config(tmp_path)\n        assert False, 'Expected ConfigError'\n    except ConfigError as e:\n        assert 'backend' in str(e).lower() or 'invalid-value' in str(e)\nfinally:\n    os.unlink(tmp_path)"
+    },
+    {
+      "id": "TS-02-15",
+      "requirement_id": "02-REQ-3.4",
+      "kind": "unit",
+      "description": "Verifies that when the local TOML omits `[orchestrator]` entirely, the global TOML's `backend` value is inherited via `shallow_merge`.",
+      "preconditions": [
+        "`shallow_merge` and `load_config` are accessible",
+        "Two TOML files can be created: global with `[orchestrator]\\nbackend = 'claude'`, local with no `[orchestrator]` section"
+      ],
+      "input": "Global TOML has `[orchestrator]\\nbackend = 'claude'`; local TOML has no `[orchestrator]` section",
+      "expected": "Merged config has `backend == 'claude'` (inherited from global)",
+      "assertion_pseudocode": "from agentfox.core.config import shallow_merge, OrchestratorConfig\nglobal_data = {'orchestrator': {'backend': 'claude', 'parallel': 4}}\nlocal_data = {}  # no orchestrator section\nmerged = shallow_merge(global_data, local_data)\nconfig = OrchestratorConfig(**merged.get('orchestrator', {}))\nassert config.backend == 'claude'"
+    },
+    {
+      "id": "TS-02-16",
+      "requirement_id": "02-REQ-3.5",
+      "kind": "unit",
+      "description": "Verifies that when the local TOML includes `[orchestrator]` but omits `backend`, the pydantic default `'claude'` is applied rather than the global TOML's value.",
+      "preconditions": [
+        "`shallow_merge` and `OrchestratorConfig` are accessible",
+        "Two TOML data dicts can be constructed: global with `backend = 'claude'`, local with `[orchestrator]` but no `backend` key"
+      ],
+      "input": "Global TOML has `[orchestrator]\\nbackend = 'claude'`; local TOML has `[orchestrator]\\nparallel = 2` (no `backend`)",
+      "expected": "Merged config has `backend == 'claude'` (pydantic default applied, global value not inherited for this field because local section overrides wholesale)",
+      "assertion_pseudocode": "from agentfox.core.config import shallow_merge, OrchestratorConfig\nglobal_data = {'orchestrator': {'backend': 'claude', 'parallel': 4}}\nlocal_data = {'orchestrator': {'parallel': 2}}  # local section present but no backend\nmerged = shallow_merge(global_data, local_data)\n# shallow_merge replaces sections wholesale; local orchestrator wins\nconfig = OrchestratorConfig(**merged.get('orchestrator', {}))\nassert config.backend == 'claude'  # pydantic default since local omits backend"
+    },
+    {
+      "id": "TS-02-17",
+      "requirement_id": "02-REQ-4.1",
+      "kind": "unit",
+      "description": "Verifies that `run_session()` accepts `backend: Backend | None` and when `None` is passed, calls `create_backend(config.orchestrator.backend)` to instantiate the backend.",
+      "preconditions": [
+        "`run_session` is importable from `agentfox.session.session`",
+        "`Backend` Protocol is defined",
+        "`create_backend` can be mocked",
+        "All session dependencies are available or mocked"
+      ],
+      "input": "`run_session(prompt='test', config=default_config, backend=None)` with `create_backend` mocked",
+      "expected": "`create_backend` is called exactly once with `'claude'` (the config default); the returned mock `Backend` instance is used for `execute()`",
+      "assertion_pseudocode": "from unittest.mock import patch, AsyncMock, MagicMock\nfrom agentfox.session.session import run_session\nfrom agentfox.core.config import load_default_config\nmock_backend = MagicMock()\nmock_backend.execute = AsyncMock(return_value=async_iter([]))\nmock_backend.close = AsyncMock()\nwith patch('agentfox.session.session.create_backend', return_value=mock_backend) as mock_factory:\n    await run_session(prompt='test', config=default_config, backend=None)\n    mock_factory.assert_called_once_with('claude')"
+    },
+    {
+      "id": "TS-02-18",
+      "requirement_id": "02-REQ-4.2",
+      "kind": "unit",
+      "description": "Verifies that the `# type: ignore[attr-defined]` comment has been removed from `session/session.py` around the `async for backend.execute()` call.",
+      "preconditions": [
+        "`packages/agentfox/agentfox/session/session.py` is readable"
+      ],
+      "input": "Read file contents of `packages/agentfox/agentfox/session/session.py`",
+      "expected": "The string `'type: ignore[attr-defined]'` does not appear anywhere in the file",
+      "assertion_pseudocode": "import os\nbase = 'packages/agentfox/agentfox/session/session.py'\nwith open(base, 'r') as f:\n    contents = f.read()\nassert 'type: ignore[attr-defined]' not in contents, \\\n    'Found type: ignore[attr-defined] suppression comment in session.py'"
+    },
+    {
+      "id": "TS-02-19",
+      "requirement_id": "02-REQ-4.3",
+      "kind": "unit",
+      "description": "Verifies that `session.py` imports `Backend` and `create_backend` from `agentfox.session.backends` and does NOT directly import `ClaudeBackend`.",
+      "preconditions": [
+        "`packages/agentfox/agentfox/session/session.py` is readable"
+      ],
+      "input": "Read file contents of `packages/agentfox/agentfox/session/session.py`",
+      "expected": "File contains `from agentfox.session.backends import` (or equivalent) referencing `Backend` and `create_backend`; does NOT contain `ClaudeBackend` in any import statement",
+      "assertion_pseudocode": "import os, ast\npath = 'packages/agentfox/agentfox/session/session.py'\nwith open(path, 'r') as f:\n    contents = f.read()\ntree = ast.parse(contents)\nfor node in ast.walk(tree):\n    if isinstance(node, (ast.Import, ast.ImportFrom)):\n        src = ast.unparse(node)\n        assert 'ClaudeBackend' not in src, f'ClaudeBackend imported directly in session.py: {src}'\nassert 'create_backend' in contents\nassert 'Backend' in contents"
+    },
+    {
+      "id": "TS-02-20",
+      "requirement_id": "02-REQ-4.4",
+      "kind": "unit",
+      "description": "Verifies that all existing session unit tests pass unmodified after the type widening of `run_session()` from `ClaudeBackend | None` to `Backend | None`.",
+      "preconditions": [
+        "All existing session unit tests exist under `packages/agentfox/tests/unit/session/`",
+        "No modifications have been made to existing test files",
+        "All dependencies are installed"
+      ],
+      "input": "Run `pytest packages/agentfox/tests/unit/session/ -v` without modifying any test file",
+      "expected": "All pre-existing session unit tests pass; zero failures, zero errors",
+      "assertion_pseudocode": "# This is a process-level check\nimport subprocess\nresult = subprocess.run(\n    ['pytest', 'packages/agentfox/tests/unit/session/', '-v', '--tb=short'],\n    capture_output=True, text=True\n)\nassert result.returncode == 0, f'Session tests failed:\\n{result.stdout}\\n{result.stderr}'"
+    },
+    {
+      "id": "TS-02-21",
+      "requirement_id": "02-REQ-5.1",
+      "kind": "unit",
+      "description": "Verifies that `Backend` and `create_backend` are in `__all__` of `session/backends/__init__.py` and are importable directly from `agentfox.session.backends`.",
+      "preconditions": [
+        "`agentfox.session.backends` module is importable",
+        "`claude_agent_sdk` is installed (for `ClaudeBackend`)"
+      ],
+      "input": "`from agentfox.session.backends import Backend, create_backend`",
+      "expected": "Both imports succeed without error; `'Backend'` and `'create_backend'` appear in `agentfox.session.backends.__all__`",
+      "assertion_pseudocode": "import agentfox.session.backends as backends_module\nfrom agentfox.session.backends import Backend, create_backend\nassert 'Backend' in backends_module.__all__\nassert 'create_backend' in backends_module.__all__\nassert 'AgentMessage' in backends_module.__all__\nassert 'AssistantMessage' in backends_module.__all__\nassert 'ClaudeBackend' in backends_module.__all__\nassert 'PermissionCallback' in backends_module.__all__\nassert 'ResultMessage' in backends_module.__all__\nassert 'ToolUseMessage' in backends_module.__all__"
+    },
+    {
+      "id": "TS-02-22",
+      "requirement_id": "02-REQ-5.2",
+      "kind": "unit",
+      "description": "Verifies that `Backend` and `create_backend` are NOT re-exported from `session/__init__.py` or `agentfox/__init__.py`.",
+      "preconditions": [
+        "`agentfox` package is installed or on the Python path"
+      ],
+      "input": "Attempt `from agentfox import Backend` and `from agentfox.session import Backend`",
+      "expected": "Both import statements raise `ImportError`",
+      "assertion_pseudocode": "import pytest\nwith pytest.raises(ImportError):\n    from agentfox import Backend\nwith pytest.raises(ImportError):\n    from agentfox.session import Backend\nwith pytest.raises(ImportError):\n    from agentfox import create_backend\nwith pytest.raises(ImportError):\n    from agentfox.session import create_backend"
+    },
+    {
+      "id": "TS-02-23",
+      "requirement_id": "02-REQ-6.1",
+      "kind": "unit",
+      "description": "Verifies that `tests/unit/session/backends/test_protocol.py` contains a test asserting `isinstance(ClaudeBackend(), Backend)` returns `True`.",
+      "preconditions": [
+        "`packages/agentfox/tests/unit/session/backends/test_protocol.py` exists",
+        "`ClaudeBackend` and `Backend` are importable",
+        "`claude_agent_sdk` is installed"
+      ],
+      "input": "Run `pytest packages/agentfox/tests/unit/session/backends/test_protocol.py -k 'isinstance or protocol'`",
+      "expected": "Test passes; `isinstance(ClaudeBackend(), Backend)` returns `True`",
+      "assertion_pseudocode": "from agentfox.session.backends import Backend, ClaudeBackend\nassert isinstance(ClaudeBackend(), Backend) == True"
+    },
+    {
+      "id": "TS-02-24",
+      "requirement_id": "02-REQ-6.2",
+      "kind": "unit",
+      "description": "Verifies that the containment property test scans all `.py` files under `packages/agentfox/agentfox/` recursively and asserts each SDK name appears only in its designated file.",
+      "preconditions": [
+        "`packages/agentfox/agentfox/` directory exists and is readable",
+        "`glob` module is available",
+        "`SDK_CONTAINMENT = {'claude_agent_sdk': 'claude.py'}` is defined in the test"
+      ],
+      "input": "Glob all `.py` files under `packages/agentfox/agentfox/`; check for `'claude_agent_sdk'` in non-`claude.py` files",
+      "expected": "No non-designated file contains the substring `'claude_agent_sdk'`; test passes",
+      "assertion_pseudocode": "import glob, os\nagent_fox_dir = 'packages/agentfox/agentfox/'\nSDK_CONTAINMENT = {'claude_agent_sdk': 'claude.py'}\nall_files = glob.glob(os.path.join(agent_fox_dir, '**', '*.py'), recursive=True)\nassert len(all_files) > 0, 'No Python files found — check agent_fox_dir path'\nfor sdk_name, allowed_filename in SDK_CONTAINMENT.items():\n    for filepath in all_files:\n        if os.path.basename(filepath) == allowed_filename:\n            continue  # skip the designated file\n        with open(filepath, 'r') as f:\n            contents = f.read()\n        assert sdk_name not in contents, \\\n            f'SDK \"{sdk_name}\" found in non-designated file: {filepath}'"
+    },
+    {
+      "id": "TS-02-25",
+      "requirement_id": "02-REQ-6.3",
+      "kind": "unit",
+      "description": "Verifies that `SDK_CONTAINMENT` in `test_protocol.py` is defined as `{'claude_agent_sdk': 'claude.py'}` with placeholder comments for future backends.",
+      "preconditions": [
+        "`packages/agentfox/tests/unit/session/backends/test_protocol.py` is readable"
+      ],
+      "input": "Read and inspect `test_protocol.py` source",
+      "expected": "`SDK_CONTAINMENT` dict has key `'claude_agent_sdk'` mapping to `'claude.py'`; file contains placeholder comments referencing `deepagents` and `google-adk`",
+      "assertion_pseudocode": "import ast\nwith open('packages/agentfox/tests/unit/session/backends/test_protocol.py', 'r') as f:\n    src = f.read()\nassert 'SDK_CONTAINMENT' in src\nassert 'claude_agent_sdk' in src\nassert 'claude.py' in src\n# Verify it's a dict and has the expected structure\n# Verify placeholder comments exist\nassert 'deepagents' in src or 'spec 03' in src\nassert 'google' in src or 'spec 04' in src"
+    },
+    {
+      "id": "TS-02-26",
+      "requirement_id": "02-REQ-6.4",
+      "kind": "unit",
+      "description": "Verifies that the containment test glob targets only `packages/agentfox/agentfox/` and never reaches `packages/agentfox/tests/`.",
+      "preconditions": [
+        "`packages/agentfox/agentfox/` and `packages/agentfox/tests/` directories exist"
+      ],
+      "input": "Execute the glob used in the containment test and inspect the file list",
+      "expected": "No file path in the resulting list is under `packages/agentfox/tests/`",
+      "assertion_pseudocode": "import glob, os\nagent_fox_dir = 'packages/agentfox/agentfox/'\nall_files = glob.glob(os.path.join(agent_fox_dir, '**', '*.py'), recursive=True)\nfor filepath in all_files:\n    assert 'packages/agentfox/tests' not in os.path.abspath(filepath), \\\n        f'Test file incorrectly included in containment scan: {filepath}'"
+    },
+    {
+      "id": "TS-02-27",
+      "requirement_id": "02-REQ-6.5",
+      "kind": "unit",
+      "description": "Verifies that CI configuration marks the `isinstance` test and containment property test as required checks that must pass before PR merge.",
+      "preconditions": [
+        "CI configuration file (e.g. `.github/workflows/*.yml` or equivalent) is accessible",
+        "`packages/agentfox/tests/unit/session/backends/test_protocol.py` is listed as a required check"
+      ],
+      "input": "Inspect CI workflow configuration and/or run the test file directly",
+      "expected": "`pytest packages/agentfox/tests/unit/session/backends/test_protocol.py` exits with code 0; CI marks this test file as a required check",
+      "assertion_pseudocode": "import subprocess\nresult = subprocess.run(\n    ['pytest', 'packages/agentfox/tests/unit/session/backends/test_protocol.py', '-v'],\n    capture_output=True, text=True\n)\nassert result.returncode == 0, f'Protocol tests failed:\\n{result.stdout}\\n{result.stderr}'"
+    }
+  ],
+  "property_tests": [
+    {
+      "id": "TS-02-P1",
+      "property_id": "02-PROP-1",
+      "validates": [
+        "02-REQ-1.1",
+        "02-REQ-6.1"
+      ],
+      "description": "For any `ClaudeBackend` instance, `isinstance(cb, Backend)` is always `True` — the `@runtime_checkable` Protocol presence check holds unconditionally.",
+      "for_any_strategy": "Any number of freshly constructed `ClaudeBackend()` instances (no parameterization needed; property is structural)",
+      "invariant_check": "from agentfox.session.backends import Backend, ClaudeBackend\nfor _ in range(10):\n    cb = ClaudeBackend()\n    assert isinstance(cb, Backend) == True\n    # Verify all three required members are present\n    assert hasattr(cb, 'execute')\n    assert hasattr(cb, 'close')\n    assert hasattr(cb, 'name')"
+    },
+    {
+      "id": "TS-02-P2",
+      "property_id": "02-PROP-2",
+      "validates": [
+        "02-REQ-2.3",
+        "02-REQ-6.2"
+      ],
+      "description": "For any Python process that imports `agentfox.session.backends` without calling `create_backend('claude')`, `'claude_agent_sdk'` does not appear in `sys.modules`.",
+      "for_any_strategy": "Simulate import in a subprocess or use importlib to reset module state; check `sys.modules` before and after importing `agentfox.session.backends`",
+      "invariant_check": "import sys, subprocess\nresult = subprocess.run(\n    ['python', '-c',\n     'import sys; import agentfox.session.backends; '\n     'assert \"claude_agent_sdk\" not in sys.modules, '\n     'f\"claude_agent_sdk loaded unexpectedly: {list(sys.modules.keys())}\"'],\n    capture_output=True, text=True\n)\nassert result.returncode == 0, f'Lazy import isolation failed:\\n{result.stderr}'"
+    },
+    {
+      "id": "TS-02-P3",
+      "property_id": "02-PROP-3",
+      "validates": [
+        "02-REQ-2.1",
+        "02-REQ-2.4",
+        "02-REQ-2.5"
+      ],
+      "description": "For any string `name` passed to `create_backend(name)`, the function either returns a valid `Backend` instance or raises `ConfigError` — no other outcome (including unhandled exceptions or returning `None`) is possible.",
+      "for_any_strategy": "Hypothesis strategy: `st.one_of(st.just('claude'), st.text(), st.just(''), st.just('deepagents'), st.just('google-adk'), st.just(None).map(str))`",
+      "invariant_check": "from hypothesis import given, strategies as st\nfrom agentfox.session.backends import create_backend, Backend\nfrom agentfox.core.errors import ConfigError\n\n@given(name=st.one_of(st.just('claude'), st.text(min_size=0, max_size=50), st.just('')))\ndef test_create_backend_invariant(name):\n    try:\n        result = create_backend(name)\n        # Must return a Backend or raise ConfigError — nothing else\n        assert isinstance(result, Backend), f'Result is not a Backend: {type(result)}'\n    except ConfigError:\n        pass  # expected for invalid names\n    except Exception as e:\n        raise AssertionError(f'Unexpected exception type {type(e)}: {e}')"
+    },
+    {
+      "id": "TS-02-P4",
+      "property_id": "02-PROP-4",
+      "validates": [
+        "02-REQ-1.3",
+        "02-REQ-4.E1"
+      ],
+      "description": "For any `Backend` instance in any state, calling `close()` any number of times does not raise an exception — the idempotency invariant holds across repeated invocations.",
+      "for_any_strategy": "Hypothesis strategy: `st.integers(min_value=1, max_value=20)` for number of `close()` calls; use `ClaudeBackend` as the concrete instance",
+      "invariant_check": "from hypothesis import given, strategies as st\nimport asyncio\nfrom agentfox.session.backends import ClaudeBackend\n\n@given(n=st.integers(min_value=1, max_value=20))\ndef test_close_idempotent(n):\n    backend = ClaudeBackend()\n    async def run():\n        for i in range(n):\n            await backend.close()  # must not raise on any iteration\n    asyncio.run(run())\n    # n calls completed without exception — invariant holds"
+    },
+    {
+      "id": "TS-02-P5",
+      "property_id": "02-PROP-5",
+      "validates": [
+        "02-REQ-6.2",
+        "02-REQ-6.3",
+        "02-REQ-6.4"
+      ],
+      "description": "For every `.py` file under `packages/agentfox/agentfox/` except the designated backend file, no SDK name string from `SDK_CONTAINMENT` appears as a substring — the containment invariant holds across all production source files.",
+      "for_any_strategy": "Enumerate all `.py` files via glob; parameterize over each file path × each SDK name pair",
+      "invariant_check": "import glob, os\nagent_fox_dir = 'packages/agentfox/agentfox/'\nSDK_CONTAINMENT = {'claude_agent_sdk': 'claude.py'}\nall_files = glob.glob(os.path.join(agent_fox_dir, '**', '*.py'), recursive=True)\nassert len(all_files) > 0, f'No files found in {agent_fox_dir}'\nfor sdk_name, allowed_filename in SDK_CONTAINMENT.items():\n    for filepath in all_files:\n        if os.path.basename(filepath) == allowed_filename:\n            continue\n        with open(filepath, 'r', encoding='utf-8') as f:\n            contents = f.read()\n        assert sdk_name not in contents, \\\n            f'SDK containment violation: \"{sdk_name}\" found in {filepath}'"
+    },
+    {
+      "id": "TS-02-P6",
+      "property_id": "02-PROP-6",
+      "validates": [
+        "02-REQ-4.4"
+      ],
+      "description": "Every test in the existing session unit test suite passes unmodified after the `run_session()` parameter type is widened — zero regressions introduced.",
+      "for_any_strategy": "Run the complete `packages/agentfox/tests/unit/session/` test suite; check exit code and failure count",
+      "invariant_check": "import subprocess\nresult = subprocess.run(\n    ['pytest', 'packages/agentfox/tests/unit/session/', '--tb=short', '-q'],\n    capture_output=True, text=True\n)\nassert result.returncode == 0, \\\n    f'Session test suite has failures after type widening:\\n{result.stdout}\\n{result.stderr}'\n# Verify no tests were deselected or skipped unexpectedly\nassert 'passed' in result.stdout\nassert 'error' not in result.stdout.lower()"
+    },
+    {
+      "id": "TS-02-P7",
+      "property_id": "02-PROP-7",
+      "validates": [
+        "02-REQ-4.2"
+      ],
+      "description": "mypy reports no `attr-defined` errors on `session/session.py` and the file contains no `# type: ignore[attr-defined]` comment — the Protocol resolves the return type statically.",
+      "for_any_strategy": "Static analysis run: invoke mypy on `packages/agentfox/agentfox/session/session.py`",
+      "invariant_check": "import subprocess, os\n# Check mypy passes on session.py\nresult = subprocess.run(\n    ['python', '-m', 'mypy', 'packages/agentfox/agentfox/session/session.py',\n     '--no-error-summary'],\n    capture_output=True, text=True\n)\nassert result.returncode == 0, f'mypy failed on session.py:\\n{result.stdout}\\n{result.stderr}'\nassert 'attr-defined' not in result.stdout\n# Also verify the suppression comment is absent from source\nwith open('packages/agentfox/agentfox/session/session.py') as f:\n    src = f.read()\nassert 'type: ignore[attr-defined]' not in src, \\\n    'Found type: ignore[attr-defined] in session.py — must be removed'"
+    }
+  ],
+  "edge_case_tests": [
+    {
+      "id": "TS-02-E1",
+      "requirement_id": "02-REQ-1.E1",
+      "kind": "unit",
+      "description": "Verifies that `isinstance(obj, Backend)` returns `False` for an object missing one or more of the required Protocol attributes.",
+      "preconditions": [
+        "`Backend` Protocol is importable from `agentfox.session.backends`"
+      ],
+      "input": "Objects missing `execute`, `close`, or `name` attributes",
+      "expected": "`isinstance` returns `False` for all incomplete objects",
+      "assertion_pseudocode": "from agentfox.session.backends import Backend\n\nclass MissingClose:\n    @property\n    def name(self): return 'test'\n    async def execute(self, prompt, **kwargs): yield\n\nclass MissingExecute:\n    @property\n    def name(self): return 'test'\n    async def close(self): pass\n\nclass MissingName:\n    async def execute(self, prompt, **kwargs): yield\n    async def close(self): pass\n\nclass EmptyObject: pass\n\nassert isinstance(MissingClose(), Backend) == False\nassert isinstance(MissingExecute(), Backend) == False\nassert isinstance(MissingName(), Backend) == False\nassert isinstance(EmptyObject(), Backend) == False\nassert isinstance('not a backend', Backend) == False\nassert isinstance(None, Backend) == False"
+    },
+    {
+      "id": "TS-02-E2",
+      "requirement_id": "02-REQ-1.E2",
+      "kind": "unit",
+      "description": "Verifies that a backend implementation that does not support the `effort` parameter silently ignores it without raising an exception.",
+      "preconditions": [
+        "A mock backend class is created that does not handle `effort` natively (raises `TypeError` if passed as kwarg)",
+        "The backend follows the try/except `TypeError` with warning log pattern for unsupported parameters"
+      ],
+      "input": "Call `execute()` on the mock backend with `effort='high'`",
+      "expected": "No exception raised; the backend proceeds normally ignoring the `effort` value",
+      "assertion_pseudocode": "import asyncio, warnings\nfrom agentfox.session.backends import Backend, AgentMessage\n\nclass NoEffortBackend:\n    @property\n    def name(self): return 'no-effort'\n    async def execute(self, prompt, *, system_prompt='', model='', cwd='',\n                      permission_callback=None, activity_callback=None,\n                      tool_error_callback=None, node_id='', archetype=None,\n                      max_turns=None, max_budget_usd=None, thinking=None,\n                      effort=None, compaction=False):\n        # Silently ignore effort — no exception raised\n        pass\n        return\n        yield  # make it an async generator\n    async def close(self): pass\n\nbackend = NoEffortBackend()\n# Should not raise\nasync def run():\n    async for msg in backend.execute('test', system_prompt='', model='', cwd='', effort='high'):\n        pass\nasyncio.run(run())  # no exception"
+    },
+    {
+      "id": "TS-02-E3",
+      "requirement_id": "02-REQ-2.E1",
+      "kind": "unit",
+      "description": "Verifies that `create_backend('')` (empty string) raises `ConfigError` with the same unrecognised-name error path as any other unknown name.",
+      "preconditions": [
+        "`create_backend` is importable",
+        "`agentfox.core.errors.ConfigError` is defined"
+      ],
+      "input": "`create_backend('')`",
+      "expected": "Raises `agentfox.core.errors.ConfigError`; message references the empty string or unknown backend",
+      "assertion_pseudocode": "from agentfox.session.backends import create_backend\nfrom agentfox.core.errors import ConfigError\ntry:\n    create_backend('')\n    assert False, 'Expected ConfigError for empty string'\nexcept ConfigError as e:\n    assert 'Unknown backend' in str(e) or \"''\" in str(e)\n    # Same code path as for 'foo'\ntry:\n    create_backend('foo')\nexcept ConfigError as e2:\n    # Both should be ConfigError, not ValueError or other type\n    pass"
+    },
+    {
+      "id": "TS-02-E4",
+      "requirement_id": "02-REQ-2.E2",
+      "kind": "unit",
+      "description": "Verifies that a `ConfigError` raised by `create_backend()` during session startup propagates to the top-level caller without any fallback or process termination.",
+      "preconditions": [
+        "`run_session()` is importable",
+        "`create_backend` can be mocked to raise `ConfigError`",
+        "An async test runner is available"
+      ],
+      "input": "`run_session()` with `create_backend` mocked to raise `ConfigError('missing sdk')`",
+      "expected": "`run_session()` raises `ConfigError`; no fallback backend is used; process does not exit",
+      "assertion_pseudocode": "from unittest.mock import patch\nfrom agentfox.session.session import run_session\nfrom agentfox.core.errors import ConfigError\nimport pytest\nwith patch('agentfox.session.session.create_backend', side_effect=ConfigError('missing sdk')):\n    with pytest.raises(ConfigError) as exc_info:\n        await run_session(prompt='test', config=default_config, backend=None)\n    assert 'missing sdk' in str(exc_info.value)\n    # Process still running — no sys.exit called"
+    },
+    {
+      "id": "TS-02-E5",
+      "requirement_id": "02-REQ-3.E1",
+      "kind": "unit",
+      "description": "Verifies that a TOML config file with `backend = 'unknown-value'` causes `load_config()` to raise `ConfigError` (re-raised from pydantic `ValidationError`) before reaching `create_backend()`.",
+      "preconditions": [
+        "`load_config()` is importable from `agentfox.core.config`",
+        "A temporary TOML file can be written with invalid `backend` value"
+      ],
+      "input": "TOML file with `[orchestrator]\\nbackend = 'unknown-value'`",
+      "expected": "`load_config()` raises `agentfox.core.errors.ConfigError`; `create_backend()` is never called",
+      "assertion_pseudocode": "import tempfile, os\nfrom unittest.mock import patch\nfrom agentfox.core.config import load_config\nfrom agentfox.core.errors import ConfigError\ntoml_content = '[orchestrator]\\nbackend = \"unknown-value\"\\n'\nwith tempfile.NamedTemporaryFile(mode='w', suffix='.toml', delete=False) as f:\n    f.write(toml_content)\n    tmp_path = f.name\ntry:\n    with patch('agentfox.session.backends.create_backend') as mock_factory:\n        try:\n            load_config(tmp_path)\n            assert False, 'Expected ConfigError'\n        except ConfigError:\n            mock_factory.assert_not_called()\nfinally:\n    os.unlink(tmp_path)"
+    },
+    {
+      "id": "TS-02-E6",
+      "requirement_id": "02-REQ-4.E1",
+      "kind": "unit",
+      "description": "Verifies that when a session is cancelled mid-stream, `close()` is called on the backend in the `finally` block and no exception escapes from the idempotent `close()` call.",
+      "preconditions": [
+        "`run_session()` is importable",
+        "A mock `Backend` is available with `execute()` that yields indefinitely and a `close()` that records calls",
+        "An async test runner is available"
+      ],
+      "input": "Session is cancelled via `asyncio.CancelledError` during `backend.execute()` iteration",
+      "expected": "`backend.close()` is called exactly once in the `finally` block; no additional exception is raised",
+      "assertion_pseudocode": "import asyncio\nfrom unittest.mock import AsyncMock, MagicMock, patch\nfrom agentfox.session.session import run_session\n\nasync def infinite_execute(*args, **kwargs):\n    while True:\n        await asyncio.sleep(0)\n        yield MagicMock()  # never stops\n\nmock_backend = MagicMock()\nmock_backend.execute = infinite_execute\nclose_call_count = 0\nasync def counting_close():\n    nonlocal close_call_count\n    close_call_count += 1\nmock_backend.close = counting_close\n\ntask = asyncio.create_task(run_session(prompt='test', config=default_config, backend=mock_backend))\nawait asyncio.sleep(0.01)\ntask.cancel()\ntry:\n    await task\nexcept asyncio.CancelledError:\n    pass\nassert close_call_count == 1, f'Expected close() called once, got {close_call_count}'"
+    },
+    {
+      "id": "TS-02-E7",
+      "requirement_id": "02-REQ-4.E2",
+      "kind": "unit",
+      "description": "Verifies that when `create_backend()` raises `ConfigError` before a session begins, `close()` is not called (no backend was created) and no process termination occurs.",
+      "preconditions": [
+        "`run_session()` is importable",
+        "`create_backend` can be mocked to raise `ConfigError`",
+        "An async test runner is available"
+      ],
+      "input": "`run_session()` with `create_backend` raising `ConfigError` immediately",
+      "expected": "`run_session()` raises `ConfigError`; no `close()` call occurs; process continues",
+      "assertion_pseudocode": "from unittest.mock import patch, AsyncMock\nfrom agentfox.session.session import run_session\nfrom agentfox.core.errors import ConfigError\nimport pytest\nclose_called = False\nwith patch('agentfox.session.session.create_backend', side_effect=ConfigError('bad backend')):\n    with pytest.raises(ConfigError):\n        await run_session(prompt='test', config=default_config, backend=None)\nassert close_called == False, 'close() should not be called when backend creation fails'"
+    },
+    {
+      "id": "TS-02-E8",
+      "requirement_id": "02-REQ-6.E1",
+      "kind": "unit",
+      "description": "Verifies that the containment property test fails with a descriptive assertion message when an SDK name appears in a non-designated production file.",
+      "preconditions": [
+        "A temporary `.py` file can be created under `packages/agentfox/agentfox/` containing the string `'claude_agent_sdk'`",
+        "The containment test function is callable from the test"
+      ],
+      "input": "A non-designated production `.py` file containing the text `claude_agent_sdk`",
+      "expected": "Assertion fails with a message identifying both the SDK name and the offending file path",
+      "assertion_pseudocode": "import glob, os, tempfile, pytest\nagent_fox_dir = 'packages/agentfox/agentfox/'\nSDK_CONTAINMENT = {'claude_agent_sdk': 'claude.py'}\n# Create a temporary offending file\noffending_path = os.path.join(agent_fox_dir, '_test_leak_temp.py')\nwith open(offending_path, 'w') as f:\n    f.write('import claude_agent_sdk  # accidental leak\\n')\ntry:\n    all_files = glob.glob(os.path.join(agent_fox_dir, '**', '*.py'), recursive=True)\n    violations = []\n    for sdk_name, allowed_filename in SDK_CONTAINMENT.items():\n        for filepath in all_files:\n            if os.path.basename(filepath) == allowed_filename:\n                continue\n            with open(filepath) as f:\n                contents = f.read()\n            if sdk_name in contents:\n                violations.append((sdk_name, filepath))\n    assert len(violations) > 0  # we expect a violation\n    # The test should produce a descriptive message\n    assert any('claude_agent_sdk' in v[0] and '_test_leak_temp.py' in v[1] for v in violations)\nfinally:\n    os.unlink(offending_path)"
+    },
+    {
+      "id": "TS-02-E9",
+      "requirement_id": "02-REQ-6.E2",
+      "kind": "unit",
+      "description": "Verifies that the containment test fails with a clear error if the `packages/agentfox/agentfox/` directory does not exist, rather than silently passing with zero files scanned.",
+      "preconditions": [
+        "A non-existent directory path can be provided to the containment test logic"
+      ],
+      "input": "Containment test configured with a non-existent `agent_fox_dir` path",
+      "expected": "Test raises an assertion error or equivalent indicating the directory does not exist; does not silently pass",
+      "assertion_pseudocode": "import os\nimport pytest\nfake_dir = '/nonexistent/path/agentfox/'\nassert not os.path.isdir(fake_dir)\n# The containment test must check directory existence\nwith pytest.raises(AssertionError) as exc_info:\n    assert os.path.isdir(fake_dir), f'Production source directory not found: {fake_dir}'\nassert 'not found' in str(exc_info.value) or 'nonexistent' in str(exc_info.value)"
+    }
+  ],
+  "smoke_tests": [
+    {
+      "id": "TS-02-SMOKE-1",
+      "execution_path_id": "02-PATH-1",
+      "description": "End-to-end smoke test: a session started with `backend=None` and default config (`backend='claude'`) uses the factory to create a `ClaudeBackend`, iterates `AgentMessage` objects, and calls `close()` in the `finally` block.",
+      "trigger": "Call `await run_session(prompt='hello', config=default_config, backend=None)` with a mocked `ClaudeBackend.execute()` that yields two messages",
+      "real_components": [
+        "agentfox.session.session.run_session",
+        "agentfox.session.backends.create_backend",
+        "agentfox.session.backends.protocol.Backend",
+        "agentfox.core.config.OrchestratorConfig"
+      ],
+      "mockable": [
+        "ClaudeBackend.execute (yields mock AgentMessage instances)",
+        "ClaudeBackend.close (AsyncMock recording calls)"
+      ],
+      "expected_effects": [
+        "`create_backend` is called with `'claude'` (the config default)",
+        "`backend.execute()` is called with the provided prompt and config-derived parameters",
+        "Both mock `AgentMessage` objects are yielded and processed by the session loop",
+        "`backend.close()` is called once in the `finally` block after iteration completes",
+        "No `# type: ignore[attr-defined]` comment needed in `session.py`",
+        "`run_session()` completes without raising an exception"
+      ]
+    },
+    {
+      "id": "TS-02-SMOKE-2",
+      "execution_path_id": "02-PATH-2",
+      "description": "Smoke test for config validation failure: a TOML file with an invalid `backend` value triggers `ConfigError` from `load_config()` before any session is started.",
+      "trigger": "Call `load_config(path_to_invalid_toml)` where the TOML contains `[orchestrator]\\nbackend = 'unknown-backend'`",
+      "real_components": [
+        "agentfox.core.config.load_config",
+        "agentfox.core.config.OrchestratorConfig",
+        "agentfox.core.errors.ConfigError"
+      ],
+      "mockable": [
+        "File system (use a temporary TOML file)"
+      ],
+      "expected_effects": [
+        "pydantic `ValidationError` is raised internally due to `Literal['claude']` constraint violation",
+        "`load_config()` catches `ValidationError` and re-raises as `ConfigError`",
+        "`ConfigError` message references the invalid value `'unknown-backend'`",
+        "`create_backend()` is never called",
+        "No session is started"
+      ]
+    },
+    {
+      "id": "TS-02-SMOKE-3",
+      "execution_path_id": "02-PATH-3",
+      "description": "Smoke test for missing SDK failure: when `claude_agent_sdk` is not installed, `create_backend('claude')` raises `ConfigError` with a pip install hint and `run_session()` propagates it.",
+      "trigger": "Call `await run_session(prompt='hello', config=default_config, backend=None)` with the lazy import of `claude_agent_sdk` mocked to raise `ImportError`",
+      "real_components": [
+        "agentfox.session.session.run_session",
+        "agentfox.session.backends.create_backend",
+        "agentfox.core.errors.ConfigError"
+      ],
+      "mockable": [
+        "The lazy import inside `create_backend` (patch to raise `ImportError('No module named claude_agent_sdk')`)"
+      ],
+      "expected_effects": [
+        "`create_backend('claude')` catches `ImportError`",
+        "`ConfigError` is raised with message containing `'pip install'` and `'claude-agent-sdk'`",
+        "`run_session()` propagates the `ConfigError` to the caller",
+        "No backend `close()` is called (no backend was created)",
+        "The process does not terminate — exception is propagated via normal Python exception handling"
+      ]
+    },
+    {
+      "id": "TS-02-SMOKE-4",
+      "execution_path_id": "02-PATH-4",
+      "description": "Smoke test for containment CI enforcement: a PR introducing `claude_agent_sdk` in a non-designated production file causes the containment test to fail and CI to block the merge.",
+      "trigger": "Run `pytest packages/agentfox/tests/unit/session/backends/test_protocol.py` after temporarily writing `import claude_agent_sdk` to a non-designated production file under `packages/agentfox/agentfox/`",
+      "real_components": [
+        "packages/agentfox/tests/unit/session/backends/test_protocol.py",
+        "glob.glob scan of packages/agentfox/agentfox/",
+        "SDK_CONTAINMENT mapping"
+      ],
+      "mockable": [
+        "Temporary offending file (created and cleaned up in test setup/teardown)"
+      ],
+      "expected_effects": [
+        "Containment test scans all `.py` files under `packages/agentfox/agentfox/`",
+        "Test detects `'claude_agent_sdk'` in the non-designated temporary file",
+        "pytest assertion fails with a descriptive message naming the SDK and offending file path",
+        "pytest exits with non-zero return code",
+        "CI marks the check as failed; PR cannot merge",
+        "After the offending file is removed, the test passes and CI unblocks"
+      ]
+    }
+  ],
+  "coverage": {
+    "requirements_covered": [],
+    "properties_covered": [],
+    "paths_covered": [],
+    "gaps": []
+  }
+}

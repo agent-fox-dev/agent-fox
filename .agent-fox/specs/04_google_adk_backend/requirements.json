@@ -1,0 +1,983 @@
+{
+  "$schema": null,
+  "spec_id": "04",
+  "spec_name": "google_adk_backend",
+  "schema_version": 1,
+  "introduction": "This specification defines the `GoogleADKBackend` adapter that wraps Google's Agent Development Kit (ADK) to enable agent-fox to run coding sessions with Gemini and LiteLLM-proxied models, implementing the `Backend` Protocol from spec `02_backend_protocol`. Note: requirements referencing `google.adk`, `google.api_core`, and `google-genai` APIs are based on PRD assumptions and must be cross-checked against the installed `google-adk>=2.0` library before implementation, as ADK 2.x has breaking changes to its event model.",
+  "glossary": {
+    "ActivityCallback": "A callable type defined in spec `02_backend_protocol` that the caller provides to receive progress notifications before each tool invocation.",
+    "Agent": "An ADK class (`google.adk.agents.Agent`) that encapsulates model identity, system instruction, and registered tools.",
+    "AgentMessage": "The canonical union type for messages yielded by `execute()`, encompassing `AssistantMessage`, `ToolUseMessage`, and `ResultMessage`, defined in spec `02_backend_protocol`.",
+    "AssistantMessage": "A canonical message type representing text output from the model, defined in spec `02_backend_protocol`.",
+    "Backend": "The Protocol defined in spec `02_backend_protocol` that all backend adapters must satisfy, requiring an `execute()` async generator method.",
+    "FunctionCall": "An ADK event type indicating the model has requested a tool invocation.",
+    "FunctionResponse": "An ADK event type carrying the result of a tool invocation back to the model.",
+    "GoogleADKBackend": "The adapter class defined in `session/backends/google_adk.py` that wraps Google ADK to implement the `Backend` Protocol.",
+    "InMemorySessionService": "An ADK class (`google.adk.sessions.InMemorySessionService`) that provides ephemeral in-process session storage for a single `execute()` call.",
+    "LiteLLM": "A proxy library integrated into ADK that allows non-Gemini models to be used via ADK using the `litellm/<provider>/<model>` naming convention.",
+    "OrchestratorConfig": "The Pydantic configuration model in `agentfox/core/config.py` that governs orchestrator behaviour, including the `backend` field.",
+    "PermissionCallback": "A callable type defined in spec `02_backend_protocol` that the caller provides to approve or deny individual tool invocations.",
+    "ResourceExhausted": "The `google.api_core.exceptions.ResourceExhausted` exception class representing HTTP 429 rate-limit or quota-exhaustion responses from Google APIs.",
+    "ResultMessage": "A canonical terminal message type representing the final outcome of an `execute()` call, carrying token usage and error status, defined in spec `02_backend_protocol`.",
+    "Runner": "An ADK class (`google.adk.runners.Runner`) that orchestrates agent execution and streams events.",
+    "ServiceUnavailable": "The `google.api_core.exceptions.ServiceUnavailable` exception class representing HTTP 503 responses from Google APIs.",
+    "ToolUseMessage": "A canonical message type representing a tool invocation by the model, defined in spec `02_backend_protocol`.",
+    "_BACKOFF_BASE": "Module-level constant in `google_adk.py` setting the base delay in seconds for exponential backoff (value: 1.0).",
+    "_MAX_TRANSPORT_RETRIES": "Module-level constant in `google_adk.py` setting the maximum number of retry attempts for transient errors (value: 3).",
+    "adk_tools.py": "The coding tools module at `session/backends/adk_tools.py` that provides file and shell operations as ADK function tools.",
+    "af SDK tools": "The five agent-fox SDK functions (`spec_read`, `context_search`, `context_get`, `memory_recall`, `subtask_state`) registered as ADK function tools.",
+    "containment test": "A test that verifies each third-party SDK import is isolated to its designated adapter file.",
+    "context_get": "An af SDK function that retrieves a context item, imported from its source module and registered as an ADK tool.",
+    "context_search": "An af SDK function that searches the context store, imported from its source module and registered as an ADK tool.",
+    "create_backend": "The factory function defined in spec `02_backend_protocol` that maps a backend name string to a backend instance.",
+    "cwd": "The workspace root directory passed to `execute()` as a `str`; all coding tool file operations are scoped to this directory.",
+    "deepagents.py": "The file `session/backends/deepagents.py` that serves as the canonical reference for af SDK tool import paths.",
+    "google_adk.py": "The file `session/backends/google_adk.py` containing the `GoogleADKBackend` adapter.",
+    "is_error": "A boolean field on `ResultMessage` indicating whether the `execute()` call terminated due to an error.",
+    "is_transport_error": "A boolean field on `ResultMessage` indicating whether the terminal error was caused by a network/transport failure.",
+    "max_turns": "An optional integer parameter to `execute()` that caps the number of tool-call/response round-trips before the event loop is stopped.",
+    "memory_recall": "An af SDK function that retrieves from agent memory, imported from its source module and registered as an ADK tool.",
+    "path containment": "The security invariant that all file-operation paths resolved against `cwd` must remain within the workspace root, enforced via `pathlib.resolve()` and `is_relative_to()`.",
+    "pyproject.toml": "The Python project manifest file where `google-adk` is declared as an optional dependency.",
+    "run_async": "The `Runner.run_async(session_id, user_id, new_message)` method that returns an async iterator of ADK events.",
+    "spec_read": "An af SDK function that reads a spec artifact, imported from its source module and registered as an ADK tool.",
+    "subtask_state": "An af SDK function that reads or updates subtask state, imported from its source module and registered as an ADK tool.",
+    "usage_metadata": "The field on ADK events that carries token-count information (input tokens, output tokens, etc.); exact field path must be verified against the installed `google-adk>=2.0`."
+  },
+  "requirements": [
+    {
+      "id": "04-REQ-1",
+      "title": "GoogleADKBackend implements the Backend Protocol",
+      "user_story": {
+        "role": "agent-fox orchestration layer",
+        "goal": "use GoogleADKBackend interchangeably with other backends",
+        "benefit": "orchestration logic remains backend-agnostic"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-1.1",
+          "ears_pattern": "ubiquitous",
+          "system": "GoogleADKBackend",
+          "action": "fully satisfies the `Backend` Protocol such that `isinstance(GoogleADKBackend(), Backend)` evaluates to True and all Protocol methods are present with correct signatures",
+          "return_contract": "`isinstance` check returns True; no `TypeError` is raised when the instance is used as a `Backend`"
+        },
+        {
+          "id": "04-REQ-1.2",
+          "ears_pattern": "ubiquitous",
+          "system": "GoogleADKBackend",
+          "action": "implements `execute()` as an async generator function using `async def` with `yield` statements, returning `AsyncIterator[AgentMessage]`",
+          "return_contract": "calling `execute()` returns an object satisfying `AsyncIterator[AgentMessage]`"
+        },
+        {
+          "id": "04-REQ-1.3",
+          "ears_pattern": "ubiquitous",
+          "system": "GoogleADKBackend.execute()",
+          "action": "accepts all parameters specified in the `Backend` Protocol: `prompt`, `system_prompt`, `model`, `cwd`, `permission_callback`, `activity_callback`, `tool_error_callback`, `node_id`, `archetype`, `max_turns`, `max_budget_usd`, `thinking`, `effort`, `compaction`",
+          "return_contract": "no `TypeError` is raised for any combination of valid parameter values"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "04-REQ-1.E1",
+          "ears_pattern": "unwanted",
+          "system": "GoogleADKBackend.execute()",
+          "action": "catches all exceptions internally and yields a terminal `ResultMessage(is_error=True)` instead of propagating",
+          "return_contract": "the async iterator terminates normally with a `ResultMessage`; no exception escapes to the caller",
+          "error_condition": "an unhandled exception would propagate out of `execute()`"
+        }
+      ]
+    },
+    {
+      "id": "04-REQ-2",
+      "title": "ADK Agent and Runner session lifecycle per execute() call",
+      "user_story": {
+        "role": "agent-fox orchestration layer",
+        "goal": "have each execute() call be fully independent with its own ADK session",
+        "benefit": "no state leaks between calls and the adapter satisfies ADK's session-before-run_async requirement"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-2.1",
+          "ears_pattern": "event_driven",
+          "system": "GoogleADKBackend.execute()",
+          "action": "creates a fresh `InMemorySessionService`, calls `create_session(app_name='agent-fox', user_id=str(uuid4()))` to obtain a session object, constructs an `Agent` with `model`, `name='coder'`, `instruction=system_prompt`, and the registered coding plus af SDK tools, constructs a `Runner` with the agent and session service, then calls `run_async(session_id=session.id, user_id=session.user_id, new_message=...)` to begin streaming",
+          "return_contract": "an async iterator of `AgentMessage` objects is returned",
+          "trigger": "invoked"
+        },
+        {
+          "id": "04-REQ-2.2",
+          "ears_pattern": "ubiquitous",
+          "system": "GoogleADKBackend.execute()",
+          "action": "converts the `cwd` string to a `pathlib.Path` once at the start of the call and passes the resolved `Path` to `adk_tools.py` tool constructors",
+          "return_contract": null
+        },
+        {
+          "id": "04-REQ-2.3",
+          "ears_pattern": "ubiquitous",
+          "system": "GoogleADKBackend.execute()",
+          "action": "passes the `model` string unchanged to `Agent(model=...)` without transformation, validation, or prefix stripping",
+          "return_contract": null
+        },
+        {
+          "id": "04-REQ-2.4",
+          "ears_pattern": "ubiquitous",
+          "system": "GoogleADKBackend.execute()",
+          "action": "maps `system_prompt` directly to the `Agent`'s `instruction` parameter",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "04-REQ-2.E1",
+          "ears_pattern": "unwanted",
+          "system": "GoogleADKBackend.execute()",
+          "action": "the outer retry and turn-counting logic bounds execution; no additional internal timeout mechanism is specified in v1, but the `max_turns` cap prevents unbounded iteration by stopping the loop after the configured number of tool-call/response round-trips",
+          "return_contract": "when `max_turns` is reached, a terminal `ResultMessage` is yielded and the loop exits",
+          "error_condition": "`run_async` hangs indefinitely without yielding events or completing"
+        }
+      ]
+    },
+    {
+      "id": "04-REQ-3",
+      "title": "ADK event mapping to canonical message types",
+      "user_story": {
+        "role": "agent-fox orchestration layer",
+        "goal": "receive canonical AgentMessage types from any backend",
+        "benefit": "orchestration logic is decoupled from ADK-specific event shapes"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-3.1",
+          "ears_pattern": "event_driven",
+          "system": "GoogleADKBackend.execute()",
+          "action": "yields a `ToolUseMessage` immediately, before the tool result is known, regardless of whether the tool name is recognised in the registered tool list",
+          "return_contract": "a `ToolUseMessage` is yielded carrying the tool name and input arguments from the event",
+          "trigger": "a `FunctionCall` event is received from `run_async`"
+        },
+        {
+          "id": "04-REQ-3.2",
+          "ears_pattern": "event_driven",
+          "system": "GoogleADKBackend.execute()",
+          "action": "consumes the event internally and discards it without yielding any message",
+          "return_contract": "no message is yielded to the caller for this event type",
+          "trigger": "a `FunctionResponse` or tool result event is received from `run_async`"
+        },
+        {
+          "id": "04-REQ-3.3",
+          "ears_pattern": "event_driven",
+          "system": "GoogleADKBackend.execute()",
+          "action": "yields an `AssistantMessage` carrying the text content",
+          "return_contract": "an `AssistantMessage` is yielded with the text from the event",
+          "trigger": "a text content event is received from `run_async`"
+        },
+        {
+          "id": "04-REQ-3.4",
+          "ears_pattern": "event_driven",
+          "system": "GoogleADKBackend.execute()",
+          "action": "yields a `ResultMessage` with aggregated token usage, preferring cumulative counts from the terminal event and falling back to summing intermediate event `usage_metadata` if the terminal event does not carry cumulative counts",
+          "return_contract": "a `ResultMessage` is yielded with `is_error=False` and token usage populated",
+          "trigger": "the final or terminal event is received from `run_async`"
+        },
+        {
+          "id": "04-REQ-3.5",
+          "ears_pattern": "event_driven",
+          "system": "GoogleADKBackend.execute()",
+          "action": "silently skips the event without yielding any message",
+          "return_contract": "no message is yielded",
+          "trigger": "an unrecognised or no-op event is received from `run_async`"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "04-REQ-3.E1",
+          "ears_pattern": "event_driven",
+          "system": "GoogleADKBackend.execute()",
+          "action": "still yields a `ToolUseMessage` for the event to preserve telemetry and audit logging, without blocking or filtering",
+          "return_contract": "a `ToolUseMessage` is yielded carrying the unrecognised tool name",
+          "trigger": "a `FunctionCall` event references a tool name not present in the registered tool list"
+        },
+        {
+          "id": "04-REQ-3.E2",
+          "ears_pattern": "unwanted",
+          "system": "GoogleADKBackend.execute()",
+          "action": "catches the exception and yields a terminal `ResultMessage(is_error=True, is_transport_error=False)` unless the exception is classified as transient, in which case retry logic applies",
+          "return_contract": "a `ResultMessage` is yielded and the iterator terminates",
+          "error_condition": "an exception is raised while iterating the `run_async` event stream"
+        }
+      ]
+    },
+    {
+      "id": "04-REQ-4",
+      "title": "max_turns manual turn counter",
+      "user_story": {
+        "role": "agent-fox orchestration layer",
+        "goal": "cap the number of tool-call/response round-trips in a session",
+        "benefit": "prevents runaway agent loops and mirrors the safety limit provided by other backends"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-4.1",
+          "ears_pattern": "state_driven",
+          "system": "GoogleADKBackend.execute()",
+          "action": "maintains an internal counter that increments on each tool-call/response round-trip; stops the event loop when the counter reaches `max_turns` and immediately yields a terminal `ResultMessage(is_error=False)`",
+          "return_contract": "a `ResultMessage` with `is_error=False` is yielded after exactly `max_turns` round-trips",
+          "state": "`max_turns` is set to a positive integer"
+        },
+        {
+          "id": "04-REQ-4.2",
+          "ears_pattern": "state_driven",
+          "system": "GoogleADKBackend.execute()",
+          "action": "runs the event loop until ADK signals completion or an error occurs, with no turn-based stopping condition",
+          "return_contract": "the loop runs to natural completion or error",
+          "state": "`max_turns` is `None`"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "04-REQ-4.E1",
+          "ears_pattern": "unwanted",
+          "system": "GoogleADKBackend.execute()",
+          "action": "stops consuming events from the stream, yields the terminal `ResultMessage`, and allows the async generator to be garbage-collected without propagating any exception",
+          "return_contract": "a `ResultMessage` with `is_error=False` is yielded; no exception escapes",
+          "error_condition": "`max_turns` is reached and the ADK event stream is still open"
+        }
+      ]
+    },
+    {
+      "id": "04-REQ-5",
+      "title": "permission_callback and activity_callback invocation at tool boundaries",
+      "user_story": {
+        "role": "agent-fox orchestration layer",
+        "goal": "enforce tool permission checks and receive progress notifications at every tool invocation",
+        "benefit": "security allowlist is enforced and the UI receives live tool-progress feedback, consistent with other backends"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-5.1",
+          "ears_pattern": "event_driven",
+          "system": "GoogleADKBackend.execute()",
+          "action": "invokes `activity_callback` with the tool name and arguments before executing the tool",
+          "return_contract": null,
+          "trigger": "a `FunctionCall` event is received and `activity_callback` is not None"
+        },
+        {
+          "id": "04-REQ-5.2",
+          "ears_pattern": "event_driven",
+          "system": "GoogleADKBackend.execute()",
+          "action": "invokes `permission_callback` with the tool name and arguments; if the callback returns a denial, blocks the tool execution and returns a structured error dict `{\"error\": \"permission_denied\", \"detail\": \"...\"}` to the model without executing the tool",
+          "return_contract": "on denial: the structured error dict is returned to the model; the tool function is not called",
+          "trigger": "a `FunctionCall` event is received and `permission_callback` is not None"
+        },
+        {
+          "id": "04-REQ-5.3",
+          "ears_pattern": "event_driven",
+          "system": "GoogleADKBackend.execute()",
+          "action": "proceeds to execute the tool normally",
+          "return_contract": "the tool result dict is returned to the model",
+          "trigger": "a `FunctionCall` event is received and `permission_callback` grants the tool call"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "04-REQ-5.E1",
+          "ears_pattern": "unwanted",
+          "system": "GoogleADKBackend.execute()",
+          "action": "treats the exception as a non-transient error, yields a terminal `ResultMessage(is_error=True, is_transport_error=False)`, and stops iteration",
+          "return_contract": "a `ResultMessage` with `is_error=True` is yielded; no exception escapes",
+          "error_condition": "`permission_callback` or `activity_callback` raises an exception"
+        }
+      ]
+    },
+    {
+      "id": "04-REQ-6",
+      "title": "Coding tools module (adk_tools.py) with path containment",
+      "user_story": {
+        "role": "AI coding agent running via GoogleADKBackend",
+        "goal": "perform file and shell operations within the workspace",
+        "benefit": "the agent can read, write, edit, and search files and execute commands, all safely scoped to the workspace root"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-6.1",
+          "ears_pattern": "ubiquitous",
+          "system": "adk_tools.py",
+          "action": "provides six ADK function tools: `read_file(path: str) -> dict`, `write_file(path: str, content: str) -> dict`, `edit_file(path: str, old_text: str, new_text: str) -> dict`, `execute(command: str) -> dict`, `list_files(path: str) -> dict`, `search_files(pattern: str, path: str) -> dict`; all tools accept `cwd` as a `pathlib.Path` bound at construction time",
+          "return_contract": "each tool returns a dict with the operation result on success"
+        },
+        {
+          "id": "04-REQ-6.2",
+          "ears_pattern": "ubiquitous",
+          "system": "adk_tools.py",
+          "action": "before any I/O operation, resolves the user-supplied path as `resolved = (cwd / user_path).resolve()`, checks `resolved.is_relative_to(cwd.resolve())`, and if the check fails returns `{\"error\": \"path_not_allowed\", \"detail\": \"Path escapes workspace root\"}` without performing I/O",
+          "return_contract": "on containment violation: `{\"error\": \"path_not_allowed\", \"detail\": \"Path escapes workspace root\"}` is returned; no I/O is performed and no exception is raised"
+        },
+        {
+          "id": "04-REQ-6.3",
+          "ears_pattern": "ubiquitous",
+          "system": "adk_tools.py `read_file`",
+          "action": "reads and returns the contents of the specified file within `cwd`",
+          "return_contract": "`{\"content\": \"<file contents>\"}` on success"
+        },
+        {
+          "id": "04-REQ-6.4",
+          "ears_pattern": "ubiquitous",
+          "system": "adk_tools.py `write_file`",
+          "action": "writes or creates the specified file within `cwd` with the given content",
+          "return_contract": "`{\"ok\": true}` on success"
+        },
+        {
+          "id": "04-REQ-6.5",
+          "ears_pattern": "ubiquitous",
+          "system": "adk_tools.py `edit_file`",
+          "action": "finds the first occurrence of `old_text` in the specified file within `cwd` and replaces it with `new_text`",
+          "return_contract": "`{\"ok\": true}` on success; `{\"error\": \"text_not_found\", \"detail\": \"...\"}` if `old_text` is not present"
+        },
+        {
+          "id": "04-REQ-6.6",
+          "ears_pattern": "ubiquitous",
+          "system": "adk_tools.py `execute`",
+          "action": "runs the given shell command in the `cwd` directory and returns stdout, stderr, and the exit code",
+          "return_contract": "`{\"stdout\": \"...\", \"stderr\": \"...\", \"returncode\": <int>}` on completion"
+        },
+        {
+          "id": "04-REQ-6.7",
+          "ears_pattern": "ubiquitous",
+          "system": "adk_tools.py `list_files`",
+          "action": "lists the contents of the specified directory within `cwd`",
+          "return_contract": "`{\"entries\": [\"<name>\", ...]}` on success"
+        },
+        {
+          "id": "04-REQ-6.8",
+          "ears_pattern": "ubiquitous",
+          "system": "adk_tools.py `search_files`",
+          "action": "searches for `pattern` (grep-style) within files under the specified path within `cwd` and returns matching lines with file names",
+          "return_contract": "`{\"matches\": [{\"file\": \"...\", \"line\": <int>, \"text\": \"...\"}]}` on success"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "04-REQ-6.E1",
+          "ears_pattern": "unwanted",
+          "system": "adk_tools.py",
+          "action": "the `resolve()` call follows the symlink; the `is_relative_to(cwd.resolve())` check then fails and the structured error dict is returned without performing I/O",
+          "return_contract": "`{\"error\": \"path_not_allowed\", \"detail\": \"Path escapes workspace root\"}` is returned",
+          "error_condition": "a symlink within `cwd` resolves to a target outside the workspace root"
+        },
+        {
+          "id": "04-REQ-6.E2",
+          "ears_pattern": "unwanted",
+          "system": "adk_tools.py `execute`",
+          "action": "the tool sets a subprocess timeout; if the command exceeds the timeout, the subprocess is terminated, stdout/stderr collected so far are returned, and `returncode` reflects the termination",
+          "return_contract": "`{\"stdout\": \"...\", \"stderr\": \"...\", \"returncode\": <non-zero>}` is returned; no exception escapes to the model",
+          "error_condition": "the shell command hangs or does not return within a reasonable time"
+        },
+        {
+          "id": "04-REQ-6.E3",
+          "ears_pattern": "unwanted",
+          "system": "adk_tools.py `execute`",
+          "action": "returns the captured stdout, stderr, and the non-zero exit code without raising an exception",
+          "return_contract": "`{\"stdout\": \"...\", \"stderr\": \"...\", \"returncode\": <non-zero>}` is returned",
+          "error_condition": "the shell command fails with a non-zero exit code"
+        },
+        {
+          "id": "04-REQ-6.E4",
+          "ears_pattern": "unwanted",
+          "system": "adk_tools.py",
+          "action": "returns a structured error dict `{\"error\": \"<error_type>\", \"detail\": \"<message>\"}` without raising the exception to the caller",
+          "return_contract": "`{\"error\": \"...\", \"detail\": \"...\"}` is returned",
+          "error_condition": "a file operation raises an OS-level exception (e.g. file not found, permission denied)"
+        }
+      ]
+    },
+    {
+      "id": "04-REQ-7",
+      "title": "af SDK tools registered as ADK function tools",
+      "user_story": {
+        "role": "AI coding agent running via GoogleADKBackend",
+        "goal": "access af SDK capabilities (spec reading, context search, memory recall, subtask state) during a session",
+        "benefit": "the agent has the same SDK tool access as when running via other backends"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-7.1",
+          "ears_pattern": "ubiquitous",
+          "system": "google_adk.py",
+          "action": "imports the five af SDK functions (`spec_read`, `context_search`, `context_get`, `memory_recall`, `subtask_state`) using the exact same import paths as `deepagents.py`, wraps them as plain Python functions with type annotations and docstrings (ADK's native tool format), and registers them alongside the coding tools when constructing the `Agent`",
+          "return_contract": null
+        },
+        {
+          "id": "04-REQ-7.2",
+          "ears_pattern": "ubiquitous",
+          "system": "google_adk.py",
+          "action": "performs af SDK tool import and registration inside `google_adk.py` at construction time without dependency injection or registry lookup",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "04-REQ-7.E1",
+          "ears_pattern": "unwanted",
+          "system": "google_adk.py",
+          "action": "the import error propagates normally at module load or construction time; it is not silently suppressed, so the misconfiguration is immediately visible",
+          "return_contract": "an `ImportError` is raised at construction time",
+          "error_condition": "an af SDK tool import fails because the source module is unavailable"
+        }
+      ]
+    },
+    {
+      "id": "04-REQ-8",
+      "title": "Transient error retry logic",
+      "user_story": {
+        "role": "agent-fox orchestration layer",
+        "goal": "have transient ADK/network errors retried automatically",
+        "benefit": "sessions survive short-lived quota or connectivity issues without requiring manual retry by the caller"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-8.1",
+          "ears_pattern": "ubiquitous",
+          "system": "google_adk.py",
+          "action": "defines module-level constants `_MAX_TRANSPORT_RETRIES = 3` and `_BACKOFF_BASE = 1.0` (seconds), computing delay as `_BACKOFF_BASE * 2^(attempt-1)` yielding 1 s, 2 s, 4 s",
+          "return_contract": null
+        },
+        {
+          "id": "04-REQ-8.2",
+          "ears_pattern": "event_driven",
+          "system": "GoogleADKBackend.execute()",
+          "action": "treats the exception as transient, waits for the computed backoff delay, and retries the entire `run_async` call up to `_MAX_TRANSPORT_RETRIES` times",
+          "return_contract": "on successful retry: streaming resumes normally; on exhausted retries: a terminal `ResultMessage(is_error=True, is_transport_error=True)` is yielded",
+          "trigger": "`ResourceExhausted`, `ServiceUnavailable`, `ConnectionError`, or `OSError` is raised during `run_async` streaming"
+        },
+        {
+          "id": "04-REQ-8.3",
+          "ears_pattern": "event_driven",
+          "system": "GoogleADKBackend.execute()",
+          "action": "treats the exception as non-transient and immediately yields `ResultMessage(is_error=True, is_transport_error=False)` without retrying",
+          "return_contract": "`ResultMessage(is_error=True, is_transport_error=False)` is yielded",
+          "trigger": "any exception not classified as transient is raised during `run_async` streaming"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "04-REQ-8.E1",
+          "ears_pattern": "unwanted",
+          "system": "GoogleADKBackend.execute()",
+          "action": "yields `ResultMessage(is_error=True, is_transport_error=True)` and stops iteration; no exception propagates to the caller",
+          "return_contract": "`ResultMessage(is_error=True, is_transport_error=True)` is yielded",
+          "error_condition": "all `_MAX_TRANSPORT_RETRIES` retry attempts are exhausted"
+        },
+        {
+          "id": "04-REQ-8.E2",
+          "ears_pattern": "unwanted",
+          "system": "GoogleADKBackend.execute()",
+          "action": "retries the `run_async` call; messages already yielded are not re-sent; the caller is responsible for deduplication if needed",
+          "return_contract": "retry proceeds; no duplicate terminal message is yielded before the retry attempt",
+          "error_condition": "a transient error occurs after some `ToolUseMessage` or `AssistantMessage` objects have already been yielded"
+        }
+      ]
+    },
+    {
+      "id": "04-REQ-9",
+      "title": "Silently ignored parameters with debug logging for max_budget_usd",
+      "user_story": {
+        "role": "agent-fox orchestration layer",
+        "goal": "pass all Backend Protocol parameters without causing errors even if the backend does not support them",
+        "benefit": "callers use a uniform parameter set across all backends without branching"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-9.1",
+          "ears_pattern": "event_driven",
+          "system": "GoogleADKBackend.execute()",
+          "action": "emits a `debug`-level log using `logging.getLogger(__name__)` with the message `'max_budget_usd=%s ignored: budget enforcement not supported by GoogleADKBackend'` and proceeds without enforcing the budget",
+          "return_contract": "a debug log entry is produced; execution continues normally",
+          "trigger": "`max_budget_usd` is not None"
+        },
+        {
+          "id": "04-REQ-9.2",
+          "ears_pattern": "ubiquitous",
+          "system": "GoogleADKBackend.execute()",
+          "action": "silently ignores `thinking`, `effort`, `compaction`, `tool_error_callback`, `node_id`, and `archetype` parameters without logging or raising errors",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "04-REQ-10",
+      "title": "create_backend factory registration for google-adk",
+      "user_story": {
+        "role": "agent-fox orchestration layer",
+        "goal": "instantiate a GoogleADKBackend by passing 'google-adk' to create_backend()",
+        "benefit": "backend selection is configuration-driven and consistent with other backends"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-10.1",
+          "ears_pattern": "event_driven",
+          "system": "`create_backend` factory",
+          "action": "lazily imports `GoogleADKBackend` from `session/backends/google_adk.py` and returns a new instance",
+          "return_contract": "returns a `GoogleADKBackend` instance satisfying the `Backend` Protocol",
+          "trigger": "called with the string `'google-adk'`"
+        },
+        {
+          "id": "04-REQ-10.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`create_backend` factory",
+          "action": "continues to return the correct backend instance for all previously registered keys (`'claude'`, `'deepagents'`) without modification",
+          "return_contract": "existing backend key behaviour is unchanged"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "04-REQ-10.E1",
+          "ears_pattern": "unwanted",
+          "system": "`create_backend` factory",
+          "action": "the lazy import raises `ImportError` with a message indicating the `google-adk` extras group must be installed",
+          "return_contract": "`ImportError` is raised; no partial or broken backend instance is returned",
+          "error_condition": "`google-adk` optional dependency is not installed when `create_backend('google-adk')` is called"
+        }
+      ]
+    },
+    {
+      "id": "04-REQ-11",
+      "title": "OrchestratorConfig backend Literal widened to include google-adk",
+      "user_story": {
+        "role": "agent-fox operator",
+        "goal": "set `backend='google-adk'` in OrchestratorConfig without a validation error",
+        "benefit": "Google ADK can be selected through the standard configuration interface"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-11.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`OrchestratorConfig`",
+          "action": "widens the `backend` field type from `Literal['claude', 'deepagents']` to `Literal['claude', 'deepagents', 'google-adk']` in `agentfox/core/config.py`",
+          "return_contract": "Pydantic validates `backend='google-adk'` without error; existing values `'claude'` and `'deepagents'` continue to validate without modification"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "04-REQ-11.E1",
+          "ears_pattern": "unwanted",
+          "system": "`OrchestratorConfig`",
+          "action": "Pydantic raises a `ValidationError` as before; no new permissive behaviour is introduced",
+          "return_contract": "a Pydantic `ValidationError` is raised",
+          "error_condition": "an unknown `backend` value is provided"
+        }
+      ]
+    },
+    {
+      "id": "04-REQ-12",
+      "title": "google-adk optional dependency declared in pyproject.toml",
+      "user_story": {
+        "role": "developer installing agent-fox",
+        "goal": "install only the google-adk dependency when needed via an extras group",
+        "benefit": "the core package remains lightweight for users who do not use Google ADK"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-12.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`pyproject.toml`",
+          "action": "declares `google-adk>=2.0` under `[project.optional-dependencies]` in a `google-adk` extras group",
+          "return_contract": "`pip install agent-fox[google-adk]` succeeds and installs `google-adk>=2.0`"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "04-REQ-13",
+      "title": "Containment test updated to isolate google.adk imports",
+      "user_story": {
+        "role": "developer maintaining the codebase",
+        "goal": "verify that google.adk imports are confined to google_adk.py",
+        "benefit": "optional dependency isolation is enforced automatically in CI"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-13.1",
+          "ears_pattern": "ubiquitous",
+          "system": "containment test",
+          "action": "adds the mapping `'google.adk'` → `'google_adk.py'` to the SDK-to-file mapping in the existing containment test, following the same pattern used for `deepagents.py`",
+          "return_contract": "the containment test passes when `google.adk` is only imported in `google_adk.py` and fails if it appears elsewhere"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "04-REQ-14",
+      "title": "Unit test suite for GoogleADKBackend and adk_tools",
+      "user_story": {
+        "role": "developer contributing to agent-fox",
+        "goal": "verify GoogleADKBackend and adk_tools behaviour via unit tests with mocked ADK dependencies",
+        "benefit": "correctness is validated without requiring live Gemini API access"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "04-REQ-14.1",
+          "ears_pattern": "ubiquitous",
+          "system": "test suite",
+          "action": "provides tests in `tests/backends/test_google_adk.py` and `tests/backends/test_adk_tools.py`; all tests are guarded with `pytest.importorskip('google.adk')` so the suite passes when the optional dependency is not installed",
+          "return_contract": "all tests pass with `pytest` when `google-adk` is installed; tests are skipped cleanly when it is not"
+        },
+        {
+          "id": "04-REQ-14.2",
+          "ears_pattern": "ubiquitous",
+          "system": "test suite for GoogleADKBackend",
+          "action": "mocks `Agent`, `Runner`, and `InMemorySessionService`; injects pre-configured async generator event streams via `run_async` mock to cover: event-to-message mapping for all event types, retry logic for `ResourceExhausted` and `ServiceUnavailable` up to `_MAX_TRANSPORT_RETRIES`, non-transient exception yielding immediate error `ResultMessage`, `max_turns` stopping the loop, `permission_callback` denial returning structured error dict, `activity_callback` invocation before tool calls, token usage terminal-event preference and intermediate-event summation fallback, and unrecognised tool name yielding `ToolUseMessage`",
+          "return_contract": "all described test scenarios have at least one passing test case"
+        },
+        {
+          "id": "04-REQ-14.3",
+          "ears_pattern": "ubiquitous",
+          "system": "test suite for adk_tools",
+          "action": "unit-tests each of the six coding tools covering the happy path and `path containment` enforcement including symlink escape attempts",
+          "return_contract": "all six tools have passing happy-path and path-containment test cases"
+        }
+      ],
+      "edge_cases": []
+    }
+  ],
+  "correctness_properties": [
+    {
+      "id": "04-PROP-1",
+      "title": "Backend Protocol structural conformance",
+      "for_any": "`GoogleADKBackend` instance `b`",
+      "invariant": "`isinstance(b, Backend)` is True and `b.execute(...)` returns an `AsyncIterator[AgentMessage]`",
+      "validates": [
+        "04-REQ-1.1",
+        "04-REQ-1.2"
+      ]
+    },
+    {
+      "id": "04-PROP-2",
+      "title": "No exception propagation from execute()",
+      "for_any": "any combination of valid and invalid inputs to `GoogleADKBackend.execute()`",
+      "invariant": "the async iterator always terminates with a `ResultMessage` as its last item; no exception ever propagates past the `execute()` boundary",
+      "validates": [
+        "04-REQ-1.E1",
+        "04-REQ-8.2",
+        "04-REQ-8.3"
+      ]
+    },
+    {
+      "id": "04-PROP-3",
+      "title": "Path containment invariant for all coding tools",
+      "for_any": "any user-supplied path string `p` and workspace root `cwd`",
+      "invariant": "if `(cwd / p).resolve()` is not relative to `cwd.resolve()`, no I/O is performed and the structured error dict `{\"error\": \"path_not_allowed\", \"detail\": \"Path escapes workspace root\"}` is returned",
+      "validates": [
+        "04-REQ-6.2",
+        "04-REQ-6.E1"
+      ]
+    },
+    {
+      "id": "04-PROP-4",
+      "title": "ToolUseMessage yielded for every FunctionCall regardless of tool name recognition",
+      "for_any": "any `FunctionCall` event in the ADK event stream, whether the tool name is registered or not",
+      "invariant": "exactly one `ToolUseMessage` is yielded before any tool result is returned to the model",
+      "validates": [
+        "04-REQ-3.1",
+        "04-REQ-3.E1"
+      ]
+    },
+    {
+      "id": "04-PROP-5",
+      "title": "Retry count is strictly bounded by _MAX_TRANSPORT_RETRIES",
+      "for_any": "any sequence of transient errors during `run_async` streaming",
+      "invariant": "the number of retry attempts never exceeds `_MAX_TRANSPORT_RETRIES`; after exhaustion a `ResultMessage(is_error=True, is_transport_error=True)` is yielded",
+      "validates": [
+        "04-REQ-8.1",
+        "04-REQ-8.2",
+        "04-REQ-8.E1"
+      ]
+    },
+    {
+      "id": "04-PROP-6",
+      "title": "max_turns strictly caps tool-call round-trips",
+      "for_any": "any `execute()` call with `max_turns=N` where N is a positive integer",
+      "invariant": "the event loop stops after at most N tool-call/response round-trips and yields a terminal `ResultMessage`; the loop never exceeds N round-trips",
+      "validates": [
+        "04-REQ-4.1",
+        "04-REQ-4.E1"
+      ]
+    },
+    {
+      "id": "04-PROP-7",
+      "title": "google.adk imports are isolated to google_adk.py",
+      "for_any": "any Python source file in the project other than `google_adk.py`",
+      "invariant": "no direct `import google.adk` or `from google.adk` statement appears; all ADK usage is encapsulated in `google_adk.py`",
+      "validates": [
+        "04-REQ-13.1"
+      ]
+    },
+    {
+      "id": "04-PROP-8",
+      "title": "permission_callback gates every tool execution",
+      "for_any": "any `FunctionCall` event when `permission_callback` is provided",
+      "invariant": "the tool function is never invoked before `permission_callback` is called; if `permission_callback` returns a denial the tool function is never called",
+      "validates": [
+        "04-REQ-5.2",
+        "04-REQ-5.3"
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "04-PATH-1",
+      "title": "End-to-end coding session via GoogleADKBackend from orchestrator to ADK event stream",
+      "steps": [
+        {
+          "actor": "Orchestrator (caller)",
+          "action": "calls `create_backend('google-adk')` to obtain a `GoogleADKBackend` instance"
+        },
+        {
+          "actor": "`create_backend` factory (spec 02)",
+          "action": "lazily imports and instantiates `GoogleADKBackend` from `session/backends/google_adk.py`"
+        },
+        {
+          "actor": "Orchestrator (caller)",
+          "action": "calls `backend.execute(prompt, system_prompt=..., model='gemini-2.0-flash', cwd='/workspace', ...)` to start the session"
+        },
+        {
+          "actor": "GoogleADKBackend.execute()",
+          "action": "converts `cwd` to `pathlib.Path`, creates a fresh `InMemorySessionService`, calls `create_session(app_name='agent-fox', user_id=str(uuid4()))`, constructs `Agent` with `instruction=system_prompt` and registered tools, constructs `Runner`, calls `run_async(session_id=session.id, user_id=session.user_id, new_message=prompt)`"
+        },
+        {
+          "actor": "ADK Runner / Gemini model",
+          "action": "streams `FunctionCall` events for tool invocations and text content events for model output"
+        },
+        {
+          "actor": "GoogleADKBackend.execute()",
+          "action": "invokes `activity_callback` and `permission_callback` for each `FunctionCall`; if permitted, executes the tool via `adk_tools.py` or af SDK tool; yields `ToolUseMessage` for each `FunctionCall` and `AssistantMessage` for each text event"
+        },
+        {
+          "actor": "adk_tools.py",
+          "action": "executes the requested file or shell operation, enforcing `path containment` before any I/O, and returns a result dict"
+        },
+        {
+          "actor": "GoogleADKBackend.execute()",
+          "action": "on receiving the terminal ADK event, aggregates token usage and yields a final `ResultMessage(is_error=False)` with token counts"
+        },
+        {
+          "actor": "Orchestrator (caller)",
+          "action": "receives the async stream of `AgentMessage` objects (`ToolUseMessage`, `AssistantMessage`, `ResultMessage`) and processes them"
+        }
+      ]
+    },
+    {
+      "id": "04-PATH-2",
+      "title": "Transient error retry path during ADK streaming",
+      "steps": [
+        {
+          "actor": "Orchestrator (caller)",
+          "action": "calls `backend.execute(...)` on a `GoogleADKBackend` instance"
+        },
+        {
+          "actor": "GoogleADKBackend.execute()",
+          "action": "sets up `InMemorySessionService`, `Agent`, and `Runner`; calls `run_async`"
+        },
+        {
+          "actor": "ADK Runner",
+          "action": "raises `ResourceExhausted` during streaming (HTTP 429)"
+        },
+        {
+          "actor": "GoogleADKBackend.execute()",
+          "action": "catches `ResourceExhausted`, increments retry counter, waits `_BACKOFF_BASE * 2^(attempt-1)` seconds, and retries `run_async`"
+        },
+        {
+          "actor": "ADK Runner",
+          "action": "streams events successfully on the retry attempt"
+        },
+        {
+          "actor": "GoogleADKBackend.execute()",
+          "action": "maps events to canonical messages and yields `ResultMessage(is_error=False)` at completion"
+        },
+        {
+          "actor": "Orchestrator (caller)",
+          "action": "receives the successful `ResultMessage` with no indication of the transient error"
+        }
+      ]
+    },
+    {
+      "id": "04-PATH-3",
+      "title": "Tool permission denial path",
+      "steps": [
+        {
+          "actor": "Orchestrator (caller)",
+          "action": "calls `backend.execute(...)` with a `permission_callback` that denies certain tool names"
+        },
+        {
+          "actor": "ADK Runner / Gemini model",
+          "action": "yields a `FunctionCall` event for a tool name denied by the permission policy"
+        },
+        {
+          "actor": "GoogleADKBackend.execute()",
+          "action": "invokes `activity_callback` with the tool name, then invokes `permission_callback`; receives a denial response"
+        },
+        {
+          "actor": "GoogleADKBackend.execute()",
+          "action": "yields a `ToolUseMessage` for the attempted call, then returns `{\"error\": \"permission_denied\", \"detail\": \"...\"}` to the model without executing the tool"
+        },
+        {
+          "actor": "ADK Runner / Gemini model",
+          "action": "receives the structured denial dict as the tool response and continues processing"
+        },
+        {
+          "actor": "Orchestrator (caller)",
+          "action": "receives the `ToolUseMessage` and the eventual `ResultMessage` in the async stream"
+        }
+      ]
+    },
+    {
+      "id": "04-PATH-4",
+      "title": "Path containment violation in coding tool",
+      "steps": [
+        {
+          "actor": "Gemini model (via ADK)",
+          "action": "issues a `FunctionCall` for `read_file` with path `'../../etc/passwd'`"
+        },
+        {
+          "actor": "GoogleADKBackend.execute()",
+          "action": "receives the `FunctionCall`, invokes `activity_callback` and `permission_callback` (if set), and dispatches to the `read_file` tool from `adk_tools.py`"
+        },
+        {
+          "actor": "adk_tools.py `read_file`",
+          "action": "resolves `(cwd / '../../etc/passwd').resolve()`, checks `is_relative_to(cwd.resolve())`, determines the path escapes the workspace root, and returns `{\"error\": \"path_not_allowed\", \"detail\": \"Path escapes workspace root\"}` without reading the file"
+        },
+        {
+          "actor": "GoogleADKBackend.execute()",
+          "action": "returns the structured error dict to the ADK model as the `FunctionResponse`"
+        },
+        {
+          "actor": "Gemini model (via ADK)",
+          "action": "receives the error dict and adjusts its next action"
+        }
+      ]
+    }
+  ],
+  "error_handling": [
+    {
+      "id": "04-ERR-1",
+      "condition": "`ResourceExhausted` or `ServiceUnavailable` raised during `run_async` streaming",
+      "behavior": "retry up to `_MAX_TRANSPORT_RETRIES` times with exponential backoff (`_BACKOFF_BASE * 2^(attempt-1)` seconds); after exhaustion yield `ResultMessage(is_error=True, is_transport_error=True)`",
+      "requirement_id": "04-REQ-8.2"
+    },
+    {
+      "id": "04-ERR-2",
+      "condition": "`ConnectionError` or `OSError` raised during `run_async` streaming",
+      "behavior": "same retry and backoff logic as `ResourceExhausted`; after exhaustion yield `ResultMessage(is_error=True, is_transport_error=True)`",
+      "requirement_id": "04-REQ-8.2"
+    },
+    {
+      "id": "04-ERR-3",
+      "condition": "non-transient exception (e.g. model not found, invalid request) raised during streaming",
+      "behavior": "immediately yield `ResultMessage(is_error=True, is_transport_error=False)` without retrying",
+      "requirement_id": "04-REQ-8.3"
+    },
+    {
+      "id": "04-ERR-4",
+      "condition": "all `_MAX_TRANSPORT_RETRIES` retry attempts exhausted",
+      "behavior": "yield `ResultMessage(is_error=True, is_transport_error=True)` and stop iteration; no exception propagates",
+      "requirement_id": "04-REQ-8.E1"
+    },
+    {
+      "id": "04-ERR-5",
+      "condition": "user-supplied file path resolves outside `cwd` workspace root (including via symlinks)",
+      "behavior": "return `{\"error\": \"path_not_allowed\", \"detail\": \"Path escapes workspace root\"}` without performing any I/O; no exception raised",
+      "requirement_id": "04-REQ-6.2"
+    },
+    {
+      "id": "04-ERR-6",
+      "condition": "`permission_callback` denies a tool invocation",
+      "behavior": "return `{\"error\": \"permission_denied\", \"detail\": \"...\"}` to the model as the tool response; do not execute the tool",
+      "requirement_id": "04-REQ-5.2"
+    },
+    {
+      "id": "04-ERR-7",
+      "condition": "`permission_callback` or `activity_callback` raises an exception",
+      "behavior": "treat as non-transient error; yield `ResultMessage(is_error=True, is_transport_error=False)` and stop iteration",
+      "requirement_id": "04-REQ-5.E1"
+    },
+    {
+      "id": "04-ERR-8",
+      "condition": "`max_turns` is reached with the ADK event stream still open",
+      "behavior": "stop consuming events, yield `ResultMessage(is_error=False)`, and allow the generator to be garbage-collected without propagating exceptions",
+      "requirement_id": "04-REQ-4.E1"
+    },
+    {
+      "id": "04-ERR-9",
+      "condition": "OS-level exception during a coding tool file operation (e.g. file not found, permission denied)",
+      "behavior": "return structured error dict `{\"error\": \"<error_type>\", \"detail\": \"<message>\"}` to the model without raising",
+      "requirement_id": "04-REQ-6.E4"
+    },
+    {
+      "id": "04-ERR-10",
+      "condition": "shell command in `execute` tool hangs beyond timeout",
+      "behavior": "terminate the subprocess, collect partial stdout/stderr, return `{\"stdout\": \"...\", \"stderr\": \"...\", \"returncode\": <non-zero>}`",
+      "requirement_id": "04-REQ-6.E2"
+    },
+    {
+      "id": "04-ERR-11",
+      "condition": "`google-adk` optional dependency not installed when `create_backend('google-adk')` is called",
+      "behavior": "lazy import raises `ImportError` indicating the `google-adk` extras group must be installed; no broken instance is returned",
+      "requirement_id": "04-REQ-10.E1"
+    }
+  ],
+  "external_apis": [
+    {
+      "package": "google-adk",
+      "version": ">=2.0",
+      "symbols": [
+        {
+          "name": "Agent",
+          "import_path": "google.adk.agents",
+          "signature": "Agent(model: str, name: str, instruction: str, tools: list) -> Agent",
+          "notes": "Exact parameter names and types must be verified against the installed google-adk>=2.0 version; ADK 2.x has breaking changes."
+        },
+        {
+          "name": "Runner",
+          "import_path": "google.adk.runners",
+          "signature": "Runner(agent: Agent, session_service: InMemorySessionService) -> Runner",
+          "notes": "Exact parameter names must be verified against the installed version."
+        },
+        {
+          "name": "Runner.run_async",
+          "import_path": "google.adk.runners",
+          "signature": "run_async(session_id: str, user_id: str, new_message: Any) -> AsyncIterator",
+          "notes": "Returns an async iterator of ADK event objects. Event class names, discriminator field values, and type string constants must be verified empirically against the installed version and pinned in inline code comments."
+        },
+        {
+          "name": "InMemorySessionService",
+          "import_path": "google.adk.sessions",
+          "signature": "InMemorySessionService() -> InMemorySessionService",
+          "notes": "Provides ephemeral in-process session storage."
+        },
+        {
+          "name": "InMemorySessionService.create_session",
+          "import_path": "google.adk.sessions",
+          "signature": "async create_session(app_name: str, user_id: str) -> Session",
+          "notes": "Returns a session object with `.id` and `.user_id` attributes. Attribute names must be verified against the installed version."
+        }
+      ]
+    },
+    {
+      "package": "google-api-core",
+      "version": "transitive",
+      "symbols": [
+        {
+          "name": "ResourceExhausted",
+          "import_path": "google.api_core.exceptions",
+          "signature": "class ResourceExhausted(GoogleAPICallError)",
+          "notes": "Represents HTTP 429 rate-limit or quota-exhaustion responses; treated as transient for retry logic."
+        },
+        {
+          "name": "ServiceUnavailable",
+          "import_path": "google.api_core.exceptions",
+          "signature": "class ServiceUnavailable(GoogleAPICallError)",
+          "notes": "Represents HTTP 503 responses; treated as transient for retry logic."
+        }
+      ]
+    }
+  ]
+}

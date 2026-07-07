@@ -1,0 +1,841 @@
+{
+  "$schema": null,
+  "spec_id": "03",
+  "spec_name": "deepagents_backend",
+  "schema_version": 1,
+  "introduction": "Specifies the `DeepAgentsBackend` adapter for agent-fox, which wraps LangChain Deep Agents to enable coding sessions with any LLM provider supported by LangChain through the `Backend` Protocol established in spec 02. Note: requirements referencing `deepagents`, `create_deep_agent()`, and `astream_events()` v2 APIs are based on unverified PRD assumptions and must be cross-checked against the installed `deepagents>=0.5` package before implementation.",
+  "glossary": {
+    "AgentMessage": "Union type from `session/backends/types.py` encompassing `ToolUseMessage`, `AssistantMessage`, and `ResultMessage`.",
+    "AssistantMessage": "Canonical message type from `session/backends/types.py` representing a streamed text chunk from the LLM, yielded from `execute()`.",
+    "Backend": "The structural Protocol from spec 02 (`session/backends/types.py`) that all backend adapters must satisfy, requiring an `execute()` async generator and an idempotent `close()` method.",
+    "ClaudeBackend": "The existing backend implementation in `session/backends/claude.py` that wraps Claude Code via subprocess; must remain unmodified.",
+    "DeepAgentsBackend": "The adapter class defined in `session/backends/deepagents.py` that implements the `Backend` Protocol using LangChain Deep Agents.",
+    "OrchestratorConfig": "Configuration dataclass in `core/config.py` whose `backend` field selects which backend adapter to use.",
+    "PermissionCallback": "Type alias `Callable[[str, dict], bool]` defined in `session/backends/types.py`; called with `(tool_name, tool_input)` to approve or deny a tool call.",
+    "ResultMessage": "Terminal canonical message type from `session/backends/types.py` yielded at the end of `execute()`, carrying aggregated token usage and error fields `is_error` / `is_transport_error`.",
+    "ToolUseMessage": "Canonical message type from `session/backends/types.py` representing a tool invocation or its result, yielded from `execute()`.",
+    "_BACKOFF_BASE": "Shared retry constant equal to `1.0` seconds; the base for the exponential backoff formula `_BACKOFF_BASE * 2^(n-1)` used in transport retry logic.",
+    "astream_events": "LangGraph's v2 streaming API method on a compiled graph that yields typed event dictionaries as the agent runs.",
+    "containment test": "An existing test that asserts each SDK's import appears only in its designated module file; extended to map `\"deepagents\"` → `\"deepagents.py\"`.",
+    "context_get": "af SDK function wrapped as a LangChain sync tool for retrieving a context item.",
+    "context_search": "af SDK function wrapped as a LangChain sync tool for searching context.",
+    "core/config.py": "Module containing `OrchestratorConfig`; its `backend` `Literal` type is widened to include `\"deepagents\"`.",
+    "create_backend": "The factory function defined in spec 02 (`session/backends/__init__.py`) that maps a backend name string to a backend instance.",
+    "create_deep_agent": "The primary constructor function from the `deepagents` package used to instantiate a Deep Agents coding agent with model, tools, cwd, and optional parameters.",
+    "cwd": "Workspace directory path passed into `execute()` and forwarded to `create_deep_agent()` so filesystem tools operate on the correct directory.",
+    "effort": "Optional effort-level parameter passed to `create_deep_agent()`; silently omitted via `try/except TypeError` if unsupported by the installed version.",
+    "is_error": "Boolean field on `ResultMessage` indicating the session ended in an error condition.",
+    "is_transport_error": "Boolean field on `ResultMessage` indicating the error was transient/transport-level (connection failure, rate limit, provider 5xx) as opposed to a non-transient error.",
+    "max_budget_usd": "Optional budget cap parameter passed to `create_deep_agent()`; silently omitted via `try/except TypeError` if unsupported by the installed version.",
+    "memory_recall": "af SDK function wrapped as a LangChain sync tool for recalling memory entries.",
+    "on_chat_model_stream": "LangGraph `astream_events()` v2 event kind fired for each streamed text chunk from the LLM.",
+    "on_llm_end": "LangGraph `astream_events()` v2 event kind fired after a complete LLM call, carrying authoritative token usage counts.",
+    "on_tool_end": "LangGraph `astream_events()` v2 event kind fired when a tool finishes execution.",
+    "on_tool_start": "LangGraph `astream_events()` v2 event kind fired when a tool begins execution.",
+    "pyproject.toml": "Python project metadata and dependency file; the `deepagents` optional extra is declared here.",
+    "pytest.importorskip": "pytest helper that skips a test module at collection time if the named package is not importable.",
+    "session/backends/__init__.py": "Package init that exposes `create_backend()`; must not be structurally changed by this spec.",
+    "session/backends/deepagents.py": "The new module file that contains `DeepAgentsBackend` and is the sole permitted import site for the `deepagents` SDK.",
+    "session/backends/types.py": "Shared types module defining `Backend`, `PermissionCallback`, `ToolUseMessage`, `AssistantMessage`, `ResultMessage`, and `AgentMessage`.",
+    "spec_read": "af SDK function wrapped as a LangChain sync tool for reading spec content.",
+    "subtask_state": "af SDK function wrapped as a LangChain sync tool for querying subtask state.",
+    "thinking": "Provider-specific parameter for Anthropic models enabling extended reasoning; applied only when the model string carries the `anthropic:` prefix."
+  },
+  "requirements": [
+    {
+      "id": "03-REQ-1",
+      "title": "DeepAgentsBackend module and class creation",
+      "user_story": {
+        "role": "backend developer",
+        "goal": "have a DeepAgentsBackend class in session/backends/deepagents.py that satisfies the Backend Protocol",
+        "benefit": "agent-fox can run coding sessions with any LangChain-supported LLM provider"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-1.1",
+          "ears_pattern": "ubiquitous",
+          "system": "DeepAgentsBackend",
+          "action": "is defined in `session/backends/deepagents.py` and structurally satisfies the `Backend` Protocol such that `isinstance(DeepAgentsBackend(), Backend)` returns `True`",
+          "return_contract": "`isinstance(DeepAgentsBackend(), Backend)` evaluates to `True`"
+        },
+        {
+          "id": "03-REQ-1.2",
+          "ears_pattern": "ubiquitous",
+          "system": "DeepAgentsBackend",
+          "action": "imports the `deepagents` SDK exclusively within `session/backends/deepagents.py` and in no other module",
+          "return_contract": "The `containment test` passes: `\"deepagents\"` SDK import is found only in `session/backends/deepagents.py`"
+        },
+        {
+          "id": "03-REQ-1.3",
+          "ears_pattern": "ubiquitous",
+          "system": "DeepAgentsBackend",
+          "action": "uses `PermissionCallback`, `ToolUseMessage`, `AssistantMessage`, `ResultMessage`, and `AgentMessage` imported from `session/backends/types.py` without modifying that module",
+          "return_contract": "No changes are made to `session/backends/types.py`"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "03-REQ-1.E1",
+          "ears_pattern": "unwanted",
+          "system": "DeepAgentsBackend",
+          "action": "raises `ImportError` at import time of `session/backends/deepagents.py`; the `create_backend()` factory uses a lazy import so that other backends remain unaffected",
+          "return_contract": "`ImportError` is raised when `session/backends/deepagents.py` is imported without the optional extra installed; `create_backend(\"claude\")` succeeds unaffected",
+          "error_condition": "the `deepagents` package is not installed"
+        }
+      ]
+    },
+    {
+      "id": "03-REQ-2",
+      "title": "execute() async generator implementing Backend Protocol",
+      "user_story": {
+        "role": "session orchestrator",
+        "goal": "call execute() on DeepAgentsBackend with a prompt and receive a stream of AgentMessages",
+        "benefit": "the session layer can treat DeepAgentsBackend identically to ClaudeBackend"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-2.1",
+          "ears_pattern": "ubiquitous",
+          "system": "DeepAgentsBackend.execute()",
+          "action": "accepts the exact signature `execute(self, prompt: str, *, system_prompt: str, model: str, cwd: str, permission_callback: PermissionCallback | None = None, **kwargs) -> AsyncIterator[AgentMessage]` matching the `Backend` Protocol from spec 02",
+          "return_contract": "Method signature is structurally identical to the `Backend` Protocol; `isinstance(DeepAgentsBackend(), Backend)` passes"
+        },
+        {
+          "id": "03-REQ-2.2",
+          "ears_pattern": "event_driven",
+          "system": "DeepAgentsBackend.execute()",
+          "action": "calls `create_deep_agent()` with `model`, `system_prompt`, `cwd`, and the five registered af SDK tools, then invokes the agent with the task prompt and streams events via `astream_events()` v2",
+          "return_contract": "Yields `AgentMessage` instances as events arrive; terminates with a `ResultMessage`",
+          "trigger": "invoked with a prompt"
+        },
+        {
+          "id": "03-REQ-2.3",
+          "ears_pattern": "event_driven",
+          "system": "DeepAgentsBackend.execute()",
+          "action": "yields a `ToolUseMessage` constructed from the event payload",
+          "return_contract": "A `ToolUseMessage` instance is yielded for each `on_tool_start` and `on_tool_end` event",
+          "trigger": "an `on_tool_start` or `on_tool_end` event is received from `astream_events()`"
+        },
+        {
+          "id": "03-REQ-2.4",
+          "ears_pattern": "event_driven",
+          "system": "DeepAgentsBackend.execute()",
+          "action": "yields an `AssistantMessage` constructed from the text chunk in the event payload",
+          "return_contract": "An `AssistantMessage` instance is yielded for each `on_chat_model_stream` event",
+          "trigger": "an `on_chat_model_stream` event is received from `astream_events()`"
+        },
+        {
+          "id": "03-REQ-2.5",
+          "ears_pattern": "event_driven",
+          "system": "DeepAgentsBackend.execute()",
+          "action": "accumulates the authoritative token usage counts from the event; per-chunk counts from `on_chat_model_stream` are ignored to prevent double-counting",
+          "return_contract": "No message is yielded for `on_llm_end`; token counts are accumulated internally",
+          "trigger": "an `on_llm_end` event is received from `astream_events()`"
+        },
+        {
+          "id": "03-REQ-2.6",
+          "ears_pattern": "event_driven",
+          "system": "DeepAgentsBackend.execute()",
+          "action": "yields a terminal `ResultMessage` carrying the aggregated token usage accumulated from all `on_llm_end` events",
+          "return_contract": "A single `ResultMessage` is yielded as the final item in the async generator; `is_error` is `False`",
+          "trigger": "the `astream_events()` stream is exhausted"
+        },
+        {
+          "id": "03-REQ-2.7",
+          "ears_pattern": "event_driven",
+          "system": "DeepAgentsBackend.execute()",
+          "action": "sets the token count fields in the terminal `ResultMessage` to `None` rather than zero, signalling that usage data is unavailable",
+          "return_contract": "Token fields in `ResultMessage` are `None`, not `0`",
+          "trigger": "a provider omits token counts in all `on_llm_end` events"
+        },
+        {
+          "id": "03-REQ-2.8",
+          "ears_pattern": "unwanted",
+          "system": "DeepAgentsBackend.execute()",
+          "action": "skips the event, logs a WARNING-level message, and continues processing subsequent events without raising an exception",
+          "return_contract": "No exception propagates; subsequent events continue to be processed normally",
+          "error_condition": "an event from `astream_events()` has an unexpected or malformed shape (e.g. a missing field due to a `deepagents` version difference)"
+        },
+        {
+          "id": "03-REQ-2.9",
+          "ears_pattern": "ubiquitous",
+          "system": "DeepAgentsBackend.execute()",
+          "action": "never allows exceptions to propagate out of the generator; all failure modes surface through the canonical `ResultMessage` error fields `is_error` and `is_transport_error`",
+          "return_contract": "All callers of `execute()` receive a terminal `ResultMessage` regardless of success or failure"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "03-REQ-2.E1",
+          "ears_pattern": "unwanted",
+          "system": "DeepAgentsBackend.execute()",
+          "action": "relies on the `session.py`-level `asyncio.wait_for()` / async iterator cancellation mechanism to enforce a timeout; the adapter itself does not impose a timeout",
+          "return_contract": "Session-level cancellation propagates into the async generator and the generator exits cleanly",
+          "error_condition": "`astream_events()` hangs indefinitely without yielding events"
+        },
+        {
+          "id": "03-REQ-2.E2",
+          "ears_pattern": "unwanted",
+          "system": "DeepAgentsBackend.execute()",
+          "action": "the generator exits at the next `await` point; any per-instance LangGraph checkpoint state is released by the subsequent `close()` call from `session.py`",
+          "return_contract": "No resources leak; no exception propagates to the caller beyond the `asyncio.CancelledError`",
+          "error_condition": "the caller cancels the async generator mid-stream via `asyncio` cancellation"
+        }
+      ]
+    },
+    {
+      "id": "03-REQ-3",
+      "title": "af SDK tool registration as LangChain sync tools",
+      "user_story": {
+        "role": "backend developer",
+        "goal": "have the five af SDK functions registered as LangChain @tool-decorated sync functions passed to create_deep_agent()",
+        "benefit": "the Deep Agents coding session has access to af SDK capabilities without MCP server overhead"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-3.1",
+          "ears_pattern": "ubiquitous",
+          "system": "DeepAgentsBackend",
+          "action": "registers exactly five af SDK functions — `spec_read`, `context_search`, `context_get`, `memory_recall`, `subtask_state` — as LangChain `@tool`-decorated synchronous wrapper functions and passes them to `create_deep_agent()` as the `tools` parameter",
+          "return_contract": "The `tools` list passed to `create_deep_agent()` contains exactly five LangChain tool objects wrapping the five af SDK functions"
+        },
+        {
+          "id": "03-REQ-3.2",
+          "ears_pattern": "ubiquitous",
+          "system": "DeepAgentsBackend tool wrappers",
+          "action": "each wrapper carries complete Python type annotations on all parameters and return type matching the underlying af SDK function, enabling LangChain to auto-generate a correct JSON tool schema",
+          "return_contract": "LangChain tool schema generation succeeds without errors for all five tools"
+        },
+        {
+          "id": "03-REQ-3.3",
+          "ears_pattern": "ubiquitous",
+          "system": "DeepAgentsBackend tool wrappers",
+          "action": "call the existing af SDK Python functions in-process as thin synchronous wrappers without spawning subprocesses or making network I/O calls at the LangChain tool boundary",
+          "return_contract": "Tool calls complete synchronously in-process"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "03-REQ-3.E1",
+          "ears_pattern": "unwanted",
+          "system": "DeepAgentsBackend tool wrappers",
+          "action": "the implementer must verify all five function signatures carry complete type annotations before wrapping; if an annotation is missing, the implementer adds it in the af SDK source (not in the wrapper) so the schema is correct",
+          "return_contract": "LangChain JSON tool schema is complete and correct for all five tools prior to merging",
+          "error_condition": "an af SDK function is missing a type annotation on one or more parameters"
+        }
+      ]
+    },
+    {
+      "id": "03-REQ-4",
+      "title": "Permission callback mapping via interrupt mechanism",
+      "user_story": {
+        "role": "session orchestrator",
+        "goal": "have the permission_callback invoked for each tool call requiring approval",
+        "benefit": "the af security allowlist is enforced uniformly across all backend adapters"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-4.1",
+          "ears_pattern": "event_driven",
+          "system": "DeepAgentsBackend.execute()",
+          "action": "extracts `tool_name: str` and `tool_input: dict` from the interrupt event payload, calls `permission_callback(tool_name, tool_input)`, and forwards the boolean result to the agent's resume interface (`True` = approve, `False` = deny)",
+          "return_contract": "Agent execution continues if `True` is returned; tool call is aborted if `False` is returned",
+          "trigger": "a `permission_callback` is provided and the Deep Agents interrupt mechanism fires for a tool call"
+        },
+        {
+          "id": "03-REQ-4.2",
+          "ears_pattern": "state_driven",
+          "system": "DeepAgentsBackend.execute()",
+          "action": "registers no interrupt hook with the Deep Agents agent; all tool calls proceed without approval checks",
+          "return_contract": "Agent runs without any permission interrupt; all tool calls are automatically approved",
+          "state": "`permission_callback` is `None`"
+        },
+        {
+          "id": "03-REQ-4.3",
+          "ears_pattern": "ubiquitous",
+          "system": "DeepAgentsBackend",
+          "action": "does NOT pass the `permissions` parameter to `create_deep_agent()`; permission enforcement is handled exclusively via the `permission_callback` / interrupt mechanism",
+          "return_contract": "`create_deep_agent()` is called without a `permissions` argument"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "03-REQ-4.E1",
+          "ears_pattern": "unwanted",
+          "system": "DeepAgentsBackend.execute()",
+          "action": "treats the exception as a non-transient error: denies the tool call, yields a terminal `ResultMessage` with `is_error=True` and `is_transport_error=False`, and exits the generator cleanly",
+          "return_contract": "`ResultMessage(is_error=True, is_transport_error=False)` is yielded; no exception propagates",
+          "error_condition": "`permission_callback` raises an exception when invoked"
+        }
+      ]
+    },
+    {
+      "id": "03-REQ-5",
+      "title": "Provider-specific parameter handling with graceful degradation",
+      "user_story": {
+        "role": "backend developer",
+        "goal": "have provider-specific parameters applied where supported and silently ignored where not",
+        "benefit": "the same DeepAgentsBackend code works across all LangChain-supported providers without crashing"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-5.1",
+          "ears_pattern": "complex_event",
+          "system": "DeepAgentsBackend.execute()",
+          "action": "passes the `thinking` parameter to `create_deep_agent()`; if the call raises `TypeError`, retries without `thinking` and logs nothing (provider-level handling)",
+          "return_contract": "`create_deep_agent()` is called with `thinking` for Anthropic models; silently omitted for all other providers",
+          "trigger": "`create_deep_agent()` is called",
+          "condition": "the `model` string carries the `anthropic:` prefix"
+        },
+        {
+          "id": "03-REQ-5.2",
+          "ears_pattern": "event_driven",
+          "system": "DeepAgentsBackend.execute()",
+          "action": "retries the `create_deep_agent()` call without `max_budget_usd` and logs a DEBUG-level message",
+          "return_contract": "Agent is created successfully on the retry call; DEBUG message is logged",
+          "trigger": "`create_deep_agent()` is called with the `max_budget_usd` parameter and raises `TypeError`"
+        },
+        {
+          "id": "03-REQ-5.3",
+          "ears_pattern": "event_driven",
+          "system": "DeepAgentsBackend.execute()",
+          "action": "retries the `create_deep_agent()` call without `effort` and logs a DEBUG-level message",
+          "return_contract": "Agent is created successfully on the retry call; DEBUG message is logged",
+          "trigger": "`create_deep_agent()` is called with the `effort` parameter and raises `TypeError`"
+        },
+        {
+          "id": "03-REQ-5.4",
+          "ears_pattern": "ubiquitous",
+          "system": "DeepAgentsBackend",
+          "action": "does not use the `compaction` parameter — context management is delegated entirely to Deep Agents' built-in automatic summarization and large-result eviction",
+          "return_contract": "`create_deep_agent()` is never called with a `compaction` argument"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "03-REQ-6",
+      "title": "Transient error retry with exponential backoff",
+      "user_story": {
+        "role": "session orchestrator",
+        "goal": "have DeepAgentsBackend automatically retry transient errors up to three times before surfacing a terminal error",
+        "benefit": "transient network blips and rate limits do not immediately fail coding sessions"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-6.1",
+          "ears_pattern": "event_driven",
+          "system": "DeepAgentsBackend.execute()",
+          "action": "retries the operation up to 3 attempts total using exponential backoff with `_BACKOFF_BASE = 1.0`, giving delays of 1 s, 2 s, 4 s between attempts; no jitter is applied",
+          "return_contract": "On successful retry, streaming resumes normally; the caller sees no error",
+          "trigger": "a transient error (connection failure, HTTP 429 rate limit, or provider 5xx) occurs during streaming"
+        },
+        {
+          "id": "03-REQ-6.2",
+          "ears_pattern": "event_driven",
+          "system": "DeepAgentsBackend.execute()",
+          "action": "yields a terminal `ResultMessage` with `is_error=True` and `is_transport_error=True` and exits the generator cleanly",
+          "return_contract": "`ResultMessage(is_error=True, is_transport_error=True)` is the final yielded value; no exception propagates",
+          "trigger": "all 3 retry attempts are exhausted without success"
+        },
+        {
+          "id": "03-REQ-6.3",
+          "ears_pattern": "event_driven",
+          "system": "DeepAgentsBackend.execute()",
+          "action": "yields a terminal `ResultMessage` with `is_error=True` and `is_transport_error=False` immediately without any retry",
+          "return_contract": "`ResultMessage(is_error=True, is_transport_error=False)` is yielded immediately; no exception propagates",
+          "trigger": "a non-transient error (e.g. authentication failure / HTTP 401, tool execution error) occurs"
+        },
+        {
+          "id": "03-REQ-6.4",
+          "ears_pattern": "ubiquitous",
+          "system": "DeepAgentsBackend",
+          "action": "uses retry constants `_BACKOFF_BASE` shared with or mirroring `ClaudeBackend`; if `ClaudeBackend` already defines these constants, they are extracted to a shared utility in `session/backends/` rather than duplicated",
+          "return_contract": "Retry constant definitions are not duplicated across backend modules"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "03-REQ-6.E1",
+          "ears_pattern": "unwanted",
+          "system": "DeepAgentsBackend.execute()",
+          "action": "the retry loop is bounded to a maximum of 3 attempts (indices 0-2); any implementation variant that can iterate beyond 3 attempts is non-conforming",
+          "return_contract": "After exactly 3 failed attempts, `ResultMessage(is_error=True, is_transport_error=True)` is yielded",
+          "error_condition": "the retry loop does not have an explicit iteration cap"
+        },
+        {
+          "id": "03-REQ-6.E2",
+          "ears_pattern": "unwanted",
+          "system": "DeepAgentsBackend.execute()",
+          "action": "the retry attempt starts a fresh agent invocation via `create_deep_agent()`; any stale per-instance checkpoint state is discarded before the retry to avoid replaying already-yielded events",
+          "return_contract": "Retry produces a clean agent invocation; no duplicate events are yielded to the caller",
+          "error_condition": "a transient error occurs and partial LangGraph checkpoint state was written before the failure"
+        }
+      ]
+    },
+    {
+      "id": "03-REQ-7",
+      "title": "close() method — idempotent LangGraph state release",
+      "user_story": {
+        "role": "session orchestrator",
+        "goal": "call close() on DeepAgentsBackend at any time without errors",
+        "benefit": "session.py can safely clean up backend resources regardless of execution state"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-7.1",
+          "ears_pattern": "ubiquitous",
+          "system": "DeepAgentsBackend.close()",
+          "action": "is idempotent: may be called multiple times without error and without side effects beyond the first call",
+          "return_contract": "Returns normally (no exception) on every call including repeated calls"
+        },
+        {
+          "id": "03-REQ-7.2",
+          "ears_pattern": "state_driven",
+          "system": "DeepAgentsBackend.close()",
+          "action": "is a no-op that returns immediately",
+          "return_contract": "Returns `None` immediately with no side effects",
+          "state": "`execute()` is not currently running"
+        },
+        {
+          "id": "03-REQ-7.3",
+          "ears_pattern": "event_driven",
+          "system": "DeepAgentsBackend.close()",
+          "action": "releases any per-instance LangGraph checkpoint state (e.g. checkpointer references, thread state) held by the instance",
+          "return_contract": "Per-instance LangGraph state is released; no memory leak",
+          "trigger": "called after `execute()` has completed or been cancelled"
+        },
+        {
+          "id": "03-REQ-7.4",
+          "ears_pattern": "ubiquitous",
+          "system": "DeepAgentsBackend.close()",
+          "action": "does NOT perform async task cancellation or manage the `execute()` lifecycle; mid-stream teardown is delegated to `session.py` via `asyncio.wait_for()` / async iterator cancellation",
+          "return_contract": "`close()` is synchronous or at most a trivial coroutine; it does not cancel running tasks"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "03-REQ-8",
+      "title": "Factory registration of deepagents backend",
+      "user_story": {
+        "role": "session orchestrator",
+        "goal": "call create_backend(\"deepagents\") and receive a DeepAgentsBackend instance",
+        "benefit": "the session layer can select the deepagents backend via configuration without knowing its import path"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-8.1",
+          "ears_pattern": "event_driven",
+          "system": "create_backend()",
+          "action": "lazily imports `DeepAgentsBackend` from `session/backends/deepagents.py` and returns a new instance",
+          "return_contract": "Returns a `DeepAgentsBackend` instance; `isinstance(result, Backend)` is `True`",
+          "trigger": "called with the string `\"deepagents\"`"
+        },
+        {
+          "id": "03-REQ-8.2",
+          "ears_pattern": "ubiquitous",
+          "system": "create_backend()",
+          "action": "returns a fresh `DeepAgentsBackend` instance on every call; concurrent `execute()` calls on the same instance are not supported and each `run_session()` call receives its own instance",
+          "return_contract": "Each call to `create_backend(\"deepagents\")` returns a distinct new `DeepAgentsBackend` object"
+        },
+        {
+          "id": "03-REQ-8.3",
+          "ears_pattern": "ubiquitous",
+          "system": "create_backend()",
+          "action": "continues to return a `ClaudeBackend` instance when called with `\"claude\"`; no changes are made to `session/backends/__init__.py`'s existing logic for `\"claude\"`",
+          "return_contract": "`create_backend(\"claude\")` behaves identically to its pre-spec-03 behavior"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "03-REQ-9",
+      "title": "OrchestratorConfig backend Literal widening",
+      "user_story": {
+        "role": "operator",
+        "goal": "set backend: \"deepagents\" in the agent-fox configuration file",
+        "benefit": "the application accepts and validates the new backend option at startup"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-9.1",
+          "ears_pattern": "ubiquitous",
+          "system": "OrchestratorConfig.backend",
+          "action": "accepts `Literal[\"claude\", \"deepagents\"]` as valid values; the type in `core/config.py` is widened from `Literal[\"claude\"]` to `Literal[\"claude\", \"deepagents\"]`",
+          "return_contract": "Validation passes for both `\"claude\"` and `\"deepagents\"` values; any other string fails validation"
+        },
+        {
+          "id": "03-REQ-9.2",
+          "ears_pattern": "ubiquitous",
+          "system": "OrchestratorConfig",
+          "action": "existing configurations with `backend: \"claude\"` continue to pass validation without modification; no migration or config transformation step is required",
+          "return_contract": "Pre-existing `OrchestratorConfig` objects with `backend=\"claude\"` are valid and unchanged"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "03-REQ-10",
+      "title": "deepagents optional dependency declaration and CI coverage",
+      "user_story": {
+        "role": "developer",
+        "goal": "install the deepagents extra via pip install '.[deepagents]' and have all DeepAgentsBackend tests execute in CI",
+        "benefit": "the optional dependency is clearly declared and CI never silently skips the new backend tests"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-10.1",
+          "ears_pattern": "ubiquitous",
+          "system": "pyproject.toml",
+          "action": "declares `deepagents = [\"deepagents>=0.5\"]` under `[project.optional-dependencies]`",
+          "return_contract": "`pip install '.[deepagents]'` installs `deepagents>=0.5` successfully"
+        },
+        {
+          "id": "03-REQ-10.2",
+          "ears_pattern": "ubiquitous",
+          "system": "DeepAgentsBackend test suite",
+          "action": "every test module that tests `DeepAgentsBackend` begins with `pytest.importorskip(\"deepagents\")` so tests are automatically skipped when the optional extra is absent",
+          "return_contract": "Tests are skipped with a clear skip reason when `deepagents` is not installed; tests execute normally when it is installed"
+        },
+        {
+          "id": "03-REQ-10.3",
+          "ears_pattern": "ubiquitous",
+          "system": "CI test workflow",
+          "action": "includes a dedicated matrix leg that runs `pip install '.[deepagents]'` before executing the test suite, ensuring `DeepAgentsBackend` tests actually run rather than being silently skipped",
+          "return_contract": "CI reports executed (not skipped) `DeepAgentsBackend` test results in the dedicated matrix leg"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "03-REQ-11",
+      "title": "Backward compatibility — ClaudeBackend and existing session tests unaffected",
+      "user_story": {
+        "role": "developer",
+        "goal": "confirm that adding DeepAgentsBackend does not break any existing functionality",
+        "benefit": "teams using ClaudeBackend are unaffected by the new backend"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-11.1",
+          "ears_pattern": "ubiquitous",
+          "system": "ClaudeBackend",
+          "action": "retains its import path, module structure, and all shared utilities in `session/backends/__init__.py` without modification",
+          "return_contract": "All pre-existing `ClaudeBackend` tests pass without modification"
+        },
+        {
+          "id": "03-REQ-11.2",
+          "ears_pattern": "ubiquitous",
+          "system": "session-layer tests",
+          "action": "all existing session-layer tests pass without modification after the introduction of `DeepAgentsBackend`",
+          "return_contract": "Zero regressions in the existing test suite"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "03-REQ-12",
+      "title": "Containment test extension for deepagents SDK import",
+      "user_story": {
+        "role": "developer",
+        "goal": "verify that the deepagents SDK is imported only in deepagents.py",
+        "benefit": "the SDK is isolated to its designated module, preventing accidental coupling"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-12.1",
+          "ears_pattern": "ubiquitous",
+          "system": "containment test",
+          "action": "is extended to include the mapping `\"deepagents\"` → `\"deepagents.py\"` in the SDK-to-file mapping, asserting that `import deepagents` or `from deepagents` appears only in `session/backends/deepagents.py`",
+          "return_contract": "Containment test passes; any `deepagents` import outside `session/backends/deepagents.py` causes the test to fail"
+        }
+      ],
+      "edge_cases": []
+    }
+  ],
+  "correctness_properties": [
+    {
+      "id": "03-PROP-1",
+      "title": "Backend Protocol conformance",
+      "for_any": "instance of `DeepAgentsBackend`",
+      "invariant": "`isinstance(instance, Backend)` is always `True`; the `execute()` method signature exactly matches the `Backend` Protocol",
+      "validates": [
+        "03-REQ-1.1",
+        "03-REQ-2.1"
+      ]
+    },
+    {
+      "id": "03-PROP-2",
+      "title": "execute() always terminates with exactly one ResultMessage",
+      "for_any": "invocation of `DeepAgentsBackend.execute()` regardless of success, transient error, non-transient error, or cancellation recovery",
+      "invariant": "the async generator yields exactly one `ResultMessage` as its final item and then stops; no exceptions propagate to the caller",
+      "validates": [
+        "03-REQ-2.6",
+        "03-REQ-2.9",
+        "03-REQ-6.2",
+        "03-REQ-6.3"
+      ]
+    },
+    {
+      "id": "03-PROP-3",
+      "title": "Token usage never double-counted",
+      "for_any": "completed `execute()` invocation that processes at least one `on_llm_end` event",
+      "invariant": "the token counts in the terminal `ResultMessage` equal the sum of token counts from all `on_llm_end` events; per-chunk counts from `on_chat_model_stream` events are never included in the sum",
+      "validates": [
+        "03-REQ-2.5",
+        "03-REQ-2.6",
+        "03-REQ-2.7"
+      ]
+    },
+    {
+      "id": "03-PROP-4",
+      "title": "SDK import containment",
+      "for_any": "Python source file in the project except `session/backends/deepagents.py`",
+      "invariant": "no `import deepagents` or `from deepagents` statement appears; the `deepagents` SDK is imported exclusively within `session/backends/deepagents.py`",
+      "validates": [
+        "03-REQ-1.2",
+        "03-REQ-12.1"
+      ]
+    },
+    {
+      "id": "03-PROP-5",
+      "title": "Retry bound invariant",
+      "for_any": "transient error sequence during a single `execute()` invocation",
+      "invariant": "the retry loop executes at most 3 total attempts; the backoff delay for attempt n (1-indexed) is exactly `_BACKOFF_BASE * 2^(n-1)` seconds with no jitter",
+      "validates": [
+        "03-REQ-6.1",
+        "03-REQ-6.E1"
+      ]
+    },
+    {
+      "id": "03-PROP-6",
+      "title": "close() idempotency",
+      "for_any": "sequence of zero or more calls to `DeepAgentsBackend.close()` on the same instance",
+      "invariant": "every call returns normally without raising an exception; the observable state after the second and subsequent calls is identical to the state after the first call",
+      "validates": [
+        "03-REQ-7.1",
+        "03-REQ-7.2"
+      ]
+    },
+    {
+      "id": "03-PROP-7",
+      "title": "permissions parameter never passed to create_deep_agent()",
+      "for_any": "invocation of `DeepAgentsBackend.execute()`",
+      "invariant": "`create_deep_agent()` is never called with a `permissions` keyword argument; permission enforcement is always delegated to the `permission_callback` / interrupt mechanism",
+      "validates": [
+        "03-REQ-4.3"
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "03-PATH-1",
+      "title": "End-to-end coding session with DeepAgentsBackend from config to streamed messages",
+      "steps": [
+        {
+          "actor": "Operator",
+          "action": "Sets `backend: \"deepagents\"` and `model: \"openai:gpt-5.5\"` in the agent-fox configuration file"
+        },
+        {
+          "actor": "OrchestratorConfig (core/config.py)",
+          "action": "Validates the configuration; `backend` field accepts `\"deepagents\"` as a valid `Literal` value"
+        },
+        {
+          "actor": "session.py",
+          "action": "Calls `create_backend(\"deepagents\")` from `session/backends/__init__.py` to obtain a fresh `DeepAgentsBackend` instance"
+        },
+        {
+          "actor": "create_backend() (session/backends/__init__.py)",
+          "action": "Lazily imports `DeepAgentsBackend` from `session/backends/deepagents.py` and returns a new instance"
+        },
+        {
+          "actor": "session.py",
+          "action": "Assembles the system prompt via the steering/context layer and calls `backend.execute(prompt, system_prompt=..., model=\"openai:gpt-5.5\", cwd=str(workspace.path), permission_callback=...)`"
+        },
+        {
+          "actor": "DeepAgentsBackend.execute() (session/backends/deepagents.py)",
+          "action": "Calls `create_deep_agent(model=\"openai:gpt-5.5\", system_prompt=..., cwd=..., tools=[spec_read, context_search, context_get, memory_recall, subtask_state])` and registers the interrupt hook if `permission_callback` is not None"
+        },
+        {
+          "actor": "DeepAgentsBackend.execute()",
+          "action": "Invokes the agent with the task prompt and begins consuming the `astream_events()` v2 stream"
+        },
+        {
+          "actor": "DeepAgentsBackend.execute()",
+          "action": "For each `on_chat_model_stream` event, yields an `AssistantMessage` to `session.py`; for each `on_tool_start` / `on_tool_end` event, yields a `ToolUseMessage`; accumulates token counts from `on_llm_end` events"
+        },
+        {
+          "actor": "session.py",
+          "action": "Receives and processes each `AgentMessage` as it arrives (displays to user, updates UI, etc.)"
+        },
+        {
+          "actor": "DeepAgentsBackend.execute()",
+          "action": "When the stream is exhausted, yields a terminal `ResultMessage` with aggregated token usage and `is_error=False`"
+        },
+        {
+          "actor": "session.py",
+          "action": "Receives the `ResultMessage`, marks the session complete, and calls `backend.close()` to release LangGraph checkpoint state"
+        }
+      ]
+    },
+    {
+      "id": "03-PATH-2",
+      "title": "Tool approval via permission_callback during session execution",
+      "steps": [
+        {
+          "actor": "session.py",
+          "action": "Calls `backend.execute(prompt, ..., permission_callback=my_callback)` on a `DeepAgentsBackend` instance"
+        },
+        {
+          "actor": "DeepAgentsBackend.execute()",
+          "action": "Registers the interrupt hook with the Deep Agents agent pointing to the `permission_callback`"
+        },
+        {
+          "actor": "Deep Agents / LangGraph runtime",
+          "action": "Fires an interrupt event before executing a tool call (e.g. `write_file`)"
+        },
+        {
+          "actor": "DeepAgentsBackend.execute()",
+          "action": "Extracts `tool_name` and `tool_input` from the interrupt event payload and calls `permission_callback(tool_name, tool_input)`"
+        },
+        {
+          "actor": "session.py permission_callback",
+          "action": "Evaluates the af security allowlist against the tool call and returns `True` (approve) or `False` (deny)"
+        },
+        {
+          "actor": "DeepAgentsBackend.execute()",
+          "action": "Forwards the boolean result to the agent's resume interface; agent continues (approve) or aborts the tool call (deny)"
+        },
+        {
+          "actor": "DeepAgentsBackend.execute()",
+          "action": "Yields a `ToolUseMessage` reflecting the outcome and continues streaming subsequent events"
+        }
+      ]
+    },
+    {
+      "id": "03-PATH-3",
+      "title": "Transient error retry leading to terminal error ResultMessage",
+      "steps": [
+        {
+          "actor": "session.py",
+          "action": "Calls `backend.execute(prompt, model=\"ollama:north-mini-code-1.0\", ...)` on a `DeepAgentsBackend` instance"
+        },
+        {
+          "actor": "DeepAgentsBackend.execute()",
+          "action": "Creates the agent and begins streaming via `astream_events()`"
+        },
+        {
+          "actor": "Deep Agents / LangGraph runtime",
+          "action": "Raises a transient connection error during streaming"
+        },
+        {
+          "actor": "DeepAgentsBackend.execute()",
+          "action": "Catches the transient error; waits 1 s (`_BACKOFF_BASE * 2^0`) and retries (attempt 2)"
+        },
+        {
+          "actor": "Deep Agents / LangGraph runtime",
+          "action": "Raises another transient error"
+        },
+        {
+          "actor": "DeepAgentsBackend.execute()",
+          "action": "Catches the error; waits 2 s (`_BACKOFF_BASE * 2^1`) and retries (attempt 3)"
+        },
+        {
+          "actor": "Deep Agents / LangGraph runtime",
+          "action": "Raises another transient error"
+        },
+        {
+          "actor": "DeepAgentsBackend.execute()",
+          "action": "All 3 attempts exhausted; yields `ResultMessage(is_error=True, is_transport_error=True)` and exits the generator cleanly without raising an exception"
+        },
+        {
+          "actor": "session.py",
+          "action": "Receives the terminal `ResultMessage` with `is_error=True` and handles the session failure gracefully"
+        }
+      ]
+    }
+  ],
+  "error_handling": [
+    {
+      "id": "03-ERR-1",
+      "condition": "Transient error (connection failure, HTTP 429, provider 5xx) during `astream_events()` streaming",
+      "behavior": "Retry up to 3 attempts with exponential backoff (1 s, 2 s, 4 s). On final failure, yield `ResultMessage(is_error=True, is_transport_error=True)` and exit generator.",
+      "requirement_id": "03-REQ-6.2"
+    },
+    {
+      "id": "03-ERR-2",
+      "condition": "Non-transient error (HTTP 401 authentication failure, tool execution error) during streaming",
+      "behavior": "Immediately yield `ResultMessage(is_error=True, is_transport_error=False)` without retry and exit generator cleanly.",
+      "requirement_id": "03-REQ-6.3"
+    },
+    {
+      "id": "03-ERR-3",
+      "condition": "Unexpected or malformed event shape received from `astream_events()` (e.g. missing field due to `deepagents` version drift)",
+      "behavior": "Skip the event, log a WARNING-level message, and continue processing subsequent events. Session is not terminated.",
+      "requirement_id": "03-REQ-2.8"
+    },
+    {
+      "id": "03-ERR-4",
+      "condition": "`permission_callback` raises an exception when invoked during interrupt handling",
+      "behavior": "Deny the tool call, yield `ResultMessage(is_error=True, is_transport_error=False)`, and exit the generator cleanly without propagating the exception.",
+      "requirement_id": "03-REQ-4.E1"
+    },
+    {
+      "id": "03-ERR-5",
+      "condition": "`create_deep_agent()` raises `TypeError` when called with the `max_budget_usd` parameter",
+      "behavior": "Retry `create_deep_agent()` without `max_budget_usd` and log a DEBUG-level message. Agent creation proceeds.",
+      "requirement_id": "03-REQ-5.2"
+    },
+    {
+      "id": "03-ERR-6",
+      "condition": "`create_deep_agent()` raises `TypeError` when called with the `effort` parameter",
+      "behavior": "Retry `create_deep_agent()` without `effort` and log a DEBUG-level message. Agent creation proceeds.",
+      "requirement_id": "03-REQ-5.3"
+    },
+    {
+      "id": "03-ERR-7",
+      "condition": "`deepagents` package is not installed when `session/backends/deepagents.py` is imported",
+      "behavior": "Python raises `ImportError` at import time. The `create_backend()` factory's lazy import isolates this failure so other backends (`ClaudeBackend`) continue to function.",
+      "requirement_id": "03-REQ-1.E1"
+    },
+    {
+      "id": "03-ERR-8",
+      "condition": "`astream_events()` hangs indefinitely without yielding events",
+      "behavior": "The session.py-level `asyncio.wait_for()` / async iterator cancellation enforces a timeout. The adapter itself does not impose a timeout — cancellation propagates into the async generator.",
+      "requirement_id": "03-REQ-2.E1"
+    }
+  ],
+  "external_apis": [
+    {
+      "package": "deepagents",
+      "version": ">=0.5",
+      "symbols": [
+        {
+          "name": "create_deep_agent",
+          "import_path": "deepagents",
+          "signature": "create_deep_agent(model: str, system_prompt: str, tools: list, cwd: str, **kwargs) -> Agent",
+          "notes": "Exact parameter names and optional parameters (max_budget_usd, effort, thinking, interrupt hook) must be verified empirically against the installed deepagents>=0.5 source. The PRD intentionally leaves optional parameter names to implementer discovery. The permissions parameter is NOT used."
+        },
+        {
+          "name": "astream_events",
+          "import_path": "langgraph (transitive via deepagents)",
+          "signature": "agent.astream_events(input: dict, version: str = \"v2\") -> AsyncIterator[dict]",
+          "notes": "LangGraph v2 streaming API. Exact event dict field names for on_tool_start, on_tool_end, on_chat_model_stream, and on_llm_end must be verified empirically against the installed package version. Unexpected fields must be handled non-fatally."
+        }
+      ]
+    },
+    {
+      "package": "langchain-core",
+      "version": "transitive via deepagents>=0.5",
+      "symbols": [
+        {
+          "name": "tool",
+          "import_path": "langchain_core.tools",
+          "signature": "@tool decorator for synchronous functions",
+          "notes": "Used to wrap af SDK functions as LangChain tools. Auto-generates JSON schema from Python type annotations and docstrings. All wrapped functions must carry complete type annotations."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,651 @@
+{
+  "$schema": null,
+  "spec_id": "02",
+  "spec_name": "backend_protocol",
+  "schema_version": 1,
+  "introduction": "This spec defines the `Backend` Protocol and `create_backend()` factory for the `agentfox` session layer, decoupling session logic from the concrete `ClaudeBackend` implementation and enabling future alternative LLM backends without modifying `session.py`. Note: requirements referencing `agentfox` internal module paths are based on the PRD description and should be cross-checked against the installed codebase before implementation.",
+  "glossary": {
+    "ActivityCallback": "A callback type defined in `agentfox/ui/progress.py`: `Callable[[ActivityEvent], None]` — a synchronous callback that receives `ActivityEvent` objects for UI updates.",
+    "ActivityEvent": "An event object defined in `agentfox/ui/progress.py` passed to `ActivityCallback` for UI progress updates.",
+    "AgentMessage": "A type alias defined in `session/backends/types.py`: `AgentMessage = ToolUseMessage | AssistantMessage | ResultMessage`.",
+    "AssistantMessage": "A message dataclass defined in `session/backends/types.py` representing a text response from the agent.",
+    "Backend": "A `typing.Protocol` class (runtime-checkable) in `session/backends/protocol.py` that defines the contract any backend adapter must satisfy: `execute()`, `close()`, and `name`.",
+    "ClaudeBackend": "The existing concrete backend class in `session/backends/claude.py` that wraps the Anthropic claude-agent-sdk and already satisfies the `Backend` Protocol structurally.",
+    "ConfigError": "A custom exception class at `agentfox.core.errors.ConfigError` raised for configuration-related errors such as unknown backend names or missing SDK dependencies.",
+    "OrchestratorConfig": "A pydantic `BaseModel` in `core/config.py` that holds orchestrator-level configuration fields including `parallel`, `session_timeout`, and now `backend`.",
+    "PermissionCallback": "A callback type defined in `session/backends/types.py`: `Callable[[str, dict[str, Any]], Awaitable[bool]]` — takes a tool name and tool input and returns whether the tool call is allowed.",
+    "ResultMessage": "A message dataclass defined in `session/backends/types.py` representing a final result from the agent.",
+    "SDK_CONTAINMENT": "A dictionary in `test_protocol.py` mapping SDK name strings to their designated backend file, used to enforce that SDK imports are isolated to their respective backend modules.",
+    "ToolUseMessage": "A message dataclass defined in `session/backends/types.py` representing a tool invocation from the agent.",
+    "agentfox": "The Python package under `packages/agentfox/agentfox/` that contains the session, backend, core, and UI modules for the agent orchestration system.",
+    "archetype": "An optional string parameter on `Backend.execute()` that specifies the agent archetype configuration to apply.",
+    "claude_agent_sdk": "The Python SDK package required by `ClaudeBackend`, referenced as a bare module name string in containment tests.",
+    "compaction": "A boolean parameter on `Backend.execute()` that controls whether context compaction is applied during session execution.",
+    "create_backend": "A factory function in `session/backends/__init__.py` that accepts a backend name string and returns a `Backend` instance using lazy imports.",
+    "effort": "A string parameter on `Backend.execute()` that maps to a reasoning/effort level for models that support it; valid values are `'low'`, `'medium'`, `'high'`, `'xhigh'`, and `'max'`.",
+    "lazy import": "An import statement placed inside a function body rather than at module level, so the dependency is only loaded when that function is called.",
+    "node_id": "An optional string parameter on `Backend.execute()` that identifies the orchestration graph node associated with a session execution.",
+    "run_session": "The primary entry-point function in `session/session.py` that drives an agent session end-to-end, accepting an optional `Backend` instance.",
+    "runtime_checkable": "A decorator from `typing` that allows `isinstance()` checks against a `Protocol` class at runtime, performing presence-only attribute verification.",
+    "shallow_merge": "An existing function in `core/config.py` that merges global and local TOML config sections by replacing sections wholesale when the local TOML explicitly provides them.",
+    "tool_error_callback": "An `Any | None` parameter on `Backend.execute()` for an as-yet-untyped callback invoked on tool errors; typed as `Any` to avoid premature coupling to `ClaudeBackend`-specific types."
+  },
+  "requirements": [
+    {
+      "id": "02-REQ-1",
+      "title": "Backend Protocol definition",
+      "user_story": {
+        "role": "backend implementer",
+        "goal": "implement a class that satisfies a well-defined `Backend` Protocol",
+        "benefit": "I can integrate a new LLM backend without modifying `session.py` or other core modules"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "02-REQ-1.1",
+          "ears_pattern": "ubiquitous",
+          "system": "Backend Protocol in `session/backends/protocol.py`",
+          "action": "defines a `@runtime_checkable` `typing.Protocol` class named `Backend` with three members: an `execute()` async method returning `AsyncIterator[AgentMessage]`, an async `close()` method, and a `name` property returning `str`",
+          "return_contract": "The class is importable as `from agentfox.session.backends import Backend` and passes `isinstance(ClaudeBackend(), Backend)` returning `True`"
+        },
+        {
+          "id": "02-REQ-1.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`Backend.execute()` signature",
+          "action": "accepts `prompt: str` as a positional argument and keyword-only arguments `system_prompt: str`, `model: str`, `cwd: str`, `permission_callback: PermissionCallback | None = None`, `activity_callback: ActivityCallback | None = None`, `tool_error_callback: Any | None = None`, `node_id: str = ''`, `archetype: str | None = None`, `max_turns: int | None = None`, `max_budget_usd: float | None = None`, `thinking: dict[str, Any] | None = None`, `effort: str | None = None`, `compaction: bool = False`, and returns `AsyncIterator[AgentMessage]`",
+          "return_contract": "Signature matches `ClaudeBackend.execute()` exactly so that `ClaudeBackend` satisfies the Protocol structurally without modification"
+        },
+        {
+          "id": "02-REQ-1.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`Backend.close()`",
+          "action": "is declared `async def close(self) -> None` and is idempotent — calling it multiple times in any state (before, during, or after `execute()`) must not raise an error",
+          "return_contract": "`None`; no exception raised on repeated calls"
+        },
+        {
+          "id": "02-REQ-1.4",
+          "ears_pattern": "ubiquitous",
+          "system": "`Backend.name` property",
+          "action": "is declared as a `@property` returning `str`, used to identify the backend for logging and telemetry (e.g. `'claude'`, `'deepagents'`, `'google-adk'`)",
+          "return_contract": "A non-empty string identifying the backend"
+        },
+        {
+          "id": "02-REQ-1.5",
+          "ears_pattern": "ubiquitous",
+          "system": "`Backend` Protocol imports",
+          "action": "imports `AgentMessage`, `PermissionCallback` from `session/backends/types.py` and `ActivityCallback` from `agentfox.ui.progress`; it does not import from `claude.py` or any concrete backend module",
+          "return_contract": "Module imports succeed without pulling in any SDK dependency"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "02-REQ-1.E1",
+          "ears_pattern": "unwanted",
+          "system": "`Backend` Protocol `isinstance` check",
+          "action": "returns `False` from `isinstance(obj, Backend)` — the runtime check is presence-only and does not verify signatures",
+          "return_contract": "`False`",
+          "error_condition": "an object is missing one or more of `execute`, `close`, or `name` attributes"
+        },
+        {
+          "id": "02-REQ-1.E2",
+          "ears_pattern": "unwanted",
+          "system": "Unsupporting backend receiving `effort` parameter",
+          "action": "silently ignores the `effort` value without raising an exception, consistent with the try/except `TypeError` with warning log pattern used by `ClaudeBackend`",
+          "return_contract": "No exception raised; backend proceeds normally",
+          "error_condition": "a backend implementation does not support the `effort` parameter"
+        }
+      ]
+    },
+    {
+      "id": "02-REQ-2",
+      "title": "`create_backend()` factory function",
+      "user_story": {
+        "role": "session layer developer",
+        "goal": "obtain a `Backend` instance by name without importing concrete backend classes directly",
+        "benefit": "I can switch backends via configuration without changing `session.py` and SDK dependencies are only loaded when needed"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "02-REQ-2.1",
+          "ears_pattern": "event_driven",
+          "system": "`create_backend()` factory",
+          "action": "uses a lazy import of `ClaudeBackend` inside the function body, instantiates it, and returns the instance typed as `Backend`",
+          "return_contract": "Returns a `Backend` instance where `isinstance(result, Backend)` is `True` and `result.name == 'claude'`",
+          "trigger": "called with `name='claude'`"
+        },
+        {
+          "id": "02-REQ-2.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`create_backend()` signature",
+          "action": "accepts a single positional argument `name: str` (not `Literal`) to avoid coupling the signature to the set of valid backend names, which grows with each new backend spec",
+          "return_contract": "Function signature is `def create_backend(name: str) -> Backend`"
+        },
+        {
+          "id": "02-REQ-2.3",
+          "ears_pattern": "ubiquitous",
+          "system": "Lazy import isolation in `create_backend()`",
+          "action": "imports backend-specific SDK modules (`claude_agent_sdk` and any future SDKs) inside the function body only, never at module level, so that importing `session/backends/__init__.py` does not load any SDK",
+          "return_contract": "`claude_agent_sdk` does not appear in `sys.modules` after importing `agentfox.session.backends` unless `create_backend('claude')` has been called"
+        },
+        {
+          "id": "02-REQ-2.4",
+          "ears_pattern": "event_driven",
+          "system": "`create_backend()` factory",
+          "action": "raises `ConfigError` with a message identifying the unknown name and listing valid backends, e.g. `\"Unknown backend: 'foo'. Valid backends are: ['claude']\"`",
+          "return_contract": "Raises `agentfox.core.errors.ConfigError`",
+          "trigger": "called with an unrecognised backend name (e.g. `'foo'`, `''`)"
+        },
+        {
+          "id": "02-REQ-2.5",
+          "ears_pattern": "event_driven",
+          "system": "`create_backend()` factory",
+          "action": "catches the `ImportError` and raises `ConfigError` with an installation hint message, e.g. `'Backend \"claude\" requires claude-agent-sdk. Install it with: pip install claude-agent-sdk'`",
+          "return_contract": "Raises `agentfox.core.errors.ConfigError` with install hint",
+          "trigger": "the lazy import of the required SDK raises `ImportError` (SDK not installed)"
+        },
+        {
+          "id": "02-REQ-2.6",
+          "ears_pattern": "ubiquitous",
+          "system": "`create_backend()` error propagation",
+          "action": "propagates `ConfigError` immediately to the caller with no fallback to any other backend — no silent recovery is attempted",
+          "return_contract": "`ConfigError` raised; no alternative backend instantiated"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "02-REQ-2.E1",
+          "ears_pattern": "unwanted",
+          "system": "`create_backend()` factory",
+          "action": "raises `ConfigError` with the same unrecognised-name message path as any other unknown name",
+          "return_contract": "Raises `agentfox.core.errors.ConfigError`",
+          "error_condition": "called with an empty string `''`"
+        },
+        {
+          "id": "02-REQ-2.E2",
+          "ears_pattern": "unwanted",
+          "system": "Session startup via `run_session()`",
+          "action": "propagates the `ConfigError` through the existing exception-handling pipeline in `session.py` and the engine layer to the top-level caller; no fallback backend is selected and no process termination occurs — the error is signaled via exception only",
+          "return_contract": "`ConfigError` propagated to top-level caller; no process exit",
+          "error_condition": "`create_backend()` raises `ConfigError` during session startup due to missing SDK or invalid name"
+        }
+      ]
+    },
+    {
+      "id": "02-REQ-3",
+      "title": "`OrchestratorConfig` backend field",
+      "user_story": {
+        "role": "operator",
+        "goal": "specify the desired backend in the TOML config file",
+        "benefit": "I can switch backends without modifying source code, and invalid backend names are caught at config-load time with a clear error"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "02-REQ-3.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`OrchestratorConfig` in `core/config.py`",
+          "action": "adds a field `backend: Literal[\"claude\"] = \"claude\"` to the pydantic `BaseModel`, making `'claude'` the default value so that existing config files omitting the field continue to work",
+          "return_contract": "`OrchestratorConfig().backend == 'claude'`"
+        },
+        {
+          "id": "02-REQ-3.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`OrchestratorConfig.backend` field",
+          "action": "is config-file only — no environment variable override is provided, consistent with all other `OrchestratorConfig` fields",
+          "return_contract": "Field is not settable via environment variable"
+        },
+        {
+          "id": "02-REQ-3.3",
+          "ears_pattern": "event_driven",
+          "system": "`load_config()` in `core/config.py`",
+          "action": "pydantic raises `ValidationError` which the existing `load_config()` catches and re-raises as `ConfigError` with a user-friendly message — no additional error-handling code is required for the `backend` field",
+          "return_contract": "Raises `agentfox.core.errors.ConfigError`",
+          "trigger": "a TOML config file contains an invalid `backend` value (not in `Literal[\"claude\"]`)"
+        },
+        {
+          "id": "02-REQ-3.4",
+          "ears_pattern": "state_driven",
+          "system": "Config merging via `shallow_merge`",
+          "action": "inherits the global TOML `[orchestrator]` section wholesale, including the `backend` field value",
+          "return_contract": "Merged config `backend` equals the global TOML value",
+          "state": "local TOML omits the `[orchestrator]` section entirely"
+        },
+        {
+          "id": "02-REQ-3.5",
+          "ears_pattern": "state_driven",
+          "system": "Config merging via `shallow_merge`",
+          "action": "applies the pydantic default `'claude'` for the `backend` field; the global TOML's `backend` value is not inherited for this field",
+          "return_contract": "Merged config `backend == 'claude'`",
+          "state": "local TOML includes `[orchestrator]` but omits `backend`"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "02-REQ-3.E1",
+          "ears_pattern": "unwanted",
+          "system": "`OrchestratorConfig` pydantic validation",
+          "action": "pydantic validation fails and `load_config()` re-raises as `ConfigError` without reaching `create_backend()`",
+          "return_contract": "Raises `agentfox.core.errors.ConfigError` with pydantic-generated field validation message",
+          "error_condition": "TOML file provides `backend = \"unknown-value\"` not present in the `Literal` type"
+        }
+      ]
+    },
+    {
+      "id": "02-REQ-4",
+      "title": "`session.py` type widening and factory integration",
+      "user_story": {
+        "role": "session layer developer",
+        "goal": "have `session.py` typed against `Backend` rather than `ClaudeBackend`",
+        "benefit": "mypy resolves `AsyncIterator[AgentMessage]` correctly through the Protocol, eliminating the `# type: ignore[attr-defined]` suppression comment"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "02-REQ-4.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`run_session()` in `session/session.py`",
+          "action": "changes the `backend` parameter type from `ClaudeBackend | None` to `Backend | None`, and when `backend` is `None` instantiates the backend by calling `create_backend(config.orchestrator.backend)` using the config-validated name",
+          "return_contract": "`run_session()` behaves identically to the previous implementation when called with `backend=None` and default config"
+        },
+        {
+          "id": "02-REQ-4.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`session.py` static analysis",
+          "action": "removes the `# type: ignore[attr-defined]` comment from the `async for` loop over `backend.execute()` (previously line 256); mypy resolves the `AsyncIterator[AgentMessage]` return type through the `Backend` Protocol without suppression",
+          "return_contract": "mypy passes with no `type: ignore` suppression on that line"
+        },
+        {
+          "id": "02-REQ-4.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`session.py` imports",
+          "action": "imports `Backend` and `create_backend` from `agentfox.session.backends`; the direct import of `ClaudeBackend` is removed from `session.py`",
+          "return_contract": "`ClaudeBackend` does not appear in `session.py` imports"
+        },
+        {
+          "id": "02-REQ-4.4",
+          "ears_pattern": "ubiquitous",
+          "system": "Backward compatibility of `run_session()`",
+          "action": "all existing call sites that pass a `ClaudeBackend` instance explicitly continue to work because `ClaudeBackend` satisfies the `Backend` Protocol structurally — no call sites require updates",
+          "return_contract": "All existing session unit tests pass unmodified"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "02-REQ-4.E1",
+          "ears_pattern": "unwanted",
+          "system": "`run_session()` backend lifecycle",
+          "action": "`close()` is called on the `Backend` instance in a `finally` block to release any remaining resources; `close()` is idempotent so calling it after normal exhaustion is also safe",
+          "return_contract": "`close()` called exactly once in `finally` block; no resource leak; no exception from idempotent `close()`",
+          "error_condition": "session execution is cancelled mid-stream via asyncio task cancellation or `asyncio.wait_for()` timeout"
+        },
+        {
+          "id": "02-REQ-4.E2",
+          "ears_pattern": "unwanted",
+          "system": "`run_session()` backend instantiation",
+          "action": "the error propagates to the caller via exception; `run_session()` does not call `close()` (no backend was created) and does not terminate the process",
+          "return_contract": "`ConfigError` propagated; no process exit; no orphaned backend instance",
+          "error_condition": "`create_backend()` raises `ConfigError` before the session begins"
+        }
+      ]
+    },
+    {
+      "id": "02-REQ-5",
+      "title": "`session/backends/__init__.py` exports",
+      "user_story": {
+        "role": "downstream consumer",
+        "goal": "import `Backend` and `create_backend` from `agentfox.session.backends`",
+        "benefit": "I have a stable, documented import path for the backend abstraction"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "02-REQ-5.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`session/backends/__init__.py`",
+          "action": "updates `__all__` to include `'Backend'` and `'create_backend'` in addition to the existing exports (`'AgentMessage'`, `'AssistantMessage'`, `'ClaudeBackend'`, `'PermissionCallback'`, `'ResultMessage'`, `'ToolUseMessage'`)",
+          "return_contract": "`from agentfox.session.backends import Backend, create_backend` succeeds without error"
+        },
+        {
+          "id": "02-REQ-5.2",
+          "ears_pattern": "ubiquitous",
+          "system": "Higher-level package exports",
+          "action": "does NOT add `Backend` or `create_backend` to `session/__init__.py` or `agentfox/__init__.py` — consumers must import directly from `agentfox.session.backends`",
+          "return_contract": "`from agentfox import Backend` raises `ImportError`; `from agentfox.session import Backend` raises `ImportError`"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "02-REQ-6",
+      "title": "Protocol `isinstance` and containment property tests",
+      "user_story": {
+        "role": "CI system",
+        "goal": "enforce that `ClaudeBackend` satisfies `Backend` at runtime and that SDK imports are isolated to their designated files",
+        "benefit": "regressions in Protocol compliance or accidental SDK coupling are caught on every PR"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "02-REQ-6.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`tests/unit/session/backends/test_protocol.py`",
+          "action": "creates a new test file that asserts `isinstance(ClaudeBackend(), Backend)` returns `True`",
+          "return_contract": "pytest passes; assertion holds"
+        },
+        {
+          "id": "02-REQ-6.2",
+          "ears_pattern": "ubiquitous",
+          "system": "Containment property test in `test_protocol.py`",
+          "action": "scans all `.py` files under `packages/agentfox/agentfox/` recursively using `glob.glob(os.path.join(agent_fox_dir, '**', '*.py'), recursive=True)`, asserts each SDK name string in `SDK_CONTAINMENT` appears **only** in its designated file using substring match, and excludes the designated file itself from that assertion",
+          "return_contract": "pytest passes; any non-designated file containing an SDK name string causes the test to fail with a clear message identifying the offending file and SDK name"
+        },
+        {
+          "id": "02-REQ-6.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`SDK_CONTAINMENT` mapping in `test_protocol.py`",
+          "action": "is defined as a dictionary `{'claude_agent_sdk': 'claude.py'}` with placeholder comments for future backends (`deepagents`, `google-adk`); adding a new backend requires only a one-line addition to the mapping",
+          "return_contract": "Dictionary is extensible; test logic does not change when entries are added"
+        },
+        {
+          "id": "02-REQ-6.4",
+          "ears_pattern": "ubiquitous",
+          "system": "Containment test scope",
+          "action": "targets only `packages/agentfox/agentfox/` (production source); `packages/agentfox/tests/` is a sibling directory outside the glob path and is never scanned, so SDK name strings in mock/patch strings within test files do not trigger false positives",
+          "return_contract": "No false positives from test file content; glob never reaches `tests/` directory"
+        },
+        {
+          "id": "02-REQ-6.5",
+          "ears_pattern": "ubiquitous",
+          "system": "CI enforcement of protocol and containment tests",
+          "action": "both the `isinstance` test and the containment property test run as required checks on every PR via the existing CI pipeline",
+          "return_contract": "PR cannot merge if either test fails"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "02-REQ-6.E1",
+          "ears_pattern": "unwanted",
+          "system": "Containment property test",
+          "action": "test fails with a descriptive assertion message identifying the SDK name and the offending file path",
+          "return_contract": "pytest reports failure; CI blocks the PR",
+          "error_condition": "an SDK name string from `SDK_CONTAINMENT` appears in a non-designated production source file (accidental coupling)"
+        },
+        {
+          "id": "02-REQ-6.E2",
+          "ears_pattern": "unwanted",
+          "system": "Containment property test",
+          "action": "test raises a clear error (e.g. via `assert os.path.isdir(agent_fox_dir)`) rather than silently passing with zero files scanned",
+          "return_contract": "pytest reports failure with descriptive message; empty scan does not produce a false pass",
+          "error_condition": "`packages/agentfox/agentfox/` directory does not exist or cannot be read at test time"
+        }
+      ]
+    }
+  ],
+  "correctness_properties": [
+    {
+      "id": "02-PROP-1",
+      "title": "`ClaudeBackend` satisfies `Backend` Protocol at runtime",
+      "for_any": "instance `cb` of `ClaudeBackend`",
+      "invariant": "`isinstance(cb, Backend)` is `True`",
+      "validates": [
+        "02-REQ-1.1",
+        "02-REQ-6.1"
+      ]
+    },
+    {
+      "id": "02-PROP-2",
+      "title": "Lazy import isolation: `claude_agent_sdk` not loaded unless backend is selected",
+      "for_any": "Python process that imports `agentfox.session.backends` without calling `create_backend('claude')`",
+      "invariant": "`'claude_agent_sdk'` does not appear in `sys.modules`",
+      "validates": [
+        "02-REQ-2.3",
+        "02-REQ-6.2"
+      ]
+    },
+    {
+      "id": "02-PROP-3",
+      "title": "`create_backend()` always returns a `Backend` instance or raises `ConfigError`",
+      "for_any": "any string `name` passed to `create_backend(name)`",
+      "invariant": "the function either returns an object where `isinstance(result, Backend)` is `True`, or raises `agentfox.core.errors.ConfigError` — no other outcome is possible",
+      "validates": [
+        "02-REQ-2.1",
+        "02-REQ-2.4",
+        "02-REQ-2.5"
+      ]
+    },
+    {
+      "id": "02-PROP-4",
+      "title": "`close()` is idempotent across all states",
+      "for_any": "`Backend` instance `b` in any state (before, during, or after `execute()`)",
+      "invariant": "calling `b.close()` any number of times does not raise an exception",
+      "validates": [
+        "02-REQ-1.3",
+        "02-REQ-4.E1"
+      ]
+    },
+    {
+      "id": "02-PROP-5",
+      "title": "SDK containment: each SDK string appears only in its designated file",
+      "for_any": "every `.py` file under `packages/agentfox/agentfox/` except the designated backend file",
+      "invariant": "the SDK name string (e.g. `'claude_agent_sdk'`) does not appear as a substring in the file's contents",
+      "validates": [
+        "02-REQ-6.2",
+        "02-REQ-6.3",
+        "02-REQ-6.4"
+      ]
+    },
+    {
+      "id": "02-PROP-6",
+      "title": "Existing session tests pass unmodified after type widening",
+      "for_any": "test in the existing session unit test suite",
+      "invariant": "the test passes without modification after `run_session()` parameter type is widened from `ClaudeBackend | None` to `Backend | None`",
+      "validates": [
+        "02-REQ-4.4"
+      ]
+    },
+    {
+      "id": "02-PROP-7",
+      "title": "mypy passes with no `type: ignore` suppression on `async for backend.execute()`",
+      "for_any": "static analysis run of `session/session.py` with mypy",
+      "invariant": "no `# type: ignore[attr-defined]` comment is present on the `async for` loop over `backend.execute()`, and mypy reports no errors on that statement",
+      "validates": [
+        "02-REQ-4.2"
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "02-PATH-1",
+      "title": "Session startup with default claude backend via config",
+      "steps": [
+        {
+          "actor": "Operator",
+          "action": "starts a session without specifying a `backend` argument; TOML config has `backend = 'claude'` (or omits it, getting the default)"
+        },
+        {
+          "actor": "`run_session()` in `session.py`",
+          "action": "detects `backend` parameter is `None` and calls `create_backend(config.orchestrator.backend)` with `'claude'`"
+        },
+        {
+          "actor": "`create_backend()` factory",
+          "action": "lazily imports `ClaudeBackend` from `session/backends/claude.py`, instantiates it, and returns the instance as `Backend`"
+        },
+        {
+          "actor": "`run_session()` in `session.py`",
+          "action": "calls `backend.execute(prompt, ...)` and iterates over the resulting `AsyncIterator[AgentMessage]` without a `# type: ignore` comment"
+        },
+        {
+          "actor": "`ClaudeBackend`",
+          "action": "yields `AgentMessage` instances (tool use, assistant text, or result) to the session loop"
+        },
+        {
+          "actor": "`run_session()` in `session.py`",
+          "action": "calls `backend.close()` in the `finally` block after the iterator is exhausted or on cancellation"
+        }
+      ]
+    },
+    {
+      "id": "02-PATH-2",
+      "title": "Session startup fails with unknown backend name",
+      "steps": [
+        {
+          "actor": "Operator",
+          "action": "provides a TOML config with `backend = 'unknown-backend'`"
+        },
+        {
+          "actor": "`load_config()` in `core/config.py`",
+          "action": "pydantic `Literal` validation fails; `load_config()` catches `ValidationError` and re-raises as `ConfigError` identifying the invalid `backend` value"
+        },
+        {
+          "actor": "Engine / top-level caller",
+          "action": "receives `ConfigError` and surfaces it to the user as a configuration error message; no session is started"
+        }
+      ]
+    },
+    {
+      "id": "02-PATH-3",
+      "title": "Session startup fails with missing SDK",
+      "steps": [
+        {
+          "actor": "Operator",
+          "action": "calls `run_session()` with default config (`backend='claude'`) on a system where `claude_agent_sdk` is not installed"
+        },
+        {
+          "actor": "`create_backend()` factory",
+          "action": "attempts lazy import of `ClaudeBackend`; `ImportError` is raised by the Python import system"
+        },
+        {
+          "actor": "`create_backend()` factory",
+          "action": "catches `ImportError` and raises `ConfigError` with install hint: `'Backend \"claude\" requires claude-agent-sdk. Install it with: pip install claude-agent-sdk'`"
+        },
+        {
+          "actor": "Engine / top-level caller",
+          "action": "receives `ConfigError` and surfaces the install hint to the user; no session is started and no process is terminated"
+        }
+      ]
+    },
+    {
+      "id": "02-PATH-4",
+      "title": "Containment test enforces SDK isolation on PR",
+      "steps": [
+        {
+          "actor": "Developer",
+          "action": "opens a PR that accidentally imports `claude_agent_sdk` in a non-backend production file"
+        },
+        {
+          "actor": "CI pipeline",
+          "action": "runs `pytest tests/unit/session/backends/test_protocol.py` as a required check"
+        },
+        {
+          "actor": "Containment property test",
+          "action": "scans all `.py` files under `packages/agentfox/agentfox/` using glob, finds `claude_agent_sdk` in a non-designated file, and fails the assertion"
+        },
+        {
+          "actor": "CI pipeline",
+          "action": "marks the PR check as failed and blocks merge; the developer receives a descriptive error message identifying the offending file"
+        }
+      ]
+    }
+  ],
+  "error_handling": [
+    {
+      "id": "02-ERR-1",
+      "condition": "Unknown backend name passed to `create_backend()`",
+      "behavior": "Raises `agentfox.core.errors.ConfigError` with message identifying the unknown name and listing valid backends, e.g. `\"Unknown backend: 'foo'. Valid backends are: ['claude']\"`; no fallback is attempted",
+      "requirement_id": "02-REQ-2.4"
+    },
+    {
+      "id": "02-ERR-2",
+      "condition": "Required SDK not installed when `create_backend()` attempts lazy import",
+      "behavior": "Catches `ImportError` and raises `agentfox.core.errors.ConfigError` with a `pip install` hint specific to the missing SDK; no fallback backend is selected",
+      "requirement_id": "02-REQ-2.5"
+    },
+    {
+      "id": "02-ERR-3",
+      "condition": "Invalid `backend` literal value read from TOML config file",
+      "behavior": "pydantic raises `ValidationError`; `load_config()` catches it and re-raises as `agentfox.core.errors.ConfigError` with a user-friendly message; `create_backend()` is never reached",
+      "requirement_id": "02-REQ-3.3"
+    },
+    {
+      "id": "02-ERR-4",
+      "condition": "`ConfigError` raised during session startup (missing SDK or invalid name)",
+      "behavior": "Propagated immediately through the existing exception-handling pipeline in `session.py` and the engine layer to the top-level caller; no fallback, no process termination — error signaled via exception only",
+      "requirement_id": "02-REQ-2.E2"
+    },
+    {
+      "id": "02-ERR-5",
+      "condition": "Session cancelled mid-stream via asyncio task cancellation or `asyncio.wait_for()` timeout",
+      "behavior": "`close()` is called on the `Backend` instance in the `finally` block of `run_session()`; `close()` is idempotent so this is safe even if the iterator was already exhausted",
+      "requirement_id": "02-REQ-4.E1"
+    },
+    {
+      "id": "02-ERR-6",
+      "condition": "Containment test scans a production directory that does not exist or is unreadable",
+      "behavior": "Test asserts the directory exists before scanning; fails with a descriptive error rather than silently passing with zero files scanned",
+      "requirement_id": "02-REQ-6.E2"
+    },
+    {
+      "id": "02-ERR-7",
+      "condition": "SDK name string found in a non-designated production source file during containment scan",
+      "behavior": "Containment property test fails with a descriptive assertion message identifying the SDK name and offending file path; CI blocks the PR",
+      "requirement_id": "02-REQ-6.E1"
+    }
+  ],
+  "external_apis": [
+    {
+      "package": "typing",
+      "version": "Python 3.12 stdlib",
+      "symbols": [
+        {
+          "name": "Protocol",
+          "import_path": "typing.Protocol",
+          "signature": "class Protocol",
+          "notes": "Base class for structural subtyping (static duck typing). Combined with @runtime_checkable for isinstance() support."
+        },
+        {
+          "name": "runtime_checkable",
+          "import_path": "typing.runtime_checkable",
+          "signature": "@runtime_checkable",
+          "notes": "Decorator that enables isinstance() checks against a Protocol. Performs presence-only attribute verification, not signature verification."
+        },
+        {
+          "name": "AsyncIterator",
+          "import_path": "typing.AsyncIterator",
+          "signature": "class AsyncIterator[T]",
+          "notes": "Used as the return type of Backend.execute(). AsyncGenerator is a subtype, so ClaudeBackend's async generator satisfies this."
+        },
+        {
+          "name": "Literal",
+          "import_path": "typing.Literal",
+          "signature": "Literal[value, ...]",
+          "notes": "Used for OrchestratorConfig.backend field type: Literal[\"claude\"]. Widened to include additional backends in future specs."
+        },
+        {
+          "name": "Any",
+          "import_path": "typing.Any",
+          "signature": "Any",
+          "notes": "Used for tool_error_callback parameter type as Any | None — intentionally broad until a concrete cross-backend type is defined."
+        }
+      ]
+    },
+    {
+      "package": "pydantic",
+      "version": "v2 (inferred from project usage)",
+      "symbols": [
+        {
+          "name": "BaseModel",
+          "import_path": "pydantic.BaseModel",
+          "signature": "class BaseModel",
+          "notes": "Base class for OrchestratorConfig. Provides Literal field validation; ValidationError is caught by load_config() and re-raised as ConfigError."
+        }
+      ]
+    },
+    {
+      "package": "glob",
+      "version": "Python 3.12 stdlib",
+      "symbols": [
+        {
+          "name": "glob",
+          "import_path": "glob.glob",
+          "signature": "glob.glob(pathname: str, *, recursive: bool = False) -> list[str]",
+          "notes": "Used in test_protocol.py containment test to scan all .py files under packages/agentfox/agentfox/ recursively."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,328 @@
+{
+  "state": "generated",
+  "prd_path": "prd.md",
+  "assessment_history": [
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD for `deepagents_backend` is well-structured and substantive. The Intent, Background, Non-Goals, and Solution sections are clearly articulated, and the document demonstrates strong engineering depth (design decisions, tech stack, dependency table). However, it is missing a formal **Goals** section with measurable outcomes, and several areas lack sufficient specificity to drive unambiguous artifact generation: the event-mapping contract between LangGraph events and canonical message types is underspecified, error-handling and retry behavior are absent, the testing strategy is thin, and the `execute()` method's async/streaming API contract with the Backend Protocol is not explicitly validated against spec `02`. These gaps could cause implementation ambiguity.",
+      "gaps": [
+        "No formal 'Goals' section \u2014 there are no measurable success criteria or acceptance thresholds (e.g., provider coverage targets, latency SLOs, test coverage minimums).",
+        "LangGraph event-to-canonical-message mapping is underspecified: the exact LangGraph event types/keys that map to ToolUseMessage, AssistantMessage, and ResultMessage are not defined, leaving the mapping ambiguous for implementers.",
+        "Error handling and resilience strategy is entirely absent: no mention of how provider API errors, rate limits, timeouts, or Deep Agents internal exceptions are caught, surfaced, or retried.",
+        "The `execute()` method's full async/streaming signature and its conformance to the Backend Protocol (spec 02) are not explicitly stated \u2014 e.g., whether it returns an AsyncIterator, AsyncGenerator, or uses callbacks.",
+        "Token usage extraction is underspecified: which exact LangGraph event fields carry usage data, and what happens when a provider does not return token counts, is not described.",
+        "Testing strategy is minimal \u2014 only 'pytest + pytest-asyncio' is listed with no description of unit vs. integration tests, mocking strategy for LangGraph/Deep Agents, or required test cases.",
+        "The `close()` method's cleanup responsibilities are vague: 'cleans up any LangGraph state' is not actionable without knowing what state exists and how it is released.",
+        "The `interrupt_on` / permission_callback mapping mechanism is described at a high level but lacks detail on how approval/denial results are communicated back to the agent mid-stream.",
+        "No mention of thread safety or concurrency model \u2014 unclear whether a single DeepAgentsBackend instance can handle concurrent sessions or is single-use."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What are the measurable goals for this feature? For example: which LLM providers must pass a smoke test at launch, what is the minimum test coverage target, or are there latency/reliability SLOs?",
+          "context": "The PRD has no Goals section. Without measurable outcomes, there is no way to determine when the implementation is 'done' or to write acceptance criteria for tests.",
+          "options": [
+            "Support at least 3 providers (OpenAI, Anthropic, Ollama) with passing integration tests",
+            "Match ClaudeBackend's streaming latency within 20% on equivalent tasks",
+            "Achieve \u226580% unit test coverage on deepagents.py",
+            "All of the above",
+            "Other (please specify)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "What is the exact async/streaming contract of the `execute()` method as defined by the Backend Protocol (spec 02)? For instance, does it return an `AsyncGenerator[Message, None]`, use a callback, or something else?",
+          "context": "The solution describes streaming LangGraph events but never states the return type of `execute()`. Implementers need to know the precise method signature to correctly satisfy the Protocol.",
+          "options": [
+            "AsyncGenerator[Message, None] \u2014 yields messages as they arrive",
+            "AsyncIterator[Message] \u2014 same semantics, different spelling",
+            "Callback-based \u2014 accepts an on_message callable",
+            "Returns a final result only (no streaming)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "Which specific LangGraph event types or keys should be mapped to each canonical message type? For example, what event name or dict key signals a tool call vs. a text chunk vs. stream end?",
+          "context": "The solution mentions 'tool call events \u2192 ToolUseMessage' and 'text/message events \u2192 AssistantMessage' but does not identify the actual LangGraph event schema. Without this, the mapping is ambiguous.",
+          "options": [
+            "Provide the LangGraph event type names (e.g., on_tool_start, on_chat_model_stream)",
+            "Reference the Deep Agents documentation or source for the event schema",
+            "Leave it to the implementer to discover from the deepagents>=0.5 source"
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "How should the backend handle errors from the Deep Agents / LangGraph layer? For example: provider API errors (401, 429, 5xx), tool execution failures, or unexpected exceptions during streaming?",
+          "context": "There is no error-handling strategy in the PRD. Decisions about retries, surfacing errors to the caller, and whether to yield an error message or raise an exception affect both the implementation and the Backend Protocol contract.",
+          "options": [
+            "Raise exceptions directly to the caller \u2014 let the orchestration layer handle retries",
+            "Yield a typed ErrorMessage and terminate the stream gracefully",
+            "Retry transient errors (429, 5xx) up to N times with exponential backoff before raising",
+            "Combination: retry transient errors, surface persistent failures as ErrorMessage"
+          ],
+          "required": true
+        },
+        {
+          "id": "q5",
+          "text": "What is the expected testing strategy for DeepAgentsBackend? Should tests mock the `deepagents` package, use a real provider (integration tests), or both?",
+          "context": "The PRD mentions pytest and pytest-asyncio but provides no guidance on what scenarios must be tested or how to isolate the adapter from live LLM calls in CI.",
+          "options": [
+            "Unit tests only \u2014 mock create_deep_agent() and LangGraph events",
+            "Integration tests only \u2014 require a real API key in CI",
+            "Both: unit tests for event mapping logic + at least one provider integration test gated behind a flag",
+            "Snapshot/golden-file tests against recorded LangGraph event streams"
+          ],
+          "required": false
+        },
+        {
+          "id": "q6",
+          "text": "Is a single `DeepAgentsBackend` instance expected to support concurrent `execute()` calls (e.g., multiple parallel sessions), or is it single-use / one-session-per-instance?",
+          "context": "Deep Agents runs in-process, and LangGraph may maintain internal state. If concurrent use is required, the adapter must manage per-invocation state carefully. This affects the design of `close()` and any shared resources.",
+          "options": [
+            "Single-use: one instance per session, instantiated fresh for each execute() call",
+            "Reusable but single-threaded: same instance, sequential calls only",
+            "Concurrent: must support multiple simultaneous execute() calls safely"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD is well-structured, technically detailed, and covers the core adapter design clearly. It defines measurable goals, a coherent solution, solid testing strategy, and clear non-goals. However, several gaps remain that could block implementation or cause ambiguity: the `close()` method contract is under-specified, the `permission_callback` interface and interrupt mapping lack a concrete signature, the `cwd` workspace injection mechanism is undefined, and the af SDK tool wrapping approach needs more precision. A few backward-compatibility and configuration concerns also need resolution.",
+      "gaps": [
+        "close() method behavior is mentioned in Design Decisions but not specified in the Solution section \u2014 cancellation semantics, timeout, and what happens to in-flight execute() calls are unclear.",
+        "The permission_callback signature and the interrupt_on mapping contract are not defined. It is unclear what arguments permission_callback receives, what return values it must produce, and how the approval/denial is forwarded to the agent resume() interface.",
+        "The workspace/cwd directory injection mechanism is not specified. Deep Agents filesystem tools operate on a cwd, but how that path reaches create_deep_agent() (e.g. a constructor parameter, config field, env var) is not described.",
+        "The af SDK tool wrapping approach says tools are wrapped as LangChain @tool-decorated functions, but does not specify which af SDK functions are included, how their schemas are derived, or whether they are registered synchronously or asynchronously.",
+        "The OrchestratorConfig.backend Literal widening in step 10 mentions the config type but does not specify what module or file owns it, whether a migration or validation step is needed, or whether existing configs with 'claude' continue to work unchanged.",
+        "The deepagents optional dependency group name (e.g. deepagents = ['deepagents>=0.5']) is not tied to an install-extra validation step or CI matrix \u2014 it is unclear whether CI installs this extra or skips deepagents-specific tests when the extra is absent.",
+        "The event mapping note says field names 'may vary across deepagents versions' and must be 'empirically verified', but there is no fallback or schema-validation strategy defined when an unexpected event shape is encountered at runtime.",
+        "The ResultMessage usage aggregation strategy for on_chat_model_stream vs on_llm_end is not resolved \u2014 both are listed as sources of token counts, creating ambiguity about which takes precedence or how duplicates are avoided.",
+        "No definition of how the system_prompt is assembled or passed \u2014 the Solution references 'the system prompt assembled by the steering/context layer' but does not define the interface between that layer and DeepAgentsBackend.",
+        "The backward-compatibility goal (Goal 4) states all existing session-layer tests pass unmodified, but there is no explicit statement about whether the ClaudeBackend import path, module structure, or any shared utility in session/backends/__init__.py is affected by this change."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What is the contract for the close() method on DeepAgentsBackend? Specifically: (a) Should it await cancellation of in-flight LangGraph tasks with a timeout? (b) What should happen if execute() is still running when close() is called \u2014 should it be interrupted immediately or allowed to finish? (c) Should close() be idempotent (safe to call multiple times)?",
+          "context": "Design Decision 6 mentions cancelling in-flight async tasks and releasing graph state, but the Solution section has no corresponding step. Implementers need a precise contract to write correct teardown logic and tests.",
+          "options": [
+            "Cancel immediately with a configurable timeout (default 5s), yield nothing after cancellation, idempotent",
+            "Signal cancellation and await graceful drain, then release state, idempotent",
+            "No-op if execute() is not running; cancel immediately if it is; idempotent"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "What is the exact signature and return type of permission_callback, and how does the adapter forward the result to Deep Agents' resume() interface? Please specify: (a) the arguments permission_callback receives (e.g. tool name, input dict, metadata), (b) the return value (e.g. bool, an approval object), and (c) the resume() call shape.",
+          "context": "Solution step 5 describes the interrupt_on mechanism but leaves the callback interface undefined. Without a concrete signature, the adapter cannot be implemented or tested correctly.",
+          "options": [
+            "permission_callback(tool_name: str, tool_input: dict) -> bool; True = approve, False = deny",
+            "permission_callback(tool_call: ToolUseMessage) -> PermissionResult; forwarded as-is to resume()",
+            "permission_callback(tool_name: str, tool_input: dict, metadata: dict) -> bool; resume(approved=<bool>)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "How does the workspace/cwd directory reach DeepAgentsBackend and then create_deep_agent()? Is it: (a) a constructor parameter on DeepAgentsBackend, (b) a field in OrchestratorConfig passed via kwargs to execute(), or (c) resolved from an environment variable or process working directory?",
+          "context": "Deep Agents filesystem tools (read_file, write_file, etc.) operate relative to a cwd. If this is not injected correctly, the tools will operate on the wrong directory. The Solution section does not mention cwd at all.",
+          "options": [
+            "Constructor parameter: DeepAgentsBackend(cwd: Path)",
+            "Passed via kwargs in execute(task, cwd=..., **kwargs)",
+            "Resolved from OrchestratorConfig and passed to create_deep_agent()",
+            "Inherited from the process working directory (no explicit injection)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "Which af SDK functions are registered as LangChain tools, and are they async or sync? Please list the function names and confirm whether they should be wrapped with @tool or async @tool.",
+          "context": "Solution step 2 lists spec_read, context_search, context_get, memory_recall, subtask_state, but the PRD should canonically define this list so implementers and reviewers agree on scope.",
+          "options": [
+            "All five listed (spec_read, context_search, context_get, memory_recall, subtask_state) as sync @tool",
+            "All five as async @tool",
+            "A subset \u2014 please specify which ones and whether sync or async"
+          ],
+          "required": true
+        },
+        {
+          "id": "q5",
+          "text": "When both on_chat_model_stream and on_llm_end events carry token usage data, which source takes precedence for the terminal ResultMessage, or should they be summed? And if a chunk stream yields partial counts per chunk, how should they be accumulated?",
+          "context": "Solution step 8 lists both event types as sources of token counts without resolving the precedence or deduplication strategy. Ambiguity here could cause double-counting or missed counts.",
+          "options": [
+            "Prefer on_llm_end (final summary); ignore per-chunk counts from on_chat_model_stream",
+            "Accumulate per-chunk counts from on_chat_model_stream; on_llm_end is a fallback if chunks carry no counts",
+            "Use whichever event provides counts first; skip the other"
+          ],
+          "required": true
+        },
+        {
+          "id": "q6",
+          "text": "What happens when an unexpected or malformed LangGraph event shape is encountered at runtime (e.g. a field that was expected is missing due to a deepagents version difference)? Should the adapter: (a) skip the event and log a warning, (b) yield a ResultMessage with is_error=True, or (c) raise an internal exception that is then caught by the retry/error handler?",
+          "context": "Design Decision 4 acknowledges that field names may vary across deepagents versions but provides no runtime fallback. Without a defined behavior, implementers will make inconsistent choices.",
+          "options": [
+            "Skip the event silently and log a debug warning",
+            "Skip the event and log a warning at WARNING level",
+            "Yield a terminal ResultMessage with is_error=True immediately",
+            "Treat as a non-transient error and yield ResultMessage(is_error=True, is_transport_error=False)"
+          ],
+          "required": false
+        },
+        {
+          "id": "q7",
+          "text": "Does adding deepagents as an optional dependency affect the CI pipeline? Specifically: (a) Should CI install the deepagents extra and always run deepagents unit tests? (b) Or should deepagents tests be skipped/marked xfail when the extra is not installed?",
+          "context": "The PRD adds deepagents to optional-dependencies but does not describe CI behavior. If tests are not gated correctly, CI may fail on environments that do not install the extra.",
+          "options": [
+            "CI always installs the deepagents extra; all deepagents tests run unconditionally",
+            "CI has a separate job/matrix entry that installs the extra; base job skips deepagents tests",
+            "deepagents tests are marked with pytest.importorskip and skipped automatically when the package is absent"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "ready",
+      "summary": "This PRD is exceptionally well-written and nearly complete. It demonstrates strong engineering discipline: measurable acceptance criteria, precise API signatures, a detailed testing matrix, clear design rationale, explicit error-handling contracts, and careful attention to backward compatibility. The solution section reads close to pseudocode-level specification, which is exactly what an implementer needs. A small number of clarifying gaps remain \u2014 primarily around the `interrupt_on` / `resume()` API contract, the exact retry backoff parameters, the five af SDK tool signatures, and minor config/CI details \u2014 but none of these block implementation. The PRD is production-ready with minor refinements.",
+      "gaps": [
+        "The `interrupt_on` / `resume()` API contract for the `deepagents` package is referenced but not spelled out \u2014 the exact method names, call signatures, and how the interrupt event is surfaced to the adapter are left to implementer discovery. A brief code sketch or pseudocode would eliminate ambiguity.",
+        "The exponential backoff parameters for the 3-attempt retry policy are unspecified (initial delay, multiplier, jitter, max delay). Implementers may produce inconsistent behaviour without concrete values.",
+        "The five af SDK tool signatures (`spec_read`, `context_search`, `context_get`, `memory_recall`, `subtask_state`) are listed by name but their parameter types and return types are not documented here. Because they are wrapped as LangChain `@tool` functions, LangChain will auto-generate tool schemas from their docstrings/type hints \u2014 any mismatch could cause silent schema issues.",
+        "The `permissions` parameter passed to `create_deep_agent()` (mentioned in Solution step 2) is described as 'mapped from the af security allowlist' but the mapping logic and the expected type/schema of `permissions` in the `deepagents` API are not defined.",
+        "The `max_budget_usd` and `effort` parameters are described as 'passed through if supported, otherwise ignored' but there is no specification of how the adapter detects support (e.g. inspecting `create_deep_agent`'s signature) or what the fallback log level/message should be.",
+        "CI setup is mentioned ('CI installs this extra in the standard test environment') but there is no explicit call-out of which CI workflow file or matrix leg installs `deepagents` \u2014 this could lead to the guard tests never running in practice.",
+        "The `ResultMessage` error fields (`is_error`, `is_transport_error`) are referenced but their full type definition is not reproduced here \u2014 implementers must cross-reference `types.py`. A forward reference or inline snippet would improve standalone readability.",
+        "There is no explicit statement about thread safety or reentrancy guarantees for the five af SDK tool wrappers when called from LangGraph's execution context."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What are the exact `deepagents>=0.5` API names and call signatures for the interrupt/resume mechanism used to implement `permission_callback` mapping (Solution step 5)? Can you provide a short pseudocode sketch?",
+          "context": "The PRD references `interrupt_on` and `resume()` but these are not standard LangGraph terms and may be `deepagents`-specific. Without the concrete API, implementers must reverse-engineer the package, risking incorrect integration.",
+          "options": [
+            "Provide a pseudocode snippet showing how interrupt_on is registered and how resume() is called with the boolean result",
+            "Confirm the exact method names from deepagents>=0.5 source (e.g. agent.resume(True/False))",
+            "Clarify that this is intentionally left to implementer discovery against the installed package"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "What are the exponential backoff parameters for the 3-attempt retry policy \u2014 specifically the initial delay, backoff multiplier, jitter strategy, and maximum delay per attempt?",
+          "context": "The PRD specifies 3 retries with exponential backoff but omits the concrete timing values. Without these, different implementers may produce wildly different retry behaviour, making the session-layer timing harder to reason about.",
+          "options": [
+            "initial=1s, multiplier=2, jitter=full, max_delay=30s (mirrors ClaudeBackend)",
+            "initial=0.5s, multiplier=2, no jitter, max_delay=10s",
+            "Defer to ClaudeBackend's exact constants \u2014 share a common retry utility"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "Should the five af SDK tools (`spec_read`, `context_search`, `context_get`, `memory_recall`, `subtask_state`) be documented with their parameter names and types in this spec, or is it sufficient to reference the existing af SDK source?",
+          "context": "LangChain auto-generates JSON schemas for `@tool`-decorated functions from their Python type hints and docstrings. If the underlying functions lack proper annotations, the tool schemas passed to the LLM will be incomplete or incorrect, leading to subtle runtime failures.",
+          "options": [
+            "Add a table with each tool's parameters and return types to this PRD",
+            "Reference the af SDK source as the authoritative definition and require implementers to verify annotations",
+            "Require the implementer to add/verify type annotations on each af SDK function as part of this spec's implementation work"
+          ],
+          "required": false
+        },
+        {
+          "id": "q4",
+          "text": "What is the type/schema of the `permissions` parameter accepted by `create_deep_agent()`, and what is the mapping logic from the af security allowlist to that schema?",
+          "context": "Solution step 2 mentions `permissions: Mapped from the af security allowlist` but does not define what the `deepagents` API expects or how the allowlist is transformed. This could result in either a runtime error or silently no-op permission enforcement.",
+          "options": [
+            "Provide the deepagents permissions schema (e.g. list of allowed tool names, glob patterns, etc.)",
+            "Clarify that permissions are passed as-is from the allowlist with no transformation",
+            "Confirm that permissions mapping is out of scope for this spec and the parameter should be omitted for now"
+          ],
+          "required": true
+        },
+        {
+          "id": "q5",
+          "text": "Which CI workflow file and matrix leg is responsible for installing the `deepagents` optional extra to ensure `DeepAgentsBackend` tests actually run in CI rather than being silently skipped?",
+          "context": "All DeepAgentsBackend tests are guarded with `pytest.importorskip('deepagents')`. If no CI leg installs the extra, all these tests will silently pass (by skipping) and the feature will have zero CI coverage.",
+          "options": [
+            "Add a dedicated matrix leg in the existing test workflow that runs `pip install '.[deepagents]'`",
+            "Create a new workflow file specifically for optional-extra integration tests",
+            "Document the CI leg name in this PRD and confirm it already exists"
+          ],
+          "required": false
+        },
+        {
+          "id": "q6",
+          "text": "Should `max_budget_usd` and `effort` detection be done via `inspect.signature(create_deep_agent)` at runtime, or should the adapter just attempt to pass the parameter and catch `TypeError`?",
+          "context": "The PRD says these parameters are 'passed through if supported, otherwise ignored' but doesn't define the detection mechanism. A runtime `inspect` approach is safer but more complex; a try/except approach is simpler but may hide other errors.",
+          "options": [
+            "Use inspect.signature() to check for parameter support before calling",
+            "Use try/except TypeError as the fallback mechanism",
+            "Always pass the parameters \u2014 treat it as a deepagents>=0.5 version contract and fail loudly if unsupported",
+            "Omit these parameters entirely from the initial implementation (they are already listed as out-of-scope in Goals)"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "ready",
+      "summary": "The PRD is now production-ready. All previously identified gaps have been resolved: retry constants are fully specified (1 s / 2 s / 4 s, no jitter, mirroring ClaudeBackend), the interrupt/resume API is correctly scoped as an implementer-discovery concern with a clear behavioral contract, the `permissions` parameter is explicitly removed from `create_deep_agent()` with rationale, the `max_budget_usd`/`effort` fallback mechanism is pinned to `try/except TypeError` consistent with ClaudeBackend, the af SDK tool annotation requirement is called out explicitly, and CI coverage for the optional extra is mandated with a dedicated matrix leg. The PRD is internally consistent, unambiguous, and ready for implementation without further clarification.",
+      "gaps": [
+        "Minor: The shared retry utility extraction ('if not already present') leaves implementers to decide whether to create a new shared module or duplicate constants \u2014 a follow-up decision during implementation is acceptable given the spec is otherwise complete.",
+        "Minor: The exact CI workflow file name and matrix configuration remain TBD by convention, but the requirement to have a dedicated leg is now explicit in the spec."
+      ],
+      "questions": []
+    }
+  ],
+  "qa_exchanges": [
+    {
+      "assessment_index": 0,
+      "answers": {
+        "q1": "Goals: (1) DeepAgentsBackend passes isinstance(DeepAgentsBackend(), Backend) check, (2) event mapping produces correct canonical message types for all LangGraph event types (verified by unit tests with mocked events), (3) create_backend('deepagents') returns a DeepAgentsBackend instance, (4) all existing session tests pass without modification (backward compat), (5) containment test passes with deepagents SDK isolated to deepagents.py. No provider integration tests required at launch \u2014 unit tests with mocked Deep Agents are sufficient.",
+        "q2": "async def execute(...) -> AsyncIterator[AgentMessage] \u2014 same signature as ClaudeBackend.execute(). It is an async generator that yields canonical messages as they arrive from the Deep Agents stream. This matches the Backend Protocol from spec 02 exactly.",
+        "q3": "Leave it to the implementer to discover from the deepagents>=0.5 source. Deep Agents is built on LangGraph and its event schema follows LangGraph's astream_events() v2 API: 'on_tool_start'/'on_tool_end' for tool calls, 'on_chat_model_stream' for text chunks, and stream completion. The exact field names may vary across deepagents versions, so the implementation should be empirically verified against the installed version rather than hardcoded from docs.",
+        "q4": "Match ClaudeBackend's pattern: catch streaming exceptions, yield a ResultMessage with is_error=True and is_transport_error=True for transient errors (connection failures, rate limits). Transport retries with exponential backoff up to 3 attempts before emitting the terminal error ResultMessage. This is the same pattern as ClaudeBackend's _MAX_TRANSPORT_RETRIES loop.",
+        "q5": "Unit tests only \u2014 mock create_deep_agent() and LangGraph events. Integration tests with real providers are out of scope. The event mapping logic and error handling are tested with synthetic event streams. This matches the ClaudeBackend test strategy (unit tests with mocked SDK client).",
+        "q6": "Single-use: one instance per session, instantiated fresh for each execute() call. This matches ClaudeBackend \u2014 create_backend() returns a new instance each time, and session.py creates a new backend per run_session() call."
+      },
+      "timestamp": "2026-07-07T13:17:41.644743+00:00"
+    },
+    {
+      "assessment_index": 1,
+      "answers": {
+        "q1": "close() is a no-op if execute() is not running. If execute() is still running (which only happens if the caller cancelled the async iterator externally), close() is idempotent and safe to call multiple times. No timeout or cancellation logic in close() \u2014 asyncio task cancellation handles mid-stream teardown at the session.py level via asyncio.wait_for(). close() releases any per-instance state (e.g. LangGraph checkpoint references) but does not manage the execute() lifecycle.",
+        "q2": "permission_callback(tool_name: str, tool_input: dict) -> bool \u2014 True = approve, False = deny. This is the PermissionCallback type alias from session/backends/types.py, identical to what ClaudeBackend uses. The adapter receives the interrupt event, extracts tool_name and tool_input, calls permission_callback, and forwards the boolean result to Deep Agents' resume() with the approval or denial.",
+        "q3": "cwd is passed via the execute() method's keyword argument \u2014 it is part of the Backend Protocol signature: execute(self, prompt, *, system_prompt, model, cwd, ...). The cwd value comes from session.py which passes str(workspace.path). DeepAgentsBackend forwards cwd to create_deep_agent() or sets it as the agent's working directory.",
+        "q4": "The five listed functions (spec_read, context_search, context_get, memory_recall, subtask_state) are registered as sync @tool functions. They are thin wrappers that call the af SDK's Python functions synchronously. The af SDK functions are already defined in the codebase and are called from within the agent's process.",
+        "q5": "Prefer on_llm_end (final summary) for token counts; ignore per-chunk counts from on_chat_model_stream. on_llm_end provides the authoritative cumulative token usage after the model call completes. Per-chunk counts from on_chat_model_stream, if present, are partial and would require deduplication.",
+        "q6": "Skip the event and log a warning at WARNING level. Unexpected event shapes should not crash the session \u2014 they are treated as non-fatal. The adapter continues processing subsequent events.",
+        "q7": "deepagents tests are marked with pytest.importorskip('deepagents') and skipped automatically when the package is absent. CI installs the deepagents extra in the standard test environment. This is the simplest approach and matches how optional dependencies are typically handled in Python projects."
+      },
+      "timestamp": "2026-07-07T13:19:50.862309+00:00"
+    },
+    {
+      "assessment_index": 2,
+      "answers": {
+        "q1": "Clarify that this is intentionally left to implementer discovery against the installed package. Deep Agents is a young, fast-moving library (v0.5+). The interrupt/resume API should be discovered from the installed version's source. The PRD defines the contract (permission_callback \u2192 bool \u2192 forwarded to agent), not the library-specific call shape.",
+        "q2": "Defer to ClaudeBackend's exact constants \u2014 share a common retry utility. ClaudeBackend uses _BACKOFF_BASE=1.0 with delay = _BACKOFF_BASE * 2^(attempt-1), giving delays of 1s, 2s, 4s. DeepAgentsBackend should use the same constants (or extract them to a shared utility in the backends package). No jitter.",
+        "q3": "Reference the af SDK source as the authoritative definition and require implementers to verify annotations. The af SDK functions already have type annotations. The implementer wraps them as @tool functions, which LangChain uses to generate schemas.",
+        "q4": "Confirm that permissions mapping is out of scope for this spec and the parameter should be omitted for now. Permission enforcement is handled via the permission_callback / interrupt_on mechanism (Solution step 5), not via the create_deep_agent permissions parameter. The af security allowlist is evaluated in the permission_callback, not pre-configured on the agent.",
+        "q5": "Add a dedicated matrix leg in the existing test workflow that runs pip install '.[deepagents]'. The workflow file name and matrix configuration will be determined during implementation.",
+        "q6": "Use try/except TypeError as the fallback mechanism, matching ClaudeBackend's pattern. ClaudeBackend already uses this approach for thinking, output_config, and context_management parameters."
+      },
+      "timestamp": "2026-07-07T13:22:13.510226+00:00"
+    }
+  ],
+  "generated_artifacts": [
+    "requirements",
+    "test_spec",
+    "tasks"
+  ],
+  "mode": "interactive"
+}

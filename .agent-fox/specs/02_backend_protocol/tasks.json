@@ -1,0 +1,969 @@
+{
+  "$schema": null,
+  "spec_id": "02",
+  "spec_name": "backend_protocol",
+  "schema_version": 1,
+  "test_commands": {
+    "spec_tests": "pytest packages/agentfox/tests/unit/session/backends/ -v",
+    "all_tests": "pytest packages/agentfox/tests/ -q",
+    "linter": "ruff check packages/agentfox/agentfox/"
+  },
+  "dependencies": [],
+  "task_groups": [
+    {
+      "id": 1,
+      "kind": "tests",
+      "title": "Write Protocol and Factory Tests (REQ-1, REQ-2)",
+      "subtasks": [
+        {
+          "id": "1.1",
+          "title": "Write isinstance and attribute-presence tests for Backend Protocol",
+          "details": [
+            "Create `packages/agentfox/tests/unit/session/backends/test_protocol.py`.",
+            "Write TS-02-1: assert `isinstance(ClaudeBackend(), Backend)` returns `True`; verify `Backend` is importable from `agentfox.session.backends`.",
+            "Write TS-02-3: call `await backend.close()` three times on a `ClaudeBackend()` instance; assert no exception raised.",
+            "Write TS-02-4: assert `ClaudeBackend().name` equals `'claude'` and is a non-empty `str`.",
+            "Write TS-02-5: in a fresh import context, assert `claude_agent_sdk` and `agentfox.session.backends.claude` are NOT in `sys.modules` after importing `agentfox.session.backends.protocol`.",
+            "Write TS-02-23: run the isinstance test directly and assert the result."
+          ],
+          "test_spec_refs": [
+            "TS-02-1",
+            "TS-02-3",
+            "TS-02-4",
+            "TS-02-5",
+            "TS-02-23"
+          ],
+          "requirement_refs": [
+            "02-REQ-1.1",
+            "02-REQ-1.3",
+            "02-REQ-1.4",
+            "02-REQ-1.5",
+            "02-REQ-6.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.2",
+          "title": "Write execute() signature inspection test",
+          "details": [
+            "Write TS-02-2: use `inspect.signature(Backend.execute)` to verify all positional and keyword-only parameters exist with correct names and defaults.",
+            "Assert `prompt` is positional; assert `system_prompt`, `model`, `cwd`, `permission_callback`, `activity_callback`, `tool_error_callback`, `node_id`, `archetype`, `max_turns`, `max_budget_usd`, `thinking`, `effort`, `compaction` are keyword-only with correct defaults.",
+            "Assert return annotation is `AsyncIterator[AgentMessage]`."
+          ],
+          "test_spec_refs": [
+            "TS-02-2"
+          ],
+          "requirement_refs": [
+            "02-REQ-1.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.3",
+          "title": "Write create_backend() happy-path and signature tests",
+          "details": [
+            "Write TS-02-6: call `create_backend('claude')` and assert `isinstance(result, Backend)` is `True` and `result.name == 'claude'`.",
+            "Write TS-02-7: use `inspect.signature(create_backend)` to assert single parameter `name: str` and return annotation `Backend`.",
+            "Write TS-02-8: in a fresh import state (purge `sys.modules`), import `agentfox.session.backends`, assert `claude_agent_sdk` not in `sys.modules`; then call `create_backend('claude')` and assert `claude_agent_sdk` is in `sys.modules`."
+          ],
+          "test_spec_refs": [
+            "TS-02-6",
+            "TS-02-7",
+            "TS-02-8"
+          ],
+          "requirement_refs": [
+            "02-REQ-2.1",
+            "02-REQ-2.2",
+            "02-REQ-2.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.4",
+          "title": "Write create_backend() error-path and no-fallback tests",
+          "details": [
+            "Write TS-02-9: assert `create_backend('foo')` raises `ConfigError`; message contains `'foo'` and `'claude'`.",
+            "Write TS-02-10: mock the lazy import of `claude_agent_sdk` to raise `ImportError`; assert `create_backend('claude')` raises `ConfigError` with message containing `'pip install'` and `'claude-agent-sdk'`.",
+            "Write TS-02-11: assert `create_backend('nonexistent')` raises `ConfigError` and no `ClaudeBackend` is instantiated as a fallback."
+          ],
+          "test_spec_refs": [
+            "TS-02-9",
+            "TS-02-10",
+            "TS-02-11"
+          ],
+          "requirement_refs": [
+            "02-REQ-2.4",
+            "02-REQ-2.5",
+            "02-REQ-2.6"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.5",
+          "title": "Write containment property tests and SDK_CONTAINMENT structure test",
+          "details": [
+            "Write TS-02-24: glob all `.py` files under `packages/agentfox/agentfox/` recursively; for each SDK in `SDK_CONTAINMENT`, assert no non-designated file contains the SDK name as a substring.",
+            "Write TS-02-25: read `test_protocol.py` source; assert `SDK_CONTAINMENT` dict has `'claude_agent_sdk'` → `'claude.py'` and contains placeholder comments for future backends.",
+            "Write TS-02-26: execute the glob and assert no returned path is under `packages/agentfox/tests/`.",
+            "Write TS-02-27: run `pytest packages/agentfox/tests/unit/session/backends/test_protocol.py` via subprocess and assert exit code 0."
+          ],
+          "test_spec_refs": [
+            "TS-02-24",
+            "TS-02-25",
+            "TS-02-26",
+            "TS-02-27"
+          ],
+          "requirement_refs": [
+            "02-REQ-6.2",
+            "02-REQ-6.3",
+            "02-REQ-6.4",
+            "02-REQ-6.5"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "1.V",
+        "checks": [
+          "All test stubs in `test_protocol.py` are syntactically valid and collected by pytest (run `pytest packages/agentfox/tests/unit/session/backends/test_protocol.py --collect-only` with exit code 0).",
+          "Tests fail (as expected) against the pre-implementation codebase — confirming they are real assertions not vacuous stubs.",
+          "No linter warnings in the new test file: `ruff check packages/agentfox/tests/unit/session/backends/test_protocol.py`.",
+          "Requirements 02-REQ-1.1, 02-REQ-1.2, 02-REQ-2.1 through 02-REQ-2.6, 02-REQ-6.1 through 02-REQ-6.5 are each referenced by at least one test."
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "kind": "tests",
+      "title": "Write Config, session.py, and Export Tests (REQ-3, REQ-4, REQ-5)",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Write OrchestratorConfig backend field tests",
+          "details": [
+            "Write TS-02-12: assert `OrchestratorConfig().backend == 'claude'` when constructed with no arguments.",
+            "Write TS-02-13: set env vars `AGENTFOX_BACKEND` and `ORCHESTRATOR_BACKEND` to `'deepagents'`; assert `OrchestratorConfig().backend` still equals `'claude'`.",
+            "Write TS-02-14: write a temp TOML with `[orchestrator]\\nbackend = 'invalid-value'`; assert `load_config()` raises `ConfigError`.",
+            "Write TS-02-15: build global dict with `backend='claude'`, local dict with no `orchestrator` key; assert merged config `backend == 'claude'`.",
+            "Write TS-02-16: build global dict with `backend='claude'`, local dict with `orchestrator` but no `backend` key; assert merged config `backend == 'claude'` (pydantic default)."
+          ],
+          "test_spec_refs": [
+            "TS-02-12",
+            "TS-02-13",
+            "TS-02-14",
+            "TS-02-15",
+            "TS-02-16"
+          ],
+          "requirement_refs": [
+            "02-REQ-3.1",
+            "02-REQ-3.2",
+            "02-REQ-3.3",
+            "02-REQ-3.4",
+            "02-REQ-3.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.2",
+          "title": "Write session.py type-widening and import tests",
+          "details": [
+            "Write TS-02-17: mock `create_backend` and `backend.execute`; call `run_session(prompt='test', config=default_config, backend=None)`; assert `create_backend` called once with `'claude'`.",
+            "Write TS-02-18: read `packages/agentfox/agentfox/session/session.py`; assert `'type: ignore[attr-defined]'` does not appear anywhere in the file.",
+            "Write TS-02-19: parse `session.py` with `ast`; assert no import statement contains `ClaudeBackend`; assert `create_backend` and `Backend` appear in the file.",
+            "Write TS-02-20: run `pytest packages/agentfox/tests/unit/session/ -v --tb=short` via subprocess; assert exit code 0."
+          ],
+          "test_spec_refs": [
+            "TS-02-17",
+            "TS-02-18",
+            "TS-02-19",
+            "TS-02-20"
+          ],
+          "requirement_refs": [
+            "02-REQ-4.1",
+            "02-REQ-4.2",
+            "02-REQ-4.3",
+            "02-REQ-4.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.3",
+          "title": "Write __init__.py exports and import isolation tests",
+          "details": [
+            "Write TS-02-21: import `agentfox.session.backends`; assert `'Backend'` and `'create_backend'` appear in `__all__`; assert all eight expected symbols present.",
+            "Write TS-02-22: assert `from agentfox import Backend` raises `ImportError`; assert `from agentfox.session import Backend` raises `ImportError`; repeat for `create_backend`."
+          ],
+          "test_spec_refs": [
+            "TS-02-21",
+            "TS-02-22"
+          ],
+          "requirement_refs": [
+            "02-REQ-5.1",
+            "02-REQ-5.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.4",
+          "title": "Write edge-case tests for Protocol, factory, config, and session lifecycle",
+          "details": [
+            "Write TS-02-E1: assert `isinstance` returns `False` for objects missing `execute`, `close`, or `name`; also check `str`, `None`, and empty object.",
+            "Write TS-02-E2: create `NoEffortBackend` that silently ignores `effort`; call `execute(effort='high')` and assert no exception raised.",
+            "Write TS-02-E3: assert `create_backend('')` raises `ConfigError` on the same unrecognised-name code path as `create_backend('foo')`.",
+            "Write TS-02-E4: mock `create_backend` to raise `ConfigError('missing sdk')`; assert `run_session()` raises `ConfigError` and no fallback backend is used.",
+            "Write TS-02-E5: write temp TOML with `backend='unknown-value'`; assert `load_config()` raises `ConfigError` and mock `create_backend` is never called.",
+            "Write TS-02-E6: create infinite mock `execute()` and counting `close()`; cancel session via `asyncio.CancelledError`; assert `close_call_count == 1`.",
+            "Write TS-02-E7: mock `create_backend` to raise `ConfigError('bad backend')`; assert `run_session()` raises `ConfigError` and `close()` is never called."
+          ],
+          "test_spec_refs": [
+            "TS-02-E1",
+            "TS-02-E2",
+            "TS-02-E3",
+            "TS-02-E4",
+            "TS-02-E5",
+            "TS-02-E6",
+            "TS-02-E7"
+          ],
+          "requirement_refs": [
+            "02-REQ-1.E1",
+            "02-REQ-1.E2",
+            "02-REQ-2.E1",
+            "02-REQ-2.E2",
+            "02-REQ-3.E1",
+            "02-REQ-4.E1",
+            "02-REQ-4.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.5",
+          "title": "Write property tests and containment failure/missing-dir edge-case tests",
+          "details": [
+            "Write TS-02-P1: loop 10 `ClaudeBackend()` instances; assert `isinstance(cb, Backend)` is `True` and all three attrs present.",
+            "Write TS-02-P2: via subprocess, import `agentfox.session.backends` without calling factory; assert `claude_agent_sdk` not in `sys.modules`.",
+            "Write TS-02-P3 (hypothesis): for random name strings, assert `create_backend` returns `Backend` or raises `ConfigError` — never another exception type.",
+            "Write TS-02-P4 (hypothesis): for 1–20 `close()` calls on `ClaudeBackend`, assert no exception raised.",
+            "Write TS-02-P5: enumerate all files via glob; assert containment invariant for every (file, SDK) pair.",
+            "Write TS-02-P6: run full session unit test suite via subprocess; assert exit code 0 and 'passed' in output.",
+            "Write TS-02-P7: run mypy on `session/session.py` via subprocess; assert exit code 0 and no `attr-defined` in output.",
+            "Write TS-02-E8: create temporary offending `.py` file under `agentfox/`; assert containment scan detects it with a descriptive message; clean up.",
+            "Write TS-02-E9: configure containment test with non-existent dir; assert `AssertionError` with descriptive message rather than silent pass."
+          ],
+          "test_spec_refs": [
+            "TS-02-P1",
+            "TS-02-P2",
+            "TS-02-P3",
+            "TS-02-P4",
+            "TS-02-P5",
+            "TS-02-P6",
+            "TS-02-P7",
+            "TS-02-E8",
+            "TS-02-E9"
+          ],
+          "requirement_refs": [
+            "02-REQ-6.E1",
+            "02-REQ-6.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "2.V",
+        "checks": [
+          "All new test files are syntactically valid: `python -m py_compile` on each new test file exits cleanly.",
+          "pytest collects all tests without import errors: `pytest packages/agentfox/tests/unit/session/ --collect-only` exits with code 0.",
+          "No linter warnings in new test files: `ruff check packages/agentfox/tests/unit/session/backends/test_protocol.py`.",
+          "Requirements 02-REQ-3.1 through 02-REQ-5.2 are each referenced by at least one test in the collected suite."
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "kind": "standard",
+      "title": "Implement Backend Protocol (`session/backends/protocol.py`)",
+      "subtasks": [
+        {
+          "id": "3.1",
+          "title": "Create `session/backends/protocol.py` with Backend Protocol definition",
+          "details": [
+            "Create `packages/agentfox/agentfox/session/backends/protocol.py`.",
+            "Add `from typing import Any, AsyncIterator, Protocol, runtime_checkable`.",
+            "Import `AgentMessage`, `PermissionCallback` from `.types`; import `ActivityCallback` from `agentfox.ui.progress`.",
+            "Define `@runtime_checkable class Backend(Protocol):` with `name` property returning `str`, `execute()` async method returning `AsyncIterator[AgentMessage]` with exact parameter signature from PRD, and `async def close(self) -> None`.",
+            "Do NOT import from `claude.py` or any concrete backend module — verify no SDK dependency is pulled in at import time."
+          ],
+          "test_spec_refs": [
+            "TS-02-1",
+            "TS-02-2",
+            "TS-02-3",
+            "TS-02-4",
+            "TS-02-5"
+          ],
+          "requirement_refs": [
+            "02-REQ-1.1",
+            "02-REQ-1.2",
+            "02-REQ-1.3",
+            "02-REQ-1.4",
+            "02-REQ-1.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.2",
+          "title": "Verify ClaudeBackend satisfies Backend Protocol structurally",
+          "details": [
+            "Cross-check `ClaudeBackend.execute()` parameter names and defaults against the Protocol definition.",
+            "Confirm `ClaudeBackend.name` property returns `'claude'`.",
+            "Confirm `ClaudeBackend.close()` is `async def close(self) -> None`.",
+            "Run `isinstance(ClaudeBackend(), Backend)` in a Python REPL or unit test to confirm it returns `True` without modification to `claude.py`."
+          ],
+          "test_spec_refs": [
+            "TS-02-1",
+            "TS-02-23"
+          ],
+          "requirement_refs": [
+            "02-REQ-1.1",
+            "02-REQ-1.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "3.V",
+        "checks": [
+          "Protocol tests pass: `pytest packages/agentfox/tests/unit/session/backends/test_protocol.py -k 'protocol or isinstance or name or close or execute or signature' -v` exits with code 0.",
+          "`from agentfox.session.backends.protocol import Backend` succeeds without importing `claude_agent_sdk`.",
+          "`isinstance(ClaudeBackend(), Backend)` returns `True` in the test suite.",
+          "No linter warnings in `protocol.py`: `ruff check packages/agentfox/agentfox/session/backends/protocol.py`.",
+          "Requirements 02-REQ-1.1, 02-REQ-1.2, 02-REQ-1.3, 02-REQ-1.4, 02-REQ-1.5 acceptance criteria met."
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "kind": "standard",
+      "title": "Implement `create_backend()` factory and update `__init__.py` exports",
+      "subtasks": [
+        {
+          "id": "4.1",
+          "title": "Implement `create_backend()` with lazy imports in `session/backends/__init__.py`",
+          "details": [
+            "In `packages/agentfox/agentfox/session/backends/__init__.py`, add `def create_backend(name: str) -> Backend:`.",
+            "Inside the function body, use a lazy import: `from .claude import ClaudeBackend` wrapped in a try/except `ImportError` that raises `ConfigError` with pip install hint.",
+            "For `name == 'claude'`, instantiate and return `ClaudeBackend()`.",
+            "For any unrecognised name, raise `agentfox.core.errors.ConfigError` with message `f\"Unknown backend: '{name}'. Valid backends are: ['claude']\"` — matching the style of `resolve_model()`.",
+            "Empty string falls through the same unrecognised-name `ConfigError` path.",
+            "No fallback or silent recovery — let `ConfigError` propagate immediately."
+          ],
+          "test_spec_refs": [
+            "TS-02-6",
+            "TS-02-7",
+            "TS-02-8",
+            "TS-02-9",
+            "TS-02-10",
+            "TS-02-11"
+          ],
+          "requirement_refs": [
+            "02-REQ-2.1",
+            "02-REQ-2.2",
+            "02-REQ-2.3",
+            "02-REQ-2.4",
+            "02-REQ-2.5",
+            "02-REQ-2.6"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.2",
+          "title": "Update `__all__` in `session/backends/__init__.py` to include Backend and create_backend",
+          "details": [
+            "Add `'Backend'` and `'create_backend'` to the `__all__` list in `packages/agentfox/agentfox/session/backends/__init__.py`.",
+            "Import `Backend` from `.protocol` at the top of `__init__.py`.",
+            "Final `__all__` must be: `['AgentMessage', 'AssistantMessage', 'Backend', 'ClaudeBackend', 'PermissionCallback', 'ResultMessage', 'ToolUseMessage', 'create_backend']`.",
+            "Do NOT touch `session/__init__.py` or `agentfox/__init__.py`."
+          ],
+          "test_spec_refs": [
+            "TS-02-21",
+            "TS-02-22"
+          ],
+          "requirement_refs": [
+            "02-REQ-5.1",
+            "02-REQ-5.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "4.V",
+        "checks": [
+          "Factory tests pass: `pytest packages/agentfox/tests/unit/session/backends/test_protocol.py -k 'create_backend or factory or lazy or import or fallback or error' -v` exits with code 0.",
+          "`from agentfox.session.backends import Backend, create_backend` succeeds.",
+          "`from agentfox import Backend` raises `ImportError` and `from agentfox.session import Backend` raises `ImportError`.",
+          "Importing `agentfox.session.backends` without calling `create_backend` does not load `claude_agent_sdk` into `sys.modules`.",
+          "No linter warnings: `ruff check packages/agentfox/agentfox/session/backends/__init__.py`.",
+          "Requirements 02-REQ-2.1 through 02-REQ-2.6, 02-REQ-5.1, 02-REQ-5.2 acceptance criteria met."
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "kind": "standard",
+      "title": "Update `OrchestratorConfig` with backend field (`core/config.py`)",
+      "subtasks": [
+        {
+          "id": "5.1",
+          "title": "Add `backend: Literal['claude'] = 'claude'` field to OrchestratorConfig",
+          "details": [
+            "In `packages/agentfox/agentfox/core/config.py`, add `from typing import Literal` if not already present.",
+            "Add `backend: Literal['claude'] = 'claude'` to the `OrchestratorConfig` pydantic `BaseModel`.",
+            "No `env` alias or environment variable binding — field is config-file only, consistent with `parallel` and `session_timeout`.",
+            "Verify `OrchestratorConfig().backend == 'claude'` in a Python REPL."
+          ],
+          "test_spec_refs": [
+            "TS-02-12",
+            "TS-02-13"
+          ],
+          "requirement_refs": [
+            "02-REQ-3.1",
+            "02-REQ-3.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.2",
+          "title": "Verify ValidationError → ConfigError re-raise for invalid backend values",
+          "details": [
+            "Confirm that the existing `load_config()` pydantic `ValidationError` handler already catches invalid `backend` values and re-raises as `ConfigError` — no new error-handling code needed.",
+            "Confirm `shallow_merge` semantics: when local TOML omits `[orchestrator]`, global section is inherited wholesale; when local TOML includes `[orchestrator]` but omits `backend`, pydantic default `'claude'` applies.",
+            "Run TS-02-14 manually with a temp TOML to verify `ConfigError` is raised before `create_backend()` is called."
+          ],
+          "test_spec_refs": [
+            "TS-02-14",
+            "TS-02-15",
+            "TS-02-16",
+            "TS-02-E5"
+          ],
+          "requirement_refs": [
+            "02-REQ-3.3",
+            "02-REQ-3.4",
+            "02-REQ-3.5"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "5.V",
+        "checks": [
+          "Config tests pass: `pytest packages/agentfox/tests/unit/session/backends/test_protocol.py -k 'config or orchestrator or backend or merge or load' -v` exits with code 0.",
+          "`OrchestratorConfig().backend == 'claude'` confirmed in test output.",
+          "A TOML with `backend = 'invalid-value'` causes `ConfigError` via `load_config()`.",
+          "No linter warnings: `ruff check packages/agentfox/agentfox/core/config.py`.",
+          "Requirements 02-REQ-3.1, 02-REQ-3.2, 02-REQ-3.3, 02-REQ-3.4, 02-REQ-3.5 acceptance criteria met."
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "kind": "standard",
+      "title": "Update `session/session.py` — type widening and factory integration",
+      "subtasks": [
+        {
+          "id": "6.1",
+          "title": "Replace ClaudeBackend import with Backend and create_backend in session.py",
+          "details": [
+            "In `packages/agentfox/agentfox/session/session.py`, remove the direct `from agentfox.session.backends.claude import ClaudeBackend` (or equivalent) import.",
+            "Add `from agentfox.session.backends import Backend, create_backend`.",
+            "Confirm `ClaudeBackend` no longer appears anywhere in the import statements of `session.py`."
+          ],
+          "test_spec_refs": [
+            "TS-02-19"
+          ],
+          "requirement_refs": [
+            "02-REQ-4.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.2",
+          "title": "Widen run_session() backend parameter type and use create_backend() for default",
+          "details": [
+            "Change `run_session()` parameter type hint from `ClaudeBackend | None` to `Backend | None`.",
+            "When `backend` is `None`, instantiate via `create_backend(config.orchestrator.backend)`.",
+            "Ensure all existing call sites that pass a `ClaudeBackend` instance explicitly continue to work (structural compatibility).",
+            "Verify `close()` is called on the backend in a `finally` block after `execute()` is exhausted or on cancellation."
+          ],
+          "test_spec_refs": [
+            "TS-02-17",
+            "TS-02-20"
+          ],
+          "requirement_refs": [
+            "02-REQ-4.1",
+            "02-REQ-4.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.3",
+          "title": "Remove # type: ignore[attr-defined] comment from async for backend.execute()",
+          "details": [
+            "Locate the `async for` loop over `backend.execute()` (previously line 256 in `session.py`).",
+            "Remove the `# type: ignore[attr-defined]` comment — mypy will now resolve `AsyncIterator[AgentMessage]` through the `Backend` Protocol.",
+            "Confirm the file no longer contains the string `'type: ignore[attr-defined]'` anywhere.",
+            "Run mypy on `session.py` locally to confirm no new type errors introduced."
+          ],
+          "test_spec_refs": [
+            "TS-02-18"
+          ],
+          "requirement_refs": [
+            "02-REQ-4.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "6.V",
+        "checks": [
+          "session.py import tests pass: `pytest packages/agentfox/tests/unit/session/backends/test_protocol.py -k 'session or type_ignore or import or widen' -v` exits with code 0.",
+          "Full existing session test suite passes unmodified: `pytest packages/agentfox/tests/unit/session/ -q` exits with code 0.",
+          "mypy reports no errors on session.py: `python -m mypy packages/agentfox/agentfox/session/session.py --no-error-summary` exits with code 0 and output contains no `attr-defined`.",
+          "File `session.py` does not contain the string `'type: ignore[attr-defined]'`.",
+          "No linter warnings: `ruff check packages/agentfox/agentfox/session/session.py`.",
+          "Requirements 02-REQ-4.1, 02-REQ-4.2, 02-REQ-4.3, 02-REQ-4.4 acceptance criteria met."
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "kind": "checkpoint",
+      "title": "Mid-spec Integration Checkpoint — All Tests Green",
+      "subtasks": [
+        {
+          "id": "7.1",
+          "title": "Run full test suite and confirm all protocol/factory/config/session tests pass",
+          "details": [
+            "Run `pytest packages/agentfox/tests/ -q` and confirm exit code 0.",
+            "Confirm `isinstance(ClaudeBackend(), Backend)` passes in the test suite.",
+            "Confirm `create_backend('claude')` returns a valid `Backend` instance.",
+            "Confirm `OrchestratorConfig().backend == 'claude'`.",
+            "Confirm `run_session()` with `backend=None` calls `create_backend('claude')` exactly once."
+          ],
+          "test_spec_refs": [
+            "TS-02-1",
+            "TS-02-6",
+            "TS-02-12",
+            "TS-02-17",
+            "TS-02-21"
+          ],
+          "requirement_refs": [
+            "02-REQ-1.1",
+            "02-REQ-2.1",
+            "02-REQ-3.1",
+            "02-REQ-4.1",
+            "02-REQ-5.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.2",
+          "title": "Run mypy and ruff on all modified/created files",
+          "details": [
+            "Run `python -m mypy packages/agentfox/agentfox/session/backends/protocol.py packages/agentfox/agentfox/session/backends/__init__.py packages/agentfox/agentfox/core/config.py packages/agentfox/agentfox/session/session.py` and confirm exit code 0.",
+            "Run `ruff check packages/agentfox/agentfox/` and confirm no new warnings.",
+            "Confirm `session.py` contains no `type: ignore[attr-defined]` comment."
+          ],
+          "test_spec_refs": [
+            "TS-02-P7"
+          ],
+          "requirement_refs": [
+            "02-REQ-4.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "7.V",
+        "checks": [
+          "All tests pass: `pytest packages/agentfox/tests/ -q` exits with code 0.",
+          "No mypy errors on changed files: `python -m mypy packages/agentfox/agentfox/session/ packages/agentfox/agentfox/core/config.py --no-error-summary` exits with code 0.",
+          "No ruff warnings: `ruff check packages/agentfox/agentfox/` exits with code 0.",
+          "Containment test passes: `pytest packages/agentfox/tests/unit/session/backends/test_protocol.py -k 'containment' -v` exits with code 0."
+        ]
+      }
+    },
+    {
+      "id": 8,
+      "kind": "wiring_verification",
+      "title": "Wiring Verification — End-to-End Integration and Smoke Tests",
+      "subtasks": [
+        {
+          "id": "8.1",
+          "title": "Trace execution paths and verify no stubs remain",
+          "details": [
+            "Trace 02-PATH-1: confirm `run_session()` with `backend=None` → `create_backend(config.orchestrator.backend)` → lazy import `ClaudeBackend` → `backend.execute()` → `async for` loop → `backend.close()` in `finally`.",
+            "Trace 02-PATH-3: confirm `create_backend('claude')` with mocked `ImportError` → catches `ImportError` → raises `ConfigError` with pip hint → propagates through `run_session()` → no `close()` called.",
+            "Search for stub markers in all modified/created production files: `grep -rn 'raise NotImplementedError\\|pass$\\|return None' packages/agentfox/agentfox/session/backends/protocol.py packages/agentfox/agentfox/session/backends/__init__.py` — no non-abstract stubs should remain.",
+            "Confirm `create_backend` is imported and called in `session.py` production code, not just tests."
+          ],
+          "test_spec_refs": [
+            "TS-02-SMOKE-1",
+            "TS-02-SMOKE-3"
+          ],
+          "requirement_refs": [
+            "02-REQ-2.1",
+            "02-REQ-4.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.2",
+          "title": "Verify return value propagation through the factory and session layer",
+          "details": [
+            "Confirm `create_backend('claude')` return value is assigned to the local `backend` variable in `run_session()` and used for `execute()` and `close()` calls.",
+            "Confirm `OrchestratorConfig.backend` value is read from `config.orchestrator.backend` and passed to `create_backend()` — not hardcoded as `'claude'` directly in `session.py`.",
+            "Run TS-02-SMOKE-2: load a temp TOML with invalid `backend`; confirm `ConfigError` is raised before any session work begins — `create_backend` not reached."
+          ],
+          "test_spec_refs": [
+            "TS-02-SMOKE-1",
+            "TS-02-SMOKE-2"
+          ],
+          "requirement_refs": [
+            "02-REQ-2.1",
+            "02-REQ-4.1",
+            "02-REQ-4.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.3",
+          "title": "Run all smoke tests with real components",
+          "details": [
+            "Run TS-02-SMOKE-1: `run_session()` with mocked `ClaudeBackend.execute()` yields two messages, `close()` called once in `finally` — confirm no `type: ignore` needed.",
+            "Run TS-02-SMOKE-2: invalid TOML `backend` value causes `ConfigError` from `load_config()` before session starts.",
+            "Run TS-02-SMOKE-3: mocked `ImportError` on `claude_agent_sdk` lazy import causes `ConfigError` with pip hint — propagates from `run_session()`.",
+            "Run TS-02-SMOKE-4: temporarily write `import claude_agent_sdk` to a non-designated production file; confirm containment test fails with descriptive message; clean up and confirm test passes again."
+          ],
+          "test_spec_refs": [
+            "TS-02-SMOKE-1",
+            "TS-02-SMOKE-2",
+            "TS-02-SMOKE-3",
+            "TS-02-SMOKE-4"
+          ],
+          "requirement_refs": [
+            "02-REQ-1.1",
+            "02-REQ-2.1",
+            "02-REQ-4.1",
+            "02-REQ-6.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.4",
+          "title": "SDK containment audit and dead-code sweep across all production files",
+          "details": [
+            "Run the full containment property test: `pytest packages/agentfox/tests/unit/session/backends/test_protocol.py -k 'containment' -v` — confirm no violations.",
+            "Grep for `claude_agent_sdk` across all production files except `claude.py`: `grep -rn 'claude_agent_sdk' packages/agentfox/agentfox/ --include='*.py' | grep -v claude.py` — expect zero results.",
+            "Audit `session/backends/__init__.py` for any top-level (non-lazy) import of `claude_agent_sdk` — confirm import is inside `create_backend()` function body only.",
+            "Search for Python stub markers in newly created files: `grep -n 'raise NotImplementedError' packages/agentfox/agentfox/session/backends/protocol.py` — Protocol method bodies should be `...` (ellipsis), not `raise NotImplementedError`."
+          ],
+          "test_spec_refs": [
+            "TS-02-P5",
+            "TS-02-E8",
+            "TS-02-E9"
+          ],
+          "requirement_refs": [
+            "02-REQ-6.2",
+            "02-REQ-6.3",
+            "02-REQ-6.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.5",
+          "title": "Full regression and static analysis final run",
+          "details": [
+            "Run complete test suite: `pytest packages/agentfox/tests/ -q` — assert exit code 0, 'passed' in output, no 'error'.",
+            "Run mypy on session.py: `python -m mypy packages/agentfox/agentfox/session/session.py --no-error-summary` — exit code 0, no `attr-defined` in output.",
+            "Confirm `session.py` source does not contain `'type: ignore[attr-defined]'`: `grep 'type: ignore\\[attr-defined\\]' packages/agentfox/agentfox/session/session.py` — expect no output.",
+            "Run protocol test file as CI required check: `pytest packages/agentfox/tests/unit/session/backends/test_protocol.py -v` — exit code 0.",
+            "Run full ruff check: `ruff check packages/agentfox/agentfox/` — exit code 0."
+          ],
+          "test_spec_refs": [
+            "TS-02-P6",
+            "TS-02-P7",
+            "TS-02-20",
+            "TS-02-27"
+          ],
+          "requirement_refs": [
+            "02-REQ-4.2",
+            "02-REQ-4.4",
+            "02-REQ-6.5"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "8.V",
+        "checks": [
+          "All spec tests pass: `pytest packages/agentfox/tests/unit/session/backends/test_protocol.py -v` exits with code 0.",
+          "Full test suite passes: `pytest packages/agentfox/tests/ -q` exits with code 0 with no errors.",
+          "mypy passes on session.py with no attr-defined errors: `python -m mypy packages/agentfox/agentfox/session/session.py --no-error-summary` exits with code 0.",
+          "No `type: ignore[attr-defined]` in session.py source confirmed by grep.",
+          "No ruff warnings in production source: `ruff check packages/agentfox/agentfox/` exits with code 0.",
+          "Containment test passes with no violations: `claude_agent_sdk` appears only in `claude.py` across all production `.py` files.",
+          "All five goals from the PRD are met: (1) `isinstance(ClaudeBackend(), Backend)` is `True`; (2) existing session tests pass unmodified; (3) importing with `backend='claude'` does not import deepagents or google.adk; (4) `ConfigError` raised for unregistered backend names; (5) `# type: ignore[attr-defined]` eliminated from `session.py` line ~256.",
+          "02-PATH-1 through 02-PATH-4 are all traceable from production entry points with no stubs remaining."
+        ]
+      }
+    }
+  ],
+  "traceability": [
+    {
+      "requirement_id": "02-REQ-1.1",
+      "test_spec_id": "TS-02-1",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-1.1",
+      "test_spec_id": "TS-02-23",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-1.2",
+      "test_spec_id": "TS-02-2",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-1.3",
+      "test_spec_id": "TS-02-3",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-1.4",
+      "test_spec_id": "TS-02-4",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-1.5",
+      "test_spec_id": "TS-02-5",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-1.E1",
+      "test_spec_id": "TS-02-E1",
+      "task_id": "2.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-1.E2",
+      "test_spec_id": "TS-02-E2",
+      "task_id": "2.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-2.1",
+      "test_spec_id": "TS-02-6",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-2.2",
+      "test_spec_id": "TS-02-7",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-2.3",
+      "test_spec_id": "TS-02-8",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-2.4",
+      "test_spec_id": "TS-02-9",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-2.5",
+      "test_spec_id": "TS-02-10",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-2.6",
+      "test_spec_id": "TS-02-11",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-2.E1",
+      "test_spec_id": "TS-02-E3",
+      "task_id": "2.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-2.E2",
+      "test_spec_id": "TS-02-E4",
+      "task_id": "2.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-3.1",
+      "test_spec_id": "TS-02-12",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-3.2",
+      "test_spec_id": "TS-02-13",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-3.3",
+      "test_spec_id": "TS-02-14",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-3.4",
+      "test_spec_id": "TS-02-15",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-3.5",
+      "test_spec_id": "TS-02-16",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-3.E1",
+      "test_spec_id": "TS-02-E5",
+      "task_id": "2.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-4.1",
+      "test_spec_id": "TS-02-17",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-4.2",
+      "test_spec_id": "TS-02-18",
+      "task_id": "6.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-4.3",
+      "test_spec_id": "TS-02-19",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-4.4",
+      "test_spec_id": "TS-02-20",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-4.E1",
+      "test_spec_id": "TS-02-E6",
+      "task_id": "2.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-4.E2",
+      "test_spec_id": "TS-02-E7",
+      "task_id": "2.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-5.1",
+      "test_spec_id": "TS-02-21",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-5.2",
+      "test_spec_id": "TS-02-22",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-6.1",
+      "test_spec_id": "TS-02-23",
+      "task_id": "1.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-6.2",
+      "test_spec_id": "TS-02-24",
+      "task_id": "1.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-6.3",
+      "test_spec_id": "TS-02-25",
+      "task_id": "1.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-6.4",
+      "test_spec_id": "TS-02-26",
+      "task_id": "1.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-6.5",
+      "test_spec_id": "TS-02-27",
+      "task_id": "1.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-6.E1",
+      "test_spec_id": "TS-02-E8",
+      "task_id": "2.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-6.E2",
+      "test_spec_id": "TS-02-E9",
+      "task_id": "2.5",
+      "test_path": null
+    }
+  ]
+}

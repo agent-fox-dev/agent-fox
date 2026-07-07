@@ -1,0 +1,1280 @@
+{
+  "$schema": null,
+  "spec_id": "03",
+  "spec_name": "deepagents_backend",
+  "schema_version": 1,
+  "test_commands": {
+    "spec_tests": "pytest -q tests/backends/test_deepagents.py",
+    "all_tests": "pytest -q",
+    "linter": "ruff check session/backends/deepagents.py"
+  },
+  "dependencies": [
+    {
+      "depends_on_spec": "02",
+      "from_group": 1,
+      "to_group": 1,
+      "relationship": "Backend Protocol and create_backend() factory",
+      "sentinel": true
+    }
+  ],
+  "task_groups": [
+    {
+      "id": 1,
+      "kind": "tests",
+      "title": "Write tests: Protocol conformance, module structure, and containment",
+      "subtasks": [
+        {
+          "id": "1.1",
+          "title": "Write Protocol conformance and isinstance test (TS-03-1)",
+          "details": [
+            "Create tests/backends/test_deepagents.py with pytest.importorskip('deepagents') guard at top.",
+            "Write TS-03-1: assert isinstance(DeepAgentsBackend(), Backend) == True.",
+            "Write TS-03-P1: property check that every DeepAgentsBackend instance satisfies Backend protocol and has correct execute/close signature via inspect."
+          ],
+          "test_spec_refs": [
+            "TS-03-1"
+          ],
+          "requirement_refs": [
+            "03-REQ-1.1",
+            "03-REQ-2.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.2",
+          "title": "Write SDK containment and types-module-unchanged tests (TS-03-2, TS-03-3, TS-03-P4)",
+          "details": [
+            "Write TS-03-2: iterate all .py files; assert no 'import deepagents'/'from deepagents' outside deepagents.py.",
+            "Write TS-03-3: verify PermissionCallback, ToolUseMessage, AssistantMessage, ResultMessage, AgentMessage are referenced from session.backends.types; assert types.py content hash matches baseline.",
+            "Write TS-03-P4: property-style version of containment check using os.walk.",
+            "Write TS-03-41: containment test extended with 'deepagents' -> 'deepagents.py' mapping; inject violation and verify test failure."
+          ],
+          "test_spec_refs": [
+            "TS-03-2",
+            "TS-03-3",
+            "TS-03-P4",
+            "TS-03-41"
+          ],
+          "requirement_refs": [
+            "03-REQ-1.2",
+            "03-REQ-1.3",
+            "03-REQ-12.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.3",
+          "title": "Write execute() method signature test (TS-03-4)",
+          "details": [
+            "Write TS-03-4: use inspect.signature to verify execute() has prompt (positional), system_prompt/model/cwd/permission_callback (keyword-only), and **kwargs.",
+            "Assert permission_callback default is None and parameter kind is KEYWORD_ONLY."
+          ],
+          "test_spec_refs": [
+            "TS-03-4"
+          ],
+          "requirement_refs": [
+            "03-REQ-2.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.4",
+          "title": "Write factory, config, and pyproject tests (TS-03-31 through TS-03-38)",
+          "details": [
+            "Write TS-03-31: create_backend('deepagents') returns DeepAgentsBackend; isinstance(result, Backend) is True.",
+            "Write TS-03-32: two calls to create_backend('deepagents') return distinct objects (b1 is not b2).",
+            "Write TS-03-33: create_backend('claude') returns ClaudeBackend unchanged.",
+            "Write TS-03-34: OrchestratorConfig(backend='claude') and OrchestratorConfig(backend='deepagents') succeed; OrchestratorConfig(backend='invalid') raises validation error.",
+            "Write TS-03-35: OrchestratorConfig(backend='claude') round-trips correctly.",
+            "Write TS-03-36: parse pyproject.toml; assert optional-dependencies['deepagents'] contains 'deepagents>=0.5'.",
+            "Write TS-03-37: assert each DeepAgentsBackend test module file contains pytest.importorskip('deepagents').",
+            "Write TS-03-38: parse CI workflow YAML; assert at least one leg contains '.[deepagents]'."
+          ],
+          "test_spec_refs": [
+            "TS-03-31",
+            "TS-03-32",
+            "TS-03-33",
+            "TS-03-34",
+            "TS-03-35",
+            "TS-03-36",
+            "TS-03-37",
+            "TS-03-38"
+          ],
+          "requirement_refs": [
+            "03-REQ-8.1",
+            "03-REQ-8.2",
+            "03-REQ-8.3",
+            "03-REQ-9.1",
+            "03-REQ-9.2",
+            "03-REQ-10.1",
+            "03-REQ-10.2",
+            "03-REQ-10.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.5",
+          "title": "Write backward-compatibility regression tests (TS-03-39, TS-03-40)",
+          "details": [
+            "Write TS-03-39: import ClaudeBackend from session.backends.claude; assert file hashes of claude.py and __init__.py match pre-spec-03 baselines.",
+            "Write TS-03-40: run pytest on existing tests excluding deepagents; assert exit code 0."
+          ],
+          "test_spec_refs": [
+            "TS-03-39",
+            "TS-03-40"
+          ],
+          "requirement_refs": [
+            "03-REQ-11.1",
+            "03-REQ-11.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "1.V",
+        "checks": [
+          "pytest -q tests/backends/test_deepagents.py --collect-only succeeds (all new test IDs collected without import errors, skipped cleanly if deepagents absent)",
+          "ruff check tests/backends/test_deepagents.py reports no linting errors",
+          "03-REQ-1.1, 03-REQ-1.2, 03-REQ-1.3, 03-REQ-2.1, 03-REQ-8.1–8.3, 03-REQ-9.1–9.2, 03-REQ-10.1–10.3, 03-REQ-11.1–11.2, 03-REQ-12.1 test cases are present and correctly structured"
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "kind": "tests",
+      "title": "Write tests: execute() event mapping and token usage",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Write create_deep_agent call and tool-list tests (TS-03-5)",
+          "details": [
+            "Write TS-03-5: patch create_deep_agent; assert it is called with model, system_prompt, cwd, and tools list of length 5; assert astream_events is invoked; assert ResultMessage is last item."
+          ],
+          "test_spec_refs": [
+            "TS-03-5"
+          ],
+          "requirement_refs": [
+            "03-REQ-2.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.2",
+          "title": "Write event-mapping tests: ToolUseMessage and AssistantMessage (TS-03-6, TS-03-7)",
+          "details": [
+            "Write TS-03-6: synthetic stream with on_tool_start + on_tool_end; assert two ToolUseMessage instances yielded before terminal ResultMessage.",
+            "Write TS-03-7: synthetic stream with two on_chat_model_stream events; assert two AssistantMessage instances with correct text chunks."
+          ],
+          "test_spec_refs": [
+            "TS-03-6",
+            "TS-03-7"
+          ],
+          "requirement_refs": [
+            "03-REQ-2.3",
+            "03-REQ-2.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.3",
+          "title": "Write token accumulation and ResultMessage tests (TS-03-8, TS-03-9, TS-03-10)",
+          "details": [
+            "Write TS-03-8: stream with on_chat_model_stream (with spurious usage) + on_llm_end; assert ResultMessage has input_tokens=10, output_tokens=5 (not 999/1009); no message yielded for on_llm_end.",
+            "Write TS-03-9: successful stream; assert exactly one ResultMessage at the end with is_error=False.",
+            "Write TS-03-10: on_llm_end with no usage data; assert ResultMessage.input_tokens is None and output_tokens is None.",
+            "Write TS-03-P3: property-style test generating N on_llm_end events; verify sum in ResultMessage never includes on_chat_model_stream counts."
+          ],
+          "test_spec_refs": [
+            "TS-03-8",
+            "TS-03-9",
+            "TS-03-10",
+            "TS-03-P3"
+          ],
+          "requirement_refs": [
+            "03-REQ-2.5",
+            "03-REQ-2.6",
+            "03-REQ-2.7"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.4",
+          "title": "Write malformed-event and no-exception-propagation tests (TS-03-11, TS-03-12)",
+          "details": [
+            "Write TS-03-11: synthetic stream with malformed event (missing fields) followed by valid on_llm_end; assert WARNING logged; assert no exception; assert ResultMessage is last item.",
+            "Write TS-03-12: mock agent raises RuntimeError on astream_events; assert no exception propagates; assert last item is ResultMessage with is_error=True.",
+            "Write TS-03-P2: property-style test covering empty stream, success stream, transient error, non-transient error; assert exactly one ResultMessage as final item."
+          ],
+          "test_spec_refs": [
+            "TS-03-11",
+            "TS-03-12",
+            "TS-03-P2"
+          ],
+          "requirement_refs": [
+            "03-REQ-2.8",
+            "03-REQ-2.9"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "2.V",
+        "checks": [
+          "pytest -q tests/backends/test_deepagents.py -k 'event_mapping or token or malformed or propagation' --collect-only succeeds",
+          "ruff check tests/backends/test_deepagents.py reports no linting errors",
+          "03-REQ-2.2 through 03-REQ-2.9 test cases all present and trace to correct requirement IDs"
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "kind": "tests",
+      "title": "Write tests: af SDK tool registration and permission callback",
+      "subtasks": [
+        {
+          "id": "3.1",
+          "title": "Write af SDK tool registration tests (TS-03-13, TS-03-14, TS-03-15, TS-03-E4)",
+          "details": [
+            "Write TS-03-13: capture tools list passed to create_deep_agent; assert length 5; assert names match {spec_read, context_search, context_get, memory_recall, subtask_state}; assert each is a LangChain BaseTool.",
+            "Write TS-03-14: call tool.args_schema.schema() on each tool; assert 'properties' present and all fields have types.",
+            "Write TS-03-15: patch af SDK functions; call each wrapper directly; assert the underlying SDK function is called in-process.",
+            "Write TS-03-E4: use get_type_hints on each of the five af SDK functions; assert all parameters and return type have non-None annotations."
+          ],
+          "test_spec_refs": [
+            "TS-03-13",
+            "TS-03-14",
+            "TS-03-15",
+            "TS-03-E4"
+          ],
+          "requirement_refs": [
+            "03-REQ-3.1",
+            "03-REQ-3.2",
+            "03-REQ-3.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.2",
+          "title": "Write permission callback mapping tests (TS-03-16, TS-03-17, TS-03-18, TS-03-E5)",
+          "details": [
+            "Write TS-03-16: mock interrupt event with tool_name='write_file'; assert permission_callback called with ('write_file', tool_input); assert resume interface called with True.",
+            "Write TS-03-17: permission_callback=None; assert create_deep_agent called without 'on_interrupt'/'interrupt_callback' kwargs.",
+            "Write TS-03-18: assert 'permissions' not in create_deep_agent call_args.kwargs.",
+            "Write TS-03-E5: permission_callback raises RuntimeError; assert no exception propagates; assert ResultMessage(is_error=True, is_transport_error=False).",
+            "Write TS-03-P7: property test across model/cwd/callback combinations; assert 'permissions' never in any create_deep_agent call."
+          ],
+          "test_spec_refs": [
+            "TS-03-16",
+            "TS-03-17",
+            "TS-03-18",
+            "TS-03-E5",
+            "TS-03-P7"
+          ],
+          "requirement_refs": [
+            "03-REQ-4.1",
+            "03-REQ-4.2",
+            "03-REQ-4.3"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "3.V",
+        "checks": [
+          "pytest -q tests/backends/test_deepagents.py -k 'tool or permission or callback' --collect-only succeeds",
+          "ruff check tests/backends/test_deepagents.py reports no linting errors",
+          "03-REQ-3.1–3.3, 03-REQ-4.1–4.3 test cases present and correctly structured"
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "kind": "tests",
+      "title": "Write tests: provider-specific parameter handling and retry logic",
+      "subtasks": [
+        {
+          "id": "4.1",
+          "title": "Write provider-specific parameter tests (TS-03-19 through TS-03-22)",
+          "details": [
+            "Write TS-03-19: parameterized test for anthropic: prefix (thinking present) vs openai: prefix (thinking absent).",
+            "Write TS-03-20: create_deep_agent raises TypeError when max_budget_usd present; assert called twice; second call lacks max_budget_usd; assert DEBUG log emitted.",
+            "Write TS-03-21: create_deep_agent raises TypeError when effort present; assert called twice; second call lacks effort; assert DEBUG log emitted.",
+            "Write TS-03-22: assert 'compaction' never appears in any create_deep_agent call kwargs."
+          ],
+          "test_spec_refs": [
+            "TS-03-19",
+            "TS-03-20",
+            "TS-03-21",
+            "TS-03-22"
+          ],
+          "requirement_refs": [
+            "03-REQ-5.1",
+            "03-REQ-5.2",
+            "03-REQ-5.3",
+            "03-REQ-5.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.2",
+          "title": "Write transient retry and backoff tests (TS-03-23, TS-03-24, TS-03-E6, TS-03-E7)",
+          "details": [
+            "Write TS-03-23: patch asyncio.sleep; mock fails on attempts 1-2, succeeds on 3; assert sleep_calls == [1.0, 2.0]; assert ResultMessage.is_error == False.",
+            "Write TS-03-24: all 3 attempts raise ConnectionError; assert ResultMessage(is_error=True, is_transport_error=True); no exception propagates.",
+            "Write TS-03-E6: infinite transient errors; assert attempt_count == 3; assert ResultMessage(is_error=True, is_transport_error=True).",
+            "Write TS-03-E7: attempt 1 yields AssistantMessage then fails; attempt 2 succeeds; assert only 1 AssistantMessage from attempt 2; assert create called twice.",
+            "Write TS-03-P5: property test with K transient errors; assert attempts <= 3; assert sleep delays are _BACKOFF_BASE * 2^i."
+          ],
+          "test_spec_refs": [
+            "TS-03-23",
+            "TS-03-24",
+            "TS-03-E6",
+            "TS-03-E7",
+            "TS-03-P5"
+          ],
+          "requirement_refs": [
+            "03-REQ-6.1",
+            "03-REQ-6.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.3",
+          "title": "Write non-transient error and shared constants tests (TS-03-25, TS-03-26)",
+          "details": [
+            "Write TS-03-25: auth error raises on first invocation; assert sleep not called; assert ResultMessage(is_error=True, is_transport_error=False).",
+            "Write TS-03-26: import _BACKOFF_BASE from deepagents and claude modules (or shared utility); assert value == 1.0; assert not defined in both source files independently (count occurrences)."
+          ],
+          "test_spec_refs": [
+            "TS-03-25",
+            "TS-03-26"
+          ],
+          "requirement_refs": [
+            "03-REQ-6.3",
+            "03-REQ-6.4"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "4.V",
+        "checks": [
+          "pytest -q tests/backends/test_deepagents.py -k 'provider or retry or backoff or transient or budget or effort' --collect-only succeeds",
+          "ruff check tests/backends/test_deepagents.py reports no linting errors",
+          "03-REQ-5.1–5.4, 03-REQ-6.1–6.4 test cases all present and correctly structured"
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "kind": "tests",
+      "title": "Write tests: close() lifecycle, cancellation, and smoke tests",
+      "subtasks": [
+        {
+          "id": "5.1",
+          "title": "Write close() idempotency and state-release tests (TS-03-27 through TS-03-30, TS-03-P6)",
+          "details": [
+            "Write TS-03-27: call close() three times; assert no exception on any call.",
+            "Write TS-03-28: close() on fresh instance returns None immediately.",
+            "Write TS-03-29: after execute() completes, call close(); assert per-instance checkpoint attributes are cleared/None.",
+            "Write TS-03-30: assert close() does not call asyncio.Task.cancel().",
+            "Write TS-03-P6: property test calling close() N times (0..20); assert no exception; assert state is consistent."
+          ],
+          "test_spec_refs": [
+            "TS-03-27",
+            "TS-03-28",
+            "TS-03-29",
+            "TS-03-30",
+            "TS-03-P6"
+          ],
+          "requirement_refs": [
+            "03-REQ-7.1",
+            "03-REQ-7.2",
+            "03-REQ-7.3",
+            "03-REQ-7.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.2",
+          "title": "Write cancellation and timeout edge-case tests (TS-03-E2, TS-03-E3)",
+          "details": [
+            "Write TS-03-E2: mock agent never yields; wrap execute() in asyncio.wait_for(timeout=0.1); assert TimeoutError raised; verify no resource leak.",
+            "Write TS-03-E3: slow stream (sleep between events); cancel task mid-stream; assert CancelledError propagates; no other exception raised."
+          ],
+          "test_spec_refs": [
+            "TS-03-E2",
+            "TS-03-E3"
+          ],
+          "requirement_refs": [
+            "03-REQ-2.E1",
+            "03-REQ-2.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.3",
+          "title": "Write smoke tests (TS-03-SMOKE-1, TS-03-SMOKE-2, TS-03-SMOKE-3)",
+          "details": [
+            "Write TS-03-SMOKE-1: full end-to-end with mocked create_deep_agent; verify config, factory, execute() stream, and terminal ResultMessage.",
+            "Write TS-03-SMOKE-2: permission_callback smoke test with mocked interrupt event; verify callback invoked and resume interface called.",
+            "Write TS-03-SMOKE-3: 3 consecutive transient errors; verify sleep delays [1.0, 2.0]; verify ResultMessage(is_error=True, is_transport_error=True)."
+          ],
+          "test_spec_refs": [
+            "TS-03-SMOKE-1",
+            "TS-03-SMOKE-2",
+            "TS-03-SMOKE-3"
+          ],
+          "requirement_refs": [
+            "03-REQ-2.2",
+            "03-REQ-4.1",
+            "03-REQ-6.1",
+            "03-REQ-6.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "5.V",
+        "checks": [
+          "pytest -q tests/backends/test_deepagents.py -k 'close or cancel or timeout or smoke' --collect-only succeeds",
+          "ruff check tests/backends/test_deepagents.py reports no linting errors",
+          "03-REQ-7.1–7.4, 03-REQ-2.E1, 03-REQ-2.E2 test cases present and correctly structured",
+          "All three SMOKE test IDs (TS-03-SMOKE-1, TS-03-SMOKE-2, TS-03-SMOKE-3) are collected"
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "kind": "standard",
+      "title": "Implement shared retry constants and optional dependency declarations",
+      "subtasks": [
+        {
+          "id": "6.1",
+          "title": "Extract or verify _BACKOFF_BASE shared retry constants in session/backends/",
+          "details": [
+            "Check if ClaudeBackend already defines _BACKOFF_BASE and _MAX_TRANSPORT_RETRIES in session/backends/claude.py.",
+            "If yes, extract them to session/backends/_retry.py (or equivalent shared utility); update claude.py to import from there.",
+            "If not, create the shared utility with _BACKOFF_BASE = 1.0 and _MAX_TRANSPORT_RETRIES = 3.",
+            "Ensure the formula delay(n) = _BACKOFF_BASE * 2^(n-1) giving 1.0, 2.0, 4.0 seconds is documented."
+          ],
+          "test_spec_refs": [
+            "TS-03-26"
+          ],
+          "requirement_refs": [
+            "03-REQ-6.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.2",
+          "title": "Add deepagents optional dependency in pyproject.toml",
+          "details": [
+            "Add [project.optional-dependencies] section entry: deepagents = [\"deepagents>=0.5\"].",
+            "Verify pip install '.[deepagents]' resolves successfully in a clean environment.",
+            "Do not change any existing optional-dependency entries."
+          ],
+          "test_spec_refs": [
+            "TS-03-36"
+          ],
+          "requirement_refs": [
+            "03-REQ-10.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.3",
+          "title": "Add CI matrix leg for deepagents extra",
+          "details": [
+            "Identify the existing CI workflow file in .github/workflows/.",
+            "Add a new matrix entry that runs pip install '.[deepagents]' before pytest.",
+            "Ensure the leg name is distinct (e.g. 'test-deepagents') so it is reported separately in CI.",
+            "Verify the leg does not skip the deepagents tests (i.e. deepagents package is importable in that leg)."
+          ],
+          "test_spec_refs": [
+            "TS-03-38"
+          ],
+          "requirement_refs": [
+            "03-REQ-10.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.4",
+          "title": "Widen OrchestratorConfig.backend Literal in core/config.py",
+          "details": [
+            "In core/config.py, change the backend field type from Literal[\"claude\"] to Literal[\"claude\", \"deepagents\"].",
+            "Verify no migration or transformation step is needed — existing backend='claude' configs remain valid.",
+            "Run existing config validation tests to confirm backward compatibility."
+          ],
+          "test_spec_refs": [
+            "TS-03-34",
+            "TS-03-35"
+          ],
+          "requirement_refs": [
+            "03-REQ-9.1",
+            "03-REQ-9.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "6.V",
+        "checks": [
+          "pytest -q tests/ -k 'not deepagents' passes with exit code 0 (existing tests unaffected)",
+          "ruff check session/backends/ core/config.py reports no new linting errors",
+          "pip install '.[deepagents]' succeeds in a clean environment (manual or CI check)",
+          "OrchestratorConfig(backend='deepagents') and OrchestratorConfig(backend='claude') both pass validation; OrchestratorConfig(backend='invalid') raises",
+          "_BACKOFF_BASE defined exactly once across session/backends/ source files"
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "kind": "standard",
+      "title": "Implement DeepAgentsBackend module skeleton and af SDK tool wrappers",
+      "subtasks": [
+        {
+          "id": "7.1",
+          "title": "Create session/backends/deepagents.py with DeepAgentsBackend class skeleton",
+          "details": [
+            "Create session/backends/deepagents.py; all deepagents/langchain imports are inside the module (not in __init__.py).",
+            "Import PermissionCallback, ToolUseMessage, AssistantMessage, ResultMessage, AgentMessage from session.backends.types without modifying types.py.",
+            "Import _BACKOFF_BASE from the shared retry utility.",
+            "Define class DeepAgentsBackend with execute() and close() stubs matching the Backend Protocol signature exactly.",
+            "execute() stub: `raise NotImplementedError`; close() stub: `raise NotImplementedError`.",
+            "Verify isinstance(DeepAgentsBackend(), Backend) == True (structural protocol check)."
+          ],
+          "test_spec_refs": [
+            "TS-03-1",
+            "TS-03-3",
+            "TS-03-4"
+          ],
+          "requirement_refs": [
+            "03-REQ-1.1",
+            "03-REQ-1.2",
+            "03-REQ-1.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.2",
+          "title": "Verify af SDK function type annotations and implement @tool wrappers",
+          "details": [
+            "Inspect spec_read, context_search, context_get, memory_recall, subtask_state in the af SDK source; verify all parameters and return types have complete Python type annotations.",
+            "If any annotation is missing, add it in the af SDK source file (not in the wrapper).",
+            "In deepagents.py, define five @tool-decorated synchronous wrapper functions that delegate in-process to the af SDK functions.",
+            "Each wrapper must carry full type annotations so LangChain auto-generates a correct JSON schema.",
+            "Expose the five tools via a module-level helper (e.g. _build_af_sdk_tools() -> list) for testability."
+          ],
+          "test_spec_refs": [
+            "TS-03-13",
+            "TS-03-14",
+            "TS-03-15",
+            "TS-03-E4"
+          ],
+          "requirement_refs": [
+            "03-REQ-3.1",
+            "03-REQ-3.2",
+            "03-REQ-3.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.3",
+          "title": "Register DeepAgentsBackend in create_backend() factory with lazy import",
+          "details": [
+            "In session/backends/__init__.py, add a lazy import branch: when key is 'deepagents', import DeepAgentsBackend from session.backends.deepagents and return a new instance.",
+            "Do NOT change the existing 'claude' branch or any other logic in __init__.py.",
+            "Each call to create_backend('deepagents') must return a distinct new object.",
+            "ImportError from deepagents.py must not affect create_backend('claude')."
+          ],
+          "test_spec_refs": [
+            "TS-03-31",
+            "TS-03-32",
+            "TS-03-33"
+          ],
+          "requirement_refs": [
+            "03-REQ-8.1",
+            "03-REQ-8.2",
+            "03-REQ-8.3"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "7.V",
+        "checks": [
+          "pytest -q tests/backends/test_deepagents.py -k 'Protocol or isinstance or factory or tool_registration or annotation' passes (with deepagents installed)",
+          "ruff check session/backends/deepagents.py session/backends/__init__.py reports no linting errors",
+          "isinstance(DeepAgentsBackend(), Backend) == True confirmed in test run",
+          "create_backend('claude') still returns ClaudeBackend (TS-03-33 passes)",
+          "All five @tool wrappers pass LangChain schema generation (TS-03-14 passes)"
+        ]
+      }
+    },
+    {
+      "id": 8,
+      "kind": "standard",
+      "title": "Implement execute() core: agent creation, event mapping, and token accumulation",
+      "subtasks": [
+        {
+          "id": "8.1",
+          "title": "Implement create_deep_agent() call with optional parameter fallback",
+          "details": [
+            "In execute(), call create_deep_agent(model=model, system_prompt=system_prompt, cwd=cwd, tools=_build_af_sdk_tools()).",
+            "Do NOT pass permissions parameter.",
+            "For thinking: detect 'anthropic:' prefix; if present, attempt create_deep_agent with thinking; use try/except TypeError to silently omit if unsupported.",
+            "For max_budget_usd and effort (from **kwargs): attempt to pass each; use try/except TypeError to retry without the parameter and log DEBUG.",
+            "Never pass compaction to create_deep_agent."
+          ],
+          "test_spec_refs": [
+            "TS-03-5",
+            "TS-03-19",
+            "TS-03-20",
+            "TS-03-21",
+            "TS-03-22"
+          ],
+          "requirement_refs": [
+            "03-REQ-2.2",
+            "03-REQ-5.1",
+            "03-REQ-5.2",
+            "03-REQ-5.3",
+            "03-REQ-5.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.2",
+          "title": "Implement astream_events() v2 consumption and event-to-message mapping",
+          "details": [
+            "Iterate async for event in agent.astream_events(..., version='v2').",
+            "Wrap each event extraction in try/except KeyError/AttributeError: on failure, log WARNING and continue (skip event).",
+            "on_tool_start / on_tool_end: construct and yield ToolUseMessage from payload.",
+            "on_chat_model_stream: construct and yield AssistantMessage from text chunk.",
+            "on_llm_end: extract token counts (input_tokens, output_tokens) and accumulate into instance variables; yield nothing.",
+            "After stream exhaustion: yield terminal ResultMessage with accumulated tokens (None if provider omitted, not 0) and is_error=False."
+          ],
+          "test_spec_refs": [
+            "TS-03-6",
+            "TS-03-7",
+            "TS-03-8",
+            "TS-03-9",
+            "TS-03-10",
+            "TS-03-11"
+          ],
+          "requirement_refs": [
+            "03-REQ-2.3",
+            "03-REQ-2.4",
+            "03-REQ-2.5",
+            "03-REQ-2.6",
+            "03-REQ-2.7",
+            "03-REQ-2.8"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.3",
+          "title": "Implement permission_callback interrupt mapping",
+          "details": [
+            "Empirically discover the interrupt/resume API from the installed deepagents>=0.5 source.",
+            "If permission_callback is not None: register an interrupt hook with create_deep_agent (using the discovered API parameter).",
+            "The hook: extract tool_name: str and tool_input: dict from interrupt event payload; call permission_callback(tool_name, tool_input); forward bool to resume interface.",
+            "If permission_callback raises: deny the tool call, yield ResultMessage(is_error=True, is_transport_error=False), exit generator cleanly.",
+            "If permission_callback is None: do not register any interrupt hook (create_deep_agent called without the interrupt parameter)."
+          ],
+          "test_spec_refs": [
+            "TS-03-16",
+            "TS-03-17",
+            "TS-03-18",
+            "TS-03-E5"
+          ],
+          "requirement_refs": [
+            "03-REQ-4.1",
+            "03-REQ-4.2",
+            "03-REQ-4.3"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "8.V",
+        "checks": [
+          "pytest -q tests/backends/test_deepagents.py -k 'event or token or stream or permission or interrupt' passes (with deepagents installed)",
+          "ruff check session/backends/deepagents.py reports no linting errors",
+          "TS-03-5, TS-03-6, TS-03-7, TS-03-8, TS-03-9, TS-03-10, TS-03-11, TS-03-16, TS-03-17, TS-03-18, TS-03-19, TS-03-20, TS-03-21, TS-03-22 all pass",
+          "No 'raise NotImplementedError' or stub markers remain in execute() event-mapping paths"
+        ]
+      }
+    },
+    {
+      "id": 9,
+      "kind": "standard",
+      "title": "Implement execute() error handling, retry logic, and close()",
+      "subtasks": [
+        {
+          "id": "9.1",
+          "title": "Implement transient error detection, exponential backoff retry loop",
+          "details": [
+            "Wrap the agent creation + astream_events loop in a retry loop bounded to _MAX_TRANSPORT_RETRIES (3) attempts.",
+            "Catch transient errors (connection failures, HTTP 429, provider 5xx); for each, await asyncio.sleep(_BACKOFF_BASE * 2^(attempt-1)) then retry with a fresh create_deep_agent() call.",
+            "Discard any partial checkpoint state before retry to avoid duplicate event replay.",
+            "After exhausting all retries: yield ResultMessage(is_error=True, is_transport_error=True) and return.",
+            "No jitter applied; delays are exactly 1.0, 2.0, 4.0 seconds."
+          ],
+          "test_spec_refs": [
+            "TS-03-23",
+            "TS-03-24",
+            "TS-03-E6",
+            "TS-03-E7"
+          ],
+          "requirement_refs": [
+            "03-REQ-6.1",
+            "03-REQ-6.2",
+            "03-REQ-6.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "9.2",
+          "title": "Implement non-transient error handling and no-exception-propagation guarantee",
+          "details": [
+            "Catch non-transient errors (authentication failures, HTTP 401, tool execution errors) immediately: yield ResultMessage(is_error=True, is_transport_error=False) without retry.",
+            "Wrap the outermost execute() body in a broad except clause ensuring no exception propagates: all failure modes surface through ResultMessage.",
+            "Confirm via TS-03-12 that even unexpected RuntimeError yields a terminal ResultMessage."
+          ],
+          "test_spec_refs": [
+            "TS-03-25",
+            "TS-03-12"
+          ],
+          "requirement_refs": [
+            "03-REQ-6.3",
+            "03-REQ-2.9"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "9.3",
+          "title": "Implement close() method with idempotent LangGraph state release",
+          "details": [
+            "Implement close(): release per-instance LangGraph checkpoint state (set self._checkpointer = None, self._thread_state = None, or equivalent).",
+            "Make close() idempotent: guard with 'if already closed, return immediately'.",
+            "close() must be synchronous (or a trivial coroutine); it must NOT call asyncio.Task.cancel() or any async cancellation primitive.",
+            "When execute() is not running, close() is a no-op returning None."
+          ],
+          "test_spec_refs": [
+            "TS-03-27",
+            "TS-03-28",
+            "TS-03-29",
+            "TS-03-30"
+          ],
+          "requirement_refs": [
+            "03-REQ-7.1",
+            "03-REQ-7.2",
+            "03-REQ-7.3",
+            "03-REQ-7.4"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "9.V",
+        "checks": [
+          "pytest -q tests/backends/test_deepagents.py -k 'retry or backoff or transient or non_transient or close or idempotent' passes (with deepagents installed)",
+          "ruff check session/backends/deepagents.py reports no linting errors",
+          "TS-03-23, TS-03-24, TS-03-25, TS-03-27, TS-03-28, TS-03-29, TS-03-30, TS-03-E6, TS-03-E7 all pass",
+          "No 'raise NotImplementedError' stubs remain in close() or error-handling paths"
+        ]
+      }
+    },
+    {
+      "id": 10,
+      "kind": "checkpoint",
+      "title": "Intermediate integration gate: full unit test suite passes",
+      "subtasks": [
+        {
+          "id": "10.1",
+          "title": "Run full DeepAgentsBackend unit test suite and verify all tests pass",
+          "details": [
+            "Run pytest -q tests/backends/test_deepagents.py with deepagents extra installed.",
+            "All unit tests (TS-03-1 through TS-03-41, TS-03-P1 through TS-03-P7, TS-03-E1 through TS-03-E7) must pass or be explicitly skipped only when deepagents is absent.",
+            "Zero failures; zero unexpected skips in the deepagents CI matrix leg."
+          ],
+          "test_spec_refs": [
+            "TS-03-1",
+            "TS-03-5",
+            "TS-03-6",
+            "TS-03-7",
+            "TS-03-8",
+            "TS-03-9",
+            "TS-03-10",
+            "TS-03-11",
+            "TS-03-12",
+            "TS-03-13",
+            "TS-03-16",
+            "TS-03-23",
+            "TS-03-24",
+            "TS-03-25",
+            "TS-03-27"
+          ],
+          "requirement_refs": [
+            "03-REQ-1.1",
+            "03-REQ-2.1",
+            "03-REQ-3.1",
+            "03-REQ-4.1",
+            "03-REQ-6.1",
+            "03-REQ-7.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "10.2",
+          "title": "Run backward-compatibility regression check",
+          "details": [
+            "Run pytest -q tests/ -k 'not deepagents' and confirm exit code 0.",
+            "Verify ClaudeBackend import path and __init__.py structure unchanged.",
+            "Confirm no regressions introduced in session-layer tests."
+          ],
+          "test_spec_refs": [
+            "TS-03-39",
+            "TS-03-40"
+          ],
+          "requirement_refs": [
+            "03-REQ-11.1",
+            "03-REQ-11.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "10.3",
+          "title": "Run containment and SDK isolation checks",
+          "details": [
+            "Run pytest -q tests/test_containment.py to confirm deepagents SDK import appears only in session/backends/deepagents.py.",
+            "Inject a violation (import deepagents in a non-designated file) and confirm containment test fails.",
+            "Remove violation; confirm test passes again."
+          ],
+          "test_spec_refs": [
+            "TS-03-2",
+            "TS-03-41",
+            "TS-03-P4"
+          ],
+          "requirement_refs": [
+            "03-REQ-1.2",
+            "03-REQ-12.1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "10.V",
+        "checks": [
+          "pytest -q tests/backends/test_deepagents.py exits with code 0 (deepagents extra installed)",
+          "pytest -q tests/ -k 'not deepagents' exits with code 0 (zero regressions)",
+          "pytest -q tests/test_containment.py exits with code 0",
+          "ruff check session/backends/ core/config.py reports zero linting errors",
+          "All 03-PROP-* invariants hold: isinstance passes, ResultMessage always terminal, tokens not double-counted, imports contained, retry bounded, close idempotent, permissions never passed"
+        ]
+      }
+    },
+    {
+      "id": 11,
+      "kind": "wiring_verification",
+      "title": "Wiring verification: end-to-end integration and stub audit",
+      "subtasks": [
+        {
+          "id": "11.1",
+          "title": "Trace execution paths: verify PATH-1, PATH-2, PATH-3 entry points are wired to production code",
+          "details": [
+            "PATH-1: Confirm OrchestratorConfig(backend='deepagents') -> create_backend('deepagents') -> DeepAgentsBackend.execute() call chain is wired in session.py without stubs.",
+            "PATH-2: Confirm permission_callback is passed from session.py into execute() and is connected to the Deep Agents interrupt mechanism.",
+            "PATH-3: Confirm transient error retry loop is active and not stubbed out; backoff delays are real asyncio.sleep calls in production code.",
+            "Grep for any remaining `raise NotImplementedError` in session/backends/deepagents.py — must be zero."
+          ],
+          "test_spec_refs": [
+            "TS-03-SMOKE-1",
+            "TS-03-SMOKE-2",
+            "TS-03-SMOKE-3"
+          ],
+          "requirement_refs": [
+            "03-REQ-2.2",
+            "03-REQ-4.1",
+            "03-REQ-6.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.2",
+          "title": "Verify return value propagation from execute() through session layer",
+          "details": [
+            "Confirm session.py iterates the async generator returned by execute() and processes each AgentMessage (ToolUseMessage, AssistantMessage, ResultMessage).",
+            "Confirm session.py handles the terminal ResultMessage with is_error=True appropriately (session failure path).",
+            "Confirm session.py calls backend.close() after execute() completes or is cancelled."
+          ],
+          "test_spec_refs": [
+            "TS-03-SMOKE-1"
+          ],
+          "requirement_refs": [
+            "03-REQ-2.6",
+            "03-REQ-2.9"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.3",
+          "title": "Run all smoke tests with real components (mocked LLM only)",
+          "details": [
+            "Run TS-03-SMOKE-1: real OrchestratorConfig, create_backend(), DeepAgentsBackend, types; only create_deep_agent() and astream_events() are mocked.",
+            "Run TS-03-SMOKE-2: real interrupt mapping logic; mock Deep Agents interrupt trigger and resume interface.",
+            "Run TS-03-SMOKE-3: real retry loop; mock create_deep_agent() to always raise ConnectionError; verify delays and ResultMessage."
+          ],
+          "test_spec_refs": [
+            "TS-03-SMOKE-1",
+            "TS-03-SMOKE-2",
+            "TS-03-SMOKE-3"
+          ],
+          "requirement_refs": [
+            "03-REQ-2.2",
+            "03-REQ-4.1",
+            "03-REQ-6.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.4",
+          "title": "Stub and dead-code audit across all new and modified files",
+          "details": [
+            "Search session/backends/deepagents.py for: raise NotImplementedError, bare 'pass' in non-abstract methods, return None in non-trivial paths, TODO/FIXME comments indicating incomplete logic.",
+            "Search session/backends/__init__.py for stubs in the new 'deepagents' factory branch.",
+            "Search core/config.py for any incomplete Literal widening.",
+            "Each found stub must be resolved before this task is marked done."
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [
+            "03-REQ-1.1",
+            "03-REQ-7.1",
+            "03-REQ-8.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.5",
+          "title": "Cross-spec entry point verification: Backend Protocol and create_backend() from spec 02",
+          "details": [
+            "Confirm that the Backend Protocol imported in deepagents.py is the same object as defined in spec 02's session/backends/types.py (no copy or re-definition).",
+            "Confirm that create_backend() in session/backends/__init__.py (spec 02's factory) correctly dispatches 'deepagents' to DeepAgentsBackend without modifying spec 02's existing logic.",
+            "Run pytest -q tests/ to confirm the full suite (both specs) passes with exit code 0."
+          ],
+          "test_spec_refs": [
+            "TS-03-1",
+            "TS-03-31"
+          ],
+          "requirement_refs": [
+            "03-REQ-1.1",
+            "03-REQ-8.1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "11.V",
+        "checks": [
+          "pytest -q tests/backends/test_deepagents.py -k 'smoke' passes with exit code 0 (deepagents installed, real components, mocked LLM)",
+          "pytest -q tests/ exits with code 0 (full suite including backward-compat)",
+          "grep -r 'raise NotImplementedError' session/backends/deepagents.py returns no matches",
+          "grep -r 'pass$' session/backends/deepagents.py returns no non-abstract method stubs",
+          "ruff check session/backends/ core/config.py exits with code 0",
+          "isinstance(DeepAgentsBackend(), Backend) == True confirmed in live test run",
+          "create_backend('deepagents') returns distinct DeepAgentsBackend instances on repeated calls",
+          "Containment test (TS-03-41) passes: no deepagents import outside session/backends/deepagents.py",
+          "CI matrix leg with pip install '.[deepagents]' present and reporting executed (not skipped) test results"
+        ]
+      }
+    }
+  ],
+  "traceability": [
+    {
+      "requirement_id": "03-REQ-1.1",
+      "test_spec_id": "TS-03-1",
+      "task_id": "1.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-1.2",
+      "test_spec_id": "TS-03-2",
+      "task_id": "1.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-1.3",
+      "test_spec_id": "TS-03-3",
+      "task_id": "1.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-2.1",
+      "test_spec_id": "TS-03-4",
+      "task_id": "1.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-2.2",
+      "test_spec_id": "TS-03-5",
+      "task_id": "2.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-2.3",
+      "test_spec_id": "TS-03-6",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-2.4",
+      "test_spec_id": "TS-03-7",
+      "task_id": "2.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-2.5",
+      "test_spec_id": "TS-03-8",
+      "task_id": "2.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-2.6",
+      "test_spec_id": "TS-03-9",
+      "task_id": "2.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-2.7",
+      "test_spec_id": "TS-03-10",
+      "task_id": "2.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-2.8",
+      "test_spec_id": "TS-03-11",
+      "task_id": "2.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-2.9",
+      "test_spec_id": "TS-03-12",
+      "task_id": "2.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-3.1",
+      "test_spec_id": "TS-03-13",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-3.2",
+      "test_spec_id": "TS-03-14",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-3.3",
+      "test_spec_id": "TS-03-15",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-4.1",
+      "test_spec_id": "TS-03-16",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-4.2",
+      "test_spec_id": "TS-03-17",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-4.3",
+      "test_spec_id": "TS-03-18",
+      "task_id": "3.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-5.1",
+      "test_spec_id": "TS-03-19",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-5.2",
+      "test_spec_id": "TS-03-20",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-5.3",
+      "test_spec_id": "TS-03-21",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-5.4",
+      "test_spec_id": "TS-03-22",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-6.1",
+      "test_spec_id": "TS-03-23",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-6.2",
+      "test_spec_id": "TS-03-24",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-6.3",
+      "test_spec_id": "TS-03-25",
+      "task_id": "4.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-6.4",
+      "test_spec_id": "TS-03-26",
+      "task_id": "4.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-7.1",
+      "test_spec_id": "TS-03-27",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-7.2",
+      "test_spec_id": "TS-03-28",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-7.3",
+      "test_spec_id": "TS-03-29",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-7.4",
+      "test_spec_id": "TS-03-30",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-8.1",
+      "test_spec_id": "TS-03-31",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-8.2",
+      "test_spec_id": "TS-03-32",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-8.3",
+      "test_spec_id": "TS-03-33",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-9.1",
+      "test_spec_id": "TS-03-34",
+      "task_id": "6.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-9.2",
+      "test_spec_id": "TS-03-35",
+      "task_id": "6.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-10.1",
+      "test_spec_id": "TS-03-36",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-10.2",
+      "test_spec_id": "TS-03-37",
+      "task_id": "5.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-10.3",
+      "test_spec_id": "TS-03-38",
+      "task_id": "6.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-11.1",
+      "test_spec_id": "TS-03-39",
+      "task_id": "10.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-11.2",
+      "test_spec_id": "TS-03-40",
+      "task_id": "10.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-12.1",
+      "test_spec_id": "TS-03-41",
+      "task_id": "1.2",
+      "test_path": null
+    }
+  ]
+}

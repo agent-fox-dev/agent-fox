@@ -1,5 +1,5 @@
 {
-  "state": "refining",
+  "state": "generated",
   "prd_path": "prd.md",
   "assessment_history": [
     {
@@ -224,6 +224,245 @@
           "required": false
         }
       ]
+    },
+    {
+      "quality": "ready",
+      "summary": "This is a well-structured, highly detailed PRD that meets spec-format quality standards. It clearly defines intent, background, problem statement, acceptance criteria (Goals), solution steps, non-goals, backward compatibility, interface specifications, testing strategy, and design decisions. The spec is internally consistent and actionable \u2014 an implementer could work from it directly without requiring clarification on any critical path item. Minor gaps exist around edge-case behaviors and operational concerns, but none block implementation.",
+      "gaps": [
+        "The containment test scans files for SDK name substrings, but does not specify which directory/glob is scanned (e.g., does it scan all of `session/backends/`, the entire `session/` tree, or the full repo?). An implementer must infer this.",
+        "The Protocol declares `execute()` as `async def` returning `AsyncIterator[AgentMessage]`, but async generators are not directly runtime-checkable via `isinstance` under Python's `typing.Protocol` \u2014 the spec does not acknowledge this nuance or explain how the isinstance check (Goal #1) is satisfied despite this limitation.",
+        "No explicit statement on whether `create_backend()` is thread-safe or can be called concurrently (e.g., two threads calling `create_backend('claude')` simultaneously during lazy import).",
+        "The `tool_error_callback` parameter in the Protocol is typed as `Any | None`, which weakens static typing guarantees. The spec does not explain why a concrete type is not used or whether a stricter type is planned.",
+        "No mention of how `OrchestratorConfig` validation errors (pydantic `ValidationError` for invalid `backend` literal) surface to end users \u2014 is there a catch-and-re-raise to `ConfigError` at the config-loading layer, or does raw pydantic output reach the user?",
+        "The spec does not define what the `effort` parameter represents in the `execute()` signature \u2014 it is passed through but not documented, which may confuse implementers of future backends.",
+        "No coverage of what happens if `close()` is called before `execute()` completes (i.e., mid-stream cancellation) \u2014 the idempotency guarantee is stated but not the mid-execution teardown contract."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "Which files/directories does the containment test scan? For example, does it scan only `session/backends/`, the entire `session/` tree, or the full repository source tree?",
+          "context": "The containment test description says it scans 'source file contents' but does not specify the glob pattern or root directory. Without this, two implementers could produce different tests that both satisfy the description.",
+          "options": [
+            "Only `session/backends/*.py`",
+            "All of `session/` (recursive)",
+            "All Python source files in the repo (excluding tests)",
+            "A configurable list of directories passed to the test"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "How does `isinstance(ClaudeBackend(), Backend)` (Goal #1) work correctly given that `execute()` is an async generator \u2014 a method type that `runtime_checkable` Protocol does not verify at the attribute level beyond presence?",
+          "context": "Python's `runtime_checkable` Protocol only checks for attribute/method *presence*, not signatures or return types. An object with any `execute` attribute will pass the isinstance check. If the intent is purely a presence check, this is fine and should be stated. If deeper verification is intended, the mechanism needs to be specified.",
+          "options": [
+            "Presence-only check is sufficient and intentional \u2014 the Protocol provides static-typing guarantees, not runtime ones",
+            "A custom `__instancecheck__` or additional runtime validation is required",
+            "The isinstance check is paired with a separate mypy/pyright static check that validates the full signature"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "Should `ValidationError` from pydantic (raised when an invalid `backend` literal is in the TOML) be caught and re-raised as a `ConfigError` at the config-loading layer, or is raw pydantic output acceptable for end users?",
+          "context": "The spec states 'Pydantic will raise a ValidationError (not ConfigError)' for invalid config values, but does not specify whether the config-loading code wraps this. Consistency with ConfigError from create_backend() would improve the user experience.",
+          "options": [
+            "Wrap ValidationError as ConfigError at the config-loading layer (consistent UX)",
+            "Surface raw pydantic ValidationError to the user (acceptable \u2014 pydantic messages are descriptive)",
+            "No change needed \u2014 existing config-loading behavior already handles this"
+          ],
+          "required": false
+        },
+        {
+          "id": "q4",
+          "text": "What is the contract for calling `close()` mid-stream (i.e., while `execute()` is actively yielding messages)? Is the caller expected to exhaust the async iterator before calling `close()`, or must backends support cancellation via `close()` at any point?",
+          "context": "The spec states `close()` is idempotent and safe to call multiple times, but does not address mid-stream teardown. Future backend implementers (specs 03 and 04) need to know whether `close()` must cancel an in-progress `execute()` call.",
+          "options": [
+            "Callers must exhaust or cancel the iterator before calling close()",
+            "close() must be safe to call at any point, including mid-stream, and must cancel any in-progress execute()",
+            "The Protocol does not prescribe this \u2014 each backend documents its own teardown behavior"
+          ],
+          "required": false
+        },
+        {
+          "id": "q5",
+          "text": "What does the `effort` parameter in `execute()` represent, and what values are valid? Should future backends that don't support it raise an error, ignore it silently, or log a warning?",
+          "context": "The `effort` parameter appears in the Protocol signature but is not documented. Future backend implementers need to know the semantics to decide how to handle it.",
+          "options": [
+            "It maps to a reasoning/effort level (e.g. 'low', 'medium', 'high') for models that support it \u2014 backends that don't support it should ignore it silently",
+            "It maps to a reasoning/effort level \u2014 backends that don't support it should log a warning",
+            "It is Claude-specific and should be documented as such; future backends are expected to ignore it"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "ready",
+      "summary": "This is a high-quality, production-grade PRD. It is exceptionally well-structured and detailed, covering intent, background, problem statement, goals with precise acceptance criteria, a full solution plan, non-goals, backward compatibility, tech stack, file layout, interface specification, testing strategy, and numbered design decisions. The spec is largely self-contained and implementation-ready. A few minor clarifications could strengthen edge-case handling and implementation guidance, but none are blockers.",
+      "gaps": [
+        "The containment test excludes 'test files', but the exclusion criterion is not precisely defined (e.g., does it exclude any file with 'test' in its path/name, or only files under a 'tests/' directory? The existing glob pattern does not show exclusion logic).",
+        "The Protocol's `execute()` is declared as `async def` returning `AsyncIterator[AgentMessage]`, but the note acknowledges this is actually an async generator. The distinction between `async def` returning `AsyncIterator` vs. `AsyncGenerator` may matter for mypy/pyright strict mode \u2014 the exact Protocol declaration that passes CI static analysis is not shown with a concrete runnable example.",
+        "The `close()` idempotency guarantee says 'safe to call multiple times' but does not specify thread-safety or concurrent-call behavior for `close()` itself (only mentioned in passing under decision 8 for ClaudeBackend). Future backend implementers lack a clear minimum contract.",
+        "The `create_backend()` factory signature is documented as `create_backend(name: str) -> Backend` but the config field is `Literal['claude']` \u2014 it is unclear whether `create_backend` should accept `Literal` or `str` and whether passing an arbitrary string at the call site triggers a mypy warning.",
+        "No explicit documentation of what happens if `create_backend()` is called with `name=''` or `name=None` \u2014 both are valid `str` values but not valid backend names.",
+        "The `OrchestratorConfig` section notes that `shallow_merge` replaces sections wholesale when a local TOML provides that section, but it is unclear if a `backend` key added by this spec would be stripped if a legacy local TOML has an `[orchestrator]` section without a `backend` key \u2014 the fallback to the pydantic default rather than the global TOML value may be surprising to operators."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "How exactly does the containment test exclude test files? Is it by filtering out paths containing '/tests/' or 'test_', or some other criterion?",
+          "context": "The PRD references the existing glob pattern but does not show the exclusion filter. Without this, the test implementation is ambiguous \u2014 a developer might accidentally scan test files (which legitimately reference SDK names in mock/patch strings) and get false positives.",
+          "options": [
+            "Exclude any path containing '/tests/' as a path component",
+            "Exclude any filename starting with 'test_'",
+            "Exclude any path containing 'test' anywhere in the path string",
+            "The exclusion is not needed \u2014 test files are outside the scanned agentfox package directory"
+          ],
+          "required": false
+        },
+        {
+          "id": "q2",
+          "text": "Should the `Backend` Protocol's `execute()` be typed as returning `AsyncIterator[AgentMessage]` or `AsyncGenerator[AgentMessage, None]`? And has the exact Protocol declaration been verified to satisfy mypy strict mode without a `# type: ignore`?",
+          "context": "Async generators have type `AsyncGenerator[YieldType, SendType]` which is a subtype of `AsyncIterator`. Using `AsyncIterator` in the Protocol is broader and may cause mypy to still flag certain usage patterns depending on the version. Since removing the `# type: ignore` is an explicit acceptance criterion, confirming the exact declaration matters.",
+          "options": [
+            "AsyncIterator[AgentMessage] \u2014 already verified against mypy strict",
+            "AsyncGenerator[AgentMessage, None] \u2014 more precise, matches the actual runtime type",
+            "Either works \u2014 the CI check will validate this during implementation",
+            "Not yet verified \u2014 needs a spike before the spec is implemented"
+          ],
+          "required": false
+        },
+        {
+          "id": "q3",
+          "text": "Should `create_backend()` accept `str` or `Literal['claude']` as its parameter type? And should callers outside of `session.py` (e.g. tests, CLI) be able to call it with arbitrary strings?",
+          "context": "If typed as `str`, mypy won't catch invalid backend names at call sites. If typed as `Literal['claude']`, the factory signature must be updated each time a new backend is added (in sync with the config field). Clarifying this avoids an inconsistency between the factory's runtime behavior (raises ConfigError for unknown names) and its static type.",
+          "options": [
+            "str \u2014 runtime validation via ConfigError is sufficient",
+            "Literal['claude'] (widened in each subsequent spec) \u2014 static validation preferred",
+            "A type alias (e.g. BackendName = Literal['claude']) shared between config and factory"
+          ],
+          "required": false
+        },
+        {
+          "id": "q4",
+          "text": "What is the intended behavior when `create_backend()` is called with an empty string or None (if callers bypass type checking)?",
+          "context": "The PRD specifies ConfigError for unrecognized names, but empty string and None are edge cases that may warrant a distinct error message or explicit guard, especially since the factory is called from config-driven code where malformed TOML values are plausible.",
+          "options": [
+            "Treat them as unrecognised names \u2014 ConfigError with the standard 'Unknown backend' message",
+            "Raise a dedicated ConfigError with a 'backend name must be a non-empty string' message",
+            "Not a concern \u2014 pydantic Literal validation on OrchestratorConfig prevents these values from reaching the factory"
+          ],
+          "required": false
+        },
+        {
+          "id": "q5",
+          "text": "For operators using a non-default backend globally: should the PRD explicitly warn that a local TOML with an [orchestrator] section but no `backend` key will silently fall back to the pydantic default ('claude') rather than inheriting the global value?",
+          "context": "The current shallow_merge behavior means a team setting backend='deepagents' globally could be silently overridden to 'claude' by any local TOML that includes [orchestrator] for other fields. This could be a silent misconfiguration footgun worth a prominent warning or a migration note.",
+          "options": [
+            "Yes \u2014 add an explicit warning callout in the config merging section",
+            "No \u2014 this is covered sufficiently by Design Decision 10 and standard TOML merge semantics",
+            "Yes \u2014 and consider changing merge behavior to field-level rather than section-level for the backend field only",
+            "Defer \u2014 this is an operator concern that belongs in deployment documentation, not the spec"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "ready",
+      "summary": "This is an exceptionally well-written PRD. It demonstrates senior-level engineering discipline: every design decision is explicitly documented with rationale, all interface contracts are fully specified, edge cases (lifecycle, merging semantics, error handling, type-ignore removal) are addressed, and the testing strategy is comprehensive with CI enforcement noted per test. The spec is self-contained and actionable \u2014 an implementer could execute it without needing to ask clarifying questions. Minor gaps exist around rollback/failure strategy and a small ambiguity in the containment test for `google.adk` (dot vs underscore), but none block implementation.",
+      "gaps": [
+        "No explicit rollback or failure-handling strategy is described if the `create_backend()` factory is called during session startup and the `ConfigError` propagates \u2014 it is unclear whether the session fails fast, falls back to 'claude', or surfaces the error to the user through the existing error-handling pipeline.",
+        "The containment test mapping comments show `'google.adk'` as the SDK name string, but Python package names use underscores (`google_adk` or `google.adk` via namespace packages). The exact string the substring scan should match for the Google ADK backend is not resolved in this spec (deferring to spec 04 is fine, but the comment in the mapping could be misleading).",
+        "The `__init__.py` exports list adds `Backend` and `create_backend` but does not clarify whether `create_backend` should also be re-exported from `session/__init__.py` or `agentfox/__init__.py` for top-level consumer convenience \u2014 the spec explicitly says it is *not* modified, but does not explain the access pattern for downstream consumers who want to call `create_backend` directly.",
+        "There is no explicit contract on whether `close()` may be called concurrently from multiple coroutines simultaneously \u2014 the spec says 'no additional thread-safety guarantees beyond ClaudeBackend' but does not state whether ClaudeBackend itself is coroutine-safe for concurrent `close()` calls.",
+        "The `effort` silent-ignore contract says backends should use a try/except TypeError pattern with a warning log, but does not specify the logger name or warning format, which could lead to inconsistent observability across backends."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "If `create_backend()` raises a `ConfigError` during session startup (e.g. the SDK is not installed), how should the session layer surface this to the user \u2014 fail fast with a top-level error, or fall back to 'claude'?",
+          "context": "The spec defines when ConfigError is raised but does not specify the recovery behavior upstream in session.py. This matters for user-facing error UX and is not covered by the existing error-handling pipeline description.",
+          "options": [
+            "Fail fast \u2014 propagate ConfigError to the top-level caller and display a user-friendly error message (no fallback).",
+            "Fall back to 'claude' and log a warning.",
+            "The existing error-handling pipeline in session.py already handles this \u2014 no additional specification needed."
+          ],
+          "required": false
+        },
+        {
+          "id": "q2",
+          "text": "In the containment test mapping, the Google ADK SDK name is shown as `'google.adk'` (with a dot). Should the substring scan use `'google.adk'` or `'google_adk'` (or both) to reliably catch all import styles for the Google ADK backend?",
+          "context": "Python namespace packages like google-adk are typically imported as `from google.adk import ...` (dot notation), but the module name on disk uses underscores. A substring scan for `'google.adk'` would miss `import google_adk` and vice versa. This is deferred to spec 04 but the comment in this spec's mapping may set a wrong precedent.",
+          "options": [
+            "Use 'google.adk' \u2014 this matches the import style `from google.adk import ...`.",
+            "Use 'google_adk' \u2014 this matches the package name on disk.",
+            "Use both strings in the mapping to cover all cases.",
+            "Leave this unresolved in this spec; spec 04 will define the exact string."
+          ],
+          "required": false
+        },
+        {
+          "id": "q3",
+          "text": "Should `create_backend` be re-exported from `session/__init__.py` or `agentfox/__init__.py` so downstream consumers (e.g. CLI, plugins, tests) can access it from a stable top-level import path?",
+          "context": "The spec explicitly states these files are NOT modified. If downstream consumers need to call `create_backend` directly (e.g. for testing or plugin authoring), they must import from `session.backends` directly. This is an intentional decision but is not explained as such in the spec.",
+          "options": [
+            "No \u2014 consumers should import from `session.backends` directly. This is intentional and should be documented.",
+            "Yes \u2014 re-export from `session/__init__.py` for convenience.",
+            "Yes \u2014 re-export from `agentfox/__init__.py` as part of the public API.",
+            "Not needed now; this can be addressed when a downstream consumer actually requires it."
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "ready",
+      "summary": "This is a high-quality, production-grade PRD. It is exceptionally detailed, internally consistent, and well-structured. The intent, problem statement, goals, solution steps, interface specifications, testing strategy, and design decisions are all clearly articulated. The spec covers edge cases (lazy imports, error propagation, lifecycle contracts, config merging, `isinstance` semantics), references related specs, and explicitly calls out non-goals and backward compatibility. Minor gaps exist around migration/rollout observability and one ambiguity in the `execute()` Protocol declaration style, but none of these block implementation.",
+      "gaps": [
+        "The `execute()` method in the Protocol is declared `async def` returning `AsyncIterator[AgentMessage]`, but mypy treats `async def` functions returning `AsyncIterator` differently from true async generators. The spec notes this is intentional and mypy-compatible, but does not provide the exact mypy version or pyright version under which CI static analysis will run, which could cause subtle tooling drift.",
+        "The `OrchestratorConfig.backend` field is described as 'config-file only' with no env var override, but there is no explicit statement about what happens if a user sets a hypothetical `AGENTFOX_BACKEND` env var \u2014 whether it is silently ignored or whether the config loader even checks for it. This could confuse operators.",
+        "The containment test scans for bare SDK module name strings using substring matching, but the spec does not clarify whether the scan is case-sensitive or how it handles SDK names that are substrings of other identifiers (e.g. if a future SDK name like `agent` appears as part of `claude_agent_sdk`). The current SDK name `claude_agent_sdk` is unique enough that this is not a practical issue now, but the test design rationale for future-proofing is incomplete.",
+        "There is no mention of how the `backend` field surfaces in observability/logging at session startup \u2014 e.g. whether `session.py` logs which backend is being used when `create_backend()` is called. This is a minor operational gap that could complicate debugging in production.",
+        "The spec does not describe what happens to in-flight `execute()` calls if `close()` is called concurrently from a different coroutine \u2014 it correctly defers this to future backend specs, but does not provide even a recommended pattern or guard for implementers of specs 03 and 04."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What exact versions of mypy and pyright are pinned in CI for static analysis enforcement?",
+          "context": "The spec requires that mypy resolves `AsyncIterator[AgentMessage]` correctly through the Protocol and that the `# type: ignore` comment is removed. The exact tooling versions matter because `async def` returning `AsyncIterator` vs. a true async generator has subtly different handling across mypy versions. Knowing the pinned versions ensures the Protocol declaration is verified against the right checker.",
+          "options": [
+            "mypy 1.x (specify patch version) + no pyright",
+            "mypy 1.x + pyright 1.x (specify versions)",
+            "pyright only",
+            "Versions are not yet pinned \u2014 latest stable is used"
+          ],
+          "required": false
+        },
+        {
+          "id": "q2",
+          "text": "Should `session.py` emit a log line (e.g. `logger.info('Using backend: %s', backend.name)`) when a backend is instantiated via `create_backend()`?",
+          "context": "The spec is silent on observability at backend selection time. In production, operators debugging a misconfigured backend name or a missing SDK would benefit from a log line confirming which backend was selected. This is a minor but operationally useful detail.",
+          "options": [
+            "Yes \u2014 log at INFO level when create_backend() succeeds",
+            "Yes \u2014 log at DEBUG level only",
+            "No \u2014 backend.name is already available in telemetry via the name property; no additional log needed",
+            "Defer to the implementing engineer"
+          ],
+          "required": false
+        },
+        {
+          "id": "q3",
+          "text": "Should the containment test assert that SDK name strings are absent from files other than the designated one using case-sensitive matching only, or should it also guard against case variations (e.g. `Claude_Agent_SDK`)?",
+          "context": "The current spec describes a simple substring match (`sdk_name in file_contents`). Python identifiers are case-sensitive, so `claude_agent_sdk` and `Claude_Agent_Sdk` are different strings. For the current SDK names this is not a practical concern, but clarifying the intended matching semantics now prevents ambiguity when specs 03 and 04 extend the mapping.",
+          "options": [
+            "Case-sensitive only \u2014 Python identifiers are case-sensitive, no need to guard against case variants",
+            "Case-insensitive \u2014 safer for future SDK names that may have mixed-case variants",
+            "Case-sensitive for now; revisit when specs 03/04 define their SDK names"
+          ],
+          "required": false
+        }
+      ]
     }
   ],
   "qa_exchanges": [
@@ -249,8 +488,54 @@
         "q6": "No environment variable override \u2014 the field is config-file only. Other OrchestratorConfig fields do not use env var overrides; the config system uses TOML file merging (global + local)."
       },
       "timestamp": "2026-07-07T12:53:15.467993+00:00"
+    },
+    {
+      "assessment_index": 2,
+      "answers": {
+        "q1": "async def execute(...) -> AsyncIterator[AgentMessage]. ClaudeBackend.execute() is declared as 'async def execute(self, ...) -> AsyncIterator[AgentMessage]' \u2014 it is an async generator (uses 'yield' inside an async def).",
+        "q2": "Both already exist in session/backends/types.py. PermissionCallback is defined as: PermissionCallback = Callable[[str, dict[str, Any]], Awaitable[bool]] (takes tool_name and tool_input, returns whether the tool call is allowed). ActivityCallback is defined in agentfox.ui.progress as: ActivityCallback = Callable[[ActivityEvent], None] (a synchronous callback that receives activity events for UI updates).",
+        "q3": "Scan for the bare module name string (e.g. 'claude_agent_sdk') anywhere in file contents. This is exactly what the existing test_protocol.py does \u2014 it reads file contents and checks 'claude_agent_sdk' in content. The broad match is intentional: it catches all import styles, comments referencing the SDK, and accidental coupling. The one allowed file is excluded from the scan.",
+        "q4": "Catch ImportError and raise ConfigError with an installation hint message, e.g. ConfigError('Backend \"claude\" requires claude-agent-sdk. Install it with: pip install claude-agent-sdk'). This is consistent with how _check_vertex_deps() and _check_bedrock_deps() in core/client.py handle missing optional dependencies.",
+        "q5": "Global TOML value persists when local TOML omits the field \u2014 this is the standard shallow_merge behavior used by all OrchestratorConfig fields. The shallow_merge function in config.py replaces sections wholesale only when the local TOML explicitly provides that section. If the local TOML omits [orchestrator] entirely, all global orchestrator fields (including backend) are inherited."
+      },
+      "timestamp": "2026-07-07T12:54:58.691937+00:00"
+    },
+    {
+      "assessment_index": 3,
+      "answers": {
+        "q1": "The containment test scans the entire agentfox package source tree recursively (all .py files under packages/agentfox/agentfox/), excluding test files. This matches the existing test in test_protocol.py which uses glob.glob(os.path.join(agent_fox_dir, '**', '*.py'), recursive=True).",
+        "q2": "Presence-only check is sufficient and intentional. The runtime_checkable Protocol provides a meaningful isinstance check (confirms the object has execute, close, and name attributes). Full signature validation is provided by mypy/pyright at static analysis time. This is the standard Python Protocol pattern.",
+        "q3": "No change needed \u2014 existing config-loading behavior already handles this. The load_config() function in config.py already catches pydantic ValidationError and re-raises as ConfigError with a user-friendly message. The backend Literal field benefits from this existing behavior automatically.",
+        "q4": "The Protocol does not prescribe this \u2014 each backend documents its own teardown behavior. In practice, session.py uses asyncio.wait_for() with a timeout, and asyncio task cancellation handles mid-stream teardown. The close() method is for releasing resources after the iterator is done or cancelled.",
+        "q5": "It maps to a reasoning/effort level (e.g. 'low', 'medium', 'high', 'xhigh', 'max') for models that support it. Backends that don't support it should ignore it silently. This is consistent with how ClaudeBackend handles unsupported parameters (try/except TypeError with a warning log)."
+      },
+      "timestamp": "2026-07-07T12:57:01.380196+00:00"
+    },
+    {
+      "assessment_index": 4,
+      "answers": {
+        "q1": "The exclusion is not needed \u2014 test files are outside the scanned agentfox package directory. The glob scans packages/agentfox/agentfox/**/*.py (production source), not packages/agentfox/tests/. This matches the existing test_protocol.py behavior exactly.",
+        "q2": "AsyncIterator[AgentMessage] \u2014 the broader type is correct for the Protocol. AsyncGenerator is a subtype of AsyncIterator, so ClaudeBackend's async generator satisfies the Protocol. The CI check will validate mypy compatibility during implementation.",
+        "q3": "str \u2014 runtime validation via ConfigError is sufficient. The factory is primarily called from session.py using the config-validated value. Direct callers (tests, CLI) benefit from the runtime ConfigError with a clear message. Keeping the factory signature as str avoids coupling it to the Literal type that changes with each new backend.",
+        "q4": "Not a concern \u2014 pydantic Literal validation on OrchestratorConfig prevents these values from reaching the factory. If someone calls create_backend('') directly, it falls through to the ConfigError path for unrecognized names, which is the correct behavior.",
+        "q5": "No \u2014 this is covered sufficiently by Design Decision 10 and standard TOML merge semantics. This is existing shallow_merge behavior that applies to ALL orchestrator fields (parallel, session_timeout, etc.) and is not specific to the backend field."
+      },
+      "timestamp": "2026-07-07T12:59:26.539278+00:00"
+    },
+    {
+      "assessment_index": 5,
+      "answers": {
+        "q1": "Fail fast \u2014 propagate ConfigError to the top-level caller. The existing error-handling in session.py and the engine layer already catches exceptions from run_session() and surfaces them. No fallback behavior is needed.",
+        "q2": "Leave this unresolved in this spec; spec 04 will define the exact string. The mapping in this spec only has 'claude_agent_sdk' as a concrete entry; the google.adk and deepagents entries are commented placeholders.",
+        "q3": "No \u2014 consumers should import from session.backends directly. This is intentional to keep the public API surface minimal until the factory stabilizes across all three backends."
+      },
+      "timestamp": "2026-07-07T13:02:16.973047+00:00"
     }
   ],
-  "generated_artifacts": [],
+  "generated_artifacts": [
+    "requirements",
+    "test_spec",
+    "tasks"
+  ],
   "mode": "interactive"
 }
