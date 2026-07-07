@@ -46,8 +46,8 @@ def _spec_number(spec_name: str) -> tuple[int, str]:
 def _is_auto_pre(node_id: str) -> bool:
     """Check if a node is an auto_pre archetype (group 0).
 
-    Group 0 is reserved for auto_pre archetype nodes (pre-review,
-    drift-review, etc.).  Coder groups start at 1.
+    Group 0 is reserved for auto_pre archetype nodes (pre-flight
+    review, etc.).  Coder groups start at 1.
 
     Requirements: 69-REQ-1.1
     """
@@ -278,7 +278,7 @@ class GraphSync:
                 of duration hints.
 
         Returns:
-            List of ready node_ids in pre-review-prioritized,
+            List of ready node_ids in review-prioritized,
             spec-fair round-robin order.
 
         Requirements: 39-REQ-1.1, 39-REQ-1.3, 69-REQ-1.1, 69-REQ-2.2

@@ -1186,7 +1186,7 @@ class TestSupersedeStalePreCodeFindings:
         """Findings with group 0 and artifact_ref=NULL are superseded."""
         from agentfox.knowledge.review_store import supersede_stale_pre_code_findings
 
-        fid = _insert_finding(conn, spec_name="spec_a", task_group="0", artifact_ref=None)
+        _insert_finding(conn, spec_name="spec_a", task_group="0", artifact_ref=None)
         count = supersede_stale_pre_code_findings(conn, "spec_a", "coder-session-1")
         assert count == 1
 
@@ -1300,7 +1300,7 @@ class TestIngestCallsPreCodeSupersession:
         provider = FoxKnowledgeProvider(db, KnowledgeProviderConfig())
 
         provider.ingest(
-            session_id="rev_spec:0:reviewer:pre-review",
+            session_id="rev_spec:0:reviewer:pre-flight",
             spec_name="rev_spec",
             context={
                 "session_status": "completed",

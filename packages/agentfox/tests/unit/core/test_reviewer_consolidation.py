@@ -28,66 +28,44 @@ import pytest
 
 
 class TestReviewerEntryWithModes:
-    """Verify reviewer archetype has all 4 modes in registry."""
+    """Verify reviewer archetype has all 3 modes in registry."""
 
     def test_reviewer_modes(self) -> None:
-        """TS-98-1: ARCHETYPE_REGISTRY["reviewer"] has all 4 modes."""
+        """TS-98-1: ARCHETYPE_REGISTRY["reviewer"] has all 3 modes."""
         from agentfox.archetypes import ARCHETYPE_REGISTRY
 
         assert "reviewer" in ARCHETYPE_REGISTRY, "reviewer not in ARCHETYPE_REGISTRY — consolidation not implemented"
         entry = ARCHETYPE_REGISTRY["reviewer"]
-        expected_modes = {"pre-review", "drift-review", "audit-review", "fix-review"}
+        expected_modes = {"pre-flight", "audit-review", "fix-review"}
         assert set(entry.modes.keys()) == expected_modes, (
             f"Expected modes {expected_modes}, got {set(entry.modes.keys())}"
         )
 
 
 # ---------------------------------------------------------------------------
-# TS-98-2: Pre-review Mode Config
+# TS-98-2: Pre-flight Mode Config
 # Requirement: 98-REQ-1.2
 # ---------------------------------------------------------------------------
 
 
-class TestPreReviewModeConfig:
-    """Verify pre-review has no shell, auto_pre injection, ADVANCED tier (spec 15)."""
+class TestPreFlightModeConfig:
+    """Verify pre-flight has analysis allowlist, auto_pre injection, ADVANCED tier (spec 15)."""
 
-    def test_pre_review_config(self) -> None:
-        """TS-98-2: pre-review mode has empty allowlist, auto_pre injection, STANDARD tier."""
+    def test_pre_flight_config(self) -> None:
+        """TS-98-2: pre-flight mode has analysis allowlist, auto_pre injection, ADVANCED tier."""
         from agentfox.archetypes import ARCHETYPE_REGISTRY, resolve_effective_config
 
         entry = ARCHETYPE_REGISTRY["reviewer"]
-        cfg = resolve_effective_config(entry, "pre-review")
-        assert cfg.default_allowlist == [], f"pre-review allowlist should be empty, got {cfg.default_allowlist}"
-        assert cfg.injection == "auto_pre", f"pre-review injection should be 'auto_pre', got {cfg.injection!r}"
-        assert cfg.default_model_tier == "ADVANCED", (
-            f"pre-review tier should be ADVANCED (spec 15), got {cfg.default_model_tier!r}"
-        )
-
-
-# ---------------------------------------------------------------------------
-# TS-98-3: Drift-review Mode Config
-# Requirement: 98-REQ-1.3
-# ---------------------------------------------------------------------------
-
-
-class TestDriftReviewModeConfig:
-    """Verify drift-review has analysis allowlist and auto_pre injection."""
-
-    def test_drift_review_config(self) -> None:
-        """TS-98-3: drift-review has analysis allowlist, auto_pre, STANDARD tier."""
-        from agentfox.archetypes import ARCHETYPE_REGISTRY, resolve_effective_config
-
-        entry = ARCHETYPE_REGISTRY["reviewer"]
-        cfg = resolve_effective_config(entry, "drift-review")
+        cfg = resolve_effective_config(entry, "pre-flight")
         expected_cmds = {"ls", "cat", "git", "grep", "find", "head", "tail", "wc"}
-        assert cfg.default_allowlist is not None, "drift-review allowlist must not be None"
+        assert cfg.default_allowlist is not None, "pre-flight allowlist must not be None"
         assert expected_cmds.issubset(set(cfg.default_allowlist)), (
-            f"drift-review allowlist missing commands. "
+            f"pre-flight allowlist missing commands. "
             f"Expected superset of {expected_cmds}, got {cfg.default_allowlist}"
         )
-        assert cfg.injection == "auto_pre", f"drift-review injection should be 'auto_pre', got {cfg.injection!r}"
-        assert cfg.default_model_tier == "STANDARD", (
-            f"drift-review tier should be STANDARD, got {cfg.default_model_tier!r}"
+        assert cfg.injection == "auto_pre", f"pre-flight injection should be 'auto_pre', got {cfg.injection!r}"
+        assert cfg.default_model_tier == "ADVANCED", (
+            f"pre-flight tier should be ADVANCED (spec 15), got {cfg.default_model_tier!r}"
         )
 
 
@@ -308,11 +286,11 @@ class TestReviewerConfig:
         from agentfox.core.config import ReviewerConfig
 
         rc = ReviewerConfig()
-        assert rc.pre_review_block_threshold == 1, (
-            f"pre_review_block_threshold should be 1, got {rc.pre_review_block_threshold}"
+        assert rc.pre_flight_block_threshold == 1, (
+            f"pre_flight_block_threshold should be 1, got {rc.pre_flight_block_threshold}"
         )
-        assert rc.drift_review_block_threshold == 1, (
-            f"drift_review_block_threshold should be 1, got {rc.drift_review_block_threshold}"
+        assert rc.pre_flight_drift_block_threshold == 1, (
+            f"pre_flight_drift_block_threshold should be 1, got {rc.pre_flight_drift_block_threshold}"
         )
         assert rc.audit_min_ts_entries == 5, f"audit_min_ts_entries should be 5, got {rc.audit_min_ts_entries}"
         assert rc.audit_max_retries == 1, f"audit_max_retries should be 1, got {rc.audit_max_retries}"

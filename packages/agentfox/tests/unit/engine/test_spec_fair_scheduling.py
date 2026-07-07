@@ -157,14 +157,14 @@ class TestReadyTasksIntegration:
 
 
 # ---------------------------------------------------------------------------
-# Pre-review priority scheduling (fixes #476)
+# Pre-flight priority scheduling (fixes #476)
 # ---------------------------------------------------------------------------
 
 
-class TestPreReviewPriority:
-    """Tests for pre-review prioritization in _interleave_by_spec.
+class TestPreFlightPriority:
+    """Tests for pre-flight prioritization in _interleave_by_spec.
 
-    Pre-review nodes (auto_pre at group 0) are placed before coder nodes
+    Pre-flight nodes (auto_pre at group 0) are placed before coder nodes
     in the ready queue so that blockers surface early.
     """
 
@@ -174,9 +174,9 @@ class TestPreReviewPriority:
 
         ready = [
             "65_foo:1",
-            "65_foo:0:reviewer:pre-review",
+            "65_foo:0:reviewer:pre-flight",
             "67_bar:1",
-            "67_bar:0:reviewer:pre-review",
+            "67_bar:0:reviewer:pre-flight",
         ]
         result = _interleave_by_spec(ready)
         pre_reviews = [n for n in result if ":0:" in n]
@@ -184,67 +184,65 @@ class TestPreReviewPriority:
         assert result == pre_reviews + coders
 
     def test_pre_review_fan_out_ordering(self) -> None:
-        """High-fan-out specs' pre-reviews come first."""
+        """High-fan-out specs' pre-flights come first."""
         from agentfox.engine.graph_sync import _interleave_by_spec
 
         ready = [
-            "01_setup:0:reviewer:pre-review",
-            "02_broker:0:reviewer:pre-review",
-            "03_api:0:reviewer:pre-review",
+            "01_setup:0:reviewer:pre-flight",
+            "02_broker:0:reviewer:pre-flight",
+            "03_api:0:reviewer:pre-flight",
         ]
         fan_out = {"02_broker": 4, "01_setup": 1, "03_api": 2}
         result = _interleave_by_spec(ready, fan_out_weights=fan_out)
-        assert result[0] == "02_broker:0:reviewer:pre-review"
-        assert result[1] == "03_api:0:reviewer:pre-review"
-        assert result[2] == "01_setup:0:reviewer:pre-review"
+        assert result[0] == "02_broker:0:reviewer:pre-flight"
+        assert result[1] == "03_api:0:reviewer:pre-flight"
+        assert result[2] == "01_setup:0:reviewer:pre-flight"
 
     def test_fan_out_tie_breaks_by_spec_number(self) -> None:
         """Equal fan-out ties are broken by spec number ascending."""
         from agentfox.engine.graph_sync import _interleave_by_spec
 
         ready = [
-            "03_api:0:reviewer:pre-review",
-            "01_setup:0:reviewer:pre-review",
+            "03_api:0:reviewer:pre-flight",
+            "01_setup:0:reviewer:pre-flight",
         ]
         fan_out = {"01_setup": 2, "03_api": 2}
         result = _interleave_by_spec(ready, fan_out_weights=fan_out)
         assert result == [
-            "01_setup:0:reviewer:pre-review",
-            "03_api:0:reviewer:pre-review",
+            "01_setup:0:reviewer:pre-flight",
+            "03_api:0:reviewer:pre-flight",
         ]
 
     def test_mixed_pre_review_and_coder_ordering(self) -> None:
-        """Pre-reviews from all specs come before any coder node."""
+        """Pre-flights from all specs come before any coder node."""
         from agentfox.engine.graph_sync import _interleave_by_spec
 
         ready = [
             "01_setup:1",
-            "02_broker:0:reviewer:pre-review",
-            "03_api:0:reviewer:pre-review",
+            "02_broker:0:reviewer:pre-flight",
+            "03_api:0:reviewer:pre-flight",
             "01_setup:2",
         ]
         result = _interleave_by_spec(ready)
-        # Pre-reviews first (round-robin: 02, 03)
+        # Pre-flights first (round-robin: 02, 03)
         assert result[:2] == [
-            "02_broker:0:reviewer:pre-review",
-            "03_api:0:reviewer:pre-review",
+            "02_broker:0:reviewer:pre-flight",
+            "03_api:0:reviewer:pre-flight",
         ]
         # Then coder nodes (round-robin: 01:1, 01:2)
         assert result[2:] == ["01_setup:1", "01_setup:2"]
 
-    def test_drift_review_also_prioritized(self) -> None:
-        """Drift-review (also auto_pre at group 0) is prioritized with pre-reviews."""
+    def test_pre_flight_prioritized(self) -> None:
+        """Pre-flight (auto_pre at group 0) is prioritized before coder nodes."""
         from agentfox.engine.graph_sync import _interleave_by_spec
 
         ready = [
             "01_setup:1",
-            "02_broker:0:reviewer:drift-review",
-            "02_broker:0:reviewer:pre-review",
+            "02_broker:0:reviewer:pre-flight",
         ]
         result = _interleave_by_spec(ready)
-        assert result[0].startswith("02_broker:0:")
-        assert result[1].startswith("02_broker:0:")
-        assert result[2] == "01_setup:1"
+        assert result[0] == "02_broker:0:reviewer:pre-flight"
+        assert result[1] == "01_setup:1"
 
     def test_single_auto_pre_node_id_format(self) -> None:
         """Single auto_pre with 'spec:0' format is also prioritized."""
@@ -258,15 +256,10 @@ class TestPreReviewPriority:
 class TestIsAutoPre:
     """Tests for the _is_auto_pre() helper."""
 
-    def test_suffixed_pre_review(self) -> None:
+    def test_suffixed_pre_flight(self) -> None:
         from agentfox.engine.graph_sync import _is_auto_pre
 
-        assert _is_auto_pre("02_broker:0:reviewer:pre-review") is True
-
-    def test_suffixed_drift_review(self) -> None:
-        from agentfox.engine.graph_sync import _is_auto_pre
-
-        assert _is_auto_pre("02_broker:0:reviewer:drift-review") is True
+        assert _is_auto_pre("02_broker:0:reviewer:pre-flight") is True
 
     def test_single_auto_pre(self) -> None:
         from agentfox.engine.graph_sync import _is_auto_pre
@@ -343,58 +336,58 @@ class TestSpecFanOut:
         assert fan_out["01_a"] == 1  # only 02_b, counted once
 
 
-class TestReadyTasksPreReviewIntegration:
-    """Integration tests for ready_tasks() with pre-review priority."""
+class TestReadyTasksPreFlightIntegration:
+    """Integration tests for ready_tasks() with pre-flight priority."""
 
     def test_pre_reviews_ordered_first(self) -> None:
-        """Pre-review nodes appear before coder nodes in ready_tasks()."""
+        """Pre-flight nodes appear before coder nodes in ready_tasks()."""
         from agentfox.engine.graph_sync import GraphSync
 
         states = {
-            "01_setup:0:reviewer:pre-review": "pending",
+            "01_setup:0:reviewer:pre-flight": "pending",
             "01_setup:1": "pending",
-            "02_broker:0:reviewer:pre-review": "pending",
+            "02_broker:0:reviewer:pre-flight": "pending",
             "02_broker:1": "pending",
         }
         edges = {
-            "01_setup:0:reviewer:pre-review": [],
-            "01_setup:1": ["01_setup:0:reviewer:pre-review"],
-            "02_broker:0:reviewer:pre-review": [],
-            "02_broker:1": ["02_broker:0:reviewer:pre-review"],
+            "01_setup:0:reviewer:pre-flight": [],
+            "01_setup:1": ["01_setup:0:reviewer:pre-flight"],
+            "02_broker:0:reviewer:pre-flight": [],
+            "02_broker:1": ["02_broker:0:reviewer:pre-flight"],
         }
         gs = GraphSync(states, edges)
         result = gs.ready_tasks()
-        # Only pre-reviews are ready (coders depend on them)
+        # Only pre-flights are ready (coders depend on them)
         assert result == [
-            "01_setup:0:reviewer:pre-review",
-            "02_broker:0:reviewer:pre-review",
+            "01_setup:0:reviewer:pre-flight",
+            "02_broker:0:reviewer:pre-flight",
         ]
 
     def test_fan_out_affects_pre_review_order(self) -> None:
-        """High-fan-out specs' pre-reviews ordered first in ready_tasks()."""
+        """High-fan-out specs' pre-flights ordered first in ready_tasks()."""
         from agentfox.engine.graph_sync import GraphSync
 
         states = {
-            "01_setup:0:reviewer:pre-review": "pending",
+            "01_setup:0:reviewer:pre-flight": "pending",
             "01_setup:1": "pending",
-            "02_broker:0:reviewer:pre-review": "pending",
+            "02_broker:0:reviewer:pre-flight": "pending",
             "02_broker:1": "pending",
-            "03_api:0:reviewer:pre-review": "pending",
+            "03_api:0:reviewer:pre-flight": "pending",
             "03_api:1": "pending",
         }
         edges = {
-            "01_setup:0:reviewer:pre-review": [],
-            "01_setup:1": ["01_setup:0:reviewer:pre-review"],
-            "02_broker:0:reviewer:pre-review": [],
-            "02_broker:1": ["02_broker:0:reviewer:pre-review", "01_setup:1"],
-            "03_api:0:reviewer:pre-review": [],
-            "03_api:1": ["03_api:0:reviewer:pre-review", "01_setup:1"],
+            "01_setup:0:reviewer:pre-flight": [],
+            "01_setup:1": ["01_setup:0:reviewer:pre-flight"],
+            "02_broker:0:reviewer:pre-flight": [],
+            "02_broker:1": ["02_broker:0:reviewer:pre-flight", "01_setup:1"],
+            "03_api:0:reviewer:pre-flight": [],
+            "03_api:1": ["03_api:0:reviewer:pre-flight", "01_setup:1"],
         }
         gs = GraphSync(states, edges)
         result = gs.ready_tasks()
         # 01_setup has fan-out 2 (02_broker and 03_api depend on it)
-        # Pre-reviews: 01 first (highest fan-out), then 02, then 03
-        assert result[0] == "01_setup:0:reviewer:pre-review"
+        # Pre-flights: 01 first (highest fan-out), then 02, then 03
+        assert result[0] == "01_setup:0:reviewer:pre-flight"
 
 
 # ---------------------------------------------------------------------------
@@ -484,19 +477,19 @@ class TestThreeTierPriority:
 
         ready = [
             "01_a:1",
-            "02_b:0:reviewer:pre-review",
+            "02_b:0:reviewer:pre-flight",
             "03_c:3:reviewer:audit-review",
             "04_d:1",
         ]
         archetypes = {
             "01_a:1": "coder",
-            "02_b:0:reviewer:pre-review": "reviewer",
+            "02_b:0:reviewer:pre-flight": "reviewer",
             "03_c:3:reviewer:audit-review": "reviewer",
             "04_d:1": "coder",
         }
         result = _interleave_by_spec(ready, node_archetypes=archetypes)
-        # Tier 1: pre-review
-        assert result[0] == "02_b:0:reviewer:pre-review"
+        # Tier 1: pre-flight
+        assert result[0] == "02_b:0:reviewer:pre-flight"
         # Tier 2: coders (round-robin: 01, 04)
         assert result[1] == "01_a:1"
         assert result[2] == "04_d:1"

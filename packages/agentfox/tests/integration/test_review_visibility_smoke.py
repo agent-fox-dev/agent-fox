@@ -174,10 +174,10 @@ class TestEnrichedBlockingReasonE2E:
         )
 
         config = MagicMock()
-        config.reviewer_config.pre_review_block_threshold = 0
-        config.reviewer_config.drift_review_block_threshold = 0
+        config.reviewer_config.pre_flight_block_threshold = 0
+        config.reviewer_config.pre_flight_drift_block_threshold = 0
 
-        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-review")
+        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-flight")
 
         assert decision.should_block
         assert "F-" in decision.reason

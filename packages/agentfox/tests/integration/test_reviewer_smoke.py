@@ -10,7 +10,6 @@ Requirements: 98-REQ-4.1, 98-REQ-4.2, 98-REQ-4.4, 98-REQ-5.1, 98-REQ-5.2,
 
 from __future__ import annotations
 
-from pathlib import Path
 from unittest.mock import MagicMock
 
 # ---------------------------------------------------------------------------
@@ -60,17 +59,17 @@ def _make_finding(severity: str = "critical", description: str = "Test finding")
 
 
 class TestPreReviewEndToEnd:
-    """TS-98-SMOKE-1: Pre-review injection through convergence.
+    """TS-98-SMOKE-1: Pre-flight injection through convergence.
 
     Verifies the complete chain:
-    1. ensure_graph_archetypes creates reviewer:pre-review node
-    2. converge_reviewer dispatches to skeptic algorithm for pre-review
+    1. ensure_graph_archetypes creates reviewer:pre-flight node
+    2. converge_reviewer dispatches to skeptic algorithm for pre-flight
 
     Does NOT mock injection or convergence logic.
     """
 
-    def test_pre_review_node_injected(self) -> None:
-        """TS-98-SMOKE-1 (part 1): Graph contains reviewer:pre-review after injection."""
+    def test_pre_flight_node_injected(self) -> None:
+        """TS-98-SMOKE-1 (part 1): Graph contains reviewer:pre-flight after injection."""
         from agentfox.graph.injection import ensure_graph_archetypes
 
         graph = _make_coder_graph(spec_name="smoke_spec", group_number=1)
@@ -79,14 +78,14 @@ class TestPreReviewEndToEnd:
         # Run real ensure_graph_archetypes (no mocking)
         ensure_graph_archetypes(graph, config)
 
-        pre_nodes = [n for n in graph.nodes.values() if n.archetype == "reviewer" and n.mode == "pre-review"]
+        pre_nodes = [n for n in graph.nodes.values() if n.archetype == "reviewer" and n.mode == "pre-flight"]
         assert len(pre_nodes) >= 1, (
-            f"Expected at least one reviewer:pre-review node after injection, "
+            f"Expected at least one reviewer:pre-flight node after injection, "
             f"got nodes: {[(n.archetype, n.mode) for n in graph.nodes.values()]}"
         )
 
-    def test_pre_review_convergence_uses_skeptic_algorithm(self) -> None:
-        """TS-98-SMOKE-1 (part 2): converge_reviewer uses skeptic algorithm for pre-review."""
+    def test_pre_flight_convergence_uses_skeptic_algorithm(self) -> None:
+        """TS-98-SMOKE-1 (part 2): converge_reviewer uses skeptic algorithm for pre-flight."""
         from agentfox.session.convergence import converge_reviewer, converge_reviewer_pre
 
         # Build mock findings (list[list[Finding]])
@@ -99,14 +98,14 @@ class TestPreReviewEndToEnd:
         ]
         results = [findings_instance_1, findings_instance_2]
 
-        # Run converge_reviewer with mode="pre-review" (uses real convergence logic)
-        reviewer_merged, reviewer_blocked = converge_reviewer(results, mode="pre-review", block_threshold=3)
+        # Run converge_reviewer with mode="pre-flight" (uses real convergence logic)
+        reviewer_merged, reviewer_blocked = converge_reviewer(results, mode="pre-flight", block_threshold=3)
         # Run converge_reviewer_pre directly for comparison
         skeptic_merged, skeptic_blocked = converge_reviewer_pre(results, block_threshold=3)
 
         # Results must be identical — same algorithm
         assert reviewer_blocked == skeptic_blocked, (
-            f"converge_reviewer('pre-review') blocked={reviewer_blocked} "
+            f"converge_reviewer('pre-flight') blocked={reviewer_blocked} "
             f"but converge_reviewer_pre blocked={skeptic_blocked}"
         )
         # Merged finding counts should be equal
@@ -126,82 +125,6 @@ class TestPreReviewEndToEnd:
         assert "skeptic" not in all_archetypes, f"'skeptic' node found after consolidation: {all_archetypes}"
         assert "oracle" not in all_archetypes, f"'oracle' node found after consolidation: {all_archetypes}"
         assert "auditor" not in all_archetypes, f"'auditor' node found after consolidation: {all_archetypes}"
-
-
-# ---------------------------------------------------------------------------
-# TS-98-SMOKE-2: Drift-review With Gating
-# Execution Path 2 from design.md
-# Requirements: 98-REQ-4.4
-# ---------------------------------------------------------------------------
-
-
-class TestDriftReviewGatingEndToEnd:
-    """TS-98-SMOKE-2: Drift-review gating using real spec_has_existing_code.
-
-    Tests that collect_enabled_auto_pre applies real gating — does NOT mock
-    spec_has_existing_code.
-    """
-
-    def test_drift_review_excluded_for_no_code_spec(self, tmp_path: Path) -> None:
-        """TS-98-SMOKE-2 (no-code path): Drift-review excluded when spec has no code."""
-        from agentfox.graph.injection import collect_enabled_auto_pre
-
-        # Spec directory with no source file references
-        spec_dir = tmp_path / "00_nocode_spec"
-        spec_dir.mkdir()
-        (spec_dir / "architecture.md").write_text(
-            "# Architecture\n\nThis spec introduces a brand new concept.\nNo existing files will be modified.\n",
-            encoding="utf-8",
-        )
-
-        config = _make_reviewer_config(reviewer=True)
-
-        # Real collect_enabled_auto_pre with real gating (spec_has_existing_code)
-        entries = collect_enabled_auto_pre(config, spec_path=spec_dir)
-        reviewer_modes = [e.mode for e in entries if e.name == "reviewer"]
-
-        assert "pre-review" in reviewer_modes, f"pre-review should always be included, got modes: {reviewer_modes}"
-        assert "drift-review" not in reviewer_modes, (
-            f"drift-review should be excluded when spec has no existing code, got modes: {reviewer_modes}"
-        )
-
-    def test_drift_review_included_for_code_spec(self, tmp_path: Path) -> None:
-        """TS-98-SMOKE-2 (code path): Drift-review included when spec references existing code."""
-        from agentfox.graph.injection import collect_enabled_auto_pre
-
-        # Spec directory with architecture.md referencing a real existing file
-        existing_file = Path("packages/agentfox/agentfox/archetypes.py")
-        spec_dir = tmp_path / "00_hascode_spec"
-        spec_dir.mkdir()
-        (spec_dir / "architecture.md").write_text(
-            f"# Architecture\n\nThis spec modifies **`{existing_file}`** (modified).\n",
-            encoding="utf-8",
-        )
-
-        config = _make_reviewer_config(reviewer=True)
-
-        # Real collect_enabled_auto_pre — drift-review should be included
-        entries = collect_enabled_auto_pre(config, spec_path=spec_dir)
-        reviewer_modes = [e.mode for e in entries if e.name == "reviewer"]
-
-        assert "drift-review" in reviewer_modes, (
-            f"drift-review should be included when spec references existing code, got modes: {reviewer_modes}"
-        )
-
-    def test_drift_review_convergence_uses_skeptic_algorithm(self) -> None:
-        """TS-98-SMOKE-2: converge_reviewer drift-review uses skeptic algorithm."""
-        from agentfox.session.convergence import converge_reviewer, converge_reviewer_pre
-
-        findings = [
-            [_make_finding("major", "Drift: module X interface changed")],
-            [_make_finding("major", "Drift: module X interface changed")],
-        ]
-
-        reviewer_merged, reviewer_blocked = converge_reviewer(findings, mode="drift-review", block_threshold=3)
-        skeptic_merged, skeptic_blocked = converge_reviewer_pre(findings, block_threshold=3)
-
-        assert reviewer_blocked == skeptic_blocked
-        assert len(reviewer_merged) == len(skeptic_merged)
 
 
 # ---------------------------------------------------------------------------

@@ -22,7 +22,6 @@ class TestArchetypeToggles:
 
         cfg = ArchetypesConfig()
         assert cfg.reviewer is True
-        assert cfg.curator is True
         assert cfg.verifier is True
 
     def test_disable_reviewer(self) -> None:

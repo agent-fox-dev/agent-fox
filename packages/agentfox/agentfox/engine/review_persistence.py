@@ -67,7 +67,7 @@ def _emit_persistence_event(
         if archetype == "reviewer" and mode:
             dispatch_key = f"reviewer:{mode}"
 
-        if dispatch_key in ("pre-review", "reviewer:pre-review"):
+        if dispatch_key in ("pre-review", "reviewer:pre-review", "pre-flight", "reviewer:pre-flight"):
             severity_summary: dict[str, int] = dict(Counter(r.severity for r in records))
             emit_audit_event(
                 sink,
@@ -102,7 +102,7 @@ def _emit_persistence_event(
                     "task_group": task_group,
                 },
             )
-        elif dispatch_key in ("drift-review", "reviewer:drift-review"):
+        elif dispatch_key in ("drift-review", "reviewer:drift-review", "reviewer:pre-flight:drift"):
             severity_summary = dict(Counter(r.severity for r in records))
             emit_audit_event(
                 sink,
@@ -193,6 +193,82 @@ def _try_extract_with_retry(
         )
 
     return result, retry_attempted
+
+
+def _persist_pre_flight_findings(
+    transcript: str,
+    archetype: str,
+    node_id: str,
+    session_id: str,
+    spec_name: str,
+    task_group: str,
+    knowledge_db_conn: Any,
+    sink: SinkDispatcher | SessionSink | None,
+    run_id: str,
+    mode: str | None,
+    retry_kwargs: dict,
+) -> None:
+    """Parse and persist combined pre-flight findings (both review and drift).
+
+    The pre-flight mode produces a single JSON with both ``findings`` and
+    ``drift_findings`` arrays.  This function extracts the dict, then
+    persists each array through the standard review/drift pipelines.
+    """
+    from agentfox.knowledge.review_store import (
+        insert_drift_findings,
+        insert_findings,
+    )
+    from agentfox.session.review_parser import (
+        _extract_json_dict,
+        _resolve_wrapper_key,
+        parse_drift_findings,
+        parse_review_findings,
+    )
+
+    data = _extract_json_dict(transcript)
+    if data is None:
+        emit_audit_event(
+            sink,
+            run_id,
+            AuditEventType.REVIEW_PARSE_FAILURE,
+            node_id=node_id,
+            archetype=archetype,
+            severity=AuditSeverity.WARNING,
+            payload={
+                "raw_output": transcript[:2000],
+                "retry_attempted": False,
+                "strategy": _STRATEGY_INITIAL,
+            },
+        )
+        return
+
+    # Extract and persist spec-quality findings
+    findings_key = _resolve_wrapper_key(data, "findings")
+    if findings_key is not None:
+        findings_items = data[findings_key]
+        if isinstance(findings_items, list) and findings_items:
+            records = parse_review_findings(findings_items, spec_name, task_group, session_id)
+            if records:
+                count = insert_findings(knowledge_db_conn, records)
+                logger.info("Persisted %d review findings for %s", count, node_id)
+                _emit_persistence_event(
+                    sink, run_id, archetype, node_id, spec_name, task_group,
+                    records, count, mode=mode,
+                )
+
+    # Extract and persist drift findings
+    drift_key = _resolve_wrapper_key(data, "drift_findings")
+    if drift_key is not None:
+        drift_items = data[drift_key]
+        if isinstance(drift_items, list) and drift_items:
+            drift_records = parse_drift_findings(drift_items, spec_name, task_group, session_id)
+            if drift_records:
+                count = insert_drift_findings(knowledge_db_conn, drift_records)
+                logger.info("Persisted %d drift findings for %s", count, node_id)
+                _emit_persistence_event(
+                    sink, run_id, archetype, node_id, spec_name, task_group,
+                    drift_records, count, mode=mode,
+                )
 
 
 def _persist_standard_findings(
@@ -319,7 +395,7 @@ def persist_review_findings(
     if archetype != "reviewer":
         return
 
-    if mode not in ("pre-review", "drift-review", "audit-review"):
+    if mode not in ("pre-review", "drift-review", "pre-flight", "audit-review"):
         # fix-review and unknown modes do not persist findings
         return
 
@@ -337,7 +413,21 @@ def persist_review_findings(
     )
 
     try:
-        if dispatch_key in ("pre-review", "drift-review"):
+        if dispatch_key == "pre-flight":
+            _persist_pre_flight_findings(
+                transcript,
+                archetype,
+                node_id,
+                session_id,
+                spec_name,
+                tg,
+                knowledge_db_conn,
+                sink,
+                run_id,
+                mode,
+                retry_kwargs,
+            )
+        elif dispatch_key in ("pre-review", "drift-review"):
             json_objects, retry_attempted = _try_extract_with_retry(
                 transcript,
                 extract_json_array,

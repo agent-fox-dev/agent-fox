@@ -1,6 +1,6 @@
 """Unit tests for NodeSessionRunner._persist_review_findings.
 
-Validates that structured findings from reviewer (pre-review, drift-review)
+Validates that structured findings from reviewer (pre-flight, drift-review)
 and verifier sessions are parsed and persisted to DuckDB.
 
 Requirements: 27-REQ-3.1, 27-REQ-4.1, 27-REQ-4.2

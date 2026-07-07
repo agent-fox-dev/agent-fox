@@ -44,21 +44,13 @@ class TestReviewerTemplate:
             "Create agent_fox/_templates/profiles/reviewer.md as required by 98-REQ-3.1"
         )
 
-    def test_reviewer_template_has_pre_review_section(self) -> None:
-        """TS-98-7: reviewer.md contains pre-review mode section."""
+    def test_reviewer_template_has_pre_flight_section(self) -> None:
+        """TS-98-7: reviewer.md contains pre-flight mode section."""
         template = _template_path("reviewer.md")
         if not template.exists():
             pytest.skip("reviewer.md not yet created")
         content = template.read_text(encoding="utf-8").lower()
-        assert "pre-review" in content, "reviewer.md should contain a 'pre-review' section (98-REQ-3.1)"
-
-    def test_reviewer_template_has_drift_review_section(self) -> None:
-        """TS-98-7: reviewer.md contains drift-review mode section."""
-        template = _template_path("reviewer.md")
-        if not template.exists():
-            pytest.skip("reviewer.md not yet created")
-        content = template.read_text(encoding="utf-8").lower()
-        assert "drift-review" in content, "reviewer.md should contain a 'drift-review' section (98-REQ-3.1)"
+        assert "pre-flight" in content, "reviewer.md should contain a 'pre-flight' section (98-REQ-3.1)"
 
     def test_reviewer_template_has_audit_review_section(self) -> None:
         """TS-98-7: reviewer.md contains audit-review mode section."""
@@ -81,7 +73,7 @@ class TestReviewerTemplate:
         template = _template_path("reviewer.md")
         assert template.exists(), "reviewer.md does not exist — 98-REQ-3.1 not implemented"
         content = template.read_text(encoding="utf-8").lower()
-        for mode in ("pre-review", "drift-review", "audit-review", "fix-review"):
+        for mode in ("pre-flight", "audit-review", "fix-review"):
             assert mode in content, f"reviewer.md missing '{mode}' section (98-REQ-3.1)"
 
 

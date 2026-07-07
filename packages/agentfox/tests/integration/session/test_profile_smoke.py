@@ -196,7 +196,7 @@ class TestInitThenLoad:
         # All built-in profiles created
         assert len(created_paths) >= 4
         names = {p.name for p in created_paths}
-        for archetype in ("coder.md", "reviewer.md", "curator.md", "verifier.md", "maintainer.md"):
+        for archetype in ("coder.md", "reviewer.md", "verifier.md", "maintainer.md"):
             assert archetype in names, f"{archetype} not created by init_profiles"
 
         # Real load_profile — project file should match package default

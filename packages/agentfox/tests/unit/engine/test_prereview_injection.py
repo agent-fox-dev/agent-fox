@@ -1,6 +1,6 @@
-"""Unit tests for pre-review and drift-review injection into coder prompts.
+"""Unit tests for pre-flight review finding injection into coder prompts.
 
-Verifies that ``build_retry_context`` surfaces pre-review findings
+Verifies that ``build_retry_context`` surfaces pre-flight review findings
 (task_group='0') and drift findings on the very first coder attempt,
 not only after a failed audit-review.
 
@@ -146,7 +146,7 @@ class TestPrereviewFindingsInjected:
 
 
 class TestDriftFindingsInjected:
-    """TS-NS-2: Drift findings from drift-review (task_group='0') appear in the
+    """TS-NS-2: Drift findings from pre-flight review (task_group='0') appear in the
     coder task prompt even on the first attempt.
     """
 

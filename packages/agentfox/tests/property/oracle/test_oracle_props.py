@@ -1,4 +1,4 @@
-"""Property tests for the reviewer (drift-review mode) archetype.
+"""Property tests for the reviewer (pre-flight mode) archetype.
 
 Test Spec: TS-32-P1 through TS-32-P8
 Requirements: Properties 1-8 from design.md
@@ -76,14 +76,14 @@ def _tgd(number: int, title: str = "T"):
 
 
 class TestPropertyRegistryCompleteness:
-    """Reviewer registry entry always has required fields for drift-review mode."""
+    """Reviewer registry entry always has required fields for pre-flight mode."""
 
     def test_registry_completeness(self) -> None:
-        """TS-32-P1: Reviewer entry with drift-review mode has auto_pre, task_assignable, allowlist."""
+        """TS-32-P1: Reviewer entry with pre-flight mode has auto_pre, task_assignable, allowlist."""
         from agentfox.archetypes import ARCHETYPE_REGISTRY, resolve_effective_config
 
         entry = ARCHETYPE_REGISTRY["reviewer"]
-        resolved = resolve_effective_config(entry, mode="drift-review")
+        resolved = resolve_effective_config(entry, mode="pre-flight")
         assert resolved.injection == "auto_pre"
         assert resolved.task_assignable is True
         assert resolved.default_allowlist is not None
@@ -98,13 +98,13 @@ class TestPropertyRegistryCompleteness:
 
 
 class TestPropertyMultiAutoPre:
-    """With reviewer enabled, pre-review and drift-review auto_pre nodes are distinct."""
+    """With reviewer enabled, a single pre-flight auto_pre node is created."""
 
     @pytest.mark.skipif(not HAS_HYPOTHESIS, reason="hypothesis not installed")
     @given(num_groups=st.integers(min_value=1, max_value=10))
     @settings(max_examples=10)
-    def test_multi_auto_pre(self, num_groups: int) -> None:
-        """TS-32-P2: Two distinct auto_pre nodes (pre-review + drift-review), both with edges to first coder."""
+    def test_single_auto_pre(self, num_groups: int) -> None:
+        """TS-32-P2: Single auto_pre node (pre-flight) with edge to first coder."""
         from agentfox.core.config import ArchetypesConfig
         from agentfox.graph.builder import build_graph
 
@@ -117,22 +117,14 @@ class TestPropertyMultiAutoPre:
         # Filter to only auto_pre (reviewer) nodes — auto_post nodes (e.g.
         # verifier) may also have group_number==0 as their sentinel value.
         auto_pre_nodes = [n for n in graph.nodes.values() if n.group_number == 0 and n.archetype == "reviewer"]
-        assert len(auto_pre_nodes) == 2
-        ids = {n.id for n in auto_pre_nodes}
-        assert len(ids) == 2  # distinct
+        assert len(auto_pre_nodes) == 1
 
-        # Both connect to first coder group
+        # Connects to first coder group
         first_coder = "spec:1"
-        for n in auto_pre_nodes:
-            assert any(e.source == n.id and e.target == first_coder and e.kind == "intra_spec" for e in graph.edges), (
-                f"Node {n.id} has no edge to {first_coder}"
-            )
-
-        # No edges between them
-        for a in auto_pre_nodes:
-            for b in auto_pre_nodes:
-                if a.id != b.id:
-                    assert not any(e.source == a.id and e.target == b.id for e in graph.edges)
+        n = auto_pre_nodes[0]
+        assert any(e.source == n.id and e.target == first_coder and e.kind == "intra_spec" for e in graph.edges), (
+            f"Node {n.id} has no edge to {first_coder}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -162,7 +154,7 @@ class TestPropertyBackwardCompat:
         # Filter to only auto_pre (reviewer) nodes — auto_post nodes (e.g.
         # verifier) may also have group_number==0 as their sentinel value.
         auto_pre_nodes = [n for n in graph.nodes.values() if n.group_number == 0 and n.archetype == "reviewer"]
-        assert len(auto_pre_nodes) == 2
+        assert len(auto_pre_nodes) >= 1
         assert all(n.archetype == "reviewer" for n in auto_pre_nodes)
 
 

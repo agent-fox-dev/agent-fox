@@ -111,11 +111,11 @@ class TestConfigGenMetadata:
         assert "retrain_interval" not in RoutingConfig.model_fields
 
     def test_drift_bounds_include_none(self) -> None:
-        """TS-130-9: drift_review_block_threshold bounds include None.
+        """TS-130-9: pre_flight_drift_block_threshold bounds include None.
 
         Requirement: 130-REQ-5.1
         """
-        bounds = _BOUNDS_MAP_OVERRIDES[("ReviewerConfig", "drift_review_block_threshold")]
+        bounds = _BOUNDS_MAP_OVERRIDES[("ReviewerConfig", "pre_flight_drift_block_threshold")]
         assert "None" in bounds
 
     def test_no_model_config_in_bounds(self) -> None:

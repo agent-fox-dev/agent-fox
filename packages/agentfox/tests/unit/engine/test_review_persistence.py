@@ -1,7 +1,7 @@
 """Unit tests for review finding persistence wiring in session lifecycle.
 
 Tests that archetype session output is routed to the correct insert function
-(reviewer:pre-review→insert_findings, reviewer:drift-review→insert_drift_findings),
+(reviewer:pre-flight→insert_findings, reviewer:drift-review→insert_drift_findings),
 that parse failures emit a review.parse_failure audit event, and that retry
 context is assembled correctly from active findings.
 

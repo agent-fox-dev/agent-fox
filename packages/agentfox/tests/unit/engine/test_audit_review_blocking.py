@@ -364,7 +364,7 @@ def _make_audit_review_handler(
 
     block_task_fn = MagicMock()
     archetypes_config = MagicMock()
-    archetypes_config.reviewer_config.pre_review_block_threshold = 1
+    archetypes_config.reviewer_config.pre_flight_block_threshold = 1
     archetypes_config.reviewer_config.audit_max_retries = 2
 
     handler = SessionResultHandler(
@@ -629,7 +629,7 @@ def _make_audit_handler_with_config(
 
     block_task_fn = MagicMock()
     archetypes_config = MagicMock()
-    archetypes_config.reviewer_config.pre_review_block_threshold = 1
+    archetypes_config.reviewer_config.pre_flight_block_threshold = 1
     archetypes_config.reviewer_config.audit_max_retries = audit_max_retries
 
     handler = SessionResultHandler(
@@ -720,8 +720,8 @@ class TestAC6AuditMaxRetriesConfig:
         assert blocked is True
         block_task_fn.assert_called_once()
 
-    def test_pre_review_still_uses_escalation_ladder(self, audit_conn: duckdb.DuckDBPyConnection) -> None:
-        """Pre-review mode (not audit-review) still uses the generic failure counter."""
+    def test_pre_flight_still_uses_escalation_ladder(self, audit_conn: duckdb.DuckDBPyConnection) -> None:
+        """Pre-flight mode (not audit-review) still uses the generic failure counter."""
         from agentfox.knowledge.review_store import ReviewFinding
 
         finding = ReviewFinding(
@@ -731,18 +731,18 @@ class TestAC6AuditMaxRetriesConfig:
             requirement_ref=None,
             spec_name="foo",
             task_group="1",
-            session_id="foo:0:reviewer:pre-review:1",
+            session_id="foo:0:reviewer:pre-flight:1",
             category="security",
         )
         insert_findings(audit_conn, [finding])
 
         node_states: dict[str, str] = {
-            "foo:0:reviewer:pre-review": "completed",
+            "foo:0:reviewer:pre-flight": "completed",
             "foo:1": "completed",
         }
         edges_dict: dict[str, list[str]] = {
-            "foo:0:reviewer:pre-review": [],
-            "foo:1": ["foo:0:reviewer:pre-review"],
+            "foo:0:reviewer:pre-flight": [],
+            "foo:1": ["foo:0:reviewer:pre-flight"],
         }
         graph_sync = MagicMock()
         graph_sync.node_states = node_states
@@ -755,14 +755,14 @@ class TestAC6AuditMaxRetriesConfig:
 
         graph = TaskGraph(
             nodes={
-                "foo:0:reviewer:pre-review": Node(
-                    id="foo:0:reviewer:pre-review",
+                "foo:0:reviewer:pre-flight": Node(
+                    id="foo:0:reviewer:pre-flight",
                     spec_name="foo",
                     group_number=0,
-                    title="Pre-review",
+                    title="Pre-flight",
                     optional=False,
                     archetype="reviewer",
-                    mode="pre-review",
+                    mode="pre-flight",
                 ),
                 "foo:1": Node(
                     id="foo:1",
@@ -773,13 +773,13 @@ class TestAC6AuditMaxRetriesConfig:
                     archetype="coder",
                 ),
             },
-            edges=[Edge(source="foo:0:reviewer:pre-review", target="foo:1", kind="intra_spec")],
-            order=["foo:0:reviewer:pre-review", "foo:1"],
+            edges=[Edge(source="foo:0:reviewer:pre-flight", target="foo:1", kind="intra_spec")],
+            order=["foo:0:reviewer:pre-flight", "foo:1"],
         )
 
         block_task_fn = MagicMock()
         archetypes_config = MagicMock()
-        archetypes_config.reviewer_config.pre_review_block_threshold = 1
+        archetypes_config.reviewer_config.pre_flight_block_threshold = 1
         archetypes_config.reviewer_config.audit_max_retries = 0
 
         handler = SessionResultHandler(
@@ -803,10 +803,10 @@ class TestAC6AuditMaxRetriesConfig:
         )
 
         record = _make_audit_review_record(
-            node_id="foo:0:reviewer:pre-review",
+            node_id="foo:0:reviewer:pre-flight",
         )
         record = SessionRecord(
-            node_id="foo:0:reviewer:pre-review",
+            node_id="foo:0:reviewer:pre-flight",
             archetype="reviewer",
             attempt=1,
             status="completed",
@@ -818,13 +818,13 @@ class TestAC6AuditMaxRetriesConfig:
             timestamp="2026-01-01T00:00:00",
         )
 
-        # Pre-review with retry_predecessor=True should use the escalation ladder,
+        # Pre-flight with retry_predecessor=True should use the escalation ladder,
         # not audit_max_retries. audit_max_retries=0 would block immediately if
-        # the code incorrectly applied it to pre-review.
+        # the code incorrectly applied it to pre-flight.
         blocked = handler.check_review_blocking(record, state)
 
         assert blocked is False, (
-            "Pre-review should use the generic failure counter (max_retries=3), not audit_max_retries=0"
+            "Pre-flight should use the generic failure counter (max_retries=3), not audit_max_retries=0"
         )
         block_task_fn.assert_not_called()
 

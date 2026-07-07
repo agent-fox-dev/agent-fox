@@ -48,13 +48,13 @@ class TestResolveModelVariantLayer1:
                     "reviewer": PerArchetypeConfig(
                         model_variant="extended",
                         modes={
-                            "pre-review": PerArchetypeConfig(model_variant="fast"),
+                            "pre-flight": PerArchetypeConfig(model_variant="fast"),
                         },
                     ),
                 }
             )
         )
-        result = resolve_model_variant(config, "reviewer", mode="pre-review")
+        result = resolve_model_variant(config, "reviewer", mode="pre-flight")
         assert result == "fast"
 
 

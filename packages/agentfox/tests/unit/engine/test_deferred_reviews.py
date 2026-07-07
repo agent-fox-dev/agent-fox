@@ -56,13 +56,13 @@ class TestDeferReadyReviews:
         from agentfox.graph.types import Node, PlanMetadata, TaskGraph
 
         pre_review = Node(
-            id="myspec:0:reviewer:pre-review",
+            id="myspec:0:reviewer:pre-flight",
             spec_name="myspec",
             group_number=0,
-            title="Reviewer (pre-review)",
+            title="Reviewer (pre-flight)",
             optional=False,
             archetype="reviewer",
-            mode="pre-review",
+            mode="pre-flight",
         )
         graph = TaskGraph(
             nodes={pre_review.id: pre_review},
@@ -71,13 +71,13 @@ class TestDeferReadyReviews:
             metadata=PlanMetadata(created_at="2026-01-01"),
         )
 
-        node_states = {"myspec:0:reviewer:pre-review": "pending"}
+        node_states = {"myspec:0:reviewer:pre-flight": "pending"}
         gs = GraphSync(node_states, {})
 
         deferred = _defer_ready_reviews(graph, gs)
 
         assert deferred == []
-        assert gs.node_states["myspec:0:reviewer:pre-review"] == "pending"
+        assert gs.node_states["myspec:0:reviewer:pre-flight"] == "pending"
 
     def test_coder_node_never_deferred(self) -> None:
         """Coder nodes are never deferred, even with all deps completed."""

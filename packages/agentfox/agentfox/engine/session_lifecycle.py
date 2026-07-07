@@ -1352,9 +1352,9 @@ def build_retry_context(
     findings exist or if the DB is unavailable.
 
     When ``task_group`` is provided, findings from that group AND from
-    group ``"0"`` (pre-review / drift-review) are included.  Findings
+    group ``"0"`` (pre-flight review) are included.  Findings
     from other task groups are excluded.  This ensures the coder sees
-    pre-review and drift-review findings on the very first attempt,
+    pre-flight review findings on the very first attempt,
     not only after a failed audit-review.
 
     Requirements: 53-REQ-5.1, 53-REQ-5.2, 53-REQ-5.E1

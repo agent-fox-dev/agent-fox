@@ -1,6 +1,6 @@
 """Unit tests for reviewer model tier defaults (issue #609).
 
-Verifies that audit-review and drift-review sessions use STANDARD (Sonnet)
+Verifies that audit-review and pre-flight sessions use STANDARD (Sonnet)
 while fix-review retains ADVANCED (Opus). The config.toml no longer forces
 reviewer to ADVANCED via the models dict.
 
@@ -23,11 +23,11 @@ class TestReviewerModelTier609:
         result = resolve_model_tier(config, "reviewer", mode="audit-review")
         assert result == "ADVANCED"
 
-    def test_drift_review_returns_standard_bare_config(self) -> None:
-        """TS-NS-3: drift-review mode returns STANDARD with no config override."""
+    def test_pre_flight_returns_advanced_bare_config(self) -> None:
+        """TS-NS-3: pre-flight mode returns ADVANCED with no config override."""
         config = AgentFoxConfig()
-        result = resolve_model_tier(config, "reviewer", mode="drift-review")
-        assert result == "STANDARD"
+        result = resolve_model_tier(config, "reviewer", mode="pre-flight")
+        assert result == "ADVANCED"
 
     def test_fix_review_returns_advanced_from_registry(self) -> None:
         """TS-NS-4: fix-review mode returns ADVANCED from archetype registry ModeConfig."""

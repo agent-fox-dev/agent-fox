@@ -103,7 +103,7 @@ class TestRunnerUsesArchetype:
             "spec:0",
             config,
             archetype="reviewer",
-            mode="pre-review",
+            mode="pre-flight",
             instances=3,
             knowledge_db=_MOCK_KB,
         )
@@ -118,10 +118,10 @@ class TestRunnerUsesArchetype:
             "spec:3",
             config,
             archetype="reviewer",
-            mode="pre-review",
+            mode="pre-flight",
             knowledge_db=_MOCK_KB,
         )
-        # Reviewer pre-review mode now defaults to ADVANCED (spec 15)
+        # Reviewer pre-flight mode now defaults to ADVANCED (spec 15)
         assert runner._resolved_model_id == "claude-opus-4-6"
 
     def test_runner_model_tier_config_override(self) -> None:
@@ -135,7 +135,7 @@ class TestRunnerUsesArchetype:
             "spec:3",
             config,
             archetype="reviewer",
-            mode="pre-review",
+            mode="pre-flight",
             knowledge_db=_MOCK_KB,
         )
         assert runner._resolved_model_id == "claude-haiku-4-5"
@@ -149,10 +149,10 @@ class TestRunnerUsesArchetype:
             "spec:0",
             config,
             archetype="reviewer",
-            mode="drift-review",
+            mode="pre-flight",
             knowledge_db=_MOCK_KB,
         )
-        # Reviewer drift-review mode has a default allowlist in the registry
+        # Reviewer pre-flight mode has a default allowlist in the registry
         assert runner._resolved_security is not None
         assert runner._resolved_security.bash_allowlist is not None
         assert "ls" in runner._resolved_security.bash_allowlist
@@ -169,7 +169,7 @@ class TestRunnerUsesArchetype:
             "spec:0",
             config,
             archetype="reviewer",
-            mode="drift-review",
+            mode="pre-flight",
             knowledge_db=_MOCK_KB,
         )
         assert runner._resolved_security is not None

@@ -584,7 +584,7 @@ class SessionResultHandler:
                 )
             )
 
-        # Reviewer blocking (pre-review / drift-review / audit-review)
+        # Reviewer blocking (pre-flight / audit-review)
         if self.check_review_blocking(record, state):
             self._check_block_budget(state)
 

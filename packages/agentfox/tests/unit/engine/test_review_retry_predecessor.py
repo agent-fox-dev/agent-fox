@@ -61,8 +61,8 @@ def _make_session_record(
 
 def _make_archetypes_config(block_threshold: int = 1):
     config = MagicMock()
-    config.reviewer_config.pre_review_block_threshold = block_threshold
-    config.reviewer_config.drift_review_block_threshold = block_threshold
+    config.reviewer_config.pre_flight_block_threshold = block_threshold
+    config.reviewer_config.pre_flight_drift_block_threshold = block_threshold
     return config
 
 
@@ -80,7 +80,7 @@ class TestThresholdGteComparison:
         record = _make_session_record()
         config = _make_archetypes_config(block_threshold=1)
 
-        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-review")
+        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-flight")
 
         assert decision.should_block is True
 
@@ -95,7 +95,7 @@ class TestThresholdGteComparison:
         record = _make_session_record()
         config = _make_archetypes_config(block_threshold=2)
 
-        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-review")
+        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-flight")
 
         assert decision.should_block is False
 
@@ -106,7 +106,7 @@ class TestThresholdGteComparison:
         record = _make_session_record()
         config = _make_archetypes_config(block_threshold=2)
 
-        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-review")
+        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-flight")
 
         assert decision.should_block is True
 
@@ -120,18 +120,18 @@ class TestGroup0CoderNodeId:
             description="Command injection",
             spec_name="spec_07",
             task_group="1",
-            session_id="spec_07:0:reviewer:pre-review:1",
+            session_id="spec_07:0:reviewer:pre-flight:1",
             category="security",
         )
         insert_findings(knowledge_conn, [finding])
 
         record = _make_session_record(
-            node_id="spec_07:0:reviewer:pre-review",
+            node_id="spec_07:0:reviewer:pre-flight",
             archetype="reviewer",
         )
         config = _make_archetypes_config(block_threshold=1)
 
-        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-review")
+        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-flight")
 
         assert decision.should_block is True
         assert decision.coder_node_id == "spec_07:1"
@@ -153,20 +153,20 @@ class TestGroup0CoderNodeId:
         )
         config = _make_archetypes_config(block_threshold=1)
 
-        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-review")
+        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-flight")
 
         assert decision.should_block is True
         assert decision.coder_node_id == "spec_07:3"
 
 
-class TestPreReviewRetryPredecessor:
-    """Pre-review with retry_predecessor=True converts block to retry."""
+class TestPreFlightRetryPredecessor:
+    """Pre-flight with retry_predecessor=True converts block to retry."""
 
-    def test_pre_review_has_retry_predecessor(self) -> None:
+    def test_pre_flight_has_retry_predecessor(self) -> None:
         from agentfox.archetypes import get_archetype, resolve_effective_config
 
         entry = get_archetype("reviewer")
-        resolved = resolve_effective_config(entry, "pre-review")
+        resolved = resolve_effective_config(entry, "pre-flight")
         assert resolved.retry_predecessor is True
 
     def test_audit_review_has_retry_predecessor(self) -> None:
@@ -174,13 +174,6 @@ class TestPreReviewRetryPredecessor:
 
         entry = get_archetype("reviewer")
         resolved = resolve_effective_config(entry, "audit-review")
-        assert resolved.retry_predecessor is True
-
-    def test_drift_review_has_retry_predecessor(self) -> None:
-        from agentfox.archetypes import get_archetype, resolve_effective_config
-
-        entry = get_archetype("reviewer")
-        resolved = resolve_effective_config(entry, "drift-review")
         assert resolved.retry_predecessor is True
 
 
@@ -192,12 +185,12 @@ class TestRetryOnReviewBlock:
         knowledge_conn: duckdb.DuckDBPyConnection,
     ) -> tuple[SessionResultHandler, ExecutionState, MagicMock]:
         node_states = {
-            "test_spec:0:reviewer:pre-review": "completed",
+            "test_spec:0:reviewer:pre-flight": "completed",
             "test_spec:1": "pending",
         }
         edges_dict = {
-            "test_spec:0:reviewer:pre-review": [],
-            "test_spec:1": ["test_spec:0:reviewer:pre-review"],
+            "test_spec:0:reviewer:pre-flight": [],
+            "test_spec:1": ["test_spec:0:reviewer:pre-flight"],
         }
         graph_sync = MagicMock()
         graph_sync.node_states = node_states
@@ -205,14 +198,14 @@ class TestRetryOnReviewBlock:
 
         graph = TaskGraph(
             nodes={
-                "test_spec:0:reviewer:pre-review": Node(
-                    id="test_spec:0:reviewer:pre-review",
+                "test_spec:0:reviewer:pre-flight": Node(
+                    id="test_spec:0:reviewer:pre-flight",
                     spec_name="test_spec",
                     group_number=0,
                     title="Pre-review",
                     optional=False,
                     archetype="reviewer",
-                    mode="pre-review",
+                    mode="pre-flight",
                 ),
                 "test_spec:1": Node(
                     id="test_spec:1",
@@ -225,12 +218,12 @@ class TestRetryOnReviewBlock:
             },
             edges=[
                 Edge(
-                    source="test_spec:0:reviewer:pre-review",
+                    source="test_spec:0:reviewer:pre-flight",
                     target="test_spec:1",
                     kind="intra_spec",
                 )
             ],
-            order=["test_spec:0:reviewer:pre-review", "test_spec:1"],
+            order=["test_spec:0:reviewer:pre-flight", "test_spec:1"],
         )
 
         block_task_fn = MagicMock()
@@ -264,7 +257,7 @@ class TestRetryOnReviewBlock:
         finding = _make_finding(
             severity="critical",
             description="Command injection vulnerability",
-            session_id="test_spec:0:reviewer:pre-review:1",
+            session_id="test_spec:0:reviewer:pre-flight:1",
             category="security",
         )
         insert_findings(knowledge_conn, [finding])
@@ -272,7 +265,7 @@ class TestRetryOnReviewBlock:
         handler, state, block_task_fn = self._make_handler_with_graph(knowledge_conn)
 
         record = _make_session_record(
-            node_id="test_spec:0:reviewer:pre-review",
+            node_id="test_spec:0:reviewer:pre-flight",
             archetype="reviewer",
         )
 
@@ -282,7 +275,7 @@ class TestRetryOnReviewBlock:
         block_task_fn.assert_not_called()
 
     def test_drift_review_block_converts_to_retry(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
-        """Drift-review blocking with retry_predecessor converts block to retry."""
+        """Pre-flight blocking (drift path) with retry_predecessor converts block to retry."""
         from agentfox.knowledge.review_store import DriftFinding, insert_drift_findings
 
         drift_finding = DriftFinding(
@@ -293,13 +286,13 @@ class TestRetryOnReviewBlock:
             artifact_ref=None,
             spec_name="test_spec",
             task_group="1",
-            session_id="test_spec:0:reviewer:drift-review:1",
+            session_id="test_spec:0:reviewer:pre-flight:1",
         )
         insert_drift_findings(knowledge_conn, [drift_finding])
 
         node_states = {
             "test_spec:1": "completed",
-            "test_spec:0:reviewer:drift-review": "completed",
+            "test_spec:0:reviewer:pre-flight": "completed",
         }
         graph_sync = MagicMock()
         graph_sync.node_states = node_states
@@ -307,14 +300,14 @@ class TestRetryOnReviewBlock:
 
         graph = TaskGraph(
             nodes={
-                "test_spec:0:reviewer:drift-review": Node(
-                    id="test_spec:0:reviewer:drift-review",
+                "test_spec:0:reviewer:pre-flight": Node(
+                    id="test_spec:0:reviewer:pre-flight",
                     spec_name="test_spec",
                     group_number=0,
                     title="Reviewer",
                     optional=False,
                     archetype="reviewer",
-                    mode="drift-review",
+                    mode="pre-flight",
                 ),
                 "test_spec:1": Node(
                     id="test_spec:1",
@@ -326,7 +319,7 @@ class TestRetryOnReviewBlock:
                 ),
             },
             edges=[],
-            order=["test_spec:0:reviewer:drift-review", "test_spec:1"],
+            order=["test_spec:0:reviewer:pre-flight", "test_spec:1"],
         )
 
         block_task_fn = MagicMock()
@@ -353,7 +346,7 @@ class TestRetryOnReviewBlock:
         )
 
         record = _make_session_record(
-            node_id="test_spec:0:reviewer:drift-review",
+            node_id="test_spec:0:reviewer:pre-flight",
             archetype="reviewer",
         )
 
@@ -365,13 +358,13 @@ class TestRetryOnReviewBlock:
 
 
 class TestDefaultThreshold:
-    """Default pre_review_block_threshold is 1."""
+    """Default pre_flight_block_threshold is 1."""
 
     def test_default_threshold_is_1(self) -> None:
         from agentfox.core.config import ReviewerConfig
 
         rc = ReviewerConfig()
-        assert rc.pre_review_block_threshold == 1
+        assert rc.pre_flight_block_threshold == 1
 
 
 # ---------------------------------------------------------------------------
@@ -386,7 +379,7 @@ class TestEvaluateReviewBlockingTaskGroupFilter:
     def test_cross_group_finding_excluded_from_critical_count(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
         """A finding tagged task_group='1' does NOT block a coder for group 2."""
         # Reviewer runs for group 2; its session has one finding for group 1 (cross-group)
-        session_id = "test_spec:2:reviewer:pre-review:1"
+        session_id = "test_spec:2:reviewer:pre-flight:1"
         cross_finding = _make_finding(
             severity="critical",
             description="Cross-group finding",
@@ -397,19 +390,19 @@ class TestEvaluateReviewBlockingTaskGroupFilter:
         insert_findings(knowledge_conn, [cross_finding])
 
         record = _make_session_record(
-            node_id="test_spec:2:reviewer:pre-review",
+            node_id="test_spec:2:reviewer:pre-flight",
             archetype="reviewer",
             attempt=1,
         )
         config = _make_archetypes_config(block_threshold=1)
 
-        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-review")
+        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-flight")
 
         assert decision.should_block is False, "Cross-group finding (task_group='1') must not block coder for group 2"
 
     def test_same_group_finding_counts_toward_block(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
         """A finding tagged task_group='2' DOES block a coder for group 2."""
-        session_id = "test_spec:2:reviewer:pre-review:1"
+        session_id = "test_spec:2:reviewer:pre-flight:1"
         own_finding = _make_finding(
             severity="critical",
             description="Own-group finding",
@@ -420,19 +413,19 @@ class TestEvaluateReviewBlockingTaskGroupFilter:
         insert_findings(knowledge_conn, [own_finding])
 
         record = _make_session_record(
-            node_id="test_spec:2:reviewer:pre-review",
+            node_id="test_spec:2:reviewer:pre-flight",
             archetype="reviewer",
             attempt=1,
         )
         config = _make_archetypes_config(block_threshold=1)
 
-        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-review")
+        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-flight")
 
         assert decision.should_block is True
 
     def test_mixed_groups_only_own_group_counts(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
         """When session has findings for groups 1 and 2, only group-2 counts for group-2 coder."""
-        session_id = "test_spec:2:reviewer:pre-review:1"
+        session_id = "test_spec:2:reviewer:pre-flight:1"
         findings = [
             _make_finding(
                 severity="critical",
@@ -461,14 +454,14 @@ class TestEvaluateReviewBlockingTaskGroupFilter:
         )
 
         record = _make_session_record(
-            node_id="test_spec:2:reviewer:pre-review",
+            node_id="test_spec:2:reviewer:pre-flight",
             archetype="reviewer",
             attempt=1,
         )
         config = _make_archetypes_config(block_threshold=2)
 
         # threshold=2, but only 1 finding for group 2 → should NOT block
-        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-review")
+        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-flight")
 
         assert decision.should_block is False, (
             "Only the group-2 finding should count; cross-group finding should be excluded"
@@ -486,7 +479,7 @@ class TestRetryOnReviewBlockTaskGroupFilter:
 
     def test_cross_group_only_findings_do_not_trigger_retry(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
         """All session findings for group 0 → block decision is False → coder not reset."""
-        session_id = "test_spec:0:reviewer:pre-review:1"
+        session_id = "test_spec:0:reviewer:pre-flight:1"
         # Only task_group='0' findings exist
         finding = _make_finding(
             severity="critical",
@@ -498,7 +491,7 @@ class TestRetryOnReviewBlockTaskGroupFilter:
         insert_findings(knowledge_conn, [finding])
 
         node_states = {
-            "test_spec:0:reviewer:pre-review": "completed",
+            "test_spec:0:reviewer:pre-flight": "completed",
             "test_spec:1": "completed",
         }
         graph_sync = MagicMock()
@@ -506,7 +499,7 @@ class TestRetryOnReviewBlockTaskGroupFilter:
 
         graph = MagicMock()
         graph.nodes = {
-            "test_spec:0:reviewer:pre-review": MagicMock(archetype="reviewer", mode="pre-review"),
+            "test_spec:0:reviewer:pre-flight": MagicMock(archetype="reviewer", mode="pre-flight"),
             "test_spec:1": MagicMock(archetype="coder", mode=None),
         }
 
@@ -534,7 +527,7 @@ class TestRetryOnReviewBlockTaskGroupFilter:
         )
 
         record = _make_session_record(
-            node_id="test_spec:0:reviewer:pre-review",
+            node_id="test_spec:0:reviewer:pre-flight",
             archetype="reviewer",
             attempt=1,
         )

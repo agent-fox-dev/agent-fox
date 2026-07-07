@@ -1,8 +1,8 @@
 """Unit tests for the converge_reviewer() dispatch function.
 
 Covers:
-- Pre-review routes to skeptic convergence (TS-98-11)
-- Drift-review routes to skeptic convergence (TS-98-11)
+- Pre-flight routes to skeptic convergence (TS-98-11)
+- Drift-review backward compat routes to skeptic convergence (TS-98-11)
 - Audit-review routes to auditor convergence (TS-98-12)
 - Unknown mode raises ValueError (TS-98-E4)
 
@@ -44,16 +44,16 @@ def _make_audit_result(verdict: str = "PASS"):
 
 
 # ---------------------------------------------------------------------------
-# TS-98-11: Convergence Dispatch Pre-review and Drift-review
+# TS-98-11: Convergence Dispatch Pre-flight and Drift-review (backward compat)
 # Requirements: 98-REQ-5.1, 98-REQ-5.2
 # ---------------------------------------------------------------------------
 
 
-class TestConvergeReviewerPreReview:
-    """Verify pre-review mode routes to skeptic convergence algorithm."""
+class TestConvergeReviewerPreFlight:
+    """Verify pre-flight mode routes to skeptic convergence algorithm."""
 
-    def test_pre_review_routes_to_skeptic(self) -> None:
-        """TS-98-11: converge_reviewer(results, 'pre-review') uses skeptic algorithm."""
+    def test_pre_flight_routes_to_skeptic(self) -> None:
+        """TS-98-11: converge_reviewer(results, 'pre-flight') uses skeptic algorithm."""
         from agentfox.session.convergence import (
             converge_reviewer,  # type: ignore[attr-defined]
             converge_reviewer_pre,
@@ -66,15 +66,15 @@ class TestConvergeReviewerPreReview:
             [_make_findings(1, "major", "Major issue")[0]],
         ]
 
-        result = converge_reviewer(results, mode="pre-review", block_threshold=3)
+        result = converge_reviewer(results, mode="pre-flight", block_threshold=3)
         expected = converge_reviewer_pre(results, block_threshold=3)
 
         assert result == expected, (
-            f"pre-review convergence should match converge_reviewer_pre output. Expected {expected}, got {result}"
+            f"pre-flight convergence should match converge_reviewer_pre output. Expected {expected}, got {result}"
         )
 
-    def test_pre_review_blocking(self) -> None:
-        """TS-98-11: pre-review convergence applies majority-gated blocking."""
+    def test_pre_flight_blocking(self) -> None:
+        """TS-98-11: pre-flight convergence applies majority-gated blocking."""
         from agentfox.session.convergence import converge_reviewer  # type: ignore[attr-defined]
 
         # 3 instances, each with the same critical finding — majority agrees
@@ -85,11 +85,11 @@ class TestConvergeReviewerPreReview:
             [critical_finding],
         ]
         # block_threshold=0 means any critical blocks
-        _, blocked = converge_reviewer(results, mode="pre-review", block_threshold=0)
-        assert blocked is True, "pre-review should block when majority agree on critical finding and block_threshold=0"
+        _, blocked = converge_reviewer(results, mode="pre-flight", block_threshold=0)
+        assert blocked is True, "pre-flight should block when majority agree on critical finding and block_threshold=0"
 
     def test_drift_review_routes_to_skeptic(self) -> None:
-        """TS-98-11: converge_reviewer(results, 'drift-review') uses skeptic algorithm."""
+        """TS-98-11: backward compat — converge_reviewer(results, 'drift-review') still uses skeptic algorithm."""
         from agentfox.session.convergence import (
             converge_reviewer,  # type: ignore[attr-defined]
             converge_reviewer_pre,

@@ -35,9 +35,9 @@ class TestNodeModeField:
             group_number=1,
             title="t",
             optional=False,
-            mode="pre-review",
+            mode="pre-flight",
         )
-        assert node.mode == "pre-review"
+        assert node.mode == "pre-flight"
 
     def test_mode_can_be_set_explicitly_to_none(self) -> None:
         """Node.mode can be explicitly set to None."""
@@ -100,10 +100,10 @@ class TestNodeSerializationRoundTrip:
             group_number=0,
             title="t",
             optional=False,
-            mode="pre-review",
+            mode="pre-flight",
         )
         loaded_node = self._save_and_load_node(node)
-        assert loaded_node.mode == "pre-review"
+        assert loaded_node.mode == "pre-flight"
 
     def test_none_mode_preserved_after_roundtrip(self) -> None:
         """mode=None is preserved after save/load."""
@@ -127,7 +127,7 @@ class TestNodeSerializationRoundTrip:
 
         graph = TaskGraph(
             nodes={
-                "s:0": Node(id="s:0", spec_name="s", group_number=0, title="t", optional=False, mode="pre-review"),
+                "s:0": Node(id="s:0", spec_name="s", group_number=0, title="t", optional=False, mode="pre-flight"),
                 "s:1": Node(id="s:1", spec_name="s", group_number=1, title="t2", optional=False, mode=None),
             },
             edges=[],
@@ -140,11 +140,11 @@ class TestNodeSerializationRoundTrip:
         loaded = load_plan(conn)
         conn.close()
         assert loaded is not None
-        assert loaded.nodes["s:0"].mode == "pre-review"
+        assert loaded.nodes["s:0"].mode == "pre-flight"
         assert loaded.nodes["s:1"].mode is None
 
-    def test_drift_review_mode_preserved(self) -> None:
-        """Mode survives DB round-trip for drift-review."""
+    def test_pre_flight_mode_preserved(self) -> None:
+        """Mode survives DB round-trip for pre-flight."""
         from agentfox.graph.types import Node
 
         node = Node(
@@ -153,10 +153,10 @@ class TestNodeSerializationRoundTrip:
             group_number=0,
             title="t",
             optional=False,
-            mode="drift-review",
+            mode="pre-flight",
         )
         loaded_node = self._save_and_load_node(node)
-        assert loaded_node.mode == "drift-review"
+        assert loaded_node.mode == "pre-flight"
 
 
 # ---------------------------------------------------------------------------
@@ -188,19 +188,19 @@ class TestNodeNoneMode:
             title="t",
             optional=False,
             archetype="reviewer",
-            mode="pre-review",
+            mode="pre-flight",
         )
         # The mode value itself contains the mode name
-        assert node.mode == "pre-review"
-        # Combined representation would be "reviewer:pre-review" style
+        assert node.mode == "pre-flight"
+        # Combined representation would be "reviewer:pre-flight" style
         if hasattr(node, "__str__") and type(node).__str__ is not object.__str__:
             combined = str(node)
             # If custom __str__ is defined, it should include the mode
-            assert "pre-review" in combined
+            assert "pre-flight" in combined
         else:
             # At minimum, the mode field has the correct value
             combined = f"{node.archetype}:{node.mode}"
-            assert combined == "reviewer:pre-review"
+            assert combined == "reviewer:pre-flight"
 
     def test_existing_nodes_without_mode_are_backward_compatible(self) -> None:
         """TS-97-E3: Existing code paths that create Node without mode still work."""

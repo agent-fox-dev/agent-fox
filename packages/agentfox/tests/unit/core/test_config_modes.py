@@ -29,10 +29,10 @@ class TestPerArchetypeConfigModesField:
 
         pac = PerArchetypeConfig(
             model_tier="STANDARD",
-            modes={"pre-review": PerArchetypeConfig(allowlist=[])},
+            modes={"pre-flight": PerArchetypeConfig(allowlist=[])},
         )
-        assert "pre-review" in pac.modes
-        assert pac.modes["pre-review"].allowlist == []
+        assert "pre-flight" in pac.modes
+        assert pac.modes["pre-flight"].allowlist == []
 
     def test_modes_nested_config_has_own_modes(self) -> None:
         """Nested PerArchetypeConfig in modes also has modes field."""
@@ -49,13 +49,13 @@ class TestPerArchetypeConfigModesField:
 
         pac = PerArchetypeConfig(
             modes={
-                "pre-review": PerArchetypeConfig(allowlist=[], max_turns=60),
-                "drift-review": PerArchetypeConfig(allowlist=["ls", "git"]),
+                "pre-flight": PerArchetypeConfig(allowlist=[], max_turns=60),
+                "audit-review": PerArchetypeConfig(allowlist=["ls", "git"]),
             }
         )
         assert len(pac.modes) == 2
-        assert pac.modes["pre-review"].max_turns == 60
-        assert pac.modes["drift-review"].allowlist == ["ls", "git"]
+        assert pac.modes["pre-flight"].max_turns == 60
+        assert pac.modes["audit-review"].allowlist == ["ls", "git"]
 
     def test_mode_config_fields_are_optional(self) -> None:
         """Nested PerArchetypeConfig in modes has all optional fields."""
@@ -88,18 +88,18 @@ class TestTomlConfigParsingWithModes:
         return AgentFoxConfig.model_validate(data)
 
     def test_mode_section_parsed_into_modes_dict(self) -> None:
-        """TS-97-8: [archetypes.overrides.reviewer.modes.pre-review] parses correctly."""
+        """TS-97-8: [archetypes.overrides.reviewer.modes.pre-flight] parses correctly."""
         toml_str = """
 [archetypes.overrides.reviewer]
 model_tier = "STANDARD"
 
-[archetypes.overrides.reviewer.modes.pre-review]
+[archetypes.overrides.reviewer.modes.pre-flight]
 max_turns = 60
 """
         config = self._parse_toml_config(toml_str)
         reviewer = config.archetypes.overrides["reviewer"]  # type: ignore[attr-defined]
         assert reviewer.model_tier == "STANDARD"
-        pre = reviewer.modes["pre-review"]
+        pre = reviewer.modes["pre-flight"]
         assert pre.max_turns == 60
 
     def test_mode_section_with_empty_allowlist(self) -> None:
@@ -108,29 +108,29 @@ max_turns = 60
 [archetypes.overrides.reviewer]
 model_tier = "STANDARD"
 
-[archetypes.overrides.reviewer.modes.pre-review]
+[archetypes.overrides.reviewer.modes.pre-flight]
 allowlist = []
 max_turns = 60
 """
         config = self._parse_toml_config(toml_str)
         reviewer = config.archetypes.overrides["reviewer"]  # type: ignore[attr-defined]
-        pre = reviewer.modes["pre-review"]
+        pre = reviewer.modes["pre-flight"]
         assert pre.allowlist == []
         assert pre.max_turns == 60
 
     def test_multiple_mode_sections(self) -> None:
         """Multiple mode sections under an archetype parse correctly."""
         toml_str = """
-[archetypes.overrides.reviewer.modes.pre-review]
+[archetypes.overrides.reviewer.modes.pre-flight]
 allowlist = []
 
-[archetypes.overrides.reviewer.modes.drift-review]
+[archetypes.overrides.reviewer.modes.audit-review]
 allowlist = ["ls", "cat", "git"]
 """
         config = self._parse_toml_config(toml_str)
         reviewer = config.archetypes.overrides["reviewer"]  # type: ignore[attr-defined]
-        assert reviewer.modes["pre-review"].allowlist == []
-        assert reviewer.modes["drift-review"].allowlist == ["ls", "cat", "git"]
+        assert reviewer.modes["pre-flight"].allowlist == []
+        assert reviewer.modes["audit-review"].allowlist == ["ls", "cat", "git"]
 
     def test_archetype_without_modes_has_empty_modes(self) -> None:
         """Archetype config without mode sections has empty modes dict."""
@@ -160,7 +160,7 @@ class TestMissingModeSectionFallback:
         config = AgentFoxConfig(
             archetypes=ArchetypesConfig(overrides={"reviewer": PerArchetypeConfig(max_turns=100, modes={})})
         )
-        result = resolve_max_turns(config, "reviewer", mode="pre-review")
+        result = resolve_max_turns(config, "reviewer", mode="pre-flight")
         assert result == 100
 
     def test_resolve_model_tier_falls_back_to_archetype_level(self) -> None:
@@ -171,5 +171,5 @@ class TestMissingModeSectionFallback:
         config = AgentFoxConfig(
             archetypes=ArchetypesConfig(overrides={"reviewer": PerArchetypeConfig(model_tier="ADVANCED", modes={})})
         )
-        result = resolve_model_tier(config, "reviewer", mode="pre-review")
+        result = resolve_model_tier(config, "reviewer", mode="pre-flight")
         assert result == "ADVANCED"

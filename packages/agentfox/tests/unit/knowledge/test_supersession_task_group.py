@@ -239,7 +239,7 @@ class TestQueryReviewsReturnsOnlyActive:
         from agentfox.knowledge.fox_provider import FoxKnowledgeProvider
 
         # Insert 3 critical findings for spec 'bar' (first pass — will be superseded)
-        session_1 = "bar:1:reviewer:pre-review:1"
+        session_1 = "bar:1:reviewer:pre-flight:1"
         old_findings = [
             ReviewFinding(
                 id=str(uuid.uuid4()),
@@ -256,7 +256,7 @@ class TestQueryReviewsReturnsOnlyActive:
         insert_findings(schema_conn, old_findings)
 
         # Second pass: 1 major finding — supersedes the 3 criticals
-        session_2 = "bar:1:reviewer:pre-review:2"
+        session_2 = "bar:1:reviewer:pre-flight:2"
         new_findings = [
             ReviewFinding(
                 id=str(uuid.uuid4()),
@@ -320,7 +320,7 @@ class TestPreReviewSupersessionWithZeroFindings:
                 requirement_ref=None,
                 spec_name="baz",
                 task_group="0",
-                session_id="baz:0:reviewer:pre-review:1",
+                session_id="baz:0:reviewer:pre-flight:1",
                 superseded_by=None,
             )
             for i in range(2)
@@ -340,7 +340,7 @@ class TestPreReviewSupersessionWithZeroFindings:
             "review_findings",
             "baz",
             "0",
-            "baz:0:reviewer:pre-review:2",
+            "baz:0:reviewer:pre-flight:2",
         )
 
         active_after = query_active_findings(schema_conn, "baz")

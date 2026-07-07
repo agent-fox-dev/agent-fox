@@ -342,7 +342,7 @@ class TestInjectionLastGroup:
 
 
 class TestCoexistencePreReviewAndAuditReview:
-    """Verify both pre-review and audit-review reviewer modes inject without conflict."""
+    """Verify both pre-flight and audit-review reviewer modes inject without conflict."""
 
     def test_coexistence_pre_review_and_audit_review(self, tmp_path: Path) -> None:
         from agentfox.core.config import ArchetypesConfig, ReviewerConfig
@@ -366,7 +366,7 @@ class TestCoexistencePreReviewAndAuditReview:
 
         graph = build_graph(specs, task_groups, [], archetypes_config=config)
 
-        pre_review_nodes = [n for n in graph.nodes.values() if n.archetype == "reviewer" and n.mode == "pre-review"]
+        pre_review_nodes = [n for n in graph.nodes.values() if n.archetype == "reviewer" and n.mode == "pre-flight"]
         audit_review_nodes = [n for n in graph.nodes.values() if n.archetype == "reviewer" and n.mode == "audit-review"]
         assert len(pre_review_nodes) >= 1
         assert len(audit_review_nodes) >= 1

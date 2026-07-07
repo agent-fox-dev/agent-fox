@@ -72,8 +72,8 @@ def _make_session_record(
 
 def _make_archetypes_config(block_threshold: int = 3):
     config = MagicMock()
-    config.reviewer_config.pre_review_block_threshold = block_threshold
-    config.reviewer_config.drift_review_block_threshold = block_threshold
+    config.reviewer_config.pre_flight_block_threshold = block_threshold
+    config.reviewer_config.pre_flight_drift_block_threshold = block_threshold
     return config
 
 
@@ -244,7 +244,7 @@ class TestSecurityCriticalAlwaysBlocks:
         record = _make_session_record()
         config = _make_archetypes_config(block_threshold=3)
 
-        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-review")
+        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-flight")
 
         assert decision.should_block is True
         assert decision.coder_node_id == "test_spec:1"
@@ -273,7 +273,7 @@ class TestNonSecurityCriticalRespectsThreshold:
         record = _make_session_record()
         config = _make_archetypes_config(block_threshold=3)
 
-        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-review")
+        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-flight")
 
         assert decision.should_block is False
 
@@ -299,7 +299,7 @@ class TestSecurityBlockingReasonLabel:
         record = _make_session_record()
         config = _make_archetypes_config(block_threshold=3)
 
-        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-review")
+        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-flight")
 
         assert decision.should_block is True
         assert "security" in decision.reason.lower()
@@ -322,7 +322,7 @@ class TestSecurityBlockingReasonLabel:
         record = _make_session_record()
         config = _make_archetypes_config(block_threshold=3)
 
-        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-review")
+        decision = evaluate_review_blocking(record, config, knowledge_conn, mode="pre-flight")
 
         assert decision.should_block is True
         assert "SECURITY" not in decision.reason
@@ -358,7 +358,7 @@ class TestSecurityBlockingAuditEvent:
             record,
             config,
             knowledge_conn,
-            mode="pre-review",
+            mode="pre-flight",
             sink=mock_sink,
             run_id="test-run",
         )
@@ -395,7 +395,7 @@ class TestSecurityBlockingAuditEvent:
             record,
             config,
             knowledge_conn,
-            mode="pre-review",
+            mode="pre-flight",
             sink=mock_sink,
             run_id="test-run",
         )

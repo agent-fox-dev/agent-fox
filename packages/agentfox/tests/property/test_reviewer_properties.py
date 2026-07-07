@@ -38,8 +38,7 @@ pytestmark = pytest.mark.property
 # Expected config values per reviewer mode:
 # (allowlist_must_contain, injection, model_tier)
 _REVIEWER_MODE_EXPECTATIONS = {
-    "pre-review": ([], "auto_pre", "ADVANCED"),
-    "drift-review": (["ls", "cat", "git", "grep", "find", "head", "tail", "wc"], "auto_pre", "STANDARD"),
+    "pre-flight": (["ls", "cat", "git", "grep", "find", "head", "tail", "wc"], "auto_pre", "ADVANCED"),
     "audit-review": (["ls", "cat", "git", "grep", "find", "head", "tail", "wc", "uv"], "auto_mid", "ADVANCED"),
     "fix-review": (["ls", "cat", "git", "grep", "find", "head", "tail", "wc", "uv", "make"], None, "ADVANCED"),
 }
@@ -70,17 +69,11 @@ class TestModeArchetypeMapping:
         )
 
         # Check allowlist contains expected commands
-        if mode == "pre-review":
-            # pre-review must have empty allowlist
-            assert cfg.default_allowlist == [], (
-                f"mode=pre-review: allowlist should be empty, got {cfg.default_allowlist}"
+        assert cfg.default_allowlist is not None, f"mode={mode!r}: allowlist should not be None"
+        for cmd in expected_cmds:
+            assert cmd in cfg.default_allowlist, (
+                f"mode={mode!r}: '{cmd}' missing from allowlist {cfg.default_allowlist}"
             )
-        else:
-            assert cfg.default_allowlist is not None, f"mode={mode!r}: allowlist should not be None"
-            for cmd in expected_cmds:
-                assert cmd in cfg.default_allowlist, (
-                    f"mode={mode!r}: '{cmd}' missing from allowlist {cfg.default_allowlist}"
-                )
 
     @pytest.mark.skipif(not HAS_HYPOTHESIS, reason="hypothesis not installed")
     @given(mode=st.sampled_from(list(_REVIEWER_MODE_EXPECTATIONS.keys())))
@@ -127,9 +120,9 @@ def _make_audit_result(verdict: str = "PASS"):
 class TestConvergenceDispatchCorrectness:
     """TS-98-P2: converge_reviewer routes to correct algorithm by mode."""
 
-    @pytest.mark.parametrize("mode", ["pre-review", "drift-review"])
-    def test_pre_drift_dispatch_to_skeptic(self, mode: str) -> None:
-        """pre-review and drift-review route to converge_reviewer_pre."""
+    @pytest.mark.parametrize("mode", ["pre-flight"])
+    def test_pre_flight_dispatch_to_skeptic(self, mode: str) -> None:
+        """pre-flight routes to converge_reviewer_pre."""
         from agentfox.session.convergence import (
             converge_reviewer,  # type: ignore[attr-defined]
             converge_reviewer_pre,
@@ -159,10 +152,10 @@ class TestConvergenceDispatchCorrectness:
         assert result.overall_verdict == expected.overall_verdict
 
     @pytest.mark.skipif(not HAS_HYPOTHESIS, reason="hypothesis not installed")
-    @given(mode=st.sampled_from(["pre-review", "drift-review"]))
+    @given(mode=st.sampled_from(["pre-flight"]))
     @settings(max_examples=20)
     def test_skeptic_modes_always_match(self, mode: str) -> None:
-        """Property: any skeptic-routed mode produces same result as converge_reviewer_pre."""
+        """Property: pre-flight mode produces same result as converge_reviewer_pre."""
         from agentfox.session.convergence import (
             converge_reviewer,  # type: ignore[attr-defined]
             converge_reviewer_pre,

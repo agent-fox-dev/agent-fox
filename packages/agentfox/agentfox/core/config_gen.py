@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 # automatically from the Clamped metadata on the field's type annotation.
 _BOUNDS_MAP_OVERRIDES: dict[tuple[str, str], str] = {
     ("ArchetypeInstancesConfig", "verifier"): "1",
-    ("ReviewerConfig", "drift_review_block_threshold"): ">=1 or None",
+    ("ReviewerConfig", "pre_flight_drift_block_threshold"): ">=1 or None",
 }
 
 # Sections that appear in the simplified config template (active or commented).

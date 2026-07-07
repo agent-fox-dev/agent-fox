@@ -100,14 +100,14 @@ class TestPathWithRoleAndMode:
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("_stub_git")
     async def test_path_with_role_and_mode(self, repo_root: Path) -> None:
-        """PRD test 2: 4-level path for role='reviewer', mode='drift-review'."""
+        """PRD test 2: 4-level path for role='reviewer', mode='pre-flight'."""
         result = await create_worktree(
             repo_root,
             "08_spec_generation_improvement",
             0,
             base_branch="main",
             role="reviewer",
-            mode="drift-review",
+            mode="pre-flight",
         )
         expected_path = (
             repo_root
@@ -116,10 +116,10 @@ class TestPathWithRoleAndMode:
             / "08_spec_generation_improvement"
             / "0"
             / "reviewer"
-            / "drift-review"
+            / "pre-flight"
         )
         assert result.path == expected_path
-        assert result.branch == "feature/08_spec_generation_improvement/0/reviewer/drift-review"
+        assert result.branch == "feature/08_spec_generation_improvement/0/reviewer/pre-flight"
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +180,7 @@ class TestConcurrentDistinctPaths:
                 0,
                 base_branch="main",
                 role="reviewer",
-                mode="pre-review",
+                mode="pre-flight",
             ),
             create_worktree(
                 repo_root,
@@ -188,13 +188,13 @@ class TestConcurrentDistinctPaths:
                 0,
                 base_branch="main",
                 role="reviewer",
-                mode="drift-review",
+                mode="audit-review",
             ),
         )
         assert result1.path != result2.path
         assert result1.branch != result2.branch
-        assert "pre-review" in str(result1.path)
-        assert "drift-review" in str(result2.path)
+        assert "pre-flight" in str(result1.path)
+        assert "audit-review" in str(result2.path)
 
 
 # ---------------------------------------------------------------------------
@@ -262,7 +262,7 @@ class TestRolePresentModeAbsentSilent:
 
 
 class TestModePresentRoleAbsentWarning:
-    """TS-09-24, 09-REQ-8.7: role=None, mode='drift-review' → WARNING + 'unknown'."""
+    """TS-09-24, 09-REQ-8.7: role=None, mode='pre-flight' → WARNING + 'unknown'."""
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("_stub_git")
@@ -275,20 +275,20 @@ class TestModePresentRoleAbsentWarning:
                 0,
                 base_branch="main",
                 role=None,
-                mode="drift-review",
+                mode="pre-flight",
             )
         expected_path = (
-            repo_root / ".agent-fox" / "worktrees" / "08_spec_generation_improvement" / "0" / "unknown" / "drift-review"
+            repo_root / ".agent-fox" / "worktrees" / "08_spec_generation_improvement" / "0" / "unknown" / "pre-flight"
         )
         assert result.path == expected_path
         assert "unknown" in result.branch
         assert result.role == "unknown"
-        assert result.mode == "drift-review"
+        assert result.mode == "pre-flight"
         # At least one WARNING containing mode, spec_name, and task_group
         warning_records = [r for r in caplog.records if r.levelno >= logging.WARNING]
         assert len(warning_records) >= 1, "Expected at least one WARNING log"
         warning_text = warning_records[0].message
-        assert "drift-review" in warning_text
+        assert "pre-flight" in warning_text
         assert "08_spec_generation_improvement" in warning_text
         assert "0" in warning_text
 
@@ -312,7 +312,7 @@ class TestCreateWorktreeSignature:
             0,
             base_branch="main",
             role="reviewer",
-            mode="pre-review",
+            mode="pre-flight",
         )
         assert result is not None
         assert isinstance(result, WorkspaceInfo)
@@ -364,10 +364,10 @@ class TestWorkspaceInfoRoleModeFields:
             2,
             base_branch="main",
             role="reviewer",
-            mode="drift-review",
+            mode="pre-flight",
         )
         assert result.role == "reviewer"
-        assert result.mode == "drift-review"
+        assert result.mode == "pre-flight"
 
 
 # ---------------------------------------------------------------------------
@@ -407,14 +407,14 @@ class TestBothRoleAndMode4LevelPath:
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("_stub_git")
     async def test_both_set_produces_4level_path(self, repo_root: Path) -> None:
-        """role='reviewer', mode='drift-review' → 4-level path."""
+        """role='reviewer', mode='pre-flight' → 4-level path."""
         result = await create_worktree(
             repo_root,
             "08_spec_generation_improvement",
             0,
             base_branch="main",
             role="reviewer",
-            mode="drift-review",
+            mode="pre-flight",
         )
         expected = (
             repo_root
@@ -423,10 +423,10 @@ class TestBothRoleAndMode4LevelPath:
             / "08_spec_generation_improvement"
             / "0"
             / "reviewer"
-            / "drift-review"
+            / "pre-flight"
         )
         assert result.path == expected
-        assert result.branch == "feature/08_spec_generation_improvement/0/reviewer/drift-review"
+        assert result.branch == "feature/08_spec_generation_improvement/0/reviewer/pre-flight"
 
 
 # ---------------------------------------------------------------------------
@@ -470,7 +470,7 @@ class TestModeSetRoleNoneWarning:
     async def test_mode_set_role_none_warning_and_unknown(
         self, repo_root: Path, caplog: pytest.LogCaptureFixture
     ) -> None:
-        """role=None, mode='drift-review' → 'unknown' role segment + WARNING."""
+        """role=None, mode='pre-flight' → 'unknown' role segment + WARNING."""
         with caplog.at_level(logging.WARNING):
             result = await create_worktree(
                 repo_root,
@@ -478,18 +478,18 @@ class TestModeSetRoleNoneWarning:
                 0,
                 base_branch="main",
                 role=None,
-                mode="drift-review",
+                mode="pre-flight",
             )
         expected = (
-            repo_root / ".agent-fox" / "worktrees" / "08_spec_generation_improvement" / "0" / "unknown" / "drift-review"
+            repo_root / ".agent-fox" / "worktrees" / "08_spec_generation_improvement" / "0" / "unknown" / "pre-flight"
         )
         assert result.path == expected
-        assert result.branch == "feature/08_spec_generation_improvement/0/unknown/drift-review"
+        assert result.branch == "feature/08_spec_generation_improvement/0/unknown/pre-flight"
         assert result.role == "unknown"
         warning_records = [r for r in caplog.records if r.levelno >= logging.WARNING]
         assert len(warning_records) >= 1
         msg = warning_records[0].message
-        assert "drift-review" in msg
+        assert "pre-flight" in msg
         assert "08_spec_generation_improvement" in msg
         assert "0" in msg
 
@@ -511,10 +511,10 @@ class TestWorkspaceInfoNewFields:
             spec_name="spec",
             task_group=0,
             role="reviewer",
-            mode="pre-review",
+            mode="pre-flight",
         )
         assert info.role == "reviewer"
-        assert info.mode == "pre-review"
+        assert info.mode == "pre-flight"
         # Frozen check
         with pytest.raises(dataclasses.FrozenInstanceError):
             info.role = "other"  # type: ignore[misc]
@@ -580,7 +580,7 @@ class TestSetupWorkspacePassesRoleMode:
             "test_spec:0",
             config,
             archetype="reviewer",
-            mode="pre-review",
+            mode="pre-flight",
             knowledge_db=mock_kb,
         )
 
@@ -606,7 +606,7 @@ class TestSetupWorkspacePassesRoleMode:
 
         call_kwargs = mock_create.call_args.kwargs
         assert call_kwargs["role"] == "reviewer"
-        assert call_kwargs["mode"] == "pre-review"
+        assert call_kwargs["mode"] == "pre-flight"
 
 
 # ---------------------------------------------------------------------------
@@ -704,9 +704,9 @@ class TestNoAdditionalSanitization:
             0,
             base_branch="main",
             role="reviewer",
-            mode="drift-review",
+            mode="pre-flight",
         )
-        assert result.branch == "feature/valid-spec_name/0/reviewer/drift-review"
+        assert result.branch == "feature/valid-spec_name/0/reviewer/pre-flight"
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("_stub_git")
@@ -735,16 +735,16 @@ class TestDestroyWorktreeUsesFullPath:
     @pytest.mark.asyncio
     async def test_destroy_worktree_uses_full_path(self, tmp_path: Path) -> None:
         """git worktree remove is called with the exact 4-level path."""
-        four_level_path = tmp_path / ".agent-fox" / "worktrees" / "spec" / "0" / "reviewer" / "drift-review"
+        four_level_path = tmp_path / ".agent-fox" / "worktrees" / "spec" / "0" / "reviewer" / "pre-flight"
         four_level_path.mkdir(parents=True)
 
         workspace = WorkspaceInfo(
             path=four_level_path,
-            branch="feature/spec/0/reviewer/drift-review",
+            branch="feature/spec/0/reviewer/pre-flight",
             spec_name="spec",
             task_group=0,
             role="reviewer",
-            mode="drift-review",
+            mode="pre-flight",
         )
 
         git_commands: list[list[str]] = []
@@ -779,7 +779,7 @@ class TestCleanupEmptyAncestors4Level:
     def test_cleanup_empty_ancestors_4level(self, tmp_path: Path) -> None:
         """All empty intermediate dirs removed; worktrees_root remains."""
         worktrees_root = tmp_path / ".agent-fox" / "worktrees"
-        leaf = worktrees_root / "spec" / "0" / "reviewer" / "drift-review"
+        leaf = worktrees_root / "spec" / "0" / "reviewer" / "pre-flight"
         leaf.mkdir(parents=True)
 
         _cleanup_empty_ancestors(leaf, worktrees_root)
@@ -803,7 +803,7 @@ class TestStaleWorktreeCleanupBeforeAdd:
     @pytest.mark.asyncio
     async def test_stale_worktree_cleanup_before_add(self, repo_root: Path) -> None:
         """'git worktree remove --force' precedes 'git worktree add' for stale path."""
-        stale_path = repo_root / ".agent-fox" / "worktrees" / "spec" / "0" / "reviewer" / "drift-review"
+        stale_path = repo_root / ".agent-fox" / "worktrees" / "spec" / "0" / "reviewer" / "pre-flight"
         stale_path.mkdir(parents=True)
 
         git_commands: list[list[str]] = []
@@ -832,7 +832,7 @@ class TestStaleWorktreeCleanupBeforeAdd:
                 0,
                 base_branch="main",
                 role="reviewer",
-                mode="drift-review",
+                mode="pre-flight",
             )
 
         remove_calls = [
@@ -933,7 +933,7 @@ class TestEdgeCaseConcurrentDistinctModes:
                 0,
                 base_branch="main",
                 role="reviewer",
-                mode="pre-review",
+                mode="pre-flight",
             ),
             create_worktree(
                 repo_root,
@@ -941,13 +941,13 @@ class TestEdgeCaseConcurrentDistinctModes:
                 0,
                 base_branch="main",
                 role="reviewer",
-                mode="drift-review",
+                mode="audit-review",
             ),
         )
         assert r1.path != r2.path
         assert r1.branch != r2.branch
-        assert "pre-review" in str(r1.path)
-        assert "drift-review" in str(r2.path)
+        assert "pre-flight" in str(r1.path)
+        assert "audit-review" in str(r2.path)
 
 
 # ---------------------------------------------------------------------------
@@ -994,9 +994,9 @@ class TestPropertyDistinctPairsDistinctPaths:
     @pytest.mark.parametrize(
         "role1,mode1,role2,mode2",
         [
-            ("reviewer", "pre-review", "reviewer", "drift-review"),
+            ("reviewer", "pre-flight", "reviewer", "audit-review"),
             ("coder", "fast", "coder", "thorough"),
-            ("reviewer", "pre-review", "coder", "pre-review"),
+            ("reviewer", "pre-flight", "coder", "pre-flight"),
             ("analyst", "mode-a", "analyst", "mode-b"),
         ],
     )
@@ -1130,10 +1130,10 @@ class TestPropertyNormalisedRoleModeFields:
         [
             (None, None, None, None),
             ("", "", None, None),
-            ("reviewer", "drift-review", "reviewer", "drift-review"),
-            (None, "drift-review", "unknown", "drift-review"),
+            ("reviewer", "pre-flight", "reviewer", "pre-flight"),
+            (None, "pre-flight", "unknown", "pre-flight"),
             ("reviewer", None, None, None),
-            ("", "drift-review", "unknown", "drift-review"),
+            ("", "pre-flight", "unknown", "pre-flight"),
         ],
     )
     async def test_property_normalised_role_mode_fields(
@@ -1215,7 +1215,7 @@ class TestSmokeConcurrentReviewerDispatch:
                 0,
                 base_branch="main",
                 role="reviewer",
-                mode="pre-review",
+                mode="pre-flight",
             ),
             create_worktree(
                 repo_root,
@@ -1223,13 +1223,13 @@ class TestSmokeConcurrentReviewerDispatch:
                 0,
                 base_branch="main",
                 role="reviewer",
-                mode="drift-review",
+                mode="audit-review",
             ),
         )
         assert result1.path != result2.path
         assert result1.branch != result2.branch
-        assert "reviewer/pre-review" in str(result1.path)
-        assert "reviewer/drift-review" in str(result2.path)
+        assert "reviewer/pre-flight" in str(result1.path)
+        assert "reviewer/audit-review" in str(result2.path)
         # No exit-code-128 raised — implicit by not raising
 
 
@@ -1270,7 +1270,7 @@ class TestSmokeCoderNode2Level:
 
 
 class TestSmokeModeSetRoleAbsentFallback:
-    """SMOKE-3: mode='drift-review', role=None → WARNING + 'unknown' role segment."""
+    """SMOKE-3: mode='pre-flight', role=None → WARNING + 'unknown' role segment."""
 
     @pytest.mark.asyncio
     @pytest.mark.usefixtures("_stub_git")
@@ -1287,15 +1287,15 @@ class TestSmokeModeSetRoleAbsentFallback:
                 0,
                 base_branch="main",
                 role=None,
-                mode="drift-review",
+                mode="pre-flight",
             )
-        assert "unknown/drift-review" in str(result.path)
+        assert "unknown/pre-flight" in str(result.path)
         assert result.role == "unknown"
-        assert result.mode == "drift-review"
+        assert result.mode == "pre-flight"
         # WARNING emitted
         warning_records = [r for r in caplog.records if r.levelno >= logging.WARNING]
         assert len(warning_records) >= 1
-        assert "drift-review" in warning_records[0].message
+        assert "pre-flight" in warning_records[0].message
 
 
 # ---------------------------------------------------------------------------
@@ -1310,7 +1310,7 @@ class TestSmokeStaleWorktreeCleanup4Level:
     @pytest.mark.asyncio
     async def test_smoke_stale_worktree_cleanup_4level(self, repo_root: Path) -> None:
         """Stale 4-level directory triggers git worktree remove --force before add."""
-        stale_path = repo_root / ".agent-fox" / "worktrees" / "spec" / "0" / "reviewer" / "drift-review"
+        stale_path = repo_root / ".agent-fox" / "worktrees" / "spec" / "0" / "reviewer" / "pre-flight"
         stale_path.mkdir(parents=True)
 
         git_commands: list[list[str]] = []
@@ -1338,7 +1338,7 @@ class TestSmokeStaleWorktreeCleanup4Level:
                 0,
                 base_branch="main",
                 role="reviewer",
-                mode="drift-review",
+                mode="pre-flight",
             )
 
         # git worktree remove --force issued before git worktree add

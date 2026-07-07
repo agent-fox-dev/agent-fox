@@ -290,12 +290,11 @@ class TestCrossSpecEdgePropagationToReviewNodes:
     """Cross-spec edges propagate to auto_pre review predecessors of the target.
 
     When a cross-spec dependency targets coder group N, auto_pre review
-    nodes (e.g. drift-review, skeptic) that gate group N receive a
-    cross-spec edge from the same source — preventing them from running
-    before the dependency is met.
+    nodes that gate group N receive a cross-spec edge from the same
+    source — preventing them from running before the dependency is met.
 
-    Exception: reviewer:pre-review nodes are exempt from propagation.
-    Pre-reviews validate spec content (requirements, design), not
+    Exception: reviewer:pre-flight nodes are exempt from propagation.
+    Pre-flight reviews validate spec content (requirements, design), not
     upstream implementation, so they run early to surface blockers.
 
     Fixes: https://github.com/agent-fox-dev/agent-fox/issues/337
@@ -303,7 +302,7 @@ class TestCrossSpecEdgePropagationToReviewNodes:
     """
 
     def test_pre_review_exempt_from_cross_spec_propagation(self) -> None:
-        """Reviewer:pre-review does NOT get cross-spec edge (fixes #476)."""
+        """Reviewer:pre-flight does NOT get cross-spec edge (fixes #476)."""
         from agentfox.core.config import ArchetypesConfig
 
         specs = [
@@ -329,7 +328,7 @@ class TestCrossSpecEdgePropagationToReviewNodes:
         pre_review_nodes = [
             n
             for n in graph.nodes.values()
-            if n.spec_name == "02_beta" and n.archetype == "reviewer" and n.mode == "pre-review"
+            if n.spec_name == "02_beta" and n.archetype == "reviewer" and n.mode == "pre-flight"
         ]
         assert len(pre_review_nodes) >= 1
         pre_node = pre_review_nodes[0]
@@ -388,50 +387,6 @@ class TestCrossSpecEdgePropagationToReviewNodes:
         reviewer_nodes = [n for n in graph.nodes.values() if n.archetype == "reviewer"]
         assert len(reviewer_nodes) == 0
 
-    def test_drift_review_receives_cross_spec_edge(self) -> None:
-        """Drift-review still gets cross-spec edge (non-exempt review archetype)."""
-        from agentfox.core.config import ArchetypesConfig
-
-        specs = [
-            _make_spec("01_alpha", 1),
-            _make_spec("02_beta", 2),
-        ]
-        groups = {
-            "01_alpha": [_make_group(1, "Alpha 1"), _make_group(2, "Alpha 2")],
-            "02_beta": [_make_group(1, "Beta 1"), _make_group(2, "Beta 2")],
-        }
-        cross_deps = [
-            CrossSpecDep(
-                from_spec="02_beta",
-                from_group=1,
-                to_spec="01_alpha",
-                to_group=2,
-            ),
-        ]
-        config = ArchetypesConfig(reviewer=True)
-
-        graph = build_graph(specs, groups, cross_deps, archetypes_config=config)
-
-        # Drift-review should still get the cross-spec edge
-        drift_nodes = [
-            n
-            for n in graph.nodes.values()
-            if n.spec_name == "02_beta" and n.archetype == "reviewer" and n.mode == "drift-review"
-        ]
-        for drift_node in drift_nodes:
-            preds = graph.predecessors(drift_node.id)
-            assert "01_alpha:2" in preds
-
-        # Pre-review should NOT get the cross-spec edge
-        pre_nodes = [
-            n
-            for n in graph.nodes.values()
-            if n.spec_name == "02_beta" and n.archetype == "reviewer" and n.mode == "pre-review"
-        ]
-        for pre_node in pre_nodes:
-            preds = graph.predecessors(pre_node.id)
-            assert "01_alpha:2" not in preds
-
     def test_no_propagation_to_non_predecessor_groups(self) -> None:
         """Cross-spec edges don't propagate to groups that aren't predecessors."""
         from agentfox.core.config import ArchetypesConfig
@@ -464,18 +419,18 @@ class TestCrossSpecEdgePropagationToReviewNodes:
 
         graph = build_graph(specs, groups, cross_deps, archetypes_config=config)
 
-        # Find pre-review node for beta
+        # Find pre-flight node for beta
         pre_review_nodes = [
             n
             for n in graph.nodes.values()
-            if n.spec_name == "02_beta" and n.archetype == "reviewer" and n.mode == "pre-review"
+            if n.spec_name == "02_beta" and n.archetype == "reviewer" and n.mode == "pre-flight"
         ]
         for pre_node in pre_review_nodes:
             preds = graph.predecessors(pre_node.id)
             assert "01_alpha:3" not in preds
 
     def test_pre_review_exempt_for_dep_on_first_group(self) -> None:
-        """Cross-spec dep on group 1 does NOT propagate to pre-review (fixes #476)."""
+        """Cross-spec dep on group 1 does NOT propagate to pre-flight (fixes #476)."""
         from agentfox.core.config import ArchetypesConfig
 
         specs = [
@@ -501,7 +456,7 @@ class TestCrossSpecEdgePropagationToReviewNodes:
         pre_review_nodes = [
             n
             for n in graph.nodes.values()
-            if n.spec_name == "02_beta" and n.archetype == "reviewer" and n.mode == "pre-review"
+            if n.spec_name == "02_beta" and n.archetype == "reviewer" and n.mode == "pre-flight"
         ]
         assert len(pre_review_nodes) >= 1
         pre_node = pre_review_nodes[0]

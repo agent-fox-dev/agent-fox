@@ -369,8 +369,8 @@ def converge_reviewer(
     """Dispatch convergence to the correct algorithm by reviewer mode.
 
     Routing:
-    - ``"pre-review"`` and ``"drift-review"`` → :func:`converge_reviewer_pre`
-      (majority-gated blocking on ``list[list[Finding]]`` results)
+    - ``"pre-flight"``, ``"pre-review"``, ``"drift-review"`` →
+      :func:`converge_reviewer_pre` (majority-gated blocking)
     - ``"audit-review"`` → :func:`converge_auditor`
       (union / worst-verdict-wins on ``list[AuditResult]`` results)
     - ``"fix-review"`` → single-instance passthrough (raises if multiple)
@@ -395,7 +395,7 @@ def converge_reviewer(
 
     Requirements: 98-REQ-5.1, 98-REQ-5.2, 98-REQ-5.3, 98-REQ-5.E1
     """
-    if mode in ("pre-review", "drift-review"):
+    if mode in ("pre-review", "drift-review", "pre-flight"):
         return converge_reviewer_pre(results, block_threshold=block_threshold)
     elif mode == "audit-review":
         return converge_auditor(results)
@@ -408,5 +408,5 @@ def converge_reviewer(
     else:
         raise ValueError(
             f"Unknown reviewer mode: {mode!r}. "
-            f"Valid modes are: 'pre-review', 'drift-review', 'audit-review', 'fix-review'."
+            f"Valid modes are: 'pre-flight', 'pre-review', 'drift-review', 'audit-review', 'fix-review'."
         )

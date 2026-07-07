@@ -70,18 +70,17 @@ def collect_enabled_auto_pre(
     archetypes_config: Any,
     spec_path: Path | None = None,
 ) -> list[ArchetypeEntry]:
-    """Collect enabled auto_pre archetypes, applying drift-review gating.
+    """Collect enabled auto_pre archetypes.
 
-    For the consolidated reviewer archetype, returns mode-bearing entries:
-    - ("reviewer", entry, "pre-review") — always included when reviewer enabled
-    - ("reviewer", entry, "drift-review") — gated by spec_has_existing_code
+    For the consolidated reviewer archetype, returns a single pre-flight
+    mode entry that combines spec quality review and codebase drift analysis:
+    - ("reviewer", entry, "pre-flight") — always included when reviewer enabled
 
     For other archetypes (non-reviewer), uses the base injection field.
 
     Args:
         archetypes_config: The archetypes configuration object.
-        spec_path: Path to the spec directory (for drift-review gating).
-            If None, drift-review gating is skipped.
+        spec_path: Path to the spec directory (unused, retained for API compat).
 
     Returns:
         List of ArchetypeEntry tuples for enabled auto_pre archetypes.
@@ -92,25 +91,11 @@ def collect_enabled_auto_pre(
 
     enabled: list[ArchetypeEntry] = []
 
-    # Handle reviewer archetype modes explicitly
+    # Handle reviewer archetype: single pre-flight mode replaces
+    # the former separate pre-review and drift-review modes.
     reviewer_entry = ARCHETYPE_REGISTRY.get("reviewer")
     if reviewer_entry is not None and is_archetype_enabled("reviewer", archetypes_config):
-        # pre-review: always injected when reviewer enabled
-        enabled.append(ArchetypeEntry("reviewer", reviewer_entry, "pre-review"))
-
-        # drift-review: gated by spec_has_existing_code
-        include_drift = True
-        if spec_path is not None:
-            from agentfox.graph.spec_helpers import spec_has_existing_code
-
-            if not spec_has_existing_code(spec_path):
-                include_drift = False
-                logger.info(
-                    "Skipping drift-review for %s: no existing code to validate",
-                    spec_path.name,
-                )
-        if include_drift:
-            enabled.append(ArchetypeEntry("reviewer", reviewer_entry, "drift-review"))
+        enabled.append(ArchetypeEntry("reviewer", reviewer_entry, "pre-flight"))
 
     # Handle all other auto_pre archetypes (non-reviewer)
     for arch_name, entry in ARCHETYPE_REGISTRY.items():
@@ -378,7 +363,7 @@ def build_review_only_graph(
     Scans *specs_dir* for spec subdirectories.  For each eligible spec:
 
     - If the spec directory contains source files (.py, .ts, .go, .rs,
-      .java, .js), reviewer pre-review and drift-review nodes are created.
+      .java, .js), a reviewer pre-flight node is created.
     - If the spec directory contains a ``requirements.json`` file, a
       Verifier node is created.
 
@@ -415,31 +400,18 @@ def build_review_only_graph(
         has_reqs = (spec_dir / "requirements.json").exists()
 
         if has_source:
-            pre_id = f"{spec_name}:0:reviewer:pre-review"
+            pre_id = f"{spec_name}:0:reviewer:pre-flight"
             nodes[pre_id] = Node(
                 id=pre_id,
                 spec_name=spec_name,
                 group_number=0,
-                title="Reviewer (pre-review)",
+                title="Reviewer (pre-flight)",
                 optional=False,
                 archetype="reviewer",
-                mode="pre-review",
+                mode="pre-flight",
             )
             order.append(pre_id)
-            logger.debug("Created reviewer:pre-review node for spec '%s'", spec_name)
-
-            drift_id = f"{spec_name}:0:reviewer:drift-review"
-            nodes[drift_id] = Node(
-                id=drift_id,
-                spec_name=spec_name,
-                group_number=0,
-                title="Reviewer (drift-review)",
-                optional=False,
-                archetype="reviewer",
-                mode="drift-review",
-            )
-            order.append(drift_id)
-            logger.debug("Created reviewer:drift-review node for spec '%s'", spec_name)
+            logger.debug("Created reviewer:pre-flight node for spec '%s'", spec_name)
 
         if has_reqs:
             verifier_id = f"{spec_name}:0:verifier"

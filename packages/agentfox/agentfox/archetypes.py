@@ -94,15 +94,9 @@ ARCHETYPE_REGISTRY: dict[str, ArchetypeEntry] = {
         task_assignable=True,
         default_max_turns=80,
         modes={
-            "pre-review": ModeConfig(
-                model_tier="ADVANCED",  # 15-REQ-8.2
-                model_variant="standard",  # 15-REQ-8.2
-                injection="auto_pre",
-                allowlist=[],  # no shell access
-                retry_predecessor=True,
-            ),
-            "drift-review": ModeConfig(
-                model_variant="standard",  # 15-REQ-8.2
+            "pre-flight": ModeConfig(
+                model_tier="ADVANCED",
+                model_variant="standard",
                 injection="auto_pre",
                 allowlist=["ls", "cat", "git", "grep", "find", "head", "tail", "wc"],
                 retry_predecessor=True,
@@ -121,17 +115,6 @@ ARCHETYPE_REGISTRY: dict[str, ArchetypeEntry] = {
                 max_turns=120,
             ),
         },
-    ),
-    "curator": ArchetypeEntry(
-        name="curator",
-        default_model_tier="STANDARD",
-        default_model_variant="standard",
-        injection="auto_post",
-        injection_order=10,
-        task_assignable=False,
-        default_allowlist=["ls", "cat", "git", "grep", "find", "head", "tail", "wc", "make"],
-        default_max_turns=80,
-        default_effort="medium",
     ),
     "verifier": ArchetypeEntry(
         name="verifier",

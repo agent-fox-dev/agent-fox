@@ -215,7 +215,7 @@ def _evaluate_drift_review_blocking(
     """Evaluate drift-review blocking using the drift_findings table.
 
     Counts both critical and major drift findings toward the configured
-    ``drift_review_block_threshold``.  When the threshold is ``None``
+    ``pre_flight_drift_block_threshold``.  When the threshold is ``None``
     (advisory mode), returns ``should_block=False`` unconditionally.
     """
     try:
@@ -223,7 +223,7 @@ def _evaluate_drift_review_blocking(
 
         threshold: int | None = None
         if archetypes_config is not None:
-            threshold = archetypes_config.reviewer_config.drift_review_block_threshold
+            threshold = archetypes_config.reviewer_config.pre_flight_drift_block_threshold
         if threshold is None:
             return BlockDecision(should_block=False)
 
@@ -305,10 +305,10 @@ def evaluate_review_blocking(
     """
     archetype = record.archetype
 
-    # Only reviewer pre-review, drift-review, and audit-review modes can block.
+    # Only reviewer pre-review, drift-review, pre-flight, and audit-review modes can block.
     # fix-review does not participate in blocking.
     if archetype == "reviewer":
-        if mode not in ("pre-review", "drift-review", "audit-review"):
+        if mode not in ("pre-review", "drift-review", "pre-flight", "audit-review"):
             return BlockDecision(should_block=False)
     else:
         return BlockDecision(should_block=False)
@@ -337,6 +337,13 @@ def evaluate_review_blocking(
         return _evaluate_drift_review_blocking(
             knowledge_db_conn, spec_name, task_group, coder_node_id, record.node_id, archetypes_config
         )
+
+    if mode == "pre-flight":
+        drift_decision = _evaluate_drift_review_blocking(
+            knowledge_db_conn, spec_name, task_group, coder_node_id, record.node_id, archetypes_config
+        )
+        if drift_decision.should_block:
+            return drift_decision
 
     try:
         from agentfox.knowledge.review_store import query_findings_by_session
@@ -393,8 +400,8 @@ def evaluate_review_blocking(
         configured_threshold = 3  # conservative default
         if archetypes_config is not None:
             rc = archetypes_config.reviewer_config
-            if archetype == "reviewer" and mode == "pre-review":
-                configured_threshold = rc.pre_review_block_threshold
+            if archetype == "reviewer" and mode in ("pre-review", "pre-flight"):
+                configured_threshold = rc.pre_flight_block_threshold
 
         blocked = actionable_count >= configured_threshold
 

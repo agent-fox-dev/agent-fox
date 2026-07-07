@@ -37,7 +37,6 @@ class TestRegistryCompleteness:
         expected = {
             "coder",
             "reviewer",
-            "curator",
             "verifier",
             "maintainer",
             "gate",
@@ -120,7 +119,6 @@ class TestPropertyRegistryCompleteness:
         roster = {
             "coder",
             "reviewer",
-            "curator",
             "verifier",
         }
         valid_tiers = {"SIMPLE", "STANDARD", "ADVANCED"}
@@ -152,9 +150,9 @@ class TestPropertyArchetypeFallback:
                 not in {
                     "coder",
                     "reviewer",
-                    "curator",
                     "verifier",
                     "maintainer",
+                    "gate",
                 }
             )
         )

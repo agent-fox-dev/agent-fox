@@ -34,12 +34,12 @@ class TestResolveModelTierWithMode:
                 overrides={
                     "reviewer": PerArchetypeConfig(
                         model_tier="ADVANCED",
-                        modes={"pre-review": PerArchetypeConfig(model_tier="SIMPLE")},
+                        modes={"pre-flight": PerArchetypeConfig(model_tier="SIMPLE")},
                     )
                 }
             )
         )
-        result = resolve_model_tier(config, "reviewer", mode="pre-review")
+        result = resolve_model_tier(config, "reviewer", mode="pre-flight")
         assert result == "SIMPLE"
 
     def test_mode_level_override_standard(self) -> None:
@@ -76,7 +76,7 @@ class TestResolveModelTierModeFallback:
         config = AgentFoxConfig(
             archetypes=ArchetypesConfig(overrides={"reviewer": PerArchetypeConfig(model_tier="ADVANCED", modes={})})
         )
-        result = resolve_model_tier(config, "reviewer", mode="pre-review")
+        result = resolve_model_tier(config, "reviewer", mode="pre-flight")
         assert result == "ADVANCED"
 
     def test_falls_back_to_registry_default_when_no_archetype_override(self) -> None:
@@ -110,12 +110,12 @@ class TestResolveModelTierModeFallback:
                 overrides={
                     "reviewer": PerArchetypeConfig(
                         model_tier="ADVANCED",
-                        modes={"pre-review": PerArchetypeConfig(max_turns=60)},
+                        modes={"pre-flight": PerArchetypeConfig(max_turns=60)},
                     )
                 }
             )
         )
-        result = resolve_model_tier(config, "reviewer", mode="pre-review")
+        result = resolve_model_tier(config, "reviewer", mode="pre-flight")
         assert result == "ADVANCED"
 
 
@@ -136,12 +136,12 @@ class TestResolveMaxTurnsWithMode:
                 overrides={
                     "reviewer": PerArchetypeConfig(
                         max_turns=200,
-                        modes={"pre-review": PerArchetypeConfig(max_turns=60)},
+                        modes={"pre-flight": PerArchetypeConfig(max_turns=60)},
                     )
                 }
             )
         )
-        result = resolve_max_turns(config, "reviewer", mode="pre-review")
+        result = resolve_max_turns(config, "reviewer", mode="pre-flight")
         assert result == 60
 
     def test_mode_without_max_turns_falls_back_to_archetype(self) -> None:
@@ -151,7 +151,7 @@ class TestResolveMaxTurnsWithMode:
         config = AgentFoxConfig(
             archetypes=ArchetypesConfig(overrides={"reviewer": PerArchetypeConfig(max_turns=100, modes={})})
         )
-        result = resolve_max_turns(config, "reviewer", mode="pre-review")
+        result = resolve_max_turns(config, "reviewer", mode="pre-flight")
         assert result == 100
 
 
@@ -194,7 +194,7 @@ class TestResolveThinkingWithMode:
                 }
             )
         )
-        result = resolve_thinking(config, "reviewer", mode="pre-review")
+        result = resolve_thinking(config, "reviewer", mode="pre-flight")
         assert result is not None
         assert result["type"] == "adaptive"
 
@@ -214,10 +214,10 @@ class TestResolveSecurityConfigWithMode:
 
         config = AgentFoxConfig(
             archetypes=ArchetypesConfig(
-                overrides={"reviewer": PerArchetypeConfig(modes={"pre-review": PerArchetypeConfig(allowlist=[])})}
+                overrides={"reviewer": PerArchetypeConfig(modes={"pre-flight": PerArchetypeConfig(allowlist=[])})}
             )
         )
-        result = resolve_security_config(config, "reviewer", mode="pre-review")
+        result = resolve_security_config(config, "reviewer", mode="pre-flight")
         assert result is not None
         assert result.bash_allowlist == []
 
@@ -320,10 +320,10 @@ class TestNodeSessionRunnerMode:
             "s:0",
             config,
             archetype="coder",
-            mode="pre-review",
+            mode="pre-flight",
             knowledge_db=_MOCK_KB,
         )
-        assert runner._mode == "pre-review"
+        assert runner._mode == "pre-flight"
 
     def test_node_session_runner_mode_defaults_to_none(self) -> None:
         """NodeSessionRunner mode defaults to None when not specified."""
@@ -347,10 +347,10 @@ class TestNodeSessionRunnerMode:
             "s:0",
             config,
             archetype="coder",
-            mode="drift-review",
+            mode="pre-flight",
             knowledge_db=_MOCK_KB,
         )
-        assert runner._mode == "drift-review"
+        assert runner._mode == "pre-flight"
 
 
 # ---------------------------------------------------------------------------
@@ -372,7 +372,7 @@ class TestClampInstancesWithMode:
         """Non-coder archetype with mode is still clamped to max 5."""
         from agentfox.engine.sdk_params import clamp_instances
 
-        result = clamp_instances("reviewer", 10, mode="pre-review")
+        result = clamp_instances("reviewer", 10, mode="pre-flight")
         assert result == 5
 
     def test_mode_none_same_as_no_mode(self) -> None:

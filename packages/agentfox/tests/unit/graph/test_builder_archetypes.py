@@ -83,11 +83,11 @@ class TestNodeArchetypeDefaults:
             title="Review",
             optional=False,
             archetype="reviewer",
-            mode="pre-review",
+            mode="pre-flight",
             instances=3,
         )
         assert node.archetype == "reviewer"
-        assert node.mode == "pre-review"
+        assert node.mode == "pre-flight"
         assert node.instances == 3
 
 
@@ -111,7 +111,7 @@ class TestPlanSerializationArchetype:
             title="Pre-Review",
             optional=False,
             archetype="reviewer",
-            mode="pre-review",
+            mode="pre-flight",
             instances=3,
         )
         graph = TaskGraph(
@@ -324,13 +324,13 @@ class TestThreeLayerPriority:
 
 
 # -------------------------------------------------------------------
-# TS-26-19: Reviewer pre-review auto-injection at group 0
+# TS-26-19: Reviewer pre-flight auto-injection at group 0
 # Requirement: 26-REQ-5.3
 # -------------------------------------------------------------------
 
 
 class TestReviewerPreReviewAutoInjection:
-    """Verify group-0 reviewer:pre-review node injected when enabled."""
+    """Verify group-0 reviewer:pre-flight node injected when enabled."""
 
     def test_reviewer_pre_review_node_injected(self) -> None:
         from agentfox.core.config import ArchetypesConfig
@@ -350,7 +350,7 @@ class TestReviewerPreReviewAutoInjection:
         )
 
         # Find the auto_pre reviewer node (may have suffixed ID)
-        pre_review_nodes = [n for n in graph.nodes.values() if n.archetype == "reviewer" and n.mode == "pre-review"]
+        pre_review_nodes = [n for n in graph.nodes.values() if n.archetype == "reviewer" and n.mode == "pre-flight"]
         assert len(pre_review_nodes) >= 1
         pre_node = pre_review_nodes[0]
         assert any(e.source == pre_node.id and e.target == "spec:1" and e.kind == "intra_spec" for e in graph.edges)
@@ -369,7 +369,7 @@ class TestAutoPostSiblings:
         from agentfox.core.config import ArchetypesConfig
         from agentfox.graph.builder import build_graph
 
-        config = ArchetypesConfig(curator=False, verifier=True)
+        config = ArchetypesConfig(verifier=True)
         specs = [_spec()]
         task_groups = {"spec": [_tgd(1, "T1"), _tgd(2, "T2")]}
 
@@ -386,29 +386,6 @@ class TestAutoPostSiblings:
         for vn in verifier_nodes:
             assert any(e.source == "spec:2" and e.target == vn.id for e in graph.edges)
 
-    def test_curator_verifier_chained(self) -> None:
-        """With both curator and verifier enabled, they chain: last_coder -> curator -> verifier."""
-        from agentfox.core.config import ArchetypesConfig
-        from agentfox.graph.builder import build_graph
-
-        config = ArchetypesConfig(curator=True, verifier=True)
-        specs = [_spec()]
-        task_groups = {"spec": [_tgd(1, "T1"), _tgd(2, "T2")]}
-
-        graph = build_graph(specs, task_groups, [], archetypes_config=config)
-
-        curator_nodes = [n for n in graph.nodes.values() if n.archetype == "curator"]
-        verifier_nodes = [n for n in graph.nodes.values() if n.archetype == "verifier"]
-        assert len(curator_nodes) == 1
-        assert len(verifier_nodes) == 1
-
-        cn = curator_nodes[0]
-        vn = verifier_nodes[0]
-
-        assert any(e.source == "spec:2" and e.target == cn.id for e in graph.edges)
-        assert any(e.source == cn.id and e.target == vn.id for e in graph.edges)
-        assert not any(e.source == "spec:2" and e.target == vn.id for e in graph.edges)
-
     def test_verifier_node_id_has_arch_suffix(self) -> None:
         """Verifier node_id must use 3-part format with sentinel group 0.
 
@@ -424,7 +401,7 @@ class TestAutoPostSiblings:
         from agentfox.core.config import ArchetypesConfig
         from agentfox.graph.builder import build_graph
 
-        config = ArchetypesConfig(curator=False, verifier=True)
+        config = ArchetypesConfig(verifier=True)
         specs = [_spec()]
         # 6 real task groups (mirrors the 08_parking_operator_adaptor scenario)
         task_groups = {"spec": [_tgd(i, f"T{i}") for i in range(1, 7)]}
@@ -625,7 +602,6 @@ class TestPropertyInjectionStructure:
 
         config = ArchetypesConfig(
             reviewer=True,
-            curator=True,
             verifier=True,
         )
         specs = [_spec()]
@@ -638,22 +614,19 @@ class TestPropertyInjectionStructure:
             archetypes_config=config,
         )
 
-        # Reviewer pre-review node precedes group 1
-        pre_review_nodes = [n for n in graph.nodes.values() if n.archetype == "reviewer" and n.mode == "pre-review"]
+        # Reviewer pre-flight node precedes group 1
+        pre_review_nodes = [n for n in graph.nodes.values() if n.archetype == "reviewer" and n.mode == "pre-flight"]
         assert len(pre_review_nodes) >= 1
         pre_node = pre_review_nodes[0]
         assert any(e.source == pre_node.id and e.target == "spec:1" for e in graph.edges)
 
-        # Auto_post nodes are chained sequentially: last_coder -> curator -> verifier
-        curator_nodes = [n for n in graph.nodes.values() if n.archetype == "curator"]
+        # Auto_post verifier node follows last coder
         verifier_nodes = [n for n in graph.nodes.values() if n.archetype == "verifier"]
         last_coder_id = f"spec:{n_groups}"
 
-        if curator_nodes and verifier_nodes:
-            curator_node = curator_nodes[0]
+        if verifier_nodes:
             verifier_node = verifier_nodes[0]
-            assert any(e.source == last_coder_id and e.target == curator_node.id for e in graph.edges)
-            assert any(e.source == curator_node.id and e.target == verifier_node.id for e in graph.edges)
+            assert any(e.source == last_coder_id and e.target == verifier_node.id for e in graph.edges)
 
 
 # -------------------------------------------------------------------
@@ -683,7 +656,7 @@ class TestPropertyInstanceClamping:
         reason="hypothesis not installed",
     )
     @given(
-        archetype=st.sampled_from(["coder", "reviewer", "curator", "verifier"]),
+        archetype=st.sampled_from(["coder", "reviewer", "verifier"]),
         instances=st.integers(min_value=0, max_value=20),
     )
     @settings(max_examples=30)
@@ -691,7 +664,7 @@ class TestPropertyInstanceClamping:
         from agentfox.engine.sdk_params import clamp_instances
 
         result = clamp_instances(archetype, instances)
-        if archetype in ("coder", "curator", "verifier"):
+        if archetype in ("coder", "verifier"):
             # Coder and verifier are always single-instance
             assert result == 1
         elif instances > 5:

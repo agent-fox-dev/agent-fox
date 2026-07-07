@@ -1,7 +1,7 @@
 """Unit tests for review findings persistence audit events.
 
 Validates that persist_review_findings() emits the correct audit events
-after successful insertion: review.findings_persisted for reviewer (pre-review),
+after successful insertion: review.findings_persisted for reviewer (pre-flight),
 review.verdicts_persisted for verifier, review.drift_persisted for reviewer (drift-review).
 Also validates that audit emission failure does not propagate.
 

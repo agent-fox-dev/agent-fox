@@ -4,7 +4,7 @@ Covers:
 - Block budget: run stops when blocked fraction exceeds max_blocked_fraction
 - Block budget disabled by default (None)
 - Reviewer blocking: critical findings above threshold block downstream tasks
-- Drift-review advisory mode: no blocking when block_threshold is None
+- Pre-flight advisory mode: no blocking when block_threshold is None
 """
 
 from __future__ import annotations
@@ -35,20 +35,20 @@ def _wide_plan(n: int = 5) -> duckdb.DuckDBPyConnection:
 
 
 def _chain_with_reviewer() -> duckdb.DuckDBPyConnection:
-    """Create a plan: reviewer:pre-review -> coder -> verifier.
+    """Create a plan: reviewer:pre-flight -> coder -> verifier.
 
-    reviewer node: spec_a:0:reviewer:pre-review
+    reviewer node: spec_a:0:reviewer:pre-flight
     coder node: spec_a:1
     verifier node: spec_a:1:verifier
     """
     return write_plan_to_db(
         nodes={
-            "spec_a:0:reviewer:pre-review": {
-                "title": "Reviewer (pre-review)",
+            "spec_a:0:reviewer:pre-flight": {
+                "title": "Reviewer (pre-flight)",
                 "spec_name": "spec_a",
                 "group_number": 0,
                 "archetype": "reviewer",
-                "mode": "pre-review",
+                "mode": "pre-flight",
             },
             "spec_a:1": {
                 "title": "Implement spec_a",
@@ -65,7 +65,7 @@ def _chain_with_reviewer() -> duckdb.DuckDBPyConnection:
         },
         edges=[
             {
-                "source": "spec_a:0:reviewer:pre-review",
+                "source": "spec_a:0:reviewer:pre-flight",
                 "target": "spec_a:1",
                 "kind": "intra_spec",
             },
@@ -75,7 +75,7 @@ def _chain_with_reviewer() -> duckdb.DuckDBPyConnection:
                 "kind": "intra_spec",
             },
         ],
-        order=["spec_a:0:reviewer:pre-review", "spec_a:1", "spec_a:1:verifier"],
+        order=["spec_a:0:reviewer:pre-flight", "spec_a:1", "spec_a:1:verifier"],
     )
 
 
@@ -205,12 +205,12 @@ class TestReviewerBlocking:
         """When reviewer finds criticals above threshold, coder is blocked."""
         db_conn = write_plan_to_db(
             nodes={
-                "spec_a:1:reviewer:drift-review": {
-                    "title": "Reviewer (drift-review)",
+                "spec_a:1:reviewer:pre-flight": {
+                    "title": "Reviewer (pre-flight)",
                     "spec_name": "spec_a",
                     "group_number": 1,
                     "archetype": "reviewer",
-                    "mode": "drift-review",
+                    "mode": "pre-flight",
                 },
                 "spec_a:1": {
                     "title": "Implement spec_a",
@@ -226,10 +226,10 @@ class TestReviewerBlocking:
                 },
             },
             edges=[
-                {"source": "spec_a:1", "target": "spec_a:1:reviewer:drift-review", "kind": "intra_spec"},
+                {"source": "spec_a:1", "target": "spec_a:1:reviewer:pre-flight", "kind": "intra_spec"},
                 {"source": "spec_a:1", "target": "spec_a:1:verifier", "kind": "intra_spec"},
             ],
-            order=["spec_a:1", "spec_a:1:reviewer:drift-review", "spec_a:1:verifier"],
+            order=["spec_a:1", "spec_a:1:reviewer:pre-flight", "spec_a:1:verifier"],
         )
 
         runner = MockSessionRunner()
@@ -238,8 +238,8 @@ class TestReviewerBlocking:
             [MockSessionOutcome("spec_a:1", "completed", archetype="coder")],
         )
         runner.configure(
-            "spec_a:1:reviewer:drift-review",
-            [MockSessionOutcome("spec_a:1:reviewer:drift-review", "completed", archetype="reviewer")],
+            "spec_a:1:reviewer:pre-flight",
+            [MockSessionOutcome("spec_a:1:reviewer:pre-flight", "completed", archetype="reviewer")],
         )
 
         mock_findings = []
@@ -253,8 +253,8 @@ class TestReviewerBlocking:
 
         archetypes_config = ArchetypesConfig(
             reviewer_config=ReviewerConfig(
-                pre_review_block_threshold=3,
-                drift_review_block_threshold=3,
+                pre_flight_block_threshold=3,
+                pre_flight_drift_block_threshold=3,
             ),
         )
 
@@ -293,10 +293,10 @@ class TestReviewerBlocking:
 
         runner = MockSessionRunner()
         runner.configure(
-            "spec_a:0:reviewer:pre-review",
+            "spec_a:0:reviewer:pre-flight",
             [
                 MockSessionOutcome(
-                    "spec_a:0:reviewer:pre-review",
+                    "spec_a:0:reviewer:pre-flight",
                     "completed",
                     archetype="reviewer",
                 )
@@ -320,7 +320,7 @@ class TestReviewerBlocking:
             mock_findings.append(finding)
 
         archetypes_config = ArchetypesConfig(
-            reviewer_config=ReviewerConfig(pre_review_block_threshold=3),
+            reviewer_config=ReviewerConfig(pre_flight_block_threshold=3),
         )
 
         config = OrchestratorConfig(
@@ -349,15 +349,15 @@ class TestReviewerBlocking:
     async def test_drift_review_advisory_mode_does_not_block(
         self,
     ) -> None:
-        """Drift-review with block_threshold=None is advisory-only."""
+        """Pre-flight with block_threshold=None is advisory-only."""
         db_conn = write_plan_to_db(
             nodes={
-                "spec_a:0:reviewer:drift-review": {
-                    "title": "Reviewer (drift-review)",
+                "spec_a:0:reviewer:pre-flight": {
+                    "title": "Reviewer (pre-flight)",
                     "spec_name": "spec_a",
                     "group_number": 0,
                     "archetype": "reviewer",
-                    "mode": "drift-review",
+                    "mode": "pre-flight",
                 },
                 "spec_a:1": {
                     "title": "Implement",
@@ -368,20 +368,20 @@ class TestReviewerBlocking:
             },
             edges=[
                 {
-                    "source": "spec_a:0:reviewer:drift-review",
+                    "source": "spec_a:0:reviewer:pre-flight",
                     "target": "spec_a:1",
                     "kind": "intra_spec",
                 },
             ],
-            order=["spec_a:0:reviewer:drift-review", "spec_a:1"],
+            order=["spec_a:0:reviewer:pre-flight", "spec_a:1"],
         )
 
         runner = MockSessionRunner()
         runner.configure(
-            "spec_a:0:reviewer:drift-review",
+            "spec_a:0:reviewer:pre-flight",
             [
                 MockSessionOutcome(
-                    "spec_a:0:reviewer:drift-review",
+                    "spec_a:0:reviewer:pre-flight",
                     "completed",
                     archetype="reviewer",
                 )
@@ -392,10 +392,10 @@ class TestReviewerBlocking:
             [MockSessionOutcome("spec_a:1", "completed")],
         )
 
-        # Many criticals but drift-review is advisory (threshold=None)
+        # Many criticals but pre-flight is advisory (threshold=None)
         mock_findings = [MagicMock(severity="critical") for _ in range(10)]
         archetypes_config = ArchetypesConfig(
-            reviewer_config=ReviewerConfig(drift_review_block_threshold=None),
+            reviewer_config=ReviewerConfig(pre_flight_drift_block_threshold=None),
         )
 
         config = OrchestratorConfig(
@@ -429,10 +429,10 @@ class TestReviewerBlocking:
 
         runner = MockSessionRunner()
         runner.configure(
-            "spec_a:0:reviewer:pre-review",
+            "spec_a:0:reviewer:pre-flight",
             [
                 MockSessionOutcome(
-                    "spec_a:0:reviewer:pre-review",
+                    "spec_a:0:reviewer:pre-flight",
                     "completed",
                     archetype="reviewer",
                 )

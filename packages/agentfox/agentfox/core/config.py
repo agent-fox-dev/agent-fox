@@ -372,13 +372,13 @@ class ReviewerConfig(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    pre_review_block_threshold: Annotated[int, Clamped(ge=0)] = Field(
+    pre_flight_block_threshold: Annotated[int, Clamped(ge=0)] = Field(
         default=1,
-        description="Finding count to block merge for pre-review mode",
+        description="Finding count to block for pre-flight review findings",
     )
-    drift_review_block_threshold: int | None = Field(
+    pre_flight_drift_block_threshold: int | None = Field(
         default=1,
-        description="Actionable finding count to block for drift-review mode (None = advisory only)",
+        description="Drift finding count to block for pre-flight drift findings (None = advisory only)",
     )
     audit_min_ts_entries: Annotated[int, Clamped(ge=1, cast=int)] = Field(
         default=5,
@@ -420,7 +420,6 @@ class ArchetypesConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     reviewer: bool = Field(default=True, description="Enable reviewer archetype")
-    curator: bool = Field(default=True, description="Enable curator archetype")
     verifier: bool = Field(default=True, description="Enable verifier archetype")
 
     instances: ArchetypeInstancesConfig = Field(

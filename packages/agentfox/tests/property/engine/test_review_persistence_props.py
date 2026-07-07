@@ -425,7 +425,7 @@ class TestReviewOnlyGraphCompleteness:
         deadline=None,
     )
     def test_correct_nodes_per_spec(self, tmp_path: Path, spec_configs: list[dict]) -> None:
-        """TS-53-P5: Each spec gets Reviewer (pre-review + drift-review) iff source, Verifier iff reqs."""
+        """TS-53-P5: Each spec gets Reviewer (pre-flight) iff source, Verifier iff reqs."""
         # Deduplicate spec names to avoid collisions in hypothesis
         seen: set[str] = set()
         unique_configs = []
