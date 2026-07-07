@@ -1,0 +1,1012 @@
+{
+  "$schema": null,
+  "spec_id": "05",
+  "spec_name": "nightshift_knowledge_parity",
+  "schema_version": 1,
+  "test_cases": [
+    {
+      "id": "TS-05-1",
+      "requirement_id": "05-REQ-1.1",
+      "kind": "unit",
+      "description": "Verify that _harvest_and_push calls harvest() and returns the resulting list[str] of changed file paths to its caller.",
+      "preconditions": [
+        "fix_pipeline.py is importable with FoxKnowledgeProvider mocked via unittest.mock.patch at the fix_pipeline import path",
+        "harvest() from agentfox.workspace.harvest is mocked to return ['src/foo.py', 'src/bar.py']"
+      ],
+      "input": {
+        "harvest_return_value": [
+          "src/foo.py",
+          "src/bar.py"
+        ]
+      },
+      "expected": "_harvest_and_push returns exactly ['src/foo.py', 'src/bar.py'] to the caller",
+      "assertion_pseudocode": "mock_harvest.return_value = ['src/foo.py', 'src/bar.py']\nresult = pipeline._harvest_and_push()\nassert result == ['src/foo.py', 'src/bar.py']"
+    },
+    {
+      "id": "TS-05-2",
+      "requirement_id": "05-REQ-1.2",
+      "kind": "unit",
+      "description": "Verify that _harvest_and_push returns an empty list when harvest() returns an empty list.",
+      "preconditions": [
+        "fix_pipeline.py is importable with FoxKnowledgeProvider mocked",
+        "harvest() from agentfox.workspace.harvest is mocked to return []"
+      ],
+      "input": {
+        "harvest_return_value": []
+      },
+      "expected": "_harvest_and_push returns [] and no post-harvest ingestion is triggered from within _harvest_and_push itself",
+      "assertion_pseudocode": "mock_harvest.return_value = []\nresult = pipeline._harvest_and_push()\nassert result == []"
+    },
+    {
+      "id": "TS-05-3",
+      "requirement_id": "05-REQ-2.1",
+      "kind": "unit",
+      "description": "Verify that after _harvest_and_push returns a non-empty file list, _ingest_knowledge is called with touched_files set to that file list.",
+      "preconditions": [
+        "fix_pipeline.py importable with FoxKnowledgeProvider mocked",
+        "_harvest_and_push is arranged to return ['src/alpha.py', 'src/beta.py']",
+        "extract_session_summary mocked to return ('summary text', [], [], [])"
+      ],
+      "input": {
+        "changed_files": [
+          "src/alpha.py",
+          "src/beta.py"
+        ]
+      },
+      "expected": "FoxKnowledgeProvider.ingest() is called with a context dict containing 'touched_files': ['src/alpha.py', 'src/beta.py']",
+      "assertion_pseudocode": "mock_harvest.return_value = ['src/alpha.py', 'src/beta.py']\npipeline.run_post_harvest_ingestion()\ncall_args = mock_provider.ingest.call_args\nassert call_args.kwargs['context']['touched_files'] == ['src/alpha.py', 'src/beta.py']"
+    },
+    {
+      "id": "TS-05-4",
+      "requirement_id": "05-REQ-2.2",
+      "kind": "unit",
+      "description": "Verify that the post-harvest ingest context dict never contains the 'commit_sha' key.",
+      "preconditions": [
+        "fix_pipeline.py importable with FoxKnowledgeProvider mocked",
+        "_harvest_and_push arranged to return a non-empty file list",
+        "extract_session_summary mocked to return (None, [], [], [])"
+      ],
+      "input": {
+        "changed_files": [
+          "src/foo.py"
+        ]
+      },
+      "expected": "The context dict passed to FoxKnowledgeProvider.ingest() in the post-harvest call does not contain the key 'commit_sha'",
+      "assertion_pseudocode": "call_args = mock_provider.ingest.call_args\nassert 'commit_sha' not in call_args.kwargs['context']"
+    },
+    {
+      "id": "TS-05-5",
+      "requirement_id": "05-REQ-2.3",
+      "kind": "unit",
+      "description": "Verify that the post-harvest ingestion call passes session_id and spec_name both as 'fix-issue-{N}' using the existing pipeline attribute.",
+      "preconditions": [
+        "fix_pipeline.py importable with FoxKnowledgeProvider mocked",
+        "Pipeline object has issue_number attribute set to 42",
+        "_harvest_and_push arranged to return a non-empty file list"
+      ],
+      "input": {
+        "changed_files": [
+          "src/foo.py"
+        ],
+        "issue_number": 42
+      },
+      "expected": "FoxKnowledgeProvider.ingest() is called with session_id='fix-issue-42' and spec_name='fix-issue-42'",
+      "assertion_pseudocode": "pipeline.issue_number = 42\nmock_harvest.return_value = ['src/foo.py']\npipeline.run_post_harvest_ingestion()\ncall_args = mock_provider.ingest.call_args\nassert call_args.args[0] == 'fix-issue-42'\nassert call_args.args[1] == 'fix-issue-42'"
+    },
+    {
+      "id": "TS-05-6",
+      "requirement_id": "05-REQ-2.4",
+      "kind": "unit",
+      "description": "Verify that the pre-harvest and post-harvest ingestion calls are independent and both execute within the same session without conflict.",
+      "preconditions": [
+        "fix_pipeline.py importable with FoxKnowledgeProvider mocked",
+        "_harvest_and_push arranged to return a non-empty file list",
+        "_emit_session_event triggers the pre-harvest ingestion call"
+      ],
+      "input": {
+        "changed_files": [
+          "src/foo.py"
+        ],
+        "session_status": "success"
+      },
+      "expected": "FoxKnowledgeProvider.ingest() is called exactly twice: once from _emit_session_event (pre-harvest) and once post-harvest, with independent arguments",
+      "assertion_pseudocode": "pipeline.run_full_session()\nassert mock_provider.ingest.call_count == 2\npre_harvest_call = mock_provider.ingest.call_args_list[0]\npost_harvest_call = mock_provider.ingest.call_args_list[1]\nassert 'session_status' in pre_harvest_call.kwargs['context']\nassert 'touched_files' in post_harvest_call.kwargs['context']"
+    },
+    {
+      "id": "TS-05-7",
+      "requirement_id": "05-REQ-2.5",
+      "kind": "unit",
+      "description": "Verify that after the post-harvest ingestion call completes, a structured log line is emitted with touched_files count and summary_extracted flag.",
+      "preconditions": [
+        "fix_pipeline.py importable with FoxKnowledgeProvider mocked and logging captured",
+        "_harvest_and_push returns ['src/foo.py', 'src/bar.py']",
+        "extract_session_summary returns ('summary text', [], [], [])"
+      ],
+      "input": {
+        "changed_files": [
+          "src/foo.py",
+          "src/bar.py"
+        ],
+        "summary_extracted": true
+      },
+      "expected": "A log record is emitted containing touched_files count=2 and summary_extracted=True after post-harvest ingestion",
+      "assertion_pseudocode": "with capture_logs() as logs:\n    pipeline.run_post_harvest_ingestion()\nassert any('touched_files' in r.message and '2' in r.message for r in logs)\nassert any('summary_extracted' in r.message for r in logs)"
+    },
+    {
+      "id": "TS-05-8",
+      "requirement_id": "05-REQ-3.1",
+      "kind": "unit",
+      "description": "Verify that extract_session_summary accepts a response string and returns a 4-tuple of (str|None, list, list, list).",
+      "preconditions": [
+        "agentfox.knowledge.extraction module is importable",
+        "extract_session_summary is a synchronous function"
+      ],
+      "input": {
+        "response": "some response text"
+      },
+      "expected": "Return value is a tuple of length 4; first element is str or None; remaining three elements are lists",
+      "assertion_pseudocode": "result = extract_session_summary('some response text')\nassert isinstance(result, tuple)\nassert len(result) == 4\nassert result[0] is None or isinstance(result[0], str)\nassert isinstance(result[1], list)\nassert isinstance(result[2], list)\nassert isinstance(result[3], list)"
+    },
+    {
+      "id": "TS-05-9",
+      "requirement_id": "05-REQ-3.2",
+      "kind": "unit",
+      "description": "Verify that extract_session_summary returns a non-None summary_text and populated lists when the response contains structured summary fields.",
+      "preconditions": [
+        "agentfox.knowledge.extraction module is importable",
+        "A response string containing structured fields for summary_text, rejected_approaches, gotchas, and assumptions is prepared"
+      ],
+      "input": {
+        "response": "<structured response with summary, rejected_approaches, gotchas, assumptions fields present>"
+      },
+      "expected": "Return value has non-None summary_text (a non-empty string) and at least one of rejected_approaches, gotchas, assumptions is non-empty",
+      "assertion_pseudocode": "response = build_structured_response(summary='Fix worked', rejected=['approach A'], gotchas=['gotcha 1'], assumptions=['assumed X'])\nsummary_text, rejected, gotchas, assumptions = extract_session_summary(response)\nassert summary_text is not None\nassert isinstance(summary_text, str) and len(summary_text) > 0\nassert rejected == ['approach A']\nassert gotchas == ['gotcha 1']\nassert assumptions == ['assumed X']"
+    },
+    {
+      "id": "TS-05-10",
+      "requirement_id": "05-REQ-3.3",
+      "kind": "unit",
+      "description": "Verify that extract_session_summary returns (None, [], [], []) when the response has no structured fields or is empty.",
+      "preconditions": [
+        "agentfox.knowledge.extraction module is importable"
+      ],
+      "input": {
+        "response": ""
+      },
+      "expected": "extract_session_summary('') returns (None, [], [], []) without raising",
+      "assertion_pseudocode": "result = extract_session_summary('')\nassert result == (None, [], [], [])"
+    },
+    {
+      "id": "TS-05-11",
+      "requirement_id": "05-REQ-3.4",
+      "kind": "unit",
+      "description": "Verify that extract_session_summary handles a malformed response gracefully and returns (None, [], [], []) without raising.",
+      "preconditions": [
+        "agentfox.knowledge.extraction module is importable"
+      ],
+      "input": {
+        "response": "{{malformed: [unclosed bracket, 'key': }"
+      },
+      "expected": "extract_session_summary returns (None, [], [], []) and does not raise any exception",
+      "assertion_pseudocode": "malformed = '{{malformed: [unclosed, key: }'\ntry:\n    result = extract_session_summary(malformed)\nexcept Exception:\n    fail('extract_session_summary raised on malformed input')\nassert result == (None, [], [], [])"
+    },
+    {
+      "id": "TS-05-12",
+      "requirement_id": "05-REQ-3.5",
+      "kind": "unit",
+      "description": "Verify that extract_session_summary is a synchronous function and can be called without await.",
+      "preconditions": [
+        "agentfox.knowledge.extraction module is importable",
+        "Python inspect module available"
+      ],
+      "input": {
+        "response": "test"
+      },
+      "expected": "inspect.iscoroutinefunction(extract_session_summary) is False; calling it directly returns a tuple without requiring await",
+      "assertion_pseudocode": "import inspect\nfrom agentfox.knowledge.extraction import extract_session_summary\nassert not inspect.iscoroutinefunction(extract_session_summary)\nresult = extract_session_summary('test')\nassert isinstance(result, tuple)"
+    },
+    {
+      "id": "TS-05-13",
+      "requirement_id": "05-REQ-3.6",
+      "kind": "unit",
+      "description": "Verify that when extract_session_summary returns a non-None summary_text, the post-harvest ingest context includes summary, rejected_approaches, gotchas, and assumptions keys.",
+      "preconditions": [
+        "fix_pipeline.py importable with FoxKnowledgeProvider mocked",
+        "extract_session_summary mocked to return ('session summary', ['approach A'], ['gotcha B'], ['assumption C'])",
+        "_harvest_and_push returns a non-empty file list"
+      ],
+      "input": {
+        "assumptions": [
+          "assumption C"
+        ],
+        "gotchas": [
+          "gotcha B"
+        ],
+        "rejected_approaches": [
+          "approach A"
+        ],
+        "summary_text": "session summary"
+      },
+      "expected": "FoxKnowledgeProvider.ingest() is called with context dict containing 'summary', 'rejected_approaches', 'gotchas', 'assumptions' keys with correct values",
+      "assertion_pseudocode": "mock_extract.return_value = ('session summary', ['approach A'], ['gotcha B'], ['assumption C'])\npipeline.run_post_harvest_ingestion(outcome_response='...')\ncall_ctx = mock_provider.ingest.call_args.kwargs['context']\nassert call_ctx['summary'] == 'session summary'\nassert call_ctx['rejected_approaches'] == ['approach A']\nassert call_ctx['gotchas'] == ['gotcha B']\nassert call_ctx['assumptions'] == ['assumption C']"
+    },
+    {
+      "id": "TS-05-14",
+      "requirement_id": "05-REQ-3.7",
+      "kind": "unit",
+      "description": "Verify that when extract_session_summary returns (None, [], [], []), summary-related keys are omitted from the post-harvest ingest context.",
+      "preconditions": [
+        "fix_pipeline.py importable with FoxKnowledgeProvider mocked",
+        "extract_session_summary mocked to return (None, [], [], [])",
+        "_harvest_and_push returns a non-empty file list"
+      ],
+      "input": {
+        "summary_result": [
+          null,
+          [],
+          [],
+          []
+        ]
+      },
+      "expected": "FoxKnowledgeProvider.ingest() context dict does not contain 'summary', 'rejected_approaches', 'gotchas', or 'assumptions' keys",
+      "assertion_pseudocode": "mock_extract.return_value = (None, [], [], [])\npipeline.run_post_harvest_ingestion(outcome_response='')\ncall_ctx = mock_provider.ingest.call_args.kwargs['context']\nassert 'summary' not in call_ctx\nassert 'rejected_approaches' not in call_ctx\nassert 'gotchas' not in call_ctx\nassert 'assumptions' not in call_ctx"
+    },
+    {
+      "id": "TS-05-15",
+      "requirement_id": "05-REQ-4.1",
+      "kind": "unit",
+      "description": "Verify that agentfox.knowledge.extraction exports extract_session_summary with the correct signature as its public API.",
+      "preconditions": [
+        "agentfox.knowledge.extraction module exists at packages/agentfox/agentfox/knowledge/extraction.py"
+      ],
+      "input": {},
+      "expected": "import of extract_session_summary from agentfox.knowledge.extraction succeeds; function has correct signature (response: str) -> tuple",
+      "assertion_pseudocode": "from agentfox.knowledge.extraction import extract_session_summary\nimport inspect\nsig = inspect.signature(extract_session_summary)\nassert list(sig.parameters.keys()) == ['response']\nassert sig.parameters['response'].annotation == str"
+    },
+    {
+      "id": "TS-05-16",
+      "requirement_id": "05-REQ-4.2",
+      "kind": "unit",
+      "description": "Verify that session_lifecycle.py imports and calls extract_session_summary from agentfox.knowledge.extraction without await and produces the same 4-tuple output as before the refactor.",
+      "preconditions": [
+        "agentfox.engine.session_lifecycle module is importable",
+        "agentfox.knowledge.extraction.extract_session_summary is patchable",
+        "Session lifecycle has an active session context with an outcome response"
+      ],
+      "input": {
+        "outcome_response": "<structured response with summary fields>"
+      },
+      "expected": "session_lifecycle calls extract_session_summary from agentfox.knowledge.extraction (not the old private async method) without await, and the returned 4-tuple matches the expected extraction output",
+      "assertion_pseudocode": "with patch('agentfox.knowledge.extraction.extract_session_summary') as mock_extract:\n    mock_extract.return_value = ('summary', ['r1'], ['g1'], ['a1'])\n    lifecycle.run_post_session_ingestion(outcome_response='<structured>')\n    mock_extract.assert_called_once()\n    assert not inspect.isawaitable(mock_extract.return_value)"
+    },
+    {
+      "id": "TS-05-17",
+      "requirement_id": "05-REQ-4.3",
+      "kind": "unit",
+      "description": "Verify that fix_pipeline.py imports and calls extract_session_summary from agentfox.knowledge.extraction directly without await.",
+      "preconditions": [
+        "fix_pipeline.py importable",
+        "agentfox.knowledge.extraction.extract_session_summary is patchable at the fix_pipeline import path"
+      ],
+      "input": {
+        "outcome_response": "some response"
+      },
+      "expected": "extract_session_summary from agentfox.knowledge.extraction is called by fix_pipeline without await; no coroutine is produced",
+      "assertion_pseudocode": "with patch('agentfox.nightshift.fix_pipeline.extract_session_summary') as mock_extract:\n    mock_extract.return_value = (None, [], [], [])\n    pipeline.run_post_harvest_ingestion(outcome_response='some response')\n    mock_extract.assert_called_once_with('some response')\n    assert not inspect.isawaitable(mock_extract.return_value)"
+    },
+    {
+      "id": "TS-05-18",
+      "requirement_id": "05-REQ-5.1",
+      "kind": "unit",
+      "description": "Verify that _retrieve_knowledge passes task_group='0' to FoxKnowledgeProvider.retrieve().",
+      "preconditions": [
+        "fix_pipeline.py importable with FoxKnowledgeProvider mocked",
+        "FoxKnowledgeProvider.retrieve mocked to return []"
+      ],
+      "input": {
+        "triage": {
+          "affected_files": [
+            "src/foo.py"
+          ],
+          "description": "Fix null pointer"
+        }
+      },
+      "expected": "FoxKnowledgeProvider.retrieve() is called with task_group='0'",
+      "assertion_pseudocode": "pipeline._retrieve_knowledge(triage=mock_triage)\ncall_kwargs = mock_provider.retrieve.call_args.kwargs\nassert call_kwargs['task_group'] == '0'"
+    },
+    {
+      "id": "TS-05-19",
+      "requirement_id": "05-REQ-5.2",
+      "kind": "unit",
+      "description": "Verify that _retrieve_knowledge returns the non-empty list returned by FoxKnowledgeProvider.retrieve() to the caller.",
+      "preconditions": [
+        "fix_pipeline.py importable with FoxKnowledgeProvider mocked",
+        "FoxKnowledgeProvider.retrieve mocked to return ['prior knowledge item 1', 'prior knowledge item 2']"
+      ],
+      "input": {
+        "retrieve_return_value": [
+          "prior knowledge item 1",
+          "prior knowledge item 2"
+        ]
+      },
+      "expected": "_retrieve_knowledge returns ['prior knowledge item 1', 'prior knowledge item 2']",
+      "assertion_pseudocode": "mock_provider.retrieve.return_value = ['prior knowledge item 1', 'prior knowledge item 2']\nresult = pipeline._retrieve_knowledge(triage=mock_triage)\nassert result == ['prior knowledge item 1', 'prior knowledge item 2']"
+    },
+    {
+      "id": "TS-05-20",
+      "requirement_id": "05-REQ-5.3",
+      "kind": "unit",
+      "description": "Verify that _retrieve_knowledge returns an empty list and does not raise when FoxKnowledgeProvider.retrieve() returns an empty list (cold start).",
+      "preconditions": [
+        "fix_pipeline.py importable with FoxKnowledgeProvider mocked",
+        "FoxKnowledgeProvider.retrieve mocked to return []"
+      ],
+      "input": {
+        "retrieve_return_value": []
+      },
+      "expected": "_retrieve_knowledge returns [] and the pipeline proceeds normally without error",
+      "assertion_pseudocode": "mock_provider.retrieve.return_value = []\nresult = pipeline._retrieve_knowledge(triage=mock_triage)\nassert result == []\n# no exception raised"
+    },
+    {
+      "id": "TS-05-21",
+      "requirement_id": "05-REQ-5.4",
+      "kind": "unit",
+      "description": "Verify that after retrieval completes, a structured log line is emitted recording task_group and item counts per category.",
+      "preconditions": [
+        "fix_pipeline.py importable with FoxKnowledgeProvider mocked and logging captured",
+        "FoxKnowledgeProvider.retrieve mocked to return a non-empty list"
+      ],
+      "input": {
+        "retrieve_return_value": [
+          "item1"
+        ],
+        "task_group": "0"
+      },
+      "expected": "A log record is emitted containing task_group='0' and retrieval item count information",
+      "assertion_pseudocode": "with capture_logs() as logs:\n    pipeline._retrieve_knowledge(triage=mock_triage)\nassert any('task_group' in r.message and '0' in r.message for r in logs)"
+    },
+    {
+      "id": "TS-05-22",
+      "requirement_id": "05-REQ-6.1",
+      "kind": "unit",
+      "description": "Verify that _retrieve_knowledge passes the triage summary/description field as the task_description positional argument to FoxKnowledgeProvider.retrieve().",
+      "preconditions": [
+        "fix_pipeline.py importable with FoxKnowledgeProvider mocked",
+        "triage object has a description field set to 'Fix the null pointer dereference in handler'"
+      ],
+      "input": {
+        "triage_description": "Fix the null pointer dereference in handler"
+      },
+      "expected": "FoxKnowledgeProvider.retrieve() is called with task_description='Fix the null pointer dereference in handler'",
+      "assertion_pseudocode": "mock_triage.description = 'Fix the null pointer dereference in handler'\npipeline._retrieve_knowledge(triage=mock_triage)\ncall_args = mock_provider.retrieve.call_args\nassert call_args.args[1] == 'Fix the null pointer dereference in handler' or call_args.kwargs.get('task_description') == 'Fix the null pointer dereference in handler'"
+    },
+    {
+      "id": "TS-05-23",
+      "requirement_id": "05-REQ-6.2",
+      "kind": "unit",
+      "description": "Verify that _retrieve_knowledge passes an empty string as task_description when triage is None or its description field is unavailable.",
+      "preconditions": [
+        "fix_pipeline.py importable with FoxKnowledgeProvider mocked"
+      ],
+      "input": {
+        "triage": null
+      },
+      "expected": "FoxKnowledgeProvider.retrieve() is called with task_description='' and no error is raised",
+      "assertion_pseudocode": "pipeline._retrieve_knowledge(triage=None)\ncall_args = mock_provider.retrieve.call_args\ntask_desc = call_args.args[1] if len(call_args.args) > 1 else call_args.kwargs.get('task_description')\nassert task_desc == ''"
+    },
+    {
+      "id": "TS-05-24",
+      "requirement_id": "05-REQ-7.1",
+      "kind": "unit",
+      "description": "Verify that _retrieve_knowledge passes triage.affected_files as file_footprint when triage is available and affected_files is a non-empty list.",
+      "preconditions": [
+        "fix_pipeline.py importable with FoxKnowledgeProvider mocked",
+        "triage object has affected_files=['src/handler.py', 'src/utils.py']"
+      ],
+      "input": {
+        "triage_affected_files": [
+          "src/handler.py",
+          "src/utils.py"
+        ]
+      },
+      "expected": "FoxKnowledgeProvider.retrieve() is called with file_footprint=['src/handler.py', 'src/utils.py']",
+      "assertion_pseudocode": "mock_triage.affected_files = ['src/handler.py', 'src/utils.py']\npipeline._retrieve_knowledge(triage=mock_triage)\ncall_kwargs = mock_provider.retrieve.call_args.kwargs\nassert call_kwargs['file_footprint'] == ['src/handler.py', 'src/utils.py']"
+    },
+    {
+      "id": "TS-05-25",
+      "requirement_id": "05-REQ-7.2",
+      "kind": "unit",
+      "description": "Verify that _retrieve_knowledge passes file_footprint=None when triage is None, without raising an AttributeError.",
+      "preconditions": [
+        "fix_pipeline.py importable with FoxKnowledgeProvider mocked"
+      ],
+      "input": {
+        "triage": null
+      },
+      "expected": "FoxKnowledgeProvider.retrieve() is called with file_footprint=None and no AttributeError is raised",
+      "assertion_pseudocode": "pipeline._retrieve_knowledge(triage=None)\ncall_kwargs = mock_provider.retrieve.call_args.kwargs\nassert call_kwargs.get('file_footprint') is None"
+    },
+    {
+      "id": "TS-05-26",
+      "requirement_id": "05-REQ-7.3",
+      "kind": "unit",
+      "description": "Verify that _retrieve_knowledge passes file_footprint=None when triage.affected_files is empty or None.",
+      "preconditions": [
+        "fix_pipeline.py importable with FoxKnowledgeProvider mocked",
+        "triage object present but triage.affected_files is []"
+      ],
+      "input": {
+        "triage_affected_files": []
+      },
+      "expected": "FoxKnowledgeProvider.retrieve() is called with file_footprint=None when affected_files is empty",
+      "assertion_pseudocode": "mock_triage.affected_files = []\npipeline._retrieve_knowledge(triage=mock_triage)\ncall_kwargs = mock_provider.retrieve.call_args.kwargs\nassert call_kwargs.get('file_footprint') is None\n\nmock_triage.affected_files = None\npipeline._retrieve_knowledge(triage=mock_triage)\ncall_kwargs2 = mock_provider.retrieve.call_args.kwargs\nassert call_kwargs2.get('file_footprint') is None"
+    },
+    {
+      "id": "TS-05-27",
+      "requirement_id": "05-REQ-8.1",
+      "kind": "unit",
+      "description": "Verify that fix_pipeline passes spec_name='fix-issue-{N}' to both retrieve() and ingest(), reading N from the existing pipeline attribute.",
+      "preconditions": [
+        "fix_pipeline.py importable with FoxKnowledgeProvider mocked",
+        "Pipeline object has issue_number attribute set to 99"
+      ],
+      "input": {
+        "issue_number": 99
+      },
+      "expected": "Both FoxKnowledgeProvider.retrieve() and FoxKnowledgeProvider.ingest() are called with spec_name='fix-issue-99'",
+      "assertion_pseudocode": "pipeline.issue_number = 99\npipeline.run_full_session()\nretrieve_call = mock_provider.retrieve.call_args\nassert retrieve_call.args[0] == 'fix-issue-99' or retrieve_call.kwargs.get('spec_name') == 'fix-issue-99'\ningest_call = mock_provider.ingest.call_args\nassert ingest_call.args[1] == 'fix-issue-99' or ingest_call.kwargs.get('spec_name') == 'fix-issue-99'"
+    },
+    {
+      "id": "TS-05-28",
+      "requirement_id": "05-REQ-8.2",
+      "kind": "unit",
+      "description": "Verify that knowledge records stored for fix-issue-42 are never returned for a retrieval scoped to fix-issue-43.",
+      "preconditions": [
+        "fix_pipeline.py importable with FoxKnowledgeProvider mocked",
+        "Mock is configured to return knowledge only when spec_name matches exactly"
+      ],
+      "input": {
+        "issue_number_1": 42,
+        "issue_number_2": 43
+      },
+      "expected": "retrieve() called with spec_name='fix-issue-42' returns stored items; retrieve() called with spec_name='fix-issue-43' returns [] (no cross-contamination)",
+      "assertion_pseudocode": "def side_effect(spec_name, task_description, **kwargs):\n    if spec_name == 'fix-issue-42':\n        return ['knowledge for 42']\n    return []\nmock_provider.retrieve.side_effect = side_effect\n\npipeline42 = make_pipeline(issue_number=42)\nresult42 = pipeline42._retrieve_knowledge(triage=mock_triage)\nassert result42 == ['knowledge for 42']\n\npipeline43 = make_pipeline(issue_number=43)\nresult43 = pipeline43._retrieve_knowledge(triage=mock_triage)\nassert result43 == []"
+    },
+    {
+      "id": "TS-05-29",
+      "requirement_id": "05-REQ-9.1",
+      "kind": "unit",
+      "description": "Verify that the CoderReviewerLoop return object includes 'response' (str, default '') and 'affected_files' (list[str], default []) fields without introducing a new return type.",
+      "preconditions": [
+        "coder_reviewer.py is importable",
+        "Existing return dataclass or namedtuple from CoderReviewerLoop.run() is inspectable"
+      ],
+      "input": {},
+      "expected": "The return object has 'response' field with default '' and 'affected_files' field with default []",
+      "assertion_pseudocode": "from agentfox.nightshift.coder_reviewer import CoderReviewerResult\nassert hasattr(CoderReviewerResult, 'response')\nassert hasattr(CoderReviewerResult, 'affected_files')\ndefault_result = make_default_result()\nassert default_result.response == ''\nassert default_result.affected_files == []"
+    },
+    {
+      "id": "TS-05-30",
+      "requirement_id": "05-REQ-9.2",
+      "kind": "unit",
+      "description": "Verify that CoderReviewerLoop.run() sets response to the last assistant message text and affected_files to triage file paths on a successful coder session.",
+      "preconditions": [
+        "coder_reviewer.py importable with underlying session and triage mocked",
+        "Mock coder session outcome has response='The fix applied cleanly.'",
+        "Mock triage has affected_files=['src/handler.py']"
+      ],
+      "input": {
+        "outcome_response": "The fix applied cleanly.",
+        "triage_affected_files": [
+          "src/handler.py"
+        ]
+      },
+      "expected": "Return object has response='The fix applied cleanly.' and affected_files=['src/handler.py']",
+      "assertion_pseudocode": "mock_session_outcome.response = 'The fix applied cleanly.'\nmock_triage.affected_files = ['src/handler.py']\nresult = loop.run()\nassert result.response == 'The fix applied cleanly.'\nassert result.affected_files == ['src/handler.py']"
+    },
+    {
+      "id": "TS-05-31",
+      "requirement_id": "05-REQ-9.3",
+      "kind": "unit",
+      "description": "Verify that CoderReviewerLoop.run() returns response='' and affected_files=[] on early-exit paths like triage failure.",
+      "preconditions": [
+        "coder_reviewer.py importable with triage mocked to raise or return failure"
+      ],
+      "input": {
+        "triage_result": "failure"
+      },
+      "expected": "Return object has response='' and affected_files=[] with no AttributeError",
+      "assertion_pseudocode": "mock_triage_fn.side_effect = TriageFailureError()\nresult = loop.run()\nassert result.response == ''\nassert result.affected_files == []"
+    },
+    {
+      "id": "TS-05-32",
+      "requirement_id": "05-REQ-10.1",
+      "kind": "unit",
+      "description": "Verify that the pre-harvest ingestion call in _emit_session_event continues to pass session_status context unchanged.",
+      "preconditions": [
+        "fix_pipeline.py importable with FoxKnowledgeProvider mocked",
+        "Session event is emitted with a given session_status"
+      ],
+      "input": {
+        "session_status": "completed"
+      },
+      "expected": "The first FoxKnowledgeProvider.ingest() call contains 'session_status' in its context dict with the value 'completed', unchanged by the new post-harvest call",
+      "assertion_pseudocode": "pipeline._emit_session_event(session_status='completed')\npre_harvest_call = mock_provider.ingest.call_args_list[0]\nassert pre_harvest_call.kwargs['context']['session_status'] == 'completed'"
+    },
+    {
+      "id": "TS-05-33",
+      "requirement_id": "05-REQ-10.2",
+      "kind": "unit",
+      "description": "Verify that the failure of the post-harvest ingestion call does not affect the pre-harvest ingestion call's execution.",
+      "preconditions": [
+        "fix_pipeline.py importable with FoxKnowledgeProvider mocked",
+        "FoxKnowledgeProvider.ingest raises only on the second call (post-harvest)"
+      ],
+      "input": {
+        "ingest_raises_on_second_call": true
+      },
+      "expected": "Pre-harvest ingest call completes successfully; post-harvest call raises but is caught; both are independent",
+      "assertion_pseudocode": "call_count = 0\ndef ingest_side_effect(*args, **kwargs):\n    nonlocal call_count\n    call_count += 1\n    if call_count == 2:\n        raise RuntimeError('DB error')\nmock_provider.ingest.side_effect = ingest_side_effect\npipeline.run_full_session()\nassert call_count == 2  # both calls were attempted"
+    },
+    {
+      "id": "TS-05-34",
+      "requirement_id": "05-REQ-11.1",
+      "kind": "unit",
+      "description": "Verify that unit tests for fix_pipeline mock FoxKnowledgeProvider at the class level using unittest.mock.patch targeting the import path used in fix_pipeline.py.",
+      "preconditions": [
+        "fix_pipeline.py imports FoxKnowledgeProvider from a known path",
+        "Test suite uses unittest.mock.patch"
+      ],
+      "input": {},
+      "expected": "Patching 'agentfox.nightshift.fix_pipeline.FoxKnowledgeProvider' (or the actual import path used in fix_pipeline) prevents any live database connection during tests",
+      "assertion_pseudocode": "with patch('agentfox.nightshift.fix_pipeline.FoxKnowledgeProvider') as mock_cls:\n    pipeline = FixPipeline(issue_number=1)\n    pipeline._retrieve_knowledge(triage=None)\n    assert mock_cls.return_value.retrieve.called"
+    },
+    {
+      "id": "TS-05-35",
+      "requirement_id": "05-REQ-11.2",
+      "kind": "unit",
+      "description": "Verify that _ingest_knowledge unit tests assert real touched_files, summary fields when non-None, absence of commit_sha, and correct spec_name/session_id.",
+      "preconditions": [
+        "fix_pipeline.py importable with FoxKnowledgeProvider mocked",
+        "extract_session_summary returns ('summary', ['r'], ['g'], ['a'])",
+        "_harvest_and_push returns ['src/foo.py']",
+        "Pipeline issue_number=7"
+      ],
+      "input": {
+        "changed_files": [
+          "src/foo.py"
+        ],
+        "issue_number": 7,
+        "summary": "summary"
+      },
+      "expected": "ingest() called with session_id='fix-issue-7', spec_name='fix-issue-7', context containing touched_files=['src/foo.py'], summary='summary', no commit_sha key",
+      "assertion_pseudocode": "pipeline.issue_number = 7\nmock_extract.return_value = ('summary', ['r'], ['g'], ['a'])\nmock_harvest.return_value = ['src/foo.py']\npipeline.run_post_harvest_ingestion()\ncall_args = mock_provider.ingest.call_args\nassert call_args.args[0] == 'fix-issue-7'\nassert call_args.args[1] == 'fix-issue-7'\nctx = call_args.kwargs['context']\nassert ctx['touched_files'] == ['src/foo.py']\nassert ctx['summary'] == 'summary'\nassert 'commit_sha' not in ctx"
+    },
+    {
+      "id": "TS-05-36",
+      "requirement_id": "05-REQ-11.3",
+      "kind": "unit",
+      "description": "Verify that when FoxKnowledgeProvider.ingest() raises during the post-harvest call, an ERROR-level log is emitted with session ID and exception details, and the session continues.",
+      "preconditions": [
+        "fix_pipeline.py importable with FoxKnowledgeProvider mocked to raise RuntimeError('db failure') on ingest",
+        "Logging is captured at ERROR level"
+      ],
+      "input": {
+        "ingest_exception": "RuntimeError('db failure')"
+      },
+      "expected": "An ERROR-level log record contains session ID and 'db failure'; no exception propagates; session continues normally",
+      "assertion_pseudocode": "mock_provider.ingest.side_effect = RuntimeError('db failure')\nwith capture_logs(level='ERROR') as logs:\n    result = pipeline.run_post_harvest_ingestion()  # must not raise\nassert any('fix-issue-' in r.message and 'db failure' in r.message for r in logs if r.levelname == 'ERROR')"
+    },
+    {
+      "id": "TS-05-37",
+      "requirement_id": "05-REQ-11.4",
+      "kind": "unit",
+      "description": "Verify _retrieve_knowledge unit tests cover task_group, task_description, file_footprint arguments and WARNING-level log on exception with empty list returned.",
+      "preconditions": [
+        "fix_pipeline.py importable with FoxKnowledgeProvider mocked",
+        "Various triage configurations: None, with affected_files, without affected_files"
+      ],
+      "input": {
+        "triage_configs": [
+          "None",
+          "with_affected_files",
+          "empty_affected_files"
+        ]
+      },
+      "expected": "retrieve() receives task_group='0' always; task_description='' when triage None; file_footprint=None when triage None or affected_files empty; WARNING log and [] on exception",
+      "assertion_pseudocode": "# task_group always '0'\npipeline._retrieve_knowledge(triage=mock_triage)\nassert mock_provider.retrieve.call_args.kwargs['task_group'] == '0'\n\n# triage None -> task_description='', file_footprint=None\npipeline._retrieve_knowledge(triage=None)\nkw = mock_provider.retrieve.call_args.kwargs\nassert kw.get('file_footprint') is None\n\n# exception -> WARNING log, return []\nmock_provider.retrieve.side_effect = RuntimeError('fail')\nwith capture_logs(level='WARNING') as logs:\n    result = pipeline._retrieve_knowledge(triage=mock_triage)\nassert result == []\nassert any('fail' in r.message for r in logs if r.levelname == 'WARNING')"
+    },
+    {
+      "id": "TS-05-38",
+      "requirement_id": "05-REQ-11.5",
+      "kind": "unit",
+      "description": "Verify that _harvest_and_push unit tests assert the method returns the list[str] produced by harvest().",
+      "preconditions": [
+        "fix_pipeline.py importable with harvest() mocked"
+      ],
+      "input": {
+        "harvest_return": [
+          "src/a.py",
+          "src/b.py",
+          "src/c.py"
+        ]
+      },
+      "expected": "_harvest_and_push returns exactly ['src/a.py', 'src/b.py', 'src/c.py']",
+      "assertion_pseudocode": "mock_harvest.return_value = ['src/a.py', 'src/b.py', 'src/c.py']\nresult = pipeline._harvest_and_push()\nassert result == ['src/a.py', 'src/b.py', 'src/c.py']"
+    },
+    {
+      "id": "TS-05-39",
+      "requirement_id": "05-REQ-12.1",
+      "kind": "unit",
+      "description": "Verify that outcome.response and triage.affected_files are correctly populated in the CoderReviewerLoop return object after a successful session run.",
+      "preconditions": [
+        "coder_reviewer.py importable with session and triage mocked",
+        "Coder session completes and returns outcome with response='Fixed successfully.'",
+        "Triage returns affected_files=['src/main.py']"
+      ],
+      "input": {
+        "affected_files": [
+          "src/main.py"
+        ],
+        "outcome_response": "Fixed successfully."
+      },
+      "expected": "Return object fields: response='Fixed successfully.', affected_files=['src/main.py']",
+      "assertion_pseudocode": "result = loop.run()\nassert hasattr(result, 'response')\nassert hasattr(result, 'affected_files')\nassert result.response == 'Fixed successfully.'\nassert result.affected_files == ['src/main.py']"
+    },
+    {
+      "id": "TS-05-40",
+      "requirement_id": "05-REQ-12.2",
+      "kind": "unit",
+      "description": "Verify that CoderReviewerLoop.run() on early-exit paths produces response='' and affected_files=[] with no uninitialized fields.",
+      "preconditions": [
+        "coder_reviewer.py importable with triage mocked to fail immediately"
+      ],
+      "input": {
+        "triage_behavior": "failure"
+      },
+      "expected": "Return object has response='' and affected_files=[]; accessing both fields does not raise AttributeError",
+      "assertion_pseudocode": "mock_triage_fn.side_effect = Exception('triage failed')\nresult = loop.run()\nassert result.response == ''\nassert result.affected_files == []\n# No AttributeError on access"
+    },
+    {
+      "id": "TS-05-41",
+      "requirement_id": "05-REQ-13.1",
+      "kind": "unit",
+      "description": "Verify extract_session_summary unit test where structured fields are present returns non-None summary_text and populated lists.",
+      "preconditions": [
+        "agentfox.knowledge.extraction importable",
+        "A response string encoding structured summary fields is available"
+      ],
+      "input": {
+        "response": "<response with summary='Did X', rejected_approaches=['Y'], gotchas=['Z'], assumptions=['W']>"
+      },
+      "expected": "Returned tuple has non-None summary_text, non-empty rejected_approaches, gotchas, assumptions",
+      "assertion_pseudocode": "response = build_structured_response(summary='Did X', rejected=['Y'], gotchas=['Z'], assumptions=['W'])\nsummary_text, rejected, gotchas, assumptions = extract_session_summary(response)\nassert summary_text is not None\nassert len(summary_text) > 0\nassert 'Y' in rejected\nassert 'Z' in gotchas\nassert 'W' in assumptions"
+    },
+    {
+      "id": "TS-05-42",
+      "requirement_id": "05-REQ-13.2",
+      "kind": "unit",
+      "description": "Verify extract_session_summary unit test where structured fields are absent returns (None, [], [], []) without raising.",
+      "preconditions": [
+        "agentfox.knowledge.extraction importable"
+      ],
+      "input": {
+        "response": "Plain text response with no structured fields."
+      },
+      "expected": "extract_session_summary returns (None, [], [], []) with no exception",
+      "assertion_pseudocode": "result = extract_session_summary('Plain text response with no structured fields.')\nassert result == (None, [], [], [])"
+    },
+    {
+      "id": "TS-05-43",
+      "requirement_id": "05-REQ-13.3",
+      "kind": "unit",
+      "description": "Verify extract_session_summary unit test where response is malformed returns (None, [], [], []) gracefully without raising.",
+      "preconditions": [
+        "agentfox.knowledge.extraction importable"
+      ],
+      "input": {
+        "response": "{bad json: [missing close"
+      },
+      "expected": "extract_session_summary returns (None, [], [], []) with no exception for any malformed input",
+      "assertion_pseudocode": "for malformed in ['{bad json:', None.__class__.__name__, '\\x00\\xff', '<broken>']:\n    result = extract_session_summary(malformed)\n    assert result == (None, [], [], []), f'Failed for input: {malformed}'"
+    },
+    {
+      "id": "TS-05-44",
+      "requirement_id": "05-REQ-13.4",
+      "kind": "unit",
+      "description": "Verify that session_lifecycle.py calls extract_session_summary from agentfox.knowledge.extraction without await and produces the same 4-tuple output as before the refactor.",
+      "preconditions": [
+        "agentfox.engine.session_lifecycle importable",
+        "agentfox.knowledge.extraction.extract_session_summary patchable",
+        "A session context with outcome_response available"
+      ],
+      "input": {
+        "outcome_response": "<structured response with known summary fields>"
+      },
+      "expected": "session_lifecycle calls extract_session_summary once, without await; the 4-tuple it passes forward matches expected extraction output",
+      "assertion_pseudocode": "expected = ('summary text', ['rejected'], ['gotcha'], ['assumption'])\nwith patch('agentfox.knowledge.extraction.extract_session_summary', return_value=expected) as mock_fn:\n    lifecycle.process_session_outcome(outcome_response='<structured>')\n    mock_fn.assert_called_once()\n    call_result = mock_fn.return_value\n    assert not inspect.isawaitable(call_result)\n    assert call_result == expected"
+    }
+  ],
+  "property_tests": [
+    {
+      "id": "TS-05-P1",
+      "property_id": "05-PROP-1",
+      "validates": [
+        "05-REQ-2.1",
+        "05-REQ-1.1"
+      ],
+      "description": "For any non-empty file list returned by harvest(), the touched_files in the post-harvest ingest context always equals that list exactly.",
+      "for_any_strategy": "Generate arbitrary non-empty lists of file path strings (e.g., hypothesis st.lists(st.text(min_size=1), min_size=1))",
+      "invariant_check": "mock_harvest.return_value = file_list\npipeline.run_post_harvest_ingestion()\nctx = mock_provider.ingest.call_args.kwargs['context']\nassert ctx['touched_files'] == file_list  # never a stub or empty list"
+    },
+    {
+      "id": "TS-05-P2",
+      "property_id": "05-PROP-2",
+      "validates": [
+        "05-REQ-2.2"
+      ],
+      "description": "For any post-harvest ingest call from fix_pipeline, the context dict never contains the 'commit_sha' key.",
+      "for_any_strategy": "Generate arbitrary file lists and response strings; run post-harvest ingestion for each combination",
+      "invariant_check": "pipeline.run_post_harvest_ingestion(changed_files=file_list, outcome_response=response)\ncall_ctx = mock_provider.ingest.call_args.kwargs['context']\nassert 'commit_sha' not in call_ctx"
+    },
+    {
+      "id": "TS-05-P3",
+      "property_id": "05-PROP-3",
+      "validates": [
+        "05-REQ-3.3",
+        "05-REQ-3.4",
+        "05-REQ-3.1"
+      ],
+      "description": "For any string input to extract_session_summary, the function always returns a 4-tuple and never raises an exception.",
+      "for_any_strategy": "Generate arbitrary strings including empty string, valid Unicode, binary-like sequences, valid JSON, malformed JSON, and None-coerced values (hypothesis st.text())",
+      "invariant_check": "try:\n    result = extract_session_summary(input_str)\nexcept Exception as e:\n    fail(f'extract_session_summary raised: {e}')\nassert isinstance(result, tuple) and len(result) == 4\nassert result[0] is None or isinstance(result[0], str)\nassert all(isinstance(x, list) for x in result[1:])"
+    },
+    {
+      "id": "TS-05-P4",
+      "property_id": "05-PROP-4",
+      "validates": [
+        "05-REQ-5.1"
+      ],
+      "description": "For any invocation of _retrieve_knowledge, the task_group passed to FoxKnowledgeProvider.retrieve() is always the string '0', never None or any other value.",
+      "for_any_strategy": "Generate arbitrary triage objects (None, with various affected_files and description combinations)",
+      "invariant_check": "pipeline._retrieve_knowledge(triage=triage_input)\ncall_kwargs = mock_provider.retrieve.call_args.kwargs\nassert call_kwargs['task_group'] == '0'"
+    },
+    {
+      "id": "TS-05-P5",
+      "property_id": "05-PROP-5",
+      "validates": [
+        "05-REQ-8.1",
+        "05-REQ-8.2"
+      ],
+      "description": "For any pair of distinct issue numbers N1 and N2, knowledge stored under spec_name='fix-issue-{N1}' is never returned for spec_name='fix-issue-{N2}'.",
+      "for_any_strategy": "Generate pairs of distinct positive integers (N1, N2) where N1 != N2; use a mock that returns items only for exact spec_name match",
+      "invariant_check": "def side_effect(spec_name, task_description, **kwargs):\n    return ['item'] if spec_name == f'fix-issue-{N1}' else []\nmock_provider.retrieve.side_effect = side_effect\nresult_n2 = make_pipeline(issue_number=N2)._retrieve_knowledge(triage=mock_triage)\nassert result_n2 == []"
+    },
+    {
+      "id": "TS-05-P6",
+      "property_id": "05-PROP-6",
+      "validates": [
+        "05-REQ-2.E1"
+      ],
+      "description": "For any post-harvest ingest() call that raises an exception, the session always completes successfully and no exception propagates to the runner.",
+      "for_any_strategy": "Generate arbitrary exception types and messages; configure mock to raise on ingest",
+      "invariant_check": "mock_provider.ingest.side_effect = exc_type(exc_message)\ntry:\n    session_result = pipeline.run_full_session()\nexcept Exception as e:\n    fail(f'Exception propagated to runner: {e}')\n# session must be considered successful"
+    },
+    {
+      "id": "TS-05-P7",
+      "property_id": "05-PROP-7",
+      "validates": [
+        "05-REQ-10.1",
+        "05-REQ-10.2"
+      ],
+      "description": "For any Night Shift fix session, the pre-harvest _ingest_knowledge call arguments are identical before and after this spec's changes.",
+      "for_any_strategy": "Generate arbitrary session_status values; run _emit_session_event and capture ingest call args",
+      "invariant_check": "pipeline._emit_session_event(session_status=status)\npre_harvest_call = mock_provider.ingest.call_args_list[0]\nassert 'session_status' in pre_harvest_call.kwargs['context']\nassert pre_harvest_call.kwargs['context']['session_status'] == status\nassert 'touched_files' not in pre_harvest_call.kwargs['context']"
+    },
+    {
+      "id": "TS-05-P8",
+      "property_id": "05-PROP-8",
+      "validates": [
+        "05-REQ-7.2",
+        "05-REQ-7.3"
+      ],
+      "description": "For any invocation of _retrieve_knowledge where triage is None or triage.affected_files is empty/None, file_footprint passed to retrieve() is always None with no AttributeError.",
+      "for_any_strategy": "Generate: (a) triage=None, (b) triage with affected_files=[], (c) triage with affected_files=None",
+      "invariant_check": "for triage_input in [None, make_triage(affected_files=[]), make_triage(affected_files=None)]:\n    try:\n        pipeline._retrieve_knowledge(triage=triage_input)\n    except AttributeError:\n        fail('AttributeError raised for triage_input=' + str(triage_input))\n    kw = mock_provider.retrieve.call_args.kwargs\n    assert kw.get('file_footprint') is None"
+    }
+  ],
+  "edge_case_tests": [
+    {
+      "id": "TS-05-E1",
+      "requirement_id": "05-REQ-1.E1",
+      "kind": "unit",
+      "description": "Verify that when harvest() raises an exception, _harvest_and_push propagates it to the caller and no post-harvest ingestion is attempted.",
+      "preconditions": [
+        "fix_pipeline.py importable with FoxKnowledgeProvider mocked",
+        "harvest() from agentfox.workspace.harvest is mocked to raise RuntimeError('harvest failed')"
+      ],
+      "input": {
+        "harvest_exception": "RuntimeError('harvest failed')"
+      },
+      "expected": "_harvest_and_push raises RuntimeError; FoxKnowledgeProvider.ingest() post-harvest call is never made",
+      "assertion_pseudocode": "mock_harvest.side_effect = RuntimeError('harvest failed')\ntry:\n    pipeline._harvest_and_push()\n    fail('Expected RuntimeError to propagate')\nexcept RuntimeError as e:\n    assert 'harvest failed' in str(e)\nassert mock_provider.ingest.call_count == 0  # post-harvest ingest never called"
+    },
+    {
+      "id": "TS-05-E2",
+      "requirement_id": "05-REQ-2.E1",
+      "kind": "unit",
+      "description": "Verify that when FoxKnowledgeProvider.ingest() raises during post-harvest call, the error is caught, logged at ERROR level with session ID and exception details, and the session continues.",
+      "preconditions": [
+        "fix_pipeline.py importable with FoxKnowledgeProvider mocked to raise on post-harvest ingest",
+        "Logging captured at ERROR level",
+        "Pipeline has issue_number=5"
+      ],
+      "input": {
+        "ingest_exception": "RuntimeError('connection refused')",
+        "issue_number": 5
+      },
+      "expected": "ERROR log contains 'fix-issue-5' and 'connection refused'; no exception propagates from the pipeline method",
+      "assertion_pseudocode": "pipeline.issue_number = 5\nmock_provider.ingest.side_effect = RuntimeError('connection refused')\nwith capture_logs(level='ERROR') as logs:\n    pipeline.run_post_harvest_ingestion()  # must not raise\nassert any('fix-issue-5' in r.message and 'connection refused' in r.message for r in logs)"
+    },
+    {
+      "id": "TS-05-E3",
+      "requirement_id": "05-REQ-2.E2",
+      "kind": "unit",
+      "description": "Verify that when _harvest_and_push returns an empty list, the post-harvest ingestion call is skipped entirely.",
+      "preconditions": [
+        "fix_pipeline.py importable with FoxKnowledgeProvider mocked",
+        "harvest() mocked to return []"
+      ],
+      "input": {
+        "harvest_return_value": []
+      },
+      "expected": "FoxKnowledgeProvider.ingest() is not called with an empty touched_files from the post-harvest path",
+      "assertion_pseudocode": "mock_harvest.return_value = []\npipeline.run_post_harvest_ingestion()\n# Count only post-harvest calls (pre-harvest is separate)\npost_harvest_ingest_calls = [c for c in mock_provider.ingest.call_args_list if c.kwargs.get('context', {}).get('touched_files') == []]\nassert len(post_harvest_ingest_calls) == 0"
+    },
+    {
+      "id": "TS-05-E4",
+      "requirement_id": "05-REQ-3.E1",
+      "kind": "unit",
+      "description": "Verify that when outcome.response is an empty string (early-exit path), extract_session_summary('') returns (None, [], [], []), summary storage is skipped, and no error is raised.",
+      "preconditions": [
+        "agentfox.knowledge.extraction importable",
+        "fix_pipeline.py importable with FoxKnowledgeProvider mocked"
+      ],
+      "input": {
+        "outcome_response": ""
+      },
+      "expected": "extract_session_summary('') returns (None, [], [], []); ingest context does not contain summary keys; pipeline continues without error",
+      "assertion_pseudocode": "result = extract_session_summary('')\nassert result == (None, [], [], [])\n\n# End-to-end: pipeline should skip summary keys\npipeline.run_post_harvest_ingestion(outcome_response='')\nif mock_provider.ingest.called:\n    ctx = mock_provider.ingest.call_args.kwargs['context']\n    assert 'summary' not in ctx"
+    },
+    {
+      "id": "TS-05-E5",
+      "requirement_id": "05-REQ-5.E1",
+      "kind": "unit",
+      "description": "Verify that when FoxKnowledgeProvider.retrieve() raises an exception, _retrieve_knowledge catches it, logs at WARNING level, and returns an empty list.",
+      "preconditions": [
+        "fix_pipeline.py importable with FoxKnowledgeProvider mocked to raise on retrieve",
+        "Logging captured at WARNING level"
+      ],
+      "input": {
+        "retrieve_exception": "ConnectionError('db timeout')"
+      },
+      "expected": "_retrieve_knowledge returns []; a WARNING-level log record is emitted with exception details; no exception propagates",
+      "assertion_pseudocode": "mock_provider.retrieve.side_effect = ConnectionError('db timeout')\nwith capture_logs(level='WARNING') as logs:\n    result = pipeline._retrieve_knowledge(triage=mock_triage)\nassert result == []\nassert any('db timeout' in r.message for r in logs if r.levelname == 'WARNING')"
+    },
+    {
+      "id": "TS-05-E6",
+      "requirement_id": "05-REQ-9.E1",
+      "kind": "unit",
+      "description": "Verify that when CoderReviewerLoop returns response='' (early exit), fix_pipeline skips summary storage and passes file_footprint=None on retrieval with no error.",
+      "preconditions": [
+        "fix_pipeline.py importable with FoxKnowledgeProvider mocked",
+        "CoderReviewerLoop.run() mocked to return object with response='' and affected_files=[]"
+      ],
+      "input": {
+        "loop_affected_files": [],
+        "loop_response": ""
+      },
+      "expected": "extract_session_summary is called with ''; summary keys absent from ingest context; retrieve called with file_footprint=None; no AttributeError raised",
+      "assertion_pseudocode": "mock_loop_result.response = ''\nmock_loop_result.affected_files = []\npipeline.run_with_loop_result(mock_loop_result)\n# verify summary skipped\nif mock_provider.ingest.called:\n    ctx = mock_provider.ingest.call_args.kwargs['context']\n    assert 'summary' not in ctx\n# verify file_footprint=None\nkw = mock_provider.retrieve.call_args.kwargs\nassert kw.get('file_footprint') is None"
+    }
+  ],
+  "smoke_tests": [
+    {
+      "id": "TS-05-SMOKE-1",
+      "execution_path_id": "05-PATH-1",
+      "description": "End-to-end smoke test for a successful Night Shift fix session with full knowledge ingestion and retrieval.",
+      "trigger": "Initiate a full pipeline.run() call for issue_number=42 with all dependencies mocked",
+      "real_components": [
+        "agentfox.nightshift.fix_pipeline.FixPipeline",
+        "agentfox.knowledge.extraction.extract_session_summary"
+      ],
+      "mockable": [
+        "FoxKnowledgeProvider (mocked at agentfox.nightshift.fix_pipeline import path)",
+        "agentfox.workspace.harvest.harvest (returns ['src/foo.py', 'src/bar.py'])",
+        "CoderReviewerLoop.run (returns result with response='The fix is complete.', affected_files=['src/foo.py'])",
+        "triage (returns object with description='Fix null ptr', affected_files=['src/foo.py'])"
+      ],
+      "expected_effects": [
+        "FoxKnowledgeProvider.retrieve() is called once with spec_name='fix-issue-42', task_group='0', task_description='Fix null ptr', file_footprint=['src/foo.py']",
+        "FoxKnowledgeProvider.ingest() is called twice: once with session_status context (pre-harvest) and once with touched_files=['src/foo.py','src/bar.py'] and summary data (post-harvest)",
+        "Post-harvest ingest context contains no 'commit_sha' key",
+        "extract_session_summary is called with 'The fix is complete.' and returns a 4-tuple",
+        "A structured log line is emitted with touched_files count=2 and summary_extracted=True/False",
+        "A structured log line is emitted with task_group='0' and retrieval item counts",
+        "Pipeline completes without raising any exception"
+      ]
+    },
+    {
+      "id": "TS-05-SMOKE-2",
+      "execution_path_id": "05-PATH-2",
+      "description": "Smoke test for a Night Shift fix session where triage fails, verifying safe fallback with no AttributeError.",
+      "trigger": "Initiate pipeline.run() for issue_number=10 where CoderReviewerLoop returns early with response='' and affected_files=[]",
+      "real_components": [
+        "agentfox.nightshift.fix_pipeline.FixPipeline",
+        "agentfox.knowledge.extraction.extract_session_summary"
+      ],
+      "mockable": [
+        "FoxKnowledgeProvider (mocked at agentfox.nightshift.fix_pipeline import path)",
+        "CoderReviewerLoop.run (returns result with response='', affected_files=[])",
+        "triage (returns None, simulating triage failure)"
+      ],
+      "expected_effects": [
+        "FoxKnowledgeProvider.retrieve() is called with task_group='0', task_description='', file_footprint=None",
+        "No AttributeError is raised anywhere in the pipeline",
+        "extract_session_summary('') returns (None, [], [], [])",
+        "Post-harvest ingest context (if called) does not contain 'summary' key",
+        "Pipeline completes execution without exception"
+      ]
+    },
+    {
+      "id": "TS-05-SMOKE-3",
+      "execution_path_id": "05-PATH-3",
+      "description": "Smoke test for a Night Shift fix session where post-harvest ingestion fails but the session still succeeds.",
+      "trigger": "Initiate pipeline.run() with FoxKnowledgeProvider.ingest() configured to raise on the post-harvest call",
+      "real_components": [
+        "agentfox.nightshift.fix_pipeline.FixPipeline"
+      ],
+      "mockable": [
+        "FoxKnowledgeProvider (mocked; ingest raises RuntimeError('db error') on second call)",
+        "agentfox.workspace.harvest.harvest (returns ['src/main.py'])",
+        "CoderReviewerLoop.run (returns successful result)",
+        "extract_session_summary (returns valid tuple)"
+      ],
+      "expected_effects": [
+        "_harvest_and_push returns ['src/main.py']",
+        "Post-harvest _ingest_knowledge call to FoxKnowledgeProvider.ingest() raises RuntimeError('db error')",
+        "Exception is caught; ERROR-level log record is emitted containing session ID and 'db error'",
+        "Pipeline continues and returns a successful session result to the Night Shift runner",
+        "No exception propagates out of the pipeline"
+      ]
+    },
+    {
+      "id": "TS-05-SMOKE-4",
+      "execution_path_id": "05-PATH-4",
+      "description": "Smoke test for a second Night Shift run on the same issue where retrieval returns prior knowledge items.",
+      "trigger": "Initiate pipeline.run() for issue_number=7 (second run) with FoxKnowledgeProvider.retrieve() mocked to return prior knowledge items",
+      "real_components": [
+        "agentfox.nightshift.fix_pipeline.FixPipeline",
+        "agentfox.knowledge.extraction.extract_session_summary"
+      ],
+      "mockable": [
+        "FoxKnowledgeProvider (retrieve returns ['prior summary from session 1', 'cross-spec drift finding'])",
+        "CoderReviewerLoop.run (configured to receive injected knowledge context)",
+        "triage (returns object with description='Fix race condition', affected_files=['src/worker.py'])"
+      ],
+      "expected_effects": [
+        "FoxKnowledgeProvider.retrieve() called with spec_name='fix-issue-7', task_group='0', task_description='Fix race condition', file_footprint=['src/worker.py']",
+        "Retrieved list ['prior summary from session 1', 'cross-spec drift finding'] is injected into the session context",
+        "A structured log line is emitted recording non-zero item count for at least one retrieval category",
+        "CoderReviewerLoop.run() is invoked with the prior knowledge available in context",
+        "Session completes without exception"
+      ]
+    }
+  ],
+  "coverage": {
+    "requirements_covered": [],
+    "properties_covered": [],
+    "paths_covered": [],
+    "gaps": []
+  }
+}

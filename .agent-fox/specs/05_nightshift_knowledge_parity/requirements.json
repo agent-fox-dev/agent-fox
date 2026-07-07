@@ -1,0 +1,932 @@
+{
+  "$schema": null,
+  "spec_id": "05",
+  "spec_name": "nightshift_knowledge_parity",
+  "schema_version": 1,
+  "introduction": "This spec wires real data through the existing `KnowledgeProvider` infrastructure for Night Shift fix sessions, replacing stub call sites in `fix_pipeline.py` with live ingestion (touched files, session summaries) and retrieval (task group, file footprint, task description) so that repeated fix attempts on the same issue accumulate and reuse institutional memory.",
+  "glossary": {
+    "CoderReviewerLoop": "The component in `coder_reviewer.py` that runs the coder-reviewer iteration cycle for a fix session and returns an outcome object",
+    "FoxKnowledgeProvider": "The concrete implementation of KnowledgeProvider in `agentfox.knowledge.fox_provider`; stores and retrieves session knowledge in the database",
+    "KnowledgeProvider": "The interface defining `retrieve()` and `ingest()` operations for cross-session institutional memory",
+    "KnowledgeProviderConfig": "Configuration object that caps retrieval counts per category (max_cross_group_items, max_cross_spec_items, max_summary_items)",
+    "Night Shift": "agent-fox's automated overnight fix pipeline that runs unattended fix sessions against a queue of open issues",
+    "_emit_session_event": "Private method in `fix_pipeline.py` that emits session events and contains the pre-harvest ingestion call",
+    "_harvest_and_push": "Private method in `fix_pipeline.py` that calls `harvest()` and returns the list of changed file paths",
+    "_ingest_knowledge": "Private method in `fix_pipeline.py` that calls `FoxKnowledgeProvider.ingest()`",
+    "_retrieve_knowledge": "Private method in `fix_pipeline.py` that calls `FoxKnowledgeProvider.retrieve()` and returns a list of knowledge strings",
+    "_store_summary": "Internal FoxKnowledgeProvider path that persists a structured session summary; triggered when the `summary` key is present in the ingest context",
+    "affected_files": "Field on the triage output object containing a list of file paths relevant to the issue",
+    "agentfox.knowledge.extraction": "New shared utility module introduced by this spec containing `extract_session_summary`",
+    "assumptions": "Structured field extracted from a session response listing assumptions made during the session",
+    "coder_reviewer.py": "The CoderReviewerLoop module at `packages/agentfox/agentfox/nightshift/coder_reviewer.py`",
+    "cold start": "The first ever Night Shift run for a given issue number, where no prior knowledge exists in the store",
+    "commit_sha": "An optional context key for `ingest()` representing the git commit SHA; omitted from post-harvest calls because `harvest()` does not return it",
+    "extract_session_summary": "New synchronous function in `agentfox.knowledge.extraction` with signature `(response: str) -> tuple[str | None, list, list, list]`",
+    "file_footprint": "The parameter passed to `retrieve()` containing file paths from triage, enabling cross-spec drift queries",
+    "fix session": "A single unattended automated session run by Night Shift targeting a specific open issue, identified by session ID `fix-issue-{N}`",
+    "fix-issue-{N}": "The session and spec name convention for Night Shift fix sessions, where N is the issue number (e.g., fix-issue-42)",
+    "fix_pipeline.py": "The main Night Shift pipeline module at `packages/agentfox/agentfox/nightshift/fix_pipeline.py`",
+    "gotchas": "Structured field extracted from a session response listing non-obvious pitfalls discovered during the session",
+    "harvest()": "Function from `agentfox.workspace.harvest` with signature `(repo_root, workspace, ...) -> list[str]` returning changed file paths",
+    "ingest()": "FoxKnowledgeProvider method `(session_id, spec_name, context: dict) -> None` that stores session outcomes and summaries; calls are additive",
+    "outcome.response": "The `response: str` field on the CoderReviewerLoop return object containing the last assistant message text",
+    "post-harvest ingestion": "The new `_ingest_knowledge` call made after `_harvest_and_push` completes, passing `touched_files` and summary",
+    "pre-harvest ingestion": "The existing `_ingest_knowledge` call inside `_emit_session_event`, handling session-status-based finding supersession",
+    "rejected_approaches": "Structured field extracted from a session response listing approaches that were tried and failed",
+    "retrieve()": "FoxKnowledgeProvider method `(spec_name, task_description, task_group=None, session_id=None, file_footprint=None) -> list[str]` that surfaces prior knowledge",
+    "session_lifecycle.py": "The main engine session lifecycle module at `packages/agentfox/agentfox/engine/session_lifecycle.py`",
+    "session_status": "A context key passed to `ingest()` describing the outcome status of a session; used by the pre-harvest ingestion call",
+    "summary": "A context key passed to `ingest()` containing structured session summary text extracted by `extract_session_summary`",
+    "supersede_drift_findings_by_files": "Internal FoxKnowledgeProvider operation that marks drift findings resolved for a set of changed files; triggered when `touched_files` is non-empty",
+    "supersede_stale_pre_code_findings": "Internal FoxKnowledgeProvider operation that marks pre-code findings stale; triggered when `touched_files` is non-empty",
+    "task_description": "A required positional argument to `retrieve()` describing the current task; sourced from the triage summary/description field",
+    "task_group": "A string passed to `retrieve()` and stored in `ingest()` context that identifies the task group; `\"0\"` is the value for Night Shift fix sessions",
+    "touched_files": "The context key passed to `ingest()` containing the list of file paths changed during a fix session, enabling drift supersession",
+    "triage": "The triage output object available in the Night Shift pipeline containing `affected_files` and summary/description fields",
+    "list[str]": "Python type hint for a list of strings",
+    "agentfox.workspace.harvest": "Python module containing the harvest() function for merging worktree changes",
+    "touched_files=[]": "The current stub value passed by _ingest_knowledge, always an empty list",
+    "FoxKnowledgeProvider.ingest()": "The ingest method on FoxKnowledgeProvider; see ingest() glossary entry",
+    "session_id": "Unique identifier for a session, typically formatted as fix-issue-{N}:0:{archetype}",
+    "spec_name": "The knowledge store key identifying a spec or fix session, e.g. fix-issue-42",
+    "summary_extracted=False": "Log field indicating no structured summary was found in the session response",
+    "summary_extracted=True": "Log field indicating a structured summary was successfully extracted",
+    "summary_text": "The extracted summary string returned by extract_session_summary, or None if absent",
+    "str | None": "Python type hint for an optional string value",
+    "(summary_text, rejected_approaches, gotchas, assumptions)": "The 4-tuple return type of extract_session_summary",
+    "response: str": "The response parameter accepted by extract_session_summary",
+    "extract_session_summary(response: str) -> tuple[str | None, list, list, list]": "Full signature of the shared extraction function",
+    "_extract_knowledge_and_findings": "The engine private async method being refactored into extract_session_summary",
+    "fix-issue-{N}:0:coder": "The node ID convention for Night Shift coder sessions",
+    "task_group=\"0\"": "The task_group value used for Night Shift retrieval and ingestion",
+    "FoxKnowledgeProvider.retrieve()": "The retrieve method on FoxKnowledgeProvider; see retrieve() glossary entry",
+    "\"\"": "Empty string, used as fallback for task_description when triage is unavailable",
+    "triage.affected_files": "The affected_files field on the triage output object",
+    "file_footprint=None": "The file_footprint parameter value when triage is None or affected_files is empty",
+    "response=\"\"": "Default value for the response field on the extended CoderReviewerLoop return object",
+    "affected_files=[]": "Default value for the affected_files field on the extended CoderReviewerLoop return object",
+    "await": "Python keyword for awaiting async coroutines; extract_session_summary does not require it",
+    "unittest.mock.patch": "Python standard library decorator for mocking objects in unit tests",
+    "None": "Python None value, representing absence of a value",
+    "spec_name=fix-issue-{N2}": "A spec_name for a different issue number than N1, demonstrating knowledge isolation",
+    "spec_name=fix-issue-{N1}": "A spec_name for one specific issue number, demonstrating knowledge isolation",
+    "\"0\"": "The string value zero, used as task_group for Night Shift fix sessions",
+    "[]": "Python empty list literal, used as default value for affected_files",
+    "affected_files: list[str]": "Field added to the CoderReviewerLoop return object with type list of strings",
+    "response": "Field added to the CoderReviewerLoop return object containing the last assistant message text"
+  },
+  "requirements": [
+    {
+      "id": "05-REQ-1",
+      "title": "Return changed file list from _harvest_and_push",
+      "user_story": {
+        "role": "Night Shift pipeline",
+        "goal": "obtain the list of changed file paths returned by harvest() from _harvest_and_push",
+        "benefit": "so those paths can be passed to the post-harvest ingestion call for drift supersession"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-1.1",
+          "ears_pattern": "ubiquitous",
+          "system": "_harvest_and_push",
+          "action": "calls `harvest()` from `agentfox.workspace.harvest` and returns the resulting `list[str]` of changed file paths to its caller",
+          "return_contract": "list[str] \u2014 the file paths returned by `harvest()`; empty list when no files were changed"
+        },
+        {
+          "id": "05-REQ-1.2",
+          "ears_pattern": "event_driven",
+          "system": "_harvest_and_push",
+          "action": "returns an empty list to the caller; no post-harvest ingestion call is made with `touched_files=[]` unless explicitly triggered by the caller",
+          "return_contract": "list[str] \u2014 empty list",
+          "trigger": "harvest() returns an empty list"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "05-REQ-1.E1",
+          "ears_pattern": "unwanted",
+          "system": "_harvest_and_push",
+          "action": "propagates the exception to the caller; no file list is returned and no post-harvest ingestion is attempted",
+          "return_contract": "exception is raised to caller",
+          "error_condition": "harvest() raises an exception"
+        }
+      ]
+    },
+    {
+      "id": "05-REQ-2",
+      "title": "Post-harvest ingestion with real touched_files",
+      "user_story": {
+        "role": "Night Shift pipeline",
+        "goal": "call _ingest_knowledge with the real list of changed files after a successful harvest",
+        "benefit": "so that supersede_drift_findings_by_files and supersede_stale_pre_code_findings execute for fix sessions, preventing resolved drift findings from re-appearing"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-2.1",
+          "ears_pattern": "event_driven",
+          "system": "fix_pipeline",
+          "action": "calls `_ingest_knowledge` with `touched_files` set to the returned file list and `commit_sha` omitted; the context dict passed to `FoxKnowledgeProvider.ingest()` includes the `touched_files` key with the real paths",
+          "return_contract": null,
+          "trigger": "_harvest_and_push returns a non-empty list of file paths"
+        },
+        {
+          "id": "05-REQ-2.2",
+          "ears_pattern": "ubiquitous",
+          "system": "post-harvest ingestion call",
+          "action": "never includes `commit_sha` in the ingest context, because `harvest()` does not return a commit SHA",
+          "return_contract": null
+        },
+        {
+          "id": "05-REQ-2.3",
+          "ears_pattern": "ubiquitous",
+          "system": "post-harvest ingestion call",
+          "action": "passes `session_id` as `fix-issue-{N}` and `spec_name` as `fix-issue-{N}` (where N is the issue number sourced from the existing pipeline attribute) to `FoxKnowledgeProvider.ingest()`",
+          "return_contract": null
+        },
+        {
+          "id": "05-REQ-2.4",
+          "ears_pattern": "ubiquitous",
+          "system": "post-harvest ingestion call",
+          "action": "is independent of and additive to the pre-harvest ingestion call; both calls may execute within the same session without conflict",
+          "return_contract": null
+        },
+        {
+          "id": "05-REQ-2.5",
+          "ears_pattern": "event_driven",
+          "system": "fix_pipeline",
+          "action": "emits a structured log line recording the count of `touched_files` passed and whether a summary was extracted (`summary_extracted=True` or `summary_extracted=False`)",
+          "return_contract": null,
+          "trigger": "post-harvest ingestion call completes"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "05-REQ-2.E1",
+          "ears_pattern": "unwanted",
+          "system": "post-harvest ingestion",
+          "action": "catches the exception, logs at ERROR level with the session ID and exception details, and allows the session to continue; session success is not gated on knowledge ingestion",
+          "return_contract": null,
+          "error_condition": "FoxKnowledgeProvider.ingest() raises an exception during the post-harvest call"
+        },
+        {
+          "id": "05-REQ-2.E2",
+          "ears_pattern": "event_driven",
+          "system": "fix_pipeline",
+          "action": "skips the post-harvest ingestion call; no call to FoxKnowledgeProvider.ingest() is made with an empty touched_files list from the post-harvest path",
+          "return_contract": null,
+          "trigger": "_harvest_and_push returns an empty list"
+        }
+      ]
+    },
+    {
+      "id": "05-REQ-3",
+      "title": "Extract and ingest session summaries",
+      "user_story": {
+        "role": "Night Shift pipeline",
+        "goal": "extract structured summary fields from the coder session response and pass them to _ingest_knowledge",
+        "benefit": "so that _store_summary in FoxKnowledgeProvider persists session summaries for reuse in future fix sessions on the same issue"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-3.1",
+          "ears_pattern": "ubiquitous",
+          "system": "extract_session_summary",
+          "action": "accepts a `response: str` argument and returns a 4-tuple `(summary_text, rejected_approaches, gotchas, assumptions)` where `summary_text` is `str | None` and the remaining three elements are lists",
+          "return_contract": "tuple[str | None, list, list, list]"
+        },
+        {
+          "id": "05-REQ-3.2",
+          "ears_pattern": "event_driven",
+          "system": "extract_session_summary",
+          "action": "returns a 4-tuple with non-None summary_text and populated lists for rejected_approaches, gotchas, and assumptions as extracted from the response",
+          "return_contract": "tuple[str, list, list, list] with non-None summary_text",
+          "trigger": "response contains structured summary fields"
+        },
+        {
+          "id": "05-REQ-3.3",
+          "ears_pattern": "event_driven",
+          "system": "extract_session_summary",
+          "action": "returns (None, [], [], []) without raising an exception",
+          "return_contract": "(None, [], [], [])",
+          "trigger": "response does not contain structured fields or is empty"
+        },
+        {
+          "id": "05-REQ-3.4",
+          "ears_pattern": "event_driven",
+          "system": "extract_session_summary",
+          "action": "returns (None, [], [], []) gracefully without raising an exception",
+          "return_contract": "(None, [], [], [])",
+          "trigger": "response is malformed"
+        },
+        {
+          "id": "05-REQ-3.5",
+          "ears_pattern": "ubiquitous",
+          "system": "extract_session_summary",
+          "action": "is a synchronous function with no async execution; callers invoke it directly without await",
+          "return_contract": null
+        },
+        {
+          "id": "05-REQ-3.6",
+          "ears_pattern": "event_driven",
+          "system": "fix_pipeline post-harvest ingestion",
+          "action": "includes `summary`, `rejected_approaches`, `gotchas`, and `assumptions` keys in the context dict passed to FoxKnowledgeProvider.ingest(), enabling the _store_summary path",
+          "return_contract": null,
+          "trigger": "extract_session_summary returns a non-None summary_text from outcome.response"
+        },
+        {
+          "id": "05-REQ-3.7",
+          "ears_pattern": "event_driven",
+          "system": "fix_pipeline post-harvest ingestion",
+          "action": "omits summary-related keys from the ingest context dict; no summary is persisted and no error is raised",
+          "return_contract": null,
+          "trigger": "extract_session_summary returns (None, [], [], [])"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "05-REQ-3.E1",
+          "ears_pattern": "event_driven",
+          "system": "fix_pipeline",
+          "action": "calls extract_session_summary(\"\") which returns (None, [], [], []); summary storage is skipped and no error is raised",
+          "return_contract": null,
+          "trigger": "outcome.response is an empty string (early-exit path in CoderReviewerLoop)"
+        }
+      ]
+    },
+    {
+      "id": "05-REQ-4",
+      "title": "Shared extraction module in agentfox.knowledge.extraction",
+      "user_story": {
+        "role": "developer maintaining Night Shift and engine",
+        "goal": "import extract_session_summary from a single shared module",
+        "benefit": "so that extraction logic stays consistent between Night Shift and the engine without code duplication"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-4.1",
+          "ears_pattern": "ubiquitous",
+          "system": "agentfox.knowledge.extraction module",
+          "action": "exports `extract_session_summary(response: str) -> tuple[str | None, list, list, list]` as its public API",
+          "return_contract": "tuple[str | None, list, list, list]"
+        },
+        {
+          "id": "05-REQ-4.2",
+          "ears_pattern": "ubiquitous",
+          "system": "session_lifecycle.py",
+          "action": "imports and calls `extract_session_summary` from `agentfox.knowledge.extraction` directly (without await) instead of the local private async `_extract_knowledge_and_findings` method; external behavior (the returned 4-tuple) is unchanged",
+          "return_contract": "tuple[str | None, list, list, list] \u2014 same as before refactor"
+        },
+        {
+          "id": "05-REQ-4.3",
+          "ears_pattern": "ubiquitous",
+          "system": "fix_pipeline.py",
+          "action": "imports and calls `extract_session_summary` from `agentfox.knowledge.extraction` directly (without await) to parse outcome.response",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "05-REQ-5",
+      "title": "Pass task_group=\"0\" on knowledge retrieval",
+      "user_story": {
+        "role": "Night Shift pipeline",
+        "goal": "pass task_group=\"0\" when calling FoxKnowledgeProvider.retrieve()",
+        "benefit": "so that cross-group reviews, cross-spec drift, and same-spec summary retrieval branches are enabled, giving fix sessions access to prior institutional memory"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-5.1",
+          "ears_pattern": "ubiquitous",
+          "system": "_retrieve_knowledge",
+          "action": "passes `task_group=\"0\"` to `FoxKnowledgeProvider.retrieve()`, matching the node ID convention `fix-issue-{N}:0:coder` used throughout the pipeline",
+          "return_contract": null
+        },
+        {
+          "id": "05-REQ-5.2",
+          "ears_pattern": "event_driven",
+          "system": "_retrieve_knowledge",
+          "action": "returns that list to the caller for injection into the session context",
+          "return_contract": "list[str] \u2014 retrieved knowledge items",
+          "trigger": "FoxKnowledgeProvider.retrieve() returns a non-empty list"
+        },
+        {
+          "id": "05-REQ-5.3",
+          "ears_pattern": "event_driven",
+          "system": "_retrieve_knowledge",
+          "action": "returns an empty list; no error is raised; the pipeline proceeds normally",
+          "return_contract": "list[str] \u2014 empty list",
+          "trigger": "FoxKnowledgeProvider.retrieve() returns an empty list (cold start or no prior knowledge)"
+        },
+        {
+          "id": "05-REQ-5.4",
+          "ears_pattern": "event_driven",
+          "system": "_retrieve_knowledge",
+          "action": "emits a structured log line recording the `task_group` value used and the count of items returned per retrieval category",
+          "return_contract": null,
+          "trigger": "retrieval completes"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "05-REQ-5.E1",
+          "ears_pattern": "unwanted",
+          "system": "_retrieve_knowledge",
+          "action": "catches the exception, logs at WARNING level, and returns an empty list; the pipeline continues without retrieved knowledge",
+          "return_contract": "list[str] \u2014 empty list",
+          "error_condition": "FoxKnowledgeProvider.retrieve() raises an exception"
+        }
+      ]
+    },
+    {
+      "id": "05-REQ-6",
+      "title": "Pass task_description from triage on retrieval",
+      "user_story": {
+        "role": "Night Shift pipeline",
+        "goal": "pass the triage summary/description as task_description to FoxKnowledgeProvider.retrieve()",
+        "benefit": "so that retrieval uses the triage context to surface the most relevant prior knowledge"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-6.1",
+          "ears_pattern": "ubiquitous",
+          "system": "_retrieve_knowledge",
+          "action": "passes the triage summary or description field as the `task_description` positional argument to `FoxKnowledgeProvider.retrieve()`",
+          "return_contract": null
+        },
+        {
+          "id": "05-REQ-6.2",
+          "ears_pattern": "state_driven",
+          "system": "_retrieve_knowledge",
+          "action": "passes an empty string (`\"\"`) as `task_description` to `FoxKnowledgeProvider.retrieve()`; no error is raised",
+          "return_contract": null,
+          "state": "triage is None or the description field is unavailable"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "05-REQ-7",
+      "title": "Pass file_footprint from triage.affected_files on retrieval",
+      "user_story": {
+        "role": "Night Shift pipeline",
+        "goal": "pass triage.affected_files as file_footprint to FoxKnowledgeProvider.retrieve()",
+        "benefit": "so that cross-spec drift queries surface findings from other specs touching the same files"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-7.1",
+          "ears_pattern": "event_driven",
+          "system": "_retrieve_knowledge",
+          "action": "passes `triage.affected_files` as the `file_footprint` parameter to `FoxKnowledgeProvider.retrieve()`",
+          "return_contract": null,
+          "trigger": "triage is available and triage.affected_files is a non-empty list"
+        },
+        {
+          "id": "05-REQ-7.2",
+          "ears_pattern": "state_driven",
+          "system": "_retrieve_knowledge",
+          "action": "passes `file_footprint=None` to `FoxKnowledgeProvider.retrieve()`; no AttributeError is raised; cross-spec drift queries are skipped",
+          "return_contract": null,
+          "state": "triage is None"
+        },
+        {
+          "id": "05-REQ-7.3",
+          "ears_pattern": "state_driven",
+          "system": "_retrieve_knowledge",
+          "action": "passes `file_footprint=None` to `FoxKnowledgeProvider.retrieve()`; cross-spec drift queries are skipped",
+          "return_contract": null,
+          "state": "triage.affected_files is empty or None"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "05-REQ-8",
+      "title": "spec_name convention fix-issue-{N} for all knowledge calls",
+      "user_story": {
+        "role": "Night Shift pipeline",
+        "goal": "use fix-issue-{N} as the spec_name for both ingest() and retrieve() calls",
+        "benefit": "so that knowledge records are correctly scoped per issue number and isolated from other issues"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-8.1",
+          "ears_pattern": "ubiquitous",
+          "system": "fix_pipeline",
+          "action": "passes `spec_name` as `fix-issue-{N}` (where N is the issue number from the existing pipeline attribute) to both `FoxKnowledgeProvider.retrieve()` and `FoxKnowledgeProvider.ingest()`; N is not parsed from the session ID string but read from the existing attribute",
+          "return_contract": null
+        },
+        {
+          "id": "05-REQ-8.2",
+          "ears_pattern": "ubiquitous",
+          "system": "fix_pipeline knowledge store",
+          "action": "isolates knowledge records by issue number so that records for fix-issue-42 are never returned for fix-issue-43",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "05-REQ-9",
+      "title": "Extend CoderReviewerLoop return object with response and affected_files",
+      "user_story": {
+        "role": "fix_pipeline.py",
+        "goal": "access outcome.response and triage.affected_files from the CoderReviewerLoop return object",
+        "benefit": "so that fix_pipeline.py can pass real data to ingestion and retrieval without new constructor arguments or separate data structures"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-9.1",
+          "ears_pattern": "ubiquitous",
+          "system": "CoderReviewerLoop return object",
+          "action": "includes a `response: str` field (default `\"\"`) and an `affected_files: list[str]` field (default `[]`) added to the existing dataclass or namedtuple; no new return type is introduced",
+          "return_contract": "existing return type extended with response: str and affected_files: list[str]"
+        },
+        {
+          "id": "05-REQ-9.2",
+          "ears_pattern": "event_driven",
+          "system": "CoderReviewerLoop",
+          "action": "sets `response` to the last assistant message text from the session outcome and `affected_files` to the file paths from triage output",
+          "return_contract": "response: non-empty str; affected_files: list[str]",
+          "trigger": "a coder session completes successfully"
+        },
+        {
+          "id": "05-REQ-9.3",
+          "ears_pattern": "event_driven",
+          "system": "CoderReviewerLoop",
+          "action": "returns the object with `response=\"\"` and `affected_files=[]`; fix_pipeline.py call sites never encounter an AttributeError",
+          "return_contract": "response: \"\"; affected_files: []",
+          "trigger": "an early-exit path is taken (e.g., triage failure, aborted loop)"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "05-REQ-9.E1",
+          "ears_pattern": "unwanted",
+          "system": "fix_pipeline",
+          "action": "extract_session_summary(\"\") returns (None, [], [], []); summary storage is skipped; file_footprint=None is passed on retrieval; no error is raised and the pipeline continues",
+          "return_contract": null,
+          "error_condition": "CoderReviewerLoop returns response=\"\" (early exit)"
+        }
+      ]
+    },
+    {
+      "id": "05-REQ-10",
+      "title": "Pre-harvest ingestion path is preserved unchanged",
+      "user_story": {
+        "role": "Night Shift pipeline",
+        "goal": "ensure the existing pre-harvest _ingest_knowledge call in _emit_session_event continues to function without modification",
+        "benefit": "so that session-status-based finding supersession is not broken by the new post-harvest call"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-10.1",
+          "ears_pattern": "ubiquitous",
+          "system": "pre-harvest ingestion call in _emit_session_event",
+          "action": "continues to pass `session_status` context to `FoxKnowledgeProvider.ingest()` exactly as before; no changes are made to its arguments, timing, or error handling",
+          "return_contract": null
+        },
+        {
+          "id": "05-REQ-10.2",
+          "ears_pattern": "ubiquitous",
+          "system": "fix_pipeline",
+          "action": "executes the pre-harvest ingestion call and the post-harvest ingestion call independently; the failure of either call does not affect the other",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "05-REQ-11",
+      "title": "Unit tests for fix_pipeline knowledge methods",
+      "user_story": {
+        "role": "developer",
+        "goal": "have unit tests for _ingest_knowledge, _retrieve_knowledge, and _harvest_and_push in fix_pipeline.py",
+        "benefit": "so that correctness of the new wiring is verifiable without a live database"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-11.1",
+          "ears_pattern": "ubiquitous",
+          "system": "fix_pipeline unit tests",
+          "action": "mock `FoxKnowledgeProvider` at the class level using `unittest.mock.patch` targeting the import path used in `fix_pipeline.py`; no live database dependency is required",
+          "return_contract": null
+        },
+        {
+          "id": "05-REQ-11.2",
+          "ears_pattern": "ubiquitous",
+          "system": "_ingest_knowledge unit tests",
+          "action": "assert that the post-harvest call passes real `touched_files`, includes summary fields when extract_session_summary returns non-None, omits `commit_sha`, and uses the correct `spec_name` and `session_id`",
+          "return_contract": null
+        },
+        {
+          "id": "05-REQ-11.3",
+          "ears_pattern": "ubiquitous",
+          "system": "_ingest_knowledge error path unit test",
+          "action": "configures the mock to raise an exception and asserts that an ERROR-level log entry is emitted with the session ID and exception details, and that the session continues without re-raising",
+          "return_contract": null
+        },
+        {
+          "id": "05-REQ-11.4",
+          "ears_pattern": "ubiquitous",
+          "system": "_retrieve_knowledge unit tests",
+          "action": "assert that `task_group=\"0\"`, `task_description` from triage, and `file_footprint` from `triage.affected_files` are passed; assert `file_footprint=None` when `triage` is None or `triage.affected_files` is empty or None; assert that exceptions are caught, logged at WARNING level, and an empty list is returned",
+          "return_contract": null
+        },
+        {
+          "id": "05-REQ-11.5",
+          "ears_pattern": "ubiquitous",
+          "system": "_harvest_and_push unit tests",
+          "action": "assert that the method returns the `list[str]` file list produced by `harvest()`",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "05-REQ-12",
+      "title": "Unit tests for CoderReviewerLoop return object extensions",
+      "user_story": {
+        "role": "developer",
+        "goal": "have unit tests verifying that outcome.response and triage.affected_files are correctly populated in the extended return object",
+        "benefit": "so that fix_pipeline.py call sites can safely rely on these fields being present"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-12.1",
+          "ears_pattern": "ubiquitous",
+          "system": "coder_reviewer unit tests",
+          "action": "verify that `outcome.response` and `triage.affected_files` are correctly populated in the return object after a successful coder session run",
+          "return_contract": null
+        },
+        {
+          "id": "05-REQ-12.2",
+          "ears_pattern": "ubiquitous",
+          "system": "coder_reviewer unit tests",
+          "action": "verify that early-exit paths (e.g., triage failure) produce `response=\"\"` and `affected_files=[]` in the return object, with no uninitialized fields",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "05-REQ-13",
+      "title": "Unit tests for extract_session_summary",
+      "user_story": {
+        "role": "developer",
+        "goal": "have unit tests covering all extraction cases in agentfox.knowledge.extraction",
+        "benefit": "so that the shared extraction function behaves correctly for both the engine and Night Shift callers"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "05-REQ-13.1",
+          "ears_pattern": "ubiquitous",
+          "system": "agentfox.knowledge.extraction unit tests",
+          "action": "include a test case where structured fields are present and assert that the returned tuple has a non-None summary_text and populated rejected_approaches, gotchas, and assumptions lists",
+          "return_contract": "tuple[str, list, list, list] with non-None summary_text"
+        },
+        {
+          "id": "05-REQ-13.2",
+          "ears_pattern": "ubiquitous",
+          "system": "agentfox.knowledge.extraction unit tests",
+          "action": "include a test case where structured fields are absent and assert that (None, [], [], []) is returned without raising an exception",
+          "return_contract": "(None, [], [], [])"
+        },
+        {
+          "id": "05-REQ-13.3",
+          "ears_pattern": "ubiquitous",
+          "system": "agentfox.knowledge.extraction unit tests",
+          "action": "include a test case where the response is malformed and assert that (None, [], [], []) is returned gracefully without raising an exception",
+          "return_contract": "(None, [], [], [])"
+        },
+        {
+          "id": "05-REQ-13.4",
+          "ears_pattern": "ubiquitous",
+          "system": "session_lifecycle.py unit tests",
+          "action": "include a test verifying that session_lifecycle.py calls `extract_session_summary` from `agentfox.knowledge.extraction` without `await` and produces the same 4-tuple output as before the refactor",
+          "return_contract": "tuple[str | None, list, list, list] \u2014 same as before refactor"
+        }
+      ],
+      "edge_cases": []
+    }
+  ],
+  "correctness_properties": [
+    {
+      "id": "05-PROP-1",
+      "title": "post-harvest ingestion always uses real touched_files",
+      "for_any": "Night Shift fix session where _harvest_and_push returns a non-empty list",
+      "invariant": "the `touched_files` key in the context dict passed to `FoxKnowledgeProvider.ingest()` during the post-harvest call equals the list returned by `harvest()`, never an empty list or a stub value",
+      "validates": [
+        "05-REQ-2.1",
+        "05-REQ-1.1"
+      ]
+    },
+    {
+      "id": "05-PROP-2",
+      "title": "commit_sha never appears in post-harvest ingest context",
+      "for_any": "any post-harvest call to FoxKnowledgeProvider.ingest() from fix_pipeline",
+      "invariant": "the context dict does not contain the `commit_sha` key, because `harvest()` does not return a commit SHA",
+      "validates": [
+        "05-REQ-2.2"
+      ]
+    },
+    {
+      "id": "05-PROP-3",
+      "title": "extract_session_summary never raises",
+      "for_any": "any string value passed as the response argument to extract_session_summary",
+      "invariant": "`extract_session_summary` returns a 4-tuple and never raises an exception, regardless of whether the response is empty, structured, or malformed",
+      "validates": [
+        "05-REQ-3.3",
+        "05-REQ-3.4",
+        "05-REQ-3.1"
+      ]
+    },
+    {
+      "id": "05-PROP-4",
+      "title": "retrieval always uses task_group=\"0\"",
+      "for_any": "any invocation of _retrieve_knowledge for a Night Shift fix session",
+      "invariant": "`task_group` passed to `FoxKnowledgeProvider.retrieve()` is always the string `\"0\"`, never None or any other value",
+      "validates": [
+        "05-REQ-5.1"
+      ]
+    },
+    {
+      "id": "05-PROP-5",
+      "title": "knowledge records are scoped by issue number",
+      "for_any": "any pair of distinct issue numbers N1 and N2",
+      "invariant": "knowledge records stored under `spec_name=fix-issue-{N1}` are never returned by `FoxKnowledgeProvider.retrieve()` called with `spec_name=fix-issue-{N2}`",
+      "validates": [
+        "05-REQ-8.1",
+        "05-REQ-8.2"
+      ]
+    },
+    {
+      "id": "05-PROP-6",
+      "title": "post-harvest ingestion failure never fails the session",
+      "for_any": "any Night Shift fix session where the post-harvest FoxKnowledgeProvider.ingest() call raises an exception",
+      "invariant": "the session completes successfully; the exception is caught and logged at ERROR level; no exception propagates to the Night Shift runner",
+      "validates": [
+        "05-REQ-2.E1"
+      ]
+    },
+    {
+      "id": "05-PROP-7",
+      "title": "pre-harvest ingestion behavior is unchanged",
+      "for_any": "any Night Shift fix session",
+      "invariant": "the pre-harvest `_ingest_knowledge` call in `_emit_session_event` executes with the same arguments, timing, and error handling as before this spec was implemented; no arguments are removed or altered",
+      "validates": [
+        "05-REQ-10.1",
+        "05-REQ-10.2"
+      ]
+    },
+    {
+      "id": "05-PROP-8",
+      "title": "file_footprint is None when triage is unavailable",
+      "for_any": "any invocation of _retrieve_knowledge where triage is None or triage.affected_files is empty or None",
+      "invariant": "`file_footprint` passed to `FoxKnowledgeProvider.retrieve()` is `None`; no AttributeError is raised",
+      "validates": [
+        "05-REQ-7.2",
+        "05-REQ-7.3"
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "05-PATH-1",
+      "title": "Successful fix session with full knowledge ingestion and retrieval",
+      "steps": [
+        {
+          "actor": "Night Shift runner",
+          "action": "initiates a fix session for issue N, producing session ID fix-issue-{N}"
+        },
+        {
+          "actor": "fix_pipeline",
+          "action": "calls _retrieve_knowledge with spec_name=fix-issue-{N}, task_group=\"0\", task_description from triage, and file_footprint=triage.affected_files before starting the CoderReviewerLoop"
+        },
+        {
+          "actor": "FoxKnowledgeProvider",
+          "action": "executes retrieve() with the supplied arguments; returns a list[str] of prior knowledge items (empty on cold start)"
+        },
+        {
+          "actor": "fix_pipeline",
+          "action": "injects retrieved knowledge into the session context and emits a structured log line with task_group and per-category item counts"
+        },
+        {
+          "actor": "CoderReviewerLoop",
+          "action": "runs the coder-reviewer iteration and returns the extended result object with response=<assistant text> and affected_files=<triage file paths>"
+        },
+        {
+          "actor": "fix_pipeline",
+          "action": "calls _emit_session_event, which triggers the pre-harvest ingestion call to FoxKnowledgeProvider.ingest() with session_status context"
+        },
+        {
+          "actor": "fix_pipeline",
+          "action": "calls _harvest_and_push, which calls harvest() and returns the list[str] of changed file paths"
+        },
+        {
+          "actor": "fix_pipeline",
+          "action": "calls extract_session_summary(outcome.response) from agentfox.knowledge.extraction to obtain (summary_text, rejected_approaches, gotchas, assumptions)"
+        },
+        {
+          "actor": "fix_pipeline",
+          "action": "calls _ingest_knowledge with touched_files=<changed files>, summary=summary_text, rejected_approaches, gotchas, assumptions, spec_name=fix-issue-{N}, session_id=fix-issue-{N}"
+        },
+        {
+          "actor": "FoxKnowledgeProvider",
+          "action": "executes ingest() additively: runs supersede_drift_findings_by_files, supersede_stale_pre_code_findings, and _store_summary with the provided data"
+        },
+        {
+          "actor": "fix_pipeline",
+          "action": "emits a structured log line with touched_files count and summary_extracted=True; session completes successfully"
+        }
+      ]
+    },
+    {
+      "id": "05-PATH-2",
+      "title": "Fix session with triage failure \u2014 safe fallback for retrieval",
+      "steps": [
+        {
+          "actor": "Night Shift runner",
+          "action": "initiates a fix session for issue N"
+        },
+        {
+          "actor": "CoderReviewerLoop",
+          "action": "encounters a triage failure and returns the result object with response=\"\" and affected_files=[]"
+        },
+        {
+          "actor": "fix_pipeline",
+          "action": "calls _retrieve_knowledge with triage=None; passes task_group=\"0\", task_description=\"\", and file_footprint=None to FoxKnowledgeProvider.retrieve()"
+        },
+        {
+          "actor": "FoxKnowledgeProvider",
+          "action": "executes retrieve() skipping cross-spec drift queries (file_footprint=None); returns list[str] (possibly empty)"
+        },
+        {
+          "actor": "fix_pipeline",
+          "action": "calls extract_session_summary(\"\") which returns (None, [], [], []); skips summary ingestion"
+        },
+        {
+          "actor": "fix_pipeline",
+          "action": "session continues without error; no AttributeError is raised; knowledge infrastructure degrades gracefully"
+        }
+      ]
+    },
+    {
+      "id": "05-PATH-3",
+      "title": "Post-harvest ingestion failure \u2014 session still succeeds",
+      "steps": [
+        {
+          "actor": "fix_pipeline",
+          "action": "calls _harvest_and_push which returns a non-empty list[str] of changed files"
+        },
+        {
+          "actor": "fix_pipeline",
+          "action": "calls _ingest_knowledge with the real touched_files list and extracted summary"
+        },
+        {
+          "actor": "FoxKnowledgeProvider",
+          "action": "raises an exception during ingest() (e.g., database error)"
+        },
+        {
+          "actor": "fix_pipeline",
+          "action": "catches the exception, logs at ERROR level with session ID and exception details, and continues execution"
+        },
+        {
+          "actor": "Night Shift runner",
+          "action": "receives a successful session result; the fix is not invalidated by the knowledge persistence failure"
+        }
+      ]
+    },
+    {
+      "id": "05-PATH-4",
+      "title": "Second run on same issue \u2014 retrieval returns prior knowledge",
+      "steps": [
+        {
+          "actor": "Night Shift runner",
+          "action": "initiates a second fix session for the same issue N (fix-issue-{N})"
+        },
+        {
+          "actor": "fix_pipeline",
+          "action": "calls _retrieve_knowledge with spec_name=fix-issue-{N}, task_group=\"0\", task_description from triage, and file_footprint=triage.affected_files"
+        },
+        {
+          "actor": "FoxKnowledgeProvider",
+          "action": "executes retrieve(); finds prior summaries, cross-group reviews, and cross-spec drift stored from the first session; returns a non-empty list[str]"
+        },
+        {
+          "actor": "fix_pipeline",
+          "action": "injects the retrieved knowledge items into the coder session context"
+        },
+        {
+          "actor": "fix_pipeline",
+          "action": "emits a structured log line recording non-zero item counts for at least one retrieval category"
+        },
+        {
+          "actor": "CoderReviewerLoop",
+          "action": "runs with prior institutional memory injected; session benefits from previous session's findings"
+        }
+      ]
+    }
+  ],
+  "error_handling": [
+    {
+      "id": "05-ERR-1",
+      "condition": "FoxKnowledgeProvider.ingest() raises an exception during the post-harvest ingestion call",
+      "behavior": "fix_pipeline catches the exception, logs at ERROR level with the session ID and exception details, and continues; session success is not gated on knowledge ingestion",
+      "requirement_id": "05-REQ-2.E1"
+    },
+    {
+      "id": "05-ERR-2",
+      "condition": "FoxKnowledgeProvider.retrieve() raises an exception in _retrieve_knowledge",
+      "behavior": "_retrieve_knowledge catches the exception, logs at WARNING level, and returns an empty list; the pipeline continues without retrieved knowledge",
+      "requirement_id": "05-REQ-5.E1"
+    },
+    {
+      "id": "05-ERR-3",
+      "condition": "extract_session_summary receives a malformed or empty response string",
+      "behavior": "returns (None, [], [], []) without raising an exception; fix_pipeline skips summary ingestion silently",
+      "requirement_id": "05-REQ-3.4"
+    },
+    {
+      "id": "05-ERR-4",
+      "condition": "triage is None when _retrieve_knowledge is called (e.g., triage failed or was skipped)",
+      "behavior": "_retrieve_knowledge passes task_description=\"\" and file_footprint=None to FoxKnowledgeProvider.retrieve(); no AttributeError is raised; cross-spec drift queries are skipped; pipeline continues normally",
+      "requirement_id": "05-REQ-7.2"
+    },
+    {
+      "id": "05-ERR-5",
+      "condition": "triage.affected_files is empty or None when _retrieve_knowledge is called",
+      "behavior": "_retrieve_knowledge passes file_footprint=None to FoxKnowledgeProvider.retrieve(); cross-spec drift queries are skipped; pipeline continues normally",
+      "requirement_id": "05-REQ-7.3"
+    },
+    {
+      "id": "05-ERR-6",
+      "condition": "CoderReviewerLoop takes an early-exit path (triage failure, aborted loop) before a coder session runs",
+      "behavior": "return object has response=\"\" and affected_files=[]; fix_pipeline skips summary storage (extract_session_summary returns (None, [], [], [])) and passes file_footprint=None on retrieval; no AttributeError is raised",
+      "requirement_id": "05-REQ-9.E1"
+    },
+    {
+      "id": "05-ERR-7",
+      "condition": "harvest() raises an exception in _harvest_and_push",
+      "behavior": "_harvest_and_push propagates the exception to its caller; no post-harvest ingestion call is attempted",
+      "requirement_id": "05-REQ-1.E1"
+    }
+  ],
+  "external_apis": [
+    {
+      "package": "agentfox.knowledge.fox_provider",
+      "version": "current",
+      "symbols": [
+        {
+          "name": "FoxKnowledgeProvider.retrieve",
+          "import_path": "agentfox.knowledge.fox_provider",
+          "signature": "(spec_name: str, task_description: str, task_group: str | None = None, session_id: str | None = None, file_footprint: list[str] | None = None) -> list[str]",
+          "notes": "task_group guards cross-group, cross-spec, and summary query branches; task_description is a required positional argument; Night Shift passes triage summary/description or \"\" as fallback"
+        },
+        {
+          "name": "FoxKnowledgeProvider.ingest",
+          "import_path": "agentfox.knowledge.fox_provider",
+          "signature": "(session_id: str, spec_name: str, context: dict) -> None",
+          "notes": "Context keys: session_status, touched_files, commit_sha, summary, archetype, task_group, attempt, rejected_approaches, gotchas, assumptions. Each call is additive \u2014 partial context per call is safe."
+        }
+      ]
+    },
+    {
+      "package": "agentfox.workspace.harvest",
+      "version": "current",
+      "symbols": [
+        {
+          "name": "harvest",
+          "import_path": "agentfox.workspace.harvest",
+          "signature": "(repo_root: str, workspace: object, ...) -> list[str]",
+          "notes": "Returns list of changed file paths only. commit_sha is NOT returned and must not be assumed. Used by _harvest_and_push."
+        }
+      ]
+    },
+    {
+      "package": "afaudit.sink",
+      "version": "current",
+      "symbols": [
+        {
+          "name": "SessionOutcome.response",
+          "import_path": "afaudit.sink",
+          "signature": "response: str",
+          "notes": "Last assistant message text; available after run_session completes. Accessed as outcome.response in fix_pipeline.py."
+        }
+      ]
+    },
+    {
+      "package": "agentfox.knowledge.extraction",
+      "version": "new \u2014 introduced by this spec",
+      "symbols": [
+        {
+          "name": "extract_session_summary",
+          "import_path": "agentfox.knowledge.extraction",
+          "signature": "(response: str) -> tuple[str | None, list, list, list]",
+          "notes": "Synchronous function. Returns (summary_text, rejected_approaches, gotchas, assumptions). Returns (None, [], [], []) when structured fields are absent or response is malformed. Called directly without await from both session_lifecycle.py and fix_pipeline.py."
+        }
+      ]
+    }
+  ]
+}

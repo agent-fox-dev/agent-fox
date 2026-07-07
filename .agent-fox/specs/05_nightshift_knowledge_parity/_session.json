@@ -1,0 +1,537 @@
+{
+  "state": "generated",
+  "prd_path": "prd.md",
+  "assessment_history": [
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD for \"Night Shift Knowledge Parity\" is technically detailed and well-scoped, with strong coverage of the problem space, solution design, affected files, and API contracts. The Non-Goals section is explicit and the solution is tightly bounded. However, the document is missing a dedicated **Intent** section (a concise, standalone statement of what this feature aims to achieve), lacks formal **Goals** with measurable success criteria, and has no **Background** section that contextualizes the broader system and motivates the fix for a reader unfamiliar with the codebase. These are structural gaps against the required spec format, preventing the PRD from being marked ready.",
+      "gaps": [
+        "Missing dedicated 'Intent' section \u2014 the problem statement implies intent but there is no explicit, concise statement of what this feature aims to achieve as a standalone section.",
+        "Missing 'Goals' section \u2014 there are no measurable outcomes defined (e.g., success metrics, acceptance criteria, observable behavioral changes that can be verified post-implementation).",
+        "Missing 'Background' section \u2014 no context is provided about the broader Night Shift system architecture, how it fits into the agent-fox platform, or why knowledge parity matters at a product/business level (beyond the technical bug description).",
+        "Owner field is empty in the primary front-matter block (though 'agent-fox' appears in the secondary front-matter, the canonical field is blank).",
+        "No explicit acceptance criteria or testability conditions are defined \u2014 it is unclear how a reviewer would verify that all four wiring changes are functioning correctly in a real session.",
+        "Phase 2 is referenced but not linked to any tracking issue or follow-up spec, leaving the roadmap context incomplete."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "Can you provide a single, concise Intent statement for this spec \u2014 i.e., in one or two sentences, what does this feature aim to achieve and for whom?",
+          "context": "The 'Intent' section is required by the spec format and must be a clear, standalone articulation of the feature's purpose. The current Problem section describes what is broken but does not frame the intended outcome as a product-level goal.",
+          "options": [
+            "Enable Night Shift fix sessions to accumulate and reuse institutional memory via the existing KnowledgeProvider infrastructure, so that repeated attempts on the same issue benefit from prior session context.",
+            "Eliminate blind restarts in Night Shift fix sessions by wiring real data through existing knowledge ingestion and retrieval parameters.",
+            "Other (please describe)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "What are the measurable goals or success criteria for this spec? How will you know the implementation is working correctly?",
+          "context": "The 'Goals' section should contain verifiable outcomes. Without measurable criteria, it is difficult to confirm the spec is complete or to write acceptance tests.",
+          "options": [
+            "After a successful fix session, touched files are recorded and drift findings for those files are superseded in the knowledge store.",
+            "After a successful fix session, a session summary is retrievable in subsequent sessions for the same issue.",
+            "Cross-group, cross-spec drift, and same-spec summary retrieval branches are exercised during Night Shift retrieval (verifiable via logs or unit tests).",
+            "All of the above",
+            "Other (please describe)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "Can you add a Background section that briefly describes the Night Shift system and the KnowledgeProvider architecture for readers unfamiliar with the codebase?",
+          "context": "The 'Background' section provides context and motivation. The current PRD dives straight into technical details, which makes it hard for reviewers outside the immediate team to evaluate scope and risk.",
+          "options": [
+            "Yes, I can add a paragraph describing Night Shift's role (automated overnight fix sessions) and the KnowledgeProvider's purpose (cross-session institutional memory).",
+            "No, the audience is internal and already familiar \u2014 background is not needed.",
+            "I can add a link to existing documentation instead."
+          ],
+          "required": false
+        },
+        {
+          "id": "q4",
+          "text": "Who is the canonical owner of this spec? The primary front-matter 'owner' field is empty.",
+          "context": "Ownership is important for accountability, review routing, and change management.",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "q5",
+          "text": "Is there a tracking issue or placeholder spec for Phase 2 (replacing CoderReviewerLoop with shared engine infrastructure)?",
+          "context": "The spec references Phase 2 as explicitly out of scope but provides no link or reference to where that work is tracked. This is important for roadmap continuity and to ensure the boundary between phases is formally recorded.",
+          "options": [
+            "Yes, it is tracked at (please provide link or issue ID).",
+            "No, Phase 2 is not yet scheduled \u2014 it will be created as a follow-up.",
+            "Phase 2 may not happen; this spec is intended to be the final state."
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD is well-structured and technically precise. It clearly articulates the problem, goals, solution steps, scope boundaries, and affected files. The background and design decisions sections are strong. However, several gaps exist that could create ambiguity during implementation or acceptance testing: error-handling behavior for the new post-harvest ingestion call is unspecified, the exact reuse mechanism for `_extract_knowledge_and_findings` (import vs. copy) is left open, the behavior when `triage.affected_files` is empty or None is not addressed, and acceptance criteria lack explicit test strategy pointers. These are resolvable with targeted answers.",
+      "gaps": [
+        "Error handling for the new post-harvest _ingest_knowledge call is unspecified \u2014 it's unclear whether a failure here should propagate and fail the session, be swallowed silently, or be logged and skipped (the current stub behavior may mask this).",
+        "The mechanism for reusing `_extract_knowledge_and_findings` from engine/session_lifecycle.py is not specified \u2014 it could be a direct import, a copy, or a refactor into a shared utility. The wrong choice could introduce a coupling or duplication debt.",
+        "The behavior when `triage.affected_files` is empty or None is not specified. Should retrieval fall back to the current behavior (skip cross-spec drift), raise, or pass an empty list?",
+        "The pre-harvest ingestion call is described as 'continuing unchanged,' but the interaction between the pre-harvest and post-harvest ingestion calls on the same session ID is not made explicit \u2014 particularly whether context keys can be partially supplied across two calls or whether one call can overwrite the other's data.",
+        "Acceptance criteria reference manual verification steps (e.g., 'querying the knowledge store after a Night Shift session') but do not specify whether automated tests (unit or integration) are required, or whether the spec is considered done with manual verification alone.",
+        "The `commit_sha` key in the ingest context is listed in the API table but not mentioned in the solution \u2014 it's unclear whether it will be populated in the new post-harvest call or left absent.",
+        "The rollout and observability plan is absent \u2014 there is no mention of logging, metrics, or feature flags to monitor the new code paths in production Night Shift runs."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "If the new post-harvest `_ingest_knowledge` call fails (e.g., a database error), what should happen to the Night Shift session?",
+          "context": "The solution adds a new ingestion call after harvest. Its failure mode is unspecified. Getting this wrong could silently swallow errors or, conversely, fail sessions that were otherwise successful.",
+          "options": [
+            "Log the error and continue \u2014 session is still considered successful",
+            "Propagate the exception and mark the session as failed",
+            "Retry once, then log and continue"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "How should `_extract_knowledge_and_findings` be reused from `engine/session_lifecycle.py`?",
+          "context": "The solution says to 'reuse the engine's logic' but doesn't specify the mechanism. The choice affects coupling between the nightshift and engine packages and future maintenance burden.",
+          "options": [
+            "Import it directly from session_lifecycle.py (accept the coupling)",
+            "Refactor it into a shared utility module (e.g., agentfox.knowledge.extraction) and import from there",
+            "Copy the logic into fix_pipeline.py (accept the duplication)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "What should happen when `triage.affected_files` is empty or None at retrieval time?",
+          "context": "The PRD says to pass `triage.affected_files` as `file_footprint`, but does not cover the case where triage returns no files. This affects whether cross-spec drift queries are skipped silently or explicitly.",
+          "options": [
+            "Pass None (or omit the parameter) \u2014 cross-spec drift queries are skipped, matching current behavior",
+            "Pass an empty list \u2014 let FoxKnowledgeProvider decide how to handle it",
+            "Raise an error \u2014 triage should always produce affected files"
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "Can the pre-harvest and post-harvest `_ingest_knowledge` calls supply different context keys to the same session ID, or must one call supply all keys atomically?",
+          "context": "The PRD describes two ingestion calls per successful session (matching engine behavior), but does not clarify whether FoxKnowledgeProvider.ingest() merges partial context across calls or whether the second call overwrites the first. This affects whether session_status and touched_files can be split across two calls safely.",
+          "options": [
+            "Each call is independent and additive \u2014 partial context per call is fine",
+            "Each call overwrites previous context for the same session \u2014 must consolidate into one call",
+            "Needs investigation of FoxKnowledgeProvider.ingest() internals before deciding"
+          ],
+          "required": true
+        },
+        {
+          "id": "q5",
+          "text": "What is the required testing bar for this spec \u2014 manual verification only, or are automated tests required?",
+          "context": "The Goals section describes verification steps (e.g., 'querying the knowledge store after a Night Shift session') that read as manual checks. Knowing whether unit/integration tests are required affects implementation scope.",
+          "options": [
+            "Manual verification only (e.g., via a real Night Shift run or debug log inspection)",
+            "Unit tests required for the changed methods in fix_pipeline.py and coder_reviewer.py",
+            "Both unit tests and at least one integration/end-to-end test against a real knowledge store"
+          ],
+          "required": true
+        },
+        {
+          "id": "q6",
+          "text": "Should `commit_sha` be populated in the new post-harvest `_ingest_knowledge` call, and if so, where does it come from?",
+          "context": "The ingest() API lists `commit_sha` as a context key, but the solution section does not mention it. If the harvest step produces a commit SHA, this is the natural place to pass it \u2014 but omitting it may leave an incomplete record.",
+          "options": [
+            "Yes \u2014 harvest() or a subsequent git call provides it; pass it in the post-harvest ingest call",
+            "No \u2014 commit_sha is out of scope for this spec; leave it absent",
+            "Only if it's trivially available from existing harvest output; otherwise skip"
+          ],
+          "required": false
+        },
+        {
+          "id": "q7",
+          "text": "Should any logging, metrics, or feature flags be added to monitor the new knowledge ingestion/retrieval paths in production?",
+          "context": "Night Shift runs unattended. Without observability, silent failures in the new code paths (e.g., summary extraction returning None every time due to a parsing bug) would be invisible.",
+          "options": [
+            "Add structured log lines at each new code path (touched_files count, summary extracted yes/no, task_group used)",
+            "No additional observability needed beyond what already exists",
+            "Add a feature flag so the new behavior can be disabled without a deploy if issues arise"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD is well-structured and clearly written, with strong coverage of intent, background, problem statement, solution steps, and design decisions. The goals are measurable, the files affected are enumerated, and the external API surface is verified and documented. However, several gaps remain that could cause ambiguity during implementation: the exact refactoring boundary for the shared extraction utility is underspecified, the `harvest()` return signature is inconsistent with the `commit_sha` treatment, rollout/deployment considerations for an unattended pipeline are absent, and a few edge cases in error handling and testing requirements need clarification.",
+      "gaps": [
+        "The `harvest()` API table lists a return type of `list[str]` only, but the solution prose says `commit_sha` may also be returned \u2014 the actual return signature needs to be confirmed and documented precisely so implementors know whether to unpack a tuple, inspect a dict, or check an attribute.",
+        "The refactoring of `_extract_knowledge_and_findings` into `agentfox.knowledge.extraction` is described at the intent level but the new module's public interface (function name, signature, return type) is not specified, leaving the contract between the engine and Night Shift undefined.",
+        "No migration or rollout strategy is described for an unattended pipeline: how Night Shift sessions that are in-flight during deployment are handled, and whether the change is safe to deploy without a coordinated restart.",
+        "The testing requirements do not specify whether integration tests (e.g., against a test database) are required in addition to unit tests, or whether manual verification of the knowledge store is the only integration-level gate.",
+        "The acceptance criteria for Goal 3 ('relevant prior knowledge appears in the context') is vague \u2014 it does not define what 'relevant' means or how testers can distinguish injected knowledge from absence of knowledge in an unattended run.",
+        "The error-handling section (\u00a75) covers post-harvest ingestion failures but does not address what happens if `_retrieve_knowledge` itself raises \u2014 silent swallow, log-and-continue, or propagate?",
+        "The `spec_name` value passed to `retrieve()` and `ingest()` for fix sessions is not explicitly stated (implied to be `fix-issue-{N}` but never confirmed), which matters for knowledge store keying and isolation.",
+        "There is no discussion of data retention or cleanup \u2014 whether knowledge accumulated from fix sessions is ever purged, which could affect the store's size over time given Night Shift runs repeatedly against the same issues."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What is the exact return type of `harvest()`? Does it return only `list[str]` (changed file paths), or does it also return a `commit_sha` (e.g., as a tuple `(list[str], str)`, a named tuple, or a dataclass)?",
+          "context": "The API table shows `-> list[str]` but the solution prose says 'if `harvest()` also returns a `commit_sha` as part of its existing output'. Implementors need the precise signature to know how to extract the commit SHA without adding new plumbing.",
+          "options": [
+            "Returns only `list[str]` \u2014 commit_sha is not available from harvest() and should be omitted from the post-harvest ingest call",
+            "Returns a tuple `(list[str], str)` \u2014 second element is the commit_sha",
+            "Returns a dataclass/named tuple with `.files` and `.commit_sha` fields",
+            "Returns a dict with keys `files` and `commit_sha`"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "What should the public interface of the new `agentfox.knowledge.extraction` module look like? Specifically: what is the function name, its signature (parameters and return type), and what does it return when structured fields are absent vs. present vs. malformed?",
+          "context": "The refactoring is a key deliverable that both the engine and Night Shift will depend on. Without a defined contract, the engine's existing behavior could silently diverge from what Night Shift expects.",
+          "options": [
+            "extract_session_summary(response: str) -> str | None \u2014 returns summary text or None",
+            "extract_knowledge_and_findings(response: str) -> tuple[str | None, list] \u2014 returns (summary, findings)",
+            "Keep the same name and signature as the engine's private method, just relocated",
+            "Other \u2014 please describe"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "What is the exact `spec_name` value passed to `KnowledgeProvider.retrieve()` and `ingest()` for fix sessions?",
+          "context": "The knowledge store keys records by spec_name and session_id. If the spec_name convention for fix sessions is not pinned, knowledge from different issue numbers could be incorrectly scoped or cross-contaminate retrieval.",
+          "options": [
+            "`fix-issue-{N}` \u2014 the issue number is the spec name (e.g., `fix-issue-42`)",
+            "A shared constant like `nightshift` or `fix-pipeline` for all fix sessions",
+            "Derived from the issue title or label at runtime",
+            "Same as the session ID"
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "How should `_retrieve_knowledge` handle exceptions \u2014 should failures be caught and logged (best-effort, same as post-harvest ingestion), or should they propagate and abort the session?",
+          "context": "The spec explicitly defines error handling for the post-harvest `_ingest_knowledge` call (catch, log ERROR, continue) but is silent on retrieval failures. Since retrieval happens before the fix attempt, a failure there has a different impact than a post-harvest ingestion failure.",
+          "options": [
+            "Catch, log at ERROR level, and continue with an empty knowledge context (best-effort)",
+            "Catch, log at WARNING level, and continue with an empty knowledge context",
+            "Propagate \u2014 retrieval failure aborts the session (treat as infrastructure error)",
+            "Match whatever behavior the current stub already has"
+          ],
+          "required": true
+        },
+        {
+          "id": "q5",
+          "text": "Are automated integration tests (e.g., against a test database or a fake KnowledgeProvider) required, or is manual post-run verification of the knowledge store the only integration-level gate?",
+          "context": "The testing section says manual verification 'is acceptable for integration-level goals but does not replace the required unit tests.' It's unclear whether any automated integration tests are expected as part of this spec, which affects the definition of done.",
+          "options": [
+            "Unit tests only \u2014 manual verification is sufficient for integration goals",
+            "Unit tests + at least one automated integration test against a real or in-memory knowledge store",
+            "Unit tests + contract tests verifying the shared extraction module's interface",
+            "Full automated integration test suite covering all five acceptance goals"
+          ],
+          "required": false
+        },
+        {
+          "id": "q6",
+          "text": "Is the deployment of this change safe for in-flight Night Shift sessions, or does it require a coordinated restart of the Night Shift runner?",
+          "context": "Night Shift runs unattended overnight. If a session is mid-flight when the new code is deployed, it could hit a partially-wired state. Understanding the risk informs whether any rollout guard (e.g., feature flag, graceful drain) is needed.",
+          "options": [
+            "Safe to deploy at any time \u2014 Night Shift sessions are short-lived and the new calls are additive",
+            "Requires draining in-flight sessions before deploying (restart Night Shift runner)",
+            "A feature flag should gate the new behavior to allow incremental rollout",
+            "No special handling needed \u2014 worst case is one session with missing knowledge metadata"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "This is a well-structured, detailed PRD with clear problem framing, goals, solution steps, and design decisions. The spec is largely implementation-ready, with strong coverage of the \"what\" and \"why.\" A few gaps remain: the exact signature and return type of `_extract_knowledge_and_findings` is not specified (only described as \"same name and signature\"), the `task_description` parameter passed to `retrieve()` is never defined for the Night Shift context, the test coverage strategy lacks specifics on mocking/fixture strategy, and there is no explicit rollback or incident response plan if the post-harvest ingestion degrades Night Shift throughput unexpectedly. Additionally, the interaction between `coder_reviewer.py` threading of `outcome.response` and `triage.affected_files` is mentioned but not detailed.",
+      "gaps": [
+        "The exact function signature of `_extract_knowledge_and_findings` (parameter names, types, and return type) is not specified \u2014 only described as 'same name and signature as the engine's existing private method,' which requires readers to look up external code to understand the contract.",
+        "The `task_description` argument passed to `KnowledgeProvider.retrieve()` in the Night Shift context is never defined. The verified API shows it is a required positional argument, but the spec never states what value Night Shift should pass (e.g., the issue title, triage summary, or a static placeholder string).",
+        "The mechanism by which `outcome.response` and `triage.affected_files` are threaded through `coder_reviewer.py` is described only at a high level ('pass through the loop'). The data model change to `CoderReviewerLoop`'s return value or output object is not specified.",
+        "Unit test coverage strategy lacks specifics: no mention of mock targets (e.g., whether `FoxKnowledgeProvider` is mocked at the class level or via dependency injection), fixture approach, or how to simulate the post-harvest ingestion error path.",
+        "No explicit rollback strategy or performance/latency budget for the two new synchronous knowledge calls added to each Night Shift session. If `FoxKnowledgeProvider` calls are slow or block the pipeline, there is no stated mitigation (e.g., timeout, async, circuit breaker).",
+        "The spec does not clarify what happens when `triage` itself is `None` or unavailable at retrieval time \u2014 only the `triage.affected_files` empty/None case is handled."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What is the exact signature of `_extract_knowledge_and_findings`? Please provide parameter names, types, and return type (e.g., `def _extract_knowledge_and_findings(response: str) -> Optional[str]`).",
+          "context": "The spec says the relocated function keeps 'the same name and signature as the engine's existing private method,' but implementers need the actual signature in the spec to avoid having to read engine source code. This is also the contract for the new shared module.",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "What value should Night Shift pass as the `task_description` argument to `KnowledgeProvider.retrieve()`? This is a required positional argument in the verified API.",
+          "context": "`retrieve()` requires `task_description` as a positional argument, but the spec never states what Night Shift should pass. Options might include the issue title from triage output, a triage summary string, a static placeholder, or something else.",
+          "options": [
+            "The issue title or description from triage output",
+            "A static placeholder string (e.g., 'fix-issue')",
+            "The triage summary/description field",
+            "The full triage object serialized as a string",
+            "Other (please specify)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "How does `coder_reviewer.py` expose `outcome.response` and `triage.affected_files` to `fix_pipeline.py`? Does `CoderReviewerLoop.run()` return a new result object, or are these added to an existing return value?",
+          "context": "The spec lists `coder_reviewer.py` as an affected file and mentions threading these values through the loop, but does not specify the data model change \u2014 whether this is a new dataclass, a dict, a tuple extension, or a field added to an existing return type.",
+          "options": [
+            "Add fields to an existing return dataclass/namedtuple",
+            "Return a new result dataclass with outcome and triage",
+            "Return a tuple (existing_return, outcome, triage)",
+            "Other (please specify)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "Is there a latency or timeout budget for the two new synchronous `FoxKnowledgeProvider` calls added per Night Shift session? Should they run with a timeout, or is blocking acceptable given Night Shift's unattended nature?",
+          "context": "Night Shift runs overnight and sessions are described as short-lived, but two new synchronous DB-backed calls are being added. If the knowledge store is slow or unavailable, this could increase session duration or cause hangs. The spec states errors are caught and logged, but does not address timeouts or async execution.",
+          "options": [
+            "No timeout needed \u2014 blocking is acceptable; error handling covers failure cases",
+            "Add a configurable timeout (please specify default value)",
+            "Run calls asynchronously/in a background thread",
+            "Other (please specify)"
+          ],
+          "required": false
+        },
+        {
+          "id": "q5",
+          "text": "What should happen if `triage` itself is `None` or not yet populated when `_retrieve_knowledge` is called? Should retrieval be skipped entirely, or should it proceed with `file_footprint=None`?",
+          "context": "The spec addresses the case where `triage.affected_files` is empty or None, but does not address the case where the `triage` object itself is unavailable (e.g., triage failed or was skipped). This is an edge case that could cause an AttributeError.",
+          "options": [
+            "Skip retrieval entirely if triage is None",
+            "Proceed with file_footprint=None if triage is None",
+            "Raise an error \u2014 triage should always be available at retrieval time",
+            "Other (please specify)"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "ready",
+      "summary": "This is a high-quality, production-grade PRD. It is exceptionally detailed, internally consistent, and well-scoped. The problem statement is precise, the solution is decomposed into discrete, independently verifiable steps, and design decisions are explicitly documented with rationale. The \"Verified External API\" table is a strong addition that eliminates ambiguity for implementors. The spec is implementation-ready with only a few minor areas worth clarifying before code is written.",
+      "gaps": [
+        "The `extract_session_summary` refactor of `session_lifecycle.py` changes a private async method to a synchronous public function \u2014 the spec does not address whether the engine's existing call site in `session_lifecycle.py` wraps `extract_session_summary` in an `await`/`asyncio.run()` or whether the synchronous version is sufficient. This could cause a subtle runtime error if the engine expects an awaitable.",
+        "The spec states that `_retrieve_knowledge` error handling 'preserves the current stub behavior unchanged' but never describes what the current stub behavior is (e.g., swallows silently, logs a warning, returns empty list). An implementor cannot verify they have preserved it without reading the existing code.",
+        "The `CoderReviewerLoop` return type extension (Solution \u00a77) says 'extend the existing return dataclass or namedtuple' but does not specify default values for the new `response: str` and `affected_files: list[str]` fields. If the loop exits early (e.g., triage fails), callers may receive uninitialized fields, causing `AttributeError` at the ingestion/retrieval call sites.",
+        "The `spec_name` convention (`fix-issue-{N}`) is defined but it is not stated where `N` is sourced from in `fix_pipeline.py` \u2014 specifically whether it is pulled from the session ID string, a constructor argument, or some other attribute. This is a small but concrete gap for the implementor.",
+        "The Testing Requirements section specifies unit tests for the `extract_session_summary` refactor in `session_lifecycle.py` but does not specify test coverage for the new structured log lines (touched_files count, summary_extracted flag, retrieval item counts). Log output is cited as the primary observable signal for Goal 3, making log correctness worth asserting.",
+        "Goal 3 acceptance criteria mentions 'a non-empty list when prior knowledge exists' but does not address the cold-start case (first ever run on a given issue) \u2014 implementors and testers may be unsure whether a retrieval returning an empty list on first run is a pass or a signal of misconfiguration."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "The engine's existing `_extract_knowledge_and_findings` is an `async` method. The new `extract_session_summary` is defined as a synchronous function. How should `session_lifecycle.py` call it \u2014 does the engine's async call site simply call it directly (no `await`), or does any wrapping need to occur?",
+          "context": "If the engine's call site currently `await`s the private method and the replacement is synchronous, the refactor will silently return a coroutine object rather than the extracted values, causing a subtle bug that won't be caught at import time.",
+          "options": [
+            "Call it directly (no await) \u2014 the extraction logic is CPU-bound and does not need to be async",
+            "Keep the engine's internal wrapper async and have it call extract_session_summary synchronously inside",
+            "Make extract_session_summary async as well, since it will be awaited by session_lifecycle.py"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "What are the default values for the new `response: str` and `affected_files: list[str]` fields added to the `CoderReviewerLoop` return object, and what value do they hold when the loop exits early (e.g., triage fails or no coder session is run)?",
+          "context": "If defaults are not specified, an early exit path (e.g., triage failure) could leave these fields uninitialized, causing AttributeError when fix_pipeline.py tries to read them for ingestion/retrieval. The spec needs to make the safe fallback explicit.",
+          "options": [
+            "response defaults to '' (empty string), affected_files defaults to [] (empty list)",
+            "response defaults to None, affected_files defaults to None \u2014 callers must guard with None checks",
+            "These fields are only populated on a fully successful run; early-exit paths always short-circuit before the call sites that read them"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "Where in `fix_pipeline.py` is the issue number `N` sourced from when constructing the `spec_name` (`fix-issue-{N}`)?",
+          "context": "The spec defines the naming convention but does not specify the source of N \u2014 it could be a constructor argument, parsed from the session ID string, or read from a queue item attribute. An implementor needs to know the concrete source to avoid introducing inconsistency.",
+          "options": [
+            "Parsed from the session ID string (e.g., session_id.split('-')[-1])",
+            "Passed as a constructor argument to the pipeline class",
+            "Read from the issue queue item / task object",
+            "Already available as an existing attribute on the pipeline object"
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "What is the current behavior of `_retrieve_knowledge` when an exception is raised \u2014 does it swallow silently, log at WARNING level, return an empty list, or something else?",
+          "context": "The spec says the existing retrieval error-handling behavior is 'preserved unchanged' but never describes what that behavior is. Without this, implementors cannot verify compliance and reviewers cannot validate the tests.",
+          "options": [
+            "Swallows the exception silently and returns an empty list",
+            "Logs at WARNING level and returns an empty list",
+            "Logs at ERROR level and returns an empty list",
+            "Lets the exception propagate to the caller"
+          ],
+          "required": false
+        },
+        {
+          "id": "q5",
+          "text": "Should unit tests assert on the content of structured log lines (e.g., that touched_files count and summary_extracted flag are logged correctly), given that log output is cited as the primary observable signal for Goal 3 in unattended runs?",
+          "context": "The Testing Requirements section covers functional correctness of method calls and error paths but does not mention log assertions. Since the retrieval log line is the only observable signal for Goal 3 verification in production, its correctness is worth testing explicitly.",
+          "options": [
+            "Yes \u2014 add log assertions using assertLogs() for the retrieval and post-harvest ingestion log lines",
+            "No \u2014 log content is implementation detail; functional call assertions are sufficient",
+            "Only for the error path (ERROR level) \u2014 informational log lines are not worth asserting"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "ready",
+      "summary": "This is a high-quality, well-structured PRD that is ready for implementation. It clearly defines the problem, goals, solution steps, API contracts, design decisions, testing requirements, and deployment safety considerations. The spec is self-contained, internally consistent, and sufficiently detailed for an engineer to implement without ambiguity. Minor gaps exist around the exact structure of the extraction logic and the specific triage field name used for `task_description`, but these are small enough that they do not block implementation and can be resolved during development.",
+      "gaps": [
+        "The exact field name on the triage output object used as `task_description` (e.g., `.summary`, `.description`, `.title`) is not specified \u2014 engineers must infer this from the existing codebase.",
+        "The extraction logic for `extract_session_summary` is described by analogy to the engine's private method but the actual parsing format (e.g., JSON, regex, delimited sections) is not documented in the spec \u2014 implementers must reverse-engineer the format from the existing private method.",
+        "The specific attribute name on the pipeline object used to derive `N` in `fix-issue-{N}` (i.e., the issue number source) is described as 'an existing attribute' but not named \u2014 minor friction for a new engineer.",
+        "The existing return dataclass/namedtuple name in `coder_reviewer.py` is not stated \u2014 engineers must locate it from the codebase, though this is a minor lookup.",
+        "No explicit guidance on whether `CoderReviewerLoop.run()` is sync or async, which may affect how `extract_session_summary` is called at that call site.",
+        "No mention of whether any existing tests for `session_lifecycle.py` need to be updated after the refactor to `extract_session_summary` (the spec says 'external behavior unchanged' but does not address existing test coverage)."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What is the exact field name on the triage output object that should be passed as `task_description` to `KnowledgeProvider.retrieve()`?",
+          "context": "Solution section 4 says to pass the 'triage summary/description field' but does not name the attribute. Knowing whether it is `.summary`, `.description`, `.title`, or another field eliminates ambiguity at the call site and prevents implementers from guessing.",
+          "options": [
+            ".summary",
+            ".description",
+            ".title",
+            ".task_description",
+            "Other (please specify)"
+          ],
+          "required": false
+        },
+        {
+          "id": "q2",
+          "text": "What is the format that `extract_session_summary` must parse from `outcome.response`? For example, is it a JSON blob, a set of delimited sections (e.g., `## Rejected Approaches`), regex-matched lines, or another format?",
+          "context": "The spec describes the function's signature and return contract but not the parsing logic. Since this is a simplification of the engine's existing private method, naming the format (or pointing to the existing method's parsing approach) would prevent divergence between implementations.",
+          "options": [
+            "JSON blob embedded in the response string",
+            "Markdown-style delimited sections (e.g., ## Rejected Approaches)",
+            "Regex-matched key-value lines",
+            "Inherited exactly from the existing private method's logic \u2014 no changes to parsing",
+            "Other (please specify)"
+          ],
+          "required": false
+        },
+        {
+          "id": "q3",
+          "text": "What is the name of the existing attribute on the `fix_pipeline.py` pipeline object that holds the issue number `N` (used to construct `fix-issue-{N}`)?",
+          "context": "Section 6 states that `N` is sourced from 'an existing attribute on the pipeline object' but does not name it. Specifying the attribute name (e.g., `self.issue_number`, `self.issue_id`) removes a lookup step for implementers.",
+          "options": [
+            "self.issue_number",
+            "self.issue_id",
+            "self.issue",
+            "self.n",
+            "Other (please specify)"
+          ],
+          "required": false
+        },
+        {
+          "id": "q4",
+          "text": "Is `CoderReviewerLoop.run()` a synchronous or asynchronous method? And does `fix_pipeline.py` call it with `await`?",
+          "context": "This clarifies whether `extract_session_summary` (a synchronous function) needs any special handling at the Night Shift call site (e.g., being called from within an async context). The spec states the function is synchronous and should be called without `await`, but does not describe the async/sync nature of the surrounding pipeline code.",
+          "options": [
+            "CoderReviewerLoop.run() is async; fix_pipeline.py uses await",
+            "CoderReviewerLoop.run() is sync; fix_pipeline.py calls it directly",
+            "The pipeline is fully async but extract_session_summary is called synchronously within it (no issue)",
+            "Other (please specify)"
+          ],
+          "required": false
+        },
+        {
+          "id": "q5",
+          "text": "Should existing unit tests for `session_lifecycle.py` that cover the old `_extract_knowledge_and_findings` private method be deleted, migrated to test `extract_session_summary` directly, or left in place?",
+          "context": "The spec says `session_lifecycle.py` is updated to call `extract_session_summary` from the new shared module, and that 'external behavior is unchanged'. However, if existing tests mock or directly invoke the private async method, they will break after the refactor. Explicit guidance prevents test coverage gaps.",
+          "options": [
+            "Delete tests for the old private method; rely solely on the new unit tests for extract_session_summary",
+            "Migrate existing tests to call extract_session_summary directly",
+            "Keep existing session_lifecycle.py tests but update call sites to remove await",
+            "Other (please specify)"
+          ],
+          "required": false
+        }
+      ]
+    }
+  ],
+  "qa_exchanges": [
+    {
+      "assessment_index": 0,
+      "answers": {
+        "q1": "Enable Night Shift fix sessions to accumulate and reuse institutional memory via the existing KnowledgeProvider infrastructure, so that repeated attempts on the same issue benefit from prior session context.",
+        "q2": "All of the above",
+        "q3": "Yes, I can add a paragraph describing Night Shift's role (automated overnight fix sessions) and the KnowledgeProvider's purpose (cross-session institutional memory).",
+        "q4": "agent-fox",
+        "q5": "No, Phase 2 is not yet scheduled \u2014 it will be created as a follow-up."
+      },
+      "timestamp": "2026-07-07T13:48:46.561918+00:00"
+    },
+    {
+      "assessment_index": 1,
+      "answers": {
+        "q1": "Log the error and continue \u2014 session is still considered successful",
+        "q2": "Refactor it into a shared utility module (e.g., agentfox.knowledge.extraction) and import from there",
+        "q3": "Pass None (or omit the parameter) \u2014 cross-spec drift queries are skipped, matching current behavior",
+        "q4": "Each call is independent and additive \u2014 partial context per call is fine",
+        "q5": "Unit tests required for the changed methods in fix_pipeline.py and coder_reviewer.py",
+        "q6": "Only if it's trivially available from existing harvest output; otherwise skip",
+        "q7": "Add structured log lines at each new code path (touched_files count, summary extracted yes/no, task_group used)"
+      },
+      "timestamp": "2026-07-07T13:50:20.718781+00:00"
+    },
+    {
+      "assessment_index": 2,
+      "answers": {
+        "q1": "Returns only `list[str]` \u2014 commit_sha is not available from harvest() and should be omitted from the post-harvest ingest call",
+        "q2": "Keep the same name and signature as the engine's private method, just relocated",
+        "q3": "`fix-issue-{N}` \u2014 the issue number is the spec name (e.g., `fix-issue-42`)",
+        "q4": "Match whatever behavior the current stub already has",
+        "q5": "Unit tests only \u2014 manual verification is sufficient for integration goals",
+        "q6": "Safe to deploy at any time \u2014 Night Shift sessions are short-lived and the new calls are additive"
+      },
+      "timestamp": "2026-07-07T13:52:20.217287+00:00"
+    },
+    {
+      "assessment_index": 3,
+      "answers": {
+        "q1": "The engine's current private method signature is: async def _extract_knowledge_and_findings(self, node_id: str, attempt: int, workspace: WorkspaceInfo, outcome_response: str = '') -> tuple[str | None, list, list, list]. It returns (summary_text, rejected_approaches, gotchas, assumptions). The relocated shared function should simplify to: def extract_session_summary(response: str) -> tuple[str | None, list, list, list]. The self/node_id/attempt/workspace parameters are not needed for the extraction logic itself \u2014 the engine will adapt its call site.",
+        "q2": "The triage summary/description field",
+        "q3": "Add fields to an existing return dataclass/namedtuple",
+        "q4": "No timeout needed \u2014 blocking is acceptable; error handling covers failure cases",
+        "q5": "Proceed with file_footprint=None if triage is None"
+      },
+      "timestamp": "2026-07-07T13:56:34.270756+00:00"
+    },
+    {
+      "assessment_index": 4,
+      "answers": {
+        "q1": "Call it directly (no await) \u2014 the extraction logic is CPU-bound and does not need to be async",
+        "q2": "response defaults to '' (empty string), affected_files defaults to [] (empty list)",
+        "q3": "Already available as an existing attribute on the pipeline object",
+        "q4": "Logs at WARNING level and returns an empty list",
+        "q5": "No \u2014 log content is implementation detail; functional call assertions are sufficient"
+      },
+      "timestamp": "2026-07-07T13:59:10.442878+00:00"
+    }
+  ],
+  "generated_artifacts": [
+    "requirements",
+    "test_spec",
+    "tasks"
+  ],
+  "mode": "interactive"
+}

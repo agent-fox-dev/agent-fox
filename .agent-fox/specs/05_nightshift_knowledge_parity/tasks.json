@@ -1,0 +1,1309 @@
+{
+  "$schema": null,
+  "spec_id": "05",
+  "spec_name": "nightshift_knowledge_parity",
+  "schema_version": 1,
+  "test_commands": {
+    "spec_tests": "pytest -q packages/agentfox/tests/ -k 'nightshift_knowledge_parity or extraction or fix_pipeline or coder_reviewer'",
+    "all_tests": "pytest -q packages/agentfox/",
+    "linter": "ruff check packages/agentfox/agentfox/"
+  },
+  "dependencies": [],
+  "task_groups": [
+    {
+      "id": 1,
+      "kind": "tests",
+      "title": "Write tests: extract_session_summary and shared extraction module",
+      "subtasks": [
+        {
+          "id": "1.1",
+          "title": "Write unit tests for extract_session_summary — structured fields present",
+          "details": [
+            "Create test file at packages/agentfox/tests/knowledge/test_extraction.py",
+            "Test that extract_session_summary returns a 4-tuple of (str|None, list, list, list)",
+            "Test with a structured response containing summary, rejected_approaches, gotchas, assumptions — assert non-None summary_text and populated lists",
+            "Test that the module exports extract_session_summary with signature (response: str) -> tuple via inspect.signature"
+          ],
+          "test_spec_refs": [
+            "TS-05-8",
+            "TS-05-9",
+            "TS-05-15"
+          ],
+          "requirement_refs": [
+            "05-REQ-3.1",
+            "05-REQ-3.2",
+            "05-REQ-4.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.2",
+          "title": "Write unit tests for extract_session_summary — absent and malformed fields",
+          "details": [
+            "Test that extract_session_summary('') returns (None, [], [], []) without raising",
+            "Test that a malformed/unparseable response returns (None, [], [], []) without raising",
+            "Verify via inspect.iscoroutinefunction that extract_session_summary is synchronous (not async)",
+            "Assert direct call without await yields a tuple result"
+          ],
+          "test_spec_refs": [
+            "TS-05-10",
+            "TS-05-11",
+            "TS-05-12"
+          ],
+          "requirement_refs": [
+            "05-REQ-3.3",
+            "05-REQ-3.4",
+            "05-REQ-3.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.3",
+          "title": "Write property test for extract_session_summary never raises",
+          "details": [
+            "Use hypothesis st.text() to generate arbitrary strings including empty, Unicode, binary-like sequences",
+            "For each input assert extract_session_summary does not raise and returns a 4-tuple with correct element types",
+            "Include edge inputs: empty string, whitespace-only, JSON-like fragments, null bytes"
+          ],
+          "test_spec_refs": [
+            "TS-05-P3"
+          ],
+          "requirement_refs": [
+            "05-REQ-3.3",
+            "05-REQ-3.4",
+            "05-REQ-3.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.4",
+          "title": "Write unit test verifying session_lifecycle.py calls extract_session_summary without await",
+          "details": [
+            "Patch agentfox.knowledge.extraction.extract_session_summary in session_lifecycle's import scope",
+            "Invoke the relevant session_lifecycle method that previously called the private async _extract_knowledge_and_findings",
+            "Assert mock_fn.assert_called_once() and that the return value is not a coroutine (not inspect.isawaitable)",
+            "Assert the 4-tuple output matches expected extraction result — external behavior unchanged"
+          ],
+          "test_spec_refs": [
+            "TS-05-16",
+            "TS-05-44"
+          ],
+          "requirement_refs": [
+            "05-REQ-4.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "1.V",
+        "checks": [
+          "Spec tests for this group pass: pytest -q packages/agentfox/tests/knowledge/test_extraction.py",
+          "All existing tests still pass: pytest -q packages/agentfox/",
+          "No linter warnings introduced: ruff check packages/agentfox/agentfox/knowledge/",
+          "Requirements 05-REQ-3.1, 05-REQ-3.2, 05-REQ-3.3, 05-REQ-3.4, 05-REQ-3.5, 05-REQ-4.1, 05-REQ-4.2 test coverage confirmed"
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "kind": "tests",
+      "title": "Write tests: CoderReviewerLoop return object extensions",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Write unit tests for CoderReviewerLoop return object fields — successful path",
+          "details": [
+            "Create test file at packages/agentfox/tests/nightshift/test_coder_reviewer.py",
+            "Test that the return dataclass/namedtuple has 'response' (str, default '') and 'affected_files' (list[str], default []) fields",
+            "Mock coder session outcome with response='The fix applied cleanly.' and triage with affected_files=['src/handler.py']",
+            "Assert CoderReviewerLoop.run() return object has correct field values after a successful session"
+          ],
+          "test_spec_refs": [
+            "TS-05-29",
+            "TS-05-30",
+            "TS-05-39"
+          ],
+          "requirement_refs": [
+            "05-REQ-9.1",
+            "05-REQ-9.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.2",
+          "title": "Write unit tests for CoderReviewerLoop return object — early-exit and error paths",
+          "details": [
+            "Mock triage function to raise/return failure to simulate early-exit",
+            "Assert return object has response='' and affected_files=[] with no uninitialized fields",
+            "Assert that accessing both fields does not raise AttributeError",
+            "Cover aborted loop scenario in addition to triage failure"
+          ],
+          "test_spec_refs": [
+            "TS-05-31",
+            "TS-05-40"
+          ],
+          "requirement_refs": [
+            "05-REQ-9.3",
+            "05-REQ-9.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "2.V",
+        "checks": [
+          "Spec tests for this group pass: pytest -q packages/agentfox/tests/nightshift/test_coder_reviewer.py",
+          "All existing tests still pass: pytest -q packages/agentfox/",
+          "No linter warnings introduced: ruff check packages/agentfox/agentfox/nightshift/coder_reviewer.py",
+          "Requirements 05-REQ-9.1, 05-REQ-9.2, 05-REQ-9.3 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "kind": "tests",
+      "title": "Write tests: _harvest_and_push return value and _retrieve_knowledge arguments",
+      "subtasks": [
+        {
+          "id": "3.1",
+          "title": "Write unit tests for _harvest_and_push returning list[str]",
+          "details": [
+            "Create test file at packages/agentfox/tests/nightshift/test_fix_pipeline.py",
+            "Patch FoxKnowledgeProvider at agentfox.nightshift.fix_pipeline import path using unittest.mock.patch",
+            "Mock harvest() to return ['src/foo.py', 'src/bar.py'] — assert _harvest_and_push returns that exact list",
+            "Mock harvest() to return [] — assert _harvest_and_push returns []",
+            "Mock harvest() to raise RuntimeError — assert exception propagates and no ingest call is made"
+          ],
+          "test_spec_refs": [
+            "TS-05-1",
+            "TS-05-2",
+            "TS-05-38",
+            "TS-05-E1"
+          ],
+          "requirement_refs": [
+            "05-REQ-1.1",
+            "05-REQ-1.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.2",
+          "title": "Write unit tests for _retrieve_knowledge argument passing — task_group and task_description",
+          "details": [
+            "Assert task_group='0' is always passed to FoxKnowledgeProvider.retrieve()",
+            "Assert task_description from triage.description is passed as positional argument",
+            "Assert task_description='' when triage is None",
+            "Assert return value propagation: non-empty list passes through, empty list passes through"
+          ],
+          "test_spec_refs": [
+            "TS-05-18",
+            "TS-05-19",
+            "TS-05-20",
+            "TS-05-22",
+            "TS-05-23"
+          ],
+          "requirement_refs": [
+            "05-REQ-5.1",
+            "05-REQ-5.2",
+            "05-REQ-5.3",
+            "05-REQ-6.1",
+            "05-REQ-6.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.3",
+          "title": "Write unit tests for _retrieve_knowledge argument passing — file_footprint",
+          "details": [
+            "Assert file_footprint=triage.affected_files when triage has a non-empty affected_files list",
+            "Assert file_footprint=None when triage is None (no AttributeError)",
+            "Assert file_footprint=None when triage.affected_files is [] or None"
+          ],
+          "test_spec_refs": [
+            "TS-05-24",
+            "TS-05-25",
+            "TS-05-26"
+          ],
+          "requirement_refs": [
+            "05-REQ-7.1",
+            "05-REQ-7.2",
+            "05-REQ-7.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.4",
+          "title": "Write unit tests for _retrieve_knowledge error handling and observability",
+          "details": [
+            "Mock FoxKnowledgeProvider.retrieve() to raise ConnectionError — assert [] is returned and WARNING log is emitted",
+            "Assert structured log line is emitted with task_group value and item counts after retrieval completes",
+            "Capture logs and assert WARNING level record contains exception details"
+          ],
+          "test_spec_refs": [
+            "TS-05-21",
+            "TS-05-37",
+            "TS-05-E5"
+          ],
+          "requirement_refs": [
+            "05-REQ-5.E1",
+            "05-REQ-5.4"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "3.V",
+        "checks": [
+          "Spec tests for this group pass: pytest -q packages/agentfox/tests/nightshift/test_fix_pipeline.py -k 'harvest or retrieve'",
+          "All existing tests still pass: pytest -q packages/agentfox/",
+          "No linter warnings introduced: ruff check packages/agentfox/agentfox/nightshift/fix_pipeline.py",
+          "Requirements 05-REQ-1.1, 05-REQ-1.2, 05-REQ-5.1–05-REQ-5.4, 05-REQ-5.E1, 05-REQ-6.1, 05-REQ-6.2, 05-REQ-7.1–05-REQ-7.3 test coverage confirmed"
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "kind": "tests",
+      "title": "Write tests: post-harvest ingestion, summary extraction wiring, and pre-harvest preservation",
+      "subtasks": [
+        {
+          "id": "4.1",
+          "title": "Write unit tests for post-harvest _ingest_knowledge — touched_files, summary, commit_sha, spec_name",
+          "details": [
+            "Assert ingest() context contains touched_files set to real changed files list",
+            "Assert 'commit_sha' key is absent from the post-harvest ingest context dict",
+            "Assert session_id='fix-issue-{N}' and spec_name='fix-issue-{N}' using pipeline's existing attribute",
+            "Mock extract_session_summary to return a non-None summary and assert summary, rejected_approaches, gotchas, assumptions keys are present"
+          ],
+          "test_spec_refs": [
+            "TS-05-3",
+            "TS-05-4",
+            "TS-05-5",
+            "TS-05-35"
+          ],
+          "requirement_refs": [
+            "05-REQ-2.1",
+            "05-REQ-2.2",
+            "05-REQ-2.3",
+            "05-REQ-11.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.2",
+          "title": "Write unit tests for post-harvest ingestion — summary absent and ingestion skipped paths",
+          "details": [
+            "Mock extract_session_summary to return ('text', [...], [...], [...]) — assert summary keys present in ingest context",
+            "Mock extract_session_summary to return (None, [], [], []) — assert summary keys absent from ingest context",
+            "Assert post-harvest ingest is skipped entirely when _harvest_and_push returns []",
+            "Assert extract_session_summary('') returns (None, [], [], []) and pipeline continues without error"
+          ],
+          "test_spec_refs": [
+            "TS-05-13",
+            "TS-05-14",
+            "TS-05-E3",
+            "TS-05-E4"
+          ],
+          "requirement_refs": [
+            "05-REQ-3.6",
+            "05-REQ-3.7",
+            "05-REQ-2.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.3",
+          "title": "Write unit tests for post-harvest ingestion error handling and observability",
+          "details": [
+            "Mock ingest() to raise RuntimeError — assert ERROR log contains session ID and exception message and no exception propagates",
+            "Assert structured log line emitted after post-harvest ingestion contains touched_files count and summary_extracted flag",
+            "Verify session completes successfully even when post-harvest ingest raises"
+          ],
+          "test_spec_refs": [
+            "TS-05-7",
+            "TS-05-36",
+            "TS-05-E2"
+          ],
+          "requirement_refs": [
+            "05-REQ-2.E1",
+            "05-REQ-2.5",
+            "05-REQ-11.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.4",
+          "title": "Write unit tests for pre-harvest ingestion preservation and call independence",
+          "details": [
+            "Assert ingest() is called exactly twice in a full session: once with session_status (pre-harvest) and once with touched_files (post-harvest)",
+            "Assert pre-harvest call context contains 'session_status' and not 'touched_files'",
+            "Assert that raising on the second (post-harvest) ingest call does not prevent the first (pre-harvest) call from completing",
+            "Verify independence: side_effect raises only on call_count==2"
+          ],
+          "test_spec_refs": [
+            "TS-05-6",
+            "TS-05-32",
+            "TS-05-33"
+          ],
+          "requirement_refs": [
+            "05-REQ-10.1",
+            "05-REQ-10.2",
+            "05-REQ-2.4"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "4.V",
+        "checks": [
+          "Spec tests for this group pass: pytest -q packages/agentfox/tests/nightshift/test_fix_pipeline.py -k 'ingest or harvest'",
+          "All existing tests still pass: pytest -q packages/agentfox/",
+          "No linter warnings introduced: ruff check packages/agentfox/agentfox/nightshift/",
+          "Requirements 05-REQ-2.1–05-REQ-2.5, 05-REQ-2.E1, 05-REQ-2.E2, 05-REQ-3.6, 05-REQ-3.7, 05-REQ-10.1, 05-REQ-10.2 test coverage confirmed"
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "kind": "tests",
+      "title": "Write tests: spec_name scoping, fix_pipeline import wiring, and property tests",
+      "subtasks": [
+        {
+          "id": "5.1",
+          "title": "Write unit tests for spec_name convention and issue isolation",
+          "details": [
+            "Assert both retrieve() and ingest() are called with spec_name='fix-issue-{N}' reading N from existing pipeline attribute",
+            "Assert no string-parsing of session ID is required — N comes from the attribute directly",
+            "Use mock side_effect returning items only for exact spec_name match to verify issue isolation between N1 and N2"
+          ],
+          "test_spec_refs": [
+            "TS-05-27",
+            "TS-05-28"
+          ],
+          "requirement_refs": [
+            "05-REQ-8.1",
+            "05-REQ-8.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.2",
+          "title": "Write unit test verifying fix_pipeline.py calls extract_session_summary from agentfox.knowledge.extraction",
+          "details": [
+            "Patch agentfox.nightshift.fix_pipeline.extract_session_summary (the import within fix_pipeline)",
+            "Invoke post-harvest ingestion path and assert mock_extract.assert_called_once_with(outcome_response)",
+            "Assert call result is not a coroutine (not inspect.isawaitable)"
+          ],
+          "test_spec_refs": [
+            "TS-05-17"
+          ],
+          "requirement_refs": [
+            "05-REQ-4.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.3",
+          "title": "Write property tests for post-harvest ingestion invariants",
+          "details": [
+            "TS-05-P1: hypothesis st.lists(st.text(min_size=1), min_size=1) — assert touched_files in ingest context equals harvest return value exactly",
+            "TS-05-P2: arbitrary file lists + responses — assert 'commit_sha' never in post-harvest ingest context",
+            "TS-05-P6: arbitrary exception types raised by ingest — assert session always completes without propagating exception"
+          ],
+          "test_spec_refs": [
+            "TS-05-P1",
+            "TS-05-P2",
+            "TS-05-P6"
+          ],
+          "requirement_refs": [
+            "05-REQ-2.1",
+            "05-REQ-2.2",
+            "05-REQ-2.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.4",
+          "title": "Write property tests for retrieval invariants and knowledge scoping",
+          "details": [
+            "TS-05-P4: arbitrary triage objects — assert task_group='0' is always passed to retrieve()",
+            "TS-05-P5: distinct integer pairs (N1, N2) — assert knowledge for N1 never returned for N2",
+            "TS-05-P7: arbitrary session_status values — assert pre-harvest ingest call args are unchanged (session_status present, no touched_files)",
+            "TS-05-P8: triage=None, affected_files=[], affected_files=None — assert file_footprint=None, no AttributeError"
+          ],
+          "test_spec_refs": [
+            "TS-05-P4",
+            "TS-05-P5",
+            "TS-05-P7",
+            "TS-05-P8"
+          ],
+          "requirement_refs": [
+            "05-REQ-5.1",
+            "05-REQ-7.2",
+            "05-REQ-7.3",
+            "05-REQ-8.2",
+            "05-REQ-10.1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "5.V",
+        "checks": [
+          "Spec tests for this group pass: pytest -q packages/agentfox/tests/ -k 'spec_name or property or extraction_import'",
+          "All existing tests still pass: pytest -q packages/agentfox/",
+          "No linter warnings introduced: ruff check packages/agentfox/agentfox/",
+          "Requirements 05-REQ-4.3, 05-REQ-8.1, 05-REQ-8.2 acceptance criteria met",
+          "All property tests run without counterexample found"
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "kind": "standard",
+      "title": "Implement agentfox.knowledge.extraction module",
+      "subtasks": [
+        {
+          "id": "6.1",
+          "title": "Create packages/agentfox/agentfox/knowledge/extraction.py with extract_session_summary",
+          "details": [
+            "Create packages/agentfox/agentfox/knowledge/extraction.py",
+            "Implement synchronous function: def extract_session_summary(response: str) -> tuple[str | None, list, list, list]",
+            "Port extraction logic from engine's private async _extract_knowledge_and_findings — drop self, node_id, attempt, workspace parameters",
+            "Return (None, [], [], []) for empty, absent structured fields, or any parsing/malformed error — never raise",
+            "Ensure the function is not async (no async def) so callers invoke it directly without await"
+          ],
+          "test_spec_refs": [
+            "TS-05-8",
+            "TS-05-9",
+            "TS-05-10",
+            "TS-05-11",
+            "TS-05-12",
+            "TS-05-15"
+          ],
+          "requirement_refs": [
+            "05-REQ-3.1",
+            "05-REQ-3.2",
+            "05-REQ-3.3",
+            "05-REQ-3.4",
+            "05-REQ-3.5",
+            "05-REQ-4.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.2",
+          "title": "Update session_lifecycle.py to import and call extract_session_summary from agentfox.knowledge.extraction",
+          "details": [
+            "In packages/agentfox/agentfox/engine/session_lifecycle.py, add import: from agentfox.knowledge.extraction import extract_session_summary",
+            "Replace call to self._extract_knowledge_and_findings(...) with direct synchronous call to extract_session_summary(outcome_response)",
+            "Remove the await keyword from the call site — function is now synchronous",
+            "Preserve the returned 4-tuple assignment; external behavior of the method is unchanged",
+            "Remove or deprecate the private _extract_knowledge_and_findings method if no other call sites remain"
+          ],
+          "test_spec_refs": [
+            "TS-05-16",
+            "TS-05-44"
+          ],
+          "requirement_refs": [
+            "05-REQ-4.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "6.V",
+        "checks": [
+          "Spec tests pass: pytest -q packages/agentfox/tests/knowledge/test_extraction.py",
+          "Session lifecycle tests still pass: pytest -q packages/agentfox/tests/engine/",
+          "No linter warnings: ruff check packages/agentfox/agentfox/knowledge/extraction.py packages/agentfox/agentfox/engine/session_lifecycle.py",
+          "Requirements 05-REQ-3.1–05-REQ-3.5, 05-REQ-4.1, 05-REQ-4.2 acceptance criteria met",
+          "inspect.iscoroutinefunction(extract_session_summary) is False confirmed in test"
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "kind": "standard",
+      "title": "Extend CoderReviewerLoop return object with response and affected_files fields",
+      "subtasks": [
+        {
+          "id": "7.1",
+          "title": "Add response and affected_files fields to the CoderReviewerLoop return dataclass/namedtuple",
+          "details": [
+            "In packages/agentfox/agentfox/nightshift/coder_reviewer.py, locate the existing return dataclass or namedtuple",
+            "Add field: response: str = '' (default empty string)",
+            "Add field: affected_files: list[str] = field(default_factory=list) (default empty list)",
+            "Do not introduce a new return type — extend the existing one in-place"
+          ],
+          "test_spec_refs": [
+            "TS-05-29"
+          ],
+          "requirement_refs": [
+            "05-REQ-9.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.2",
+          "title": "Populate response and affected_files on the successful CoderReviewerLoop.run() path",
+          "details": [
+            "In CoderReviewerLoop.run(), after a successful coder session completes, set response=outcome.response (last assistant message text from SessionOutcome)",
+            "Set affected_files to the triage output's affected_files list",
+            "Ensure the populated fields are present in the returned object before returning to fix_pipeline.py"
+          ],
+          "test_spec_refs": [
+            "TS-05-30",
+            "TS-05-39"
+          ],
+          "requirement_refs": [
+            "05-REQ-9.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.3",
+          "title": "Ensure early-exit paths return defaults for response and affected_files",
+          "details": [
+            "Audit all early-exit paths in CoderReviewerLoop.run() (triage failure, aborted loop, etc.)",
+            "Ensure each early-exit returns the dataclass with response='' and affected_files=[] defaults — never uninitialized",
+            "No AttributeError should ever be raised by fix_pipeline.py when accessing these fields"
+          ],
+          "test_spec_refs": [
+            "TS-05-31",
+            "TS-05-40"
+          ],
+          "requirement_refs": [
+            "05-REQ-9.3",
+            "05-REQ-9.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "7.V",
+        "checks": [
+          "Spec tests pass: pytest -q packages/agentfox/tests/nightshift/test_coder_reviewer.py",
+          "All existing tests still pass: pytest -q packages/agentfox/",
+          "No linter warnings: ruff check packages/agentfox/agentfox/nightshift/coder_reviewer.py",
+          "Requirements 05-REQ-9.1, 05-REQ-9.2, 05-REQ-9.3 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 8,
+      "kind": "standard",
+      "title": "Implement _harvest_and_push return value and _retrieve_knowledge wiring in fix_pipeline.py",
+      "subtasks": [
+        {
+          "id": "8.1",
+          "title": "Change _harvest_and_push to return the list[str] of changed file paths",
+          "details": [
+            "In packages/agentfox/agentfox/nightshift/fix_pipeline.py, modify _harvest_and_push to capture the return value of harvest()",
+            "Return the list[str] of changed file paths to the caller (not just check for empty)",
+            "When harvest() returns [], return [] — do not trigger post-harvest ingestion from within _harvest_and_push itself",
+            "Propagate harvest() exceptions to the caller unchanged"
+          ],
+          "test_spec_refs": [
+            "TS-05-1",
+            "TS-05-2",
+            "TS-05-38",
+            "TS-05-E1"
+          ],
+          "requirement_refs": [
+            "05-REQ-1.1",
+            "05-REQ-1.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.2",
+          "title": "Wire _retrieve_knowledge: pass task_group='0', task_description, and file_footprint",
+          "details": [
+            "In _retrieve_knowledge, pass task_group='0' to FoxKnowledgeProvider.retrieve()",
+            "Pass the triage summary/description field as the task_description positional argument; use '' when triage is None or description unavailable",
+            "Pass triage.affected_files as file_footprint when non-empty; pass None when triage is None or affected_files is empty/None",
+            "Use spec_name='fix-issue-{N}' from the existing pipeline attribute (not parsed from session ID string)",
+            "Return the list[str] from retrieve() to the caller; on exception catch, log WARNING and return []"
+          ],
+          "test_spec_refs": [
+            "TS-05-18",
+            "TS-05-19",
+            "TS-05-20",
+            "TS-05-22",
+            "TS-05-23",
+            "TS-05-24",
+            "TS-05-25",
+            "TS-05-26",
+            "TS-05-27"
+          ],
+          "requirement_refs": [
+            "05-REQ-5.1",
+            "05-REQ-5.2",
+            "05-REQ-5.3",
+            "05-REQ-6.1",
+            "05-REQ-6.2",
+            "05-REQ-7.1",
+            "05-REQ-7.2",
+            "05-REQ-7.3",
+            "05-REQ-8.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.3",
+          "title": "Add structured log lines for _retrieve_knowledge observability",
+          "details": [
+            "After FoxKnowledgeProvider.retrieve() returns, emit a structured log line recording task_group value and per-category item count",
+            "Log format should include: task_group='0', and item counts from the retrieval result",
+            "On exception path, log at WARNING level with exception details before returning []"
+          ],
+          "test_spec_refs": [
+            "TS-05-21"
+          ],
+          "requirement_refs": [
+            "05-REQ-5.4"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "8.V",
+        "checks": [
+          "Spec tests pass: pytest -q packages/agentfox/tests/nightshift/test_fix_pipeline.py -k 'harvest or retrieve'",
+          "All existing tests still pass: pytest -q packages/agentfox/",
+          "No linter warnings: ruff check packages/agentfox/agentfox/nightshift/fix_pipeline.py",
+          "Requirements 05-REQ-1.1, 05-REQ-1.2, 05-REQ-5.1–05-REQ-5.4, 05-REQ-6.1, 05-REQ-6.2, 05-REQ-7.1–05-REQ-7.3, 05-REQ-8.1 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 9,
+      "kind": "standard",
+      "title": "Implement post-harvest _ingest_knowledge call with touched_files and session summaries",
+      "subtasks": [
+        {
+          "id": "9.1",
+          "title": "Import extract_session_summary in fix_pipeline.py and wire post-harvest ingestion call",
+          "details": [
+            "Add import: from agentfox.knowledge.extraction import extract_session_summary to fix_pipeline.py",
+            "After _harvest_and_push returns a non-empty file list, call _ingest_knowledge with touched_files=<changed_files>",
+            "Omit commit_sha from the post-harvest ingest context dict entirely",
+            "Pass session_id='fix-issue-{N}' and spec_name='fix-issue-{N}' using the existing pipeline attribute",
+            "Skip post-harvest ingest call entirely when _harvest_and_push returns []"
+          ],
+          "test_spec_refs": [
+            "TS-05-3",
+            "TS-05-4",
+            "TS-05-5",
+            "TS-05-17"
+          ],
+          "requirement_refs": [
+            "05-REQ-2.1",
+            "05-REQ-2.2",
+            "05-REQ-2.3",
+            "05-REQ-2.4",
+            "05-REQ-4.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "9.2",
+          "title": "Extract summary from outcome.response and include in post-harvest ingest context",
+          "details": [
+            "Call extract_session_summary(outcome.response) synchronously (no await) in the post-harvest path",
+            "When summary_text is not None, include 'summary', 'rejected_approaches', 'gotchas', 'assumptions' in the ingest context dict",
+            "When summary_text is None (empty or malformed response), omit all summary-related keys from context",
+            "outcome.response from CoderReviewerLoop return object default '' causes extract_session_summary to return (None, [], [], []) — summary storage skipped silently"
+          ],
+          "test_spec_refs": [
+            "TS-05-13",
+            "TS-05-14",
+            "TS-05-E4"
+          ],
+          "requirement_refs": [
+            "05-REQ-3.6",
+            "05-REQ-3.7",
+            "05-REQ-3.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "9.3",
+          "title": "Add post-harvest ingestion error handling and observability log line",
+          "details": [
+            "Wrap the post-harvest FoxKnowledgeProvider.ingest() call in try/except",
+            "On exception: log at ERROR level including session ID ('fix-issue-{N}') and exception details; do not re-raise",
+            "After successful post-harvest ingest: emit structured log line with touched_files count and summary_extracted=True/False",
+            "Session success is not gated on this call — pipeline continues regardless of exception"
+          ],
+          "test_spec_refs": [
+            "TS-05-7",
+            "TS-05-36",
+            "TS-05-E2"
+          ],
+          "requirement_refs": [
+            "05-REQ-2.E1",
+            "05-REQ-2.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "9.4",
+          "title": "Verify pre-harvest ingestion call in _emit_session_event is preserved unchanged",
+          "details": [
+            "Review _emit_session_event — confirm the existing pre-harvest _ingest_knowledge call arguments, timing, and error handling are unchanged",
+            "Confirm no touched_files or summary keys are added to the pre-harvest context",
+            "Confirm the two ingestion calls (pre-harvest and post-harvest) are fully independent"
+          ],
+          "test_spec_refs": [
+            "TS-05-32",
+            "TS-05-33"
+          ],
+          "requirement_refs": [
+            "05-REQ-10.1",
+            "05-REQ-10.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "9.V",
+        "checks": [
+          "Spec tests pass: pytest -q packages/agentfox/tests/nightshift/test_fix_pipeline.py -k 'ingest or summary or preharvest'",
+          "All existing tests still pass: pytest -q packages/agentfox/",
+          "No linter warnings: ruff check packages/agentfox/agentfox/nightshift/fix_pipeline.py",
+          "Requirements 05-REQ-2.1–05-REQ-2.5, 05-REQ-2.E1, 05-REQ-2.E2, 05-REQ-3.6, 05-REQ-3.7, 05-REQ-10.1, 05-REQ-10.2 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 10,
+      "kind": "checkpoint",
+      "title": "Integration checkpoint: run all spec tests and property tests",
+      "subtasks": [
+        {
+          "id": "10.1",
+          "title": "Run all unit tests for this spec and confirm zero failures",
+          "details": [
+            "Run: pytest -q packages/agentfox/tests/ -k 'nightshift_knowledge_parity or fix_pipeline or coder_reviewer or extraction'",
+            "Confirm all 44 test cases pass (TS-05-1 through TS-05-44)",
+            "Confirm all 8 property tests pass (TS-05-P1 through TS-05-P8) with no counterexamples",
+            "Confirm all 6 edge case tests pass (TS-05-E1 through TS-05-E6)"
+          ],
+          "test_spec_refs": [
+            "TS-05-34",
+            "TS-05-35",
+            "TS-05-36",
+            "TS-05-37",
+            "TS-05-38",
+            "TS-05-41",
+            "TS-05-42",
+            "TS-05-43",
+            "TS-05-44"
+          ],
+          "requirement_refs": [
+            "05-REQ-11.1",
+            "05-REQ-11.2",
+            "05-REQ-11.3",
+            "05-REQ-11.4",
+            "05-REQ-11.5",
+            "05-REQ-12.1",
+            "05-REQ-12.2",
+            "05-REQ-13.1",
+            "05-REQ-13.2",
+            "05-REQ-13.3",
+            "05-REQ-13.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "10.2",
+          "title": "Confirm no regressions in the full test suite",
+          "details": [
+            "Run: pytest -q packages/agentfox/ — confirm 0 failures across all existing tests",
+            "Pay particular attention to engine/session_lifecycle tests which were modified to call extract_session_summary",
+            "Verify no import errors from the new agentfox.knowledge.extraction module"
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [
+            "05-REQ-10.1",
+            "05-REQ-10.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "10.3",
+          "title": "Run linter on all changed files",
+          "details": [
+            "Run: ruff check packages/agentfox/agentfox/knowledge/extraction.py packages/agentfox/agentfox/nightshift/fix_pipeline.py packages/agentfox/agentfox/nightshift/coder_reviewer.py packages/agentfox/agentfox/engine/session_lifecycle.py",
+            "Zero warnings or errors required",
+            "Confirm no bare 'pass' statements, no 'raise NotImplementedError' stubs, and no TODO comments in production paths"
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "10.V",
+        "checks": [
+          "All spec tests pass: pytest -q packages/agentfox/tests/ -k 'nightshift or extraction'",
+          "Full suite passes: pytest -q packages/agentfox/ with 0 failures",
+          "Linter clean: ruff check packages/agentfox/agentfox/ with 0 warnings",
+          "All correctness properties 05-PROP-1 through 05-PROP-8 validated by property tests"
+        ]
+      }
+    },
+    {
+      "id": 11,
+      "kind": "wiring_verification",
+      "title": "Wiring verification: end-to-end integration and stub audit",
+      "subtasks": [
+        {
+          "id": "11.1",
+          "title": "Trace execution paths — verify call chains are live, not stubbed",
+          "details": [
+            "Trace 05-PATH-1: confirm _retrieve_knowledge → FoxKnowledgeProvider.retrieve() → _harvest_and_push returns list → _ingest_knowledge → FoxKnowledgeProvider.ingest() are all live calls in fix_pipeline.py",
+            "Trace 05-PATH-2: confirm triage=None path passes file_footprint=None and task_description='' without AttributeError",
+            "Verify extract_session_summary is imported from agentfox.knowledge.extraction (not defined inline) in fix_pipeline.py",
+            "Verify session_lifecycle.py calls extract_session_summary directly (no await, no longer delegates to _extract_knowledge_and_findings)"
+          ],
+          "test_spec_refs": [
+            "TS-05-SMOKE-1",
+            "TS-05-SMOKE-2"
+          ],
+          "requirement_refs": [
+            "05-REQ-1.1",
+            "05-REQ-2.1",
+            "05-REQ-3.6",
+            "05-REQ-5.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.2",
+          "title": "Verify return value propagation across all changed call sites",
+          "details": [
+            "Confirm _harvest_and_push return value (list[str]) is captured by the caller in fix_pipeline.py and used in the post-harvest ingest call",
+            "Confirm _retrieve_knowledge return value (list[str]) is captured and injected into the session context for CoderReviewerLoop",
+            "Confirm CoderReviewerLoop return object's response and affected_files fields are accessed by fix_pipeline.py at ingestion and retrieval time"
+          ],
+          "test_spec_refs": [
+            "TS-05-SMOKE-1",
+            "TS-05-SMOKE-4"
+          ],
+          "requirement_refs": [
+            "05-REQ-1.1",
+            "05-REQ-5.2",
+            "05-REQ-9.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.3",
+          "title": "Run all smoke tests with real components",
+          "details": [
+            "Run TS-05-SMOKE-1: full successful fix session — verify retrieve() called with task_group='0', ingest() called twice, no commit_sha, log lines emitted",
+            "Run TS-05-SMOKE-2: triage failure path — verify file_footprint=None, task_description='', no AttributeError",
+            "Run TS-05-SMOKE-3: post-harvest ingest raises — verify ERROR log, session still succeeds, no exception propagates",
+            "Run TS-05-SMOKE-4: second run on same issue — verify retrieve() returns prior knowledge and it is injected into session context"
+          ],
+          "test_spec_refs": [
+            "TS-05-SMOKE-1",
+            "TS-05-SMOKE-2",
+            "TS-05-SMOKE-3",
+            "TS-05-SMOKE-4"
+          ],
+          "requirement_refs": [
+            "05-REQ-2.1",
+            "05-REQ-3.6",
+            "05-REQ-5.1",
+            "05-REQ-10.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.4",
+          "title": "Stub and dead-code audit across all changed files",
+          "details": [
+            "Search packages/agentfox/agentfox/nightshift/fix_pipeline.py for: raise NotImplementedError, bare 'return None' in non-trivial methods, 'touched_files=[]' stub, 'task_group=None' stub, pass statements in non-abstract methods",
+            "Search packages/agentfox/agentfox/nightshift/coder_reviewer.py for uninitialized response or affected_files fields",
+            "Search packages/agentfox/agentfox/knowledge/extraction.py for raise NotImplementedError or bare pass",
+            "Confirm _extract_knowledge_and_findings in session_lifecycle.py is no longer called (dead code removed or clearly deprecated)",
+            "Confirm no TODO comments remain in production paths of changed files"
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.5",
+          "title": "Verify cross-spec entry points and deployment safety confirmation",
+          "details": [
+            "Confirm agentfox.knowledge.extraction.extract_session_summary is importable from both agentfox.engine.session_lifecycle and agentfox.nightshift.fix_pipeline without circular imports",
+            "Confirm FoxKnowledgeProvider.retrieve() and FoxKnowledgeProvider.ingest() signatures match the verified external API table: retrieve(spec_name, task_description, task_group=None, session_id=None, file_footprint=None) and ingest(session_id, spec_name, context: dict)",
+            "Confirm deployment safety: no new tables, no schema changes, no new configuration surface introduced by this spec"
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [
+            "05-REQ-8.1",
+            "05-REQ-10.1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "11.V",
+        "checks": [
+          "All smoke tests pass: pytest -q packages/agentfox/tests/nightshift/ -k 'smoke'",
+          "Full test suite passes: pytest -q packages/agentfox/ with 0 failures",
+          "Linter clean across all changed files: ruff check packages/agentfox/agentfox/knowledge/extraction.py packages/agentfox/agentfox/nightshift/fix_pipeline.py packages/agentfox/agentfox/nightshift/coder_reviewer.py packages/agentfox/agentfox/engine/session_lifecycle.py",
+          "No stub markers found: grep -rn 'raise NotImplementedError\\|touched_files=\\[\\]\\|task_group=None' packages/agentfox/agentfox/nightshift/fix_pipeline.py returns 0 matches in production paths",
+          "Goals 1–5 from PRD observable: drift supersession runs with real files, summaries stored, cross-group/spec/summary retrieval enabled, file_footprint wired, pre-harvest path unchanged",
+          "05-PROP-1 through 05-PROP-8 all confirmed by property test runs"
+        ]
+      }
+    }
+  ],
+  "traceability": [
+    {
+      "requirement_id": "05-REQ-1.1",
+      "test_spec_id": "TS-05-1",
+      "task_id": "8.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-1.2",
+      "test_spec_id": "TS-05-2",
+      "task_id": "8.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-1.E1",
+      "test_spec_id": "TS-05-E1",
+      "task_id": "8.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-2.1",
+      "test_spec_id": "TS-05-3",
+      "task_id": "9.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-2.2",
+      "test_spec_id": "TS-05-4",
+      "task_id": "9.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-2.3",
+      "test_spec_id": "TS-05-5",
+      "task_id": "9.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-2.4",
+      "test_spec_id": "TS-05-6",
+      "task_id": "9.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-2.5",
+      "test_spec_id": "TS-05-7",
+      "task_id": "9.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-2.E1",
+      "test_spec_id": "TS-05-E2",
+      "task_id": "9.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-2.E2",
+      "test_spec_id": "TS-05-E3",
+      "task_id": "9.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-3.1",
+      "test_spec_id": "TS-05-8",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-3.2",
+      "test_spec_id": "TS-05-9",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-3.3",
+      "test_spec_id": "TS-05-10",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-3.4",
+      "test_spec_id": "TS-05-11",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-3.5",
+      "test_spec_id": "TS-05-12",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-3.6",
+      "test_spec_id": "TS-05-13",
+      "task_id": "9.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-3.7",
+      "test_spec_id": "TS-05-14",
+      "task_id": "9.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-3.E1",
+      "test_spec_id": "TS-05-E4",
+      "task_id": "9.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-4.1",
+      "test_spec_id": "TS-05-15",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-4.2",
+      "test_spec_id": "TS-05-16",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-4.3",
+      "test_spec_id": "TS-05-17",
+      "task_id": "9.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-5.1",
+      "test_spec_id": "TS-05-18",
+      "task_id": "8.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-5.2",
+      "test_spec_id": "TS-05-19",
+      "task_id": "8.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-5.3",
+      "test_spec_id": "TS-05-20",
+      "task_id": "8.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-5.4",
+      "test_spec_id": "TS-05-21",
+      "task_id": "8.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-5.E1",
+      "test_spec_id": "TS-05-E5",
+      "task_id": "8.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-6.1",
+      "test_spec_id": "TS-05-22",
+      "task_id": "8.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-6.2",
+      "test_spec_id": "TS-05-23",
+      "task_id": "8.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-7.1",
+      "test_spec_id": "TS-05-24",
+      "task_id": "8.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-7.2",
+      "test_spec_id": "TS-05-25",
+      "task_id": "8.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-7.3",
+      "test_spec_id": "TS-05-26",
+      "task_id": "8.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-8.1",
+      "test_spec_id": "TS-05-27",
+      "task_id": "8.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-8.2",
+      "test_spec_id": "TS-05-28",
+      "task_id": "8.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-9.1",
+      "test_spec_id": "TS-05-29",
+      "task_id": "7.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-9.2",
+      "test_spec_id": "TS-05-30",
+      "task_id": "7.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-9.3",
+      "test_spec_id": "TS-05-31",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-9.E1",
+      "test_spec_id": "TS-05-E6",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-10.1",
+      "test_spec_id": "TS-05-32",
+      "task_id": "9.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-10.2",
+      "test_spec_id": "TS-05-33",
+      "task_id": "9.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-11.1",
+      "test_spec_id": "TS-05-34",
+      "task_id": "10.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-11.2",
+      "test_spec_id": "TS-05-35",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-11.3",
+      "test_spec_id": "TS-05-36",
+      "task_id": "4.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-11.4",
+      "test_spec_id": "TS-05-37",
+      "task_id": "3.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-11.5",
+      "test_spec_id": "TS-05-38",
+      "task_id": "3.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-12.1",
+      "test_spec_id": "TS-05-39",
+      "task_id": "7.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-12.2",
+      "test_spec_id": "TS-05-40",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-13.1",
+      "test_spec_id": "TS-05-41",
+      "task_id": "1.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-13.2",
+      "test_spec_id": "TS-05-42",
+      "task_id": "1.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-13.3",
+      "test_spec_id": "TS-05-43",
+      "task_id": "1.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "05-REQ-13.4",
+      "test_spec_id": "TS-05-44",
+      "task_id": "1.4",
+      "test_path": null
+    }
+  ]
+}
