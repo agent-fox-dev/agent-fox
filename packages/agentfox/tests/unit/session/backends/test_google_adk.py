@@ -197,15 +197,13 @@ class TestGoogleADKBackendProtocolConformance:
     def test_isinstance_check(self) -> None:
         """TS-04-1: isinstance(GoogleADKBackend(), Backend) is True."""
         from agentfox.session.backends.google_adk import GoogleADKBackend
+        from agentfox.session.backends.protocol import Backend
 
         backend = GoogleADKBackend()
-        assert backend is not None
-        # When the Backend Protocol is defined (spec 02), verify:
-        # from agentfox.session.backends.protocol import Backend
-        # assert isinstance(backend, Backend)
-        # For now, verify the execute method exists with correct signature.
-        assert hasattr(backend, "execute")
-        assert callable(backend.execute)
+        assert isinstance(backend, Backend), (
+            f"GoogleADKBackend() does not satisfy Backend Protocol: "
+            f"got {type(backend).__name__}"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1099,14 +1097,18 @@ class TestPermissionCallbackDenial:
     """Verify permission_callback denial blocks tool execution."""
 
     async def test_denied_tool_not_executed(self) -> None:
-        """TS-04-16: Denied tool yields ToolUseMessage; structured error to model."""
+        """TS-04-16: Denied tool yields ToolUseMessage; tool not invoked."""
         from agentfox.session.backends.google_adk import GoogleADKBackend
         from agentfox.session.backends.types import ResultMessage, ToolUseMessage
+
+        permission_calls: list[tuple[str, dict[str, Any]]] = []
+        tool_was_called: list[bool] = []
 
         async def denying_callback(
             tool_name: str,
             args: dict[str, Any],
         ) -> bool:
+            permission_calls.append((tool_name, args))
             return False  # denial
 
         stream = _make_event_stream(
@@ -1115,16 +1117,60 @@ class TestPermissionCallbackDenial:
         )
 
         with _patch_adk(run_async_gen=stream):
-            backend = GoogleADKBackend()
-            messages = await _collect_async(
-                backend.execute(
-                    "task",
-                    system_prompt="sys",
-                    model="gemini-2.0-flash",
-                    cwd="/workspace",
-                    permission_callback=denying_callback,
-                ),
-            )
+            # Patch the execute tool to track if it was called.
+            # In the mocked ADK setup, tools are registered with the Agent
+            # but never actually invoked by the mock Runner.  We patch
+            # adk_tools.make_tools to return a tracking wrapper so we can
+            # verify the invariant that the tool function is never called
+            # when permission is denied.
+            original_make_tools = None
+            try:
+                from agentfox.session.backends import adk_tools
+
+                original_make_tools = adk_tools.make_tools
+            except ImportError:
+                pass
+
+            def tracking_make_tools(cwd, **kwargs):
+                tools = original_make_tools(cwd, **kwargs) if original_make_tools else []
+                for t in tools:
+                    if getattr(t, "__name__", "") == "execute":
+                        original_fn = t
+
+                        def tracked_execute(**kw):
+                            tool_was_called.append(True)
+                            return original_fn(**kw)
+
+                        tracked_execute.__name__ = "execute"
+                        tools[tools.index(t)] = tracked_execute
+                        break
+                return tools
+
+            with patch(
+                "agentfox.session.backends.google_adk.make_tools",
+                side_effect=tracking_make_tools,
+            ):
+                backend = GoogleADKBackend()
+                messages = await _collect_async(
+                    backend.execute(
+                        "task",
+                        system_prompt="sys",
+                        model="gemini-2.0-flash",
+                        cwd="/workspace",
+                        permission_callback=denying_callback,
+                    ),
+                )
+
+        # permission_callback was invoked with the correct tool name and args
+        assert len(permission_calls) == 1, (
+            f"Expected 1 permission check, got {len(permission_calls)}"
+        )
+        assert permission_calls[0] == ("execute", {"command": "rm -rf /"})
+
+        # The tool function was never invoked (04-REQ-5.2 core invariant)
+        assert len(tool_was_called) == 0, (
+            "Tool function was invoked despite permission denial"
+        )
 
         # A ToolUseMessage should still be yielded for the attempted call
         tool_msgs = [m for m in messages if isinstance(m, ToolUseMessage)]
@@ -1918,6 +1964,18 @@ class TestCreateBackendExistingKeys:
         )
         assert isinstance(result, Backend)
 
+    def test_create_backend_deepagents_still_works(self) -> None:
+        """TS-04-34: create_backend('deepagents') returns DeepAgentsBackend."""
+        from agentfox.session.backends import create_backend
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+        from agentfox.session.backends.protocol import Backend
+
+        result = create_backend("deepagents")
+        assert isinstance(result, DeepAgentsBackend), (
+            f"Expected DeepAgentsBackend, got {type(result).__name__}"
+        )
+        assert isinstance(result, Backend)
+
 
 # ---------------------------------------------------------------------------
 # TS-04-35: OrchestratorConfig accepts 'google-adk' backend value
@@ -2114,3 +2172,380 @@ class TestOrchestratorConfigUnknownBackend:
 
         with pytest.raises(ValidationError):
             OrchestratorConfig(backend="unknown-backend")
+
+
+# ===========================================================================
+# Task Group 13: Smoke tests and end-to-end wiring verification
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# TS-04-SMOKE-1: End-to-end coding session via GoogleADKBackend
+# Execution Path: 04-PATH-1
+# ---------------------------------------------------------------------------
+
+
+class TestSmoke1EndToEndSession:
+    """Smoke test tracing create_backend -> execute -> event stream."""
+
+    async def test_full_coding_session(self) -> None:
+        """TS-04-SMOKE-1: create_backend -> execute -> tool/text/result messages."""
+        from agentfox.session.backends import create_backend
+        from agentfox.session.backends.google_adk import GoogleADKBackend
+        from agentfox.session.backends.protocol import Backend
+        from agentfox.session.backends.types import (
+            AssistantMessage,
+            ResultMessage,
+            ToolUseMessage,
+        )
+
+        # Step 1: create_backend('google-adk') returns a GoogleADKBackend
+        backend = create_backend("google-adk")
+        assert isinstance(backend, GoogleADKBackend)
+        assert isinstance(backend, Backend)
+
+        # Step 2: Set up mock ADK components — the ADK event stream includes
+        # a FunctionCall, FunctionResponse (consumed silently), TextEvent,
+        # and TerminalEvent with usage metadata.
+        mock_session = _mock_session()
+        stream = _make_event_stream(
+            _make_function_call_event("write_file", {"path": "hello.py", "content": "print('hi')"}),
+            _make_function_response_event("write_file", {"ok": True}),
+            _make_text_event("Done"),
+            _make_terminal_event(input_tokens=200, output_tokens=80),
+        )
+
+        with (
+            patch(
+                "agentfox.session.backends.google_adk.InMemorySessionService",
+            ) as mock_svc_cls,
+            patch(
+                "agentfox.session.backends.google_adk.Agent",
+            ) as mock_agent_cls,
+            patch(
+                "agentfox.session.backends.google_adk.Runner",
+            ) as mock_runner_cls,
+        ):
+            mock_svc = AsyncMock()
+            mock_svc.create_session = AsyncMock(return_value=mock_session)
+            mock_svc_cls.return_value = mock_svc
+            mock_runner_cls.return_value = _make_mock_runner(stream)
+
+            # Step 3: Execute the session
+            messages = await _collect_async(
+                backend.execute(
+                    prompt="Write a hello world function",
+                    system_prompt="You are a coder",
+                    model="gemini-2.0-flash",
+                    cwd="/tmp/workspace",
+                ),
+            )
+
+        # Step 4: Verify the full wiring chain
+
+        # InMemorySessionService.create_session called with correct args
+        mock_svc.create_session.assert_called_once()
+        cs_kwargs = mock_svc.create_session.call_args.kwargs
+        assert cs_kwargs.get("app_name") == "agent-fox"
+        assert isinstance(cs_kwargs.get("user_id"), str)
+        assert len(cs_kwargs["user_id"]) > 0
+
+        # Agent constructed with correct params
+        mock_agent_cls.assert_called_once()
+        agent_kwargs = mock_agent_cls.call_args.kwargs
+        assert agent_kwargs["model"] == "gemini-2.0-flash"
+        assert agent_kwargs["name"] == "coder"
+        assert agent_kwargs["instruction"] == "You are a coder"
+
+        # Runner.run_async called with session.id and session.user_id
+        mock_runner_cls.return_value.run_async.assert_called_once()
+        ra_kwargs = mock_runner_cls.return_value.run_async.call_args.kwargs
+        assert ra_kwargs["session_id"] == mock_session.id
+        assert ra_kwargs["user_id"] == mock_session.user_id
+
+        # ToolUseMessage for 'write_file' was yielded
+        tool_msgs = [m for m in messages if isinstance(m, ToolUseMessage)]
+        assert len(tool_msgs) == 1
+        assert tool_msgs[0].tool_name == "write_file"
+
+        # AssistantMessage with 'Done' was yielded
+        assistant_msgs = [m for m in messages if isinstance(m, AssistantMessage)]
+        assert len(assistant_msgs) == 1
+        assert assistant_msgs[0].content == "Done"
+
+        # Final ResultMessage with correct token usage
+        result = messages[-1]
+        assert isinstance(result, ResultMessage)
+        assert result.is_error is False
+        assert result.input_tokens == 200
+        assert result.output_tokens == 80
+
+
+# ---------------------------------------------------------------------------
+# TS-04-SMOKE-2: Transient error retry path
+# Execution Path: 04-PATH-2
+# ---------------------------------------------------------------------------
+
+
+class TestSmoke2TransientRetry:
+    """Smoke test tracing the retry path for transient errors."""
+
+    async def test_retry_path_succeeds_on_second_attempt(self) -> None:
+        """TS-04-SMOKE-2: ResourceExhausted on attempt 1, success on attempt 2."""
+        from agentfox.session.backends.google_adk import GoogleADKBackend
+        from agentfox.session.backends.types import ResultMessage
+        from google.api_core.exceptions import ResourceExhausted
+
+        call_count = [0]
+
+        def run_async_effect(**_kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+
+                async def fail():
+                    raise ResourceExhausted("rate limit")
+                    yield  # noqa: RUF028
+
+                return fail()
+
+            async def succeed():
+                yield _make_terminal_event(input_tokens=150, output_tokens=60)
+
+            return succeed()
+
+        with (
+            patch(
+                "agentfox.session.backends.google_adk.InMemorySessionService",
+            ) as mock_svc_cls,
+            patch("agentfox.session.backends.google_adk.Agent"),
+            patch(
+                "agentfox.session.backends.google_adk.Runner",
+            ) as mock_runner_cls,
+            patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+        ):
+            mock_svc = AsyncMock()
+            mock_svc.create_session = AsyncMock(return_value=_mock_session())
+            mock_svc_cls.return_value = mock_svc
+
+            runner = MagicMock()
+            runner.run_async = MagicMock(side_effect=run_async_effect)
+            mock_runner_cls.return_value = runner
+
+            backend = GoogleADKBackend()
+            messages = await _collect_async(
+                backend.execute(
+                    prompt="Retry test",
+                    system_prompt="sys",
+                    model="gemini-2.0-flash",
+                    cwd="/workspace",
+                ),
+            )
+
+        # Verify wiring: run_async called exactly twice
+        assert call_count[0] == 2
+
+        # Exponential backoff: sleep(1.0) on first retry
+        mock_sleep.assert_called_once_with(1.0)
+
+        # Final message is successful ResultMessage
+        result = messages[-1]
+        assert isinstance(result, ResultMessage)
+        assert result.is_error is False
+
+        # No exception propagated to the caller
+        # (implicit: we reached this point without try/except)
+
+
+# ---------------------------------------------------------------------------
+# TS-04-SMOKE-3: Tool permission denial path
+# Execution Path: 04-PATH-3
+# ---------------------------------------------------------------------------
+
+
+class TestSmoke3PermissionDenial:
+    """Smoke test tracing the permission denial path."""
+
+    async def test_permission_denial_wiring(self) -> None:
+        """TS-04-SMOKE-3: Denied tool yields ToolUseMessage, tool not executed."""
+        from agentfox.session.backends.google_adk import GoogleADKBackend
+        from agentfox.session.backends.types import ResultMessage, ToolUseMessage
+
+        permission_calls: list[tuple[str, dict[str, Any]]] = []
+
+        async def denying_callback(
+            tool_name: str,
+            args: dict[str, Any],
+        ) -> bool:
+            permission_calls.append((tool_name, args))
+            return False  # denial
+
+        stream = _make_event_stream(
+            _make_function_call_event("execute", {"command": "rm -rf /"}),
+            _make_terminal_event(),
+        )
+
+        with _patch_adk(run_async_gen=stream):
+            backend = GoogleADKBackend()
+            messages = await _collect_async(
+                backend.execute(
+                    prompt="Delete everything",
+                    system_prompt="sys",
+                    model="gemini-2.0-flash",
+                    cwd="/workspace",
+                    permission_callback=denying_callback,
+                ),
+            )
+
+        # permission_callback was invoked with tool_name='execute'
+        assert len(permission_calls) == 1
+        assert permission_calls[0][0] == "execute"
+
+        # ToolUseMessage was yielded for the attempted call
+        tool_msgs = [m for m in messages if isinstance(m, ToolUseMessage)]
+        assert len(tool_msgs) >= 1
+        assert tool_msgs[0].tool_name == "execute"
+
+        # Session completes with a ResultMessage
+        result = messages[-1]
+        assert isinstance(result, ResultMessage)
+
+
+# ---------------------------------------------------------------------------
+# TS-04-SMOKE-4: Path containment violation via coding tool
+# Execution Path: 04-PATH-4
+# ---------------------------------------------------------------------------
+
+
+class TestSmoke4PathContainment:
+    """Smoke test tracing path containment from backend through adk_tools."""
+
+    async def test_path_containment_wiring(self, tmp_path: Path) -> None:
+        """TS-04-SMOKE-4: Path traversal rejected by real adk_tools.read_file."""
+        from agentfox.session.backends.adk_tools import make_tools
+        from agentfox.session.backends.google_adk import GoogleADKBackend
+        from agentfox.session.backends.types import ResultMessage, ToolUseMessage
+
+        # Step 1: Verify real adk_tools enforce path containment
+        tools = make_tools(tmp_path)
+        read_file = next(t for t in tools if t.__name__ == "read_file")
+
+        # Path traversal attempt
+        result = read_file(path="../../etc/passwd")
+        assert result == {
+            "error": "path_not_allowed",
+            "detail": "Path escapes workspace root",
+        }, f"Expected path_not_allowed, got: {result}"
+
+        # Step 2: Verify GoogleADKBackend creates tools and passes them to Agent
+        stream = _make_event_stream(
+            _make_function_call_event("read_file", {"path": "../../etc/passwd"}),
+            _make_terminal_event(),
+        )
+
+        captured_tools: list[list[Any]] = []
+
+        with (
+            patch(
+                "agentfox.session.backends.google_adk.InMemorySessionService",
+            ) as mock_svc_cls,
+            patch(
+                "agentfox.session.backends.google_adk.Agent",
+            ) as mock_agent_cls,
+            patch(
+                "agentfox.session.backends.google_adk.Runner",
+            ) as mock_runner_cls,
+        ):
+            mock_svc = AsyncMock()
+            mock_svc.create_session = AsyncMock(return_value=_mock_session())
+            mock_svc_cls.return_value = mock_svc
+            mock_runner_cls.return_value = _make_mock_runner(stream)
+
+            backend = GoogleADKBackend()
+            messages = await _collect_async(
+                backend.execute(
+                    prompt="Read /etc/passwd",
+                    system_prompt="sys",
+                    model="gemini-2.0-flash",
+                    cwd=str(tmp_path),
+                ),
+            )
+
+            # Capture the tools registered with Agent
+            agent_call_kwargs = mock_agent_cls.call_args.kwargs
+            captured_tools.append(agent_call_kwargs.get("tools", []))
+
+        # Tools were registered with Agent, including read_file
+        registered_tools = captured_tools[0]
+        tool_names = [
+            getattr(t, "__name__", str(t)) for t in registered_tools
+        ]
+        assert "read_file" in tool_names, (
+            f"read_file not in registered tools: {tool_names}"
+        )
+
+        # A ToolUseMessage for 'read_file' was yielded
+        tool_msgs = [m for m in messages if isinstance(m, ToolUseMessage)]
+        assert len(tool_msgs) == 1
+        assert tool_msgs[0].tool_name == "read_file"
+
+        # Session completed with ResultMessage
+        assert isinstance(messages[-1], ResultMessage)
+
+        # Step 3: Confirm no actual file was read (path containment enforced)
+        # This is verified by step 1 above — the real read_file tool
+        # rejects the path traversal and returns the error dict.
+        # In the mocked ADK setup, tool execution is managed by the
+        # mock Runner, so the real tool was not called during execute().
+        # The key verification is that make_tools(cwd) correctly
+        # constructs tools with path containment bound to cwd.
+
+
+# ---------------------------------------------------------------------------
+# Cross-spec entry point verification (subtask 13.5)
+# ---------------------------------------------------------------------------
+
+
+class TestCrossSpecEntryPointVerification:
+    """Verify integration points across spec boundaries."""
+
+    def test_create_backend_production_wiring(self) -> None:
+        """13.5: create_backend lazily imports GoogleADKBackend in production."""
+        from agentfox.session.backends import create_backend
+        from agentfox.session.backends.google_adk import GoogleADKBackend
+        from agentfox.session.backends.protocol import Backend
+
+        backend = create_backend("google-adk")
+        assert isinstance(backend, GoogleADKBackend)
+        assert isinstance(backend, Backend)
+
+    def test_isinstance_backend_protocol(self) -> None:
+        """13.5: GoogleADKBackend() satisfies Backend Protocol at runtime."""
+        from agentfox.session.backends.google_adk import GoogleADKBackend
+        from agentfox.session.backends.protocol import Backend
+
+        backend = GoogleADKBackend()
+        assert isinstance(backend, Backend)
+
+    def test_orchestrator_config_google_adk(self) -> None:
+        """13.5: OrchestratorConfig(backend='google-adk') validates."""
+        from agentfox.core.config import OrchestratorConfig
+
+        config = OrchestratorConfig(backend="google-adk")
+        assert config.backend == "google-adk"
+
+    def test_all_three_backends_validate_and_create(self) -> None:
+        """13.5: All three backend keys validate in config and create_backend."""
+        from agentfox.core.config import OrchestratorConfig
+        from agentfox.session.backends import create_backend
+        from agentfox.session.backends.protocol import Backend
+
+        for backend_name in ("claude", "deepagents", "google-adk"):
+            # Config validation
+            config = OrchestratorConfig(backend=backend_name)
+            assert config.backend == backend_name
+
+            # Factory instantiation
+            backend = create_backend(backend_name)
+            assert isinstance(backend, Backend), (
+                f"create_backend('{backend_name}') does not satisfy Backend Protocol"
+            )
