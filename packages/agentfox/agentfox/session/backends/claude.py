@@ -87,6 +87,7 @@ class ClaudeBackend:
         max_budget_usd: float | None = None,
         thinking: dict[str, Any] | None = None,
         effort: str | None = None,
+        compaction: bool = False,
     ) -> AsyncIterator[AgentMessage]:
         """Execute a session via the Claude SDK and yield canonical messages.
 
@@ -147,6 +148,18 @@ class ClaudeBackend:
                 options.output_config = {"effort": effort}  # type: ignore[assignment]
             except TypeError as exc:
                 logger.warning("SDK does not support 'output_config' parameter, omitting: %s", exc)
+
+        # NS-REQ-3.1: Apply server-side context compaction when enabled.
+        # Sets context_management on ClaudeAgentOptions to trigger the
+        # compact-2026-01-12 beta feature, preventing context overflow
+        # in long sessions.
+        if compaction:
+            try:
+                options.context_management = {  # type: ignore[assignment]
+                    "edits": [{"type": "compact_20260112"}],
+                }
+            except TypeError as exc:
+                logger.warning("SDK does not support 'context_management' parameter, omitting: %s", exc)
 
         # Register hooks for Notification (activity tracking) and
         # PostToolUseFailure (tool error tracking).

@@ -81,6 +81,7 @@ async def run_session(
     max_budget_usd: float | None = None,
     thinking: dict[str, Any] | None = None,
     effort: str | None = None,
+    compaction: bool = False,
     session_timeout: int | None = None,
     archetype: str | None = None,
 ) -> SessionOutcome:
@@ -154,6 +155,7 @@ async def run_session(
                 max_budget_usd=max_budget_usd,
                 thinking=thinking,
                 effort=effort,
+                compaction=compaction,
                 archetype=archetype,
             ),
             timeout_minutes=effective_timeout,
@@ -207,6 +209,7 @@ async def _execute_query(
     max_budget_usd: float | None = None,
     thinking: dict[str, Any] | None = None,
     effort: str | None = None,
+    compaction: bool = False,
     archetype: str | None = None,
 ) -> None:
     """Execute the query via ClaudeBackend and collect results.
@@ -264,6 +267,7 @@ async def _execute_query(
         max_budget_usd=max_budget_usd,
         thinking=thinking,
         effort=effort,
+        compaction=compaction,
     ):
         is_result = isinstance(message, ResultMessage)
 

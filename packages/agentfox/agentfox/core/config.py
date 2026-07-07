@@ -289,6 +289,13 @@ class PerArchetypeConfig(BaseModel):
         ),
         ge=0.0,
     )
+    compaction: bool | None = Field(
+        default=None,
+        description=(
+            "Enable server-side context compaction to prevent context overflow in long sessions. "
+            "None = use registry default (False)."
+        ),
+    )
     modes: dict[str, PerArchetypeConfig] = Field(
         default_factory=dict,
         description=(

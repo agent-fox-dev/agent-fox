@@ -120,6 +120,35 @@ def resolve_effort(config: AgentFoxConfig, archetype: str, *, mode: str | None =
     return effective.default_effort
 
 
+def resolve_compaction(config: AgentFoxConfig, archetype: str, *, mode: str | None = None) -> bool:
+    """Resolve compaction configuration for the given archetype.
+
+    Resolution order (highest to lowest priority):
+      1. archetypes.overrides.<name>.modes.<mode>.compaction (mode-level override)
+      2. archetypes.overrides.<name>.compaction (unified table)
+      3. Registry default (False)
+
+    Returns ``True`` when server-side context compaction should be enabled,
+    ``False`` otherwise.
+
+    Requirements: NS-REQ-2.1
+    """
+    override = config.archetypes.overrides.get(archetype)
+
+    # 1. Mode-level config override (highest priority)
+    if mode is not None and override is not None:
+        mode_cfg = override.modes.get(mode)
+        if mode_cfg is not None and mode_cfg.compaction is not None:
+            return mode_cfg.compaction
+
+    # 2. Unified per-archetype override table
+    if override is not None and override.compaction is not None:
+        return override.compaction
+
+    # 3. Registry default: compaction is off by default
+    return False
+
+
 def resolve_max_budget(config: AgentFoxConfig, archetype: str | None = None) -> float | None:
     """Resolve max_budget_usd from config.
 
@@ -315,6 +344,7 @@ class ResolvedSessionParams:
     thinking: dict | None
     max_budget_usd: float | None
     effort: str
+    compaction: bool
 
 
 def resolve_session_params(
@@ -335,10 +365,12 @@ def resolve_session_params(
     thinking = resolve_thinking(config, archetype, mode=mode)
     budget = resolve_max_budget(config, archetype)
     effort = resolve_effort(config, archetype, mode=mode)
+    compaction = resolve_compaction(config, archetype, mode=mode)
 
     return ResolvedSessionParams(
         max_turns=max_turns,
         thinking=thinking,
         max_budget_usd=budget,
         effort=effort,
+        compaction=compaction,
     )
