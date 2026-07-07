@@ -190,7 +190,7 @@
             "05-REQ-1.1",
             "05-REQ-1.2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -216,7 +216,7 @@
             "05-REQ-6.1",
             "05-REQ-6.2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -237,7 +237,7 @@
             "05-REQ-7.2",
             "05-REQ-7.3"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -257,7 +257,7 @@
             "05-REQ-5.E1",
             "05-REQ-5.4"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],
