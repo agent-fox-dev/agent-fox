@@ -1,22 +1,30 @@
 """Unit tests for fix_pipeline knowledge wiring — spec 05 (nightshift_knowledge_parity).
 
 Tests for ``_harvest_and_push`` returning ``list[str]`` of changed file paths,
-and ``_retrieve_knowledge`` passing ``task_group="0"``, ``task_description``,
-and ``file_footprint`` to ``FoxKnowledgeProvider.retrieve()``.
+``_retrieve_knowledge`` passing ``task_group="0"``, ``task_description``,
+and ``file_footprint`` to ``FoxKnowledgeProvider.retrieve()``,
+and post-harvest ingestion with real ``touched_files`` and session summaries.
 
 These tests follow the existing mock-injection pattern from
 ``test_fix_pipeline_knowledge.py``: a ``MagicMock()`` is passed as
 ``knowledge_provider`` to the ``FixPipeline`` constructor rather than
 patching at the import path.
 
-Test Spec: TS-05-1, TS-05-2, TS-05-18 through TS-05-28, TS-05-37, TS-05-38,
-           TS-05-E1, TS-05-E5
+Test Spec: TS-05-1, TS-05-2, TS-05-3, TS-05-4, TS-05-5, TS-05-6, TS-05-7,
+           TS-05-13, TS-05-14,
+           TS-05-18 through TS-05-28,
+           TS-05-32, TS-05-33, TS-05-35, TS-05-36, TS-05-37, TS-05-38,
+           TS-05-E1, TS-05-E2, TS-05-E3, TS-05-E4, TS-05-E5
 Requirements: 05-REQ-1.1, 05-REQ-1.2, 05-REQ-1.E1,
+              05-REQ-2.1, 05-REQ-2.2, 05-REQ-2.3, 05-REQ-2.4, 05-REQ-2.5,
+              05-REQ-2.E1, 05-REQ-2.E2,
+              05-REQ-3.6, 05-REQ-3.7,
               05-REQ-5.1 through 05-REQ-5.4, 05-REQ-5.E1,
               05-REQ-6.1, 05-REQ-6.2,
               05-REQ-7.1, 05-REQ-7.2, 05-REQ-7.3,
               05-REQ-8.1, 05-REQ-8.2,
-              05-REQ-11.4, 05-REQ-11.5
+              05-REQ-10.1, 05-REQ-10.2,
+              05-REQ-11.2, 05-REQ-11.3, 05-REQ-11.4, 05-REQ-11.5
 """
 
 from __future__ import annotations
@@ -601,3 +609,899 @@ class TestMockInjectionPattern:
 
         assert result == ["mocked"]
         provider.retrieve.assert_called_once()
+
+
+# ===========================================================================
+# 4.1 — Post-harvest _ingest_knowledge: touched_files, summary, commit_sha,
+#        spec_name
+# ===========================================================================
+# Test Spec: TS-05-3, TS-05-4, TS-05-5, TS-05-35
+# Requirements: 05-REQ-2.1, 05-REQ-2.2, 05-REQ-2.3, 05-REQ-11.2
+
+
+def _make_issue(number: int = 42) -> MagicMock:
+    """Build a minimal mock IssueResult for process_issue tests."""
+    issue = MagicMock()
+    issue.number = number
+    issue.title = f"Fix the flaky test #{number}"
+    issue.labels = []
+    return issue
+
+
+class TestPostHarvestIngestTouchedFiles:
+    """Verify post-harvest _ingest_knowledge passes real touched_files.
+
+    After _harvest_and_push returns a non-empty file list, the post-harvest
+    ingestion call must pass those files in the ``touched_files`` context
+    key to ``FoxKnowledgeProvider.ingest()``.
+
+    Test Spec: TS-05-3
+    Requirements: 05-REQ-2.1
+    """
+
+    async def test_ingest_context_contains_real_touched_files(self) -> None:
+        """Post-harvest ingest context has touched_files from harvest.
+
+        Test Spec: TS-05-3
+        Requirement: 05-REQ-2.1
+        """
+        provider = MagicMock()
+        provider.retrieve.return_value = []
+        pipeline = _make_pipeline(knowledge_provider=provider)
+        pipeline._run_id = "run-test-1"
+        workspace = _make_workspace()
+        triage = _make_triage()
+
+        # After implementation, process_issue will call _ingest_knowledge
+        # with touched_files from _harvest_and_push's return value.
+        # The post-harvest ingest call should have touched_files = ['src/alpha.py', 'src/beta.py']
+        with (
+            patch.object(pipeline, "_setup_workspace", new_callable=AsyncMock, return_value=workspace),
+            patch.object(pipeline, "_cleanup_workspace", new_callable=AsyncMock),
+            patch.object(pipeline, "_run_triage", new_callable=AsyncMock, return_value=triage),
+            patch.object(pipeline, "_coder_review_loop", new_callable=AsyncMock, return_value=True),
+            patch.object(pipeline, "_handle_result", new_callable=AsyncMock),
+            patch.object(pipeline, "_post_comment", new_callable=AsyncMock),
+            patch.object(pipeline, "_auto_commit_pending_changes", new_callable=AsyncMock),
+            patch.object(pipeline, "_push_fix_branch_upstream", new_callable=AsyncMock, return_value=True),
+            patch(
+                "agentfox.workspace.harvest.harvest",
+                new_callable=AsyncMock,
+                return_value=["src/alpha.py", "src/beta.py"],
+            ),
+            patch(
+                "agentfox.workspace.harvest.post_harvest_integrate",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await pipeline.process_issue(_make_issue(42), issue_body="Some body")
+
+        # Find the post-harvest ingest call: it should have touched_files
+        # with the real file paths, not an empty list.
+        ingest_calls = provider.ingest.call_args_list
+        post_harvest_calls = [
+            c
+            for c in ingest_calls
+            if "touched_files" in (c.kwargs.get("context") or c.args[2] if len(c.args) > 2 else {})
+            and (c.kwargs.get("context") or c.args[2] if len(c.args) > 2 else {}).get("touched_files")
+            != []
+        ]
+        assert len(post_harvest_calls) > 0, (
+            "Expected at least one post-harvest ingest call with non-empty touched_files; "
+            f"got {len(ingest_calls)} total ingest calls"
+        )
+        post_ctx = (
+            post_harvest_calls[0].kwargs.get("context")
+            or post_harvest_calls[0].args[2]
+        )
+        assert post_ctx["touched_files"] == ["src/alpha.py", "src/beta.py"]
+
+
+class TestPostHarvestIngestNoCommitSha:
+    """Verify post-harvest ingest context never contains 'commit_sha'.
+
+    Because harvest() does not return a commit SHA, the post-harvest
+    ingestion call must not include ``commit_sha`` in the context dict.
+
+    Test Spec: TS-05-4
+    Requirements: 05-REQ-2.2
+    """
+
+    async def test_commit_sha_absent_from_post_harvest_context(self) -> None:
+        """Post-harvest ingest context dict does not contain 'commit_sha'.
+
+        Test Spec: TS-05-4
+        Requirement: 05-REQ-2.2
+        """
+        provider = MagicMock()
+        provider.retrieve.return_value = []
+        pipeline = _make_pipeline(knowledge_provider=provider)
+        pipeline._run_id = "run-test-1"
+
+        with (
+            patch.object(pipeline, "_setup_workspace", new_callable=AsyncMock, return_value=_make_workspace()),
+            patch.object(pipeline, "_cleanup_workspace", new_callable=AsyncMock),
+            patch.object(pipeline, "_run_triage", new_callable=AsyncMock, return_value=_make_triage()),
+            patch.object(pipeline, "_coder_review_loop", new_callable=AsyncMock, return_value=True),
+            patch.object(pipeline, "_handle_result", new_callable=AsyncMock),
+            patch.object(pipeline, "_post_comment", new_callable=AsyncMock),
+            patch.object(pipeline, "_auto_commit_pending_changes", new_callable=AsyncMock),
+            patch.object(pipeline, "_push_fix_branch_upstream", new_callable=AsyncMock, return_value=True),
+            patch(
+                "agentfox.workspace.harvest.harvest",
+                new_callable=AsyncMock,
+                return_value=["src/foo.py"],
+            ),
+            patch(
+                "agentfox.workspace.harvest.post_harvest_integrate",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await pipeline.process_issue(_make_issue(42), issue_body="Some body")
+
+        # Find the post-harvest ingest call (non-empty touched_files)
+        ingest_calls = provider.ingest.call_args_list
+        for call in ingest_calls:
+            ctx = call.kwargs.get("context") or (call.args[2] if len(call.args) > 2 else {})
+            if ctx.get("touched_files") and ctx["touched_files"] != []:
+                assert "commit_sha" not in ctx, (
+                    f"Post-harvest ingest context must not contain 'commit_sha', got: {ctx}"
+                )
+
+
+class TestPostHarvestIngestSpecName:
+    """Verify post-harvest ingestion uses correct session_id and spec_name.
+
+    Both must be ``fix-issue-{N}`` using the pipeline's issue_number attribute.
+
+    Test Spec: TS-05-5
+    Requirements: 05-REQ-2.3
+    """
+
+    async def test_session_id_and_spec_name_are_fix_issue_n(self) -> None:
+        """Post-harvest ingest uses session_id='fix-issue-42' and spec_name='fix-issue-42'.
+
+        Test Spec: TS-05-5
+        Requirement: 05-REQ-2.3
+        """
+        provider = MagicMock()
+        provider.retrieve.return_value = []
+        pipeline = _make_pipeline(knowledge_provider=provider)
+        pipeline._run_id = "run-test-1"
+
+        with (
+            patch.object(pipeline, "_setup_workspace", new_callable=AsyncMock, return_value=_make_workspace()),
+            patch.object(pipeline, "_cleanup_workspace", new_callable=AsyncMock),
+            patch.object(pipeline, "_run_triage", new_callable=AsyncMock, return_value=_make_triage()),
+            patch.object(pipeline, "_coder_review_loop", new_callable=AsyncMock, return_value=True),
+            patch.object(pipeline, "_handle_result", new_callable=AsyncMock),
+            patch.object(pipeline, "_post_comment", new_callable=AsyncMock),
+            patch.object(pipeline, "_auto_commit_pending_changes", new_callable=AsyncMock),
+            patch.object(pipeline, "_push_fix_branch_upstream", new_callable=AsyncMock, return_value=True),
+            patch(
+                "agentfox.workspace.harvest.harvest",
+                new_callable=AsyncMock,
+                return_value=["src/foo.py"],
+            ),
+            patch(
+                "agentfox.workspace.harvest.post_harvest_integrate",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await pipeline.process_issue(_make_issue(42), issue_body="Some body")
+
+        # Find the post-harvest ingest call
+        ingest_calls = provider.ingest.call_args_list
+        post_harvest_calls = [
+            c
+            for c in ingest_calls
+            if (c.kwargs.get("context") or (c.args[2] if len(c.args) > 2 else {})).get("touched_files", []) != []
+        ]
+        assert len(post_harvest_calls) > 0, "Expected at least one post-harvest ingest call"
+        call = post_harvest_calls[0]
+        # session_id is the first positional arg, spec_name is the second
+        session_id = call.args[0] if call.args else call.kwargs.get("session_id")
+        spec_name = call.args[1] if len(call.args) > 1 else call.kwargs.get("spec_name")
+        assert session_id == "fix-issue-42" or "fix-issue-42" in str(session_id)
+        assert spec_name == "fix-issue-42"
+
+
+class TestPostHarvestIngestSummaryFields:
+    """Verify post-harvest ingest includes summary fields when present.
+
+    When ``extract_session_summary`` returns a non-None ``summary_text``,
+    the post-harvest ingest context must include ``summary``,
+    ``rejected_approaches``, ``gotchas``, and ``assumptions`` keys.
+
+    Test Spec: TS-05-13, TS-05-35
+    Requirements: 05-REQ-3.6, 05-REQ-11.2
+    """
+
+    async def test_summary_keys_present_when_extraction_succeeds(self) -> None:
+        """Post-harvest ingest has summary, rejected_approaches, gotchas, assumptions.
+
+        Test Spec: TS-05-13
+        Requirement: 05-REQ-3.6
+        """
+        provider = MagicMock()
+        provider.retrieve.return_value = []
+        pipeline = _make_pipeline(knowledge_provider=provider)
+        pipeline._run_id = "run-test-1"
+
+        with (
+            patch.object(pipeline, "_setup_workspace", new_callable=AsyncMock, return_value=_make_workspace()),
+            patch.object(pipeline, "_cleanup_workspace", new_callable=AsyncMock),
+            patch.object(pipeline, "_run_triage", new_callable=AsyncMock, return_value=_make_triage()),
+            patch.object(pipeline, "_coder_review_loop", new_callable=AsyncMock, return_value=True),
+            patch.object(pipeline, "_handle_result", new_callable=AsyncMock),
+            patch.object(pipeline, "_post_comment", new_callable=AsyncMock),
+            patch.object(pipeline, "_auto_commit_pending_changes", new_callable=AsyncMock),
+            patch.object(pipeline, "_push_fix_branch_upstream", new_callable=AsyncMock, return_value=True),
+            patch(
+                "agentfox.workspace.harvest.harvest",
+                new_callable=AsyncMock,
+                return_value=["src/foo.py"],
+            ),
+            patch(
+                "agentfox.workspace.harvest.post_harvest_integrate",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "agentfox.nightshift.fix_pipeline.extract_session_summary", create=True,
+                return_value=("session summary", ["approach A"], ["gotcha B"], ["assumption C"]),
+            ),
+        ):
+            await pipeline.process_issue(_make_issue(42), issue_body="Some body")
+
+        ingest_calls = provider.ingest.call_args_list
+        post_harvest_calls = [
+            c
+            for c in ingest_calls
+            if (c.kwargs.get("context") or (c.args[2] if len(c.args) > 2 else {})).get("touched_files", []) != []
+        ]
+        assert len(post_harvest_calls) > 0, "Expected a post-harvest ingest call"
+        ctx = post_harvest_calls[0].kwargs.get("context") or post_harvest_calls[0].args[2]
+        assert ctx["summary"] == "session summary"
+        assert ctx["rejected_approaches"] == ["approach A"]
+        assert ctx["gotchas"] == ["gotcha B"]
+        assert ctx["assumptions"] == ["assumption C"]
+
+    async def test_full_ingest_context_assertions(self) -> None:
+        """Post-harvest ingest has real touched_files, summary, correct spec_name, no commit_sha.
+
+        Test Spec: TS-05-35
+        Requirement: 05-REQ-11.2
+        """
+        provider = MagicMock()
+        provider.retrieve.return_value = []
+        pipeline = _make_pipeline(knowledge_provider=provider)
+        pipeline._run_id = "run-test-1"
+
+        with (
+            patch.object(
+                pipeline,
+                "_setup_workspace",
+                new_callable=AsyncMock,
+                return_value=WorkspaceInfo(
+                    path=Path("/tmp/mock-wt"),
+                    branch="fix/7-fix-the-flaky-test",
+                    spec_name="fix-issue-7",
+                    task_group=0,
+                ),
+            ),
+            patch.object(pipeline, "_cleanup_workspace", new_callable=AsyncMock),
+            patch.object(pipeline, "_run_triage", new_callable=AsyncMock, return_value=_make_triage()),
+            patch.object(pipeline, "_coder_review_loop", new_callable=AsyncMock, return_value=True),
+            patch.object(pipeline, "_handle_result", new_callable=AsyncMock),
+            patch.object(pipeline, "_post_comment", new_callable=AsyncMock),
+            patch.object(pipeline, "_auto_commit_pending_changes", new_callable=AsyncMock),
+            patch.object(pipeline, "_push_fix_branch_upstream", new_callable=AsyncMock, return_value=True),
+            patch(
+                "agentfox.workspace.harvest.harvest",
+                new_callable=AsyncMock,
+                return_value=["src/foo.py"],
+            ),
+            patch(
+                "agentfox.workspace.harvest.post_harvest_integrate",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "agentfox.nightshift.fix_pipeline.extract_session_summary", create=True,
+                return_value=("summary", ["r"], ["g"], ["a"]),
+            ),
+        ):
+            await pipeline.process_issue(_make_issue(7), issue_body="Some body")
+
+        ingest_calls = provider.ingest.call_args_list
+        post_harvest_calls = [
+            c
+            for c in ingest_calls
+            if (c.kwargs.get("context") or (c.args[2] if len(c.args) > 2 else {})).get("touched_files", []) != []
+        ]
+        assert len(post_harvest_calls) > 0
+        call = post_harvest_calls[0]
+        session_id_arg = call.args[0] if call.args else call.kwargs.get("session_id")
+        spec_name_arg = call.args[1] if len(call.args) > 1 else call.kwargs.get("spec_name")
+        ctx = call.kwargs.get("context") or call.args[2]
+        assert "fix-issue-7" in str(session_id_arg)
+        assert spec_name_arg == "fix-issue-7"
+        assert ctx["touched_files"] == ["src/foo.py"]
+        assert ctx["summary"] == "summary"
+        assert "commit_sha" not in ctx
+
+
+# ===========================================================================
+# 4.2 — Post-harvest ingestion: summary absent and ingestion skipped paths
+# ===========================================================================
+# Test Spec: TS-05-14, TS-05-E3, TS-05-E4
+# Requirements: 05-REQ-3.7, 05-REQ-2.E2
+
+
+class TestPostHarvestIngestSummaryAbsent:
+    """Verify summary-related keys are omitted when extraction returns None.
+
+    When ``extract_session_summary`` returns ``(None, [], [], [])``, the
+    post-harvest ingest context must NOT contain ``summary``,
+    ``rejected_approaches``, ``gotchas``, or ``assumptions`` keys.
+
+    Test Spec: TS-05-14
+    Requirements: 05-REQ-3.7
+    """
+
+    async def test_summary_keys_omitted_when_extraction_returns_none(self) -> None:
+        """Post-harvest ingest context has no summary keys when None.
+
+        Test Spec: TS-05-14
+        Requirement: 05-REQ-3.7
+        """
+        provider = MagicMock()
+        provider.retrieve.return_value = []
+        pipeline = _make_pipeline(knowledge_provider=provider)
+        pipeline._run_id = "run-test-1"
+
+        with (
+            patch.object(pipeline, "_setup_workspace", new_callable=AsyncMock, return_value=_make_workspace()),
+            patch.object(pipeline, "_cleanup_workspace", new_callable=AsyncMock),
+            patch.object(pipeline, "_run_triage", new_callable=AsyncMock, return_value=_make_triage()),
+            patch.object(pipeline, "_coder_review_loop", new_callable=AsyncMock, return_value=True),
+            patch.object(pipeline, "_handle_result", new_callable=AsyncMock),
+            patch.object(pipeline, "_post_comment", new_callable=AsyncMock),
+            patch.object(pipeline, "_auto_commit_pending_changes", new_callable=AsyncMock),
+            patch.object(pipeline, "_push_fix_branch_upstream", new_callable=AsyncMock, return_value=True),
+            patch(
+                "agentfox.workspace.harvest.harvest",
+                new_callable=AsyncMock,
+                return_value=["src/foo.py"],
+            ),
+            patch(
+                "agentfox.workspace.harvest.post_harvest_integrate",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "agentfox.nightshift.fix_pipeline.extract_session_summary", create=True,
+                return_value=(None, [], [], []),
+            ),
+        ):
+            await pipeline.process_issue(_make_issue(42), issue_body="Some body")
+
+        ingest_calls = provider.ingest.call_args_list
+        post_harvest_calls = [
+            c
+            for c in ingest_calls
+            if (c.kwargs.get("context") or (c.args[2] if len(c.args) > 2 else {})).get("touched_files", []) != []
+        ]
+        assert len(post_harvest_calls) > 0, "Expected a post-harvest ingest call"
+        ctx = post_harvest_calls[0].kwargs.get("context") or post_harvest_calls[0].args[2]
+        assert "summary" not in ctx
+        assert "rejected_approaches" not in ctx
+        assert "gotchas" not in ctx
+        assert "assumptions" not in ctx
+
+
+class TestPostHarvestIngestSkippedOnEmptyHarvest:
+    """Verify post-harvest ingestion is skipped when harvest returns [].
+
+    When ``_harvest_and_push`` returns an empty list, no post-harvest
+    ingest call should be made with empty ``touched_files``.
+
+    Test Spec: TS-05-E3
+    Requirements: 05-REQ-2.E2
+    """
+
+    async def test_no_post_harvest_ingest_on_empty_harvest(self) -> None:
+        """No post-harvest ingest call when _harvest_and_push returns [].
+
+        Test Spec: TS-05-E3
+        Requirement: 05-REQ-2.E2
+        """
+        provider = MagicMock()
+        provider.retrieve.return_value = []
+        pipeline = _make_pipeline(knowledge_provider=provider)
+        pipeline._run_id = "run-test-1"
+
+        with (
+            patch.object(pipeline, "_setup_workspace", new_callable=AsyncMock, return_value=_make_workspace()),
+            patch.object(pipeline, "_cleanup_workspace", new_callable=AsyncMock),
+            patch.object(pipeline, "_run_triage", new_callable=AsyncMock, return_value=_make_triage()),
+            patch.object(pipeline, "_coder_review_loop", new_callable=AsyncMock, return_value=True),
+            patch.object(pipeline, "_handle_result", new_callable=AsyncMock),
+            patch.object(pipeline, "_post_comment", new_callable=AsyncMock),
+            patch.object(pipeline, "_auto_commit_pending_changes", new_callable=AsyncMock),
+            patch.object(pipeline, "_push_fix_branch_upstream", new_callable=AsyncMock, return_value=True),
+            patch(
+                "agentfox.workspace.harvest.harvest",
+                new_callable=AsyncMock,
+                return_value=[],
+            ),
+            patch(
+                "agentfox.workspace.harvest.post_harvest_integrate",
+                new_callable=AsyncMock,
+            ),
+        ):
+            await pipeline.process_issue(_make_issue(42), issue_body="Some body")
+
+        # No post-harvest ingest call should have non-empty touched_files.
+        # The only ingest calls should be from pre-harvest path (with touched_files=[]).
+        ingest_calls = provider.ingest.call_args_list
+        for call in ingest_calls:
+            ctx = call.kwargs.get("context") or (call.args[2] if len(call.args) > 2 else {})
+            touched = ctx.get("touched_files", [])
+            assert touched == [] or touched is None, (
+                f"Post-harvest ingest should be skipped on empty harvest, "
+                f"but found touched_files={touched}"
+            )
+
+
+class TestPostHarvestIngestEmptyResponse:
+    """Verify empty response (early-exit path) is handled gracefully.
+
+    When ``outcome.response`` is empty, ``extract_session_summary("")``
+    returns ``(None, [], [], [])``; summary storage is skipped and no
+    error is raised.
+
+    Test Spec: TS-05-E4
+    Requirements: 05-REQ-3.E1
+    """
+
+    async def test_empty_response_skips_summary_storage(self) -> None:
+        """Pipeline continues without error when outcome.response is ''.
+
+        Test Spec: TS-05-E4
+        Requirement: 05-REQ-3.E1
+        """
+        provider = MagicMock()
+        provider.retrieve.return_value = []
+        pipeline = _make_pipeline(knowledge_provider=provider)
+        pipeline._run_id = "run-test-1"
+
+        with (
+            patch.object(pipeline, "_setup_workspace", new_callable=AsyncMock, return_value=_make_workspace()),
+            patch.object(pipeline, "_cleanup_workspace", new_callable=AsyncMock),
+            patch.object(pipeline, "_run_triage", new_callable=AsyncMock, return_value=_make_triage()),
+            patch.object(pipeline, "_coder_review_loop", new_callable=AsyncMock, return_value=True),
+            patch.object(pipeline, "_handle_result", new_callable=AsyncMock),
+            patch.object(pipeline, "_post_comment", new_callable=AsyncMock),
+            patch.object(pipeline, "_auto_commit_pending_changes", new_callable=AsyncMock),
+            patch.object(pipeline, "_push_fix_branch_upstream", new_callable=AsyncMock, return_value=True),
+            patch(
+                "agentfox.workspace.harvest.harvest",
+                new_callable=AsyncMock,
+                return_value=["src/foo.py"],
+            ),
+            patch(
+                "agentfox.workspace.harvest.post_harvest_integrate",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "agentfox.nightshift.fix_pipeline.extract_session_summary", create=True,
+                return_value=(None, [], [], []),
+            ),
+        ):
+            # Should not raise
+            await pipeline.process_issue(_make_issue(42), issue_body="Some body")
+
+        # Verify: if post-harvest ingest was called, it has no summary keys
+        ingest_calls = provider.ingest.call_args_list
+        for call in ingest_calls:
+            ctx = call.kwargs.get("context") or (call.args[2] if len(call.args) > 2 else {})
+            if ctx.get("touched_files") and ctx["touched_files"] != []:
+                assert "summary" not in ctx, "summary should not be in context when extraction returns None"
+
+
+# ===========================================================================
+# 4.3 — Post-harvest ingestion error handling and observability
+# ===========================================================================
+# Test Spec: TS-05-7, TS-05-36, TS-05-E2
+# Requirements: 05-REQ-2.E1, 05-REQ-2.5, 05-REQ-11.3
+
+
+class TestPostHarvestIngestErrorHandling:
+    """Verify post-harvest ingestion errors are caught and logged.
+
+    When ``FoxKnowledgeProvider.ingest()`` raises during the post-harvest
+    call, the error must be caught, logged at ERROR level with the session
+    ID and exception details, and the session must continue.
+
+    Test Spec: TS-05-36, TS-05-E2
+    Requirements: 05-REQ-2.E1, 05-REQ-11.3
+    """
+
+    async def test_ingest_exception_logged_at_error_level(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """ERROR log emitted with session ID and exception on ingest failure.
+
+        Test Spec: TS-05-36
+        Requirement: 05-REQ-11.3
+        """
+        provider = MagicMock()
+        provider.retrieve.return_value = []
+
+        # Track call count to only raise on post-harvest calls
+        call_count = 0
+
+        def ingest_side_effect(*args: object, **kwargs: object) -> None:
+            nonlocal call_count
+            call_count += 1
+            ctx = kwargs.get("context") or (args[2] if len(args) > 2 else {})
+            # Raise only on post-harvest calls (non-empty touched_files)
+            if isinstance(ctx, dict) and ctx.get("touched_files") and ctx["touched_files"] != []:
+                raise RuntimeError("db failure")
+
+        provider.ingest.side_effect = ingest_side_effect
+        pipeline = _make_pipeline(knowledge_provider=provider)
+        pipeline._run_id = "run-test-1"
+
+        with (
+            caplog.at_level(logging.ERROR),
+            patch.object(pipeline, "_setup_workspace", new_callable=AsyncMock, return_value=_make_workspace()),
+            patch.object(pipeline, "_cleanup_workspace", new_callable=AsyncMock),
+            patch.object(pipeline, "_run_triage", new_callable=AsyncMock, return_value=_make_triage()),
+            patch.object(pipeline, "_coder_review_loop", new_callable=AsyncMock, return_value=True),
+            patch.object(pipeline, "_handle_result", new_callable=AsyncMock),
+            patch.object(pipeline, "_post_comment", new_callable=AsyncMock),
+            patch.object(pipeline, "_auto_commit_pending_changes", new_callable=AsyncMock),
+            patch.object(pipeline, "_push_fix_branch_upstream", new_callable=AsyncMock, return_value=True),
+            patch(
+                "agentfox.workspace.harvest.harvest",
+                new_callable=AsyncMock,
+                return_value=["src/foo.py"],
+            ),
+            patch(
+                "agentfox.workspace.harvest.post_harvest_integrate",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "agentfox.nightshift.fix_pipeline.extract_session_summary", create=True,
+                return_value=(None, [], [], []),
+            ),
+        ):
+            # Must not raise — session continues despite ingest failure
+            await pipeline.process_issue(_make_issue(5), issue_body="Some body")
+
+        error_records = [r for r in caplog.records if r.levelno >= logging.ERROR]
+        assert len(error_records) > 0, "Expected at least one ERROR log record"
+        error_text = " ".join(r.message for r in error_records)
+        assert "fix-issue-5" in error_text or "db failure" in error_text
+
+    async def test_session_continues_on_ingest_exception(self) -> None:
+        """Pipeline completes even when post-harvest ingest raises.
+
+        Test Spec: TS-05-E2
+        Requirement: 05-REQ-2.E1
+        """
+        provider = MagicMock()
+        provider.retrieve.return_value = []
+
+        def ingest_side_effect(*args: object, **kwargs: object) -> None:
+            ctx = kwargs.get("context") or (args[2] if len(args) > 2 else {})
+            if isinstance(ctx, dict) and ctx.get("touched_files") and ctx["touched_files"] != []:
+                raise RuntimeError("connection refused")
+
+        provider.ingest.side_effect = ingest_side_effect
+        pipeline = _make_pipeline(knowledge_provider=provider)
+        pipeline._run_id = "run-test-1"
+
+        handle_result_mock = AsyncMock()
+
+        with (
+            patch.object(pipeline, "_setup_workspace", new_callable=AsyncMock, return_value=_make_workspace()),
+            patch.object(pipeline, "_cleanup_workspace", new_callable=AsyncMock),
+            patch.object(pipeline, "_run_triage", new_callable=AsyncMock, return_value=_make_triage()),
+            patch.object(pipeline, "_coder_review_loop", new_callable=AsyncMock, return_value=True),
+            patch.object(pipeline, "_handle_result", handle_result_mock),
+            patch.object(pipeline, "_post_comment", new_callable=AsyncMock),
+            patch.object(pipeline, "_auto_commit_pending_changes", new_callable=AsyncMock),
+            patch.object(pipeline, "_push_fix_branch_upstream", new_callable=AsyncMock, return_value=True),
+            patch(
+                "agentfox.workspace.harvest.harvest",
+                new_callable=AsyncMock,
+                return_value=["src/main.py"],
+            ),
+            patch(
+                "agentfox.workspace.harvest.post_harvest_integrate",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "agentfox.nightshift.fix_pipeline.extract_session_summary", create=True,
+                return_value=(None, [], [], []),
+            ),
+        ):
+            # Must not raise
+            await pipeline.process_issue(_make_issue(5), issue_body="Some body")
+
+        # Session should complete — handle_result should be called
+        handle_result_mock.assert_called_once()
+
+
+class TestPostHarvestIngestObservability:
+    """Verify structured log line after post-harvest ingestion.
+
+    A log record must be emitted after post-harvest ingestion containing
+    the ``touched_files`` count and ``summary_extracted`` flag.
+
+    Test Spec: TS-05-7
+    Requirements: 05-REQ-2.5
+    """
+
+    async def test_log_line_with_touched_files_count_and_summary_flag(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Log record emitted with touched_files count and summary_extracted.
+
+        Test Spec: TS-05-7
+        Requirement: 05-REQ-2.5
+        """
+        provider = MagicMock()
+        provider.retrieve.return_value = []
+        pipeline = _make_pipeline(knowledge_provider=provider)
+        pipeline._run_id = "run-test-1"
+
+        with (
+            caplog.at_level(logging.DEBUG),
+            patch.object(pipeline, "_setup_workspace", new_callable=AsyncMock, return_value=_make_workspace()),
+            patch.object(pipeline, "_cleanup_workspace", new_callable=AsyncMock),
+            patch.object(pipeline, "_run_triage", new_callable=AsyncMock, return_value=_make_triage()),
+            patch.object(pipeline, "_coder_review_loop", new_callable=AsyncMock, return_value=True),
+            patch.object(pipeline, "_handle_result", new_callable=AsyncMock),
+            patch.object(pipeline, "_post_comment", new_callable=AsyncMock),
+            patch.object(pipeline, "_auto_commit_pending_changes", new_callable=AsyncMock),
+            patch.object(pipeline, "_push_fix_branch_upstream", new_callable=AsyncMock, return_value=True),
+            patch(
+                "agentfox.workspace.harvest.harvest",
+                new_callable=AsyncMock,
+                return_value=["src/foo.py", "src/bar.py"],
+            ),
+            patch(
+                "agentfox.workspace.harvest.post_harvest_integrate",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "agentfox.nightshift.fix_pipeline.extract_session_summary", create=True,
+                return_value=("summary text", [], [], []),
+            ),
+        ):
+            await pipeline.process_issue(_make_issue(42), issue_body="Some body")
+
+        # Check for log record with touched_files count and summary_extracted
+        all_text = " ".join(r.message for r in caplog.records)
+        assert "touched_files" in all_text or "2" in all_text, (
+            f"Expected log line with touched_files count; got: {all_text[:500]}"
+        )
+        assert "summary_extracted" in all_text or "summary" in all_text, (
+            f"Expected log line with summary_extracted flag; got: {all_text[:500]}"
+        )
+
+
+# ===========================================================================
+# 4.4 — Pre-harvest ingestion preservation and call independence
+# ===========================================================================
+# Test Spec: TS-05-6, TS-05-32, TS-05-33
+# Requirements: 05-REQ-10.1, 05-REQ-10.2, 05-REQ-2.4
+
+
+class TestPreHarvestIngestionPreserved:
+    """Verify pre-harvest ingestion call in _emit_session_event is unchanged.
+
+    The pre-harvest call passes ``session_status`` in its context and must
+    continue to do so exactly as before — no ``touched_files`` or summary
+    keys should be present in the pre-harvest context.
+
+    Test Spec: TS-05-32
+    Requirements: 05-REQ-10.1
+    """
+
+    def test_pre_harvest_ingest_has_session_status(self) -> None:
+        """Pre-harvest ingest context contains 'session_status' key.
+
+        Test Spec: TS-05-32
+        Requirement: 05-REQ-10.1
+        """
+        provider = MagicMock()
+        pipeline = _make_pipeline(knowledge_provider=provider)
+        pipeline._run_id = "run-1"
+
+        outcome = MagicMock()
+        outcome.status = "completed"
+        outcome.input_tokens = 100
+        outcome.output_tokens = 50
+        outcome.cache_read_input_tokens = 0
+        outcome.cache_creation_input_tokens = 0
+        outcome.duration_ms = 1000
+        outcome.error_message = None
+
+        with (
+            patch.object(pipeline, "_record_session_to_db"),
+            patch("agentfox.engine.audit_helpers.calculate_session_cost", return_value=0.01),
+            patch("agentfox.nightshift.fix_pipeline.emit_audit_event"),
+        ):
+            pipeline._emit_session_event(
+                outcome,
+                "coder",
+                "run-1",
+                node_id="fix-issue-42:0:coder",
+                attempt=1,
+            )
+
+        # The pre-harvest call should have session_status='completed'
+        assert provider.ingest.called
+        ctx = provider.ingest.call_args[0][2]
+        assert ctx["session_status"] == "completed"
+
+    def test_pre_harvest_ingest_has_empty_touched_files(self) -> None:
+        """Pre-harvest ingest context has touched_files=[] (unchanged stub value).
+
+        Test Spec: TS-05-32
+        Requirement: 05-REQ-10.1
+        """
+        provider = MagicMock()
+        pipeline = _make_pipeline(knowledge_provider=provider)
+        pipeline._run_id = "run-1"
+
+        outcome = MagicMock()
+        outcome.status = "completed"
+        outcome.input_tokens = 100
+        outcome.output_tokens = 50
+        outcome.cache_read_input_tokens = 0
+        outcome.cache_creation_input_tokens = 0
+        outcome.duration_ms = 1000
+        outcome.error_message = None
+
+        with (
+            patch.object(pipeline, "_record_session_to_db"),
+            patch("agentfox.engine.audit_helpers.calculate_session_cost", return_value=0.01),
+            patch("agentfox.nightshift.fix_pipeline.emit_audit_event"),
+        ):
+            pipeline._emit_session_event(
+                outcome,
+                "coder",
+                "run-1",
+                node_id="fix-issue-42:0:coder",
+                attempt=1,
+            )
+
+        ctx = provider.ingest.call_args[0][2]
+        assert ctx["touched_files"] == []
+
+
+class TestPreAndPostHarvestCallIndependence:
+    """Verify pre-harvest and post-harvest ingestion calls are independent.
+
+    Both calls may execute within the same session. The failure of either
+    call must not affect the other.
+
+    Test Spec: TS-05-6, TS-05-33
+    Requirements: 05-REQ-2.4, 05-REQ-10.2
+    """
+
+    async def test_both_ingest_calls_execute_independently(self) -> None:
+        """Both pre-harvest and post-harvest ingest calls are made.
+
+        Test Spec: TS-05-6
+        Requirement: 05-REQ-2.4
+        """
+        provider = MagicMock()
+        provider.retrieve.return_value = []
+        pipeline = _make_pipeline(knowledge_provider=provider)
+        pipeline._run_id = "run-test-1"
+
+        with (
+            patch.object(pipeline, "_setup_workspace", new_callable=AsyncMock, return_value=_make_workspace()),
+            patch.object(pipeline, "_cleanup_workspace", new_callable=AsyncMock),
+            patch.object(pipeline, "_run_triage", new_callable=AsyncMock, return_value=_make_triage()),
+            patch.object(pipeline, "_coder_review_loop", new_callable=AsyncMock, return_value=True),
+            patch.object(pipeline, "_handle_result", new_callable=AsyncMock),
+            patch.object(pipeline, "_post_comment", new_callable=AsyncMock),
+            patch.object(pipeline, "_auto_commit_pending_changes", new_callable=AsyncMock),
+            patch.object(pipeline, "_push_fix_branch_upstream", new_callable=AsyncMock, return_value=True),
+            patch(
+                "agentfox.workspace.harvest.harvest",
+                new_callable=AsyncMock,
+                return_value=["src/foo.py"],
+            ),
+            patch(
+                "agentfox.workspace.harvest.post_harvest_integrate",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "agentfox.nightshift.fix_pipeline.extract_session_summary", create=True,
+                return_value=(None, [], [], []),
+            ),
+        ):
+            await pipeline.process_issue(_make_issue(42), issue_body="Some body")
+
+        # At least 2 ingest calls: pre-harvest (from _emit_session_event)
+        # and post-harvest (from process_issue after harvest)
+        assert provider.ingest.call_count >= 2, (
+            f"Expected at least 2 ingest calls (pre + post harvest), got {provider.ingest.call_count}"
+        )
+
+        # Verify pre-harvest call has session_status
+        pre_harvest_calls = [
+            c
+            for c in provider.ingest.call_args_list
+            if "session_status" in (c.kwargs.get("context") or (c.args[2] if len(c.args) > 2 else {}))
+        ]
+        assert len(pre_harvest_calls) > 0, "Expected pre-harvest ingest call with session_status"
+
+        # Verify post-harvest call has non-empty touched_files
+        post_harvest_calls = [
+            c
+            for c in provider.ingest.call_args_list
+            if (c.kwargs.get("context") or (c.args[2] if len(c.args) > 2 else {})).get("touched_files", []) != []
+        ]
+        assert len(post_harvest_calls) > 0, "Expected post-harvest ingest call with non-empty touched_files"
+
+    async def test_post_harvest_failure_does_not_affect_pre_harvest(self) -> None:
+        """Raising on post-harvest ingest doesn't prevent pre-harvest from completing.
+
+        Test Spec: TS-05-33
+        Requirement: 05-REQ-10.2
+        """
+        provider = MagicMock()
+        provider.retrieve.return_value = []
+
+        call_count = 0
+
+        def ingest_side_effect(*args: object, **kwargs: object) -> None:
+            nonlocal call_count
+            call_count += 1
+            ctx = kwargs.get("context") or (args[2] if len(args) > 2 else {})
+            # Raise only on post-harvest calls (non-empty touched_files)
+            if isinstance(ctx, dict) and ctx.get("touched_files") and ctx["touched_files"] != []:
+                raise RuntimeError("DB error")
+
+        provider.ingest.side_effect = ingest_side_effect
+        pipeline = _make_pipeline(knowledge_provider=provider)
+        pipeline._run_id = "run-test-1"
+
+        with (
+            patch.object(pipeline, "_setup_workspace", new_callable=AsyncMock, return_value=_make_workspace()),
+            patch.object(pipeline, "_cleanup_workspace", new_callable=AsyncMock),
+            patch.object(pipeline, "_run_triage", new_callable=AsyncMock, return_value=_make_triage()),
+            patch.object(pipeline, "_coder_review_loop", new_callable=AsyncMock, return_value=True),
+            patch.object(pipeline, "_handle_result", new_callable=AsyncMock),
+            patch.object(pipeline, "_post_comment", new_callable=AsyncMock),
+            patch.object(pipeline, "_auto_commit_pending_changes", new_callable=AsyncMock),
+            patch.object(pipeline, "_push_fix_branch_upstream", new_callable=AsyncMock, return_value=True),
+            patch(
+                "agentfox.workspace.harvest.harvest",
+                new_callable=AsyncMock,
+                return_value=["src/foo.py"],
+            ),
+            patch(
+                "agentfox.workspace.harvest.post_harvest_integrate",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "agentfox.nightshift.fix_pipeline.extract_session_summary", create=True,
+                return_value=(None, [], [], []),
+            ),
+        ):
+            # Must not raise — session continues despite post-harvest ingest failure
+            await pipeline.process_issue(_make_issue(42), issue_body="Some body")
+
+        # At least 2 ingest calls attempted (pre-harvest succeeded, post-harvest raised)
+        assert call_count >= 2, (
+            f"Expected at least 2 ingest calls attempted, got {call_count}"
+        )
