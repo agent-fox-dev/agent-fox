@@ -27,7 +27,7 @@ class TestConfigDefaults:
 
         assert isinstance(config, AgentFoxConfig)
         assert config.orchestrator.parallel == 2
-        assert config.orchestrator.sync_interval == 5
+        assert config.orchestrator.sync_interval is None
         assert config.orchestrator.max_retries == 2
         assert config.orchestrator.session_timeout == 45
         assert config.theme.playful is True
@@ -54,7 +54,7 @@ class TestConfigOverrides:
 
         assert config.orchestrator.parallel == 4
         # Other fields remain at defaults
-        assert config.orchestrator.sync_interval == 5
+        assert config.orchestrator.sync_interval is None
 
     def test_multiple_overrides(self, tmp_path: Path) -> None:
         """Multiple overrides are all applied."""

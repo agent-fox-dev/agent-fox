@@ -127,7 +127,24 @@ class OrchestratorConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     parallel: Annotated[int, Clamped(ge=1, le=8)] = Field(default=2, description="Maximum parallel sessions")
-    sync_interval: Annotated[int, Clamped(ge=0)] = Field(default=5, description="Sync interval in task groups")
+    sync_interval: int | None = Field(
+        default=None,
+        description="Sync barrier interval. None = auto (parallel * 3), 0 = disabled, positive = explicit override.",
+    )
+
+    @field_validator("sync_interval")
+    @classmethod
+    def clamp_sync_interval(cls, v: int | None) -> int | None:
+        """Clamp explicit sync_interval to >= 0; None passes through."""
+        if v is None:
+            return v
+        if v < 0:
+            logger.warning(
+                "Config field 'sync_interval' value %d out of range, clamped to 0",
+                v,
+            )
+            return 0
+        return v
     hot_load: bool = Field(default=True, description="Hot-load specs between sessions")
     max_retries: Annotated[int, Clamped(ge=0)] = Field(default=2, description="Maximum retries per task group")
     session_timeout: Annotated[int, Clamped(ge=1)] = Field(default=45, description="Session timeout in minutes")
@@ -166,6 +183,18 @@ class OrchestratorConfig(BaseModel):
     )
 
     _auto_clamp = _auto_clamp_validator()
+
+    @property
+    def effective_sync_interval(self) -> int:
+        """Resolve the effective barrier interval.
+
+        - ``None`` (default): auto-compute as ``parallel * 3``.
+        - ``0``: barriers disabled.
+        - Positive int: used verbatim as a user override.
+        """
+        if self.sync_interval is None:
+            return self.parallel * 3
+        return self.sync_interval
 
     @field_validator("max_blocked_fraction")
     @classmethod

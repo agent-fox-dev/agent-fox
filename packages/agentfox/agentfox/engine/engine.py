@@ -681,17 +681,18 @@ class Orchestrator:
                 return None
 
     async def _run_sync_barrier_if_needed(self, state: ExecutionState) -> None:
-        if self._config.sync_interval == 0:
+        effective = self._config.effective_sync_interval
+        if effective == 0:
             return
         completed_count = _count_node_status(state.node_states, "completed")
-        if not should_trigger_barrier(completed_count, self._config.sync_interval):
+        if not should_trigger_barrier(completed_count, effective):
             return
         _ib = "main"
         if self._full_config is not None:
             _ib = self._full_config.workspace.integration_branch
         await run_sync_barrier_sequence(
             state=state,
-            sync_interval=self._config.sync_interval,
+            sync_interval=effective,
             repo_root=self._repo_root,
             integration_branch=_ib,
             emit_audit=self._emit_audit,
@@ -769,7 +770,7 @@ class Orchestrator:
                 _ib = self._full_config.workspace.integration_branch
             await run_sync_barrier_sequence(
                 state=state,
-                sync_interval=self._config.sync_interval,
+                sync_interval=self._config.effective_sync_interval,
                 repo_root=self._repo_root,
                 integration_branch=_ib,
                 emit_audit=self._emit_audit,

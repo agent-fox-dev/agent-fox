@@ -757,10 +757,11 @@ class DispatchManager:
         from agentfox.engine.barrier import _count_node_status
         from agentfox.engine.hot_load import should_trigger_barrier
 
-        if self._config.sync_interval == 0:
+        effective = self._config.effective_sync_interval
+        if effective == 0:
             return False
         completed_count = _count_node_status(state.node_states, "completed")
-        return should_trigger_barrier(completed_count, self._config.sync_interval)
+        return should_trigger_barrier(completed_count, effective)
 
     def set_graph(self, graph: Any) -> None:
         """Update the task graph reference (after hot-loading)."""
