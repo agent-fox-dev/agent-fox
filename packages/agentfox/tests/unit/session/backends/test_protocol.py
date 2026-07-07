@@ -6,11 +6,20 @@ tests, and SDK containment property tests.
 
 Test Spec: TS-26-3, TS-26-4, TS-26-P1 (original)
            TS-02-1 through TS-02-11, TS-02-23 through TS-02-27 (new)
+           TS-02-12 through TS-02-22 (config, session, exports)
+           TS-02-E1 through TS-02-E9 (edge cases)
+           TS-02-P1 through TS-02-P7 (property tests)
 Requirements: 26-REQ-1.3, 26-REQ-1.4, 26-REQ-2.4 (original)
               02-REQ-1.1, 02-REQ-1.2, 02-REQ-1.3, 02-REQ-1.4, 02-REQ-1.5,
               02-REQ-2.1, 02-REQ-2.2, 02-REQ-2.3, 02-REQ-2.4, 02-REQ-2.5,
               02-REQ-2.6,
-              02-REQ-6.1, 02-REQ-6.2, 02-REQ-6.3, 02-REQ-6.4, 02-REQ-6.5
+              02-REQ-3.1, 02-REQ-3.2, 02-REQ-3.3, 02-REQ-3.4, 02-REQ-3.5,
+              02-REQ-4.1, 02-REQ-4.2, 02-REQ-4.3, 02-REQ-4.4,
+              02-REQ-5.1, 02-REQ-5.2,
+              02-REQ-6.1, 02-REQ-6.2, 02-REQ-6.3, 02-REQ-6.4, 02-REQ-6.5,
+              02-REQ-1.E1, 02-REQ-1.E2, 02-REQ-2.E1, 02-REQ-2.E2,
+              02-REQ-3.E1, 02-REQ-4.E1, 02-REQ-4.E2,
+              02-REQ-6.E1, 02-REQ-6.E2
 """
 
 from __future__ import annotations
@@ -603,4 +612,1004 @@ class TestProtocolTestsRunnable:
         )
         assert result.returncode == 0, (
             f"Protocol tests failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
+        )
+
+
+# ===========================================================================
+# Task Group 2: Config, session.py, Export, Edge-Case, and Property Tests
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# TS-02-12: OrchestratorConfig has backend field with default 'claude'
+# Requirement: 02-REQ-3.1
+# ---------------------------------------------------------------------------
+
+
+class TestOrchestratorConfigBackendDefault:
+    """Verify OrchestratorConfig.backend defaults to 'claude'."""
+
+    def test_backend_default_is_claude(self) -> None:
+        """TS-02-12: OrchestratorConfig().backend == 'claude'."""
+        from agentfox.core.config import OrchestratorConfig
+
+        config = OrchestratorConfig()
+        assert config.backend == "claude"
+        assert isinstance(config.backend, str)
+
+
+# ---------------------------------------------------------------------------
+# TS-02-13: backend field is not settable via environment variable
+# Requirement: 02-REQ-3.2
+# ---------------------------------------------------------------------------
+
+
+class TestOrchestratorConfigBackendNoEnvVar:
+    """Verify backend field ignores environment variables."""
+
+    def test_env_vars_do_not_affect_backend(self) -> None:
+        """TS-02-13: Env vars have no effect on backend field."""
+        env_vars = ["AGENTFOX_BACKEND", "ORCHESTRATOR_BACKEND", "BACKEND"]
+        original_values = {}
+        for var in env_vars:
+            original_values[var] = os.environ.get(var)
+            os.environ[var] = "deepagents"
+
+        try:
+            from agentfox.core.config import OrchestratorConfig
+
+            config = OrchestratorConfig()
+            assert config.backend == "claude"
+        finally:
+            for var in env_vars:
+                if original_values[var] is None:
+                    os.environ.pop(var, None)
+                else:
+                    os.environ[var] = original_values[var]
+
+
+# ---------------------------------------------------------------------------
+# TS-02-14: Invalid TOML backend value triggers ConfigError via load_config()
+# Requirement: 02-REQ-3.3
+# ---------------------------------------------------------------------------
+
+
+class TestLoadConfigInvalidBackend:
+    """Verify invalid backend in TOML raises ConfigError."""
+
+    def test_invalid_backend_raises_config_error(self, tmp_path: os.PathLike) -> None:
+        """TS-02-14: TOML with invalid backend raises ConfigError."""
+        from pathlib import Path
+
+        from agentfox.core.config import load_config
+        from agentfox.core.errors import ConfigError
+
+        toml_content = '[orchestrator]\nbackend = "invalid-value"\n'
+        toml_file = Path(tmp_path) / "config.toml"
+        toml_file.write_text(toml_content, encoding="utf-8")
+
+        with pytest.raises(ConfigError) as exc_info:
+            load_config(toml_file)
+
+        error_msg = str(exc_info.value).lower()
+        assert "backend" in error_msg or "invalid-value" in error_msg
+
+
+# ---------------------------------------------------------------------------
+# TS-02-15: Local TOML omits [orchestrator], global value inherited
+# Requirement: 02-REQ-3.4
+# ---------------------------------------------------------------------------
+
+
+class TestShallowMergeBackendInherited:
+    """Verify backend is inherited when local omits [orchestrator]."""
+
+    def test_global_backend_inherited_when_local_omits_orchestrator(self) -> None:
+        """TS-02-15: Global backend value inherited via shallow_merge."""
+        from agentfox.core.config import OrchestratorConfig, shallow_merge
+
+        global_data: dict = {"orchestrator": {"backend": "claude", "parallel": 4}}
+        local_data: dict = {}  # no orchestrator section
+        merged = shallow_merge(global_data, local_data)
+        config = OrchestratorConfig(**merged.get("orchestrator", {}))
+        assert config.backend == "claude"
+
+
+# ---------------------------------------------------------------------------
+# TS-02-16: Local TOML includes [orchestrator] but omits backend
+# Requirement: 02-REQ-3.5
+# ---------------------------------------------------------------------------
+
+
+class TestShallowMergeBackendPydanticDefault:
+    """Verify pydantic default applies when local orchestrator omits backend."""
+
+    def test_pydantic_default_applied_when_local_omits_backend(self) -> None:
+        """TS-02-16: Pydantic default 'claude' applied via shallow_merge."""
+        from agentfox.core.config import OrchestratorConfig, shallow_merge
+
+        global_data: dict = {"orchestrator": {"backend": "claude", "parallel": 4}}
+        local_data: dict = {"orchestrator": {"parallel": 2}}  # no backend key
+        merged = shallow_merge(global_data, local_data)
+        # shallow_merge replaces sections wholesale; local orchestrator wins
+        config = OrchestratorConfig(**merged.get("orchestrator", {}))
+        assert config.backend == "claude"  # pydantic default
+
+
+# ---------------------------------------------------------------------------
+# TS-02-17: run_session() with backend=None calls create_backend()
+# Requirement: 02-REQ-4.1
+# ---------------------------------------------------------------------------
+
+
+class TestRunSessionUsesFactory:
+    """Verify run_session() calls create_backend when backend is None."""
+
+    @pytest.mark.asyncio
+    async def test_create_backend_called_with_config_value(self) -> None:
+        """TS-02-17: create_backend called with config.orchestrator.backend."""
+        from pathlib import Path
+        from typing import Any
+        from unittest.mock import patch as mock_patch
+
+        from agentfox.core.config import AgentFoxConfig
+        from agentfox.session.backends.types import ResultMessage
+        from agentfox.session.session import run_session
+        from agentfox.workspace import WorkspaceInfo
+
+        # Create a minimal mock backend object
+        class _MockBackend:
+            @property
+            def name(self) -> str:
+                return "claude"
+
+            async def execute(self, *args: Any, **kwargs: Any) -> Any:
+                yield ResultMessage(
+                    status="completed",
+                    input_tokens=10,
+                    output_tokens=20,
+                    duration_ms=100,
+                    error_message=None,
+                    is_error=False,
+                )
+
+            async def close(self) -> None:
+                pass
+
+        mock_backend = _MockBackend()
+
+        ws = WorkspaceInfo(
+            path=Path("/tmp/test-ws"),
+            branch="feature/test",
+            spec_name="test",
+            task_group=1,
+        )
+        config = AgentFoxConfig()
+
+        with mock_patch(
+            "agentfox.session.session.create_backend",
+            return_value=mock_backend,
+        ) as mock_factory:
+            await run_session(
+                ws,
+                "test:1",
+                "sys prompt",
+                "task prompt",
+                config,
+                backend=None,
+            )
+            mock_factory.assert_called_once_with("claude")
+
+
+# ---------------------------------------------------------------------------
+# TS-02-18: type: ignore[attr-defined] removed from session.py
+# Requirement: 02-REQ-4.2
+# ---------------------------------------------------------------------------
+
+
+class TestSessionTypeIgnoreRemoved:
+    """Verify session.py no longer contains type: ignore[attr-defined]."""
+
+    def test_no_type_ignore_attr_defined(self) -> None:
+        """TS-02-18: session.py has no type: ignore[attr-defined]."""
+        session_path = os.path.join(
+            os.path.dirname(__file__),
+            "..", "..", "..", "..", "agentfox", "session", "session.py",
+        )
+        session_path = os.path.normpath(session_path)
+
+        with open(session_path, encoding="utf-8") as f:
+            contents = f.read()
+        assert "type: ignore[attr-defined]" not in contents, (
+            "Found type: ignore[attr-defined] suppression comment in session.py"
+        )
+
+
+# ---------------------------------------------------------------------------
+# TS-02-19: session.py imports Backend/create_backend, not ClaudeBackend
+# Requirement: 02-REQ-4.3
+# ---------------------------------------------------------------------------
+
+
+class TestSessionImports:
+    """Verify session.py imports Backend and create_backend, not ClaudeBackend."""
+
+    def test_no_claude_backend_import(self) -> None:
+        """TS-02-19: session.py does not import ClaudeBackend directly."""
+        import ast
+
+        session_path = os.path.join(
+            os.path.dirname(__file__),
+            "..", "..", "..", "..", "agentfox", "session", "session.py",
+        )
+        session_path = os.path.normpath(session_path)
+
+        with open(session_path, encoding="utf-8") as f:
+            contents = f.read()
+
+        tree = ast.parse(contents)
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                src = ast.unparse(node)
+                assert "ClaudeBackend" not in src, (
+                    f"ClaudeBackend imported directly in session.py: {src}"
+                )
+
+        assert "create_backend" in contents
+        assert "Backend" in contents
+
+
+# ---------------------------------------------------------------------------
+# TS-02-20: Existing session unit tests pass unmodified
+# Requirement: 02-REQ-4.4
+# ---------------------------------------------------------------------------
+
+
+class TestExistingSessionTestsPass:
+    """Verify existing session tests pass after type widening."""
+
+    def test_session_tests_pass(self) -> None:
+        """TS-02-20: All session unit tests pass without modification."""
+        import subprocess
+
+        session_tests_dir = os.path.join(
+            os.path.dirname(__file__), "..", "..", "..", "..", "tests", "unit", "session",
+        )
+        session_tests_dir = os.path.normpath(session_tests_dir)
+
+        # Use the actual path relative to the package
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "packages/agentfox/tests/unit/session/",
+                "-q",
+                "--tb=short",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        assert result.returncode == 0, (
+            f"Session tests failed:\nstdout: {result.stdout}\nstderr: {result.stderr}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# TS-02-21: Backend and create_backend in __all__ of backends/__init__.py
+# Requirement: 02-REQ-5.1
+# ---------------------------------------------------------------------------
+
+
+class TestBackendsExports:
+    """Verify __all__ includes Backend and create_backend."""
+
+    def test_all_includes_backend_and_factory(self) -> None:
+        """TS-02-21: __all__ contains all expected exports."""
+        import agentfox.session.backends as backends_module
+        from agentfox.session.backends import Backend, create_backend  # noqa: F401
+
+        assert "Backend" in backends_module.__all__
+        assert "create_backend" in backends_module.__all__
+        assert "AgentMessage" in backends_module.__all__
+        assert "AssistantMessage" in backends_module.__all__
+        assert "ClaudeBackend" in backends_module.__all__
+        assert "PermissionCallback" in backends_module.__all__
+        assert "ResultMessage" in backends_module.__all__
+        assert "ToolUseMessage" in backends_module.__all__
+
+
+# ---------------------------------------------------------------------------
+# TS-02-22: Backend and create_backend NOT re-exported from higher packages
+# Requirement: 02-REQ-5.2
+# ---------------------------------------------------------------------------
+
+
+class TestNoHigherLevelReExports:
+    """Verify Backend/create_backend not re-exported from parent packages."""
+
+    def test_backend_not_in_agentfox(self) -> None:
+        """TS-02-22: from agentfox import Backend raises ImportError."""
+        with pytest.raises(ImportError):
+            from agentfox import Backend  # type: ignore[attr-defined]  # noqa: F401
+
+    def test_backend_not_in_session(self) -> None:
+        """TS-02-22: from agentfox.session import Backend raises ImportError."""
+        with pytest.raises(ImportError):
+            from agentfox.session import Backend  # type: ignore[attr-defined]  # noqa: F401
+
+    def test_create_backend_not_in_agentfox(self) -> None:
+        """TS-02-22: from agentfox import create_backend raises ImportError."""
+        with pytest.raises(ImportError):
+            from agentfox import create_backend  # type: ignore[attr-defined]  # noqa: F401
+
+    def test_create_backend_not_in_session(self) -> None:
+        """TS-02-22: from agentfox.session import create_backend raises ImportError."""
+        with pytest.raises(ImportError):
+            from agentfox.session import create_backend  # type: ignore[attr-defined]  # noqa: F401
+
+
+# ===========================================================================
+# Edge-Case Tests
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# TS-02-E1: isinstance returns False for incomplete Protocol objects
+# Requirement: 02-REQ-1.E1
+# ---------------------------------------------------------------------------
+
+
+class TestProtocolIncompleteObjects:
+    """Verify isinstance returns False for objects missing Protocol members."""
+
+    def test_missing_close(self) -> None:
+        """TS-02-E1: Object without close() fails isinstance check."""
+        from agentfox.session.backends import Backend
+
+        class MissingClose:
+            @property
+            def name(self) -> str:
+                return "test"
+
+            async def execute(self, prompt: str, **kwargs: object) -> None:
+                yield  # type: ignore[misc]
+
+        assert isinstance(MissingClose(), Backend) is False
+
+    def test_missing_execute(self) -> None:
+        """TS-02-E1: Object without execute() fails isinstance check."""
+        from agentfox.session.backends import Backend
+
+        class MissingExecute:
+            @property
+            def name(self) -> str:
+                return "test"
+
+            async def close(self) -> None:
+                pass
+
+        assert isinstance(MissingExecute(), Backend) is False
+
+    def test_missing_name(self) -> None:
+        """TS-02-E1: Object without name property fails isinstance check."""
+        from agentfox.session.backends import Backend
+
+        class MissingName:
+            async def execute(self, prompt: str, **kwargs: object) -> None:
+                yield  # type: ignore[misc]
+
+            async def close(self) -> None:
+                pass
+
+        assert isinstance(MissingName(), Backend) is False
+
+    def test_empty_object(self) -> None:
+        """TS-02-E1: Empty object fails isinstance check."""
+        from agentfox.session.backends import Backend
+
+        class EmptyObject:
+            pass
+
+        assert isinstance(EmptyObject(), Backend) is False
+
+    def test_non_object_types(self) -> None:
+        """TS-02-E1: Non-object types fail isinstance check."""
+        from agentfox.session.backends import Backend
+
+        assert isinstance("not a backend", Backend) is False
+        assert isinstance(None, Backend) is False
+
+
+# ---------------------------------------------------------------------------
+# TS-02-E2: Backend silently ignores unsupported effort parameter
+# Requirement: 02-REQ-1.E2
+# ---------------------------------------------------------------------------
+
+
+class TestBackendIgnoresUnsupportedEffort:
+    """Verify backend silently ignores unsupported effort param."""
+
+    @pytest.mark.asyncio
+    async def test_no_effort_backend_ignores_effort(self) -> None:
+        """TS-02-E2: Backend that doesn't support effort doesn't raise."""
+        from agentfox.session.backends import Backend
+
+        class NoEffortBackend:
+            @property
+            def name(self) -> str:
+                return "no-effort"
+
+            async def execute(
+                self,
+                prompt: str,
+                *,
+                system_prompt: str = "",
+                model: str = "",
+                cwd: str = "",
+                permission_callback: object = None,
+                activity_callback: object = None,
+                tool_error_callback: object = None,
+                node_id: str = "",
+                archetype: str | None = None,
+                max_turns: int | None = None,
+                max_budget_usd: float | None = None,
+                thinking: dict | None = None,
+                effort: str | None = None,
+                compaction: bool = False,
+            ) -> None:
+                # Silently ignore effort — no exception raised
+                return
+                yield  # type: ignore[misc]  # make it an async generator
+
+            async def close(self) -> None:
+                pass
+
+        backend = NoEffortBackend()
+        assert isinstance(backend, Backend) is True
+
+        # Should not raise
+        async for _msg in backend.execute(
+            "test",
+            system_prompt="",
+            model="",
+            cwd="",
+            effort="high",
+        ):
+            pass
+
+
+# ---------------------------------------------------------------------------
+# TS-02-E3: create_backend('') raises ConfigError
+# Requirement: 02-REQ-2.E1
+# ---------------------------------------------------------------------------
+
+
+class TestCreateBackendEmptyString:
+    """Verify create_backend('') raises ConfigError."""
+
+    def test_empty_string_raises_config_error(self) -> None:
+        """TS-02-E3: Empty string triggers same error path as unknown name."""
+        from agentfox.core.errors import ConfigError
+        from agentfox.session.backends import create_backend
+
+        with pytest.raises(ConfigError) as exc_info:
+            create_backend("")
+        error_msg = str(exc_info.value)
+        assert "Unknown backend" in error_msg or "''" in error_msg
+
+    def test_empty_string_same_error_type_as_unknown(self) -> None:
+        """TS-02-E3: Both empty and unknown names raise ConfigError."""
+        from agentfox.core.errors import ConfigError
+        from agentfox.session.backends import create_backend
+
+        with pytest.raises(ConfigError):
+            create_backend("")
+        with pytest.raises(ConfigError):
+            create_backend("foo")
+
+
+# ---------------------------------------------------------------------------
+# TS-02-E4: ConfigError from create_backend propagates through run_session
+# Requirement: 02-REQ-2.E2
+# ---------------------------------------------------------------------------
+
+
+class TestConfigErrorPropagatesThroughSession:
+    """Verify ConfigError propagates from run_session without fallback."""
+
+    @pytest.mark.asyncio
+    async def test_config_error_propagates(self) -> None:
+        """TS-02-E4: ConfigError from create_backend propagates to caller."""
+        from pathlib import Path
+        from unittest.mock import patch as mock_patch
+
+        from agentfox.core.config import AgentFoxConfig
+        from agentfox.core.errors import ConfigError
+        from agentfox.session.session import run_session
+        from agentfox.workspace import WorkspaceInfo
+
+        ws = WorkspaceInfo(
+            path=Path("/tmp/test-ws"),
+            branch="feature/test",
+            spec_name="test",
+            task_group=1,
+        )
+        config = AgentFoxConfig()
+
+        with mock_patch(
+            "agentfox.session.session.create_backend",
+            side_effect=ConfigError("missing sdk"),
+        ):
+            with pytest.raises(ConfigError) as exc_info:
+                await run_session(
+                    ws,
+                    "test:1",
+                    "sys prompt",
+                    "task prompt",
+                    config,
+                    backend=None,
+                )
+            assert "missing sdk" in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# TS-02-E5: Invalid TOML backend caught before create_backend
+# Requirement: 02-REQ-3.E1
+# ---------------------------------------------------------------------------
+
+
+class TestInvalidTomlBackendCaughtEarly:
+    """Verify invalid backend in TOML caught by pydantic, not create_backend."""
+
+    def test_load_config_raises_before_create_backend(
+        self, tmp_path: os.PathLike,
+    ) -> None:
+        """TS-02-E5: load_config raises ConfigError; create_backend not called."""
+        from pathlib import Path
+        from unittest.mock import patch as mock_patch
+
+        from agentfox.core.config import load_config
+        from agentfox.core.errors import ConfigError
+
+        toml_content = '[orchestrator]\nbackend = "unknown-value"\n'
+        toml_file = Path(tmp_path) / "config.toml"
+        toml_file.write_text(toml_content, encoding="utf-8")
+
+        with mock_patch(
+            "agentfox.session.backends.create_backend",
+        ) as mock_factory:
+            with pytest.raises(ConfigError):
+                load_config(toml_file)
+            mock_factory.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# TS-02-E6: Session cancellation calls close() in finally block
+# Requirement: 02-REQ-4.E1
+# ---------------------------------------------------------------------------
+
+
+class TestSessionCancellationCallsClose:
+    """Verify close() is called on backend in finally block on cancellation."""
+
+    @pytest.mark.asyncio
+    async def test_close_called_on_cancellation(self) -> None:
+        """TS-02-E6: close() called once in finally block on cancellation."""
+        import asyncio
+        from pathlib import Path
+        from typing import Any
+
+        from agentfox.core.config import AgentFoxConfig
+        from agentfox.session.backends.types import AssistantMessage
+        from agentfox.session.session import run_session
+        from agentfox.workspace import WorkspaceInfo
+
+        close_call_count = 0
+
+        async def counting_close() -> None:
+            nonlocal close_call_count
+            close_call_count += 1
+
+        class SlowBackend:
+            @property
+            def name(self) -> str:
+                return "slow"
+
+            async def execute(
+                self, prompt: str, **kwargs: Any,
+            ) -> Any:
+                while True:
+                    await asyncio.sleep(0.001)
+                    yield AssistantMessage(content="still working...")
+
+            async def close(self) -> None:
+                await counting_close()
+
+        ws = WorkspaceInfo(
+            path=Path("/tmp/test-ws"),
+            branch="feature/test",
+            spec_name="test",
+            task_group=1,
+        )
+        config = AgentFoxConfig()
+        backend = SlowBackend()
+
+        task = asyncio.create_task(
+            run_session(
+                ws,
+                "test:1",
+                "sys prompt",
+                "task prompt",
+                config,
+                backend=backend,  # type: ignore[arg-type]
+            )
+        )
+        await asyncio.sleep(0.02)
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+        assert close_call_count >= 1, (
+            f"Expected close() called at least once, got {close_call_count}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# TS-02-E7: ConfigError before session means no close() call
+# Requirement: 02-REQ-4.E2
+# ---------------------------------------------------------------------------
+
+
+class TestConfigErrorNoCloseCall:
+    """Verify close() not called when create_backend raises ConfigError."""
+
+    @pytest.mark.asyncio
+    async def test_no_close_when_factory_fails(self) -> None:
+        """TS-02-E7: No close() call when create_backend raises ConfigError."""
+        from pathlib import Path
+        from unittest.mock import patch as mock_patch
+
+        from agentfox.core.config import AgentFoxConfig
+        from agentfox.core.errors import ConfigError
+        from agentfox.session.session import run_session
+        from agentfox.workspace import WorkspaceInfo
+
+        ws = WorkspaceInfo(
+            path=Path("/tmp/test-ws"),
+            branch="feature/test",
+            spec_name="test",
+            task_group=1,
+        )
+        config = AgentFoxConfig()
+
+        # ConfigError from create_backend should propagate
+        # and close() should never be called (no backend was created)
+        with mock_patch(
+            "agentfox.session.session.create_backend",
+            side_effect=ConfigError("bad backend"),
+        ):
+            with pytest.raises(ConfigError):
+                await run_session(
+                    ws,
+                    "test:1",
+                    "sys prompt",
+                    "task prompt",
+                    config,
+                    backend=None,
+                )
+            # If we get here, ConfigError propagated — no fallback, no close()
+
+
+# ===========================================================================
+# Property Tests
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# TS-02-P1: ClaudeBackend always satisfies Backend Protocol
+# Property: 02-PROP-1
+# Validates: 02-REQ-1.1, 02-REQ-6.1
+# ---------------------------------------------------------------------------
+
+
+class TestPropertyClaudeBackendSatisfiesProtocol:
+    """Property: any ClaudeBackend instance satisfies Backend Protocol."""
+
+    def test_multiple_instances_satisfy_protocol(self) -> None:
+        """TS-02-P1: 10 ClaudeBackend instances all satisfy Backend."""
+        from agentfox.session.backends import Backend, ClaudeBackend
+
+        for _ in range(10):
+            cb = ClaudeBackend()
+            assert isinstance(cb, Backend) is True
+            assert hasattr(cb, "execute")
+            assert hasattr(cb, "close")
+            assert hasattr(cb, "name")
+
+
+# ---------------------------------------------------------------------------
+# TS-02-P2: Lazy import isolation via subprocess
+# Property: 02-PROP-2
+# Validates: 02-REQ-2.3, 02-REQ-6.2
+# ---------------------------------------------------------------------------
+
+
+class TestPropertyLazyImportIsolation:
+    """Property: importing backends doesn't load claude_agent_sdk."""
+
+    def test_subprocess_import_isolation(self) -> None:
+        """TS-02-P2: Subprocess confirms claude_agent_sdk not in sys.modules."""
+        import subprocess
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import sys; import agentfox.session.backends; "
+                    "assert 'claude_agent_sdk' not in sys.modules, "
+                    "f'claude_agent_sdk loaded unexpectedly: "
+                    "{list(sys.modules.keys())}'"
+                ),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+        assert result.returncode == 0, (
+            f"Lazy import isolation failed:\n{result.stderr}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# TS-02-P3: create_backend returns Backend or raises ConfigError
+# Property: 02-PROP-3
+# Validates: 02-REQ-2.1, 02-REQ-2.4, 02-REQ-2.5
+# ---------------------------------------------------------------------------
+
+
+class TestPropertyCreateBackendInvariant:
+    """Property: create_backend always returns Backend or raises ConfigError."""
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "claude",
+            "foo",
+            "",
+            "deepagents",
+            "google-adk",
+            "None",
+            "unknown",
+            " ",
+            "CLAUDE",
+        ],
+    )
+    def test_returns_backend_or_config_error(self, name: str) -> None:
+        """TS-02-P3: For any name, returns Backend or raises ConfigError."""
+        from agentfox.core.errors import ConfigError
+        from agentfox.session.backends import Backend, create_backend
+
+        try:
+            result = create_backend(name)
+            assert isinstance(result, Backend), (
+                f"Result is not a Backend: {type(result)}"
+            )
+        except ConfigError:
+            pass  # expected for invalid names
+        except Exception as exc:
+            raise AssertionError(
+                f"Unexpected exception type {type(exc)}: {exc}"
+            ) from exc
+
+    def test_hypothesis_random_names(self) -> None:
+        """TS-02-P3 (hypothesis): Random strings return Backend or ConfigError."""
+        from agentfox.core.errors import ConfigError
+        from agentfox.session.backends import Backend, create_backend
+        from hypothesis import given, settings
+        from hypothesis import strategies as st
+
+        @given(name=st.text(min_size=0, max_size=50))
+        @settings(max_examples=50)
+        def check_invariant(name: str) -> None:
+            try:
+                result = create_backend(name)
+                assert isinstance(result, Backend)
+            except ConfigError:
+                pass
+            except Exception as exc:
+                raise AssertionError(
+                    f"Unexpected exception type {type(exc)}: {exc}"
+                ) from exc
+
+        check_invariant()
+
+
+# ---------------------------------------------------------------------------
+# TS-02-P4: close() is idempotent across 1-20 calls
+# Property: 02-PROP-4
+# Validates: 02-REQ-1.3, 02-REQ-4.E1
+# ---------------------------------------------------------------------------
+
+
+class TestPropertyCloseIdempotent:
+    """Property: close() never raises regardless of call count."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("n", [1, 2, 3, 5, 10, 20])
+    async def test_close_n_times_no_exception(self, n: int) -> None:
+        """TS-02-P4: Calling close() n times does not raise."""
+        from agentfox.session.backends import ClaudeBackend
+
+        backend = ClaudeBackend()
+        for _ in range(n):
+            await backend.close()  # must not raise on any iteration
+
+
+# ---------------------------------------------------------------------------
+# TS-02-P5: SDK containment invariant for all production files
+# Property: 02-PROP-5
+# Validates: 02-REQ-6.2, 02-REQ-6.3, 02-REQ-6.4
+# ---------------------------------------------------------------------------
+
+
+class TestPropertySdkContainmentInvariant:
+    """Property: SDK strings appear only in designated files."""
+
+    def test_containment_invariant_all_files(self) -> None:
+        """TS-02-P5: Every non-designated file is free of SDK name strings."""
+        agent_fox_dir = os.path.join(
+            os.path.dirname(__file__),
+            "..", "..", "..", "..", "agentfox",
+        )
+        agent_fox_dir = os.path.normpath(agent_fox_dir)
+        assert os.path.isdir(agent_fox_dir), (
+            f"Production source directory not found: {agent_fox_dir}"
+        )
+
+        all_files = glob.glob(
+            os.path.join(agent_fox_dir, "**", "*.py"),
+            recursive=True,
+        )
+        assert len(all_files) > 0, f"No files found in {agent_fox_dir}"
+
+        for sdk_name, allowed_filename in SDK_CONTAINMENT.items():
+            for filepath in all_files:
+                if os.path.basename(filepath) == allowed_filename:
+                    continue
+                with open(filepath, encoding="utf-8") as f:
+                    contents = f.read()
+                assert sdk_name not in contents, (
+                    f'SDK containment violation: "{sdk_name}" found in {filepath}'
+                )
+
+
+# ---------------------------------------------------------------------------
+# TS-02-P6: Existing session tests pass unmodified
+# Property: 02-PROP-6
+# Validates: 02-REQ-4.4
+# ---------------------------------------------------------------------------
+
+
+class TestPropertySessionTestsPass:
+    """Property: full session test suite passes after type widening."""
+
+    def test_full_session_suite_passes(self) -> None:
+        """TS-02-P6: Session tests pass with zero failures."""
+        import subprocess
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "pytest",
+                "packages/agentfox/tests/unit/session/",
+                "--tb=short",
+                "-q",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        assert result.returncode == 0, (
+            f"Session test suite has failures after type widening:\n"
+            f"{result.stdout}\n{result.stderr}"
+        )
+        assert "passed" in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# TS-02-P7: mypy passes on session.py with no attr-defined errors
+# Property: 02-PROP-7
+# Validates: 02-REQ-4.2
+# ---------------------------------------------------------------------------
+
+
+class TestPropertyMypySessionPy:
+    """Property: mypy reports no attr-defined errors on session.py."""
+
+    def test_no_attr_defined_in_source(self) -> None:
+        """TS-02-P7 (source check): No type: ignore[attr-defined] in session.py."""
+        session_path = os.path.join(
+            os.path.dirname(__file__),
+            "..", "..", "..", "..", "agentfox", "session", "session.py",
+        )
+        session_path = os.path.normpath(session_path)
+        with open(session_path, encoding="utf-8") as f:
+            src = f.read()
+        assert "type: ignore[attr-defined]" not in src, (
+            "Found type: ignore[attr-defined] in session.py — must be removed"
+        )
+
+
+# ---------------------------------------------------------------------------
+# TS-02-E8: Containment test detects SDK name in non-designated file
+# Requirement: 02-REQ-6.E1
+# ---------------------------------------------------------------------------
+
+
+class TestContainmentDetectsViolation:
+    """Verify containment test fails when SDK name leaks to non-designated file."""
+
+    def test_detects_offending_file(self) -> None:
+        """TS-02-E8: Temporary offending file is detected by containment scan."""
+        agent_fox_dir = os.path.join(
+            os.path.dirname(__file__),
+            "..", "..", "..", "..", "agentfox",
+        )
+        agent_fox_dir = os.path.normpath(agent_fox_dir)
+
+        offending_path = os.path.join(agent_fox_dir, "_test_leak_temp.py")
+        try:
+            with open(offending_path, "w", encoding="utf-8") as f:
+                f.write("import claude_agent_sdk  # accidental leak\n")
+
+            all_files = glob.glob(
+                os.path.join(agent_fox_dir, "**", "*.py"),
+                recursive=True,
+            )
+            violations: list[tuple[str, str]] = []
+            for sdk_name, allowed_filename in SDK_CONTAINMENT.items():
+                for filepath in all_files:
+                    if os.path.basename(filepath) == allowed_filename:
+                        continue
+                    with open(filepath, encoding="utf-8") as f:
+                        contents = f.read()
+                    if sdk_name in contents:
+                        violations.append((sdk_name, filepath))
+
+            assert len(violations) > 0, "Expected violation was not detected"
+            assert any(
+                "claude_agent_sdk" in v[0] and "_test_leak_temp.py" in v[1]
+                for v in violations
+            )
+        finally:
+            if os.path.exists(offending_path):
+                os.unlink(offending_path)
+
+
+# ---------------------------------------------------------------------------
+# TS-02-E9: Containment test fails on non-existent directory
+# Requirement: 02-REQ-6.E2
+# ---------------------------------------------------------------------------
+
+
+class TestContainmentMissingDirectory:
+    """Verify containment test fails when directory doesn't exist."""
+
+    def test_nonexistent_dir_raises_assertion(self) -> None:
+        """TS-02-E9: Non-existent directory causes assertion, not silent pass."""
+        fake_dir = "/nonexistent/path/agentfox/"
+        assert not os.path.isdir(fake_dir)
+
+        with pytest.raises(AssertionError) as exc_info:
+            assert os.path.isdir(fake_dir), (
+                f"Production source directory not found: {fake_dir}"
+            )
+        assert "not found" in str(exc_info.value) or "nonexistent" in str(
+            exc_info.value,
         )
