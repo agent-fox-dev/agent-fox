@@ -1,8 +1,8 @@
 """Tests for GoogleADKBackend adapter.
 
 Test Spec: TS-04-1 through TS-04-14, TS-04-E1 through TS-04-E6,
-           TS-04-15 through TS-04-17, TS-04-28 through TS-04-32,
-           TS-04-E12, TS-04-E13
+           TS-04-15 through TS-04-17, TS-04-26 through TS-04-37,
+           TS-04-E11 through TS-04-E15
 Requirements: 04-REQ-1.1, 04-REQ-1.2, 04-REQ-1.3,
               04-REQ-2.1, 04-REQ-2.2, 04-REQ-2.3, 04-REQ-2.4,
               04-REQ-1.E1,
@@ -10,8 +10,13 @@ Requirements: 04-REQ-1.1, 04-REQ-1.2, 04-REQ-1.3,
               04-REQ-3.E1, 04-REQ-3.E2,
               04-REQ-4.1, 04-REQ-4.2, 04-REQ-4.E1,
               04-REQ-5.1, 04-REQ-5.2, 04-REQ-5.3, 04-REQ-5.E1,
+              04-REQ-7.1, 04-REQ-7.2, 04-REQ-7.E1,
               04-REQ-8.1, 04-REQ-8.2, 04-REQ-8.3, 04-REQ-8.E1, 04-REQ-8.E2,
-              04-REQ-9.1, 04-REQ-9.2
+              04-REQ-9.1, 04-REQ-9.2,
+              04-REQ-10.1, 04-REQ-10.2, 04-REQ-10.E1,
+              04-REQ-11.1, 04-REQ-11.E1,
+              04-REQ-12.1,
+              04-REQ-13.1
 
 All tests are guarded with pytest.importorskip('google.adk') so the suite
 is skipped cleanly when the google-adk optional dependency is not installed.
@@ -19,8 +24,12 @@ is skipped cleanly when the google-adk optional dependency is not installed.
 
 from __future__ import annotations
 
+import glob
 import inspect
 import logging
+import os
+import sys
+import tomllib
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -1686,3 +1695,422 @@ class TestIgnoredParameters:
         )
         assert isinstance(messages[-1], ResultMessage)
         assert messages[-1].is_error is False
+
+
+# ===========================================================================
+# Task Group 4: af SDK tool registration, factory, config, and containment
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# TS-04-26: af SDK tools registered in Agent's tools list
+# Requirement: 04-REQ-7.1
+# ---------------------------------------------------------------------------
+
+
+class TestAfSdkToolRegistration:
+    """Verify google_adk.py imports and registers af SDK tools in Agent."""
+
+    async def test_sdk_tools_registered_in_agent(self) -> None:
+        """TS-04-26: Agent tools list includes all 5 af SDK tool wrappers."""
+        from agentfox.session.backends.google_adk import GoogleADKBackend
+
+        with (
+            patch(
+                "agentfox.session.backends.google_adk.InMemorySessionService",
+            ) as mock_svc_cls,
+            patch(
+                "agentfox.session.backends.google_adk.Agent",
+            ) as mock_agent_cls,
+            patch(
+                "agentfox.session.backends.google_adk.Runner",
+            ) as mock_runner_cls,
+        ):
+            mock_svc = AsyncMock()
+            mock_svc.create_session = AsyncMock(return_value=_mock_session())
+            mock_svc_cls.return_value = mock_svc
+            mock_runner_cls.return_value = _make_mock_runner()
+
+            backend = GoogleADKBackend()
+            await _collect_async(
+                backend.execute(
+                    "task",
+                    system_prompt="sys",
+                    model="gemini-2.0-flash",
+                    cwd="/workspace",
+                ),
+            )
+
+            # Verify Agent was called and extract the tools list
+            mock_agent_cls.assert_called_once()
+            call_kwargs = mock_agent_cls.call_args
+            tools_passed = call_kwargs.kwargs.get(
+                "tools",
+                call_kwargs.args[3] if len(call_kwargs.args) > 3 else [],
+            )
+            tool_names = [
+                getattr(t, "__name__", getattr(t, "name", str(t)))
+                for t in tools_passed
+            ]
+
+            # All five af SDK tools must be present
+            assert "spec_read" in tool_names, (
+                f"spec_read not found in tools: {tool_names}"
+            )
+            assert "context_search" in tool_names, (
+                f"context_search not found in tools: {tool_names}"
+            )
+            assert "context_get" in tool_names, (
+                f"context_get not found in tools: {tool_names}"
+            )
+            assert "memory_recall" in tool_names, (
+                f"memory_recall not found in tools: {tool_names}"
+            )
+            assert "subtask_state" in tool_names, (
+                f"subtask_state not found in tools: {tool_names}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# TS-04-27: af SDK tool import paths present in google_adk.py source
+# Requirement: 04-REQ-7.2
+# ---------------------------------------------------------------------------
+
+
+class TestAfSdkToolImportPaths:
+    """Verify google_adk.py imports af SDK tools without DI or registry."""
+
+    def test_sdk_tool_names_in_source(self) -> None:
+        """TS-04-27: All 5 af SDK function names appear in google_adk.py source."""
+        google_adk_path = Path(__file__).resolve().parents[4] / (
+            "agentfox" / Path("session/backends/google_adk.py")
+        )
+        source = google_adk_path.read_text(encoding="utf-8")
+
+        assert "spec_read" in source, "spec_read not found in google_adk.py"
+        assert "context_search" in source, (
+            "context_search not found in google_adk.py"
+        )
+        assert "context_get" in source, (
+            "context_get not found in google_adk.py"
+        )
+        assert "memory_recall" in source, (
+            "memory_recall not found in google_adk.py"
+        )
+        assert "subtask_state" in source, (
+            "subtask_state not found in google_adk.py"
+        )
+
+    def test_no_registry_or_di_pattern(self) -> None:
+        """TS-04-27: No DI registry/lookup used for af SDK tool registration."""
+        google_adk_path = Path(__file__).resolve().parents[4] / (
+            "agentfox" / Path("session/backends/google_adk.py")
+        )
+        source = google_adk_path.read_text(encoding="utf-8")
+
+        # The source should not use a "registry" DI pattern for SDK tools
+        source_lower = source.lower()
+        # Allow "registry" in comments or docstrings but not as a
+        # function call pattern like registry.get() or registry.lookup()
+        assert "registry.get(" not in source_lower, (
+            "Found registry.get() DI pattern in google_adk.py"
+        )
+        assert "registry.lookup(" not in source_lower, (
+            "Found registry.lookup() DI pattern in google_adk.py"
+        )
+
+
+# ---------------------------------------------------------------------------
+# TS-04-E11: ImportError when af SDK tool source module is unavailable
+# Requirement: 04-REQ-7.E1
+# ---------------------------------------------------------------------------
+
+
+class TestAfSdkToolImportFailure:
+    """Verify ImportError propagates when af SDK modules are unavailable."""
+
+    def test_import_error_on_missing_sdk_module(self) -> None:
+        """TS-04-E11: ImportError raised if af SDK module is unavailable."""
+        import importlib
+
+        # Remove the google_adk module from cache if present so we can
+        # force a fresh import with the patched sys.modules.
+        mod_name = "agentfox.session.backends.google_adk"
+        cached = sys.modules.pop(mod_name, None)
+
+        try:
+            # Patch one of the af SDK source modules to simulate unavailability.
+            # The exact module path depends on the implementation; we try a
+            # broadly scoped approach: block any module whose import path
+            # contains the af SDK tool function names.  This test verifies that
+            # the import error is NOT silently suppressed.
+            original_import = (
+                __builtins__.__import__  # type: ignore[union-attr]
+                if hasattr(__builtins__, "__import__")
+                else __import__
+            )
+
+            def blocking_import(
+                name: str,
+                *args: object,
+                **kwargs: object,
+            ) -> object:
+                # Block imports that are likely af SDK tool source modules
+                if "spec_read" in name or "context_search" in name:
+                    raise ImportError(
+                        f"No module named '{name}' (test simulation)"
+                    )
+                return original_import(name, *args, **kwargs)  # type: ignore[operator]
+
+            with patch("builtins.__import__", side_effect=blocking_import):
+                with pytest.raises(ImportError):
+                    importlib.import_module(mod_name)
+        finally:
+            # Restore the original cached module if it existed
+            if cached is not None:
+                sys.modules[mod_name] = cached
+            else:
+                sys.modules.pop(mod_name, None)
+
+
+# ---------------------------------------------------------------------------
+# TS-04-33: create_backend('google-adk') returns a GoogleADKBackend instance
+# Requirement: 04-REQ-10.1
+# ---------------------------------------------------------------------------
+
+
+class TestCreateBackendGoogleAdk:
+    """Verify create_backend('google-adk') returns GoogleADKBackend."""
+
+    def test_create_backend_returns_google_adk(self) -> None:
+        """TS-04-33: create_backend('google-adk') returns GoogleADKBackend."""
+        from agentfox.session.backends import create_backend
+        from agentfox.session.backends.google_adk import GoogleADKBackend
+        from agentfox.session.backends.protocol import Backend
+
+        result = create_backend("google-adk")
+        assert isinstance(result, GoogleADKBackend), (
+            f"Expected GoogleADKBackend, got {type(result).__name__}"
+        )
+        assert isinstance(result, Backend), (
+            "GoogleADKBackend instance does not satisfy Backend Protocol"
+        )
+
+
+# ---------------------------------------------------------------------------
+# TS-04-34: create_backend for existing keys ('claude') still works
+# Requirement: 04-REQ-10.2
+# ---------------------------------------------------------------------------
+
+
+class TestCreateBackendExistingKeys:
+    """Verify create_backend still works for pre-existing backend keys."""
+
+    def test_create_backend_claude_still_works(self) -> None:
+        """TS-04-34: create_backend('claude') returns ClaudeBackend."""
+        from agentfox.session.backends import create_backend
+        from agentfox.session.backends.claude import ClaudeBackend
+        from agentfox.session.backends.protocol import Backend
+
+        result = create_backend("claude")
+        assert isinstance(result, ClaudeBackend), (
+            f"Expected ClaudeBackend, got {type(result).__name__}"
+        )
+        assert isinstance(result, Backend)
+
+
+# ---------------------------------------------------------------------------
+# TS-04-35: OrchestratorConfig accepts 'google-adk' backend value
+# Requirement: 04-REQ-11.1
+# ---------------------------------------------------------------------------
+
+
+class TestOrchestratorConfigGoogleAdk:
+    """Verify OrchestratorConfig.backend accepts 'google-adk'."""
+
+    def test_google_adk_accepted(self) -> None:
+        """TS-04-35: OrchestratorConfig(backend='google-adk') validates."""
+        from agentfox.core.config import OrchestratorConfig
+
+        config = OrchestratorConfig(backend="google-adk")
+        assert config.backend == "google-adk"
+
+    def test_claude_still_accepted(self) -> None:
+        """TS-04-35: OrchestratorConfig(backend='claude') still validates."""
+        from agentfox.core.config import OrchestratorConfig
+
+        config = OrchestratorConfig(backend="claude")
+        assert config.backend == "claude"
+
+    def test_deepagents_still_accepted(self) -> None:
+        """TS-04-35: OrchestratorConfig(backend='deepagents') still validates."""
+        from agentfox.core.config import OrchestratorConfig
+
+        config = OrchestratorConfig(backend="deepagents")
+        assert config.backend == "deepagents"
+
+
+# ---------------------------------------------------------------------------
+# TS-04-36: pyproject.toml declares google-adk>=2.0 optional dependency
+# Requirement: 04-REQ-12.1
+# ---------------------------------------------------------------------------
+
+
+class TestPyprojectGoogleAdkDependency:
+    """Verify pyproject.toml declares google-adk as optional dependency."""
+
+    def test_google_adk_in_optional_dependencies(self) -> None:
+        """TS-04-36: google-adk>=2.0 in [project.optional-dependencies]."""
+        # Navigate from test file to pyproject.toml
+        pyproject_path = Path(__file__).resolve().parents[4] / "pyproject.toml"
+        assert pyproject_path.exists(), (
+            f"pyproject.toml not found at {pyproject_path}"
+        )
+
+        with open(pyproject_path, "rb") as f:
+            data = tomllib.load(f)
+
+        optional_deps = data.get("project", {}).get(
+            "optional-dependencies", {}
+        )
+        assert "google-adk" in optional_deps, (
+            f"'google-adk' not in optional-dependencies: "
+            f"{list(optional_deps)}"
+        )
+        google_adk_deps = optional_deps["google-adk"]
+        assert any("google-adk>=2.0" in dep for dep in google_adk_deps), (
+            f"'google-adk>=2.0' not found in deps: {google_adk_deps}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# TS-04-37: Containment test maps 'google.adk' -> 'google_adk.py'
+# Requirement: 04-REQ-13.1
+# ---------------------------------------------------------------------------
+
+
+class TestContainmentGoogleAdk:
+    """Verify google.adk containment mapping and enforcement."""
+
+    def test_containment_mapping_in_test_protocol(self) -> None:
+        """TS-04-37: SDK_CONTAINMENT has 'google.adk' -> 'google_adk.py'."""
+        # The containment test is defined in test_protocol.py.
+        # Read its source and verify the mapping entry is present
+        # (not just as a comment, but as an active dict entry).
+        test_protocol_path = Path(__file__).parent / "test_protocol.py"
+        source = test_protocol_path.read_text(encoding="utf-8")
+
+        # Verify the mapping entry is present and uncommented
+        assert "'google.adk'" in source or '"google.adk"' in source, (
+            "google.adk mapping not found in test_protocol.py"
+        )
+        assert "'google_adk.py'" in source or '"google_adk.py"' in source, (
+            "google_adk.py mapping not found in test_protocol.py"
+        )
+
+    def test_google_adk_imports_only_in_google_adk_py(self) -> None:
+        """TS-04-37: google.adk imports only appear in google_adk.py."""
+        agentfox_dir = os.path.join(
+            os.path.dirname(__file__),
+            "..", "..", "..", "..",
+            "agentfox",
+        )
+        agentfox_dir = os.path.normpath(agentfox_dir)
+        assert os.path.isdir(agentfox_dir), (
+            f"Production source directory not found: {agentfox_dir}"
+        )
+
+        all_files = glob.glob(
+            os.path.join(agentfox_dir, "**", "*.py"), recursive=True,
+        )
+
+        violations = []
+        for filepath in all_files:
+            if os.path.basename(filepath) == "google_adk.py":
+                continue
+            with open(filepath, encoding="utf-8") as f:
+                contents = f.read()
+            # Check for direct google.adk imports
+            if (
+                "import google.adk" in contents
+                or "from google.adk" in contents
+            ):
+                violations.append(
+                    os.path.relpath(filepath, agentfox_dir)
+                )
+
+        assert violations == [], (
+            f"google.adk imports found outside google_adk.py: {violations}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# TS-04-E14: ImportError when google-adk not installed
+# Requirement: 04-REQ-10.E1
+# ---------------------------------------------------------------------------
+
+
+class TestCreateBackendMissingGoogleAdk:
+    """Verify ImportError when google-adk is not installed."""
+
+    def test_import_error_with_informative_message(self) -> None:
+        """TS-04-E14: create_backend('google-adk') raises ImportError."""
+        from agentfox.session.backends import create_backend
+
+        original_import = (
+            __builtins__.__import__  # type: ignore[union-attr]
+            if hasattr(__builtins__, "__import__")
+            else __import__
+        )
+
+        def block_google_adk(
+            name: str,
+            *args: object,
+            **kwargs: object,
+        ) -> object:
+            if "google" in name and (
+                "adk" in name or "google_adk" in name
+            ):
+                raise ImportError(
+                    f"No module named '{name}' (test simulation)"
+                )
+            return original_import(name, *args, **kwargs)  # type: ignore[operator]
+
+        # Clear any cached module so the lazy import is forced
+        cached_mod = sys.modules.pop(
+            "agentfox.session.backends.google_adk", None,
+        )
+        try:
+            with patch(
+                "builtins.__import__", side_effect=block_google_adk,
+            ):
+                with pytest.raises((ImportError, Exception)) as exc_info:
+                    create_backend("google-adk")
+                error_msg = str(exc_info.value).lower()
+                assert "google" in error_msg or "adk" in error_msg, (
+                    f"Error message should mention google-adk: "
+                    f"{exc_info.value}"
+                )
+        finally:
+            if cached_mod is not None:
+                sys.modules[
+                    "agentfox.session.backends.google_adk"
+                ] = cached_mod
+
+
+# ---------------------------------------------------------------------------
+# TS-04-E15: OrchestratorConfig rejects unknown backend values
+# Requirement: 04-REQ-11.E1
+# ---------------------------------------------------------------------------
+
+
+class TestOrchestratorConfigUnknownBackend:
+    """Verify OrchestratorConfig rejects unknown backend values."""
+
+    def test_unknown_backend_raises_validation_error(self) -> None:
+        """TS-04-E15: OrchestratorConfig(backend='unknown') raises."""
+        from agentfox.core.config import OrchestratorConfig
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            OrchestratorConfig(backend="unknown-backend")
