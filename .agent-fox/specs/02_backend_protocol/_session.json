@@ -1,0 +1,256 @@
+{
+  "state": "refining",
+  "prd_path": "prd.md",
+  "assessment_history": [
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD for `backend_protocol` is well-structured and technically detailed. The Problem and Solution sections are clear, Non-Goals are explicit, and Design Decisions are thorough. However, the document is missing two required/expected spec sections: a formal **Intent** statement and **Goals** (measurable outcomes). The **Background** section is partially embedded in the Problem section but not explicitly called out. These gaps prevent the spec from being considered fully ready, though the overall quality is high and only targeted additions are needed.",
+      "gaps": [
+        "No explicit 'Intent' section \u2014 the closest equivalent is the Problem/Solution narrative, but there is no single concise statement of what this feature aims to achieve.",
+        "No 'Goals' section with measurable outcomes \u2014 there are no success criteria, acceptance metrics, or testability targets defined (e.g. 'all existing session tests pass without modification', 'ClaudeBackend satisfies Protocol via isinstance check', etc.).",
+        "No explicit 'Background' section \u2014 context about why provider-agnosticism matters now (e.g. upcoming integrations, current pain points beyond the hardcoded import) is scattered in the Problem description rather than separated as background/motivation.",
+        "The Tech Stack section lists pytest but does not describe the testing strategy or coverage expectations for the new Protocol and factory.",
+        "No mention of rollout or migration path \u2014 it is unclear whether existing callers of run_session() that pass a ClaudeBackend instance directly will require any changes, or whether backward compatibility is guaranteed."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "Can you provide a single-sentence Intent statement for this spec? What is the primary goal this feature achieves?",
+          "context": "A concise Intent statement (e.g. 'Introduce a provider-agnostic Backend Protocol and factory so the session layer can work with any LLM backend without modification') is required by the spec format and serves as the north-star for all downstream decisions.",
+          "options": [
+            "Introduce a runtime-checkable Backend Protocol and factory to decouple the session layer from ClaudeBackend, enabling future alternative backends without modifying session.py.",
+            "Define a stable API contract for all agent backends and wire it into the session and config layers.",
+            "Other (please specify)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "What are the measurable success criteria (Goals) for this spec? How will you know the implementation is complete and correct?",
+          "context": "Goals should be concrete and verifiable. Examples might include: 'isinstance(ClaudeBackend(), Backend) returns True', 'all existing session unit tests pass unmodified', 'importing session.py with backend=\"claude\" does not import deepagents or google.adk', 'ConfigError is raised for unknown backend names'.",
+          "options": [
+            "ClaudeBackend passes isinstance check against the Protocol",
+            "All existing session tests pass without modification",
+            "Importing the session module with backend='claude' does not trigger SDK imports for other backends",
+            "ConfigError is raised for any unregistered backend name",
+            "The type: ignore comment on session.py line 256 is eliminated",
+            "Other (please specify)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "Is there any background context or motivation beyond the current hardcoded import? For example, is there a near-term integration (Deep Agents, Google ADK) driving urgency, or a specific incident that exposed this limitation?",
+          "context": "A Background section helps reviewers and future maintainers understand *why* this work is happening now, which informs prioritization and tradeoff decisions.",
+          "options": [
+            "A specific backend integration is planned in the next sprint",
+            "A customer/stakeholder request requires a non-Claude backend",
+            "This is proactive refactoring ahead of anticipated needs",
+            "Other (please specify)"
+          ],
+          "required": false
+        },
+        {
+          "id": "q4",
+          "text": "Will existing callers that pass a ClaudeBackend instance directly to run_session() continue to work without any changes? Is backward compatibility with the old ClaudeBackend type hint guaranteed?",
+          "context": "Since ClaudeBackend is expected to satisfy the Backend Protocol structurally, callers should be unaffected \u2014 but this should be stated explicitly to avoid ambiguity during review and to confirm no migration guide is needed.",
+          "options": [
+            "Yes, full backward compatibility \u2014 ClaudeBackend satisfies the Protocol and no call sites need updating",
+            "No, call sites that rely on ClaudeBackend-specific methods beyond the Protocol will need updating",
+            "Partially \u2014 most call sites are unaffected, but one or more edge cases require attention"
+          ],
+          "required": false
+        },
+        {
+          "id": "q5",
+          "text": "What is the expected test coverage strategy for the new Protocol and factory? Should the containment property test run in CI on every PR, and are there any performance or import-time constraints to enforce?",
+          "context": "The spec mentions a containment property test and generalizing it for future backends, but does not specify whether this is a unit test, integration test, or static analysis check, nor its CI enforcement level.",
+          "options": [
+            "Unit test in CI on every PR, enforced as a required check",
+            "Unit test in CI but not blocking",
+            "Static analysis / import-time check (e.g. using importlib or AST inspection)",
+            "Other (please specify)"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD is well-structured and demonstrates strong engineering thinking. The intent, background, goals, solution, and design decisions are clearly articulated. The acceptance criteria are concrete and testable, and the testing strategy is thorough. However, several gaps remain that could cause ambiguity during implementation: the exact `Backend` Protocol interface (method signatures, parameter types, return types) is referenced but never formally specified; the `AgentMessage` type used in the Protocol is not defined or linked; the `OrchestratorConfig` changes lack detail on validation behavior and error messaging; and there is no explicit file/module structure diagram to guide implementation layout. Addressing these will make the PRD fully implementation-ready without requiring developers to reverse-engineer decisions from existing code.",
+      "gaps": [
+        "The Backend Protocol interface is never formally defined \u2014 the signatures for execute(), close(), and name are mentioned but parameter names, types, return types, and any raised exceptions are not spelled out in the PRD body.",
+        "AgentMessage is referenced as the return type of execute() but is never defined or linked to an existing type. It is unclear whether this is an alias, a union, or a new type.",
+        "The OrchestratorConfig change is described at a high level, but there is no detail on: what the pydantic validation error message looks like when an invalid backend name is provided, whether the field is optional or required, and how it interacts with environment variable overrides if any exist.",
+        "There is no module/file layout diagram or tree showing exactly which files are created vs. modified, making it harder to scope the implementation without reading existing code.",
+        "The ConfigError raised by create_backend() is not defined \u2014 it is unclear if this is an existing exception class, where it lives, and what its constructor signature is.",
+        "The close() method contract is underspecified \u2014 it is not clear whether it is async or sync, whether it can be called multiple times safely, or what happens if execute() is still running when close() is called.",
+        "There is no mention of thread-safety or async-safety requirements for the factory or the Protocol, which matters given the async iterator contract.",
+        "The __all__ update is mentioned but there is no list of what should be in __all__ after the change, nor which __init__.py files are affected (package-level vs. sub-package)."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What is the exact signature of the Backend Protocol's execute() method?",
+          "context": "The PRD states execute() returns AsyncIterator[AgentMessage] but does not specify its parameters (e.g. messages list, config, tools). Developers need the full signature to implement compliant backends and write the Protocol definition.",
+          "options": [
+            "execute(self, messages: list[AgentMessage], config: OrchestratorConfig) -> AsyncIterator[AgentMessage]",
+            "execute(self, spec: AgentSpec, history: list[AgentMessage]) -> AsyncIterator[AgentMessage]",
+            "It matches ClaudeBackend.execute() exactly \u2014 please paste that signature here",
+            "Other (please specify)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "What is AgentMessage? Is it an existing type, a new union, or an alias?",
+          "context": "AgentMessage appears as the return type of execute() but is not defined anywhere in the PRD. Clarifying this prevents implementors from inventing an incompatible type.",
+          "options": [
+            "AgentMessage is a new Union type: Union[ToolUseMessage, AssistantMessage, ResultMessage]",
+            "AgentMessage already exists in session/backends/types.py under a different name",
+            "AgentMessage is a new base class that ToolUseMessage, AssistantMessage, and ResultMessage inherit from",
+            "Other (please specify)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "Is close() on the Backend Protocol synchronous or asynchronous (i.e. def close() or async def close())?",
+          "context": "This affects how session.py calls close() and how implementors write cleanup logic. It also determines whether ClaudeBackend already satisfies the Protocol without modification.",
+          "options": [
+            "async def close(self) -> None",
+            "def close(self) -> None",
+            "Both \u2014 the Protocol should accept either via an overload"
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "Does ConfigError already exist in the codebase, or does it need to be created as part of this spec?",
+          "context": "The PRD references ConfigError as if it exists (citing resolve_model() as a precedent), but it is not listed as a deliverable. If it does not exist, it must be added to the scope.",
+          "options": [
+            "ConfigError already exists \u2014 please provide its import path (e.g. agentfox.core.exceptions.ConfigError)",
+            "ConfigError does not exist and must be created in this spec",
+            "A different existing exception should be used instead"
+          ],
+          "required": true
+        },
+        {
+          "id": "q5",
+          "text": "Which __init__.py files need to be updated to export Backend and create_backend, and what should their full __all__ lists look like after the change?",
+          "context": "The PRD mentions updating __init__.py exports but does not specify which package levels are affected (e.g. session/backends/__init__.py only, or also session/__init__.py and the top-level agentfox/__init__.py).",
+          "options": [
+            "Only session/backends/__init__.py",
+            "session/backends/__init__.py and session/__init__.py",
+            "session/backends/__init__.py, session/__init__.py, and the top-level agentfox/__init__.py",
+            "Other (please specify)"
+          ],
+          "required": false
+        },
+        {
+          "id": "q6",
+          "text": "Should the new backend config field in OrchestratorConfig accept values from an environment variable, and if so, what is the variable name?",
+          "context": "Many pydantic-based configs in the project may use env var overrides. If OrchestratorConfig supports this pattern elsewhere, the backend field should follow the same convention to avoid inconsistency.",
+          "options": [
+            "Yes \u2014 use AGENTFOX_BACKEND or similar",
+            "No \u2014 the field is config-file only",
+            "Follow whatever convention the other OrchestratorConfig fields already use"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD is well-structured and demonstrates strong engineering clarity. The intent, problem statement, solution steps, interface specs, and design decisions are all thorough and internally consistent. However, several gaps remain that could create ambiguity during implementation: the `execute()` return type annotation needs clarification (sync vs. async def), callback type definitions are referenced but not specified, the containment test mechanics need more detail, and a few edge cases around error handling and session.py migration are underspecified.",
+      "gaps": [
+        "The `execute()` method in the Protocol is declared as a regular `def` returning `AsyncIterator[AgentMessage]`, but it's unclear whether the intent is a synchronous method returning an async iterator (like an async generator), or whether it should be declared `async def`. This distinction matters for structural subtyping \u2014 `ClaudeBackend.execute()` must match exactly.",
+        "The types `PermissionCallback` and `ActivityCallback` are imported in the Protocol definition but are not defined or documented in this spec. Their signatures, whether they are `Protocol`s, `TypeAlias`es, or `Callable` types, and where they currently live in the codebase are not specified.",
+        "The containment test strategy relies on file content scanning (grepping for SDK import strings), but the exact import strings being scanned for are not specified. For example, is it scanning for `'import claude_agent_sdk'`, `'from claude_agent_sdk'`, or just `'claude_agent_sdk'`? This ambiguity could lead to false negatives if the pattern doesn't match real import styles.",
+        "The spec states the `# type: ignore[attr-defined]` on `session.py` line 256 is eliminated as a success criterion, but does not explain what the `async for` loop currently iterates over or how the type narrowing works post-Protocol introduction. A brief note on why mypy was previously unable to resolve this would improve implementability.",
+        "There is no specified behavior for what happens when `create_backend()` is called with a valid name but the corresponding SDK is not installed (e.g., import fails at runtime). Should it raise `ConfigError`, `ImportError`, or a custom exception?",
+        "The spec does not define the full current signature of `run_session()` in `session.py`, making it harder to verify the exact scope of the type-hint change. Only the `backend` parameter change is described, but the full function signature context is absent.",
+        "The `OrchestratorConfig` change adds a `backend` field, but the spec does not clarify how config merging works when a global TOML defines `backend = 'deepagents'` and a local TOML omits it \u2014 does the global value persist or does the default override it?"
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "Should `execute()` in the `Backend` Protocol be declared as `def` (synchronous method returning `AsyncIterator`) or `async def` (a coroutine)? How is `ClaudeBackend.execute()` currently declared?",
+          "context": "Protocol structural subtyping in Python requires that the method signatures match. If `ClaudeBackend.execute()` is a regular `def` returning an async generator, the Protocol must match. If it's `async def`, the Protocol must also be `async def`. This affects whether the Protocol correctly captures the contract.",
+          "options": [
+            "def execute(...) -> AsyncIterator[AgentMessage] (synchronous, returns async iterator / async generator)",
+            "async def execute(...) -> AsyncIterator[AgentMessage] (coroutine returning async iterator)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "What are `PermissionCallback` and `ActivityCallback`? Please provide their type definitions or describe where they are currently defined in the codebase.",
+          "context": "These types are used in the `execute()` Protocol signature. Implementors need to know whether they are `Callable` type aliases, `Protocol` classes, or something else, so they can correctly import and use them.",
+          "options": [],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "For the containment test, what exact string patterns should be scanned in file contents to detect SDK imports? For example, is the test looking for the string `'claude_agent_sdk'` anywhere in the file, or specifically for `'import claude_agent_sdk'` / `'from claude_agent_sdk'`?",
+          "context": "The precision of the scan pattern determines whether the test is reliable. A broad substring match (e.g. just `'claude_agent_sdk'`) would catch all import styles including comments and strings, while a narrow pattern might miss aliased or conditional imports.",
+          "options": [
+            "Scan for the bare module name string (e.g. 'claude_agent_sdk') anywhere in file contents",
+            "Scan specifically for import statements (e.g. 'import claude_agent_sdk' or 'from claude_agent_sdk')",
+            "Use AST-based import analysis instead of string scanning"
+          ],
+          "required": false
+        },
+        {
+          "id": "q4",
+          "text": "What should happen if `create_backend('claude')` is called but `claude_agent_sdk` is not installed \u2014 i.e., the lazy import fails at runtime? Should the factory raise `ConfigError`, re-raise the `ImportError`, or raise a new custom exception?",
+          "context": "This is a real operational scenario (e.g. minimal installs, CI environments without optional SDKs). Without a specified behavior, different implementors may handle this differently, leading to inconsistent error messages and user experience.",
+          "options": [
+            "Re-raise the ImportError with no modification",
+            "Catch ImportError and raise ConfigError with an installation hint message",
+            "Catch ImportError and raise a new MissingDependencyError"
+          ],
+          "required": true
+        },
+        {
+          "id": "q5",
+          "text": "When global and local TOML configs are merged and the local TOML omits the `backend` field, does the global TOML's `backend` value take precedence, or does the pydantic default ('claude') override it?",
+          "context": "The spec says the field has a default of 'claude' and is config-file only. But config merging behavior determines whether teams can set a non-default backend globally and have it respected by local configs that don't explicitly set it. This affects multi-environment deployments.",
+          "options": [
+            "Global TOML value persists when local TOML omits the field (standard merge behavior)",
+            "Pydantic default always applies when the field is absent from the local TOML, overriding global",
+            "This follows the existing merge strategy used by all other OrchestratorConfig fields (please describe that strategy)"
+          ],
+          "required": false
+        }
+      ]
+    }
+  ],
+  "qa_exchanges": [
+    {
+      "assessment_index": 0,
+      "answers": {
+        "q1": "Introduce a runtime-checkable Backend Protocol and factory to decouple the session layer from ClaudeBackend, enabling future alternative backends without modifying session.py.",
+        "q2": "All of the listed criteria: (1) isinstance(ClaudeBackend(), Backend) returns True, (2) all existing session tests pass without modification, (3) importing session.py with backend='claude' does not import deepagents or google.adk, (4) ConfigError is raised for unregistered backend names, (5) the type:ignore on session.py line 256 is eliminated.",
+        "q3": "Deep Agents and Google ADK backends are planned as the immediate next specs (03_deepagents_backend and 04_google_adk_backend). This spec is the foundation they depend on.",
+        "q4": "Yes, full backward compatibility. ClaudeBackend satisfies the Protocol structurally \u2014 no call sites need updating. The only change callers see is a wider type hint (Backend instead of ClaudeBackend).",
+        "q5": "Unit test in CI on every PR, enforced as a required check. The containment test uses file content scanning (grep for SDK import strings), same approach as the existing test_protocol.py but generalized to a mapping of SDK-name \u2192 allowed-file."
+      },
+      "timestamp": "2026-07-07T12:51:59.206786+00:00"
+    },
+    {
+      "assessment_index": 1,
+      "answers": {
+        "q1": "It matches ClaudeBackend.execute() exactly: execute(self, prompt: str, *, system_prompt: str, model: str, cwd: str, permission_callback: PermissionCallback | None = None, activity_callback: ActivityCallback | None = None, tool_error_callback: Any | None = None, node_id: str = '', archetype: str | None = None, max_turns: int | None = None, max_budget_usd: float | None = None, thinking: dict[str, Any] | None = None, effort: str | None = None, compaction: bool = False) -> AsyncIterator[AgentMessage]",
+        "q2": "AgentMessage already exists in session/backends/types.py \u2014 it is defined as: AgentMessage = ToolUseMessage | AssistantMessage | ResultMessage (a type alias union of the three canonical message types).",
+        "q3": "async def close(self) -> None \u2014 matching ClaudeBackend.close() exactly. It is idempotent (safe to call multiple times) and a no-op for ClaudeBackend.",
+        "q4": "ConfigError already exists at agentfox.core.errors.ConfigError. It is used by resolve_model() and load_config() throughout the codebase.",
+        "q5": "Only session/backends/__init__.py needs updating. The updated __all__ will be: ['AgentMessage', 'AssistantMessage', 'Backend', 'ClaudeBackend', 'PermissionCallback', 'ResultMessage', 'ToolUseMessage', 'create_backend']",
+        "q6": "No environment variable override \u2014 the field is config-file only. Other OrchestratorConfig fields do not use env var overrides; the config system uses TOML file merging (global + local)."
+      },
+      "timestamp": "2026-07-07T12:53:15.467993+00:00"
+    }
+  ],
+  "generated_artifacts": [],
+  "mode": "interactive"
+}
