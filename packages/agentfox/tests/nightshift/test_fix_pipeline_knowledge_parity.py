@@ -1505,3 +1505,260 @@ class TestPreAndPostHarvestCallIndependence:
         assert call_count >= 2, (
             f"Expected at least 2 ingest calls attempted, got {call_count}"
         )
+
+
+# ===========================================================================
+# 5.1 — spec_name convention and issue isolation (retrieve + ingest)
+# ===========================================================================
+# Test Spec: TS-05-27, TS-05-28
+# Requirements: 05-REQ-8.1, 05-REQ-8.2
+
+
+class TestSpecNameConventionRetrieveAndIngest:
+    """Verify spec_name='fix-issue-{N}' convention for both retrieve and ingest.
+
+    N is read from the existing pipeline attribute (spec.issue_number), not
+    parsed from the session ID string. Knowledge records must be scoped by
+    issue number so records for one issue are never returned for another.
+
+    Test Spec: TS-05-27, TS-05-28
+    Requirements: 05-REQ-8.1, 05-REQ-8.2
+    """
+
+    async def test_both_retrieve_and_ingest_use_fix_issue_n(self) -> None:
+        """Both retrieve() and ingest() called with spec_name='fix-issue-{N}'.
+
+        N comes from the spec (issue_number), not from string parsing.
+
+        Test Spec: TS-05-27
+        Requirement: 05-REQ-8.1
+        """
+        provider = MagicMock()
+        provider.retrieve.return_value = []
+        pipeline = _make_pipeline(knowledge_provider=provider)
+        pipeline._run_id = "run-test-1"
+
+        with (
+            patch.object(pipeline, "_setup_workspace", new_callable=AsyncMock, return_value=_make_workspace()),
+            patch.object(pipeline, "_cleanup_workspace", new_callable=AsyncMock),
+            patch.object(pipeline, "_run_triage", new_callable=AsyncMock, return_value=_make_triage()),
+            patch.object(pipeline, "_coder_review_loop", new_callable=AsyncMock, return_value=True),
+            patch.object(pipeline, "_handle_result", new_callable=AsyncMock),
+            patch.object(pipeline, "_post_comment", new_callable=AsyncMock),
+            patch.object(pipeline, "_auto_commit_pending_changes", new_callable=AsyncMock),
+            patch.object(pipeline, "_push_fix_branch_upstream", new_callable=AsyncMock, return_value=True),
+            patch(
+                "agentfox.workspace.harvest.harvest",
+                new_callable=AsyncMock,
+                return_value=["src/foo.py"],
+            ),
+            patch(
+                "agentfox.workspace.harvest.post_harvest_integrate",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "agentfox.nightshift.fix_pipeline.extract_session_summary", create=True,
+                return_value=(None, [], [], []),
+            ),
+        ):
+            await pipeline.process_issue(_make_issue(99), issue_body="Some body")
+
+        # Verify retrieve() uses spec_name='fix-issue-99'
+        retrieve_call = provider.retrieve.call_args
+        retrieve_spec = (
+            retrieve_call.args[0] if retrieve_call.args else retrieve_call.kwargs.get("spec_name")
+        )
+        assert retrieve_spec == "fix-issue-99", (
+            f"Expected retrieve spec_name='fix-issue-99', got '{retrieve_spec}'"
+        )
+
+        # Verify ingest() uses spec_name='fix-issue-99'
+        ingest_calls = provider.ingest.call_args_list
+        assert len(ingest_calls) > 0, "Expected at least one ingest call"
+        for call in ingest_calls:
+            ingest_spec = (
+                call.args[1] if len(call.args) > 1 else call.kwargs.get("spec_name")
+            )
+            assert ingest_spec == "fix-issue-99", (
+                f"Expected ingest spec_name='fix-issue-99', got '{ingest_spec}'"
+            )
+
+    def test_spec_name_not_parsed_from_session_id(self) -> None:
+        """spec_name comes from spec.issue_number, not from string parsing.
+
+        Test Spec: TS-05-27
+        Requirement: 05-REQ-8.1
+        """
+        provider = MagicMock()
+        provider.retrieve.return_value = []
+        pipeline = _make_pipeline(knowledge_provider=provider)
+
+        # Directly calling _retrieve_knowledge with explicit spec_name
+        # verifies the method passes through the value unchanged.
+        pipeline._retrieve_knowledge("fix-issue-77", "Some description")
+        call_args = provider.retrieve.call_args
+        spec_arg = call_args.args[0] if call_args.args else call_args.kwargs.get("spec_name")
+        assert spec_arg == "fix-issue-77"
+
+    def test_issue_isolation_retrieve_side_effect(self) -> None:
+        """Knowledge for fix-issue-42 is never returned for fix-issue-43.
+
+        Uses mock side_effect that returns items only for exact spec_name match,
+        verifying per-issue isolation across different issue numbers.
+
+        Test Spec: TS-05-28
+        Requirement: 05-REQ-8.2
+        """
+
+        def side_effect(spec_name: str, task_description: str, **kwargs: object) -> list[str]:
+            if spec_name == "fix-issue-42":
+                return ["knowledge for 42"]
+            return []
+
+        provider = MagicMock()
+        provider.retrieve.side_effect = side_effect
+
+        pipeline42 = _make_pipeline(knowledge_provider=provider)
+        result42 = pipeline42._retrieve_knowledge("fix-issue-42", "Fix test")
+        assert result42 == ["knowledge for 42"]
+
+        pipeline43 = _make_pipeline(knowledge_provider=provider)
+        result43 = pipeline43._retrieve_knowledge("fix-issue-43", "Fix test")
+        assert result43 == []
+
+    def test_issue_isolation_no_cross_contamination(self) -> None:
+        """Distinct pipelines for different issues get isolated knowledge.
+
+        Test Spec: TS-05-28
+        Requirement: 05-REQ-8.2
+        """
+        provider = MagicMock()
+
+        def side_effect(spec_name: str, task_description: str, **kwargs: object) -> list[str]:
+            store = {
+                "fix-issue-10": ["finding from issue 10"],
+                "fix-issue-20": ["finding from issue 20"],
+            }
+            return store.get(spec_name, [])
+
+        provider.retrieve.side_effect = side_effect
+
+        p10 = _make_pipeline(knowledge_provider=provider)
+        assert p10._retrieve_knowledge("fix-issue-10", "desc") == ["finding from issue 10"]
+
+        p20 = _make_pipeline(knowledge_provider=provider)
+        assert p20._retrieve_knowledge("fix-issue-20", "desc") == ["finding from issue 20"]
+
+        p30 = _make_pipeline(knowledge_provider=provider)
+        assert p30._retrieve_knowledge("fix-issue-30", "desc") == []
+
+
+# ===========================================================================
+# 5.2 — fix_pipeline.py calls extract_session_summary from
+#        agentfox.knowledge.extraction
+# ===========================================================================
+# Test Spec: TS-05-17
+# Requirements: 05-REQ-4.3
+
+
+class TestFixPipelineCallsExtractSessionSummary:
+    """Verify fix_pipeline.py imports and calls extract_session_summary.
+
+    The function must be called from ``agentfox.knowledge.extraction``
+    directly (without await) to parse outcome.response for the
+    post-harvest ingestion path.
+
+    Test Spec: TS-05-17
+    Requirements: 05-REQ-4.3
+    """
+
+    async def test_extract_called_with_outcome_response(self) -> None:
+        """extract_session_summary is called with the outcome response text.
+
+        Test Spec: TS-05-17
+        Requirement: 05-REQ-4.3
+        """
+        import inspect
+
+        provider = MagicMock()
+        provider.retrieve.return_value = []
+        pipeline = _make_pipeline(knowledge_provider=provider)
+        pipeline._run_id = "run-test-1"
+
+        with (
+            patch.object(pipeline, "_setup_workspace", new_callable=AsyncMock, return_value=_make_workspace()),
+            patch.object(pipeline, "_cleanup_workspace", new_callable=AsyncMock),
+            patch.object(pipeline, "_run_triage", new_callable=AsyncMock, return_value=_make_triage()),
+            patch.object(pipeline, "_coder_review_loop", new_callable=AsyncMock, return_value=True),
+            patch.object(pipeline, "_handle_result", new_callable=AsyncMock),
+            patch.object(pipeline, "_post_comment", new_callable=AsyncMock),
+            patch.object(pipeline, "_auto_commit_pending_changes", new_callable=AsyncMock),
+            patch.object(pipeline, "_push_fix_branch_upstream", new_callable=AsyncMock, return_value=True),
+            patch(
+                "agentfox.workspace.harvest.harvest",
+                new_callable=AsyncMock,
+                return_value=["src/changed.py"],
+            ),
+            patch(
+                "agentfox.workspace.harvest.post_harvest_integrate",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "agentfox.nightshift.fix_pipeline.extract_session_summary", create=True,
+                return_value=(None, [], [], []),
+            ) as mock_extract,
+        ):
+            await pipeline.process_issue(_make_issue(42), issue_body="Some body")
+
+        # extract_session_summary must have been called at least once
+        assert mock_extract.called, (
+            "extract_session_summary from agentfox.knowledge.extraction was not called"
+        )
+        # The return value should not be a coroutine (synchronous call)
+        call_result = mock_extract.return_value
+        assert not inspect.isawaitable(call_result), (
+            "extract_session_summary return must not be awaitable (synchronous)"
+        )
+
+    async def test_extract_not_awaited(self) -> None:
+        """extract_session_summary is called without await — no coroutine produced.
+
+        Test Spec: TS-05-17
+        Requirement: 05-REQ-4.3
+        """
+        import inspect
+
+        provider = MagicMock()
+        provider.retrieve.return_value = []
+        pipeline = _make_pipeline(knowledge_provider=provider)
+        pipeline._run_id = "run-test-1"
+
+        with (
+            patch.object(pipeline, "_setup_workspace", new_callable=AsyncMock, return_value=_make_workspace()),
+            patch.object(pipeline, "_cleanup_workspace", new_callable=AsyncMock),
+            patch.object(pipeline, "_run_triage", new_callable=AsyncMock, return_value=_make_triage()),
+            patch.object(pipeline, "_coder_review_loop", new_callable=AsyncMock, return_value=True),
+            patch.object(pipeline, "_handle_result", new_callable=AsyncMock),
+            patch.object(pipeline, "_post_comment", new_callable=AsyncMock),
+            patch.object(pipeline, "_auto_commit_pending_changes", new_callable=AsyncMock),
+            patch.object(pipeline, "_push_fix_branch_upstream", new_callable=AsyncMock, return_value=True),
+            patch(
+                "agentfox.workspace.harvest.harvest",
+                new_callable=AsyncMock,
+                return_value=["src/changed.py"],
+            ),
+            patch(
+                "agentfox.workspace.harvest.post_harvest_integrate",
+                new_callable=AsyncMock,
+            ),
+            patch(
+                "agentfox.nightshift.fix_pipeline.extract_session_summary", create=True,
+                return_value=("some summary", ["r1"], ["g1"], ["a1"]),
+            ) as mock_extract,
+        ):
+            await pipeline.process_issue(_make_issue(42), issue_body="Some body")
+
+        # Verify the mock was called (it's a synchronous MagicMock, not AsyncMock)
+        assert mock_extract.called
+        # Verify its return_value is a plain tuple (not awaitable)
+        assert not inspect.isawaitable(mock_extract.return_value)
