@@ -55,7 +55,6 @@ exclude = [".claude/worktrees"]
 select = ["E", "F", "W", "I", "UP", "TID251"]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
-"agentfox.knowledge.extraction".msg = "Removed in spec 114"
 "agentfox.knowledge.embeddings".msg = "Removed in spec 114"
 "agentfox.knowledge.search".msg = "Removed in spec 114"
 "agentfox.knowledge.retrieval".msg = "Removed in spec 114"
