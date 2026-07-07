@@ -14,18 +14,16 @@ Requirements: 03-REQ-1.1, 03-REQ-1.2, 03-REQ-1.3, 03-REQ-2.1
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections.abc import AsyncIterator
 from typing import Any
 
-from deepagents import create_deep_agent  # noqa: F401
+from deepagents import create_deep_agent
 from langchain_core.tools import tool
 
-from agentfox.session.backends._retry import (
-    _BACKOFF_BASE,  # noqa: F401
-    _MAX_TRANSPORT_RETRIES,  # noqa: F401
-)
+from agentfox.session.backends._retry import _BACKOFF_BASE, _MAX_TRANSPORT_RETRIES
 from agentfox.session.backends.types import (
     AgentMessage,
     AssistantMessage,
@@ -36,6 +34,25 @@ from agentfox.session.backends.types import (
 from agentfox.ui.progress import ActivityCallback
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Transient error classification (03-REQ-6.1, 03-REQ-6.3)
+# ---------------------------------------------------------------------------
+# PermissionError is a subclass of OSError in Python, so it must be
+# explicitly excluded from transient classification.
+_NON_TRANSIENT_ERROR_TYPES = (
+    PermissionError,
+    ValueError,
+    TypeError,
+    KeyError,
+    AttributeError,
+)
+
+_TRANSIENT_ERROR_TYPES = (
+    ConnectionError,
+    OSError,
+    TimeoutError,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +144,19 @@ def _build_af_sdk_tools() -> list[Any]:
     return [spec_read, context_search, context_get, memory_recall, subtask_state]
 
 
+def _is_transient_error(exc: Exception) -> bool:
+    """Classify an exception as transient (retriable) or non-transient.
+
+    Transient: connection failures, timeouts, OS-level I/O errors.
+    Non-transient: auth failures, value errors, permission errors.
+
+    PermissionError is a subclass of OSError but is non-transient.
+    """
+    if isinstance(exc, _NON_TRANSIENT_ERROR_TYPES):
+        return False
+    return isinstance(exc, _TRANSIENT_ERROR_TYPES)
+
+
 # ---------------------------------------------------------------------------
 # DeepAgentsBackend adapter
 # ---------------------------------------------------------------------------
@@ -153,7 +183,93 @@ class DeepAgentsBackend:
         """Return the backend identifier string."""
         return "deepagents"
 
-    async def execute(  # noqa: C901, PLR0912, PLR0913
+    def _build_create_kwargs(  # noqa: PLR0913
+        self,
+        *,
+        model: str,
+        system_prompt: str,
+        cwd: str,
+        tools: list[Any],
+        max_budget_usd: float | None = None,
+        thinking: dict[str, Any] | None = None,
+        effort: str | None = None,
+    ) -> dict[str, Any]:
+        """Assemble kwargs for ``create_deep_agent()``.
+
+        Adds provider-specific parameters only when appropriate:
+        - ``thinking`` is included only for ``anthropic:`` prefix models.
+        - ``max_budget_usd`` and ``effort`` are included when non-None.
+
+        Never includes ``permissions`` (03-REQ-4.3) or ``compaction``
+        (03-REQ-5.4).
+        """
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "system_prompt": system_prompt,
+            "cwd": cwd,
+            "tools": tools,
+        }
+
+        # 03-REQ-5.1: thinking only for anthropic: prefix models
+        if model.startswith("anthropic:"):
+            kwargs["thinking"] = thinking if thinking is not None else {}
+
+        # 03-REQ-5.2, 03-REQ-5.3: optional params forwarded when present
+        if max_budget_usd is not None:
+            kwargs["max_budget_usd"] = max_budget_usd
+        if effort is not None:
+            kwargs["effort"] = effort
+
+        # 03-REQ-4.3: Never pass 'permissions'
+        # 03-REQ-5.4: Never pass 'compaction'
+        return kwargs
+
+    @staticmethod
+    def _create_agent_with_fallback(
+        create_kwargs: dict[str, Any],
+    ) -> Any:
+        """Call ``create_deep_agent()`` with graceful TypeError fallback.
+
+        Tries the full set of kwargs first.  If ``TypeError`` is raised
+        (unsupported parameter in the installed version), removes the
+        offending optional parameter and retries.
+
+        Droppable parameters:
+        - ``thinking`` -- removed silently (provider-level per 03-REQ-5.1)
+        - ``max_budget_usd`` -- removed with DEBUG log (03-REQ-5.2)
+        - ``effort`` -- removed with DEBUG log (03-REQ-5.3)
+
+        Returns the created agent instance.
+        """
+        # Map of optional params that can be dropped on TypeError.
+        # Value is True if a DEBUG log should be emitted on removal.
+        droppable: dict[str, bool] = {
+            "thinking": False,
+            "max_budget_usd": True,
+            "effort": True,
+        }
+
+        kwargs = dict(create_kwargs)
+        while True:
+            try:
+                return create_deep_agent(**kwargs)
+            except TypeError as exc:
+                dropped = False
+                for param_name, log_debug in droppable.items():
+                    if param_name in kwargs:
+                        del kwargs[param_name]
+                        if log_debug:
+                            logger.debug(
+                                "create_deep_agent does not support '%s'; "
+                                "retrying without it",
+                                param_name,
+                            )
+                        dropped = True
+                        break
+                if not dropped:
+                    raise exc  # noqa: TRY201
+
+    async def execute(  # noqa: C901, PLR0912, PLR0913, PLR0915
         self,
         prompt: str,
         *,
@@ -170,6 +286,7 @@ class DeepAgentsBackend:
         thinking: dict[str, Any] | None = None,
         effort: str | None = None,
         compaction: bool = False,
+        **kwargs: Any,
     ) -> AsyncIterator[AgentMessage]:
         """Execute a session via Deep Agents and yield canonical messages.
 
@@ -177,114 +294,216 @@ class DeepAgentsBackend:
         consumes the ``astream_events()`` v2 stream, mapping events to
         canonical ``AgentMessage`` instances.
 
-        No exception is allowed to propagate out of this generator
-        (03-REQ-2.9) — all failure modes surface through the terminal
-        ``ResultMessage`` error fields.
+        Includes:
+        - Provider-specific parameter handling with TypeError fallback
+          (03-REQ-5.1-5.4).
+        - Transient error retry with exponential backoff, up to 3 attempts
+          (03-REQ-6.1-6.4).
+        - Permission callback interrupt mapping (03-REQ-4.1-4.3).
+        - No exception propagation guarantee (03-REQ-2.9).
 
-        Note: Provider-specific parameter handling (thinking, effort,
-        max_budget_usd fallbacks) and the transient retry loop are
-        implemented in task groups 8–9.
-
-        Requirements: 03-REQ-2.1–2.9, 03-REQ-3.1, 03-REQ-4.3, 03-REQ-5.4
+        Requirements: 03-REQ-2.1-2.9, 03-REQ-3.1, 03-REQ-4.1-4.3,
+                      03-REQ-5.1-5.4, 03-REQ-6.1-6.4
         """
         start_time = time.monotonic()
-        input_tokens_total: int | None = None
-        output_tokens_total: int | None = None
 
-        try:
-            # Build tools and create agent (03-REQ-2.2, 03-REQ-3.1)
-            tools = _build_af_sdk_tools()
+        # Build tools and assemble create_deep_agent kwargs
+        tools = _build_af_sdk_tools()
+        create_kwargs = self._build_create_kwargs(
+            model=model,
+            system_prompt=system_prompt,
+            cwd=cwd,
+            tools=tools,
+            max_budget_usd=max_budget_usd,
+            thinking=thinking,
+            effort=effort,
+        )
 
-            create_kwargs: dict[str, Any] = {
-                "model": model,
-                "system_prompt": system_prompt,
-                "cwd": cwd,
-                "tools": tools,
-            }
-            # 03-REQ-4.3: Never pass 'permissions' to create_deep_agent
-            # 03-REQ-5.4: Never pass 'compaction' to create_deep_agent
+        last_exc: Exception | None = None
 
-            agent = create_deep_agent(**create_kwargs)
-            self._agent = agent
+        # 03-REQ-6.1: Retry loop bounded to _MAX_TRANSPORT_RETRIES attempts.
+        # Each retry creates a fresh agent and discards events from failed
+        # attempts (03-REQ-6.E2).  Events are buffered per attempt so that
+        # messages from a failed attempt are never yielded to the caller.
+        for attempt in range(_MAX_TRANSPORT_RETRIES):
+            input_tokens_total: int | None = None
+            output_tokens_total: int | None = None
+            buffered_msgs: list[AgentMessage] = []
 
-            # Stream events from the agent (03-REQ-2.2)
-            async for event in agent.astream_events(
-                {"messages": [{"role": "human", "content": prompt}]},
-                version="v2",
-            ):
-                try:
-                    event_kind = event.get("event", "")
+            try:
+                # Fresh agent for each attempt (03-REQ-6.E2)
+                agent = self._create_agent_with_fallback(create_kwargs)
+                self._agent = agent
 
-                    if event_kind == "on_chat_model_stream":
-                        # 03-REQ-2.4: yield AssistantMessage for each chunk
-                        chunk = event.get("data", {}).get("chunk")
-                        if chunk is not None:
-                            text = getattr(chunk, "content", str(chunk))
-                            if text:
-                                yield AssistantMessage(content=text)
+                # Stream events (03-REQ-2.2)
+                async for event in agent.astream_events(
+                    {"messages": [{"role": "human", "content": prompt}]},
+                    version="v2",
+                ):
+                    try:
+                        event_kind = event.get("event", "")
 
-                    elif event_kind == "on_tool_start":
-                        # 03-REQ-2.3: yield ToolUseMessage for tool start
-                        tool_name = event.get("name", "unknown")
-                        tool_input = event.get("data", {}).get("input", {})
-                        yield ToolUseMessage(
-                            tool_name=tool_name,
-                            tool_input=(tool_input if isinstance(tool_input, dict) else {}),
+                        if not event_kind:
+                            logger.warning(
+                                "Skipping malformed event with no "
+                                "'event' field: %s",
+                                event,
+                            )
+                            continue
+
+                        if event_kind == "on_chat_model_stream":
+                            chunk = event.get("data", {}).get("chunk")
+                            if chunk is not None:
+                                text = getattr(chunk, "content", str(chunk))
+                                if text:
+                                    buffered_msgs.append(
+                                        AssistantMessage(content=text),
+                                    )
+
+                        elif event_kind == "on_tool_start":
+                            tool_name = event.get("name", "unknown")
+                            tool_input = event.get("data", {}).get(
+                                "input",
+                                {},
+                            )
+
+                            # 03-REQ-4.1: permission callback (async)
+                            if permission_callback is not None:
+                                try:
+                                    await permission_callback(
+                                        tool_name,
+                                        tool_input
+                                        if isinstance(tool_input, dict)
+                                        else {},
+                                    )
+                                except Exception as cb_exc:
+                                    # 03-REQ-4.E1: deny + error
+                                    duration_ms = int(
+                                        (time.monotonic() - start_time)
+                                        * 1000,
+                                    )
+                                    yield ResultMessage(
+                                        status="error",
+                                        input_tokens=(
+                                            input_tokens_total or 0
+                                        ),
+                                        output_tokens=(
+                                            output_tokens_total or 0
+                                        ),
+                                        duration_ms=duration_ms,
+                                        error_message=str(cb_exc),
+                                        is_error=True,
+                                        is_transport_error=False,
+                                    )
+                                    return
+
+                            buffered_msgs.append(
+                                ToolUseMessage(
+                                    tool_name=tool_name,
+                                    tool_input=(
+                                        tool_input
+                                        if isinstance(tool_input, dict)
+                                        else {}
+                                    ),
+                                ),
+                            )
+
+                        elif event_kind == "on_tool_end":
+                            tool_name = event.get("name", "unknown")
+                            output = event.get("data", {}).get("output", "")
+                            buffered_msgs.append(
+                                ToolUseMessage(
+                                    tool_name=tool_name,
+                                    tool_input={"output": str(output)},
+                                ),
+                            )
+
+                        elif event_kind == "on_llm_end":
+                            output_data = event.get("data", {}).get("output")
+                            if output_data is not None:
+                                usage = getattr(
+                                    output_data,
+                                    "usage_metadata",
+                                    None,
+                                )
+                                if usage is not None:
+                                    inp = usage.get("input_tokens")
+                                    out = usage.get("output_tokens")
+                                    if inp is not None:
+                                        input_tokens_total = (
+                                            input_tokens_total or 0
+                                        ) + inp
+                                    if out is not None:
+                                        output_tokens_total = (
+                                            output_tokens_total or 0
+                                        ) + out
+
+                    except (KeyError, AttributeError, TypeError) as exc:
+                        logger.warning(
+                            "Skipping malformed event from astream_events: %s",
+                            exc,
                         )
+                        continue
 
-                    elif event_kind == "on_tool_end":
-                        # 03-REQ-2.3: yield ToolUseMessage for tool end
-                        tool_name = event.get("name", "unknown")
-                        output = event.get("data", {}).get("output", "")
-                        yield ToolUseMessage(
-                            tool_name=tool_name,
-                            tool_input={"output": str(output)},
-                        )
+                # Stream completed: yield buffered messages, then terminal
+                for msg in buffered_msgs:
+                    yield msg
 
-                    elif event_kind == "on_llm_end":
-                        # 03-REQ-2.5: accumulate token counts, yield nothing
-                        output_data = event.get("data", {}).get("output")
-                        if output_data is not None:
-                            usage = getattr(output_data, "usage_metadata", None)
-                            if usage is not None:
-                                inp = usage.get("input_tokens")
-                                out = usage.get("output_tokens")
-                                if inp is not None:
-                                    input_tokens_total = (input_tokens_total or 0) + inp
-                                if out is not None:
-                                    output_tokens_total = (output_tokens_total or 0) + out
+                duration_ms = int((time.monotonic() - start_time) * 1000)
+                yield ResultMessage(
+                    status="completed",
+                    input_tokens=(
+                        input_tokens_total
+                        if input_tokens_total is not None
+                        else 0
+                    ),
+                    output_tokens=(
+                        output_tokens_total
+                        if output_tokens_total is not None
+                        else 0
+                    ),
+                    duration_ms=duration_ms,
+                    error_message=None,
+                    is_error=False,
+                )
+                return
 
-                    # Unknown event kinds are silently ignored
+            except asyncio.CancelledError:
+                raise
 
-                except (KeyError, AttributeError, TypeError) as exc:
-                    # 03-REQ-2.8: skip malformed events with WARNING
-                    logger.warning("Skipping malformed event from astream_events: %s", exc)
-                    continue
+            except Exception as exc:
+                last_exc = exc
 
-        except Exception as exc:
-            # 03-REQ-2.9: no exception propagates — surface via ResultMessage
-            duration_ms = int((time.monotonic() - start_time) * 1000)
-            yield ResultMessage(
-                status="error",
-                input_tokens=input_tokens_total or 0,
-                output_tokens=output_tokens_total or 0,
-                duration_ms=duration_ms,
-                error_message=str(exc),
-                is_error=True,
-                is_transport_error=False,
-            )
-            return
+                if not _is_transient_error(exc):
+                    duration_ms = int((time.monotonic() - start_time) * 1000)
+                    yield ResultMessage(
+                        status="error",
+                        input_tokens=input_tokens_total or 0,
+                        output_tokens=output_tokens_total or 0,
+                        duration_ms=duration_ms,
+                        error_message=str(exc),
+                        is_error=True,
+                        is_transport_error=False,
+                    )
+                    return
 
-        # 03-REQ-2.6: terminal ResultMessage with accumulated token counts
-        # 03-REQ-2.7 / Errata E5: use 0 when provider omits counts (int, not None)
+                # Transient: backoff and retry (discard buffered events)
+                if attempt < _MAX_TRANSPORT_RETRIES - 1:
+                    delay = _BACKOFF_BASE * (2**attempt)
+                    await asyncio.sleep(delay)
+
+        # All retries exhausted (03-REQ-6.2)
         duration_ms = int((time.monotonic() - start_time) * 1000)
         yield ResultMessage(
-            status="completed",
-            input_tokens=input_tokens_total if input_tokens_total is not None else 0,
-            output_tokens=(output_tokens_total if output_tokens_total is not None else 0),
+            status="error",
+            input_tokens=0,
+            output_tokens=0,
             duration_ms=duration_ms,
-            error_message=None,
-            is_error=False,
+            error_message=(
+                str(last_exc) if last_exc else "All retry attempts exhausted"
+            ),
+            is_error=True,
+            is_transport_error=True,
         )
 
     async def close(self) -> None:
@@ -292,7 +511,7 @@ class DeepAgentsBackend:
 
         Safe to call multiple times; second and subsequent calls are no-ops.
         Does NOT perform ``asyncio.Task.cancel()`` or any async cancellation
-        — mid-stream teardown is delegated to ``session.py`` via
+        -- mid-stream teardown is delegated to ``session.py`` via
         ``asyncio.wait_for()`` / async iterator cancellation.
 
         Requirements: 03-REQ-7.1, 03-REQ-7.2, 03-REQ-7.3, 03-REQ-7.4
