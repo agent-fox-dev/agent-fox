@@ -158,6 +158,48 @@ def _is_transient_error(exc: Exception) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Provider-specific parameter fallback (03-REQ-5.1, 03-REQ-5.2, 03-REQ-5.3)
+# ---------------------------------------------------------------------------
+# Parameters that may not be supported by all ``create_deep_agent()`` versions
+# are tried first and removed on ``TypeError``.  The ``create_kwargs`` dict is
+# modified **in place** so that once a parameter is removed it stays removed
+# across transport-level retries.
+_OPTIONAL_FALLBACK_PARAMS = ("thinking", "max_budget_usd", "effort")
+
+
+def _create_agent_with_fallback(create_kwargs: dict[str, Any]) -> Any:
+    """Call ``create_deep_agent`` with progressive parameter fallback.
+
+    When ``TypeError`` is raised and its message mentions one of the
+    known optional parameters, that parameter is removed from
+    *create_kwargs* **in place** and the call is retried.  This avoids
+    re-attempting unsupported parameters on subsequent transport retries.
+
+    Parameters that do not appear in ``_OPTIONAL_FALLBACK_PARAMS`` cause
+    the ``TypeError`` to propagate.
+
+    Requirements: 03-REQ-5.1, 03-REQ-5.2, 03-REQ-5.3
+    """
+    while True:
+        try:
+            return create_deep_agent(**create_kwargs)
+        except TypeError as exc:
+            exc_msg = str(exc)
+            removed = False
+            for param in _OPTIONAL_FALLBACK_PARAMS:
+                if param in create_kwargs and param in exc_msg:
+                    logger.debug(
+                        "create_deep_agent does not support '%s', retrying without it",
+                        param,
+                    )
+                    del create_kwargs[param]
+                    removed = True
+                    break
+            if not removed:
+                raise
+
+
+# ---------------------------------------------------------------------------
 # DeepAgentsBackend adapter
 # ---------------------------------------------------------------------------
 
@@ -326,6 +368,16 @@ class DeepAgentsBackend:
         # attempts (03-REQ-6.E2).  Events are buffered per attempt so that
         # messages from a failed attempt are never yielded to the caller.
         for attempt in range(_MAX_TRANSPORT_RETRIES):
+            if attempt > 0:
+                delay = _BACKOFF_BASE * (2 ** (attempt - 1))
+                logger.info(
+                    "DeepAgentsBackend: transport retry %d/%d after %.1fs",
+                    attempt,
+                    _MAX_TRANSPORT_RETRIES,
+                    delay,
+                )
+                await asyncio.sleep(delay)
+
             input_tokens_total: int | None = None
             output_tokens_total: int | None = None
             buffered_msgs: list[AgentMessage] = []
@@ -352,6 +404,7 @@ class DeepAgentsBackend:
                             continue
 
                         if event_kind == "on_chat_model_stream":
+                            # 03-REQ-2.4: buffer AssistantMessage for each chunk
                             chunk = event.get("data", {}).get("chunk")
                             if chunk is not None:
                                 text = getattr(chunk, "content", str(chunk))
@@ -361,6 +414,7 @@ class DeepAgentsBackend:
                                     )
 
                         elif event_kind == "on_tool_start":
+                            # 03-REQ-2.3: buffer ToolUseMessage for tool start
                             tool_name = event.get("name", "unknown")
                             tool_input = event.get("data", {}).get(
                                 "input",
@@ -409,6 +463,7 @@ class DeepAgentsBackend:
                             )
 
                         elif event_kind == "on_tool_end":
+                            # 03-REQ-2.3: buffer ToolUseMessage for tool end
                             tool_name = event.get("name", "unknown")
                             output = event.get("data", {}).get("output", "")
                             buffered_msgs.append(
@@ -419,6 +474,7 @@ class DeepAgentsBackend:
                             )
 
                         elif event_kind == "on_llm_end":
+                            # 03-REQ-2.5: accumulate token counts
                             output_data = event.get("data", {}).get("output")
                             if output_data is not None:
                                 usage = getattr(
@@ -438,17 +494,22 @@ class DeepAgentsBackend:
                                             output_tokens_total or 0
                                         ) + out
 
+                        # Unknown event kinds are silently ignored
+
                     except (KeyError, AttributeError, TypeError) as exc:
+                        # 03-REQ-2.8: skip malformed events with WARNING
                         logger.warning(
                             "Skipping malformed event from astream_events: %s",
                             exc,
                         )
                         continue
 
-                # Stream completed: yield buffered messages, then terminal
+                # Stream completed successfully — yield buffered messages
+                # and terminal ResultMessage, then return.
                 for msg in buffered_msgs:
                     yield msg
 
+                # 03-REQ-2.6 / Errata E5: use 0 when provider omits counts
                 duration_ms = int((time.monotonic() - start_time) * 1000)
                 yield ResultMessage(
                     status="completed",
@@ -469,30 +530,44 @@ class DeepAgentsBackend:
                 return
 
             except asyncio.CancelledError:
+                # 03-REQ-2.E2: Do not retry cancellation — propagate so
+                # the asyncio task is properly cancelled.
                 raise
 
             except Exception as exc:
                 last_exc = exc
 
-                if not _is_transient_error(exc):
-                    duration_ms = int((time.monotonic() - start_time) * 1000)
-                    yield ResultMessage(
-                        status="error",
-                        input_tokens=input_tokens_total or 0,
-                        output_tokens=output_tokens_total or 0,
-                        duration_ms=duration_ms,
-                        error_message=str(exc),
-                        is_error=True,
-                        is_transport_error=False,
+                if _is_transient_error(exc):
+                    # 03-REQ-6.1: Transient — retry after backoff
+                    logger.warning(
+                        "DeepAgentsBackend transport error (attempt %d/%d): %s",
+                        attempt + 1,
+                        _MAX_TRANSPORT_RETRIES,
+                        exc,
                     )
-                    return
+                    # 03-REQ-6.E2: Discard partial state before retry
+                    self._agent = None
+                    continue
 
-                # Transient: backoff and retry (discard buffered events)
-                if attempt < _MAX_TRANSPORT_RETRIES - 1:
-                    delay = _BACKOFF_BASE * (2**attempt)
-                    await asyncio.sleep(delay)
+                # 03-REQ-6.3: Non-transient — yield error immediately
+                duration_ms = int((time.monotonic() - start_time) * 1000)
+                yield ResultMessage(
+                    status="error",
+                    input_tokens=input_tokens_total or 0,
+                    output_tokens=output_tokens_total or 0,
+                    duration_ms=duration_ms,
+                    error_message=str(exc),
+                    is_error=True,
+                    is_transport_error=False,
+                )
+                return
 
-        # All retries exhausted (03-REQ-6.2)
+        # 03-REQ-6.2: All transport retries exhausted
+        logger.error(
+            "DeepAgentsBackend: all %d transport retries exhausted; last error: %s",
+            _MAX_TRANSPORT_RETRIES,
+            str(last_exc),
+        )
         duration_ms = int((time.monotonic() - start_time) * 1000)
         yield ResultMessage(
             status="error",
@@ -500,7 +575,8 @@ class DeepAgentsBackend:
             output_tokens=0,
             duration_ms=duration_ms,
             error_message=(
-                str(last_exc) if last_exc else "All retry attempts exhausted"
+                f"Transport error after {_MAX_TRANSPORT_RETRIES} retries: "
+                f"{last_exc}"
             ),
             is_error=True,
             is_transport_error=True,
