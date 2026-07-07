@@ -1,3 +1,12 @@
+⚠️ **SUPERSEDED** by
+[`docs/proposals/simplification-prd.md`](proposals/simplification-prd.md)
+and [`docs/proposals/game-changer-features-prd.md`](proposals/game-changer-features-prd.md).
+> This document was written without a line-by-line read of the source and
+> several of its premises (dropping DuckDB, dropping the JSON spec format,
+> collapsing to 3 archetypes) are not supported by the codebase evidence —
+> see the superseding documents for a source-grounded analysis and revised
+> recommendations. Retained here for historical reference only.
+
 # Product Requirements Document: Agent-Fox v2.0
 
 ## 1. Executive Summary
