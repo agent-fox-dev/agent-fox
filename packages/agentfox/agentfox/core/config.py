@@ -376,7 +376,7 @@ class ReviewerConfig(BaseModel):
         description="Minimum TS entries to trigger audit-review injection",
     )
     audit_max_retries: Annotated[int, Clamped(ge=0, cast=int)] = Field(
-        default=2,
+        default=1,
         description="Maximum audit-review/coder retry iterations",
     )
 

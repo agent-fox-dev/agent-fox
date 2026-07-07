@@ -571,6 +571,68 @@ def record_finding_injections(
     )
 
 
+def check_finding_convergence(
+    conn: duckdb.DuckDBPyConnection,
+    session_id: str,
+) -> float:
+    """Return fraction of injected findings that are still active.
+
+    Joins ``finding_injections`` against ``review_findings`` to determine
+    how many of the findings injected into a coder session remain
+    unsuperseded.  A ratio near 1.0 means the coder made no progress;
+    0.0 means all injected findings were resolved.
+
+    Returns 0.0 when no injections exist (first attempt, or pre-v23 DB).
+    """
+    try:
+        rows = conn.execute(
+            "SELECT fi.finding_id, rf.superseded_by "
+            "FROM finding_injections fi "
+            "LEFT JOIN review_findings rf ON fi.finding_id = rf.id::VARCHAR "
+            "WHERE fi.session_id = ?",
+            [session_id],
+        ).fetchall()
+    except Exception:
+        logger.debug("check_finding_convergence query failed for %s", session_id, exc_info=True)
+        return 0.0
+    if not rows:
+        return 0.0
+    still_active = sum(1 for _, superseded in rows if superseded is None)
+    return still_active / len(rows)
+
+
+def query_unresolved_injections(
+    conn: duckdb.DuckDBPyConnection,
+    spec_name: str,
+    task_group: str,
+) -> list[tuple[str, str]]:
+    """Return (description, severity) for findings injected but not resolved.
+
+    Finds findings that were injected into any coder session for the given
+    (spec_name, task_group) and remain active (``superseded_by IS NULL``).
+    Used to surface retry history to the reviewer.
+    """
+    try:
+        rows = conn.execute(
+            "SELECT DISTINCT rf.description, rf.severity "
+            "FROM finding_injections fi "
+            "JOIN review_findings rf ON fi.finding_id = rf.id::VARCHAR "
+            "WHERE rf.spec_name = ? AND rf.task_group = ? "
+            "AND rf.superseded_by IS NULL "
+            "ORDER BY rf.severity, rf.description",
+            [spec_name, task_group],
+        ).fetchall()
+        return [(r[0], r[1]) for r in rows]
+    except Exception:
+        logger.debug(
+            "query_unresolved_injections failed for %s:%s",
+            spec_name,
+            task_group,
+            exc_info=True,
+        )
+        return []
+
+
 def dismiss_finding_by_id(
     conn: duckdb.DuckDBPyConnection,
     finding_id: str,

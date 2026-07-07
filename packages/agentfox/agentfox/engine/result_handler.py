@@ -354,10 +354,12 @@ class SessionResultHandler:
         return False
 
     def _get_audit_max_retries(self) -> int:
-        """Read audit_max_retries from ReviewerConfig, defaulting to 2."""
+        """Read audit_max_retries from ReviewerConfig, defaulting to 1."""
         if self._archetypes_config is not None:
             return self._archetypes_config.reviewer_config.audit_max_retries
-        return 2
+        return 1
+
+    _CONVERGENCE_THRESHOLD = 0.7
 
     def _retry_on_audit_review_block(
         self,
@@ -369,7 +371,10 @@ class SessionResultHandler:
         """Handle audit-review retry using a dedicated counter.
 
         Uses ``ReviewerConfig.audit_max_retries`` as a separate counter
-        from the generic failure counter.
+        from the generic failure counter.  Before granting a retry,
+        checks finding convergence: if ≥70% of previously injected
+        findings are still active, the coder made no meaningful progress
+        and the retry is skipped.
 
         Returns True if permanently blocked, False if converted to retry.
         """
@@ -386,6 +391,21 @@ class SessionResultHandler:
             )
             self._block_task(coder_node_id, state, decision.reason)
             return True
+
+        if count > 0 and self._knowledge_db_conn is not None:
+            try:
+                from agentfox.knowledge.review_store import check_finding_convergence
+
+                overlap = check_finding_convergence(self._knowledge_db_conn, coder_node_id)
+                if overlap >= self._CONVERGENCE_THRESHOLD:
+                    logger.info(
+                        "Audit findings did not converge for %s (%.0f%% overlap), skipping retry",
+                        coder_node_id,
+                        overlap * 100,
+                    )
+                    return False
+            except Exception:
+                logger.debug("Convergence check failed for %s, proceeding with retry", coder_node_id, exc_info=True)
 
         ns.audit_retry_count = count + 1
 

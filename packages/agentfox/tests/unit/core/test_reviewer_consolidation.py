@@ -318,7 +318,7 @@ class TestReviewerConfig:
             f"drift_review_block_threshold should be 1, got {rc.drift_review_block_threshold}"
         )
         assert rc.audit_min_ts_entries == 5, f"audit_min_ts_entries should be 5, got {rc.audit_min_ts_entries}"
-        assert rc.audit_max_retries == 2, f"audit_max_retries should be 2, got {rc.audit_max_retries}"
+        assert rc.audit_max_retries == 1, f"audit_max_retries should be 1, got {rc.audit_max_retries}"
 
     def test_reviewer_config_in_archetypes_config(self) -> None:
         """TS-98-17: ArchetypesConfig has reviewer_config field."""

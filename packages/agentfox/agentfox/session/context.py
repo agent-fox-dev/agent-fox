@@ -234,6 +234,36 @@ def render_verification_context(
     return None
 
 
+def render_retry_history(
+    conn: duckdb.DuckDBPyConnection,
+    spec_name: str,
+    task_group: str,
+) -> str | None:
+    """Render unresolved injected findings as retry history for the reviewer.
+
+    Returns a markdown section listing findings that were injected into a
+    prior coder session for this (spec, task_group) but remain active.
+    Returns None when no unresolved injections exist.
+    """
+    from agentfox.knowledge.review_store import query_unresolved_injections
+
+    unresolved = query_unresolved_injections(conn, spec_name, task_group)
+    if not unresolved:
+        return None
+
+    lines = [
+        "## Retry History",
+        "",
+        "The following findings were injected into the coder's prior session but remain unresolved.",
+        "Consider downgrading to WEAK if the issue appears beyond the coder's capability.",
+        "",
+    ]
+    for desc, severity in unresolved:
+        sanitized = sanitize_prompt_content(desc, label="retry-history")
+        lines.append(f"- [{severity}] {sanitized}")
+    return "\n".join(lines)
+
+
 def _migrate_legacy_files(
     conn: duckdb.DuckDBPyConnection,
     spec_dir: Path,
@@ -408,6 +438,19 @@ def assemble_context(
         except Exception:
             logger.debug(
                 "Failed to fetch prior group findings for %s group %d",
+                spec_name,
+                task_group,
+            )
+
+    # Retry history for the reviewer archetype
+    if archetype == "reviewer":
+        try:
+            retry_md = render_retry_history(conn, spec_name, str(task_group))
+            if retry_md is not None:
+                sections.append(retry_md)
+        except Exception:
+            logger.debug(
+                "Failed to render retry history for %s group %d",
                 spec_name,
                 task_group,
             )

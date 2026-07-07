@@ -1002,3 +1002,85 @@ class TestOnlyDeferredNoBlock:
         assert result is False
         block_task_fn.assert_not_called()
         assert state.node_states["foo:2"] == "completed"
+
+
+# ---------------------------------------------------------------------------
+# Issue #682: Convergence detection — skip retry when findings don't improve.
+# ---------------------------------------------------------------------------
+
+
+class TestConvergenceDetection:
+    """Issue #682: When injected findings persist after a retry, skip further
+    retries instead of burning budget on non-converging loops."""
+
+    def test_skips_retry_when_overlap_high(self, audit_conn: duckdb.DuckDBPyConnection) -> None:
+        """≥70% of injected findings still active → skip retry (return False without blocking)."""
+        from agentfox.knowledge.review_store import record_finding_injections
+
+        finding_ids = []
+        for i in range(10):
+            fid = str(uuid.uuid4())
+            finding_ids.append(fid)
+            audit_conn.execute(
+                "INSERT INTO review_findings "
+                "(id, severity, description, spec_name, task_group, session_id, category) "
+                "VALUES (?, 'critical', ?, 'foo', '2', ?, 'audit')",
+                [fid, f"Unfixable gap {i}", f"foo:audit:{i}"],
+            )
+        record_finding_injections(audit_conn, finding_ids, "foo:2")
+
+        handler, state, block_task_fn = _make_audit_handler_with_config(audit_conn, audit_max_retries=2)
+        handler._get_node_state("foo:2").audit_retry_count = 1
+
+        record = _make_audit_review_record(node_id="foo:2:reviewer:audit-review")
+        result = handler.check_review_blocking(record, state)
+
+        assert result is False
+        block_task_fn.assert_not_called()
+        assert handler._get_node_state("foo:2").audit_retry_count == 1
+
+    def test_allows_retry_when_overlap_low(self, audit_conn: duckdb.DuckDBPyConnection) -> None:
+        """<70% of injected findings still active → allow retry."""
+        from agentfox.knowledge.review_store import record_finding_injections
+
+        finding_ids = []
+        for i in range(10):
+            fid = str(uuid.uuid4())
+            finding_ids.append(fid)
+            audit_conn.execute(
+                "INSERT INTO review_findings "
+                "(id, severity, description, spec_name, task_group, session_id, category) "
+                "VALUES (?, 'critical', ?, 'foo', '2', ?, 'audit')",
+                [fid, f"Gap {i}", f"foo:audit:{i}"],
+            )
+        record_finding_injections(audit_conn, finding_ids, "foo:2")
+
+        for fid in finding_ids[:5]:
+            audit_conn.execute(
+                "UPDATE review_findings SET superseded_by = 'resolved' WHERE id = ?::UUID",
+                [fid],
+            )
+
+        handler, state, block_task_fn = _make_audit_handler_with_config(audit_conn, audit_max_retries=2)
+        handler._get_node_state("foo:2").audit_retry_count = 1
+
+        record = _make_audit_review_record(node_id="foo:2:reviewer:audit-review")
+        result = handler.check_review_blocking(record, state)
+
+        assert result is False
+        block_task_fn.assert_not_called()
+        assert handler._get_node_state("foo:2").audit_retry_count == 2
+
+    def test_allows_first_retry_without_injections(self, audit_conn: duckdb.DuckDBPyConnection) -> None:
+        """First retry (count=0) always proceeds regardless of convergence."""
+        finding = _make_audit_finding(severity="critical", spec_name="foo", task_group="2")
+        insert_findings(audit_conn, [finding])
+
+        handler, state, block_task_fn = _make_audit_handler_with_config(audit_conn, audit_max_retries=2)
+
+        record = _make_audit_review_record(node_id="foo:2:reviewer:audit-review")
+        result = handler.check_review_blocking(record, state)
+
+        assert result is False
+        block_task_fn.assert_not_called()
+        assert handler._get_node_state("foo:2").audit_retry_count == 1
