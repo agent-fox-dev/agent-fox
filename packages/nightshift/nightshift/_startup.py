@@ -22,18 +22,15 @@ def init_knowledge(config, project_root):
     except Exception:
         logger.warning("Failed to open knowledge store", exc_info=True)
         return None, None, None
-    # Run legacy migrations at startup.
+    # Run legacy migrations at startup via the canonical helper.
     from agentfox.core.config import resolve_spec_root
-    from agentfox.session.context import _migrate_legacy_files
+    from agentfox.engine.run import _run_startup_migrations
 
     specs = resolve_spec_root(config, project_root)
-    if specs.is_dir():
-        for d in sorted(specs.iterdir()):
-            if d.is_dir():
-                try:
-                    _migrate_legacy_files(kdb.connection, d, d.name)
-                except Exception:
-                    logger.warning("Migration failed for %s", d.name, exc_info=True)
+    try:
+        _run_startup_migrations(kdb, specs, project_root)
+    except Exception:
+        logger.warning("Startup migrations failed", exc_info=True)
     return kdb, sink, kprov
 
 

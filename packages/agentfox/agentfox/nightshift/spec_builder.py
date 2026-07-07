@@ -4,10 +4,9 @@ Requirements: 61-REQ-6.1, 61-REQ-6.2, 01-REQ-1.1 through 01-REQ-7.2
 """
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-import afspec
 from afspec.models import (
     Criterion,
     PRDDocument,
@@ -177,62 +176,6 @@ def build_afspec_from_triage(
         tasks=Tasks(task_groups=[task_group]),
         prd=prd,
     )
-
-
-@dataclass(frozen=True)
-class AfspecContext:
-    """Structured afspec context built from triage criteria.
-
-    Legacy type retained for backward compatibility with spec-02 callers.
-
-    Requirements: 02-REQ-1.1, 02-REQ-2.1
-    """
-
-    requirements: list[str] = field(default_factory=list)
-    test_specifications: list[str] = field(default_factory=list)
-    tasks: list[str] = field(default_factory=list)
-
-
-def render_inmemory_spec_sections(
-    spec_or_context: Spec | AfspecContext,
-) -> str | list[str]:
-    """Render an in-memory spec into markdown sections.
-
-    Accepts either an afspec Spec or a legacy AfspecContext.
-
-    When given a Spec, delegates to ``afspec.render_individual`` and returns
-    a list of section strings (header + content).
-    When given a legacy AfspecContext, renders inline and returns a single
-    string (backward-compatible with the spec-02 pipeline).
-
-    Requirements: 02-REQ-1.1, 02-REQ-2.1
-    """
-    if isinstance(spec_or_context, Spec):
-        rendered = afspec.render_individual(spec_or_context)
-        sections: list[str] = []
-        section_headers = {
-            "requirements": "## Requirements",
-            "test_spec": "## Test Specification",
-            "tasks": "## Tasks",
-        }
-        for key, header in section_headers.items():
-            content = rendered.get(key, "")
-            if content:
-                sections.append(f"{header}\n\n{content}")
-        return sections
-
-    # Legacy AfspecContext path
-    lines: list[str] = []
-    lines.append("## Requirements")
-    lines.extend(spec_or_context.requirements)
-    lines.append("")
-    lines.append("## Test Specification")
-    lines.extend(spec_or_context.test_specifications)
-    lines.append("")
-    lines.append("## Tasks")
-    lines.extend(spec_or_context.tasks)
-    lines.append("")
-    return "\n".join(lines)
 
 
 def sanitise_branch_name(title: str, issue_number: int | None = None) -> str:

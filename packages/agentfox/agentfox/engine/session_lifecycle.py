@@ -803,6 +803,172 @@ class NodeSessionRunner:
         review_text = outcome_response or transcript
         self._persist_review_findings(review_text, node_id, attempt)
 
+    def _emit_session_audit(
+        self,
+        node_id: str,
+        attempt: int,
+        outcome: SessionOutcome,
+        status: str,
+        error_message: str | None,
+        cost: float,
+        touched_files: list[str],
+        summary_text: str | None,
+    ) -> None:
+        """Emit session.complete or session.fail audit event.
+
+        Requirements: 40-REQ-7.2, 40-REQ-7.3, 119-REQ-4.1, 119-REQ-4.2
+        """
+        if status == "completed":
+            payload: dict = {
+                "archetype": self._archetype,
+                "model_id": self._resolved_model_id,
+                "prompt_template": self._archetype,
+                "input_tokens": outcome.input_tokens,
+                "output_tokens": outcome.output_tokens,
+                "cache_read_input_tokens": outcome.cache_read_input_tokens,
+                "cache_creation_input_tokens": outcome.cache_creation_input_tokens,
+                "cost": cost,
+                "duration_ms": outcome.duration_ms,
+                "files_touched": touched_files,
+            }
+            # 119-REQ-4.1: Add summary to audit payload when available.
+            # 119-REQ-4.2: Omit the key (not null) when no summary.
+            # 119-REQ-4.E1: Truncate to 2000 chars for audit payload.
+            if summary_text:
+                _MAX_AUDIT_SUMMARY = 2000
+                if len(summary_text) > _MAX_AUDIT_SUMMARY:
+                    payload["summary"] = summary_text[:_MAX_AUDIT_SUMMARY] + "..."
+                else:
+                    payload["summary"] = summary_text
+            emit_audit_event(
+                self._sink,
+                self._run_id,
+                AuditEventType.SESSION_COMPLETE,
+                node_id=node_id,
+                archetype=self._archetype,
+                payload=payload,
+            )
+        else:
+            emit_audit_event(
+                self._sink,
+                self._run_id,
+                AuditEventType.SESSION_FAIL,
+                node_id=node_id,
+                archetype=self._archetype,
+                severity=AuditSeverity.ERROR,
+                payload={
+                    "archetype": self._archetype,
+                    "model_id": self._resolved_model_id,
+                    "prompt_template": self._archetype,
+                    "error_message": error_message or "Unknown error",
+                    "attempt": attempt,
+                    "input_tokens": outcome.input_tokens,
+                    "output_tokens": outcome.output_tokens,
+                    "cache_read_input_tokens": outcome.cache_read_input_tokens,
+                    "cache_creation_input_tokens": outcome.cache_creation_input_tokens,
+                    "cost": cost,
+                    "duration_ms": outcome.duration_ms,
+                },
+            )
+
+    async def _process_knowledge(
+        self,
+        node_id: str,
+        attempt: int,
+        workspace: WorkspaceInfo,
+        outcome: SessionOutcome,
+        status: str,
+        touched_files: list[str],
+        commit_sha: str,
+        repo_root: Path,
+        summary_text: str | None,
+        rejected_approaches: list | None,
+        gotchas_list: list | None,
+        assumptions_list: list | None,
+    ) -> str | None:
+        """Extract findings and ingest knowledge on success.
+
+        Returns the (possibly updated) summary_text.
+
+        Requirements: 114-REQ-4.1, 119-REQ-5.1, 27-REQ-3.1, 120-REQ-3.1
+        """
+        if status != "completed":
+            return summary_text
+
+        await self._extract_knowledge_and_findings(
+            node_id,
+            attempt,
+            workspace,
+            outcome_response=outcome.response,
+        )
+        # 120-REQ-3.1, 120-REQ-3.2: Generate summaries for reviewer/verifier
+        # sessions from persisted findings/verdicts when no agent-written
+        # summary exists.
+        if summary_text is None and self._archetype in ("reviewer", "verifier"):
+            summary_text = self._generate_archetype_session_summary(node_id)
+        # 114-REQ-4.1, 119-REQ-5.1: Ingest knowledge via KnowledgeProvider.
+        # Pass summary, archetype, task_group, and attempt through the
+        # context dict so the provider can store the summary.
+        # 11-REQ-3.5: Pass structured fields for enriched summary composition.
+        self._ingest_knowledge(
+            node_id,
+            touched_files,
+            commit_sha,
+            status,
+            repo_root=repo_root,
+            summary=summary_text,
+            archetype=self._archetype,
+            task_group=str(self._task_group),
+            attempt=attempt,
+            rejected_approaches=rejected_approaches,
+            gotchas=gotchas_list,
+            assumptions=assumptions_list,
+        )
+        return summary_text
+
+    def _build_session_record(
+        self,
+        node_id: str,
+        attempt: int,
+        outcome: SessionOutcome,
+        status: str,
+        error_message: str | None,
+        cost: float,
+        touched_files: list[str],
+        commit_sha: str,
+        is_budget_exhausted: bool,
+        is_non_retryable: bool,
+    ) -> SessionRecord:
+        """Construct the final SessionRecord from session results.
+
+        Requirements: 05-REQ-1.1
+        """
+        # AC-3: Track whether the session completed but harvest/merge failed so
+        # execute() can preserve the feature branch for recovery.
+        is_harvest_failure = outcome.status == "completed" and status == "failed"
+
+        total_input = outcome.input_tokens + outcome.cache_read_input_tokens + outcome.cache_creation_input_tokens
+
+        return SessionRecord(
+            node_id=node_id,
+            attempt=attempt,
+            status=status,
+            input_tokens=total_input,
+            output_tokens=outcome.output_tokens,
+            cost=cost,
+            duration_ms=outcome.duration_ms,
+            error_message=error_message,
+            timestamp=datetime.now(UTC).isoformat(),
+            model=self._resolved_model_id,
+            files_touched=touched_files,
+            archetype=self._archetype,
+            commit_sha=commit_sha,
+            is_transport_error=getattr(outcome, "is_transport_error", False),
+            is_budget_exhausted=is_budget_exhausted,
+            is_non_retryable=is_non_retryable,
+            is_harvest_failure=is_harvest_failure,
+        )
+
     async def _run_and_harvest(
         self,
         node_id: str,
@@ -894,117 +1060,24 @@ class NodeSessionRunner:
                     node_id,
                 )
 
-        # 40-REQ-7.2, 40-REQ-7.3: Emit session.complete or session.fail
-        # 119-REQ-4.1, 119-REQ-4.2: Include summary in audit payload when available
-        if status == "completed":
-            payload: dict = {
-                "archetype": self._archetype,
-                "model_id": self._resolved_model_id,
-                "prompt_template": self._archetype,
-                "input_tokens": outcome.input_tokens,
-                "output_tokens": outcome.output_tokens,
-                "cache_read_input_tokens": outcome.cache_read_input_tokens,
-                "cache_creation_input_tokens": outcome.cache_creation_input_tokens,
-                "cost": cost,
-                "duration_ms": outcome.duration_ms,
-                "files_touched": touched_files,
-            }
-            # 119-REQ-4.1: Add summary to audit payload when available.
-            # 119-REQ-4.2: Omit the key (not null) when no summary.
-            # 119-REQ-4.E1: Truncate to 2000 chars for audit payload.
-            if summary_text:
-                _MAX_AUDIT_SUMMARY = 2000
-                if len(summary_text) > _MAX_AUDIT_SUMMARY:
-                    payload["summary"] = summary_text[:_MAX_AUDIT_SUMMARY] + "..."
-                else:
-                    payload["summary"] = summary_text
-            emit_audit_event(
-                self._sink,
-                self._run_id,
-                AuditEventType.SESSION_COMPLETE,
-                node_id=node_id,
-                archetype=self._archetype,
-                payload=payload,
-            )
-        else:
-            emit_audit_event(
-                self._sink,
-                self._run_id,
-                AuditEventType.SESSION_FAIL,
-                node_id=node_id,
-                archetype=self._archetype,
-                severity=AuditSeverity.ERROR,
-                payload={
-                    "archetype": self._archetype,
-                    "model_id": self._resolved_model_id,
-                    "prompt_template": self._archetype,
-                    "error_message": error_message or "Unknown error",
-                    "attempt": attempt,
-                    "input_tokens": outcome.input_tokens,
-                    "output_tokens": outcome.output_tokens,
-                    "cache_read_input_tokens": outcome.cache_read_input_tokens,
-                    "cache_creation_input_tokens": outcome.cache_creation_input_tokens,
-                    "cost": cost,
-                    "duration_ms": outcome.duration_ms,
-                },
-            )
+        # Phase 7: Emit audit event
+        self._emit_session_audit(
+            node_id, attempt, outcome, status, error_message,
+            cost, touched_files, summary_text,
+        )
 
-        # Extract review findings and ingest knowledge on success.
-        if status == "completed":
-            await self._extract_knowledge_and_findings(
-                node_id,
-                attempt,
-                workspace,
-                outcome_response=outcome.response,
-            )
-            # 120-REQ-3.1, 120-REQ-3.2: Generate summaries for reviewer/verifier
-            # sessions from persisted findings/verdicts when no agent-written
-            # summary exists.
-            if summary_text is None and self._archetype in ("reviewer", "verifier"):
-                summary_text = self._generate_archetype_session_summary(node_id)
-            # 114-REQ-4.1, 119-REQ-5.1: Ingest knowledge via KnowledgeProvider.
-            # Pass summary, archetype, task_group, and attempt through the
-            # context dict so the provider can store the summary.
-            # 11-REQ-3.5: Pass structured fields for enriched summary composition.
-            self._ingest_knowledge(
-                node_id,
-                touched_files,
-                commit_sha,
-                status,
-                repo_root=repo_root,
-                summary=summary_text,
-                archetype=self._archetype,
-                task_group=str(self._task_group),
-                attempt=attempt,
-                rejected_approaches=rejected_approaches,
-                gotchas=gotchas_list,
-                assumptions=assumptions_list,
-            )
+        # Phases 6+8: Extract findings and ingest knowledge
+        summary_text = await self._process_knowledge(
+            node_id, attempt, workspace, outcome, status,
+            touched_files, commit_sha, repo_root,
+            summary_text, rejected_approaches, gotchas_list, assumptions_list,
+        )
 
-        # AC-3: Track whether the session completed but harvest/merge failed so
-        # execute() can preserve the feature branch for recovery.
-        is_harvest_failure = outcome.status == "completed" and status == "failed"
-
-        total_input = outcome.input_tokens + outcome.cache_read_input_tokens + outcome.cache_creation_input_tokens
-
-        return SessionRecord(
-            node_id=node_id,
-            attempt=attempt,
-            status=status,
-            input_tokens=total_input,
-            output_tokens=outcome.output_tokens,
-            cost=cost,
-            duration_ms=outcome.duration_ms,
-            error_message=error_message,
-            timestamp=datetime.now(UTC).isoformat(),
-            model=self._resolved_model_id,
-            files_touched=touched_files,
-            archetype=self._archetype,
-            commit_sha=commit_sha,
-            is_transport_error=getattr(outcome, "is_transport_error", False),
-            is_budget_exhausted=is_budget_exhausted,
-            is_non_retryable=is_non_retryable,
-            is_harvest_failure=is_harvest_failure,
+        # Phase 9: Construct and return the SessionRecord
+        return self._build_session_record(
+            node_id, attempt, outcome, status, error_message,
+            cost, touched_files, commit_sha,
+            is_budget_exhausted, is_non_retryable,
         )
 
     def _persist_review_findings(

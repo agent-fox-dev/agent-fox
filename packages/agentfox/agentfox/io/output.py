@@ -4,9 +4,7 @@ Provides the ``OutputManager`` class that controls json_mode, quiet,
 and verbose settings, and ``get_output_manager()`` to retrieve
 the active instance from Click context or a fallback.
 
-Also re-exports the JSON serialization functions from ``agentfox.io.json``
-for backward compatibility, and provides ``format_table`` for tabular
-data rendering.
+Also provides ``format_table`` for tabular data rendering.
 
 Requirements: 03-REQ-2, 03-REQ-4, 04-REQ-6
 """
@@ -21,9 +19,6 @@ import click
 from rich.console import Console
 from rich.table import Table
 
-# Re-export JSON functions for backward compatibility with existing imports
-from agentfox.io.json import emit, emit_error, emit_line, emit_ok, read_stdin
-
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -31,11 +26,6 @@ __all__ = [
     "OutputManager",
     "format_table",
     "get_output_manager",
-    "emit",
-    "emit_error",
-    "emit_line",
-    "emit_ok",
-    "read_stdin",
 ]
 
 

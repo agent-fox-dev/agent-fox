@@ -24,12 +24,11 @@ _STEERING_FILENAME: str = "steering.md"
 _HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
 
 
-def load_steering(project_root: Path, spec_root: Path | None = None) -> str | None:
+def load_steering(project_root: Path) -> str | None:
     """Load steering content from {project_root}/.agent-fox/steering.md.
 
     Args:
         project_root: Project root directory.
-        spec_root: Deprecated, ignored. Kept for backward compatibility.
 
     Returns:
         The file content (stripped) if it contains real directives.

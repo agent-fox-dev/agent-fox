@@ -17,11 +17,11 @@ import re
 from pathlib import Path
 from string import Template
 
+from agentfox.session.profiles import _strip_frontmatter
+
 logger = logging.getLogger(__name__)
 
 _DEFAULT_PROMPTS_DIR: Path = Path(__file__).resolve().parent / "_templates" / "prompts"
-
-_FRONTMATTER_RE = re.compile(r"\A---\s*\n.*?\n---\s*\n", re.DOTALL)
 
 _SAFE_NAME_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 
@@ -34,15 +34,6 @@ def _validate_prompt_name(name: str) -> None:
     """
     if not _SAFE_NAME_RE.match(name):
         raise ValueError(f"Invalid prompt name: {name!r}")
-
-
-def _strip_frontmatter(content: str) -> str:
-    """Strip YAML frontmatter block from prompt content.
-
-    Removes the leading ``---`` ... ``---`` block if present.
-    Returns content unchanged when no frontmatter is found.
-    """
-    return _FRONTMATTER_RE.sub("", content, count=1)
 
 
 def load_prompt(name: str, *, project_dir: Path | None = None) -> str:

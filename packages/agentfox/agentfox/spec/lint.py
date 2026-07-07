@@ -122,7 +122,6 @@ def _is_spec_implemented(spec: SpecInfo) -> bool:
 def run_lint_specs(
     specs_dir: Path,
     *,
-    ai: bool = False,
     lint_all: bool = False,
     progress_callback: Callable[[str], None] | None = None,
 ) -> LintResult:
@@ -130,7 +129,6 @@ def run_lint_specs(
 
     Args:
         specs_dir: Path to the specifications directory.
-        ai: Deprecated — accepted for CLI compatibility but has no effect.
         lint_all: Include fully-implemented specs.
         progress_callback: Optional callable receiving phase-level status
             messages. Called at each major phase: discovery and validation.

@@ -29,10 +29,10 @@ from agentfox.nightshift.spec_builder import (
     InMemorySpec,
     build_afspec_from_triage,
     build_in_memory_spec,
-    render_inmemory_spec_sections,
 )
 from agentfox.platform.labels import LABEL_FIXED, LABEL_NO_CHANGE
 from agentfox.platform.protocol import IssueResult
+from agentfox.session.context import render_inmemory_spec_sections
 from agentfox.ui.progress import ActivityCallback, SpinnerCallback, TaskCallback, TaskEvent
 from agentfox.workspace import WorkspaceInfo
 
@@ -953,6 +953,161 @@ class FixPipeline:
         )
 
     # ------------------------------------------------------------------
+    # process_issue helpers
+    # ------------------------------------------------------------------
+
+    def _gather_context(
+        self,
+        spec: InMemorySpec,
+        triage: TriageResult,
+    ) -> tuple[str, str]:
+        """Gather prior-attempt and knowledge context for the coder loop.
+
+        Returns (prior_context, knowledge_context) strings.
+
+        Requirements: 128-REQ-3.1, 128-REQ-3.2, 128-REQ-4.1
+        """
+        # 128-REQ-4.1: query prior fix attempts before coder loop
+        spec_name = f"fix-issue-{spec.issue_number}"
+        prior_context = ""
+        if self._conn is not None:
+            prior = query_prior_attempts(self._conn, spec_name, self._run_id)
+            prior_context = format_prior_attempts(prior)
+
+        # Retrieve knowledge context (review findings, cross-group reviews, summaries)
+        if self._knowledge_provider is not None:
+            self._knowledge_provider.set_run_id(self._run_id)
+        coder_node_id = f"fix-issue-{spec.issue_number}:0:coder"
+        task_description = triage.summary or spec.title
+        knowledge_items = self._retrieve_knowledge(
+            spec_name,
+            task_description,
+            session_id=coder_node_id,
+        )
+        knowledge_context = self._format_knowledge_context(knowledge_items)
+
+        return prior_context, knowledge_context
+
+    async def _integrate_fix(
+        self,
+        issue: IssueResult,
+        spec: InMemorySpec,
+        workspace: WorkspaceInfo,
+    ) -> str:
+        """Auto-commit, optionally push, and harvest the fix branch.
+
+        Returns the harvest result string (``"merged"``, ``"no_changes"``,
+        or ``"error"``).
+
+        Requirements: NS-REQ-4, NS-REQ-5, 93-REQ-3.1, 65-REQ-3.2
+        """
+        # Pre-harvest commit sweep: stage and commit any changes left
+        # uncommitted by the coder or reviewer session (NS-REQ-5).
+        await self._auto_commit_pending_changes(workspace)
+
+        # Optionally push fix branch to upstream remote (93-REQ-3.1).
+        # Must run BEFORE harvest, which changes the working tree.
+        if self._config.night_shift.push_fix_branch:
+            self._update_spinner(f"Pushing fix branch for issue #{issue.number}…")
+            await self._push_fix_branch_upstream(spec, workspace)
+
+        # Harvest fix branch into develop and push to origin (65-REQ-3.2).
+        # Must run BEFORE cleanup destroys the feature branch.
+        self._update_spinner(f"Merging fix for issue #{issue.number} into develop…")
+        return await self._harvest_and_push(spec, workspace)
+
+    async def _handle_result(
+        self,
+        issue: IssueResult,
+        spec: InMemorySpec,
+        harvest_result: str,
+    ) -> None:
+        """Handle post-harvest outcome: error, no_changes, or merged.
+
+        Updates the GitHub issue with the appropriate comment and labels,
+        and marks the run as completed.
+
+        Requirements: 61-REQ-6.1, 61-REQ-6.E2
+        """
+        if harvest_result == "error":
+            await self._post_comment(
+                issue.number,
+                f"Fix sessions completed but changes from branch "
+                f"`{spec.branch_name}` could not be merged into "
+                f"`{self._config.workspace.integration_branch}`. "
+                f"Manual investigation is required. (run: `{self._run_id}`)",
+            )
+            self._try_complete_run("completed")
+            return
+
+        if harvest_result == "no_changes":
+            # Coder produced no commits — leave the issue open for human review.
+            logger.warning(
+                "No changes produced for issue #%d on branch %s — leaving issue open",
+                issue.number,
+                spec.branch_name,
+            )
+            await self._post_comment(
+                issue.number,
+                f"Fix attempt on branch `{spec.branch_name}` produced no new commits. "
+                "The issue has been left open for human review. "
+                f"(run: `{self._run_id}`)",
+            )
+            try:
+                await self._platform.assign_label(  # type: ignore[attr-defined]
+                    issue.number,
+                    LABEL_NO_CHANGE,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Failed to assign af:no-change label to issue #%d: %s",
+                    issue.number,
+                    exc,
+                )
+            self._try_complete_run("completed")
+            return
+
+        # harvest_result == "merged": close the originating issue with a comment
+        # pointing to the branch.
+        _ib = self._config.workspace.integration_branch
+        close_msg = (
+            f"Fix complete on branch `{spec.branch_name}`. "
+            f"Changes have been merged into `{_ib}`."
+            f" (run: `{self._run_id}`)"
+        )
+        try:
+            await self._platform.close_issue(  # type: ignore[attr-defined]
+                issue.number,
+                close_msg,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to close issue #%d: %s",
+                issue.number,
+                exc,
+            )
+        # Add af:fixed label for provenance and re-processing guard (#429).
+        # The af:fix label is intentionally preserved to record that the issue
+        # was submitted for automated fixing. af:fixed signals it was resolved.
+        try:
+            await self._platform.assign_label(  # type: ignore[attr-defined]
+                issue.number,
+                LABEL_FIXED,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Failed to assign af:fixed label to issue #%d: %s",
+                issue.number,
+                exc,
+            )
+        logger.info(
+            "Fix pipeline complete for issue #%d on branch %s",
+            issue.number,
+            spec.branch_name,
+        )
+        self._try_complete_run("completed")
+
+    # ------------------------------------------------------------------
     # Main entry point
     # ------------------------------------------------------------------
 
@@ -1052,24 +1207,7 @@ class FixPipeline:
             if triage.criteria or triage.summary:
                 metrics.sessions_run += 1
 
-            # 128-REQ-4.1: query prior fix attempts before coder loop
-            spec_name = f"fix-issue-{spec.issue_number}"
-            prior_context = ""
-            if self._conn is not None:
-                prior = query_prior_attempts(self._conn, spec_name, self._run_id)
-                prior_context = format_prior_attempts(prior)
-
-            # Retrieve knowledge context (review findings, cross-group reviews, summaries)
-            if self._knowledge_provider is not None:
-                self._knowledge_provider.set_run_id(self._run_id)
-            coder_node_id = f"fix-issue-{spec.issue_number}:0:coder"
-            task_description = triage.summary or spec.title
-            knowledge_items = self._retrieve_knowledge(
-                spec_name,
-                task_description,
-                session_id=coder_node_id,
-            )
-            knowledge_context = self._format_knowledge_context(knowledge_items)
+            prior_context, knowledge_context = self._gather_context(spec, triage)
 
             # 82-REQ-7.1: coder-reviewer loop with retry/escalation
             success = await self._coder_review_loop(
@@ -1086,20 +1224,7 @@ class FixPipeline:
                 self._try_complete_run("completed")
                 return metrics
 
-            # Pre-harvest commit sweep: stage and commit any changes left
-            # uncommitted by the coder or reviewer session (NS-REQ-5).
-            await self._auto_commit_pending_changes(workspace)
-
-            # Optionally push fix branch to upstream remote (93-REQ-3.1).
-            # Must run BEFORE harvest, which changes the working tree.
-            if self._config.night_shift.push_fix_branch:
-                self._update_spinner(f"Pushing fix branch for issue #{issue.number}\u2026")
-                await self._push_fix_branch_upstream(spec, workspace)
-
-            # Harvest fix branch into develop and push to origin (65-REQ-3.2).
-            # Must run BEFORE cleanup destroys the feature branch.
-            self._update_spinner(f"Merging fix for issue #{issue.number} into develop\u2026")
-            harvest_result = await self._harvest_and_push(spec, workspace)
+            harvest_result = await self._integrate_fix(issue, spec, workspace)
 
         except Exception as exc:
             # 61-REQ-6.E1: post comment on failure
@@ -1120,83 +1245,7 @@ class FixPipeline:
         finally:
             await self._cleanup_workspace(workspace)
 
-        if harvest_result == "error":
-            await self._post_comment(
-                issue.number,
-                f"Fix sessions completed but changes from branch "
-                f"`{spec.branch_name}` could not be merged into "
-                f"`{self._config.workspace.integration_branch}`. "
-                f"Manual investigation is required. (run: `{self._run_id}`)",
-            )
-            self._try_complete_run("completed")
-            return metrics
-
-        if harvest_result == "no_changes":
-            # Coder produced no commits — leave the issue open for human review.
-            logger.warning(
-                "No changes produced for issue #%d on branch %s — leaving issue open",
-                issue.number,
-                spec.branch_name,
-            )
-            await self._post_comment(
-                issue.number,
-                f"Fix attempt on branch `{spec.branch_name}` produced no new commits. "
-                "The issue has been left open for human review. "
-                f"(run: `{self._run_id}`)",
-            )
-            try:
-                await self._platform.assign_label(  # type: ignore[attr-defined]
-                    issue.number,
-                    LABEL_NO_CHANGE,
-                )
-            except Exception as exc:
-                logger.warning(
-                    "Failed to assign af:no-change label to issue #%d: %s",
-                    issue.number,
-                    exc,
-                )
-            self._try_complete_run("completed")
-            return metrics
-
-        # harvest_result == "merged": close the originating issue with a comment
-        # pointing to the branch.
-        _ib = self._config.workspace.integration_branch
-        close_msg = (
-            f"Fix complete on branch `{spec.branch_name}`. "
-            f"Changes have been merged into `{_ib}`."
-            f" (run: `{self._run_id}`)"
-        )
-        try:
-            await self._platform.close_issue(  # type: ignore[attr-defined]
-                issue.number,
-                close_msg,
-            )
-        except Exception as exc:
-            logger.warning(
-                "Failed to close issue #%d: %s",
-                issue.number,
-                exc,
-            )
-        # Add af:fixed label for provenance and re-processing guard (#429).
-        # The af:fix label is intentionally preserved to record that the issue
-        # was submitted for automated fixing. af:fixed signals it was resolved.
-        try:
-            await self._platform.assign_label(  # type: ignore[attr-defined]
-                issue.number,
-                LABEL_FIXED,
-            )
-        except Exception as exc:
-            logger.warning(
-                "Failed to assign af:fixed label to issue #%d: %s",
-                issue.number,
-                exc,
-            )
-        logger.info(
-            "Fix pipeline complete for issue #%d on branch %s",
-            issue.number,
-            spec.branch_name,
-        )
-        self._try_complete_run("completed")
+        await self._handle_result(issue, spec, harvest_result)
         return metrics
 
     async def _push_fix_branch_upstream(
