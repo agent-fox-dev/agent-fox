@@ -274,6 +274,10 @@ class PerArchetypeConfig(BaseModel):
         default=None,
         description="Extended thinking mode. None = use registry default.",
     )
+    effort: Literal["low", "medium", "high", "xhigh", "max"] | None = Field(
+        default=None,
+        description="Output effort level. Controls thinking depth and token spend. None = use registry default.",
+    )
     allowlist: list[str] | None = Field(
         default=None,
         description="Bash command allowlist override. None = use registry default.",

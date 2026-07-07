@@ -86,6 +86,7 @@ class ClaudeBackend:
         max_turns: int | None = None,
         max_budget_usd: float | None = None,
         thinking: dict[str, Any] | None = None,
+        effort: str | None = None,
     ) -> AsyncIterator[AgentMessage]:
         """Execute a session via the Claude SDK and yield canonical messages.
 
@@ -140,6 +141,12 @@ class ClaudeBackend:
                 options.thinking = thinking  # type: ignore[assignment]
             except TypeError as exc:
                 logger.warning("SDK does not support 'thinking' parameter, omitting: %s", exc)
+
+        if effort is not None:
+            try:
+                options.output_config = {"effort": effort}  # type: ignore[assignment]
+            except TypeError as exc:
+                logger.warning("SDK does not support 'output_config' parameter, omitting: %s", exc)
 
         # Register hooks for Notification (activity tracking) and
         # PostToolUseFailure (tool error tracking).

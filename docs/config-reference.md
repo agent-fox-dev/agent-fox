@@ -322,6 +322,7 @@ archetype name and supports:
 | `model_variant` | str\|null | `null` | Model variant override (fast, standard, extended). Null = registry default. |
 | `max_turns` | int\|null | `null` | Max turns override. 0 = unlimited. Null = registry default. |
 | `thinking_mode` | str\|null | `null` | Extended thinking mode: `adaptive` or `disabled`. Null = registry default. |
+| `effort` | str\|null | `null` | Output effort level: `low`, `medium`, `high`, `xhigh`, or `max`. Controls thinking depth and token spend. Null = registry default. |
 | `allowlist` | list[str]\|null | `null` | Bash command allowlist override. Null = registry default. |
 | `max_budget_usd` | float\|null | `null` | Per-archetype budget ceiling in USD. Null = inherit global `orchestrator.max_budget_usd`. 0 = unlimited. |
 | `modes` | dict[str, PerArchetypeConfig] | `{}` | Per-mode overrides (same fields as above, keyed by mode name). |

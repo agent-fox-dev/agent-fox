@@ -91,6 +91,33 @@ def resolve_thinking(config: AgentFoxConfig, archetype: str, *, mode: str | None
     return {"type": effective.default_thinking_mode}
 
 
+def resolve_effort(config: AgentFoxConfig, archetype: str, *, mode: str | None = None) -> str:
+    """Resolve output effort level for the given archetype.
+
+    Resolution order (highest to lowest priority):
+      1. archetypes.overrides.<name>.modes.<mode>.effort (mode-level override)
+      2. archetypes.overrides.<name>.effort (unified table)
+      3. Archetype registry default (via resolve_effective_config for mode)
+
+    Returns the effort string (low/medium/high/xhigh/max).
+    """
+    from agentfox.archetypes import resolve_effective_config
+
+    override = config.archetypes.overrides.get(archetype)
+
+    if mode is not None and override is not None:
+        mode_cfg = override.modes.get(mode)
+        if mode_cfg is not None and mode_cfg.effort is not None:
+            return mode_cfg.effort
+
+    if override is not None and override.effort is not None:
+        return override.effort
+
+    entry = get_archetype(archetype)
+    effective = resolve_effective_config(entry, mode)
+    return effective.default_effort
+
+
 def resolve_max_budget(config: AgentFoxConfig, archetype: str | None = None) -> float | None:
     """Resolve max_budget_usd from config.
 
@@ -285,6 +312,7 @@ class ResolvedSessionParams:
     max_turns: int | None
     thinking: dict | None
     max_budget_usd: float | None
+    effort: str
 
 
 def resolve_session_params(
@@ -297,16 +325,18 @@ def resolve_session_params(
     """Resolve all SDK session parameters in one call.
 
     Consolidates the repeated pattern of calling resolve_max_turns,
-    resolve_thinking, and resolve_max_budget.
+    resolve_thinking, resolve_max_budget, and resolve_effort.
     """
     max_turns = (
         max_turns_override if max_turns_override is not None else resolve_max_turns(config, archetype, mode=mode)
     )
     thinking = resolve_thinking(config, archetype, mode=mode)
     budget = resolve_max_budget(config, archetype)
+    effort = resolve_effort(config, archetype, mode=mode)
 
     return ResolvedSessionParams(
         max_turns=max_turns,
         thinking=thinking,
         max_budget_usd=budget,
+        effort=effort,
     )

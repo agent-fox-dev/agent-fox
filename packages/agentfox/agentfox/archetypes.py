@@ -44,6 +44,7 @@ class ModeConfig:
     model_variant: str | None = None
     max_turns: int | None = None
     thinking_mode: str | None = None
+    effort: str | None = None
     retry_predecessor: bool | None = None
 
 
@@ -61,6 +62,7 @@ class ArchetypeEntry:
     default_allowlist: list[str] | None = None  # None = use global
     default_max_turns: int = 200
     default_thinking_mode: str = "disabled"
+    default_effort: str = "high"
     injection_order: int = 100
     modes: dict[str, ModeConfig] = field(default_factory=dict)  # 97-REQ-1.2
 
@@ -74,6 +76,7 @@ ARCHETYPE_REGISTRY: dict[str, ArchetypeEntry] = {
         task_assignable=True,
         default_max_turns=300,
         default_thinking_mode="adaptive",
+        default_effort="xhigh",
         modes={
             "fix": ModeConfig(
                 model_tier="STANDARD",  # 15-REQ-8.1
@@ -128,6 +131,7 @@ ARCHETYPE_REGISTRY: dict[str, ArchetypeEntry] = {
         task_assignable=False,
         default_allowlist=["ls", "cat", "git", "grep", "find", "head", "tail", "wc", "make"],
         default_max_turns=80,
+        default_effort="medium",
     ),
     "verifier": ArchetypeEntry(
         name="verifier",
@@ -147,6 +151,7 @@ ARCHETYPE_REGISTRY: dict[str, ArchetypeEntry] = {
         task_assignable=True,
         default_max_turns=30,
         default_thinking_mode="disabled",
+        default_effort="low",
     ),
     # "triage" was removed in spec 100 and absorbed into maintainer:hunt.
     # get_archetype("triage") falls back to "coder" with a warning (100-REQ-1.E1).
@@ -157,6 +162,7 @@ ARCHETYPE_REGISTRY: dict[str, ArchetypeEntry] = {
         injection=None,
         task_assignable=False,
         default_max_turns=80,
+        default_effort="medium",
         modes={
             "hunt": ModeConfig(
                 model_tier="SIMPLE",  # 15-REQ-8.4
@@ -221,6 +227,7 @@ def resolve_effective_config(
     #   model_variant   -> default_model_variant
     #   max_turns       -> default_max_turns
     #   thinking_mode   -> default_thinking_mode
+    #   effort          -> default_effort
     #   allowlist       -> default_allowlist
     #   injection       -> injection
     #   retry_predecessor -> retry_predecessor
@@ -237,6 +244,7 @@ def resolve_effective_config(
         default_thinking_mode=(
             mode_cfg.thinking_mode if mode_cfg.thinking_mode is not None else entry.default_thinking_mode
         ),
+        default_effort=(mode_cfg.effort if mode_cfg.effort is not None else entry.default_effort),
         retry_predecessor=(
             mode_cfg.retry_predecessor if mode_cfg.retry_predecessor is not None else entry.retry_predecessor
         ),

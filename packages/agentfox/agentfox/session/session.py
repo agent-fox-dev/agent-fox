@@ -80,6 +80,7 @@ async def run_session(
     max_turns: int | None = None,
     max_budget_usd: float | None = None,
     thinking: dict[str, Any] | None = None,
+    effort: str | None = None,
     session_timeout: int | None = None,
     archetype: str | None = None,
 ) -> SessionOutcome:
@@ -110,6 +111,7 @@ async def run_session(
         max_budget_usd: Optional USD budget cap to pass to the backend.
             Requirements: 56-REQ-2.2
         thinking: Optional extended thinking config dict. Requirements: 56-REQ-4.2
+        effort: Optional output effort level (low/medium/high/xhigh/max).
         session_timeout: Optional session timeout in minutes. When set, overrides
             config.orchestrator.session_timeout for this session.
             Requirements: 75-REQ-3.2, 75-REQ-3.5
@@ -151,6 +153,7 @@ async def run_session(
                 max_turns=max_turns,
                 max_budget_usd=max_budget_usd,
                 thinking=thinking,
+                effort=effort,
                 archetype=archetype,
             ),
             timeout_minutes=effective_timeout,
@@ -203,6 +206,7 @@ async def _execute_query(
     max_turns: int | None = None,
     max_budget_usd: float | None = None,
     thinking: dict[str, Any] | None = None,
+    effort: str | None = None,
     archetype: str | None = None,
 ) -> None:
     """Execute the query via ClaudeBackend and collect results.
@@ -259,6 +263,7 @@ async def _execute_query(
         max_turns=max_turns,
         max_budget_usd=max_budget_usd,
         thinking=thinking,
+        effort=effort,
     ):
         is_result = isinstance(message, ResultMessage)
 

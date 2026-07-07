@@ -496,11 +496,12 @@ class NodeSessionRunner:
         )
 
         logger.info(
-            "Session %s: max_turns=%s, max_budget_usd=%s, thinking=%s, timeout_override=%s",
+            "Session %s: max_turns=%s, max_budget_usd=%s, thinking=%s, effort=%s, timeout_override=%s",
             node_id,
             params.max_turns,
             params.max_budget_usd,
             params.thinking,
+            params.effort,
             self._timeout_override,
         )
 
@@ -518,6 +519,7 @@ class NodeSessionRunner:
             max_turns=params.max_turns,
             max_budget_usd=params.max_budget_usd,
             thinking=params.thinking,
+            effort=params.effort,
             session_timeout=self._timeout_override,
             archetype=self._archetype,
         )
