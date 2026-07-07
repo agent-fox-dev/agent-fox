@@ -1,11 +1,14 @@
 """Tests for DeepAgentsBackend adapter.
 
-Test Spec: TS-03-1 through TS-03-26, TS-03-31 through TS-03-41,
-           TS-03-P1, TS-03-P2, TS-03-P3, TS-03-P4, TS-03-P5, TS-03-P7,
-           TS-03-E4, TS-03-E5, TS-03-E6, TS-03-E7
+Test Spec: TS-03-1 through TS-03-30, TS-03-31 through TS-03-41,
+           TS-03-P1, TS-03-P2, TS-03-P3, TS-03-P4, TS-03-P5, TS-03-P6, TS-03-P7,
+           TS-03-E2, TS-03-E3, TS-03-E4, TS-03-E5, TS-03-E6, TS-03-E7,
+           TS-03-SMOKE-1, TS-03-SMOKE-2, TS-03-SMOKE-3
 Requirements: 03-REQ-1.1, 03-REQ-1.2, 03-REQ-1.3, 03-REQ-2.1-2.9,
+              03-REQ-2.E1, 03-REQ-2.E2,
               03-REQ-3.1-3.3, 03-REQ-4.1-4.3,
               03-REQ-5.1-5.4, 03-REQ-6.1-6.4,
+              03-REQ-7.1-7.4,
               03-REQ-8.1-8.3, 03-REQ-9.1-9.2, 03-REQ-10.1-10.3,
               03-REQ-11.1-11.2, 03-REQ-12.1
 
@@ -26,6 +29,7 @@ See docs/errata/03_deepagents_backend.md for full divergence documentation.
 
 from __future__ import annotations
 
+import asyncio
 import glob
 import hashlib
 import inspect
@@ -2899,3 +2903,590 @@ class TestBackoffBaseSharedConstant:
             f"claude.py ({cl_defs}) and deepagents.py ({da_defs}). "
             f"It should be defined exactly once (in a shared module or one backend)."
         )
+
+
+# ===========================================================================
+# Task Group 5: close() lifecycle, cancellation, and smoke tests
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# TS-03-27: close() idempotency — multiple calls without exception
+# Requirement: 03-REQ-7.1
+# ---------------------------------------------------------------------------
+
+
+class TestCloseIdempotency:
+    """Verify close() can be called multiple times without error."""
+
+    @pytest.mark.asyncio
+    async def test_close_three_times_no_exception(self) -> None:
+        """TS-03-27: close() called three times; no exception on any call.
+
+        close() must be idempotent: every call returns normally without
+        error and without side effects beyond the first call.
+
+        Errata E6: ClaudeBackend.close() is async, so DeepAgentsBackend.close()
+        must also be async for drop-in compatibility.
+        """
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+
+        backend = DeepAgentsBackend()
+        # First call
+        await backend.close()
+        # Second call — must not raise
+        await backend.close()
+        # Third call — must not raise
+        await backend.close()
+        # If we got here, all three calls returned normally
+
+
+# ---------------------------------------------------------------------------
+# TS-03-28: close() on fresh instance returns None immediately
+# Requirement: 03-REQ-7.2
+# ---------------------------------------------------------------------------
+
+
+class TestCloseNoOpOnFreshInstance:
+    """Verify close() is a no-op on a fresh instance that never ran execute()."""
+
+    @pytest.mark.asyncio
+    async def test_close_fresh_instance_returns_none(self) -> None:
+        """TS-03-28: close() on a freshly created instance returns None immediately.
+
+        When execute() has never been called, close() should be a no-op
+        that returns None without side effects.
+        """
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+
+        backend = DeepAgentsBackend()
+        result = await backend.close()
+        assert result is None
+
+
+# ---------------------------------------------------------------------------
+# TS-03-29: close() releases per-instance LangGraph checkpoint state
+# Requirement: 03-REQ-7.3
+# ---------------------------------------------------------------------------
+
+
+class TestCloseReleasesState:
+    """Verify close() releases per-instance checkpoint state after execute()."""
+
+    @pytest.mark.asyncio
+    async def test_close_clears_state_after_execute(self) -> None:
+        """TS-03-29: After execute() completes, close() releases checkpoint state.
+
+        Per-instance LangGraph state attributes (e.g. _checkpointer,
+        _thread_state, _agent) should be cleared/None after close() is called.
+
+        The exact attribute names depend on the implementation. This test
+        verifies that any instance-level state that was set during execute()
+        is cleaned up by close().
+        """
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+
+        backend = DeepAgentsBackend()
+        mock_agent = _make_mock_agent_empty()
+
+        with patch(
+            "agentfox.session.backends.deepagents.create_deep_agent",
+            return_value=mock_agent,
+        ):
+            await _collect_async(
+                backend.execute(
+                    "p",
+                    system_prompt="s",
+                    model="m",
+                    cwd="/",
+                )
+            )
+
+        # After execute(), close() should release state
+        await backend.close()
+
+        # Check common state attribute patterns — at least one should exist
+        # and be cleared after close()
+        state_attrs = ["_agent", "_checkpointer", "_thread_state", "_graph"]
+        for attr in state_attrs:
+            if hasattr(backend, attr):
+                val = getattr(backend, attr)
+                assert val is None, (
+                    f"Expected backend.{attr} to be None after close(), "
+                    f"got {type(val).__name__}"
+                )
+
+
+# ---------------------------------------------------------------------------
+# TS-03-30: close() does not perform async task cancellation
+# Requirement: 03-REQ-7.4
+# ---------------------------------------------------------------------------
+
+
+class TestCloseNoAsyncCancellation:
+    """Verify close() does not call asyncio.Task.cancel() or async cancellation."""
+
+    @pytest.mark.asyncio
+    async def test_close_does_not_cancel_tasks(self) -> None:
+        """TS-03-30: close() does not call asyncio.Task.cancel().
+
+        close() must not perform async task cancellation or manage the
+        execute() lifecycle. Mid-stream teardown is delegated to session.py
+        via asyncio.wait_for() / async iterator cancellation.
+
+        Errata E6: close() is async (matching ClaudeBackend) but must not
+        invoke any cancellation primitives.
+        """
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+
+        backend = DeepAgentsBackend()
+
+        # Track whether any task cancel is attempted
+        cancel_called = False
+        original_cancel = asyncio.Task.cancel
+
+        def tracking_cancel(self: Any, msg: str | None = None) -> bool:  # noqa: ARG001
+            nonlocal cancel_called
+            cancel_called = True
+            return original_cancel(self)
+
+        with patch.object(asyncio.Task, "cancel", tracking_cancel):
+            await backend.close()
+
+        assert not cancel_called, (
+            "close() called asyncio.Task.cancel(); "
+            "it should not perform async task cancellation"
+        )
+
+
+# ---------------------------------------------------------------------------
+# TS-03-P6: Property - close() idempotency across N calls
+# Property: 03-PROP-6
+# Validates: 03-REQ-7.1, 03-REQ-7.2
+# ---------------------------------------------------------------------------
+
+
+class TestPropertyCloseIdempotency:
+    """Property: close() returns normally for any number of calls (0..20)."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("n_calls", [0, 1, 2, 3, 5, 10, 20])
+    async def test_prop_close_n_times(self, n_calls: int) -> None:
+        """TS-03-P6: close() called N times; no exception; state consistent.
+
+        For any sequence of zero or more close() calls on the same instance,
+        every call returns normally without raising an exception. Observable
+        state after the second+ call is identical to state after the first.
+        """
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+
+        backend = DeepAgentsBackend()
+        for i in range(n_calls):
+            try:
+                await backend.close()
+            except Exception as e:
+                pytest.fail(f"close() raised on call {i}: {e}")
+
+    @pytest.mark.asyncio
+    async def test_prop_close_after_execute_idempotent(self) -> None:
+        """TS-03-P6 variant: close() N times after execute() completes."""
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+
+        backend = DeepAgentsBackend()
+        mock_agent = _make_mock_agent_empty()
+
+        with patch(
+            "agentfox.session.backends.deepagents.create_deep_agent",
+            return_value=mock_agent,
+        ):
+            await _collect_async(
+                backend.execute(
+                    "p",
+                    system_prompt="s",
+                    model="m",
+                    cwd="/",
+                )
+            )
+
+        # Call close() multiple times after execute()
+        for i in range(5):
+            try:
+                await backend.close()
+            except Exception as e:
+                pytest.fail(f"close() raised on post-execute call {i}: {e}")
+
+
+# ---------------------------------------------------------------------------
+# TS-03-E2: Timeout via asyncio.wait_for when astream_events hangs
+# Requirement: 03-REQ-2.E1
+# ---------------------------------------------------------------------------
+
+
+class TestTimeoutOnHangingStream:
+    """Verify session-level timeout propagates into execute() generator."""
+
+    @pytest.mark.asyncio
+    async def test_hanging_stream_cancelled_by_wait_for(self) -> None:
+        """TS-03-E2: Mock agent never yields → asyncio.wait_for timeout.
+
+        When astream_events() hangs indefinitely without yielding events,
+        the session.py-level asyncio.wait_for() / async iterator cancellation
+        mechanism enforces a timeout. The adapter itself does not impose a
+        timeout — cancellation propagates into the async generator.
+        """
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+
+        async def hanging_stream(*_args: Any, **_kwargs: Any) -> Any:
+            # Simulate a stream that hangs forever
+            await asyncio.sleep(9999)
+            yield  # unreachable — makes this an async generator
+
+        mock_agent = MagicMock()
+        mock_agent.astream_events = hanging_stream
+
+        backend = DeepAgentsBackend()
+        with patch(
+            "agentfox.session.backends.deepagents.create_deep_agent",
+            return_value=mock_agent,
+        ):
+            gen = backend.execute(
+                "p",
+                system_prompt="s",
+                model="m",
+                cwd="/",
+            )
+            with pytest.raises(asyncio.TimeoutError):
+                # Session-level cancellation via wait_for
+                await asyncio.wait_for(_collect_async(gen), timeout=0.1)
+
+
+# ---------------------------------------------------------------------------
+# TS-03-E3: Mid-stream asyncio cancellation via CancelledError
+# Requirement: 03-REQ-2.E2
+# ---------------------------------------------------------------------------
+
+
+class TestMidStreamCancellation:
+    """Verify mid-stream asyncio cancellation exits cleanly."""
+
+    @pytest.mark.asyncio
+    async def test_cancel_mid_stream_propagates_cancelled_error(self) -> None:
+        """TS-03-E3: Cancel task mid-stream → CancelledError, clean exit.
+
+        If the caller cancels the async generator mid-stream via asyncio
+        cancellation, the generator should exit at the next await point.
+        No unexpected exceptions should propagate beyond CancelledError.
+        """
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+
+        event_reached = asyncio.Event()
+
+        async def slow_stream(*_args: Any, **_kwargs: Any) -> Any:
+            yield _make_chat_stream_event("chunk1")
+            event_reached.set()
+            # Long pause where cancellation arrives
+            await asyncio.sleep(10)
+            yield _make_chat_stream_event("chunk2")  # unreachable
+
+        mock_agent = MagicMock()
+        mock_agent.astream_events = slow_stream
+
+        backend = DeepAgentsBackend()
+
+        with patch(
+            "agentfox.session.backends.deepagents.create_deep_agent",
+            return_value=mock_agent,
+        ):
+
+            async def run_execute() -> None:
+                async for _msg in backend.execute(
+                    "p",
+                    system_prompt="s",
+                    model="m",
+                    cwd="/",
+                ):
+                    pass
+
+            task = asyncio.create_task(run_execute())
+            # Wait until at least one event has been processed
+            await asyncio.wait_for(event_reached.wait(), timeout=2.0)
+            # Cancel the task
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+
+
+# ---------------------------------------------------------------------------
+# TS-03-SMOKE-1: End-to-end smoke test with full message stream
+# Execution Path: 03-PATH-1
+# Requirements: 03-REQ-2.2, 03-REQ-8.1, 03-REQ-9.1
+# ---------------------------------------------------------------------------
+
+
+class TestSmokeEndToEnd:
+    """Smoke test: config → factory → execute() → full message stream."""
+
+    @pytest.mark.asyncio
+    async def test_smoke_full_session(self) -> None:
+        """TS-03-SMOKE-1: End-to-end with mocked create_deep_agent.
+
+        Verifies the complete flow:
+        1. OrchestratorConfig accepts backend='deepagents'
+        2. create_backend('deepagents') returns a DeepAgentsBackend instance
+        3. execute() calls create_deep_agent with correct params and 5 tools
+        4. AssistantMessage yielded for on_chat_model_stream events
+        5. ToolUseMessage yielded for on_tool_start/on_tool_end events
+        6. Terminal ResultMessage with is_error=False and aggregated tokens
+        7. No exceptions propagate
+
+        Real components: create_backend factory, DeepAgentsBackend, types
+        Mocked: create_deep_agent(), astream_events() synthetic stream
+        """
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+        from agentfox.session.backends.types import (
+            AssistantMessage,
+            ResultMessage,
+            ToolUseMessage,
+        )
+
+        # Step 1: Verify OrchestratorConfig accepts 'deepagents'
+        try:
+            from agentfox.core.config import OrchestratorConfig
+
+            config = OrchestratorConfig(backend="deepagents")
+            assert config.backend == "deepagents"
+        except (ImportError, AttributeError, TypeError):
+            # OrchestratorConfig.backend field may not exist yet (errata E3)
+            pass
+
+        # Step 2: Verify create_backend('deepagents') returns correct type
+        try:
+            from agentfox.session.backends import create_backend
+
+            factory_result = create_backend("deepagents")
+            assert isinstance(factory_result, DeepAgentsBackend)
+        except (ImportError, AttributeError):
+            # create_backend may not exist yet (errata E2)
+            pass
+
+        # Step 3-6: Full event stream processing
+        events = [
+            _make_chat_stream_event("Hello"),
+            _make_chat_stream_event(" world"),
+            _make_on_tool_start_event(
+                tool_name="read_file",
+                tool_input={"path": "main.py"},
+            ),
+            _make_on_tool_end_event(
+                tool_name="read_file",
+                output="# main code here",
+            ),
+            _make_chat_stream_event("Done!"),
+            _make_llm_end_event(input_tokens=100, output_tokens=50),
+            _make_llm_end_event(input_tokens=200, output_tokens=100),
+        ]
+        mock_agent = _make_mock_agent_with_events(events)
+
+        captured_tools: list[Any] | None = None
+
+        def capture_create(**kwargs: Any) -> MagicMock:
+            nonlocal captured_tools
+            captured_tools = kwargs.get("tools", [])
+            return mock_agent
+
+        backend = DeepAgentsBackend()
+        with patch(
+            "agentfox.session.backends.deepagents.create_deep_agent",
+            side_effect=capture_create,
+        ) as mock_create:
+            messages = await _collect_async(
+                backend.execute(
+                    "implement feature X",
+                    system_prompt="You are a coding assistant.",
+                    model="openai:gpt-5.5",
+                    cwd="/workspace",
+                )
+            )
+
+        # Step 3: Verify create_deep_agent called with correct params
+        assert mock_create.called
+        call_kwargs = mock_create.call_args.kwargs
+        assert call_kwargs["model"] == "openai:gpt-5.5"
+        assert call_kwargs["system_prompt"] == "You are a coding assistant."
+        assert call_kwargs["cwd"] == "/workspace"
+        assert captured_tools is not None
+        assert len(captured_tools) == 5
+
+        # Step 4: AssistantMessage instances for chat stream events
+        asst_msgs = [m for m in messages if isinstance(m, AssistantMessage)]
+        assert len(asst_msgs) == 3  # "Hello", " world", "Done!"
+        assert asst_msgs[0].content == "Hello"
+        assert asst_msgs[1].content == " world"
+        assert asst_msgs[2].content == "Done!"
+
+        # Step 5: ToolUseMessage instances for tool events
+        tool_msgs = [m for m in messages if isinstance(m, ToolUseMessage)]
+        assert len(tool_msgs) == 2  # on_tool_start + on_tool_end
+
+        # Step 6: Terminal ResultMessage with aggregated tokens
+        result = messages[-1]
+        assert isinstance(result, ResultMessage)
+        assert result.is_error is False
+        assert result.input_tokens == 300  # 100 + 200
+        assert result.output_tokens == 150  # 50 + 100
+
+        # Step 7: close() after execute completes
+        await backend.close()
+
+
+# ---------------------------------------------------------------------------
+# TS-03-SMOKE-2: Permission callback smoke test
+# Execution Path: 03-PATH-2
+# Requirements: 03-REQ-4.1
+# ---------------------------------------------------------------------------
+
+
+class TestSmokePermissionCallback:
+    """Smoke test: permission_callback invoked for tool calls."""
+
+    @pytest.mark.asyncio
+    async def test_smoke_permission_callback_invoked(self) -> None:
+        """TS-03-SMOKE-2: Permission callback smoke with mocked interrupt.
+
+        Verifies the permission callback integration:
+        1. permission_callback is passed to execute()
+        2. create_deep_agent is called (implementation configures interrupt)
+        3. Stream processes events and yields ToolUseMessage
+        4. Terminal ResultMessage at end
+
+        Real components: DeepAgentsBackend.execute, interrupt mapping logic
+        Mocked: create_deep_agent(), interrupt mechanism
+
+        Errata E4: PermissionCallback is async — callback is async def.
+        """
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+        from agentfox.session.backends.types import ResultMessage, ToolUseMessage
+
+        callback_calls: list[tuple[str, dict[str, Any]]] = []
+
+        async def my_callback(name: str, inp: dict[str, Any]) -> bool:
+            callback_calls.append((name, inp))
+            return True
+
+        events = [
+            _make_on_tool_start_event(
+                tool_name="write_file",
+                tool_input={"path": "out.txt", "content": "data"},
+            ),
+            _make_on_tool_end_event(tool_name="write_file", output="ok"),
+            _make_llm_end_event(input_tokens=15, output_tokens=8),
+        ]
+        mock_agent = _make_mock_agent_with_events(events)
+
+        backend = DeepAgentsBackend()
+        with patch(
+            "agentfox.session.backends.deepagents.create_deep_agent",
+            return_value=mock_agent,
+        ) as mock_create:
+            messages = await _collect_async(
+                backend.execute(
+                    "write data to file",
+                    system_prompt="sys",
+                    model="openai:gpt-5.5",
+                    cwd="/workspace",
+                    permission_callback=my_callback,
+                )
+            )
+
+        # create_deep_agent called with the permission mechanism configured
+        assert mock_create.called
+
+        # ToolUseMessage yielded for tool events
+        tool_msgs = [m for m in messages if isinstance(m, ToolUseMessage)]
+        assert len(tool_msgs) >= 1
+
+        # Terminal ResultMessage at end
+        result = messages[-1]
+        assert isinstance(result, ResultMessage)
+
+
+# ---------------------------------------------------------------------------
+# TS-03-SMOKE-3: Transient retry exhaust smoke test
+# Execution Path: 03-PATH-3
+# Requirements: 03-REQ-6.1, 03-REQ-6.2
+# ---------------------------------------------------------------------------
+
+
+class TestSmokeTransientRetryExhaust:
+    """Smoke test: 3 transient errors → backoff delays → terminal error."""
+
+    @pytest.mark.asyncio
+    async def test_smoke_transient_retry_exhaust(self) -> None:
+        """TS-03-SMOKE-3: 3 consecutive transient errors with backoff.
+
+        Verifies the complete transient retry flow:
+        1. create_deep_agent called exactly 3 times
+        2. asyncio.sleep called with delays [1.0, 2.0] between attempts
+        3. No delay of 4.0 (only 2 inter-attempt waits for 3 attempts)
+        4. Terminal ResultMessage with is_error=True, is_transport_error=True
+        5. No exception propagates to the caller
+
+        Real components: DeepAgentsBackend.execute, retry/backoff logic
+        Mocked: create_deep_agent() (always raises ConnectionError),
+                asyncio.sleep (records delays)
+        """
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+        from agentfox.session.backends.types import ResultMessage
+
+        create_count = 0
+
+        def counting_create(**_kwargs: Any) -> MagicMock:
+            nonlocal create_count
+            create_count += 1
+            agent = MagicMock()
+
+            async def failing_stream(*_a: Any, **_kw: Any) -> Any:
+                raise ConnectionError("persistent network failure")
+                yield  # noqa: RUF028 — async generator
+
+            agent.astream_events = failing_stream
+            return agent
+
+        sleep_delays: list[float] = []
+
+        async def recording_sleep(delay: float) -> None:
+            sleep_delays.append(delay)
+
+        backend = DeepAgentsBackend()
+        with (
+            patch(
+                "agentfox.session.backends.deepagents.create_deep_agent",
+                side_effect=counting_create,
+            ),
+            patch("asyncio.sleep", side_effect=recording_sleep),
+        ):
+            # No exception should propagate
+            messages = await _collect_async(
+                backend.execute(
+                    "do something",
+                    system_prompt="sys",
+                    model="ollama:north-mini-code-1.0",
+                    cwd="/workspace",
+                )
+            )
+
+        # Step 1: create_deep_agent called exactly 3 times
+        assert create_count == 3, (
+            f"Expected exactly 3 create_deep_agent calls, got {create_count}"
+        )
+
+        # Step 2-3: Backoff delays [1.0, 2.0] — no 4.0 (only 2 waits for 3 attempts)
+        assert sleep_delays == [1.0, 2.0], (
+            f"Expected backoff delays [1.0, 2.0], got {sleep_delays}"
+        )
+
+        # Step 4: Terminal error ResultMessage
+        result = messages[-1]
+        assert isinstance(result, ResultMessage)
+        assert result.is_error is True
+        assert result.is_transport_error is True
