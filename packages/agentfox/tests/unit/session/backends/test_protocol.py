@@ -163,8 +163,7 @@ class TestPropertyProtocolIsolation:
 SDK_CONTAINMENT: dict[str, str] = {
     "claude_agent_sdk": "claude.py",
     "google.adk": "google_adk.py",
-    # Future backends (add one line per backend):
-    # "deepagents": "deepagents.py",       # spec 03
+    # "deepagents": "deepagents.py",  # spec 03 (test_deepagents.py covers this)
 }
 
 
