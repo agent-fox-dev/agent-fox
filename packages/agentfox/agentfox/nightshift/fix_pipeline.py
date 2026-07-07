@@ -24,6 +24,7 @@ from afaudit.emit import emit_audit_event
 from afaudit.events import AuditEventType, generate_run_id
 
 from agentfox.core.config import AgentFoxConfig
+from agentfox.knowledge.extraction import extract_session_summary
 from agentfox.nightshift.prior_attempts import format_prior_attempts, query_prior_attempts
 from agentfox.nightshift.spec_builder import (
     InMemorySpec,
@@ -253,6 +254,73 @@ class FixPipeline:
                 "Knowledge ingestion failed for %s, continuing",
                 session_id,
                 exc_info=True,
+            )
+
+    def _post_harvest_ingest(
+        self,
+        spec: InMemorySpec,
+        changed_files: list[str],
+        outcome_response: str,
+    ) -> None:
+        """Ingest post-harvest knowledge with real touched_files and summary.
+
+        Called after ``_harvest_and_push`` returns a non-empty file list.
+        Uses a separate try/except from ``_ingest_knowledge`` to log at
+        ERROR level (05-REQ-2.E1) without changing the pre-harvest
+        WARNING-level behavior (05-REQ-10.1).
+
+        Omits ``commit_sha`` from the context because ``harvest()`` does
+        not return it (05-REQ-2.2).
+
+        Requirements: 05-REQ-2.1, 05-REQ-2.2, 05-REQ-2.3, 05-REQ-2.5,
+                      05-REQ-2.E1, 05-REQ-3.6, 05-REQ-3.7, 05-REQ-4.3
+        """
+        spec_name = f"fix-issue-{spec.issue_number}"
+        session_id = f"fix-issue-{spec.issue_number}"
+
+        # 05-REQ-3.6, 05-REQ-4.3: extract summary synchronously (no await)
+        summary_text, rejected_approaches, gotchas, assumptions = extract_session_summary(
+            outcome_response,
+        )
+        summary_extracted = summary_text is not None
+
+        # Build context dict — no commit_sha (05-REQ-2.2)
+        context: dict[str, object] = {
+            "touched_files": changed_files,
+            "project_root": str(Path.cwd()),
+            "sink": self._sink,
+            "run_id": self._run_id,
+            "archetype": "coder",
+            "task_group": "0",
+            "attempt": 1,
+        }
+
+        # 05-REQ-3.6: include summary fields when extraction succeeds
+        # 05-REQ-3.7: omit summary fields when extraction returns None
+        if summary_text is not None:
+            context["summary"] = summary_text
+            context["rejected_approaches"] = rejected_approaches
+            context["gotchas"] = gotchas
+            context["assumptions"] = assumptions
+
+        try:
+            assert self._knowledge_provider is not None  # guarded by caller
+            self._knowledge_provider.ingest(session_id, spec_name, context)
+        except Exception:
+            # 05-REQ-2.E1: log at ERROR level, do not re-raise
+            logger.error(
+                "Post-harvest knowledge ingestion failed for %s",
+                session_id,
+                exc_info=True,
+            )
+        else:
+            # 05-REQ-2.5: structured log with touched_files count and
+            # summary_extracted flag
+            logger.info(
+                "Post-harvest knowledge ingestion completed: "
+                "touched_files=%d, summary_extracted=%s",
+                len(changed_files),
+                summary_extracted,
             )
 
     @staticmethod
@@ -1252,7 +1320,32 @@ class FixPipeline:
                 self._try_complete_run("completed")
                 return metrics
 
+            # Pre-harvest ingestion: record coder-reviewer loop completion
+            # at the pipeline level (additive to per-session calls in
+            # _emit_session_event).  Uses the existing _ingest_knowledge
+            # helper with its original WARNING-level error handling,
+            # preserving pre-harvest behavior (05-REQ-10.1, 05-REQ-2.4).
+            spec_name = f"fix-issue-{spec.issue_number}"
+            self._ingest_knowledge(
+                session_id=f"fix-issue-{spec.issue_number}:0:coder",
+                spec_name=spec_name,
+                session_status="completed",
+            )
+
             harvest_result, changed_files = await self._integrate_fix(issue, spec, workspace)
+
+            # 05-REQ-2.1: Post-harvest knowledge ingestion with real touched_files.
+            # This call is independent of the pre-harvest ingestion in
+            # _emit_session_event (05-REQ-10.2) and uses its own try/except
+            # with ERROR-level logging (05-REQ-2.E1) — distinct from the
+            # WARNING-level logging in _ingest_knowledge to preserve
+            # pre-harvest behavior (05-REQ-10.1).
+            if changed_files and self._knowledge_provider is not None:
+                self._post_harvest_ingest(
+                    spec=spec,
+                    changed_files=changed_files,
+                    outcome_response=getattr(success, "response", "") or "",
+                )
 
         except Exception as exc:
             # 61-REQ-6.E1: post comment on failure
