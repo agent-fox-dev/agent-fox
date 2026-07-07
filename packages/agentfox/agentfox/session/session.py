@@ -1,12 +1,13 @@
-"""Session runner: execute coding sessions via ClaudeBackend.
+"""Session runner: execute coding sessions via a Backend adapter.
 
-Depends only on ClaudeBackend and canonical message types.
+Depends only on the Backend Protocol and canonical message types.
 All SDK-specific code is isolated in the backend adapter modules.
 
 Requirements: 03-REQ-3.1 through 03-REQ-3.E2, 03-REQ-6.E1,
               03-REQ-8.1 through 03-REQ-8.E1,
               18-REQ-2.1, 18-REQ-2.2, 18-REQ-2.3, 18-REQ-2.E1,
-              26-REQ-2.4, 40-REQ-8.1, 40-REQ-8.2, 40-REQ-8.3
+              26-REQ-2.4, 40-REQ-8.1, 40-REQ-8.2, 40-REQ-8.3,
+              02-REQ-4.1, 02-REQ-4.2, 02-REQ-4.3
 """
 
 from __future__ import annotations
@@ -28,7 +29,7 @@ from agentfox.core.config import AgentFoxConfig
 from agentfox.core.models import resolve_model
 from agentfox.core.security import make_pre_tool_use_hook
 from agentfox.engine.sdk_params import resolve_model_tier
-from agentfox.session.backends.claude import ClaudeBackend
+from agentfox.session.backends import Backend, create_backend
 from agentfox.session.backends.types import (
     AssistantMessage,
     ResultMessage,
@@ -71,7 +72,7 @@ async def run_session(
     task_prompt: str,
     config: AgentFoxConfig,
     *,
-    backend: ClaudeBackend | None = None,
+    backend: Backend | None = None,
     activity_callback: ActivityCallback | None = None,
     model_id: str | None = None,
     security_config: Any | None = None,
@@ -89,11 +90,12 @@ async def run_session(
 
     1. Resolve the coding model
     2. Build a permission callback from the security allowlist
-    3. Stream messages from the backend via ClaudeBackend.execute()
+    3. Stream messages from the backend via Backend.execute()
     4. Collect the terminal ResultMessage for outcome metrics
     5. Wrap the entire query in asyncio.wait_for with the
        configured session_timeout
-    6. Build and return a SessionOutcome
+    6. Call backend.close() in a finally block to release resources
+    7. Build and return a SessionOutcome
 
     Args:
         workspace: Workspace information for the session.
@@ -101,7 +103,8 @@ async def run_session(
         system_prompt: System instructions for the agent.
         task_prompt: Task prompt to send to the agent.
         config: Application configuration.
-        backend: ClaudeBackend instance to use. Defaults to a new ClaudeBackend.
+        backend: Backend instance to use. When ``None``, a backend is created
+            via ``create_backend(config.orchestrator.backend)``.
         activity_callback: Optional callback for UI activity events.
         model_id: Optional model tier or model ID override. When set,
             overrides the archetype's resolved model tier for this session.
@@ -126,8 +129,12 @@ async def run_session(
     # Resolve security config (archetype override or config default)
     effective_security = security_config if security_config is not None else config.security
 
+    # 02-REQ-4.1: Instantiate backend via factory when not provided.
+    # ConfigError from create_backend() propagates immediately (02-REQ-4.E2)
+    # before the try/finally block — no close() is called because no backend
+    # was created.
     if backend is None:
-        backend = ClaudeBackend()
+        backend = create_backend(config.orchestrator.backend)
 
     # Track metrics via mutable state (supports partial reads on timeout/failure)
     state = _QueryExecutionState()
@@ -136,44 +143,50 @@ async def run_session(
     start_time = datetime.now(UTC)
 
     try:
-        # 03-REQ-3.1, 03-REQ-6.1: Execute query wrapped in timeout
-        await with_timeout(
-            _execute_query(
-                task_prompt=task_prompt,
-                system_prompt=system_prompt,
-                model_id=resolved_model_id,
-                cwd=str(workspace.path),
-                config=config,
-                backend=backend,
-                state=state,
-                node_id=node_id,
-                activity_callback=activity_callback,
-                security_config_override=effective_security,
-                sink_dispatcher=sink_dispatcher,
-                run_id=run_id,
-                max_turns=max_turns,
-                max_budget_usd=max_budget_usd,
-                thinking=thinking,
-                effort=effort,
-                compaction=compaction,
-                archetype=archetype,
-            ),
-            timeout_minutes=effective_timeout,
-        )
+        try:
+            # 03-REQ-3.1, 03-REQ-6.1: Execute query wrapped in timeout
+            await with_timeout(
+                _execute_query(
+                    task_prompt=task_prompt,
+                    system_prompt=system_prompt,
+                    model_id=resolved_model_id,
+                    cwd=str(workspace.path),
+                    config=config,
+                    backend=backend,
+                    state=state,
+                    node_id=node_id,
+                    activity_callback=activity_callback,
+                    security_config_override=effective_security,
+                    sink_dispatcher=sink_dispatcher,
+                    run_id=run_id,
+                    max_turns=max_turns,
+                    max_budget_usd=max_budget_usd,
+                    thinking=thinking,
+                    effort=effort,
+                    compaction=compaction,
+                    archetype=archetype,
+                ),
+                timeout_minutes=effective_timeout,
+            )
 
-    except TimeoutError:
-        # 03-REQ-6.2, 03-REQ-6.E1: Timeout with partial metrics
-        elapsed_ms = int((datetime.now(UTC) - start_time).total_seconds() * 1000)
-        state.status = "timeout"
-        state.error_message = f"Session timed out after {effective_timeout} minutes"
-        if state.duration_ms == 0:
-            state.duration_ms = elapsed_ms
+        except TimeoutError:
+            # 03-REQ-6.2, 03-REQ-6.E1: Timeout with partial metrics
+            elapsed_ms = int((datetime.now(UTC) - start_time).total_seconds() * 1000)
+            state.status = "timeout"
+            state.error_message = f"Session timed out after {effective_timeout} minutes"
+            if state.duration_ms == 0:
+                state.duration_ms = elapsed_ms
 
-    except Exception as exc:
-        # 03-REQ-3.E1, 26-REQ-1.E1: Catch backend errors, return failed outcome
-        state.status = "failed"
-        state.error_message = str(exc)
-        logger.warning("Session failed with error: %s", state.error_message)
+        except Exception as exc:
+            # 03-REQ-3.E1, 26-REQ-1.E1: Catch backend errors, return failed outcome
+            state.status = "failed"
+            state.error_message = str(exc)
+            logger.warning("Session failed with error: %s", state.error_message)
+    finally:
+        # 02-REQ-4.E1, 02-REQ-1.3: Release backend resources.
+        # close() is idempotent — safe to call after normal exhaustion,
+        # timeout, error, or asyncio cancellation.
+        await backend.close()
 
     return SessionOutcome(
         spec_name=workspace.spec_name,
@@ -198,7 +211,7 @@ async def _execute_query(
     model_id: str,
     cwd: str,
     config: AgentFoxConfig,
-    backend: ClaudeBackend,
+    backend: Backend,
     state: _QueryExecutionState,
     node_id: str = "",
     activity_callback: ActivityCallback | None = None,
@@ -212,7 +225,7 @@ async def _execute_query(
     compaction: bool = False,
     archetype: str | None = None,
 ) -> None:
-    """Execute the query via ClaudeBackend and collect results.
+    """Execute the query via the Backend adapter and collect results.
 
     Updates *state* in place with token usage, duration, status, and error info.
     """
@@ -253,7 +266,7 @@ async def _execute_query(
                 error_message=error_message,
             )
 
-    async for message in backend.execute(  # type: ignore[attr-defined]
+    async for message in backend.execute(
         task_prompt,
         system_prompt=system_prompt,
         model=model_id,
