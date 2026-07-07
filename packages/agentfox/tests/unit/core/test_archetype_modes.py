@@ -29,7 +29,6 @@ class TestModeConfigDefaults:
         assert mc.model_tier is None
         assert mc.max_turns is None
         assert mc.thinking_mode is None
-        assert mc.thinking_budget is None
         assert mc.retry_predecessor is None
 
     def test_is_frozen(self) -> None:
@@ -56,8 +55,7 @@ class TestModeConfigDefaults:
             allowlist=["ls", "cat"],
             model_tier="SIMPLE",
             max_turns=50,
-            thinking_mode="enabled",
-            thinking_budget=8000,
+            thinking_mode="adaptive",
             retry_predecessor=True,
         )
         assert mc.templates == ["mode_profile.md"]
@@ -65,8 +63,7 @@ class TestModeConfigDefaults:
         assert mc.allowlist == ["ls", "cat"]
         assert mc.model_tier == "SIMPLE"
         assert mc.max_turns == 50
-        assert mc.thinking_mode == "enabled"
-        assert mc.thinking_budget == 8000
+        assert mc.thinking_mode == "adaptive"
         assert mc.retry_predecessor is True
 
     def test_empty_allowlist_is_allowed(self) -> None:
@@ -164,18 +161,16 @@ class TestResolveEffectiveConfigValidMode:
         assert result.injection == "auto_pre"
 
     def test_mode_overrides_thinking(self) -> None:
-        """Overriding thinking_mode and thinking_budget applies correctly."""
+        """Overriding thinking_mode applies correctly."""
         from agentfox.archetypes import ArchetypeEntry, ModeConfig, resolve_effective_config
 
         entry = ArchetypeEntry(
             name="test",
             default_thinking_mode="disabled",
-            default_thinking_budget=10000,
-            modes={"think": ModeConfig(thinking_mode="enabled", thinking_budget=32000)},
+            modes={"think": ModeConfig(thinking_mode="adaptive")},
         )
         result = resolve_effective_config(entry, "think")
-        assert result.default_thinking_mode == "enabled"
-        assert result.default_thinking_budget == 32000
+        assert result.default_thinking_mode == "adaptive"
 
     def test_mode_overrides_retry_predecessor(self) -> None:
         """Overriding retry_predecessor applies correctly."""
@@ -287,7 +282,6 @@ class TestResolveEffectiveConfigNoneMode:
             default_model_tier="ADVANCED",
             default_max_turns=150,
             default_thinking_mode="adaptive",
-            default_thinking_budget=20000,
             injection="auto_pre",
             retry_predecessor=True,
             default_allowlist=["ls"],
@@ -296,7 +290,6 @@ class TestResolveEffectiveConfigNoneMode:
         assert result.default_model_tier == "ADVANCED"
         assert result.default_max_turns == 150
         assert result.default_thinking_mode == "adaptive"
-        assert result.default_thinking_budget == 20000
         assert result.injection == "auto_pre"
         assert result.retry_predecessor is True
         assert result.default_allowlist == ["ls"]

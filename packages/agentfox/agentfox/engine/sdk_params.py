@@ -56,10 +56,11 @@ def resolve_thinking(config: AgentFoxConfig, archetype: str, *, mode: str | None
     """Resolve thinking configuration for the given archetype.
 
     Resolution order (highest to lowest priority):
-      1. archetypes.overrides.<name>.modes.<mode>.thinking_mode / thinking_budget (mode-level override)
-      2. archetypes.overrides.<name>.thinking_mode / thinking_budget (unified table)
+      1. archetypes.overrides.<name>.modes.<mode>.thinking_mode (mode-level override)
+      2. archetypes.overrides.<name>.thinking_mode (unified table)
       3. Archetype registry default (via resolve_effective_config for mode)
-    Returns None when mode is ``disabled``.
+
+    Returns ``{"type": "adaptive"}`` for adaptive mode, ``None`` for disabled.
 
     Requirements: 56-REQ-4.1, 56-REQ-4.2, 56-REQ-4.3, 56-REQ-5.1, 207-REQ-2,
                   97-REQ-4.3, 97-REQ-3.3
@@ -74,25 +75,20 @@ def resolve_thinking(config: AgentFoxConfig, archetype: str, *, mode: str | None
         if mode_cfg is not None and mode_cfg.thinking_mode is not None:
             if mode_cfg.thinking_mode == "disabled":
                 return None
-            budget = mode_cfg.thinking_budget if mode_cfg.thinking_budget is not None else 10000
-            return {"type": mode_cfg.thinking_mode, "budget_tokens": budget}
+            return {"type": mode_cfg.thinking_mode}
 
     # 2. Unified per-archetype override table
     if override is not None and override.thinking_mode is not None:
         if override.thinking_mode == "disabled":
             return None
-        budget = override.thinking_budget if override.thinking_budget is not None else 10000
-        return {"type": override.thinking_mode, "budget_tokens": budget}
+        return {"type": override.thinking_mode}
 
     # 3. Registry default (via mode-resolved effective config)
     entry = get_archetype(archetype)
     effective = resolve_effective_config(entry, mode)
     if effective.default_thinking_mode == "disabled":
         return None
-    return {
-        "type": effective.default_thinking_mode,
-        "budget_tokens": effective.default_thinking_budget,
-    }
+    return {"type": effective.default_thinking_mode}
 
 
 def resolve_max_budget(config: AgentFoxConfig, archetype: str | None = None) -> float | None:

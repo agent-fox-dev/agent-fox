@@ -25,7 +25,7 @@ import os
 import tomllib
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated, Any, Literal, Self
+from typing import Annotated, Any, Literal
 
 from pydantic import (
     BaseModel,
@@ -244,25 +244,6 @@ class KnowledgeConfig(BaseModel):
     )
 
 
-class ThinkingConfig(BaseModel):
-    """Extended thinking configuration for an archetype.
-
-    Requirements: 56-REQ-4.1, 56-REQ-4.E1, 56-REQ-4.E2
-    """
-
-    model_config = ConfigDict(extra="ignore")
-
-    mode: Literal["enabled", "adaptive", "disabled"] = "disabled"
-    budget_tokens: int = Field(default=10000, ge=0)
-
-    @model_validator(mode="after")
-    def validate_budget(self) -> Self:
-        """budget_tokens must be > 0 when mode is 'enabled'."""
-        if self.mode == "enabled" and self.budget_tokens <= 0:
-            raise ValueError("budget_tokens must be > 0 when mode is 'enabled'")
-        return self
-
-
 class PerArchetypeConfig(BaseModel):
     """Unified per-archetype configuration table.
 
@@ -289,14 +270,9 @@ class PerArchetypeConfig(BaseModel):
         description="Max turns override. 0 = unlimited. None = use registry default.",
         ge=0,
     )
-    thinking_mode: Literal["enabled", "adaptive", "disabled"] | None = Field(
+    thinking_mode: Literal["adaptive", "disabled"] | None = Field(
         default=None,
         description="Extended thinking mode. None = use registry default.",
-    )
-    thinking_budget: int | None = Field(
-        default=None,
-        description="Extended thinking budget tokens. None = use registry default.",
-        ge=0,
     )
     allowlist: list[str] | None = Field(
         default=None,
@@ -315,13 +291,6 @@ class PerArchetypeConfig(BaseModel):
             "Per-mode overrides for this archetype. TOML: [archetypes.overrides.<name>.modes.<mode>]. 97-REQ-3.1"
         ),
     )
-
-    @model_validator(mode="after")
-    def validate_thinking(self) -> Self:
-        """thinking_budget must be > 0 when thinking_mode is 'enabled'."""
-        if self.thinking_mode == "enabled" and self.thinking_budget is not None and self.thinking_budget <= 0:
-            raise ValueError("thinking_budget must be > 0 when thinking_mode is 'enabled'")
-        return self
 
 
 # Required for self-referential Pydantic model (modes: dict[str, PerArchetypeConfig])

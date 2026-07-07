@@ -103,25 +103,23 @@ class TestThinkingPassthrough:
     """For any non-disabled thinking config, resolve_thinking returns it."""
 
     @given(
-        mode=st.sampled_from(["enabled", "adaptive"]),
-        budget=st.integers(min_value=1, max_value=50000),
+        mode=st.sampled_from(["adaptive"]),
     )
     @settings(max_examples=50)
-    def test_nondisabled_thinking_passthrough(self, mode: str, budget: int) -> None:
+    def test_nondisabled_thinking_passthrough(self, mode: str) -> None:
         from agentfox.core.config import AgentFoxConfig, PerArchetypeConfig
         from agentfox.engine.sdk_params import resolve_thinking
 
         config = AgentFoxConfig(
             archetypes={  # type: ignore[arg-type]
                 "overrides": {
-                    "coder": PerArchetypeConfig(thinking_mode=mode, thinking_budget=budget),
+                    "coder": PerArchetypeConfig(thinking_mode=mode),
                 },
             },
         )
         result = resolve_thinking(config, "coder")
         assert result is not None
-        assert result["type"] == mode
-        assert result["budget_tokens"] == budget
+        assert result == {"type": mode}
 
 
 # ---------------------------------------------------------------------------
@@ -203,21 +201,9 @@ class TestValidationRejectsInvalid:
         try:
             from agentfox.core.config import PerArchetypeConfig
 
-            PerArchetypeConfig(thinking_mode="turbo", thinking_budget=10000)  # type: ignore[arg-type]
+            PerArchetypeConfig(thinking_mode="turbo")  # type: ignore[arg-type]
             raise AssertionError(  # noqa: TRY301
                 "Expected ValidationError for mode='turbo'"
-            )
-        except (ValidationError, ValueError):
-            pass  # Expected
-
-    def test_zero_budget_tokens_enabled_rejected(self) -> None:
-        """budget_tokens=0 with mode=enabled raises."""
-        try:
-            from agentfox.core.config import PerArchetypeConfig
-
-            PerArchetypeConfig(thinking_mode="enabled", thinking_budget=0)
-            raise AssertionError(  # noqa: TRY301
-                "Expected ValidationError for budget_tokens=0 with enabled"
             )
         except (ValidationError, ValueError):
             pass  # Expected
@@ -268,7 +254,7 @@ class TestSDKCompatibilityFallback:
                     system_prompt="sys",
                     model="claude-sonnet-4-6",
                     cwd="/tmp",
-                    thinking={"type": "adaptive", "budget_tokens": 10000},
+                    thinking={"type": "adaptive"},
                 ):
                     messages.append(msg)
                 return messages

@@ -164,9 +164,6 @@ class TestCoderFixMode:
         assert cfg.default_thinking_mode == "adaptive", (
             f"coder:fix thinking_mode should be 'adaptive', got {cfg.default_thinking_mode!r}"
         )
-        assert cfg.default_thinking_budget == 64000, (
-            f"coder:fix thinking_budget should be 64000, got {cfg.default_thinking_budget}"
-        )
 
 
 # ---------------------------------------------------------------------------

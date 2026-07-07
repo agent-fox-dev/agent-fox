@@ -151,10 +151,9 @@ class TestThinkingParsing:
     def test_thinking_parsed_from_toml(self, tmp_path: Path) -> None:
         """TS-56-12: Thinking config per archetype is parsed from TOML."""
         config_file = tmp_path / "config.toml"
-        config_file.write_text('[archetypes.overrides.coder]\nthinking_mode = "enabled"\nthinking_budget = 20000\n')
+        config_file.write_text('[archetypes.overrides.coder]\nthinking_mode = "adaptive"\n')
         config = load_config(path=config_file)
-        assert config.archetypes.overrides["coder"].thinking_mode == "enabled"
-        assert config.archetypes.overrides["coder"].thinking_budget == 20000
+        assert config.archetypes.overrides["coder"].thinking_mode == "adaptive"
 
     def test_overrides_empty_when_not_configured_for_thinking(self) -> None:
         """Default config has empty overrides dict."""
@@ -177,7 +176,6 @@ class TestThinkingDefaults:
 
         coder = ARCHETYPE_REGISTRY["coder"]
         assert coder.default_thinking_mode == "adaptive"
-        assert coder.default_thinking_budget == 64000
 
     def test_other_archetypes_default_thinking_disabled(self) -> None:
         """TS-56-14: Non-coder archetypes default to disabled thinking."""
@@ -246,23 +244,6 @@ class TestInvalidThinkingModeRejected:
     def test_invalid_thinking_mode_raises(self, tmp_path: Path) -> None:
         """TS-56-E5: Invalid thinking mode raises ValidationError."""
         config_file = tmp_path / "config.toml"
-        config_file.write_text('[archetypes.overrides.coder]\nthinking_mode = "turbo"\nthinking_budget = 10000\n')
-        with pytest.raises((ValidationError, ValueError, Exception)):
-            load_config(path=config_file)
-
-
-# ---------------------------------------------------------------------------
-# TS-56-E6: Zero Budget Tokens With Enabled Mode Rejected
-# Requirement: 56-REQ-4.E2
-# ---------------------------------------------------------------------------
-
-
-class TestZeroBudgetTokensEnabledRejected:
-    """Verify budget_tokens=0 with mode=enabled raises error."""
-
-    def test_zero_budget_tokens_enabled_raises(self, tmp_path: Path) -> None:
-        """TS-56-E6: budget_tokens=0 with mode=enabled raises error."""
-        config_file = tmp_path / "config.toml"
-        config_file.write_text('[archetypes.overrides.coder]\nthinking_mode = "enabled"\nthinking_budget = 0\n')
+        config_file.write_text('[archetypes.overrides.coder]\nthinking_mode = "turbo"\n')
         with pytest.raises((ValidationError, ValueError, Exception)):
             load_config(path=config_file)

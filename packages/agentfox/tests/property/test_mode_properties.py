@@ -28,7 +28,7 @@ pytestmark = pytest.mark.property
 
 _VALID_TIERS = ["SIMPLE", "STANDARD", "ADVANCED"]
 _VALID_INJECTIONS = [None, "auto_pre", "auto_post", "auto_mid"]
-_VALID_THINKING_MODES = ["disabled", "enabled", "adaptive"]
+_VALID_THINKING_MODES = ["disabled", "adaptive"]
 
 
 def _mode_config_strategy():  # type: ignore[return]
@@ -43,7 +43,6 @@ def _mode_config_strategy():  # type: ignore[return]
             "model_tier": st.one_of(st.none(), st.sampled_from(_VALID_TIERS)),
             "max_turns": st.one_of(st.none(), st.integers(min_value=1, max_value=500)),
             "thinking_mode": st.one_of(st.none(), st.sampled_from(_VALID_THINKING_MODES)),
-            "thinking_budget": st.one_of(st.none(), st.integers(min_value=1000, max_value=100000)),
             "retry_predecessor": st.one_of(st.none(), st.booleans()),
         }
     )
@@ -64,7 +63,6 @@ def _archetype_entry_strategy():  # type: ignore[return]
             "default_allowlist": st.one_of(st.none(), st.lists(st.text(min_size=1, max_size=10), max_size=5)),
             "default_max_turns": st.integers(min_value=1, max_value=500),
             "default_thinking_mode": st.sampled_from(_VALID_THINKING_MODES),
-            "default_thinking_budget": st.integers(min_value=1000, max_value=100000),
         }
     )
 
@@ -77,7 +75,6 @@ _MODE_TO_ENTRY_FIELD_MAP = {
     "model_tier": "default_model_tier",
     "max_turns": "default_max_turns",
     "thinking_mode": "default_thinking_mode",
-    "thinking_budget": "default_thinking_budget",
     "retry_predecessor": "retry_predecessor",
 }
 
@@ -171,7 +168,6 @@ class TestNullModeIdentity:
             "default_allowlist",
             "default_max_turns",
             "default_thinking_mode",
-            "default_thinking_budget",
         ]:
             base_val = getattr(entry, entry_field)
             resolved_val = getattr(resolved, entry_field)

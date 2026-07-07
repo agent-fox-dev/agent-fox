@@ -233,7 +233,7 @@ class TestThinkingPassthrough:
 
         import asyncio
 
-        thinking = {"type": "adaptive", "budget_tokens": 10000}
+        thinking = {"type": "adaptive"}
 
         with patch.object(ClaudeBackend, "_stream_messages", fake_stream):
             loop = asyncio.new_event_loop()

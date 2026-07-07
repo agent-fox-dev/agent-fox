@@ -39,7 +39,6 @@ class TestPerArchetypeConfigParsing:
         assert cfg.model_tier is None
         assert cfg.max_turns is None
         assert cfg.thinking_mode is None
-        assert cfg.thinking_budget is None
         assert cfg.allowlist is None
 
     def test_max_turns_zero_allowed(self) -> None:
@@ -51,18 +50,9 @@ class TestPerArchetypeConfigParsing:
         with pytest.raises(ValidationError):
             PerArchetypeConfig(max_turns=-1)
 
-    def test_negative_thinking_budget_rejected(self) -> None:
-        with pytest.raises(ValidationError):
-            PerArchetypeConfig(thinking_budget=-1)
-
     def test_invalid_thinking_mode_rejected(self) -> None:
         with pytest.raises(ValidationError):
             PerArchetypeConfig(thinking_mode="turbo")  # type: ignore[arg-type]
-
-    def test_enabled_thinking_with_zero_budget_rejected(self) -> None:
-        """thinking_mode=enabled requires thinking_budget > 0."""
-        with pytest.raises((ValidationError, ValueError)):
-            PerArchetypeConfig(thinking_mode="enabled", thinking_budget=0)
 
 
 # ---------------------------------------------------------------------------
@@ -99,11 +89,10 @@ class TestOverridesTomlParsing:
 
     def test_thinking_fields_parsed(self, tmp_path: Path) -> None:
         config_file = tmp_path / "config.toml"
-        config_file.write_text('[archetypes.overrides.coder]\nthinking_mode = "enabled"\nthinking_budget = 32000\n')
+        config_file.write_text('[archetypes.overrides.coder]\nthinking_mode = "adaptive"\n')
         config = load_config(path=config_file)
         coder = config.archetypes.overrides["coder"]
-        assert coder.thinking_mode == "enabled"
-        assert coder.thinking_budget == 32000
+        assert coder.thinking_mode == "adaptive"
 
     def test_allowlist_field_parsed(self, tmp_path: Path) -> None:
         config_file = tmp_path / "config.toml"
@@ -179,11 +168,11 @@ class TestResolveThinkingWithOverrides:
     def test_override_thinking_mode_enabled(self) -> None:
         config = AgentFoxConfig(
             archetypes=ArchetypesConfig(
-                overrides={"reviewer": PerArchetypeConfig(thinking_mode="enabled", thinking_budget=16000)},
+                overrides={"reviewer": PerArchetypeConfig(thinking_mode="adaptive")},
             )
         )
         result = resolve_thinking(config, "reviewer")
-        assert result == {"type": "enabled", "budget_tokens": 16000}
+        assert result == {"type": "adaptive"}
 
     def test_override_thinking_mode_adaptive(self) -> None:
         config = AgentFoxConfig(
@@ -194,7 +183,7 @@ class TestResolveThinkingWithOverrides:
         result = resolve_thinking(config, "verifier")
         assert result is not None
         assert result["type"] == "adaptive"
-        assert result["budget_tokens"] == 10000  # default budget
+        assert "budget_tokens" not in result
 
     def test_override_thinking_mode_disabled(self) -> None:
         config = AgentFoxConfig(
@@ -222,7 +211,6 @@ class TestResolveThinkingWithOverrides:
         else:
             assert result == {
                 "type": coder_entry.default_thinking_mode,
-                "budget_tokens": coder_entry.default_thinking_budget,
             }
 
 
@@ -343,10 +331,10 @@ class TestEndToEndTomlResolution:
 
     def test_thinking_from_toml_overrides_table(self, tmp_path: Path) -> None:
         config_file = tmp_path / "config.toml"
-        config_file.write_text('[archetypes.overrides.verifier]\nthinking_mode = "enabled"\nthinking_budget = 8000\n')
+        config_file.write_text('[archetypes.overrides.verifier]\nthinking_mode = "adaptive"\n')
         config = load_config(path=config_file)
         result = resolve_thinking(config, "verifier")
-        assert result == {"type": "enabled", "budget_tokens": 8000}
+        assert result == {"type": "adaptive"}
 
     def test_overrides_max_turns_from_toml(self, tmp_path: Path) -> None:
         """archetypes.overrides.coder.max_turns from TOML resolves correctly."""
@@ -358,7 +346,7 @@ class TestEndToEndTomlResolution:
     def test_overrides_thinking_from_toml(self, tmp_path: Path) -> None:
         """archetypes.overrides.coder thinking fields from TOML resolve correctly."""
         config_file = tmp_path / "config.toml"
-        config_file.write_text('[archetypes.overrides.coder]\nthinking_mode = "enabled"\nthinking_budget = 20000\n')
+        config_file.write_text('[archetypes.overrides.coder]\nthinking_mode = "adaptive"\n')
         config = load_config(path=config_file)
         result = resolve_thinking(config, "coder")
-        assert result == {"type": "enabled", "budget_tokens": 20000}
+        assert result == {"type": "adaptive"}

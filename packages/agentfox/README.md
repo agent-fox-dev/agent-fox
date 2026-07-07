@@ -77,7 +77,7 @@ Sub-config models (all pydantic `BaseModel` subclasses with documented defaults)
 | `KnowledgeConfig` | `db_path`, `retrieval_caps` |
 | `PricingConfig` | Model-keyed `ModelPricing` entries (`input_per_mtok`, `output_per_mtok`, `cache_read_per_mtok`) |
 | `CachingConfig` | `policy: CachePolicy` (NONE / DEFAULT / EXTENDED) |
-| `ThinkingConfig` | `type` (none / enabled / adaptive), `budget_tokens` |
+| `PerArchetypeConfig` | `thinking_mode` (adaptive / disabled), resolved per archetype |
 | `ArchetypesConfig` | `reviewer_config: ReviewerConfig`, per-archetype enable/disable, custom archetypes |
 | `ReviewerConfig` | `pre_review_block_threshold`, `drift_review_block_threshold`, `audit_min_ts_entries`, `audit_max_retries` |
 | `PlatformConfig` | `type` (github), `url` |

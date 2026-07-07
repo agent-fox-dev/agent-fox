@@ -66,7 +66,6 @@ class TestPerArchetypeConfigModesField:
         assert pac.modes["m"].model_tier is None
         assert pac.modes["m"].max_turns is None
         assert pac.modes["m"].thinking_mode is None
-        assert pac.modes["m"].thinking_budget is None
         assert pac.modes["m"].allowlist is None
 
 

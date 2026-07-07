@@ -172,15 +172,13 @@ class TestResolveThinkingWithMode:
                 overrides={
                     "reviewer": PerArchetypeConfig(
                         thinking_mode="disabled",
-                        modes={"think": PerArchetypeConfig(thinking_mode="enabled", thinking_budget=16000)},
+                        modes={"think": PerArchetypeConfig(thinking_mode="adaptive")},
                     )
                 }
             )
         )
         result = resolve_thinking(config, "reviewer", mode="think")
-        assert result is not None
-        assert result["type"] == "enabled"
-        assert result["budget_tokens"] == 16000
+        assert result == {"type": "adaptive"}
 
     def test_mode_with_no_thinking_falls_back_to_archetype(self) -> None:
         """Mode with no thinking config falls back to archetype-level."""
@@ -191,7 +189,6 @@ class TestResolveThinkingWithMode:
                 overrides={
                     "reviewer": PerArchetypeConfig(
                         thinking_mode="adaptive",
-                        thinking_budget=20000,
                         modes={},
                     )
                 }

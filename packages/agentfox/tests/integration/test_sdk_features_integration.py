@@ -55,7 +55,7 @@ class TestSDKTypeErrorFallback:
                         system_prompt="sys",
                         model="claude-sonnet-4-6",
                         cwd="/tmp",
-                        thinking={"type": "adaptive", "budget_tokens": 10000},
+                        thinking={"type": "adaptive"},
                     ):
                         messages.append(msg)
                 return messages
