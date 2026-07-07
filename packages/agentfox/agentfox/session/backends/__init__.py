@@ -19,7 +19,7 @@ from agentfox.session.backends.types import (
     ToolUseMessage,
 )
 
-_VALID_BACKENDS = ["claude"]
+_VALID_BACKENDS = ["claude", "deepagents"]
 
 
 def create_backend(name: str) -> Backend:
@@ -47,14 +47,22 @@ def create_backend(name: str) -> Backend:
             )
         except ImportError:
             raise ConfigError(
-                'Backend "claude" requires claude-agent-sdk. '
-                "Install it with: pip install claude-agent-sdk"
+                'Backend "claude" requires claude-agent-sdk. Install it with: pip install claude-agent-sdk'
             )
         return _Claude()
 
-    raise ConfigError(
-        f"Unknown backend: '{name}'. Valid backends are: {_VALID_BACKENDS}"
-    )
+    if name == "deepagents":
+        try:
+            from agentfox.session.backends.deepagents import (
+                DeepAgentsBackend as _DeepAgents,
+            )
+        except ImportError:
+            raise ConfigError(
+                "Backend \"deepagents\" requires deepagents>=0.5. Install it with: pip install 'agentfox[deepagents]'"
+            )
+        return _DeepAgents()
+
+    raise ConfigError(f"Unknown backend: '{name}'. Valid backends are: {_VALID_BACKENDS}")
 
 
 def __getattr__(name: str) -> object:
@@ -66,6 +74,10 @@ def __getattr__(name: str) -> object:
         from agentfox.session.backends.claude import ClaudeBackend
 
         return ClaudeBackend
+    if name == "DeepAgentsBackend":
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+
+        return DeepAgentsBackend
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -74,6 +86,7 @@ __all__ = [
     "AssistantMessage",
     "Backend",
     "ClaudeBackend",
+    "DeepAgentsBackend",
     "PermissionCallback",
     "ResultMessage",
     "ToolUseMessage",
