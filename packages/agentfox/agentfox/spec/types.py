@@ -52,6 +52,7 @@ class TaskGroupDef:
     subtasks: tuple[SubtaskDef, ...]  # nested subtasks
     body: str  # full raw text of the group
     archetype: str | None = None  # 26-REQ-5.1: from [archetype: X] tag
+    kind: str | None = None  # afspec TaskGroupKind (e.g. "checkpoint")
 
 
 @dataclass(frozen=True)

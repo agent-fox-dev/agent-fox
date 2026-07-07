@@ -33,12 +33,14 @@ class TestRegistryCompleteness:
 
         # "triage" was removed in spec 100 and absorbed into maintainer:hunt.
         # "maintainer" was added in spec 100.
+        # "gate" was added in issue #680 for lightweight checkpoint verification.
         expected = {
             "coder",
             "reviewer",
             "curator",
             "verifier",
             "maintainer",
+            "gate",
         }
         assert set(ARCHETYPE_REGISTRY.keys()) == expected
 

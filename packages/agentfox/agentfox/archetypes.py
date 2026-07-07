@@ -143,6 +143,15 @@ ARCHETYPE_REGISTRY: dict[str, ArchetypeEntry] = {
         retry_predecessor=True,
         default_max_turns=120,
     ),
+    "gate": ArchetypeEntry(
+        name="gate",
+        default_model_tier="STANDARD",
+        default_model_variant="standard",
+        injection=None,
+        task_assignable=True,
+        default_max_turns=30,
+        default_thinking_mode="disabled",
+    ),
     # "triage" was removed in spec 100 and absorbed into maintainer:hunt.
     # get_archetype("triage") falls back to "coder" with a warning (100-REQ-1.E1).
     "maintainer": ArchetypeEntry(

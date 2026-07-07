@@ -133,6 +133,8 @@ def _create_nodes_and_intra_edges(
             # Carry archetype from tasks.md tag if present (applied later
             # as highest-priority layer in build_graph)
             archetype = "coder"
+            if getattr(group, "kind", None) == "checkpoint":
+                archetype = "gate"
             if hasattr(group, "archetype") and group.archetype:
                 archetype = group.archetype
 

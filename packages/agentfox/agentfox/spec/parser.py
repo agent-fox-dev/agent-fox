@@ -82,6 +82,7 @@ def _map_task_group(group: TaskGroup) -> TaskGroupDef:
         subtasks=mapped_subtasks,
         body=_render_group_body(group),
         archetype=None,
+        kind=group.kind.value if group.kind is not None else None,
     )
 
 
