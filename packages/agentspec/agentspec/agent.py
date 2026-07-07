@@ -440,6 +440,7 @@ class SpecAgent:
                 async with self._client.messages.stream(**kwargs) as stream:  # type: ignore[attr-defined]
                     response = await stream.get_final_message()
                 logger.debug("API call succeeded on attempt %d", attempt + 1)
+                self._check_stop_reason(response)
                 return response
 
             except (
@@ -504,6 +505,42 @@ class SpecAgent:
             retryable=True,
             http_status=last_http_status,
         ) from last_error
+
+    @staticmethod
+    def _check_stop_reason(response: Any) -> None:
+        """Raise ``AgentError`` for non-normal stop reasons.
+
+        Inspects ``response.stop_reason`` and raises with a descriptive
+        message for ``refusal``, ``model_context_window_exceeded``, and
+        ``pause_turn``.  Normal stop reasons (``end_turn``, ``tool_use``,
+        ``max_tokens``) pass through silently.
+
+        Args:
+            response: The API response message.
+
+        Raises:
+            AgentError: If the stop reason indicates a refusal, context
+                window overflow, or server-side iteration limit.
+        """
+        stop_reason = getattr(response, "stop_reason", None)
+        if stop_reason == "refusal":
+            raise AgentError(
+                "API refused the request (safety classifier refusal). "
+                "Check prompt content and retry with adjusted input.",
+                category="refusal",
+            )
+        if stop_reason == "model_context_window_exceeded":
+            raise AgentError(
+                "Context window exceeded. Reduce input size or split "
+                "the request into smaller parts.",
+                category="context_window",
+            )
+        if stop_reason == "pause_turn":
+            raise AgentError(
+                "Server-side tool iteration limit reached (pause_turn). "
+                "The model was paused before completing the response.",
+                category="pause_turn",
+            )
 
     def _extract_tool_call(
         self,

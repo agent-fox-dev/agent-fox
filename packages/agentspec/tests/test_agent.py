@@ -1031,3 +1031,147 @@ def test_agent_error_defaults():
     assert err.category == "internal"
     assert err.retryable is False
     assert err.http_status is None
+
+
+# ===================================================================
+# TS-NS-1: stop_reason='refusal' raises AgentError with refusal message
+# ===================================================================
+
+
+@pytest.mark.asyncio
+async def test_refusal_stop_reason_raises_agent_error(mock_client):
+    """TS-NS-1: When the API response has stop_reason='refusal',
+    _call_api raises AgentError with a message naming the refusal cause."""
+    from conftest_agent import FakeMessage
+
+    mock_client.messages.create.return_value = FakeMessage(
+        content=[],
+        stop_reason="refusal",
+    )
+    agent = SpecAgent(mock_client, "claude-sonnet-4-6")
+
+    with pytest.raises(AgentError, match="refusal") as exc_info:
+        await agent._call_api(
+            messages=[{"role": "user", "content": "test"}],
+            tools=[],
+        )
+
+    assert exc_info.value.category == "refusal"
+    assert "tool was not called" not in str(exc_info.value)
+
+
+# ===================================================================
+# TS-NS-2: stop_reason='model_context_window_exceeded' raises AgentError
+# ===================================================================
+
+
+@pytest.mark.asyncio
+async def test_context_window_exceeded_stop_reason_raises_agent_error(mock_client):
+    """TS-NS-2: When the API response has stop_reason='model_context_window_exceeded',
+    _call_api raises AgentError with a message naming the context window cause."""
+    from conftest_agent import FakeMessage
+
+    mock_client.messages.create.return_value = FakeMessage(
+        content=[],
+        stop_reason="model_context_window_exceeded",
+    )
+    agent = SpecAgent(mock_client, "claude-sonnet-4-6")
+
+    with pytest.raises(AgentError, match="[Cc]ontext window") as exc_info:
+        await agent._call_api(
+            messages=[{"role": "user", "content": "test"}],
+            tools=[],
+        )
+
+    assert exc_info.value.category == "context_window"
+    assert "tool was not called" not in str(exc_info.value)
+
+
+# ===================================================================
+# TS-NS-3: stop_reason='pause_turn' raises AgentError
+# ===================================================================
+
+
+@pytest.mark.asyncio
+async def test_pause_turn_stop_reason_raises_agent_error(mock_client):
+    """TS-NS-3: When the API response has stop_reason='pause_turn',
+    _call_api raises AgentError with a message naming the iteration limit cause."""
+    from conftest_agent import FakeMessage
+
+    mock_client.messages.create.return_value = FakeMessage(
+        content=[],
+        stop_reason="pause_turn",
+    )
+    agent = SpecAgent(mock_client, "claude-sonnet-4-6")
+
+    with pytest.raises(AgentError, match="pause") as exc_info:
+        await agent._call_api(
+            messages=[{"role": "user", "content": "test"}],
+            tools=[],
+        )
+
+    assert exc_info.value.category == "pause_turn"
+    assert "tool was not called" not in str(exc_info.value)
+
+
+# ===================================================================
+# TS-NS-4: Normal end_turn responses are unaffected
+# ===================================================================
+
+
+@pytest.mark.asyncio
+async def test_end_turn_stop_reason_passes_through(mock_client):
+    """TS-NS-4: Normal end_turn responses are unaffected — _call_api
+    returns the response for downstream tool extraction."""
+    response = make_assessment_response()
+    response.stop_reason = "end_turn"
+    mock_client.messages.create.return_value = response
+    agent = SpecAgent(mock_client, "claude-sonnet-4-6")
+
+    result = await agent._call_api(
+        messages=[{"role": "user", "content": "test"}],
+        tools=[],
+    )
+
+    assert result is not None
+    assert result.stop_reason == "end_turn"
+    # Verify _extract_tool_call still works on this response
+    tool_input = agent._extract_tool_call(result, "submit_assessment")
+    assert "quality" in tool_input
+
+
+# ===================================================================
+# TS-NS-5: Non-end_turn stop reasons carry distinct messages
+# ===================================================================
+
+
+@pytest.mark.parametrize(
+    "stop_reason,expected_keyword",
+    [
+        ("refusal", "refusal"),
+        ("model_context_window_exceeded", "context window"),
+        ("pause_turn", "pause"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_stop_reason_error_messages_are_distinct(mock_client, stop_reason, expected_keyword):
+    """TS-NS-5: Each non-end_turn stop reason carries a distinct,
+    human-readable message that does NOT contain the generic
+    'tool was not called' phrasing."""
+    from conftest_agent import FakeMessage
+
+    mock_client.messages.create.return_value = FakeMessage(
+        content=[],
+        stop_reason=stop_reason,
+    )
+    agent = SpecAgent(mock_client, "claude-sonnet-4-6")
+
+    with pytest.raises(AgentError) as exc_info:
+        await agent._call_api(
+            messages=[{"role": "user", "content": "test"}],
+            tools=[],
+        )
+
+    error_message = str(exc_info.value)
+    assert "tool was not called" not in error_message
+    assert expected_keyword.lower() in error_message.lower()
