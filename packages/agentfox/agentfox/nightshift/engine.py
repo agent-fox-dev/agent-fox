@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import sys
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from afaudit.emit import emit_audit_event as _emit_audit_event
@@ -38,6 +38,21 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+@dataclass(frozen=True)
+class IssueOutcome:
+    """Per-issue result captured during a nightshift run."""
+
+    issue_number: int
+    title: str
+    run_id: str
+    outcome: str
+    duration_ms: int
+    cost_usd: float
+    sessions_run: int
+    input_tokens: int
+    output_tokens: int
+
+
 @dataclass
 class NightShiftState:
     """Runtime state for the daemon.
@@ -51,6 +66,7 @@ class NightShiftState:
     issues_fixed: int = 0
     issue_checks_completed: int = 0
     is_shutting_down: bool = False
+    issue_outcomes: list[IssueOutcome] = field(default_factory=list)
 
 
 def validate_night_shift_prerequisites(config: AgentFoxConfig) -> None:
@@ -420,15 +436,31 @@ class NightShiftEngine:
         try:
             metrics = await pipeline.process_issue(issue, issue_body=effective_body, run_id=fix_run_id)
             self.state.total_sessions += getattr(metrics, "sessions_run", 0)
-            self.state.total_cost += self._calculate_fix_cost(metrics)
+            cost = self._calculate_fix_cost(metrics)
+            self.state.total_cost += cost
             self.state.issues_fixed += 1
 
             from agentfox.ui.progress import format_duration
 
-            duration_str = format_duration(time.monotonic() - fix_start)
+            duration_ms = int((time.monotonic() - fix_start) * 1000)
+            duration_str = format_duration(duration_ms / 1000)
             self._emit_status(
                 f"\u2714 Issue #{issue.number} fixed ({duration_str})",
                 "bold green",
+            )
+
+            self.state.issue_outcomes.append(
+                IssueOutcome(
+                    issue_number=issue.number,
+                    title=issue.title,
+                    run_id=fix_run_id,
+                    outcome="fixed",
+                    duration_ms=duration_ms,
+                    cost_usd=cost,
+                    sessions_run=getattr(metrics, "sessions_run", 0),
+                    input_tokens=getattr(metrics, "input_tokens", 0),
+                    output_tokens=getattr(metrics, "output_tokens", 0),
+                )
             )
 
             _emit_audit_event(
@@ -440,10 +472,25 @@ class NightShiftEngine:
         except Exception:
             from agentfox.ui.progress import format_duration
 
-            duration_str = format_duration(time.monotonic() - fix_start)
+            duration_ms = int((time.monotonic() - fix_start) * 1000)
+            duration_str = format_duration(duration_ms / 1000)
             self._emit_status(
                 f"\u2718 Issue #{issue.number} failed ({duration_str})",
                 "bold red",
+            )
+
+            self.state.issue_outcomes.append(
+                IssueOutcome(
+                    issue_number=issue.number,
+                    title=issue.title,
+                    run_id=fix_run_id,
+                    outcome="failed",
+                    duration_ms=duration_ms,
+                    cost_usd=0.0,
+                    sessions_run=0,
+                    input_tokens=0,
+                    output_tokens=0,
+                )
             )
 
             logger.warning(

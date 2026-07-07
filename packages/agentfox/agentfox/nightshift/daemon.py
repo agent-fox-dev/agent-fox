@@ -132,6 +132,7 @@ class DaemonState:
     Requirements: 85-REQ-2.4
     """
 
+    run_id: str = ""
     total_cost: float = 0.0
     total_sessions: int = 0
     issues_created: int = 0
@@ -404,6 +405,7 @@ class DaemonRunner:
             if self._pid_path:
                 remove_pid_file(self._pid_path)
 
+        state.run_id = _daemon_run_id
         state.uptime_seconds = time.monotonic() - start
         state.total_cost = self._budget.total_cost
 

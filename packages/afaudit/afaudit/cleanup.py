@@ -23,6 +23,7 @@ logger = logging.getLogger("afaudit.cleanup")
 _STALE_PATTERNS: tuple[str, ...] = (
     "agent_*.jsonl",
     "audit_*.jsonl",
+    "nightshift_*.json",
     "postmortem_*.json",
 )
 
@@ -127,6 +128,7 @@ def enforce_file_retention(audit_dir: Path, *, max_runs: int = 20) -> int:
         for pattern in (
             f"audit_{run_id}.jsonl",
             f"agent_{run_id}.jsonl",
+            f"nightshift_{run_id}.json",
             f"postmortem_{run_id}.json",
         ):
             file_path = audit_dir / pattern
