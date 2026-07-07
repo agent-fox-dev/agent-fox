@@ -664,6 +664,24 @@ class NodeSessionRunner:
 
             tasks_json = spec_dir / "tasks.json"
             await run_git(["add", str(tasks_json)], cwd=workspace.path, check=True)
+
+            # Check for staged changes before committing — if tasks.json
+            # was already up-to-date (e.g. coder already committed it),
+            # git commit would fail with "nothing to commit" (issue #681).
+            rc, _, _ = await run_git(
+                ["diff", "--cached", "--quiet"],
+                cwd=workspace.path,
+                check=False,
+            )
+            if rc == 0:
+                # No staged changes — nothing to commit
+                logger.debug(
+                    "tasks.json already up-to-date for %s:%d, skipping commit",
+                    self._spec_name,
+                    self._task_group,
+                )
+                return
+
             await run_git(
                 ["commit", "-m", f"chore: mark task group {self._task_group} subtasks done"],
                 cwd=workspace.path,

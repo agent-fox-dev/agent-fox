@@ -30,6 +30,8 @@ _REMOTE_SUBCOMMANDS = frozenset(
         "pull",
         "clone",
         "ls-remote",
+        "rev-list",
+        "worktree",
     }
 )
 
