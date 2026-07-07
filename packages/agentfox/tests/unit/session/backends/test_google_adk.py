@@ -1,9 +1,12 @@
 """Tests for GoogleADKBackend adapter.
 
-Test Spec: TS-04-1 through TS-04-7, TS-04-E1
+Test Spec: TS-04-1 through TS-04-14, TS-04-E1 through TS-04-E5
 Requirements: 04-REQ-1.1, 04-REQ-1.2, 04-REQ-1.3,
               04-REQ-2.1, 04-REQ-2.2, 04-REQ-2.3, 04-REQ-2.4,
-              04-REQ-1.E1
+              04-REQ-1.E1,
+              04-REQ-3.1, 04-REQ-3.2, 04-REQ-3.3, 04-REQ-3.4, 04-REQ-3.5,
+              04-REQ-3.E1, 04-REQ-3.E2,
+              04-REQ-4.1, 04-REQ-4.2, 04-REQ-4.E1
 
 All tests are guarded with pytest.importorskip('google.adk') so the suite
 is skipped cleanly when the google-adk optional dependency is not installed.
@@ -66,6 +69,105 @@ def _make_mock_runner(run_async_side_effect=None):
             return_value=_mock_terminal_event_stream(),
         )
     return runner
+
+
+# ---------------------------------------------------------------------------
+# Mock event constructors for event-mapping and max_turns tests
+# ---------------------------------------------------------------------------
+
+
+def _make_function_call_event(
+    tool_name: str = "read_file",
+    args: dict[str, Any] | None = None,
+):
+    """Return a mock ADK FunctionCall event."""
+    return SimpleNamespace(
+        type="function_call",
+        tool_name=tool_name,
+        args=args or {},
+    )
+
+
+def _make_function_response_event(
+    tool_name: str = "read_file",
+    result: dict[str, Any] | None = None,
+):
+    """Return a mock ADK FunctionResponse event."""
+    return SimpleNamespace(
+        type="function_response",
+        tool_name=tool_name,
+        result=result or {},
+    )
+
+
+def _make_text_event(text: str = "Hello"):
+    """Return a mock ADK text content event."""
+    return SimpleNamespace(
+        type="text",
+        content=text,
+    )
+
+
+def _make_terminal_event(
+    input_tokens: int = 100,
+    output_tokens: int = 50,
+):
+    """Return a mock ADK terminal event with token usage."""
+    return SimpleNamespace(
+        type="terminal",
+        usage_metadata=SimpleNamespace(
+            prompt_token_count=input_tokens,
+            candidates_token_count=output_tokens,
+        ),
+    )
+
+
+def _make_unknown_event():
+    """Return a mock ADK event of an unrecognised type."""
+    return SimpleNamespace(
+        type="some_unrecognised_internal_event",
+    )
+
+
+async def _make_event_stream(*events):
+    """Create an async generator yielding the given events in order."""
+    for event in events:
+        yield event
+
+
+def _patch_adk(run_async_gen=None):
+    """Context manager that patches InMemorySessionService, Agent, Runner.
+
+    If *run_async_gen* is provided it is used as the run_async return
+    value.  Otherwise a default terminal-event stream is used.
+    """
+    from contextlib import contextmanager
+
+    @contextmanager
+    def _ctx():
+        with (
+            patch(
+                "agentfox.session.backends.google_adk.InMemorySessionService",
+            ) as mock_svc_cls,
+            patch(
+                "agentfox.session.backends.google_adk.Agent",
+            ),
+            patch(
+                "agentfox.session.backends.google_adk.Runner",
+            ) as mock_runner_cls,
+        ):
+            mock_svc = AsyncMock()
+            mock_svc.create_session = AsyncMock(return_value=_mock_session())
+            mock_svc_cls.return_value = mock_svc
+
+            if run_async_gen is not None:
+                mock_runner_cls.return_value = _make_mock_runner(run_async_gen)
+            else:
+                mock_runner_cls.return_value = _make_mock_runner()
+
+            yield mock_runner_cls
+
+    return _ctx()
 
 
 # ---------------------------------------------------------------------------
@@ -509,3 +611,420 @@ class TestNoExceptionPropagation:
             assert isinstance(last, ResultMessage)
             assert last.is_error is True
             assert last.is_transport_error is False
+
+
+# ===========================================================================
+# Group 2: ADK event mapping and max_turns counter tests
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# TS-04-8: FunctionCall event yields ToolUseMessage with tool name and input
+# Requirement: 04-REQ-3.1
+# ---------------------------------------------------------------------------
+
+
+class TestFunctionCallYieldsToolUseMessage:
+    """Verify FunctionCall events are mapped to ToolUseMessage."""
+
+    async def test_function_call_yields_tool_use_message(self) -> None:
+        """TS-04-8: FunctionCall yields ToolUseMessage with correct fields."""
+        from agentfox.session.backends.google_adk import GoogleADKBackend
+        from agentfox.session.backends.types import ToolUseMessage
+
+        stream = _make_event_stream(
+            _make_function_call_event("read_file", {"path": "main.py"}),
+            _make_terminal_event(),
+        )
+
+        with _patch_adk(run_async_gen=stream):
+            backend = GoogleADKBackend()
+            messages = await _collect_async(
+                backend.execute(
+                    "task",
+                    system_prompt="sys",
+                    model="gemini-2.0-flash",
+                    cwd="/workspace",
+                ),
+            )
+
+        tool_use_msgs = [m for m in messages if isinstance(m, ToolUseMessage)]
+        assert len(tool_use_msgs) >= 1
+        assert tool_use_msgs[0].tool_name == "read_file"
+        assert tool_use_msgs[0].tool_input == {"path": "main.py"}
+
+
+# ---------------------------------------------------------------------------
+# TS-04-9: FunctionResponse events consumed silently, not yielded
+# Requirement: 04-REQ-3.2
+# ---------------------------------------------------------------------------
+
+
+class TestFunctionResponseConsumedSilently:
+    """Verify FunctionResponse events do not produce messages."""
+
+    async def test_function_response_not_yielded(self) -> None:
+        """TS-04-9: No message corresponding to FunctionResponse appears."""
+        from agentfox.session.backends.google_adk import GoogleADKBackend
+        from agentfox.session.backends.types import (
+            AssistantMessage,
+            ResultMessage,
+            ToolUseMessage,
+        )
+
+        stream = _make_event_stream(
+            _make_function_call_event("read_file", {}),
+            _make_function_response_event("read_file", {"content": "hello"}),
+            _make_terminal_event(),
+        )
+
+        with _patch_adk(run_async_gen=stream):
+            backend = GoogleADKBackend()
+            messages = await _collect_async(
+                backend.execute(
+                    "task",
+                    system_prompt="sys",
+                    model="gemini-2.0-flash",
+                    cwd="/workspace",
+                ),
+            )
+
+        # Every yielded message must be one of the canonical types
+        for msg in messages:
+            assert isinstance(msg, (ToolUseMessage, AssistantMessage, ResultMessage))
+
+        # Specifically, no "FunctionResponseMessage" or similar appears
+        msg_type_names = [type(m).__name__ for m in messages]
+        assert "FunctionResponseMessage" not in msg_type_names
+
+
+# ---------------------------------------------------------------------------
+# TS-04-10: Text content event yields AssistantMessage
+# Requirement: 04-REQ-3.3
+# ---------------------------------------------------------------------------
+
+
+class TestTextEventYieldsAssistantMessage:
+    """Verify text content events are mapped to AssistantMessage."""
+
+    async def test_text_event_yields_assistant_message(self) -> None:
+        """TS-04-10: Text event yields AssistantMessage with correct content."""
+        from agentfox.session.backends.google_adk import GoogleADKBackend
+        from agentfox.session.backends.types import AssistantMessage
+
+        stream = _make_event_stream(
+            _make_text_event("Here is your result."),
+            _make_terminal_event(),
+        )
+
+        with _patch_adk(run_async_gen=stream):
+            backend = GoogleADKBackend()
+            messages = await _collect_async(
+                backend.execute(
+                    "task",
+                    system_prompt="sys",
+                    model="gemini-2.0-flash",
+                    cwd="/workspace",
+                ),
+            )
+
+        assistant_msgs = [m for m in messages if isinstance(m, AssistantMessage)]
+        assert len(assistant_msgs) >= 1
+        assert assistant_msgs[0].content == "Here is your result."
+
+
+# ---------------------------------------------------------------------------
+# TS-04-11: Terminal event yields ResultMessage with token usage
+# Requirement: 04-REQ-3.4
+# ---------------------------------------------------------------------------
+
+
+class TestTerminalEventYieldsResultMessage:
+    """Verify terminal event maps to ResultMessage with token counts."""
+
+    async def test_terminal_event_result_message(self) -> None:
+        """TS-04-11: Terminal event yields ResultMessage(is_error=False) with usage."""
+        from agentfox.session.backends.google_adk import GoogleADKBackend
+        from agentfox.session.backends.types import ResultMessage
+
+        stream = _make_event_stream(
+            _make_terminal_event(input_tokens=100, output_tokens=50),
+        )
+
+        with _patch_adk(run_async_gen=stream):
+            backend = GoogleADKBackend()
+            messages = await _collect_async(
+                backend.execute(
+                    "task",
+                    system_prompt="sys",
+                    model="gemini-2.0-flash",
+                    cwd="/workspace",
+                ),
+            )
+
+        result = messages[-1]
+        assert isinstance(result, ResultMessage)
+        assert result.is_error is False
+        assert result.input_tokens == 100
+        assert result.output_tokens == 50
+
+
+# ---------------------------------------------------------------------------
+# TS-04-12: Unrecognised or no-op events silently skipped
+# Requirement: 04-REQ-3.5
+# ---------------------------------------------------------------------------
+
+
+class TestUnknownEventsSkipped:
+    """Verify unrecognised events are silently skipped."""
+
+    async def test_unknown_event_skipped(self) -> None:
+        """TS-04-12: Only ResultMessage yielded; unknown event produces nothing."""
+        from agentfox.session.backends.google_adk import GoogleADKBackend
+        from agentfox.session.backends.types import ResultMessage
+
+        stream = _make_event_stream(
+            _make_unknown_event(),
+            _make_terminal_event(),
+        )
+
+        with _patch_adk(run_async_gen=stream):
+            backend = GoogleADKBackend()
+            messages = await _collect_async(
+                backend.execute(
+                    "task",
+                    system_prompt="sys",
+                    model="gemini-2.0-flash",
+                    cwd="/workspace",
+                ),
+            )
+
+        # Only the terminal event should produce a message (ResultMessage)
+        assert len(messages) == 1
+        assert isinstance(messages[0], ResultMessage)
+
+
+# ---------------------------------------------------------------------------
+# TS-04-E3: Unrecognised tool name still yields ToolUseMessage
+# Requirement: 04-REQ-3.E1
+# ---------------------------------------------------------------------------
+
+
+class TestUnrecognisedToolNameYieldsToolUseMessage:
+    """Verify unrecognised tool names still produce ToolUseMessage."""
+
+    async def test_unrecognised_tool_name(self) -> None:
+        """TS-04-E3: FunctionCall for unknown tool yields ToolUseMessage."""
+        from agentfox.session.backends.google_adk import GoogleADKBackend
+        from agentfox.session.backends.types import ToolUseMessage
+
+        stream = _make_event_stream(
+            _make_function_call_event("totally_unknown_tool", {"x": 1}),
+            _make_terminal_event(),
+        )
+
+        with _patch_adk(run_async_gen=stream):
+            backend = GoogleADKBackend()
+            messages = await _collect_async(
+                backend.execute(
+                    "task",
+                    system_prompt="sys",
+                    model="gemini-2.0-flash",
+                    cwd="/workspace",
+                ),
+            )
+
+        tool_use_msgs = [m for m in messages if isinstance(m, ToolUseMessage)]
+        assert len(tool_use_msgs) == 1
+        assert tool_use_msgs[0].tool_name == "totally_unknown_tool"
+
+
+# ---------------------------------------------------------------------------
+# TS-04-E4: Exception during stream iteration yields ResultMessage(is_error=True)
+# Requirement: 04-REQ-3.E2
+# ---------------------------------------------------------------------------
+
+
+class TestStreamExceptionYieldsErrorResult:
+    """Verify exceptions during event iteration are caught gracefully."""
+
+    async def test_connection_error_mid_stream(self) -> None:
+        """TS-04-E4: ConnectionError after TextEvent yields ResultMessage(is_error=True)."""
+        from agentfox.session.backends.google_adk import GoogleADKBackend
+        from agentfox.session.backends.types import ResultMessage
+
+        async def flaky_stream(**_kwargs):
+            yield _make_text_event("partial")
+            raise ConnectionError("dropped")
+
+        with (
+            _patch_adk(run_async_gen=flaky_stream()) as _mock_runner_cls,
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
+            backend = GoogleADKBackend()
+            messages: list[Any] = []
+
+            try:
+                async for msg in backend.execute(
+                    "task",
+                    system_prompt="sys",
+                    model="gemini-2.0-flash",
+                    cwd="/workspace",
+                ):
+                    messages.append(msg)
+            except Exception as exc:
+                pytest.fail(f"Exception escaped execute(): {exc}")
+
+        assert isinstance(messages[-1], ResultMessage)
+        assert messages[-1].is_error is True
+
+
+# ---------------------------------------------------------------------------
+# TS-04-13: max_turns stops the event loop after N round-trips
+# Requirement: 04-REQ-4.1
+# ---------------------------------------------------------------------------
+
+
+class TestMaxTurnsStopsLoop:
+    """Verify max_turns caps the number of tool-call round-trips."""
+
+    async def test_max_turns_limits_tool_calls(self) -> None:
+        """TS-04-13: With max_turns=2, only 2 ToolUseMessages yielded."""
+        from agentfox.session.backends.google_adk import GoogleADKBackend
+        from agentfox.session.backends.types import ResultMessage, ToolUseMessage
+
+        # Create a stream with 5 FunctionCall events — more than max_turns
+        events = [_make_function_call_event("read_file", {}) for _ in range(5)]
+        stream = _make_event_stream(*events)
+
+        with _patch_adk(run_async_gen=stream):
+            backend = GoogleADKBackend()
+            messages = await _collect_async(
+                backend.execute(
+                    "task",
+                    system_prompt="sys",
+                    model="gemini-2.0-flash",
+                    cwd="/workspace",
+                    max_turns=2,
+                ),
+            )
+
+        tool_use_msgs = [m for m in messages if isinstance(m, ToolUseMessage)]
+        assert len(tool_use_msgs) == 2
+
+        result = messages[-1]
+        assert isinstance(result, ResultMessage)
+        assert result.is_error is False
+
+
+# ---------------------------------------------------------------------------
+# TS-04-14: max_turns=None runs until ADK signals completion
+# Requirement: 04-REQ-4.2
+# ---------------------------------------------------------------------------
+
+
+class TestMaxTurnsNoneRunsToCompletion:
+    """Verify max_turns=None does not impose a turn limit."""
+
+    async def test_max_turns_none(self) -> None:
+        """TS-04-14: With max_turns=None, all 3 FunctionCalls are processed."""
+        from agentfox.session.backends.google_adk import GoogleADKBackend
+        from agentfox.session.backends.types import ResultMessage, ToolUseMessage
+
+        events = [_make_function_call_event("read_file", {}) for _ in range(3)]
+        events.append(_make_terminal_event())
+        stream = _make_event_stream(*events)
+
+        with _patch_adk(run_async_gen=stream):
+            backend = GoogleADKBackend()
+            messages = await _collect_async(
+                backend.execute(
+                    "task",
+                    system_prompt="sys",
+                    model="gemini-2.0-flash",
+                    cwd="/workspace",
+                    max_turns=None,
+                ),
+            )
+
+        tool_use_msgs = [m for m in messages if isinstance(m, ToolUseMessage)]
+        assert len(tool_use_msgs) == 3
+
+        assert isinstance(messages[-1], ResultMessage)
+        assert messages[-1].is_error is False
+
+
+# ---------------------------------------------------------------------------
+# TS-04-E2: max_turns prevents unbounded iteration (infinite stream)
+# Requirement: 04-REQ-2.E1 / 04-REQ-4.E1
+# ---------------------------------------------------------------------------
+
+
+class TestMaxTurnsPreventsInfiniteLoop:
+    """Verify max_turns bounds an infinite event stream."""
+
+    async def test_infinite_stream_bounded_by_max_turns(self) -> None:
+        """TS-04-E2: With max_turns=3, infinite stream stops after 3 round-trips."""
+        from agentfox.session.backends.google_adk import GoogleADKBackend
+        from agentfox.session.backends.types import ResultMessage, ToolUseMessage
+
+        async def infinite_stream(**_kwargs):
+            while True:
+                yield _make_function_call_event("read_file", {})
+
+        with _patch_adk(run_async_gen=infinite_stream()):
+            backend = GoogleADKBackend()
+            messages = await _collect_async(
+                backend.execute(
+                    "task",
+                    system_prompt="sys",
+                    model="gemini-2.0-flash",
+                    cwd="/workspace",
+                    max_turns=3,
+                ),
+            )
+
+        tool_use_msgs = [m for m in messages if isinstance(m, ToolUseMessage)]
+        assert len(tool_use_msgs) == 3
+
+        assert isinstance(messages[-1], ResultMessage)
+
+
+# ---------------------------------------------------------------------------
+# TS-04-E5: max_turns=1 exits cleanly without exception
+# Requirement: 04-REQ-4.E1
+# ---------------------------------------------------------------------------
+
+
+class TestMaxTurnsOneExitsCleanly:
+    """Verify max_turns=1 exits cleanly with ResultMessage(is_error=False)."""
+
+    async def test_max_turns_one_no_exception(self) -> None:
+        """TS-04-E5: max_turns=1 yields 1 ToolUseMessage, ResultMessage(is_error=False)."""
+        from agentfox.session.backends.google_adk import GoogleADKBackend
+        from agentfox.session.backends.types import ResultMessage, ToolUseMessage
+
+        async def infinite_stream(**_kwargs):
+            while True:
+                yield _make_function_call_event("read_file", {})
+
+        try:
+            with _patch_adk(run_async_gen=infinite_stream()):
+                backend = GoogleADKBackend()
+                messages = await _collect_async(
+                    backend.execute(
+                        "task",
+                        system_prompt="sys",
+                        model="gemini-2.0-flash",
+                        cwd="/workspace",
+                        max_turns=1,
+                    ),
+                )
+        except Exception as exc:
+            pytest.fail(f"Exception escaped execute(): {exc}")
+
+        tool_use_msgs = [m for m in messages if isinstance(m, ToolUseMessage)]
+        assert len(tool_use_msgs) == 1
+
+        assert isinstance(messages[-1], ResultMessage)
+        assert messages[-1].is_error is False
