@@ -1,8 +1,10 @@
 """Tests for DeepAgentsBackend adapter.
 
-Test Spec: TS-03-1 through TS-03-4, TS-03-31 through TS-03-41, TS-03-P1, TS-03-P4
-Requirements: 03-REQ-1.1, 03-REQ-1.2, 03-REQ-1.3, 03-REQ-2.1, 03-REQ-8.1-8.3,
-              03-REQ-9.1-9.2, 03-REQ-10.1-10.3, 03-REQ-11.1-11.2, 03-REQ-12.1
+Test Spec: TS-03-1 through TS-03-12, TS-03-31 through TS-03-41,
+           TS-03-P1, TS-03-P2, TS-03-P3, TS-03-P4
+Requirements: 03-REQ-1.1, 03-REQ-1.2, 03-REQ-1.3, 03-REQ-2.1-2.9,
+              03-REQ-8.1-8.3, 03-REQ-9.1-9.2, 03-REQ-10.1-10.3,
+              03-REQ-11.1-11.2, 03-REQ-12.1
 
 Errata: Several spec assumptions diverge from the actual codebase.
   - The spec assumes a Backend Protocol exists in types.py (it does not;
@@ -24,8 +26,11 @@ from __future__ import annotations
 import glob
 import hashlib
 import inspect
+import logging
 import os
 import tomllib
+from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -66,9 +71,7 @@ class TestDeepAgentsBackendProtocol:
         try:
             from agentfox.session.backends.types import Backend
 
-            assert isinstance(backend, Backend), (
-                "isinstance(DeepAgentsBackend(), Backend) must return True"
-            )
+            assert isinstance(backend, Backend), "isinstance(DeepAgentsBackend(), Backend) must return True"
         except ImportError:
             # Backend Protocol doesn't exist yet - structural check is sufficient
             pass
@@ -113,19 +116,13 @@ class TestSDKContainment:
         """TS-03-2: No 'import deepagents' or 'from deepagents' outside deepagents.py."""
         # Navigate to the agentfox source directory
         backends_dir = os.path.dirname(
-            inspect.getfile(
-                __import__("agentfox.session.backends.types", fromlist=["types"])
-            )
+            inspect.getfile(__import__("agentfox.session.backends.types", fromlist=["types"]))
         )
         agentfox_dir = os.path.normpath(os.path.join(backends_dir, "..", ".."))
 
-        allowed = os.path.normpath(
-            os.path.join(agentfox_dir, "session", "backends", "deepagents.py")
-        )
+        allowed = os.path.normpath(os.path.join(agentfox_dir, "session", "backends", "deepagents.py"))
 
-        py_files = glob.glob(
-            os.path.join(agentfox_dir, "**", "*.py"), recursive=True
-        )
+        py_files = glob.glob(os.path.join(agentfox_dir, "**", "*.py"), recursive=True)
 
         violations = []
         for py_file in py_files:
@@ -137,9 +134,7 @@ class TestSDKContainment:
             if "import deepagents" in content or "from deepagents" in content:
                 violations.append(os.path.relpath(py_file, agentfox_dir))
 
-        assert violations == [], (
-            f"Files outside backends/deepagents.py import deepagents: {violations}"
-        )
+        assert violations == [], f"Files outside backends/deepagents.py import deepagents: {violations}"
 
 
 # ---------------------------------------------------------------------------
@@ -157,9 +152,7 @@ class TestTypesModuleUnchanged:
 
     def test_types_module_hash_unchanged(self) -> None:
         """TS-03-3: types.py content hash matches pre-spec-03 baseline."""
-        types_path = inspect.getfile(
-            __import__("agentfox.session.backends.types", fromlist=["types"])
-        )
+        types_path = inspect.getfile(__import__("agentfox.session.backends.types", fromlist=["types"]))
         with open(types_path, "rb") as f:
             current_hash = hashlib.md5(f.read()).hexdigest()  # noqa: S324
 
@@ -194,14 +187,10 @@ class TestPropertySDKContainment:
     def test_prop_sdk_containment(self) -> None:
         """TS-03-P4: Enumerate all .py files; verify no deepagents import outside designated file."""
         backends_dir = os.path.dirname(
-            inspect.getfile(
-                __import__("agentfox.session.backends.types", fromlist=["types"])
-            )
+            inspect.getfile(__import__("agentfox.session.backends.types", fromlist=["types"]))
         )
         agentfox_dir = os.path.normpath(os.path.join(backends_dir, "..", ".."))
-        allowed = os.path.normpath(
-            os.path.join(agentfox_dir, "session", "backends", "deepagents.py")
-        )
+        allowed = os.path.normpath(os.path.join(agentfox_dir, "session", "backends", "deepagents.py"))
 
         for root, _dirs, files in os.walk(agentfox_dir):
             for fname in files:
@@ -238,18 +227,12 @@ class TestContainmentTestExtension:
     def test_containment_includes_deepagents(self) -> None:
         """TS-03-41: Containment test catches deepagents imports outside deepagents.py."""
         backends_dir = os.path.dirname(
-            inspect.getfile(
-                __import__("agentfox.session.backends.types", fromlist=["types"])
-            )
+            inspect.getfile(__import__("agentfox.session.backends.types", fromlist=["types"]))
         )
         agentfox_dir = os.path.normpath(os.path.join(backends_dir, "..", ".."))
-        allowed_file = os.path.normpath(
-            os.path.join(agentfox_dir, "session", "backends", "deepagents.py")
-        )
+        allowed_file = os.path.normpath(os.path.join(agentfox_dir, "session", "backends", "deepagents.py"))
 
-        py_files = glob.glob(
-            os.path.join(agentfox_dir, "**", "*.py"), recursive=True
-        )
+        py_files = glob.glob(os.path.join(agentfox_dir, "**", "*.py"), recursive=True)
 
         violations = []
         for py_file in py_files:
@@ -262,8 +245,7 @@ class TestContainmentTestExtension:
                 violations.append(os.path.relpath(py_file, agentfox_dir))
 
         assert violations == [], (
-            f"Containment violation: deepagents import found outside "
-            f"session/backends/deepagents.py: {violations}"
+            f"Containment violation: deepagents import found outside session/backends/deepagents.py: {violations}"
         )
 
 
@@ -403,29 +385,20 @@ class TestPyprojectOptionalDependency:
         """TS-03-36: optional-dependencies contains deepagents = ['deepagents>=0.5']."""
         # Find the agentfox package pyproject.toml
         agentfox_pkg_dir = os.path.dirname(
-            os.path.dirname(
-                inspect.getfile(
-                    __import__("agentfox.session.backends.types", fromlist=["types"])
-                )
-            )
+            os.path.dirname(inspect.getfile(__import__("agentfox.session.backends.types", fromlist=["types"])))
         )
         pyproject_path = os.path.join(agentfox_pkg_dir, "..", "pyproject.toml")
         pyproject_path = os.path.normpath(pyproject_path)
 
-        assert os.path.exists(pyproject_path), (
-            f"pyproject.toml not found at {pyproject_path}"
-        )
+        assert os.path.exists(pyproject_path), f"pyproject.toml not found at {pyproject_path}"
 
         with open(pyproject_path, "rb") as f:
             config = tomllib.load(f)
 
         opt_deps = config.get("project", {}).get("optional-dependencies", {})
-        assert "deepagents" in opt_deps, (
-            "pyproject.toml missing 'deepagents' in [project.optional-dependencies]"
-        )
+        assert "deepagents" in opt_deps, "pyproject.toml missing 'deepagents' in [project.optional-dependencies]"
         assert "deepagents>=0.5" in opt_deps["deepagents"], (
-            f"Expected 'deepagents>=0.5' in optional-dependencies.deepagents, "
-            f"got {opt_deps['deepagents']}"
+            f"Expected 'deepagents>=0.5' in optional-dependencies.deepagents, got {opt_deps['deepagents']}"
         )
 
 
@@ -444,10 +417,9 @@ class TestImportSkipGuard:
         this_file = os.path.abspath(__file__)
         with open(this_file, encoding="utf-8") as f:
             source = f.read()
-        assert (
-            "pytest.importorskip('deepagents')" in source
-            or 'pytest.importorskip("deepagents")' in source
-        ), f"{this_file} missing pytest.importorskip guard"
+        assert "pytest.importorskip('deepagents')" in source or 'pytest.importorskip("deepagents")' in source, (
+            f"{this_file} missing pytest.importorskip guard"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -466,11 +438,7 @@ class TestCIWorkflowDeepagentsLeg:
         """TS-03-38: At least one CI workflow step installs '.[deepagents]'."""
         # Walk up from agentfox package to find the project root
         agentfox_pkg_dir = os.path.dirname(
-            os.path.dirname(
-                inspect.getfile(
-                    __import__("agentfox.session.backends.types", fromlist=["types"])
-                )
-            )
+            os.path.dirname(inspect.getfile(__import__("agentfox.session.backends.types", fromlist=["types"])))
         )
         project_root = os.path.normpath(os.path.join(agentfox_pkg_dir, "..", "..", ".."))
 
@@ -500,9 +468,7 @@ class TestCIWorkflowDeepagentsLeg:
             if "deepagents" in content:
                 found_deepagents_leg = True
 
-        assert found_deepagents_leg, (
-            "No CI workflow or Makefile target found that installs/tests deepagents extra"
-        )
+        assert found_deepagents_leg, "No CI workflow or Makefile target found that installs/tests deepagents extra"
 
 
 # ---------------------------------------------------------------------------
@@ -589,3 +555,812 @@ class TestExistingTestsUnbroken:
 
         backend = ClaudeBackend()
         assert backend.name == "claude"
+
+
+# ===========================================================================
+# Task Group 2: execute() event mapping and token usage tests
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# Helpers for synthetic astream_events v2 event generation
+# ---------------------------------------------------------------------------
+
+
+def _make_chat_stream_event(chunk: str) -> dict[str, Any]:
+    """Create a synthetic on_chat_model_stream event with a text chunk.
+
+    LangGraph astream_events v2 fires this kind for each streamed token/chunk.
+    The DeepAgentsBackend should map it to an AssistantMessage.
+    """
+    return {
+        "event": "on_chat_model_stream",
+        "data": {"chunk": MagicMock(content=chunk)},
+        "name": "ChatModel",
+    }
+
+
+def _make_on_tool_start_event(
+    tool_name: str = "read_file",
+    tool_input: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Create a synthetic on_tool_start event.
+
+    The DeepAgentsBackend should map it to a ToolUseMessage.
+    """
+    return {
+        "event": "on_tool_start",
+        "name": tool_name,
+        "data": {"input": tool_input or {}},
+    }
+
+
+def _make_on_tool_end_event(
+    tool_name: str = "read_file",
+    output: str = "content",
+) -> dict[str, Any]:
+    """Create a synthetic on_tool_end event.
+
+    The DeepAgentsBackend should map it to a ToolUseMessage.
+    """
+    return {
+        "event": "on_tool_end",
+        "name": tool_name,
+        "data": {"output": output},
+    }
+
+
+def _make_llm_end_event(
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
+) -> dict[str, Any]:
+    """Create a synthetic on_llm_end event with optional token usage.
+
+    The DeepAgentsBackend should accumulate token counts from these events.
+    No message should be yielded for on_llm_end events.
+    """
+    usage: dict[str, int] | None = None
+    if input_tokens is not None or output_tokens is not None:
+        usage = {}
+        if input_tokens is not None:
+            usage["input_tokens"] = input_tokens
+        if output_tokens is not None:
+            usage["output_tokens"] = output_tokens
+
+    output_mock = MagicMock()
+    output_mock.usage_metadata = usage
+    return {
+        "event": "on_llm_end",
+        "data": {"output": output_mock},
+        "name": "ChatModel",
+    }
+
+
+async def _async_event_stream(
+    events: list[dict[str, Any]],
+) -> Any:
+    """Async generator that yields events from a list.
+
+    Returns an async iterator suitable for use as a mock astream_events return.
+    """
+    for event in events:
+        yield event
+
+
+async def _collect_async(ait: Any) -> list[Any]:
+    """Drain an async iterator into a list."""
+    messages: list[Any] = []
+    async for msg in ait:
+        messages.append(msg)
+    return messages
+
+
+def _make_mock_agent_with_events(
+    events: list[dict[str, Any]],
+) -> MagicMock:
+    """Create a mock agent whose astream_events returns the given events."""
+    agent = MagicMock()
+
+    def astream_events_side_effect(*_args: Any, **_kwargs: Any) -> Any:
+        return _async_event_stream(events)
+
+    agent.astream_events = astream_events_side_effect
+    return agent
+
+
+def _make_mock_agent_empty() -> MagicMock:
+    """Create a mock agent with an empty event stream (only terminal)."""
+    return _make_mock_agent_with_events(
+        [
+            _make_llm_end_event(input_tokens=0, output_tokens=0),
+        ]
+    )
+
+
+# ---------------------------------------------------------------------------
+# TS-03-5: execute() calls create_deep_agent with correct params and 5 tools
+# Requirement: 03-REQ-2.2
+# ---------------------------------------------------------------------------
+
+
+class TestCreateDeepAgentCall:
+    """Verify execute() calls create_deep_agent() with correct parameters."""
+
+    @pytest.mark.asyncio
+    async def test_create_deep_agent_called_with_params_and_tools(self) -> None:
+        """TS-03-5: create_deep_agent called with model, system_prompt, cwd, 5 tools.
+
+        Errata: The exact af SDK functions (spec_read, context_search, etc.)
+        may not exist yet (see E7). This test verifies that create_deep_agent
+        is called with the correct core parameters and a tools list of the
+        expected length.
+        """
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+        from agentfox.session.backends.types import ResultMessage
+
+        backend = DeepAgentsBackend()
+        mock_agent = _make_mock_agent_empty()
+
+        with patch(
+            "agentfox.session.backends.deepagents.create_deep_agent",
+            return_value=mock_agent,
+        ) as mock_create:
+            messages = await _collect_async(
+                backend.execute(
+                    "do task",
+                    system_prompt="sys",
+                    model="openai:gpt-5.5",
+                    cwd="/workspace",
+                )
+            )
+
+        # create_deep_agent was called
+        assert mock_create.called, "create_deep_agent was not called"
+        call_kwargs = mock_create.call_args.kwargs
+
+        # Core params forwarded correctly
+        assert call_kwargs["model"] == "openai:gpt-5.5"
+        assert call_kwargs["system_prompt"] == "sys"
+        assert call_kwargs["cwd"] == "/workspace"
+
+        # Tools list has 5 items
+        assert "tools" in call_kwargs
+        assert len(call_kwargs["tools"]) == 5
+
+        # Stream terminates with a ResultMessage
+        assert any(isinstance(m, ResultMessage) for m in messages)
+
+
+# ---------------------------------------------------------------------------
+# TS-03-6: on_tool_start and on_tool_end → ToolUseMessage
+# Requirement: 03-REQ-2.3
+# ---------------------------------------------------------------------------
+
+
+class TestToolEventMapping:
+    """Verify on_tool_start and on_tool_end events map to ToolUseMessage."""
+
+    @pytest.mark.asyncio
+    async def test_tool_events_yield_tool_use_messages(self) -> None:
+        """TS-03-6: on_tool_start + on_tool_end → two ToolUseMessage instances."""
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+        from agentfox.session.backends.types import ResultMessage, ToolUseMessage
+
+        events = [
+            _make_on_tool_start_event(
+                tool_name="read_file",
+                tool_input={"path": "foo.py"},
+            ),
+            _make_on_tool_end_event(
+                tool_name="read_file",
+                output="content",
+            ),
+            _make_llm_end_event(input_tokens=5, output_tokens=3),
+        ]
+        mock_agent = _make_mock_agent_with_events(events)
+
+        backend = DeepAgentsBackend()
+        with patch(
+            "agentfox.session.backends.deepagents.create_deep_agent",
+            return_value=mock_agent,
+        ):
+            messages = await _collect_async(
+                backend.execute(
+                    "prompt",
+                    system_prompt="s",
+                    model="m",
+                    cwd="/",
+                )
+            )
+
+        tool_msgs = [m for m in messages if isinstance(m, ToolUseMessage)]
+        assert len(tool_msgs) == 2, f"Expected 2 ToolUseMessage, got {len(tool_msgs)}"
+
+        # Terminal ResultMessage should be last
+        assert isinstance(messages[-1], ResultMessage)
+
+
+# ---------------------------------------------------------------------------
+# TS-03-7: on_chat_model_stream → AssistantMessage
+# Requirement: 03-REQ-2.4
+# ---------------------------------------------------------------------------
+
+
+class TestChatStreamEventMapping:
+    """Verify on_chat_model_stream events map to AssistantMessage."""
+
+    @pytest.mark.asyncio
+    async def test_chat_stream_events_yield_assistant_messages(self) -> None:
+        """TS-03-7: Two on_chat_model_stream events → two AssistantMessage instances."""
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+        from agentfox.session.backends.types import AssistantMessage
+
+        events = [
+            _make_chat_stream_event("Hello"),
+            _make_chat_stream_event(" world"),
+            _make_llm_end_event(input_tokens=10, output_tokens=5),
+        ]
+        mock_agent = _make_mock_agent_with_events(events)
+
+        backend = DeepAgentsBackend()
+        with patch(
+            "agentfox.session.backends.deepagents.create_deep_agent",
+            return_value=mock_agent,
+        ):
+            messages = await _collect_async(
+                backend.execute(
+                    "p",
+                    system_prompt="s",
+                    model="m",
+                    cwd="/",
+                )
+            )
+
+        asst_msgs = [m for m in messages if isinstance(m, AssistantMessage)]
+        assert len(asst_msgs) == 2, f"Expected 2 AssistantMessage, got {len(asst_msgs)}"
+        assert asst_msgs[0].content == "Hello"
+        assert asst_msgs[1].content == " world"
+
+
+# ---------------------------------------------------------------------------
+# TS-03-8: on_llm_end accumulates tokens; on_chat_model_stream counts ignored
+# Requirement: 03-REQ-2.5
+# ---------------------------------------------------------------------------
+
+
+class TestTokenAccumulation:
+    """Verify token counts come from on_llm_end, not on_chat_model_stream."""
+
+    @pytest.mark.asyncio
+    async def test_token_counts_from_llm_end_only(self) -> None:
+        """TS-03-8: Token counts from on_llm_end used; on_chat_model_stream ignored.
+
+        The on_chat_model_stream event may carry spurious usage data that must
+        NOT be included in the final token counts. Only on_llm_end is authoritative.
+        """
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+        from agentfox.session.backends.types import ResultMessage
+
+        events = [
+            _make_chat_stream_event("hi"),
+            _make_llm_end_event(input_tokens=10, output_tokens=5),
+        ]
+        mock_agent = _make_mock_agent_with_events(events)
+
+        backend = DeepAgentsBackend()
+        with patch(
+            "agentfox.session.backends.deepagents.create_deep_agent",
+            return_value=mock_agent,
+        ):
+            messages = await _collect_async(
+                backend.execute(
+                    "p",
+                    system_prompt="s",
+                    model="m",
+                    cwd="/",
+                )
+            )
+
+        result = messages[-1]
+        assert isinstance(result, ResultMessage)
+        assert result.input_tokens == 10
+        assert result.output_tokens == 5
+
+    @pytest.mark.asyncio
+    async def test_no_message_yielded_for_llm_end(self) -> None:
+        """TS-03-8 additional: on_llm_end does not yield any message."""
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+        from agentfox.session.backends.types import (
+            AssistantMessage,
+            ResultMessage,
+            ToolUseMessage,
+        )
+
+        # Stream with only an on_llm_end event (no chat or tool events)
+        events = [
+            _make_llm_end_event(input_tokens=10, output_tokens=5),
+        ]
+        mock_agent = _make_mock_agent_with_events(events)
+
+        backend = DeepAgentsBackend()
+        with patch(
+            "agentfox.session.backends.deepagents.create_deep_agent",
+            return_value=mock_agent,
+        ):
+            messages = await _collect_async(
+                backend.execute(
+                    "p",
+                    system_prompt="s",
+                    model="m",
+                    cwd="/",
+                )
+            )
+
+        # Should only have the terminal ResultMessage, no AssistantMessage or
+        # ToolUseMessage from the on_llm_end event
+        non_result = [m for m in messages if isinstance(m, (AssistantMessage, ToolUseMessage))]
+        assert len(non_result) == 0, "on_llm_end should not yield AssistantMessage or ToolUseMessage"
+        assert isinstance(messages[-1], ResultMessage)
+
+
+# ---------------------------------------------------------------------------
+# TS-03-9: Exactly one terminal ResultMessage with is_error=False
+# Requirement: 03-REQ-2.6
+# ---------------------------------------------------------------------------
+
+
+class TestTerminalResultMessage:
+    """Verify exactly one ResultMessage is yielded at end of successful stream."""
+
+    @pytest.mark.asyncio
+    async def test_single_result_message_on_success(self) -> None:
+        """TS-03-9: Last message is ResultMessage with is_error=False; appears once."""
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+        from agentfox.session.backends.types import ResultMessage
+
+        events = [
+            _make_chat_stream_event("hello"),
+            _make_on_tool_start_event("read_file", {"path": "x.py"}),
+            _make_on_tool_end_event("read_file", "content"),
+            _make_llm_end_event(input_tokens=20, output_tokens=10),
+        ]
+        mock_agent = _make_mock_agent_with_events(events)
+
+        backend = DeepAgentsBackend()
+        with patch(
+            "agentfox.session.backends.deepagents.create_deep_agent",
+            return_value=mock_agent,
+        ):
+            messages = await _collect_async(
+                backend.execute(
+                    "p",
+                    system_prompt="s",
+                    model="m",
+                    cwd="/",
+                )
+            )
+
+        result_msgs = [m for m in messages if isinstance(m, ResultMessage)]
+        assert len(result_msgs) == 1, f"Expected exactly 1 ResultMessage, got {len(result_msgs)}"
+        assert result_msgs[0] is messages[-1], "ResultMessage must be the last yielded item"
+        assert result_msgs[0].is_error is False
+
+
+# ---------------------------------------------------------------------------
+# TS-03-10: Token fields are 0 (not None) when provider omits usage data
+# Requirement: 03-REQ-2.7
+#
+# Errata E5: ResultMessage.input_tokens is int (non-optional), so we use 0
+# for missing tokens instead of None as the spec says.
+# ---------------------------------------------------------------------------
+
+
+class TestMissingTokenCounts:
+    """Verify token fields default to 0 when provider omits usage data."""
+
+    @pytest.mark.asyncio
+    async def test_missing_token_counts_are_zero(self) -> None:
+        """TS-03-10: Token fields are 0 when on_llm_end has no usage data.
+
+        Errata E5: The spec says None, but ResultMessage.input_tokens is int
+        (non-optional). ClaudeBackend uses 0 for missing tokens. We follow
+        that convention.
+        """
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+        from agentfox.session.backends.types import ResultMessage
+
+        # on_llm_end with no usage data (both None)
+        events = [
+            _make_llm_end_event(input_tokens=None, output_tokens=None),
+        ]
+        mock_agent = _make_mock_agent_with_events(events)
+
+        backend = DeepAgentsBackend()
+        with patch(
+            "agentfox.session.backends.deepagents.create_deep_agent",
+            return_value=mock_agent,
+        ):
+            messages = await _collect_async(
+                backend.execute(
+                    "p",
+                    system_prompt="s",
+                    model="m",
+                    cwd="/",
+                )
+            )
+
+        result = messages[-1]
+        assert isinstance(result, ResultMessage)
+        # Errata E5: 0, not None
+        assert result.input_tokens == 0
+        assert result.output_tokens == 0
+
+
+# ---------------------------------------------------------------------------
+# TS-03-P3: Property - token accumulation correctness
+# Property: 03-PROP-3
+# Validates: 03-REQ-2.5, 03-REQ-2.6, 03-REQ-2.7
+# ---------------------------------------------------------------------------
+
+
+class TestPropertyTokenAccumulation:
+    """Property: ResultMessage tokens equal sum of on_llm_end counts only."""
+
+    @pytest.mark.asyncio
+    async def test_prop_multiple_llm_end_events_summed(self) -> None:
+        """TS-03-P3: Multiple on_llm_end events are summed correctly.
+
+        Generates N on_llm_end events with known token counts and verifies the
+        terminal ResultMessage has the correct sum. on_chat_model_stream events
+        with spurious usage data must not contribute to the total.
+        """
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+        from agentfox.session.backends.types import ResultMessage
+
+        # Three on_llm_end events with distinct token counts
+        events = [
+            _make_chat_stream_event("a"),  # spurious — should not count
+            _make_llm_end_event(input_tokens=10, output_tokens=5),
+            _make_chat_stream_event("b"),
+            _make_llm_end_event(input_tokens=20, output_tokens=15),
+            _make_llm_end_event(input_tokens=30, output_tokens=25),
+        ]
+        mock_agent = _make_mock_agent_with_events(events)
+
+        backend = DeepAgentsBackend()
+        with patch(
+            "agentfox.session.backends.deepagents.create_deep_agent",
+            return_value=mock_agent,
+        ):
+            messages = await _collect_async(
+                backend.execute(
+                    "p",
+                    system_prompt="s",
+                    model="m",
+                    cwd="/",
+                )
+            )
+
+        result = messages[-1]
+        assert isinstance(result, ResultMessage)
+        # Expected sums: 10+20+30 = 60 input, 5+15+25 = 45 output
+        assert result.input_tokens == 60
+        assert result.output_tokens == 45
+
+    @pytest.mark.asyncio
+    async def test_prop_mixed_present_and_missing_usage(self) -> None:
+        """TS-03-P3: Mix of present and missing usage in on_llm_end events.
+
+        When some on_llm_end events have usage data and others don't, only the
+        present values are summed. Missing values contribute 0.
+        """
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+        from agentfox.session.backends.types import ResultMessage
+
+        events = [
+            _make_llm_end_event(input_tokens=10, output_tokens=5),
+            _make_llm_end_event(input_tokens=None, output_tokens=None),
+            _make_llm_end_event(input_tokens=20, output_tokens=15),
+        ]
+        mock_agent = _make_mock_agent_with_events(events)
+
+        backend = DeepAgentsBackend()
+        with patch(
+            "agentfox.session.backends.deepagents.create_deep_agent",
+            return_value=mock_agent,
+        ):
+            messages = await _collect_async(
+                backend.execute(
+                    "p",
+                    system_prompt="s",
+                    model="m",
+                    cwd="/",
+                )
+            )
+
+        result = messages[-1]
+        assert isinstance(result, ResultMessage)
+        assert result.input_tokens == 30  # 10 + 0 + 20
+        assert result.output_tokens == 20  # 5 + 0 + 15
+
+
+# ---------------------------------------------------------------------------
+# TS-03-11: Malformed event skipped with WARNING log
+# Requirement: 03-REQ-2.8
+# ---------------------------------------------------------------------------
+
+
+class TestMalformedEventHandling:
+    """Verify malformed events are skipped with a WARNING log."""
+
+    @pytest.mark.asyncio
+    async def test_malformed_event_skipped_with_warning(self) -> None:
+        """TS-03-11: Malformed event logs WARNING and does not stop stream.
+
+        A malformed event (e.g. missing required fields) should be skipped,
+        a WARNING should be logged, and subsequent valid events should be
+        processed normally.
+        """
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+        from agentfox.session.backends.types import ResultMessage
+
+        events = [
+            # Malformed: on_tool_start missing tool_name/input fields
+            {"event": "on_tool_start"},
+            # Valid event after the malformed one
+            _make_llm_end_event(input_tokens=3, output_tokens=2),
+        ]
+        mock_agent = _make_mock_agent_with_events(events)
+
+        backend = DeepAgentsBackend()
+        with patch(
+            "agentfox.session.backends.deepagents.create_deep_agent",
+            return_value=mock_agent,
+        ):
+            with pytest.raises(Exception):  # noqa: B017, PT011
+                # Catch any exception — but we expect NONE
+                pass
+
+            # No exception should be raised
+            messages = await _collect_async(
+                backend.execute(
+                    "p",
+                    system_prompt="s",
+                    model="m",
+                    cwd="/",
+                )
+            )
+
+        # Terminal ResultMessage should be yielded normally
+        assert isinstance(messages[-1], ResultMessage)
+        assert messages[-1].input_tokens == 3
+        assert messages[-1].output_tokens == 2
+
+    @pytest.mark.asyncio
+    async def test_malformed_event_warning_logged(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """TS-03-11: WARNING-level log message emitted for malformed events."""
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+
+        events = [
+            # Malformed: completely empty event dict
+            {},
+            _make_llm_end_event(input_tokens=1, output_tokens=1),
+        ]
+        mock_agent = _make_mock_agent_with_events(events)
+
+        backend = DeepAgentsBackend()
+        with patch(
+            "agentfox.session.backends.deepagents.create_deep_agent",
+            return_value=mock_agent,
+        ):
+            with caplog.at_level(logging.WARNING):
+                await _collect_async(
+                    backend.execute(
+                        "p",
+                        system_prompt="s",
+                        model="m",
+                        cwd="/",
+                    )
+                )
+
+        warning_records = [r for r in caplog.records if r.levelno >= logging.WARNING]
+        assert len(warning_records) >= 1, "Expected at least one WARNING log for the malformed event"
+
+
+# ---------------------------------------------------------------------------
+# TS-03-12: No exception propagates from execute()
+# Requirement: 03-REQ-2.9
+# ---------------------------------------------------------------------------
+
+
+class TestNoExceptionPropagation:
+    """Verify execute() never propagates exceptions; always yields ResultMessage."""
+
+    @pytest.mark.asyncio
+    async def test_runtime_error_yields_error_result(self) -> None:
+        """TS-03-12: RuntimeError → ResultMessage(is_error=True), no propagation."""
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+        from agentfox.session.backends.types import ResultMessage
+
+        async def raising_stream(*_args: Any, **_kwargs: Any) -> Any:
+            raise RuntimeError("unexpected")
+            yield  # noqa: RUF028 — makes this an async generator
+
+        mock_agent = MagicMock()
+        mock_agent.astream_events = raising_stream
+
+        backend = DeepAgentsBackend()
+        with patch(
+            "agentfox.session.backends.deepagents.create_deep_agent",
+            return_value=mock_agent,
+        ):
+            # No exception should escape execute()
+            messages = await _collect_async(
+                backend.execute(
+                    "p",
+                    system_prompt="s",
+                    model="m",
+                    cwd="/",
+                )
+            )
+
+        assert isinstance(messages[-1], ResultMessage)
+        assert messages[-1].is_error is True
+
+    @pytest.mark.asyncio
+    async def test_value_error_yields_error_result(self) -> None:
+        """TS-03-12 variant: ValueError also yields ResultMessage(is_error=True)."""
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+        from agentfox.session.backends.types import ResultMessage
+
+        async def raising_stream(*_args: Any, **_kwargs: Any) -> Any:
+            raise ValueError("bad input")
+            yield  # noqa: RUF028 — makes this an async generator
+
+        mock_agent = MagicMock()
+        mock_agent.astream_events = raising_stream
+
+        backend = DeepAgentsBackend()
+        with patch(
+            "agentfox.session.backends.deepagents.create_deep_agent",
+            return_value=mock_agent,
+        ):
+            messages = await _collect_async(
+                backend.execute(
+                    "p",
+                    system_prompt="s",
+                    model="m",
+                    cwd="/",
+                )
+            )
+
+        assert isinstance(messages[-1], ResultMessage)
+        assert messages[-1].is_error is True
+
+    @pytest.mark.asyncio
+    async def test_exception_during_create_deep_agent(self) -> None:
+        """TS-03-12 variant: Exception in create_deep_agent itself."""
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+        from agentfox.session.backends.types import ResultMessage
+
+        with patch(
+            "agentfox.session.backends.deepagents.create_deep_agent",
+            side_effect=RuntimeError("agent creation failed"),
+        ):
+            backend = DeepAgentsBackend()
+            messages = await _collect_async(
+                backend.execute(
+                    "p",
+                    system_prompt="s",
+                    model="m",
+                    cwd="/",
+                )
+            )
+
+        assert isinstance(messages[-1], ResultMessage)
+        assert messages[-1].is_error is True
+
+
+# ---------------------------------------------------------------------------
+# TS-03-P2: Property - always exactly one ResultMessage as final item
+# Property: 03-PROP-2
+# Validates: 03-REQ-2.6, 03-REQ-2.9, 03-REQ-6.2, 03-REQ-6.3
+# ---------------------------------------------------------------------------
+
+
+class TestPropertyResultMessageAlwaysTerminal:
+    """Property: every execute() invocation yields exactly one ResultMessage last."""
+
+    @pytest.mark.asyncio
+    async def test_prop_empty_stream(self) -> None:
+        """TS-03-P2(a): Empty event stream → exactly one ResultMessage."""
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+        from agentfox.session.backends.types import ResultMessage
+
+        mock_agent = _make_mock_agent_with_events([])
+
+        backend = DeepAgentsBackend()
+        with patch(
+            "agentfox.session.backends.deepagents.create_deep_agent",
+            return_value=mock_agent,
+        ):
+            messages = await _collect_async(
+                backend.execute(
+                    "p",
+                    system_prompt="s",
+                    model="m",
+                    cwd="/",
+                )
+            )
+
+        result_msgs = [m for m in messages if isinstance(m, ResultMessage)]
+        assert len(result_msgs) == 1
+        assert result_msgs[0] is messages[-1]
+
+    @pytest.mark.asyncio
+    async def test_prop_success_stream(self) -> None:
+        """TS-03-P2(b): Successful stream → exactly one ResultMessage at end."""
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+        from agentfox.session.backends.types import ResultMessage
+
+        events = [
+            _make_chat_stream_event("hello"),
+            _make_chat_stream_event(" world"),
+            _make_on_tool_start_event("write_file", {"path": "f.py"}),
+            _make_on_tool_end_event("write_file", "ok"),
+            _make_llm_end_event(input_tokens=50, output_tokens=30),
+        ]
+        mock_agent = _make_mock_agent_with_events(events)
+
+        backend = DeepAgentsBackend()
+        with patch(
+            "agentfox.session.backends.deepagents.create_deep_agent",
+            return_value=mock_agent,
+        ):
+            messages = await _collect_async(
+                backend.execute(
+                    "p",
+                    system_prompt="s",
+                    model="m",
+                    cwd="/",
+                )
+            )
+
+        result_msgs = [m for m in messages if isinstance(m, ResultMessage)]
+        assert len(result_msgs) == 1
+        assert result_msgs[0] is messages[-1]
+
+    @pytest.mark.asyncio
+    async def test_prop_error_stream(self) -> None:
+        """TS-03-P2(d): Error during streaming → exactly one ResultMessage."""
+        from agentfox.session.backends.deepagents import DeepAgentsBackend
+        from agentfox.session.backends.types import ResultMessage
+
+        async def raising_stream(*_args: Any, **_kwargs: Any) -> Any:
+            raise RuntimeError("boom")
+            yield  # noqa: RUF028
+
+        mock_agent = MagicMock()
+        mock_agent.astream_events = raising_stream
+
+        backend = DeepAgentsBackend()
+        with patch(
+            "agentfox.session.backends.deepagents.create_deep_agent",
+            return_value=mock_agent,
+        ):
+            messages = await _collect_async(
+                backend.execute(
+                    "p",
+                    system_prompt="s",
+                    model="m",
+                    cwd="/",
+                )
+            )
+
+        result_msgs = [m for m in messages if isinstance(m, ResultMessage)]
+        assert len(result_msgs) == 1
+        assert result_msgs[0] is messages[-1]
+        assert result_msgs[0].is_error is True
