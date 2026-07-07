@@ -41,6 +41,7 @@ if TYPE_CHECKING:
     from afaudit.sink import SinkDispatcher
 
     from agentfox.knowledge.fox_provider import KnowledgeProvider
+    from agentfox.nightshift.coder_reviewer import CoderReviewerResult
 
 logger = logging.getLogger(__name__)
 
@@ -932,14 +933,15 @@ class FixPipeline:
         workspace: WorkspaceInfo,
         prior_context: str = "",
         knowledge_context: str = "",
-    ) -> bool:
+    ) -> CoderReviewerResult:
         """Coder-reviewer loop with retry and escalation.
 
         Delegates to CoderReviewerLoop collaborator class.
-        Returns True on PASS, False on exhaustion.
+        Returns a :class:`CoderReviewerResult` — truthy on PASS, falsy on
+        exhaustion.
 
         Requirements: 82-REQ-7.1, 82-REQ-8.1, 82-REQ-8.2, 82-REQ-8.3,
-                      82-REQ-8.4, 82-REQ-8.E1
+                      82-REQ-8.4, 82-REQ-8.E1, 05-REQ-9.1
         """
         from agentfox.nightshift.coder_reviewer import CoderReviewerLoop
 

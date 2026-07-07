@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import dataclass, field
 from typing import Any
 
 from afaudit.emit import emit_audit_event
@@ -22,6 +23,24 @@ from agentfox.ui.progress import TaskEvent
 from agentfox.workspace import WorkspaceInfo
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class CoderReviewerResult:
+    """Result of a coder-reviewer loop run.
+
+    Extends the previous ``bool`` return with structured fields while
+    preserving backward-compatible truthiness via ``__bool__``.
+
+    Requirements: 05-REQ-9.1
+    """
+
+    success: bool = False
+    response: str = ""
+    affected_files: list[str] = field(default_factory=list)
+
+    def __bool__(self) -> bool:
+        return self.success
 
 
 class CoderReviewerLoop:
@@ -45,8 +64,15 @@ class CoderReviewerLoop:
         workspace: WorkspaceInfo,
         prior_context: str = "",
         knowledge_context: str = "",
-    ) -> bool:
-        """Run the coder-reviewer loop. Returns True on PASS, False on exhaustion."""
+    ) -> CoderReviewerResult:
+        """Run the coder-reviewer loop.
+
+        Returns a :class:`CoderReviewerResult` — truthy on PASS, falsy on
+        exhaustion — with ``response`` and ``affected_files`` populated on
+        success.
+
+        Requirements: 05-REQ-9.1, 05-REQ-9.2, 05-REQ-9.3
+        """
         from agentfox.core.models import resolve_model
         from agentfox.engine.sdk_params import resolve_model_tier, resolve_model_variant
 
@@ -61,7 +87,7 @@ class CoderReviewerLoop:
         review_feedback: FixReviewResult | None = None
 
         for attempt in range(max_retries + 1):
-            await self._run_coder_phase(
+            coder_outcome = await self._run_coder_phase(
                 spec,
                 triage,
                 workspace,
@@ -86,7 +112,12 @@ class CoderReviewerLoop:
             await p._post_comment(spec.issue_number, review_comment)
 
             if review_result.overall_verdict == "PASS":
-                return True
+                coder_response = getattr(coder_outcome, "response", "") or ""
+                return CoderReviewerResult(
+                    success=True,
+                    response=coder_response,
+                    affected_files=list(triage.affected_files),
+                )
 
             if attempt >= max_retries:
                 await p._post_comment(
@@ -95,11 +126,11 @@ class CoderReviewerLoop:
                     "The issue could not be resolved automatically. "
                     f"Manual intervention is required. (run: `{p._run_id}`)",
                 )
-                return False
+                return CoderReviewerResult(success=False)
 
             review_feedback = review_result
 
-        return False  # pragma: no cover
+        return CoderReviewerResult(success=False)  # pragma: no cover
 
     async def _run_coder_phase(
         self,
