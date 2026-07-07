@@ -19,7 +19,7 @@ from agentfox.session.backends.types import (
     ToolUseMessage,
 )
 
-_VALID_BACKENDS = ["claude", "deepagents"]
+_VALID_BACKENDS = ["claude", "deepagents", "google-adk"]
 
 
 def create_backend(name: str) -> Backend:
@@ -62,6 +62,17 @@ def create_backend(name: str) -> Backend:
             )
         return _DeepAgents()
 
+    if name == "google-adk":
+        try:
+            from agentfox.session.backends.google_adk import (
+                GoogleADKBackend as _GoogleADK,
+            )
+        except ImportError:
+            raise ConfigError(
+                "Backend \"google-adk\" requires google-adk>=2.0. Install it with: pip install 'agentfox[google-adk]'"
+            )
+        return _GoogleADK()
+
     raise ConfigError(f"Unknown backend: '{name}'. Valid backends are: {_VALID_BACKENDS}")
 
 
@@ -78,6 +89,10 @@ def __getattr__(name: str) -> object:
         from agentfox.session.backends.deepagents import DeepAgentsBackend
 
         return DeepAgentsBackend
+    if name == "GoogleADKBackend":
+        from agentfox.session.backends.google_adk import GoogleADKBackend
+
+        return GoogleADKBackend
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -87,6 +102,7 @@ __all__ = [
     "Backend",
     "ClaudeBackend",
     "DeepAgentsBackend",
+    "GoogleADKBackend",
     "PermissionCallback",
     "ResultMessage",
     "ToolUseMessage",

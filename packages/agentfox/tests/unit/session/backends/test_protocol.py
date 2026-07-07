@@ -162,9 +162,9 @@ class TestPropertyProtocolIsolation:
 # Adding a new backend requires only a one-line addition to this mapping.
 SDK_CONTAINMENT: dict[str, str] = {
     "claude_agent_sdk": "claude.py",
+    "google.adk": "google_adk.py",
     # Future backends (add one line per backend):
     # "deepagents": "deepagents.py",       # spec 03
-    # "google_adk": "google_adk.py",       # spec 04
 }
 
 

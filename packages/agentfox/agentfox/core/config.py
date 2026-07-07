@@ -126,7 +126,7 @@ class RoutingConfig(BaseModel):
 class OrchestratorConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    backend: Literal["claude", "deepagents"] = Field(
+    backend: Literal["claude", "deepagents", "google-adk"] = Field(
         default="claude", description="Backend adapter to use for agent sessions"
     )
     parallel: Annotated[int, Clamped(ge=1, le=8)] = Field(default=2, description="Maximum parallel sessions")
