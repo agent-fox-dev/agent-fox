@@ -117,12 +117,15 @@ Record their answers and ask if they want:
 
 ### Source Tracking
 
-Every PRD **must** end with a `## Source` section that records where the PRD
-input came from. This section is mandatory — never omit it.
+The PRD's origin is recorded in the YAML frontmatter `source` field — this is
+the **single authoritative location** (spec format v1.3). There is no
+`## Source` body section.
 
-- **GitHub issue:** `Source: <full issue URL>`
-- **File:** `Source: <path to the file that was read>`
-- **User prompt:** `Source: Input provided by <user> via interactive prompt`
+Set the frontmatter `source` field based on origin:
+
+- **GitHub issue:** `source: "https://github.com/owner/repo/issues/NNN"`
+- **File:** `source: "<path to the file that was read>"`
+- **User prompt:** `source: "interactive"`
 
 ### Post Finalized PRD to GitHub
 
@@ -285,7 +288,6 @@ create the spec directory structure.
 3. Parse the JSON output to get the spec directory name (e.g. `{"spec_dir": "136_my_feature", "state": "init"}`).
 
 4. Edit the generated `prd.md` to add:
-   - The `## Source` section if not already present
    - The `## Dependencies` section from Step 2 (if any)
    - The `## Clarifications` or `## Design Decisions` section from Step 1 (if any)
    - Update the `source` field in the YAML frontmatter to reflect the actual origin (GitHub URL, file path, or "interactive")
@@ -378,42 +380,6 @@ to validation.
 
 ---
 
-## Step 5b: Verify Interface Consistency
-
-If this spec has cross-spec dependencies (recorded in Step 2), verify that the
-generated artifacts are consistent with the upstream specs' interfaces.
-
-For each dependency listed in the PRD's `## Dependencies` section:
-
-1. **Read the upstream spec's `requirements.json`** — specifically its
-   `external_apis`, `glossary`, and requirement `action`/`return_contract`
-   fields.
-
-2. **Cross-check function signatures:** Every function name, type name, or
-   import path that this spec references and the upstream spec defines must
-   match exactly — same parameters, same return type, same import path. If the
-   generated artifacts assume a different signature, fix them now.
-
-3. **Cross-check glossary terms:** If both specs define the same glossary term,
-   the definitions must be identical. If they differ, align to the upstream
-   spec's definition (it was authored first).
-
-4. **Cross-check return contracts:** If this spec's criteria reference functions
-   or types from the upstream spec, verify that the `return_contract` values are
-   consistent with the upstream spec's definitions.
-
-5. **Run cross-spec validation** to catch any remaining inconsistencies:
-   ```bash
-   spec validate <spec_dir_name> --cross
-   ```
-
-If mismatches are found, edit the JSON files directly and re-run
-`spec validate --cross` until no cross-spec errors remain.
-
-**Skip this step** if this spec has no cross-spec dependencies.
-
----
-
 ## Step 6: Create the Architecture Document (Optional)
 
 If the spec involves complex design decisions, multiple modules, or non-trivial
@@ -488,9 +454,6 @@ verify quality. Check:
 - Subtask details and verification checks use language-appropriate constructs,
   file paths, and tooling throughout (see post-generation language audit in
   Step 5)
-- **Cross-spec interfaces consistent:** If this spec depends on other specs,
-  function signatures, type names, glossary definitions, and return contracts
-  match the upstream specs exactly. Run `spec validate --cross` to verify.
 - **Multi-spec integration:** If this PRD produces multiple specs with
   dependency edges, at least one spec (typically the last in the chain) must
   include an execution path that traces the **full end-to-end user flow** —
