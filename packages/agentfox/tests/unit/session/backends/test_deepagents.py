@@ -390,12 +390,16 @@ class TestPyprojectOptionalDependency:
 
     def test_deepagents_optional_dependency(self) -> None:
         """TS-03-36: optional-dependencies contains deepagents = ['deepagents>=0.5']."""
-        # Find the agentfox package pyproject.toml
-        agentfox_pkg_dir = os.path.dirname(
-            os.path.dirname(inspect.getfile(__import__("agentfox.session.backends.types", fromlist=["types"])))
+        # Find the agentfox package pyproject.toml by walking up from types.py.
+        # types.py lives at .../packages/agentfox/agentfox/session/backends/types.py
+        # pyproject.toml lives at .../packages/agentfox/pyproject.toml (3 dirs up from backends/)
+        types_path = inspect.getfile(
+            __import__("agentfox.session.backends.types", fromlist=["types"])
         )
-        pyproject_path = os.path.join(agentfox_pkg_dir, "..", "pyproject.toml")
-        pyproject_path = os.path.normpath(pyproject_path)
+        backends_dir = os.path.dirname(types_path)
+        pyproject_path = os.path.normpath(
+            os.path.join(backends_dir, "..", "..", "..", "pyproject.toml")
+        )
 
         assert os.path.exists(pyproject_path), f"pyproject.toml not found at {pyproject_path}"
 
@@ -443,11 +447,17 @@ class TestCIWorkflowDeepagentsLeg:
 
     def test_ci_has_deepagents_leg(self) -> None:
         """TS-03-38: At least one CI workflow step installs '.[deepagents]'."""
-        # Walk up from agentfox package to find the project root
-        agentfox_pkg_dir = os.path.dirname(
-            os.path.dirname(inspect.getfile(__import__("agentfox.session.backends.types", fromlist=["types"])))
+        # Walk up from backends/ to the monorepo root.
+        # types.py is at .../packages/agentfox/agentfox/session/backends/types.py
+        # Repo root is 5 dirs up from backends/:
+        #   backends/ -> session/ -> agentfox/ -> agentfox/ -> packages/ -> root
+        types_path = inspect.getfile(
+            __import__("agentfox.session.backends.types", fromlist=["types"])
         )
-        project_root = os.path.normpath(os.path.join(agentfox_pkg_dir, "..", "..", ".."))
+        backends_dir = os.path.dirname(types_path)
+        project_root = os.path.normpath(
+            os.path.join(backends_dir, "..", "..", "..", "..", "..")
+        )
 
         workflow_patterns = [
             os.path.join(project_root, ".github", "workflows", "*.yml"),
@@ -1124,11 +1134,7 @@ class TestMalformedEventHandling:
             "agentfox.session.backends.deepagents.create_deep_agent",
             return_value=mock_agent,
         ):
-            with pytest.raises(Exception):  # noqa: B017, PT011
-                # Catch any exception — but we expect NONE
-                pass
-
-            # No exception should be raised
+            # No exception should be raised — malformed events are skipped
             messages = await _collect_async(
                 backend.execute(
                     "p",
@@ -3037,26 +3043,39 @@ class TestCloseNoAsyncCancellation:
         Errata E6: close() is async (matching ClaudeBackend) but must not
         invoke any cancellation primitives.
         """
+        import ast
+        import textwrap
+
         from agentfox.session.backends.deepagents import DeepAgentsBackend
 
         backend = DeepAgentsBackend()
 
-        # Track whether any task cancel is attempted
-        cancel_called = False
-        original_cancel = asyncio.Task.cancel
+        # Verify close() completes without side effects
+        await backend.close()
 
-        def tracking_cancel(self: Any, msg: str | None = None) -> bool:  # noqa: ARG001
-            nonlocal cancel_called
-            cancel_called = True
-            return original_cancel(self)
+        # Verify close() implementation body does not invoke task cancellation.
+        # We inspect the AST of close() rather than raw source to avoid false
+        # positives from docstring mentions of "cancel()".
+        # Note: asyncio.Task.cancel cannot be patched on CPython 3.12+ (the
+        # C extension type is immutable), so AST inspection is the only
+        # reliable approach.
+        source = textwrap.dedent(inspect.getsource(backend.close))
+        tree = ast.parse(source)
 
-        with patch.object(asyncio.Task, "cancel", tracking_cancel):
-            await backend.close()
-
-        assert not cancel_called, (
-            "close() called asyncio.Task.cancel(); "
-            "it should not perform async task cancellation"
-        )
+        # Walk the AST looking for call nodes named "cancel"
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                # Check for obj.cancel() or cancel() calls
+                if isinstance(node.func, ast.Attribute) and node.func.attr == "cancel":
+                    pytest.fail(
+                        "close() body contains a .cancel() call; "
+                        "it should not perform async task cancellation"
+                    )
+                if isinstance(node.func, ast.Name) and node.func.id == "cancel":
+                    pytest.fail(
+                        "close() body contains a cancel() call; "
+                        "it should not perform async task cancellation"
+                    )
 
 
 # ---------------------------------------------------------------------------
