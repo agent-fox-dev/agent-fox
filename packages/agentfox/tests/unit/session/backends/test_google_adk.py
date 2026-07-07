@@ -1,12 +1,17 @@
 """Tests for GoogleADKBackend adapter.
 
-Test Spec: TS-04-1 through TS-04-14, TS-04-E1 through TS-04-E5
+Test Spec: TS-04-1 through TS-04-14, TS-04-E1 through TS-04-E6,
+           TS-04-15 through TS-04-17, TS-04-28 through TS-04-32,
+           TS-04-E12, TS-04-E13
 Requirements: 04-REQ-1.1, 04-REQ-1.2, 04-REQ-1.3,
               04-REQ-2.1, 04-REQ-2.2, 04-REQ-2.3, 04-REQ-2.4,
               04-REQ-1.E1,
               04-REQ-3.1, 04-REQ-3.2, 04-REQ-3.3, 04-REQ-3.4, 04-REQ-3.5,
               04-REQ-3.E1, 04-REQ-3.E2,
-              04-REQ-4.1, 04-REQ-4.2, 04-REQ-4.E1
+              04-REQ-4.1, 04-REQ-4.2, 04-REQ-4.E1,
+              04-REQ-5.1, 04-REQ-5.2, 04-REQ-5.3, 04-REQ-5.E1,
+              04-REQ-8.1, 04-REQ-8.2, 04-REQ-8.3, 04-REQ-8.E1, 04-REQ-8.E2,
+              04-REQ-9.1, 04-REQ-9.2
 
 All tests are guarded with pytest.importorskip('google.adk') so the suite
 is skipped cleanly when the google-adk optional dependency is not installed.
@@ -15,6 +20,7 @@ is skipped cleanly when the google-adk optional dependency is not installed.
 from __future__ import annotations
 
 import inspect
+import logging
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -1026,5 +1032,657 @@ class TestMaxTurnsOneExitsCleanly:
         tool_use_msgs = [m for m in messages if isinstance(m, ToolUseMessage)]
         assert len(tool_use_msgs) == 1
 
+        assert isinstance(messages[-1], ResultMessage)
+        assert messages[-1].is_error is False
+
+
+# ===========================================================================
+# Group 3: Permission/activity callbacks, retry logic, and ignored parameters
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# TS-04-15: activity_callback invoked before tool call with tool name and args
+# Requirement: 04-REQ-5.1
+# ---------------------------------------------------------------------------
+
+
+class TestActivityCallbackInvocation:
+    """Verify activity_callback is invoked before each tool call."""
+
+    async def test_activity_callback_called_with_tool_info(self) -> None:
+        """TS-04-15: activity_callback called once with ('read_file', {'path': 'foo.py'})."""
+        from agentfox.session.backends.google_adk import GoogleADKBackend
+
+        activity_calls: list[tuple[str, dict[str, Any]]] = []
+
+        def activity_callback(tool_name: str, args: dict[str, Any]) -> None:
+            activity_calls.append((tool_name, args))
+
+        stream = _make_event_stream(
+            _make_function_call_event("read_file", {"path": "foo.py"}),
+            _make_terminal_event(),
+        )
+
+        with _patch_adk(run_async_gen=stream):
+            backend = GoogleADKBackend()
+            await _collect_async(
+                backend.execute(
+                    "task",
+                    system_prompt="sys",
+                    model="gemini-2.0-flash",
+                    cwd="/workspace",
+                    activity_callback=activity_callback,
+                ),
+            )
+
+        assert len(activity_calls) == 1
+        assert activity_calls[0] == ("read_file", {"path": "foo.py"})
+
+
+# ---------------------------------------------------------------------------
+# TS-04-16: permission_callback denial blocks tool execution
+# Requirement: 04-REQ-5.2
+# ---------------------------------------------------------------------------
+
+
+class TestPermissionCallbackDenial:
+    """Verify permission_callback denial blocks tool execution."""
+
+    async def test_denied_tool_not_executed(self) -> None:
+        """TS-04-16: Denied tool yields ToolUseMessage; structured error to model."""
+        from agentfox.session.backends.google_adk import GoogleADKBackend
+        from agentfox.session.backends.types import ResultMessage, ToolUseMessage
+
+        async def denying_callback(
+            tool_name: str,
+            args: dict[str, Any],
+        ) -> bool:
+            return False  # denial
+
+        stream = _make_event_stream(
+            _make_function_call_event("execute", {"command": "rm -rf /"}),
+            _make_terminal_event(),
+        )
+
+        with _patch_adk(run_async_gen=stream):
+            backend = GoogleADKBackend()
+            messages = await _collect_async(
+                backend.execute(
+                    "task",
+                    system_prompt="sys",
+                    model="gemini-2.0-flash",
+                    cwd="/workspace",
+                    permission_callback=denying_callback,
+                ),
+            )
+
+        # A ToolUseMessage should still be yielded for the attempted call
+        tool_msgs = [m for m in messages if isinstance(m, ToolUseMessage)]
+        assert len(tool_msgs) >= 1
+        assert tool_msgs[0].tool_name == "execute"
+
+        # The session should complete with a ResultMessage
+        assert isinstance(messages[-1], ResultMessage)
+
+
+# ---------------------------------------------------------------------------
+# TS-04-17: permission_callback grants tool call; tool executes normally
+# Requirement: 04-REQ-5.3
+# ---------------------------------------------------------------------------
+
+
+class TestPermissionCallbackApproval:
+    """Verify permission_callback approval allows tool execution."""
+
+    async def test_approved_tool_executes(self) -> None:
+        """TS-04-17: Approved tool call proceeds; session completes normally."""
+        from agentfox.session.backends.google_adk import GoogleADKBackend
+        from agentfox.session.backends.types import ResultMessage
+
+        permission_calls: list[tuple[str, dict[str, Any]]] = []
+
+        async def approving_callback(
+            tool_name: str,
+            args: dict[str, Any],
+        ) -> bool:
+            permission_calls.append((tool_name, args))
+            return True  # approval
+
+        stream = _make_event_stream(
+            _make_function_call_event("list_files", {"path": "."}),
+            _make_terminal_event(),
+        )
+
+        with _patch_adk(run_async_gen=stream):
+            backend = GoogleADKBackend()
+            messages = await _collect_async(
+                backend.execute(
+                    "task",
+                    system_prompt="sys",
+                    model="gemini-2.0-flash",
+                    cwd="/workspace",
+                    permission_callback=approving_callback,
+                ),
+            )
+
+        # permission_callback was invoked
+        assert len(permission_calls) == 1
+        assert permission_calls[0] == ("list_files", {"path": "."})
+
+        # The session should complete successfully
+        assert isinstance(messages[-1], ResultMessage)
+        assert messages[-1].is_error is False
+
+
+# ---------------------------------------------------------------------------
+# TS-04-E6: activity_callback exception yields ResultMessage(is_error=True)
+# Requirement: 04-REQ-5.E1
+# ---------------------------------------------------------------------------
+
+
+class TestCallbackExceptionHandling:
+    """Verify callback exceptions yield ResultMessage(is_error=True)."""
+
+    async def test_activity_callback_exception(self) -> None:
+        """TS-04-E6: RuntimeError in activity_callback yields error result."""
+        from agentfox.session.backends.google_adk import GoogleADKBackend
+        from agentfox.session.backends.types import ResultMessage
+
+        def bad_activity_callback(
+            tool_name: str,
+            args: dict[str, Any],
+        ) -> None:
+            raise RuntimeError("callback error")
+
+        stream = _make_event_stream(
+            _make_function_call_event("read_file", {}),
+            _make_terminal_event(),
+        )
+
+        try:
+            with _patch_adk(run_async_gen=stream):
+                backend = GoogleADKBackend()
+                messages = await _collect_async(
+                    backend.execute(
+                        "task",
+                        system_prompt="sys",
+                        model="gemini-2.0-flash",
+                        cwd="/workspace",
+                        activity_callback=bad_activity_callback,
+                    ),
+                )
+        except Exception as exc:
+            pytest.fail(f"Exception escaped execute(): {exc}")
+
+        assert isinstance(messages[-1], ResultMessage)
+        assert messages[-1].is_error is True
+        assert messages[-1].is_transport_error is False
+
+    async def test_permission_callback_exception(self) -> None:
+        """TS-04-E6 variant: exception in permission_callback also handled."""
+        from agentfox.session.backends.google_adk import GoogleADKBackend
+        from agentfox.session.backends.types import ResultMessage
+
+        async def bad_permission_callback(
+            tool_name: str,
+            args: dict[str, Any],
+        ) -> bool:
+            raise RuntimeError("permission callback error")
+
+        stream = _make_event_stream(
+            _make_function_call_event("read_file", {}),
+            _make_terminal_event(),
+        )
+
+        try:
+            with _patch_adk(run_async_gen=stream):
+                backend = GoogleADKBackend()
+                messages = await _collect_async(
+                    backend.execute(
+                        "task",
+                        system_prompt="sys",
+                        model="gemini-2.0-flash",
+                        cwd="/workspace",
+                        permission_callback=bad_permission_callback,
+                    ),
+                )
+        except Exception as exc:
+            pytest.fail(f"Exception escaped execute(): {exc}")
+
+        assert isinstance(messages[-1], ResultMessage)
+        assert messages[-1].is_error is True
+        assert messages[-1].is_transport_error is False
+
+
+# ---------------------------------------------------------------------------
+# TS-04-28: Module-level constants _MAX_TRANSPORT_RETRIES and _BACKOFF_BASE
+# Requirement: 04-REQ-8.1
+# ---------------------------------------------------------------------------
+
+
+class TestRetryConstants:
+    """Verify retry constants are defined as module-level values."""
+
+    def test_max_transport_retries_value(self) -> None:
+        """TS-04-28: _MAX_TRANSPORT_RETRIES == 3."""
+        from agentfox.session.backends import google_adk
+
+        assert google_adk._MAX_TRANSPORT_RETRIES == 3
+
+    def test_backoff_base_value(self) -> None:
+        """TS-04-28: _BACKOFF_BASE == 1.0."""
+        from agentfox.session.backends import google_adk
+
+        assert google_adk._BACKOFF_BASE == 1.0
+
+
+# ---------------------------------------------------------------------------
+# TS-04-29: ResourceExhausted triggers retry with exponential backoff
+# Requirement: 04-REQ-8.2
+# ---------------------------------------------------------------------------
+
+
+class TestTransientErrorRetry:
+    """Verify transient errors trigger retry with exponential backoff."""
+
+    async def test_resource_exhausted_retried_and_succeeds(self) -> None:
+        """TS-04-29: ResourceExhausted retried; sleep(1.0); success on retry."""
+        from agentfox.session.backends.google_adk import GoogleADKBackend
+        from agentfox.session.backends.types import ResultMessage
+        from google.api_core.exceptions import ResourceExhausted
+
+        call_count = [0]
+
+        def run_async_effect(**_kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+
+                async def fail():
+                    raise ResourceExhausted("rate limit")
+                    yield  # noqa: RUF028 — makes this an async generator
+
+                return fail()
+
+            async def succeed():
+                yield _make_terminal_event()
+
+            return succeed()
+
+        with (
+            patch(
+                "agentfox.session.backends.google_adk.InMemorySessionService",
+            ) as mock_svc_cls,
+            patch("agentfox.session.backends.google_adk.Agent"),
+            patch(
+                "agentfox.session.backends.google_adk.Runner",
+            ) as mock_runner_cls,
+            patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+        ):
+            mock_svc = AsyncMock()
+            mock_svc.create_session = AsyncMock(return_value=_mock_session())
+            mock_svc_cls.return_value = mock_svc
+
+            runner = MagicMock()
+            runner.run_async = MagicMock(side_effect=run_async_effect)
+            mock_runner_cls.return_value = runner
+
+            backend = GoogleADKBackend()
+            messages = await _collect_async(
+                backend.execute(
+                    "task",
+                    system_prompt="sys",
+                    model="gemini-2.0-flash",
+                    cwd="/workspace",
+                ),
+            )
+
+        assert call_count[0] == 2
+        mock_sleep.assert_called_once_with(1.0)
+        assert isinstance(messages[-1], ResultMessage)
+        assert messages[-1].is_error is False
+
+    async def test_service_unavailable_retried(self) -> None:
+        """TS-04-29 variant: ServiceUnavailable also triggers retry."""
+        from agentfox.session.backends.google_adk import GoogleADKBackend
+        from agentfox.session.backends.types import ResultMessage
+        from google.api_core.exceptions import ServiceUnavailable
+
+        call_count = [0]
+
+        def run_async_effect(**_kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+
+                async def fail():
+                    raise ServiceUnavailable("503")
+                    yield  # noqa: RUF028 — makes this an async generator
+
+                return fail()
+
+            async def succeed():
+                yield _make_terminal_event()
+
+            return succeed()
+
+        with (
+            patch(
+                "agentfox.session.backends.google_adk.InMemorySessionService",
+            ) as mock_svc_cls,
+            patch("agentfox.session.backends.google_adk.Agent"),
+            patch(
+                "agentfox.session.backends.google_adk.Runner",
+            ) as mock_runner_cls,
+            patch("asyncio.sleep", new_callable=AsyncMock) as mock_sleep,
+        ):
+            mock_svc = AsyncMock()
+            mock_svc.create_session = AsyncMock(return_value=_mock_session())
+            mock_svc_cls.return_value = mock_svc
+
+            runner = MagicMock()
+            runner.run_async = MagicMock(side_effect=run_async_effect)
+            mock_runner_cls.return_value = runner
+
+            backend = GoogleADKBackend()
+            messages = await _collect_async(
+                backend.execute(
+                    "task",
+                    system_prompt="sys",
+                    model="gemini-2.0-flash",
+                    cwd="/workspace",
+                ),
+            )
+
+        assert call_count[0] == 2
+        mock_sleep.assert_called_once_with(1.0)
+        assert isinstance(messages[-1], ResultMessage)
+        assert messages[-1].is_error is False
+
+
+# ---------------------------------------------------------------------------
+# TS-04-30: Non-transient exception yields immediate error without retry
+# Requirement: 04-REQ-8.3
+# ---------------------------------------------------------------------------
+
+
+class TestNonTransientErrorNoRetry:
+    """Verify non-transient exceptions are not retried."""
+
+    async def test_value_error_no_retry(self) -> None:
+        """TS-04-30: ValueError yields immediate ResultMessage(is_error=True)."""
+        from agentfox.session.backends.google_adk import GoogleADKBackend
+        from agentfox.session.backends.types import ResultMessage
+
+        call_count = [0]
+
+        def run_async_effect(**_kwargs):
+            call_count[0] += 1
+
+            async def fail():
+                raise ValueError("model not found")
+                yield  # noqa: RUF028 — makes this an async generator
+
+            return fail()
+
+        with (
+            patch(
+                "agentfox.session.backends.google_adk.InMemorySessionService",
+            ) as mock_svc_cls,
+            patch("agentfox.session.backends.google_adk.Agent"),
+            patch(
+                "agentfox.session.backends.google_adk.Runner",
+            ) as mock_runner_cls,
+        ):
+            mock_svc = AsyncMock()
+            mock_svc.create_session = AsyncMock(return_value=_mock_session())
+            mock_svc_cls.return_value = mock_svc
+
+            runner = MagicMock()
+            runner.run_async = MagicMock(side_effect=run_async_effect)
+            mock_runner_cls.return_value = runner
+
+            backend = GoogleADKBackend()
+            messages = await _collect_async(
+                backend.execute(
+                    "task",
+                    system_prompt="sys",
+                    model="gemini-2.0-flash",
+                    cwd="/workspace",
+                ),
+            )
+
+        assert call_count[0] == 1
+        assert isinstance(messages[-1], ResultMessage)
+        assert messages[-1].is_error is True
+        assert messages[-1].is_transport_error is False
+
+
+# ---------------------------------------------------------------------------
+# TS-04-E12: All _MAX_TRANSPORT_RETRIES exhausted yields error result
+# Requirement: 04-REQ-8.E1
+# ---------------------------------------------------------------------------
+
+
+class TestRetriesExhausted:
+    """Verify exhausted retries yield ResultMessage(is_error=True, is_transport_error=True)."""
+
+    async def test_all_retries_exhausted(self) -> None:
+        """TS-04-E12: After _MAX_TRANSPORT_RETRIES+1 calls, transport error result."""
+        from agentfox.session.backends.google_adk import (
+            _MAX_TRANSPORT_RETRIES,
+            GoogleADKBackend,
+        )
+        from agentfox.session.backends.types import ResultMessage
+        from google.api_core.exceptions import ResourceExhausted
+
+        call_count = [0]
+
+        def always_fail(**_kwargs):
+            call_count[0] += 1
+
+            async def fail():
+                raise ResourceExhausted("quota")
+                yield  # noqa: RUF028 — makes this an async generator
+
+            return fail()
+
+        with (
+            patch(
+                "agentfox.session.backends.google_adk.InMemorySessionService",
+            ) as mock_svc_cls,
+            patch("agentfox.session.backends.google_adk.Agent"),
+            patch(
+                "agentfox.session.backends.google_adk.Runner",
+            ) as mock_runner_cls,
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
+            mock_svc = AsyncMock()
+            mock_svc.create_session = AsyncMock(return_value=_mock_session())
+            mock_svc_cls.return_value = mock_svc
+
+            runner = MagicMock()
+            runner.run_async = MagicMock(side_effect=always_fail)
+            mock_runner_cls.return_value = runner
+
+            backend = GoogleADKBackend()
+            messages: list[Any] = []
+
+            try:
+                async for msg in backend.execute(
+                    "task",
+                    system_prompt="sys",
+                    model="gemini-2.0-flash",
+                    cwd="/workspace",
+                ):
+                    messages.append(msg)
+            except Exception as exc:
+                pytest.fail(f"Exception escaped execute(): {exc}")
+
+        assert call_count[0] == _MAX_TRANSPORT_RETRIES + 1
+        assert isinstance(messages[-1], ResultMessage)
+        assert messages[-1].is_error is True
+        assert messages[-1].is_transport_error is True
+
+
+# ---------------------------------------------------------------------------
+# TS-04-E13: Transient error after yielded messages; retry without duplicates
+# Requirement: 04-REQ-8.E2
+# ---------------------------------------------------------------------------
+
+
+class TestRetryAfterPartialMessages:
+    """Verify retry after partial messages yields single terminal ResultMessage."""
+
+    async def test_partial_then_retry_succeeds(self) -> None:
+        """TS-04-E13: TextEvent then ServiceUnavailable; retry yields single ResultMessage."""
+        from agentfox.session.backends.google_adk import GoogleADKBackend
+        from agentfox.session.backends.types import ResultMessage
+        from google.api_core.exceptions import ServiceUnavailable
+
+        call_count = [0]
+
+        def partial_then_succeed(**_kwargs):
+            call_count[0] += 1
+            if call_count[0] == 1:
+
+                async def partial_fail():
+                    yield _make_text_event("partial response")
+                    raise ServiceUnavailable("503")
+
+                return partial_fail()
+
+            async def succeed():
+                yield _make_terminal_event()
+
+            return succeed()
+
+        with (
+            patch(
+                "agentfox.session.backends.google_adk.InMemorySessionService",
+            ) as mock_svc_cls,
+            patch("agentfox.session.backends.google_adk.Agent"),
+            patch(
+                "agentfox.session.backends.google_adk.Runner",
+            ) as mock_runner_cls,
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
+            mock_svc = AsyncMock()
+            mock_svc.create_session = AsyncMock(return_value=_mock_session())
+            mock_svc_cls.return_value = mock_svc
+
+            runner = MagicMock()
+            runner.run_async = MagicMock(side_effect=partial_then_succeed)
+            mock_runner_cls.return_value = runner
+
+            backend = GoogleADKBackend()
+            messages = await _collect_async(
+                backend.execute(
+                    "task",
+                    system_prompt="sys",
+                    model="gemini-2.0-flash",
+                    cwd="/workspace",
+                ),
+            )
+
+        assert call_count[0] == 2
+        result_msgs = [m for m in messages if isinstance(m, ResultMessage)]
+        assert len(result_msgs) == 1
+        assert result_msgs[0].is_error is False
+
+
+# ---------------------------------------------------------------------------
+# TS-04-31: max_budget_usd emits debug-level log; execution continues
+# Requirement: 04-REQ-9.1
+# ---------------------------------------------------------------------------
+
+
+class TestMaxBudgetDebugLog:
+    """Verify max_budget_usd emits a debug log and execution proceeds."""
+
+    async def test_max_budget_usd_debug_log(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """TS-04-31: Debug log emitted for max_budget_usd=5.0."""
+        from agentfox.session.backends.google_adk import GoogleADKBackend
+        from agentfox.session.backends.types import ResultMessage
+
+        stream = _make_event_stream(_make_terminal_event())
+
+        with _patch_adk(run_async_gen=stream):
+            backend = GoogleADKBackend()
+            with caplog.at_level(
+                logging.DEBUG,
+                logger="agentfox.session.backends.google_adk",
+            ):
+                messages = await _collect_async(
+                    backend.execute(
+                        "task",
+                        system_prompt="sys",
+                        model="gemini-2.0-flash",
+                        cwd="/workspace",
+                        max_budget_usd=5.0,
+                    ),
+                )
+
+        debug_msgs = [
+            r.getMessage()
+            for r in caplog.records
+            if r.levelno == logging.DEBUG
+        ]
+        assert any(
+            "max_budget_usd=5.0 ignored" in m and "GoogleADKBackend" in m
+            for m in debug_msgs
+        ), f"Expected debug log about max_budget_usd; got: {debug_msgs}"
+        assert isinstance(messages[-1], ResultMessage)
+
+
+# ---------------------------------------------------------------------------
+# TS-04-32: Silently ignored parameters — no errors, no log noise
+# Requirement: 04-REQ-9.2
+# ---------------------------------------------------------------------------
+
+
+class TestIgnoredParameters:
+    """Verify thinking, effort, compaction, etc. are silently ignored."""
+
+    async def test_ignored_params_no_errors_no_warnings(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """TS-04-32: Ignored params produce no errors and no warning logs."""
+        from agentfox.session.backends.google_adk import GoogleADKBackend
+        from agentfox.session.backends.types import ResultMessage
+
+        stream = _make_event_stream(_make_terminal_event())
+
+        with _patch_adk(run_async_gen=stream):
+            backend = GoogleADKBackend()
+            with caplog.at_level(
+                logging.DEBUG,
+                logger="agentfox.session.backends.google_adk",
+            ):
+                messages = await _collect_async(
+                    backend.execute(
+                        "task",
+                        system_prompt="sys",
+                        model="gemini-2.0-flash",
+                        cwd="/workspace",
+                        thinking={"enabled": True},
+                        effort="high",
+                        compaction=True,
+                        tool_error_callback=lambda e: None,
+                        node_id="x",
+                        archetype="coder",
+                    ),
+                )
+
+        # No warning or error log entries should appear
+        warn_and_above = [
+            r for r in caplog.records if r.levelno >= logging.WARNING
+        ]
+        assert len(warn_and_above) == 0, (
+            f"Unexpected warning/error logs: {[r.getMessage() for r in warn_and_above]}"
+        )
         assert isinstance(messages[-1], ResultMessage)
         assert messages[-1].is_error is False

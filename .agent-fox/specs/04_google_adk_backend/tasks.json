@@ -221,7 +221,7 @@
             "04-REQ-5.3",
             "04-REQ-5.E1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -248,7 +248,7 @@
             "04-REQ-8.E1",
             "04-REQ-8.E2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -266,7 +266,7 @@
             "04-REQ-9.1",
             "04-REQ-9.2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -275,7 +275,7 @@
           "details": [],
           "test_spec_refs": [],
           "requirement_refs": [],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],
