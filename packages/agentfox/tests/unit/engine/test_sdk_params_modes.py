@@ -178,7 +178,7 @@ class TestResolveThinkingWithMode:
             )
         )
         result = resolve_thinking(config, "reviewer", mode="think")
-        assert result == {"type": "adaptive"}
+        assert result == {"type": "adaptive", "display": "summarized"}
 
     def test_mode_with_no_thinking_falls_back_to_archetype(self) -> None:
         """Mode with no thinking config falls back to archetype-level."""

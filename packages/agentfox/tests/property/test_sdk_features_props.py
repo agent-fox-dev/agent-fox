@@ -119,7 +119,7 @@ class TestThinkingPassthrough:
         )
         result = resolve_thinking(config, "coder")
         assert result is not None
-        assert result == {"type": mode}
+        assert result == {"type": mode, "display": "summarized"}
 
 
 # ---------------------------------------------------------------------------

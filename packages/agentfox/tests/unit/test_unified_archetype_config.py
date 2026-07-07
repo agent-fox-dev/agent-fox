@@ -172,7 +172,7 @@ class TestResolveThinkingWithOverrides:
             )
         )
         result = resolve_thinking(config, "reviewer")
-        assert result == {"type": "adaptive"}
+        assert result == {"type": "adaptive", "display": "summarized"}
 
     def test_override_thinking_mode_adaptive(self) -> None:
         config = AgentFoxConfig(
@@ -183,6 +183,7 @@ class TestResolveThinkingWithOverrides:
         result = resolve_thinking(config, "verifier")
         assert result is not None
         assert result["type"] == "adaptive"
+        assert result["display"] == "summarized"
         assert "budget_tokens" not in result
 
     def test_override_thinking_mode_disabled(self) -> None:
@@ -211,6 +212,7 @@ class TestResolveThinkingWithOverrides:
         else:
             assert result == {
                 "type": coder_entry.default_thinking_mode,
+                "display": "summarized",
             }
 
 
@@ -334,7 +336,7 @@ class TestEndToEndTomlResolution:
         config_file.write_text('[archetypes.overrides.verifier]\nthinking_mode = "adaptive"\n')
         config = load_config(path=config_file)
         result = resolve_thinking(config, "verifier")
-        assert result == {"type": "adaptive"}
+        assert result == {"type": "adaptive", "display": "summarized"}
 
     def test_overrides_max_turns_from_toml(self, tmp_path: Path) -> None:
         """archetypes.overrides.coder.max_turns from TOML resolves correctly."""
@@ -349,4 +351,4 @@ class TestEndToEndTomlResolution:
         config_file.write_text('[archetypes.overrides.coder]\nthinking_mode = "adaptive"\n')
         config = load_config(path=config_file)
         result = resolve_thinking(config, "coder")
-        assert result == {"type": "adaptive"}
+        assert result == {"type": "adaptive", "display": "summarized"}
