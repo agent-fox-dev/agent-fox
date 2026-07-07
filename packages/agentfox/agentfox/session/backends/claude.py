@@ -31,6 +31,7 @@ from claude_agent_sdk.types import (
     ResultMessage as SDKResultMessage,
 )
 
+from agentfox.session.backends._retry import _BACKOFF_BASE, _MAX_TRANSPORT_RETRIES
 from agentfox.session.backends.types import (
     AgentMessage,
     AssistantMessage,
@@ -41,12 +42,6 @@ from agentfox.session.backends.types import (
 from agentfox.ui.progress import ActivityCallback, ActivityEvent, abbreviate_arg
 
 logger = logging.getLogger(__name__)
-
-# Maximum number of transport-layer retry attempts before yielding a
-# terminal failure ResultMessage.  Does not consume escalation ladder retries.
-_MAX_TRANSPORT_RETRIES = 3
-# Base delay in seconds; actual delay = _BACKOFF_BASE * 2^(attempt-1)
-_BACKOFF_BASE = 1.0
 
 
 class ClaudeBackend:

@@ -126,7 +126,9 @@ class RoutingConfig(BaseModel):
 class OrchestratorConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    backend: Literal["claude"] = Field(default="claude", description="Backend adapter to use for agent sessions")
+    backend: Literal["claude", "deepagents"] = Field(
+        default="claude", description="Backend adapter to use for agent sessions"
+    )
     parallel: Annotated[int, Clamped(ge=1, le=8)] = Field(default=2, description="Maximum parallel sessions")
     sync_interval: int | None = Field(
         default=None,

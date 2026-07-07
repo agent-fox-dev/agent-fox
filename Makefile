@@ -1,4 +1,4 @@
-.PHONY: clean test test-fast test-unit test-property test-integration lint format check clean-branches install-skills uninstall-skills
+.PHONY: clean test test-fast test-unit test-property test-integration test-deepagents lint format check clean-branches install-skills uninstall-skills
 
 clean:
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
@@ -22,6 +22,9 @@ test-property:
 
 test-integration:
 	uv run pytest packages/agentfox/tests/integration/ packages/af/tests/integration/ -q
+
+test-deepagents:
+	uv pip install '.[deepagents]' && uv run pytest packages/agentfox/tests/unit/session/backends/test_deepagents.py -q
 
 lint:
 	uv run ruff check packages/ && uv run ruff format --check packages/

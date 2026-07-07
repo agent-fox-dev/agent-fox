@@ -39,6 +39,9 @@ dependencies = [
     "tree-sitter-swift>=0.0.1",
 ]
 
+[project.optional-dependencies]
+deepagents = ["deepagents>=0.5"]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
