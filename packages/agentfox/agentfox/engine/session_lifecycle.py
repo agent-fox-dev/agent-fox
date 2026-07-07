@@ -39,6 +39,7 @@ from agentfox.engine.sdk_params import (
 )
 from agentfox.engine.state import SessionRecord
 from agentfox.knowledge.db import ContextKnowledgeDB, KnowledgeDB
+from agentfox.knowledge.extraction import extract_session_summary  # noqa: F401 — 05-REQ-4.2
 from agentfox.knowledge.fox_provider import KnowledgeProvider
 from agentfox.session.prompt import (
     assemble_context,
