@@ -430,7 +430,7 @@ file_conflict_detection = true
 
 Daemon configuration for the night-shift fix-only daemon
 (`nightshift`). Night-shift polls for `af:fix`-labelled issues
-and processes them through a three-stage fix pipeline.
+and processes them through a multi-stage fix pipeline.
 
 > **Note:** This is a hidden section.
 
@@ -444,6 +444,44 @@ and processes them through a three-stage fix pipeline.
 ```toml
 [night_shift]
 issue_check_interval = 1800
+```
+
+### Pipeline model tiers
+
+Each pipeline stage runs a specific archetype and mode. The default model
+tiers are set in the archetype registry and can be overridden via
+[`archetypes.overrides`](#archetypesoverrides) — night-shift has no
+separate model configuration of its own.
+
+| Stage | Archetype | Mode | Default tier | Default model |
+|-------|-----------|------|--------------|---------------|
+| Batch triage (dependency ordering) | `maintainer` | `hunt` | SIMPLE | `claude-haiku-4-5` |
+| Issue triage analysis | `maintainer` | `fix-triage` | STANDARD | `claude-sonnet-4-6` |
+| Coder (fix implementation) | `coder` | `fix` | STANDARD | `claude-sonnet-4-6` |
+| Reviewer (fix review) | `reviewer` | `fix-review` | ADVANCED | `claude-opus-4-6` |
+| Staleness detection | *(direct call)* | -- | ADVANCED | `claude-opus-4-6` |
+
+All stages except staleness detection resolve their model via
+`resolve_model_tier()`, which checks overrides in this order:
+
+1. Mode-level override: `archetypes.overrides.<archetype>.modes.<mode>.model_tier`
+2. Archetype-level override: `archetypes.overrides.<archetype>.model_tier`
+3. Registry default (the values in the table above)
+
+Staleness detection bypasses this resolution and is hardcoded to ADVANCED.
+
+**Example — upgrade the coder to ADVANCED for higher-quality fixes:**
+
+```toml
+[archetypes.overrides.coder.modes.fix]
+model_tier = "ADVANCED"
+```
+
+**Example — downgrade triage to SIMPLE to reduce cost:**
+
+```toml
+[archetypes.overrides.maintainer.modes.fix-triage]
+model_tier = "SIMPLE"
 ```
 
 ---
