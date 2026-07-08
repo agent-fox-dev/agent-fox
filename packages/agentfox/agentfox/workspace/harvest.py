@@ -31,7 +31,8 @@ from agentfox.workspace import (
     rebase_onto,
     run_git,
 )
-from agentfox.workspace.merge_lock import MergeLock, run_merge_agent
+from agentfox.workspace.merge_agent import run_merge_agent
+from agentfox.workspace.merge_lock import MergeLock
 
 logger = logging.getLogger(__name__)
 

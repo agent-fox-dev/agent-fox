@@ -11,15 +11,15 @@ import textwrap
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from agentfox.engine.result_handler import (
+from agentfox.engine.coverage import (
     CoverageResult,
     CoverageTool,
     FileCoverage,
-    SessionResultHandler,
     detect_coverage_tool,
     find_regressions,
     measure_coverage,
 )
+from agentfox.engine.result_handler import SessionResultHandler
 
 
 class TestDetectCoverageTool:
@@ -60,14 +60,14 @@ class TestDetectCoverageTool:
 
     def test_detects_cargo_tarpaulin(self, tmp_path: Path) -> None:
         (tmp_path / "Cargo.toml").write_text('[package]\nname = "foo"\n')
-        with patch("agentfox.engine.result_handler.shutil.which", return_value="/usr/bin/cargo-tarpaulin"):
+        with patch("agentfox.engine.coverage.shutil.which", return_value="/usr/bin/cargo-tarpaulin"):
             tool = detect_coverage_tool(tmp_path)
         assert tool is not None
         assert tool.name == "cargo-tarpaulin"
 
     def test_cargo_without_tarpaulin_returns_none(self, tmp_path: Path) -> None:
         (tmp_path / "Cargo.toml").write_text('[package]\nname = "foo"\n')
-        with patch("agentfox.engine.result_handler.shutil.which", return_value=None):
+        with patch("agentfox.engine.coverage.shutil.which", return_value=None):
             tool = detect_coverage_tool(tmp_path)
         assert tool is None
 
@@ -263,9 +263,9 @@ class TestMeasureCoverage:
             command=["sleep", "999"],
             result_path="coverage.json",
         )
-        with patch("agentfox.engine.result_handler._COVERAGE_TIMEOUT", 0):
+        with patch("agentfox.engine.coverage._COVERAGE_TIMEOUT", 0):
             with patch(
-                "agentfox.engine.result_handler.subprocess.run",
+                "agentfox.engine.coverage.subprocess.run",
                 side_effect=subprocess.TimeoutExpired(cmd="sleep", timeout=0),
             ):
                 result = measure_coverage(tmp_path, tool)
@@ -277,7 +277,7 @@ class TestMeasureCoverage:
             command=["echo", "no-op"],
             result_path="coverage.json",
         )
-        with patch("agentfox.engine.result_handler.subprocess.run"):
+        with patch("agentfox.engine.coverage.subprocess.run"):
             result = measure_coverage(tmp_path, tool)
         assert result is None
 
@@ -306,7 +306,7 @@ class TestMeasureCoverage:
             command=["echo", "done"],
             result_path="coverage.json",
         )
-        with patch("agentfox.engine.result_handler.subprocess.run"):
+        with patch("agentfox.engine.coverage.subprocess.run"):
             result = measure_coverage(tmp_path, tool)
 
         assert result is not None
@@ -331,7 +331,7 @@ class TestMeasureCoverage:
             command=["echo", "done"],
             result_path="coverage.out",
         )
-        with patch("agentfox.engine.result_handler.subprocess.run"):
+        with patch("agentfox.engine.coverage.subprocess.run"):
             result = measure_coverage(tmp_path, tool)
 
         assert result is not None
@@ -362,7 +362,7 @@ class TestMeasureCoverage:
             command=["echo", "done"],
             result_path="tarpaulin-report.json",
         )
-        with patch("agentfox.engine.result_handler.subprocess.run"):
+        with patch("agentfox.engine.coverage.subprocess.run"):
             result = measure_coverage(tmp_path, tool)
 
         assert result is not None
@@ -391,7 +391,7 @@ class TestMeasureCoverage:
             command=["echo", "done"],
             result_path="coverage/coverage-final.json",
         )
-        with patch("agentfox.engine.result_handler.subprocess.run"):
+        with patch("agentfox.engine.coverage.subprocess.run"):
             result = measure_coverage(tmp_path, tool)
 
         assert result is not None
@@ -415,7 +415,7 @@ class TestMeasureCoverage:
             command=["echo", "done"],
             result_path="coverage.json",
         )
-        with patch("agentfox.engine.result_handler.subprocess.run"):
+        with patch("agentfox.engine.coverage.subprocess.run"):
             measure_coverage(tmp_path, tool)
 
         assert not result_path.exists()

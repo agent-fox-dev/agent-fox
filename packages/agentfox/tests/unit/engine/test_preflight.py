@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import duckdb
-from agentfox.engine.dispatch import (
+from agentfox.engine.preflight import (
     PreflightVerdict,
     has_active_critical_findings,
     is_task_group_done,
@@ -253,21 +253,21 @@ class TestRunPreflight:
         verdict = run_preflight("spec", 1, conn, tmp_path, tmp_path)
         assert verdict == PreflightVerdict.LAUNCH
 
-    @patch("agentfox.engine.dispatch.do_tests_pass", return_value=False)
+    @patch("agentfox.engine.preflight.do_tests_pass", return_value=False)
     def test_done_no_findings_tests_fail_returns_launch(self, _mock_tests: MagicMock, tmp_path: Path) -> None:
         conn = _make_conn()
         _insert_plan_node(conn, "spec:1", "spec", 1, "completed")
         verdict = run_preflight("spec", 1, conn, tmp_path, tmp_path)
         assert verdict == PreflightVerdict.LAUNCH
 
-    @patch("agentfox.engine.dispatch.do_tests_pass", return_value=True)
+    @patch("agentfox.engine.preflight.do_tests_pass", return_value=True)
     def test_all_gates_pass_returns_skip(self, _mock_tests: MagicMock, tmp_path: Path) -> None:
         conn = _make_conn()
         _insert_plan_node(conn, "spec:1", "spec", 1, "completed")
         verdict = run_preflight("spec", 1, conn, tmp_path, tmp_path)
         assert verdict == PreflightVerdict.SKIP
 
-    @patch("agentfox.engine.dispatch.do_tests_pass", return_value=True)
+    @patch("agentfox.engine.preflight.do_tests_pass", return_value=True)
     def test_short_circuits_on_first_failure(self, mock_tests: MagicMock, tmp_path: Path) -> None:
         """Tests are not run when task group is incomplete."""
         conn = _make_conn()

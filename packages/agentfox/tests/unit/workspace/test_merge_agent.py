@@ -10,7 +10,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from agentfox.workspace.merge_lock import (
+from agentfox.workspace.merge_agent import (
     MERGE_AGENT_SYSTEM_PROMPT,
     run_merge_agent,
 )
@@ -24,12 +24,12 @@ class TestAgentSpawnedOnMergeFailure:
         """run_merge_agent returns True when conflicts are resolved."""
         with (
             patch(
-                "agentfox.workspace.merge_lock._run_agent_session",
+                "agentfox.workspace.merge_agent._run_agent_session",
                 new_callable=AsyncMock,
                 return_value=True,
             ) as mock_session,
             patch(
-                "agentfox.workspace.merge_lock._check_conflicts_resolved",
+                "agentfox.workspace.merge_agent._check_conflicts_resolved",
                 new_callable=AsyncMock,
                 return_value=True,
             ),
@@ -46,7 +46,7 @@ class TestAgentSpawnedOnMergeFailure:
     async def test_agent_returns_false_on_failure(self, tmp_path: Path) -> None:
         """run_merge_agent returns False when agent fails to resolve."""
         with patch(
-            "agentfox.workspace.merge_lock._run_agent_session",
+            "agentfox.workspace.merge_agent._run_agent_session",
             new_callable=AsyncMock,
             return_value=False,
         ):
@@ -66,12 +66,12 @@ class TestAgentUsesAdvancedModel:
         """The model_id argument is passed through to the agent session."""
         with (
             patch(
-                "agentfox.workspace.merge_lock._run_agent_session",
+                "agentfox.workspace.merge_agent._run_agent_session",
                 new_callable=AsyncMock,
                 return_value=True,
             ) as mock_session,
             patch(
-                "agentfox.workspace.merge_lock._check_conflicts_resolved",
+                "agentfox.workspace.merge_agent._check_conflicts_resolved",
                 new_callable=AsyncMock,
                 return_value=True,
             ),
@@ -136,11 +136,11 @@ class TestAgentReceivesConflictOutput:
 
         with (
             patch(
-                "agentfox.workspace.merge_lock._run_agent_session",
+                "agentfox.workspace.merge_agent._run_agent_session",
                 side_effect=fake_session,
             ),
             patch(
-                "agentfox.workspace.merge_lock._check_conflicts_resolved",
+                "agentfox.workspace.merge_agent._check_conflicts_resolved",
                 new_callable=AsyncMock,
                 return_value=True,
             ),
@@ -163,12 +163,12 @@ class TestAgentResolutionCompletesMerge:
         """When agent resolves conflicts, run_merge_agent returns True."""
         with (
             patch(
-                "agentfox.workspace.merge_lock._run_agent_session",
+                "agentfox.workspace.merge_agent._run_agent_session",
                 new_callable=AsyncMock,
                 return_value=True,
             ),
             patch(
-                "agentfox.workspace.merge_lock._check_conflicts_resolved",
+                "agentfox.workspace.merge_agent._check_conflicts_resolved",
                 new_callable=AsyncMock,
                 return_value=True,
             ),
@@ -188,7 +188,7 @@ class TestAgentApiErrorTreatedAsFailure:
     async def test_api_error_returns_false(self, tmp_path: Path) -> None:
         """When agent session raises an exception, run_merge_agent returns False."""
         with patch(
-            "agentfox.workspace.merge_lock._run_agent_session",
+            "agentfox.workspace.merge_agent._run_agent_session",
             new_callable=AsyncMock,
             side_effect=RuntimeError("API timeout"),
         ):
@@ -203,7 +203,7 @@ class TestAgentApiErrorTreatedAsFailure:
     async def test_timeout_error_returns_false(self, tmp_path: Path) -> None:
         """When agent session times out, run_merge_agent returns False."""
         with patch(
-            "agentfox.workspace.merge_lock._run_agent_session",
+            "agentfox.workspace.merge_agent._run_agent_session",
             new_callable=AsyncMock,
             side_effect=TimeoutError("session timed out"),
         ):
