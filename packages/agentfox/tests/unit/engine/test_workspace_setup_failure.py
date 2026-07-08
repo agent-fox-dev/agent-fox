@@ -205,6 +205,31 @@ class TestWorkspaceBackoffAndCircuitBreaker:
         assert "Workspace setup failed" in block_calls[0][1]
         assert "stale worktrees" in block_calls[0][1]
 
+    def test_fifth_failure_still_retries_with_backoff(self) -> None:
+        """Failures below _MAX_WORKSPACE_FAILURES get backoff, not blocking.
+
+        Regression test for #701: under concurrent git pressure, 3 failures
+        with short backoffs (2s, 4s) was too aggressive. With the raised
+        threshold, failure 5 should still get backoff (not trip the breaker).
+        """
+        node_states = {"spec:1": "in_progress"}
+        edges: dict[str, list[str]] = {"spec:1": []}
+        graph_sync = GraphSync(node_states, edges)
+        block_calls: list = []
+        handler = self._make_handler(graph_sync, block_calls)
+
+        state = ExecutionState(plan_hash="abc", node_states=node_states)
+        attempt_tracker: dict[str, int] = {}
+        error_tracker: dict[str, str | None] = {}
+
+        for i in range(5):
+            graph_sync.node_states["spec:1"] = "in_progress"
+            handler.process(self._make_record(attempt=i + 1), i + 1, state, attempt_tracker, error_tracker)
+
+        assert len(block_calls) == 0
+        assert graph_sync.node_states["spec:1"] == "pending"
+        assert handler.is_workspace_backoff_active("spec:1") is True
+
     def test_backoff_does_not_consume_failure_retries(self) -> None:
         """Workspace failures should not consume failure counter retries."""
         node_states = {"spec:1": "in_progress"}
