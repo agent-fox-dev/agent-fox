@@ -5,7 +5,7 @@ Re-exports key types from submodules for convenient access.
 
 from __future__ import annotations
 
-from agentspec.campaign import Campaign, CampaignMetadata
+from agentspec.campaign import CampaignMetadata
 from agentspec.config import AgentSpecConfig, load_config
 from agentspec.errors import AgentError, AgentSpecError, CampaignError, ConfigError, SessionError
 from agentspec.session import (
@@ -23,7 +23,6 @@ __all__ = [
     "AgentSpecConfig",
     "AgentSpecError",
     "Assessment",
-    "Campaign",
     "CampaignError",
     "CampaignMetadata",
     "ConfigError",

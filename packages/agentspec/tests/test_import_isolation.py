@@ -42,7 +42,6 @@ def test_ts10_p1_import_independence() -> None:
         assert "rich" not in sys.modules, "importing agentspec should not pull in rich"
         # Verify public symbols are accessible
         assert hasattr(agentspec, "SpecSession")
-        assert hasattr(agentspec, "Campaign")
     finally:
         # Restore original module state
         sys.modules.update(saved_agentspec)

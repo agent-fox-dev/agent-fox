@@ -275,7 +275,7 @@ class NodeSessionRunner:
         self._config = config
         self._archetype = archetype
         self._mode = mode  # 97-REQ-5.3: mode for per-mode configuration resolution
-        self._instances = clamp_instances(archetype, instances, mode=mode)
+        clamp_instances(archetype, instances, mode=mode)
         self._sink = sink_dispatcher
         self._sink_dispatcher = sink_dispatcher  # alias for retrieval audit events
         self._knowledge_db = knowledge_db

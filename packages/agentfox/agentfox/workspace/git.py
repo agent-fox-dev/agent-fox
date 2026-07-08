@@ -403,28 +403,6 @@ async def get_changed_files(
     return [f for f in stdout.strip().split("\n") if f]
 
 
-async def merge_fast_forward(
-    repo_path: Path,
-    branch: str,
-) -> None:
-    """Attempt a fast-forward-only merge of branch into HEAD.
-
-    Raises:
-        IntegrationError: If fast-forward is not possible.
-    """
-    validate_ref_name(branch)
-    returncode, _stdout, stderr = await run_git(
-        ["merge", "--ff-only", "--", branch],
-        cwd=repo_path,
-        check=False,
-    )
-    if returncode != 0:
-        raise IntegrationError(
-            f"Fast-forward merge of '{branch}' failed: {stderr.strip()}",
-            branch=branch,
-        )
-
-
 async def rebase_onto(
     repo_path: Path,
     branch: str,

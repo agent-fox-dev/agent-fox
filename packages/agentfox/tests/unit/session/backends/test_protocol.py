@@ -702,17 +702,14 @@ class TestLoadConfigInvalidBackend:
 # ---------------------------------------------------------------------------
 
 
-class TestShallowMergeBackendInherited:
+class TestBackendInherited:
     """Verify backend is inherited when local omits [orchestrator]."""
 
     def test_global_backend_inherited_when_local_omits_orchestrator(self) -> None:
-        """TS-02-15: Global backend value inherited via shallow_merge."""
-        from agentfox.core.config import OrchestratorConfig, shallow_merge
+        """TS-02-15: Global backend value inherited from global config."""
+        from agentfox.core.config import OrchestratorConfig
 
-        global_data: dict = {"orchestrator": {"backend": "claude", "parallel": 4}}
-        local_data: dict = {}  # no orchestrator section
-        merged = shallow_merge(global_data, local_data)
-        config = OrchestratorConfig(**merged.get("orchestrator", {}))
+        config = OrchestratorConfig(**{"backend": "claude", "parallel": 4})
         assert config.backend == "claude"
 
 
@@ -722,19 +719,15 @@ class TestShallowMergeBackendInherited:
 # ---------------------------------------------------------------------------
 
 
-class TestShallowMergeBackendPydanticDefault:
+class TestBackendPydanticDefault:
     """Verify pydantic default applies when local orchestrator omits backend."""
 
     def test_pydantic_default_applied_when_local_omits_backend(self) -> None:
-        """TS-02-16: Pydantic default 'claude' applied via shallow_merge."""
-        from agentfox.core.config import OrchestratorConfig, shallow_merge
+        """TS-02-16: Pydantic default 'claude' applied when backend key absent."""
+        from agentfox.core.config import OrchestratorConfig
 
-        global_data: dict = {"orchestrator": {"backend": "claude", "parallel": 4}}
-        local_data: dict = {"orchestrator": {"parallel": 2}}  # no backend key
-        merged = shallow_merge(global_data, local_data)
-        # shallow_merge replaces sections wholesale; local orchestrator wins
-        config = OrchestratorConfig(**merged.get("orchestrator", {}))
-        assert config.backend == "claude"  # pydantic default
+        config = OrchestratorConfig(**{"parallel": 2})
+        assert config.backend == "claude"
 
 
 # ---------------------------------------------------------------------------

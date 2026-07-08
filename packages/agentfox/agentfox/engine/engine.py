@@ -90,16 +90,6 @@ logger = logging.getLogger(__name__)
 _defer_ready_reviews = defer_ready_reviews
 
 
-class AssessmentManager:
-    """DEPRECATED: Stub retained for backward-compatible test imports only."""
-
-    def __init__(self, **kwargs: Any) -> None:
-        self.ladders: dict[str, Any] = {}
-        self.retries_before_escalation = kwargs.get("retries_before_escalation", 1)
-        self._assessor: Any = None
-        self._config = kwargs.get("config")
-
-
 class _SignalHandler:
     """SIGINT/SIGTERM handling for graceful shutdown (04-REQ-8.E1)."""
 

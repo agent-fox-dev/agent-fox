@@ -127,17 +127,6 @@ def format_drift_finding_parts(finding: Any) -> str:
     return " ".join(parts)
 
 
-def format_verdict_parts(verdict: Any) -> str:
-    """Format a verdict's requirement ID and evidence into a text fragment.
-
-    Returns a string like ``[FAIL] REQ-1.1 evidence text``.
-    """
-    parts = [f"[FAIL] {verdict.requirement_id}"]
-    if verdict.evidence:
-        parts.append(verdict.evidence)
-    return " ".join(parts)
-
-
 def sort_findings(
     findings: list[Any],
     keywords: frozenset[str],
@@ -158,19 +147,3 @@ def sort_findings(
     )
 
 
-def sort_verdicts(
-    verdicts: list[Any],
-    keywords: frozenset[str],
-) -> list[Any]:
-    """Sort verdicts by relevance score, then requirement ID.
-
-    Higher keyword overlap ranks first; requirement ID is the stable
-    alphabetical tiebreaker.
-    """
-    return sorted(
-        verdicts,
-        key=lambda v: (
-            -_score_relevance(f"{v.requirement_id} {v.evidence or ''}", keywords),
-            v.requirement_id,
-        ),
-    )

@@ -30,9 +30,6 @@ class FileImpact:
 # Regex to match backtick-quoted file paths (e.g. `routing/duration.py`)
 _BACKTICK_FILE_RE = re.compile(r"`([a-zA-Z0-9_/\-]+\.\w+)`")
 
-# Regex to match bare Python-style paths (e.g. agent_fox/routing/duration.py)
-_BARE_FILE_RE = re.compile(r"(?<!\w)([a-zA-Z_][a-zA-Z0-9_/\-]*\.\w{1,10})(?!\w)")
-
 
 def extract_file_impacts(
     spec_dir: Path,

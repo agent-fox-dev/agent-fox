@@ -18,7 +18,6 @@ from agentfox.workspace.git import (  # noqa: F401
     get_remote_url,
     has_new_commits,
     local_branch_exists,
-    merge_fast_forward,
     push_to_remote,
     rebase_onto,
     run_git,

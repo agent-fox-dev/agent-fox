@@ -146,25 +146,6 @@ def _run_daemon(ctx, om, config):  # noqa: C901
                 fn()
             except Exception:  # noqa: BLE001, S110
                 pass
-    try:
-        from afaudit.constants import AUDIT_DIR
-        from afaudit.nightshift_summary import (
-            build_nightshift_summary,
-            write_nightshift_summary,
-        )
-
-        summary = build_nightshift_summary(
-            run_id=ds.run_id,
-            uptime_seconds=ds.uptime_seconds,
-            total_cost=ds.total_cost,
-            total_sessions=engine.state.total_sessions,
-            issues_fixed=engine.state.issues_fixed,
-            issue_outcomes=engine.state.issue_outcomes,
-        )
-        write_nightshift_summary(summary, root / AUDIT_DIR)
-    except Exception:
-        logger.debug("Failed to write nightshift summary", exc_info=True)
-
     fixed, cost = engine.state.issues_fixed, ds.total_cost
     if om.json_mode:
         om.emit({"status": "stopped", "issues_fixed": fixed, "total_cost": cost})

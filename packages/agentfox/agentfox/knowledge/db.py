@@ -48,7 +48,6 @@ class KnowledgeDB:
             self._ensure_parent_dir()
             self._conn = duckdb.connect(self._config.store_path, read_only=self._read_only)
             if not self._read_only:
-                self._setup_vss()
                 run_migrations(self._conn)
         except KnowledgeStoreError:
             raise
@@ -70,18 +69,6 @@ class KnowledgeDB:
         """Create the parent directory for the database file."""
         parent = Path(self._config.store_path).parent
         parent.mkdir(parents=True, exist_ok=True)
-
-    def _setup_vss(self) -> None:
-        """Install (first time) or load the VSS extension."""
-        assert self._conn is not None
-        try:
-            self._conn.execute("LOAD vss;")
-        except Exception:
-            # First time: install then load
-            try:
-                self._conn.execute("INSTALL vss; LOAD vss;")
-            except Exception as exc:
-                logger.warning("VSS extension unavailable: %s", exc)
 
     def __enter__(self) -> KnowledgeDB:
         self.open()

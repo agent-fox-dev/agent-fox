@@ -249,7 +249,6 @@ class TestNoSystemParameter:
 AUXILIARY_MODULES = [
     "agentfox/nightshift/staleness.py",
     "agentfox/nightshift/triage.py",
-    "agentfox/fix/clusterer.py",
 ]
 
 

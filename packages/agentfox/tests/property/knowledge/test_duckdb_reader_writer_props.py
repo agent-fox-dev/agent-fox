@@ -66,7 +66,6 @@ def _seed_review_data(conn: duckdb.DuckDBPyConnection) -> None:
 _READ_ONLY_CALL_SITES = [
     "af_code",
     "af_plan_verify",
-    "fix_analyzer",
     "assemble_context",
 ]
 
@@ -95,10 +94,6 @@ class TestReadOnlyCallSitesNeverWrite:
             from agentfox.graph.persistence import load_plan
 
             load_plan(conn)
-        elif call_site == "fix_analyzer":
-            from agentfox.knowledge.review_store import query_active_findings
-
-            query_active_findings(conn, spec_name="")
         elif call_site == "assemble_context":
             from agentfox.session.context import assemble_context
 
@@ -116,7 +111,7 @@ class TestReadOnlyCallSitesNeverWrite:
         )
         conn.close()
 
-    @pytest.mark.parametrize("call_site", ["af_code", "af_plan_verify", "fix_analyzer"])
+    @pytest.mark.parametrize("call_site", ["af_code", "af_plan_verify"])
     def test_call_site_opens_with_read_only_true(self, call_site: str) -> None:
         """Each read-only call site must call open_knowledge_store with read_only=True."""
         mock_db = MagicMock()
@@ -153,16 +148,6 @@ class TestReadOnlyCallSitesNeverWrite:
                 CliRunner().invoke(main, ["plan", "--verify", "--specs-dir", "/tmp"])
             if mock_oks.called:
                 assert mock_oks.call_args.kwargs.get("read_only") is True
-        elif call_site == "fix_analyzer":
-            with (
-                patch("agentfox.knowledge.db.open_knowledge_store", return_value=mock_db) as mock_oks,
-                patch("agentfox.knowledge.review_store.query_active_findings", return_value=[]),
-            ):
-                from agentfox.fix.analyzer import load_review_context
-
-                load_review_context(Path("/tmp/fake"))
-            mock_oks.assert_called_once()
-            assert mock_oks.call_args.kwargs.get("read_only") is True
 
 
 # ---------------------------------------------------------------------------

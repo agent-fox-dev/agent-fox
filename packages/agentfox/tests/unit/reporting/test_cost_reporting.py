@@ -137,34 +137,6 @@ class TestPerSpecCost:
         assert extract_spec_name("26_agent_archetypes:0:skeptic") == "26_agent_archetypes"
 
 
-class TestCallSiteInstrumentation:
-    """TS-34-5: All auxiliary call sites are instrumented."""
-
-    def test_all_sites(self) -> None:
-        """TS-34-5: All six auxiliary call sites track token usage.
-
-        Modules may instrument usage directly via ``record_auxiliary_usage``
-        / ``track_response_usage``, or indirectly through the ``ai_call``,
-        ``ai_call_sync``, and ``nightshift_ai_call`` wrappers which handle
-        token tracking internally.
-        """
-        _VALID_MARKERS = {
-            "record_auxiliary_usage",
-            "track_response_usage",
-            "ai_call",
-            "ai_call_sync",
-            "nightshift_ai_call",
-        }
-        files = [
-            "packages/agentfox/agentfox/fix/clusterer.py",
-        ]
-        for filepath in files:
-            content = Path(filepath).read_text()
-            assert any(marker in content for marker in _VALID_MARKERS), (
-                f"{filepath} does not track auxiliary token usage"
-            )
-
-
 class TestBackwardCompat:
     """TS-34-E5, TS-34-E6: Backward compatibility edge cases."""
 
