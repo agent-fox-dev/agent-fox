@@ -44,6 +44,19 @@ _MAX_ENVIRONMENT_BACKOFF_SECONDS = 30
 
 @dataclass
 class _NodeRetryState:
+    """Consolidated per-node retry ledger.
+
+    Owns all failure/attempt state for a single node.  Keyed by node ID
+    in ``SessionResultHandler._node_retry_states``.
+
+    Fields consolidated from the formerly separate tracking mechanisms:
+    - ``failure_count`` — failure counter (formerly ``_node_failure_counts``)
+    - ``attempts`` — dispatch attempt counter (formerly ``attempt_tracker``)
+    - timeout / audit / workspace / environment sub-counters
+    """
+
+    failure_count: int = 0
+    attempts: int = 0
     timeout_retries: int = 0
     audit_retry_count: int = 0
     max_turns: int | None = None
@@ -96,7 +109,6 @@ class SessionResultHandler:
         self._check_block_budget = check_block_budget_fn
 
         self._node_retry_states: dict[str, _NodeRetryState] = {}
-        self._node_failure_counts: dict[str, int] = {}
         self._coverage_tool: Any = None  # None = not checked, False = no tool
         self._max_timeout_retries: int = max_timeout_retries
         self._timeout_multiplier: float = timeout_multiplier
@@ -121,6 +133,33 @@ class SessionResultHandler:
             ns = _NodeRetryState()
             self._node_retry_states[node_id] = ns
         return ns
+
+    def get_failure_count(self, node_id: str) -> int:
+        """Return the failure count for *node_id* (0 if never tracked)."""
+        ns = self._node_retry_states.get(node_id)
+        return ns.failure_count if ns is not None else 0
+
+    def get_attempt_count(self, node_id: str) -> int:
+        """Return the current attempt count for *node_id* (0 if never tracked)."""
+        ns = self._node_retry_states.get(node_id)
+        return ns.attempts if ns is not None else 0
+
+    def record_attempt(self, node_id: str, attempt: int) -> None:
+        """Record the attempt number for *node_id* in the ledger."""
+        self._get_node_state(node_id).attempts = attempt
+
+    def init_attempts(self, state: Any) -> None:
+        """Initialise attempt counts from session history.
+
+        Tasks whose current status is ``"pending"`` are excluded — they
+        are either new or have been reset and should start fresh at
+        attempt 0.
+        """
+        for record in state.session_history:
+            if state.node_states.get(record.node_id) == "pending":
+                continue
+            ns = self._get_node_state(record.node_id)
+            ns.attempts = max(ns.attempts, record.attempt)
 
     def get_timeout_override(self, node_id: str) -> int | None:
         ns = self._node_retry_states.get(node_id)
@@ -307,8 +346,9 @@ class SessionResultHandler:
         if mode == "audit-review":
             return self._retry_on_audit_review_block(record, decision, state, coder_node_id)
 
-        count = self._node_failure_counts.get(coder_node_id, 0) + 1
-        self._node_failure_counts[coder_node_id] = count
+        ns = self._get_node_state(coder_node_id)
+        ns.failure_count += 1
+        count = ns.failure_count
 
         if count > self._max_retries:
             logger.warning(
@@ -453,7 +493,6 @@ class SessionResultHandler:
         record: SessionRecord,
         attempt: int,
         state: ExecutionState,
-        attempt_tracker: dict[str, int],
         error_tracker: dict[str, str | None],
     ) -> None:
         """Process a completed session record and persist state."""
@@ -522,9 +561,9 @@ class SessionResultHandler:
             self._handle_success(record, state, error_tracker)
         elif record.status == "timeout":
             # 75-REQ-1.1, 75-REQ-1.3: Route timeout to dedicated handler
-            self._handle_timeout(record, attempt, state, attempt_tracker, error_tracker)
+            self._handle_timeout(record, attempt, state, error_tracker)
         else:
-            self._handle_failure(record, attempt, state, attempt_tracker, error_tracker)
+            self._handle_failure(record, attempt, state, error_tracker)
 
         # 105-REQ-2.1: Persist node status per-transition to DB (not batch at end-of-run).
         if self._knowledge_db_conn is not None:
@@ -636,7 +675,6 @@ class SessionResultHandler:
         record: SessionRecord,
         attempt: int,
         state: ExecutionState,
-        attempt_tracker: dict[str, int],
         error_tracker: dict[str, str | None],
     ) -> None:
         """Handle a timeout failure: extend params and retry, or fall through.
@@ -662,7 +700,7 @@ class SessionResultHandler:
                 current_retries,
                 self._max_timeout_retries,
             )
-            self._handle_failure(record, attempt, state, attempt_tracker, error_tracker)
+            self._handle_failure(record, attempt, state, error_tracker)
             return
 
         # Capture original values before extending for audit payload (75-REQ-5.3)
@@ -745,6 +783,7 @@ class SessionResultHandler:
     def _handle_transport_error(
         self,
         record: SessionRecord,
+        state: ExecutionState,
     ) -> None:
         """Handle a transport error by resetting to pending without consuming escalation.
 
@@ -904,43 +943,40 @@ class SessionResultHandler:
             },
         )
 
+    # Data-driven dispatch table for special failure classes.
+    # Each entry is (record_attribute, handler_method_name).
+    # All handlers accept (self, record, state) for uniform dispatch.
+    # Adding a new failure class requires one table entry, not a new ``if`` block.
+    _FAILURE_DISPATCH_TABLE: list[tuple[str, str]] = [
+        ("is_workspace_setup_failure", "_handle_workspace_setup_failure"),
+        ("is_non_retryable", "_handle_non_retryable"),
+        ("is_budget_exhausted", "_handle_budget_exhausted"),
+        ("is_transport_error", "_handle_transport_error"),
+        ("is_environment_failure", "_handle_environment_failure"),
+    ]
+
     def _handle_failure(
         self,
         record: SessionRecord,
         attempt: int,
         state: ExecutionState,
-        attempt_tracker: dict[str, int],
         error_tracker: dict[str, str | None],
     ) -> None:
-        """Handle a failed session: retry or block."""
+        """Handle a failed session: retry or block.
+
+        Special failure classes (workspace-setup, non-retryable, budget,
+        transport, environment) are routed through a data-driven dispatch
+        table.  Generic failures fall through to the retry/exhaustion ladder.
+        """
         node_id = record.node_id
         error_tracker[node_id] = record.error_message
 
-        # Workspace-setup failures get exponential backoff, not retries.
-        if record.is_workspace_setup_failure:
-            self._handle_workspace_setup_failure(record, state)
-            return
-
-        # Non-retryable errors (workspace-state) are blocked immediately.
-        if getattr(record, "is_non_retryable", False):
-            self._handle_non_retryable(record, state)
-            return
-
-        # Budget exhaustion is not retryable.
-        if getattr(record, "is_budget_exhausted", False):
-            self._handle_budget_exhausted(record, state)
-            return
-
-        # Transport errors are retried without counting.
-        if getattr(record, "is_transport_error", False):
-            self._handle_transport_error(record)
-            return
-
-        # Zero-turn environment failures (SDK crashed before any LLM call)
-        # get backoff without consuming retry budget.
-        if record.is_environment_failure:
-            self._handle_environment_failure(record, state)
-            return
+        # Data-driven dispatch for special failure classes
+        for attr, handler_name in self._FAILURE_DISPATCH_TABLE:
+            if getattr(record, attr, False):
+                handler = getattr(self, handler_name)
+                handler(record, state)
+                return
 
         # 26-REQ-9.3: Retry-predecessor for archetypes with the flag
         node_archetype = self._get_node_archetype(node_id)
@@ -951,8 +987,9 @@ class SessionResultHandler:
 
             archetype_entry = resolve_effective_config(archetype_entry, node_mode)
 
-        count = self._node_failure_counts.get(node_id, 0) + 1
-        self._node_failure_counts[node_id] = count
+        ns = self._get_node_state(node_id)
+        ns.failure_count += 1
+        count = ns.failure_count
         can_retry = count <= self._max_retries
         exhausted = not can_retry
 
@@ -962,7 +999,7 @@ class SessionResultHandler:
                 return
 
         if exhausted:
-            self._handle_exhausted(node_id, record, state, attempt_tracker)
+            self._handle_exhausted(node_id, record, state)
         else:
             self._handle_retry(node_id, record, attempt)
 
@@ -981,8 +1018,9 @@ class SessionResultHandler:
 
         pred_id = predecessors[0]
 
-        pred_count = self._node_failure_counts.get(pred_id, 0) + 1
-        self._node_failure_counts[pred_id] = pred_count
+        pred_ns = self._get_node_state(pred_id)
+        pred_ns.failure_count += 1
+        pred_count = pred_ns.failure_count
 
         if pred_count > self._max_retries:
             self._block_task(
@@ -1019,7 +1057,6 @@ class SessionResultHandler:
         node_id: str,
         record: SessionRecord,
         state: ExecutionState,
-        attempt_tracker: dict[str, int],
     ) -> None:
         """Handle a node that has exhausted all retries."""
         # 18-REQ-5.4: Emit task failure event

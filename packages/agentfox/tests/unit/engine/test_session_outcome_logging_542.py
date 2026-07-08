@@ -92,7 +92,6 @@ class TestSessionDbWriteFailureLogsWarning:
                     1,
                     state,
                     {},
-                    {},
                 )
 
         warning_msgs = [r.message for r in caplog.records if r.levelno == logging.WARNING]
@@ -120,7 +119,6 @@ class TestSessionDbWriteFailureLogsWarning:
                     _make_completed_record(),
                     1,
                     state,
-                    {},
                     {},
                 )
 
@@ -164,7 +162,6 @@ class TestNodeStatusPersistFailureLogsWarning:
                     _make_completed_record(),
                     1,
                     state,
-                    {},
                     {},
                 )
 

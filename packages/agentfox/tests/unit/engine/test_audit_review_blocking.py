@@ -703,7 +703,7 @@ class TestAC6AuditMaxRetriesConfig:
         block_task_fn.assert_not_called()
 
         # The coder's generic failure counter should not have been incremented
-        assert handler._node_failure_counts.get("foo:2", 0) == 0, (
+        assert handler.get_failure_count("foo:2") == 0, (
             "Audit retries must not increment the coder's generic failure counter"
         )
 

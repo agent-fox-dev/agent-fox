@@ -56,7 +56,6 @@ def _make_handler(
 ) -> tuple[
     SessionResultHandler,
     ExecutionState,
-    dict[str, int],
     dict[str, str | None],
 ]:
     """Create a minimal SessionResultHandler for property tests."""
@@ -80,10 +79,9 @@ def _make_handler(
         node_states={node_id: "in_progress"},
     )
 
-    attempt_tracker: dict[str, int] = {}
     error_tracker: dict[str, str | None] = {}
 
-    return handler, state, attempt_tracker, error_tracker
+    return handler, state, error_tracker
 
 
 # ---------------------------------------------------------------------------
@@ -113,7 +111,7 @@ class TestTimeoutNeverDirectlyEscalates:
         # Clamp timeout_count to max_timeout_retries so retries remain.
         n = min(timeout_count, max_timeout_retries)
 
-        handler, state, attempt_tracker, error_tracker = _make_handler(max_timeout_retries=max_timeout_retries)
+        handler, state, error_tracker = _make_handler(max_timeout_retries=max_timeout_retries)
 
         # Currently FAILS: _max_timeout_retries doesn't exist.
         handler._max_timeout_retries = max_timeout_retries
@@ -127,17 +125,16 @@ class TestTimeoutNeverDirectlyEscalates:
                 record,
                 attempt=i + 1,
                 state=state,
-                attempt_tracker=attempt_tracker,
                 error_tracker=error_tracker,
             )
 
         # Property: no escalation ladder failures while retries remain.
         # Currently FAILS because _handle_failure is called for all non-success.
-        assert handler._node_failure_counts.get("node1", 0) == 0
+        assert handler.get_failure_count("node1") == 0
 
     def test_single_timeout_no_escalation(self) -> None:
         """TS-75-P1 (concrete): One timeout with max_timeout_retries=1 → none."""
-        handler, state, attempt_tracker, error_tracker = _make_handler(max_timeout_retries=1)
+        handler, state, error_tracker = _make_handler(max_timeout_retries=1)
         # Currently FAILS: _max_timeout_retries doesn't exist.
         handler._max_timeout_retries = 1
 
@@ -146,11 +143,10 @@ class TestTimeoutNeverDirectlyEscalates:
             record,
             attempt=1,
             state=state,
-            attempt_tracker=attempt_tracker,
             error_tracker=error_tracker,
         )
 
-        assert handler._node_failure_counts.get("node1", 0) == 0
+        assert handler.get_failure_count("node1") == 0
 
 
 # ---------------------------------------------------------------------------
@@ -182,7 +178,7 @@ class TestCounterIndependence:
         Validates: 75-REQ-2.1, 75-REQ-2.E1
         """
         max_timeout_retries = 5
-        handler, state, attempt_tracker, error_tracker = _make_handler(max_timeout_retries=max_timeout_retries)
+        handler, state, error_tracker = _make_handler(max_timeout_retries=max_timeout_retries)
 
         # Currently FAILS: _max_timeout_retries doesn't exist.
         handler._max_timeout_retries = max_timeout_retries
@@ -196,7 +192,6 @@ class TestCounterIndependence:
                 record,
                 attempt=i + 1,
                 state=state,
-                attempt_tracker=attempt_tracker,
                 error_tracker=error_tracker,
             )
 
@@ -210,7 +205,7 @@ class TestCounterIndependence:
         assert actual_timeout_retries == expected_timeouts_before_max
 
         # Failure counter should count both 'failed' events and exhausted timeouts.
-        assert handler._node_failure_counts.get("node1", 0) == total_expected_failures
+        assert handler.get_failure_count("node1") == total_expected_failures
 
 
 # ---------------------------------------------------------------------------
@@ -259,7 +254,7 @@ class TestMonotonicTimeoutExtension:
 
     def test_concrete_two_retries_clamped(self) -> None:
         """TS-75-P3 (concrete): original=30, mult=1.5, ceil=2.0: 45 → 60."""
-        handler, _, _, _ = _make_handler()
+        handler, _, _ = _make_handler()
 
         ns = handler._get_node_state("node1")
         ns.timeout = 30
@@ -293,7 +288,7 @@ class TestTimeoutExhaustionFallsThrough:
 
         Validates: 75-REQ-2.4
         """
-        handler, state, attempt_tracker, error_tracker = _make_handler(max_timeout_retries=max_retries)
+        handler, state, error_tracker = _make_handler(max_timeout_retries=max_retries)
 
         # Currently FAILS: _max_timeout_retries doesn't exist.
         handler._max_timeout_retries = max_retries
@@ -308,12 +303,11 @@ class TestTimeoutExhaustionFallsThrough:
                 record,
                 attempt=i + 1,
                 state=state,
-                attempt_tracker=attempt_tracker,
                 error_tracker=error_tracker,
             )
 
         # Currently FAILS: record_failure IS called on every failure path.
-        assert handler._node_failure_counts.get("node1", 0) == 0
+        assert handler.get_failure_count("node1") == 0
 
         # One more timeout → must fall through to escalation.
         handler._graph_sync.node_states["node1"] = "in_progress"  # type: ignore[attr-defined]
@@ -322,15 +316,14 @@ class TestTimeoutExhaustionFallsThrough:
             record,
             attempt=max_retries + 1,
             state=state,
-            attempt_tracker=attempt_tracker,
             error_tracker=error_tracker,
         )
 
-        assert handler._node_failure_counts.get("node1", 0) == 1
+        assert handler.get_failure_count("node1") == 1
 
     def test_concrete_exhaustion_at_max_two(self) -> None:
         """TS-75-P4 (concrete): max_timeout_retries=2; 3rd timeout → escalation."""
-        handler, state, attempt_tracker, error_tracker = _make_handler(max_timeout_retries=2)
+        handler, state, error_tracker = _make_handler(max_timeout_retries=2)
 
         # Currently FAILS: _max_timeout_retries doesn't exist.
         handler._max_timeout_retries = 2
@@ -343,11 +336,10 @@ class TestTimeoutExhaustionFallsThrough:
                 record,
                 attempt=i + 1,
                 state=state,
-                attempt_tracker=attempt_tracker,
                 error_tracker=error_tracker,
             )
 
-        assert handler._node_failure_counts.get("node1", 0) == 0
+        assert handler.get_failure_count("node1") == 0
 
         handler._graph_sync.node_states["node1"] = "in_progress"  # type: ignore[attr-defined]
         record = _make_record("timeout", attempt=3)
@@ -355,11 +347,10 @@ class TestTimeoutExhaustionFallsThrough:
             record,
             attempt=3,
             state=state,
-            attempt_tracker=attempt_tracker,
             error_tracker=error_tracker,
         )
 
-        assert handler._node_failure_counts.get("node1", 0) == 1
+        assert handler.get_failure_count("node1") == 1
 
 
 # ---------------------------------------------------------------------------
@@ -380,7 +371,7 @@ class TestUnlimitedTurnsPreserved:
 
         Validates: 75-REQ-3.4
         """
-        handler, _, _, _ = _make_handler()
+        handler, _, _ = _make_handler()
 
         ns = handler._get_node_state("node1")
         ns.max_turns = None
@@ -395,7 +386,7 @@ class TestUnlimitedTurnsPreserved:
 
     def test_none_preserved_concrete_three_retries(self) -> None:
         """TS-75-P5 (concrete): None max_turns stays None through 3 retries."""
-        handler, _, _, _ = _make_handler()
+        handler, _, _ = _make_handler()
 
         ns = handler._get_node_state("node1")
         ns.max_turns = None

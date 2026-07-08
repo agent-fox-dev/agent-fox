@@ -39,10 +39,10 @@ def _make_orchestrator(
     node_states: dict[str, str],
     *,
     max_retries: int = 5,
-) -> tuple[Orchestrator, ExecutionState, dict[str, int], dict[str, str | None]]:
+) -> tuple[Orchestrator, ExecutionState, dict[str, str | None]]:
     """Create a minimal Orchestrator with pre-built graph and routing state.
 
-    Returns (orchestrator, state, attempt_tracker, error_tracker).
+    Returns (orchestrator, state, error_tracker).
     """
     config = OrchestratorConfig(max_retries=max_retries)
     orch = Orchestrator(
@@ -102,10 +102,9 @@ def _make_orchestrator(
         updated_at="2024-01-01",
     )
 
-    attempt_tracker: dict[str, int] = {}
     error_tracker: dict[str, str | None] = {}
 
-    return orch, state, attempt_tracker, error_tracker
+    return orch, state, error_tracker
 
 
 def _make_failed_reviewer_record(
@@ -145,7 +144,7 @@ class TestReviewerFailureRecordsOnPredCounter:
         Requirement: 58-REQ-1.1
         """
         node_states = {"spec:1": "completed", "spec:2": "in_progress"}
-        orch, state, attempt_tracker, error_tracker = _make_orchestrator(
+        orch, state, error_tracker = _make_orchestrator(
             CODER_VERIFIER_NODES, CODER_VERIFIER_EDGES, node_states
         )
 
@@ -153,12 +152,11 @@ class TestReviewerFailureRecordsOnPredCounter:
             _make_failed_reviewer_record(),
             1,
             state,
-            attempt_tracker,
             error_tracker,
         )
 
         # 58-REQ-1.1: predecessor failure counter must be incremented
-        assert orch._result_handler._node_failure_counts.get("spec:1", 0) == 1
+        assert orch._result_handler.get_failure_count("spec:1") == 1
 
 
 # ---------------------------------------------------------------------------
@@ -177,7 +175,7 @@ class TestPredecessorResetToPending:
         Requirement: 58-REQ-1.2
         """
         node_states = {"spec:1": "completed", "spec:2": "in_progress"}
-        orch, state, attempt_tracker, error_tracker = _make_orchestrator(
+        orch, state, error_tracker = _make_orchestrator(
             CODER_VERIFIER_NODES, CODER_VERIFIER_EDGES, node_states
         )
 
@@ -185,7 +183,6 @@ class TestPredecessorResetToPending:
             _make_failed_reviewer_record(),
             1,
             state,
-            attempt_tracker,
             error_tracker,
         )
 
@@ -193,7 +190,7 @@ class TestPredecessorResetToPending:
         assert state.node_states["spec:1"] == "pending"
         assert state.node_states["spec:2"] == "pending"
         # The predecessor's failure counter must have recorded the failure
-        assert orch._result_handler._node_failure_counts.get("spec:1", 0) == 1
+        assert orch._result_handler.get_failure_count("spec:1") == 1
 
 
 # ---------------------------------------------------------------------------
@@ -212,7 +209,7 @@ class TestPredecessorRetriesAccumulate:
         Requirement: 58-REQ-1.3
         """
         node_states = {"spec:1": "completed", "spec:2": "in_progress"}
-        orch, state, attempt_tracker, error_tracker = _make_orchestrator(
+        orch, state, error_tracker = _make_orchestrator(
             CODER_VERIFIER_NODES, CODER_VERIFIER_EDGES, node_states
         )
 
@@ -221,10 +218,9 @@ class TestPredecessorRetriesAccumulate:
             _make_failed_reviewer_record(attempt=1),
             1,
             state,
-            attempt_tracker,
             error_tracker,
         )
-        assert orch._result_handler._node_failure_counts.get("spec:1", 0) == 1
+        assert orch._result_handler.get_failure_count("spec:1") == 1
 
         # Reset state for the second call
         state.node_states["spec:1"] = "completed"
@@ -235,10 +231,9 @@ class TestPredecessorRetriesAccumulate:
             _make_failed_reviewer_record(attempt=2),
             2,
             state,
-            attempt_tracker,
             error_tracker,
         )
-        assert orch._result_handler._node_failure_counts.get("spec:1", 0) == 2
+        assert orch._result_handler.get_failure_count("spec:1") == 2
         # Predecessor should still be pending (not yet past max_retries=5)
         assert state.node_states["spec:1"] == "pending"
 
@@ -260,7 +255,7 @@ class TestPredecessorBlocksOnExhaustion:
         """
         node_states = {"spec:1": "completed", "spec:2": "in_progress"}
         # max_retries=1: blocked after 2nd failure
-        orch, state, attempt_tracker, error_tracker = _make_orchestrator(
+        orch, state, error_tracker = _make_orchestrator(
             CODER_VERIFIER_NODES, CODER_VERIFIER_EDGES, node_states, max_retries=1
         )
 
@@ -269,7 +264,6 @@ class TestPredecessorBlocksOnExhaustion:
             _make_failed_reviewer_record(attempt=1),
             1,
             state,
-            attempt_tracker,
             error_tracker,
         )
         assert state.node_states["spec:1"] == "pending"
@@ -283,7 +277,6 @@ class TestPredecessorBlocksOnExhaustion:
             _make_failed_reviewer_record(attempt=2),
             2,
             state,
-            attempt_tracker,
             error_tracker,
         )
 
@@ -308,7 +301,7 @@ class TestNeitherNodeResetWhenBlocked:
         """
         node_states = {"spec:1": "completed", "spec:2": "in_progress"}
         # max_retries=0: immediate exhaustion on first failure
-        orch, state, attempt_tracker, error_tracker = _make_orchestrator(
+        orch, state, error_tracker = _make_orchestrator(
             CODER_VERIFIER_NODES, CODER_VERIFIER_EDGES, node_states, max_retries=0
         )
 
@@ -316,7 +309,6 @@ class TestNeitherNodeResetWhenBlocked:
             _make_failed_reviewer_record(attempt=1),
             1,
             state,
-            attempt_tracker,
             error_tracker,
         )
 
@@ -360,17 +352,16 @@ class TestMultipleReviewersShareCounter:
             "spec:1:reviewer:audit-review": "pending",
         }
 
-        orch, state, attempt_tracker, error_tracker = _make_orchestrator(plan_nodes, edges_list, node_states)
+        orch, state, error_tracker = _make_orchestrator(plan_nodes, edges_list, node_states)
 
         # 1st failure (verifier)
         orch._result_handler.process(  # type: ignore[union-attr]
             _make_failed_reviewer_record("spec:2", 1),
             1,
             state,
-            attempt_tracker,
             error_tracker,
         )
-        assert orch._result_handler._node_failure_counts.get("spec:1", 0) == 1
+        assert orch._result_handler.get_failure_count("spec:1") == 1
 
         # Reset state for reviewer:audit-review
         state.node_states["spec:1"] = "completed"
@@ -381,10 +372,9 @@ class TestMultipleReviewersShareCounter:
             _make_failed_reviewer_record("spec:1:reviewer:audit-review", 1, archetype="reviewer"),
             1,
             state,
-            attempt_tracker,
             error_tracker,
         )
-        assert orch._result_handler._node_failure_counts.get("spec:1", 0) == 2
+        assert orch._result_handler.get_failure_count("spec:1") == 2
 
         # Reset state for verifier again
         state.node_states["spec:1"] = "completed"
@@ -395,10 +385,9 @@ class TestMultipleReviewersShareCounter:
             _make_failed_reviewer_record("spec:2", 2),
             2,
             state,
-            attempt_tracker,
             error_tracker,
         )
-        assert orch._result_handler._node_failure_counts.get("spec:1", 0) == 3
+        assert orch._result_handler.get_failure_count("spec:1") == 3
 
 
 # ---------------------------------------------------------------------------
@@ -440,7 +429,7 @@ class TestCumulativeRetryDecision:
         }
 
         # max_retries=1: blocked after 2nd cumulative failure
-        orch, state, attempt_tracker, error_tracker = _make_orchestrator(
+        orch, state, error_tracker = _make_orchestrator(
             plan_nodes, edges_list, node_states, max_retries=1
         )
 
@@ -449,7 +438,6 @@ class TestCumulativeRetryDecision:
             _make_failed_reviewer_record("spec:2", 1),
             1,
             state,
-            attempt_tracker,
             error_tracker,
         )
         assert state.node_states["spec:1"] == "pending"
@@ -463,7 +451,6 @@ class TestCumulativeRetryDecision:
             _make_failed_reviewer_record("spec:1:reviewer:audit-review", 1, archetype="reviewer"),
             1,
             state,
-            attempt_tracker,
             error_tracker,
         )
         assert state.node_states["spec:1"] == "blocked"
@@ -485,23 +472,22 @@ class TestNoCounterCreatedImplicitly:
         Requirement: 58-REQ-1.E1
         """
         node_states = {"spec:1": "completed", "spec:2": "in_progress"}
-        orch, state, attempt_tracker, error_tracker = _make_orchestrator(
+        orch, state, error_tracker = _make_orchestrator(
             CODER_VERIFIER_NODES, CODER_VERIFIER_EDGES, node_states
         )
 
         # Confirm no predecessor counter exists before the call
-        assert "spec:1" not in orch._result_handler._node_failure_counts
+        assert orch._result_handler.get_failure_count("spec:1") == 0
 
         orch._result_handler.process(  # type: ignore[union-attr]
             _make_failed_reviewer_record(),
             1,
             state,
-            attempt_tracker,
             error_tracker,
         )
 
         # 58-REQ-1.E1: a counter must be created for the predecessor
-        assert orch._result_handler._node_failure_counts.get("spec:1", 0) == 1
+        assert orch._result_handler.get_failure_count("spec:1") == 1
 
 
 # ---------------------------------------------------------------------------
@@ -521,7 +507,7 @@ class TestMaxRetriesBlocks:
         """
         node_states = {"spec:1": "completed", "spec:2": "in_progress"}
         # max_retries=1: blocked after 2nd failure
-        orch, state, attempt_tracker, error_tracker = _make_orchestrator(
+        orch, state, error_tracker = _make_orchestrator(
             CODER_VERIFIER_NODES, CODER_VERIFIER_EDGES, node_states, max_retries=1
         )
 
@@ -530,7 +516,6 @@ class TestMaxRetriesBlocks:
             _make_failed_reviewer_record(attempt=1),
             1,
             state,
-            attempt_tracker,
             error_tracker,
         )
         assert state.node_states["spec:1"] == "pending"
@@ -544,7 +529,6 @@ class TestMaxRetriesBlocks:
             _make_failed_reviewer_record(attempt=2),
             2,
             state,
-            attempt_tracker,
             error_tracker,
         )
 

@@ -158,7 +158,7 @@ class TestAC1AutoCleanKnownArtifacts:
             patch(_FORCE_CLEAN, new=AsyncMock(return_value=clean_report)) as mock_clean,
             patch.object(mgr, "_run_preflight", return_value=False),
         ):
-            result = await mgr.prepare_launch("spec:1", state, {}, {})
+            result = await mgr.prepare_launch("spec:1", state, {})
 
         mock_clean.assert_awaited_once()
         mgr._block_task_fn.assert_not_called()
@@ -181,7 +181,7 @@ class TestAC1AutoCleanKnownArtifacts:
             patch(_FORCE_CLEAN, new=AsyncMock(return_value=clean_report)) as mock_clean,
             patch.object(mgr, "_run_preflight", return_value=False),
         ):
-            result = await mgr.prepare_launch("spec:1", state, {}, {})
+            result = await mgr.prepare_launch("spec:1", state, {})
 
         mock_clean.assert_awaited_once()
         mgr._block_task_fn.assert_not_called()
@@ -201,7 +201,7 @@ class TestAC1AutoCleanKnownArtifacts:
         state = _make_state()
 
         with patch(_HEALTH_CHECK, new=AsyncMock(return_value=dirty_report)), patch(_FORCE_CLEAN) as mock_clean:
-            result = await mgr.prepare_launch("spec:1", state, {}, {})
+            result = await mgr.prepare_launch("spec:1", state, {})
 
         mock_clean.assert_not_called()
         # AC-4: _block_task_fn must NOT be called — task stays re-dispatchable
@@ -234,7 +234,7 @@ class TestAC2ForceCleanConfig:
             patch(_FORCE_CLEAN, new=AsyncMock(return_value=clean_report)) as mock_clean,
             patch.object(mgr, "_run_preflight", return_value=False),
         ):
-            result = await mgr.prepare_launch("spec:1", state, {}, {})
+            result = await mgr.prepare_launch("spec:1", state, {})
 
         mock_clean.assert_awaited_once()
         mgr._block_task_fn.assert_not_called()
@@ -254,7 +254,7 @@ class TestAC2ForceCleanConfig:
         state = _make_state()
 
         with patch(_HEALTH_CHECK, new=AsyncMock(return_value=dirty_report)), patch(_FORCE_CLEAN) as mock_clean:
-            result = await mgr.prepare_launch("spec:1", state, {}, {})
+            result = await mgr.prepare_launch("spec:1", state, {})
 
         mock_clean.assert_not_called()
         # AC-4: _block_task_fn must NOT be called — task stays re-dispatchable
@@ -338,7 +338,7 @@ class TestBlockOnlyWhenRemediationFails:
             patch(_HEALTH_CHECK, new=AsyncMock(return_value=dirty_report)),
             patch(_FORCE_CLEAN, new=AsyncMock(return_value=still_dirty_report)),
         ):
-            result = await mgr.prepare_launch("spec:1", state, {}, {})
+            result = await mgr.prepare_launch("spec:1", state, {})
 
         # AC-4: Must NOT call _block_task_fn — task remains re-dispatchable
         mgr._block_task_fn.assert_not_called()
@@ -372,7 +372,7 @@ class TestAC5FailOpenOnException:
             patch(_FORCE_CLEAN, side_effect=OSError("permission denied")),
             patch.object(mgr, "_run_preflight", return_value=False),
         ):
-            result = await mgr.prepare_launch("spec:1", state, {}, {})
+            result = await mgr.prepare_launch("spec:1", state, {})
 
         mgr._block_task_fn.assert_not_called()
         assert result is not None
@@ -395,7 +395,7 @@ class TestAC5FailOpenOnException:
             patch(_FORCE_CLEAN, side_effect=RuntimeError("unexpected")),
             patch.object(mgr, "_run_preflight", return_value=False),
         ):
-            result = await mgr.prepare_launch("spec:1", state, {}, {})
+            result = await mgr.prepare_launch("spec:1", state, {})
 
         mgr._block_task_fn.assert_not_called()
         assert result is not None
@@ -421,7 +421,7 @@ class TestCleanWorkspaceUnaffected:
             patch(_FORCE_CLEAN) as mock_clean,
             patch.object(mgr, "_run_preflight", return_value=False),
         ):
-            result = await mgr.prepare_launch("spec:1", state, {}, {})
+            result = await mgr.prepare_launch("spec:1", state, {})
 
         mock_clean.assert_not_called()
         mgr._block_task_fn.assert_not_called()

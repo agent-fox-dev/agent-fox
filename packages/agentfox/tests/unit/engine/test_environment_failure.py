@@ -23,7 +23,7 @@ def _make_handler(
     *,
     max_retries: int = 2,
     sink: Any = None,
-) -> tuple[SessionResultHandler, ExecutionState, dict[str, int], dict[str, str | None]]:
+) -> tuple[SessionResultHandler, ExecutionState, dict[str, str | None]]:
     graph_sync = GraphSync({"node1": "in_progress"}, {"node1": []})
 
     handler = SessionResultHandler(
@@ -40,10 +40,9 @@ def _make_handler(
     )
 
     state = ExecutionState(plan_hash="test", node_states={"node1": "in_progress"})
-    attempt_tracker: dict[str, int] = {}
     error_tracker: dict[str, str | None] = {}
 
-    return handler, state, attempt_tracker, error_tracker
+    return handler, state, error_tracker
 
 
 def _make_env_failure_record(node_id: str = "node1", attempt: int = 1) -> SessionRecord:
@@ -153,31 +152,31 @@ class TestSessionRecordIsEnvironmentFailure:
 
 class TestEnvironmentFailureDoesNotConsumeRetries:
     def test_env_failure_does_not_consume_retry_counter(self) -> None:
-        handler, state, at, et = _make_handler(max_retries=2)
+        handler, state, et = _make_handler(max_retries=2)
         record = _make_env_failure_record()
-        handler.process(record, attempt=1, state=state, attempt_tracker=at, error_tracker=et)
-        assert handler._node_failure_counts.get("node1", 0) == 0
+        handler.process(record, attempt=1, state=state, error_tracker=et)
+        assert handler.get_failure_count("node1") == 0
 
     def test_normal_failure_does_consume_retry_counter(self) -> None:
-        handler, state, at, et = _make_handler(max_retries=2)
+        handler, state, et = _make_handler(max_retries=2)
         record = _make_normal_failure_record()
-        handler.process(record, attempt=1, state=state, attempt_tracker=at, error_tracker=et)
-        assert handler._node_failure_counts.get("node1", 0) == 1
+        handler.process(record, attempt=1, state=state, error_tracker=et)
+        assert handler.get_failure_count("node1") == 1
 
 
 class TestEnvironmentFailureBackoff:
     def test_first_env_failure_sets_backoff(self) -> None:
-        handler, state, at, et = _make_handler()
+        handler, state, et = _make_handler()
         record = _make_env_failure_record()
-        handler.process(record, attempt=1, state=state, attempt_tracker=at, error_tracker=et)
+        handler.process(record, attempt=1, state=state, error_tracker=et)
         ns = handler._get_node_state("node1")
         assert ns.environment_failures == 1
         assert ns.environment_next_eligible > 0
 
     def test_env_failure_backoff_is_active(self) -> None:
-        handler, state, at, et = _make_handler()
+        handler, state, et = _make_handler()
         record = _make_env_failure_record()
-        handler.process(record, attempt=1, state=state, attempt_tracker=at, error_tracker=et)
+        handler.process(record, attempt=1, state=state, error_tracker=et)
         assert handler.is_environment_backoff_active("node1") is True
 
 
@@ -202,16 +201,15 @@ class TestEnvironmentFailureCircuitBreaker:
             check_block_budget_fn=lambda st: False,
         )
         state = ExecutionState(plan_hash="test", node_states={"node1": "in_progress"})
-        at: dict[str, int] = {}
         et: dict[str, str | None] = {}
 
         for i in range(_MAX_ENVIRONMENT_FAILURES):
             graph_sync.node_states["node1"] = "in_progress"
             record = _make_env_failure_record(attempt=i + 1)
-            handler.process(record, attempt=i + 1, state=state, attempt_tracker=at, error_tracker=et)
+            handler.process(record, attempt=i + 1, state=state, error_tracker=et)
 
         assert "node1" in blocked_nodes
-        assert handler._node_failure_counts.get("node1", 0) == 0
+        assert handler.get_failure_count("node1") == 0
 
 
 class TestEnvironmentFailureAuditEvent:
@@ -222,9 +220,9 @@ class TestEnvironmentFailureAuditEvent:
         capture = _EventCaptureSink()
         sink = SinkDispatcher([capture])  # type: ignore[list-item]
 
-        handler, state, at, et = _make_handler(sink=sink)
+        handler, state, et = _make_handler(sink=sink)
         record = _make_env_failure_record()
-        handler.process(record, attempt=1, state=state, attempt_tracker=at, error_tracker=et)
+        handler.process(record, attempt=1, state=state, error_tracker=et)
 
         env_events = capture.find_events(AuditEventType.SESSION_ENVIRONMENT_FAILURE)
         assert len(env_events) >= 1
@@ -235,10 +233,10 @@ class TestEnvironmentFailureAuditEvent:
 
 class TestEnvironmentFailureResetsOnSuccess:
     def test_success_resets_counter(self) -> None:
-        handler, state, at, et = _make_handler()
+        handler, state, et = _make_handler()
 
         fail_record = _make_env_failure_record()
-        handler.process(fail_record, attempt=1, state=state, attempt_tracker=at, error_tracker=et)
+        handler.process(fail_record, attempt=1, state=state, error_tracker=et)
         assert handler._get_node_state("node1").environment_failures == 1
 
         success_record = SessionRecord(
@@ -253,6 +251,6 @@ class TestEnvironmentFailureResetsOnSuccess:
             timestamp="2026-07-01T10:38:00Z",
         )
         handler._graph_sync.node_states["node1"] = "in_progress"
-        handler.process(success_record, attempt=2, state=state, attempt_tracker=at, error_tracker=et)
+        handler.process(success_record, attempt=2, state=state, error_tracker=et)
 
         assert handler._get_node_state("node1").environment_failures == 0

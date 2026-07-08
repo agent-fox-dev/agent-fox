@@ -126,7 +126,7 @@ class TestWorkspaceStateNoPermBlock:
             "agentfox.workspace.health.check_workspace_health",
             new=AsyncMock(return_value=dirty_report),
         ):
-            result = await mgr.prepare_launch("spec:1", MagicMock(), {}, {})
+            result = await mgr.prepare_launch("spec:1", MagicMock(), {})
 
         # (a) _block_task_fn must NOT be called — task stays re-dispatchable
         block_fn.assert_not_called()
@@ -178,7 +178,7 @@ class TestWorkspaceStateNoPermBlock:
             "agentfox.workspace.health.check_workspace_health",
             new=AsyncMock(return_value=dirty_report),
         ):
-            first_result = await mgr.prepare_launch("spec:1", state, {}, {})
+            first_result = await mgr.prepare_launch("spec:1", state, {})
 
         block_fn.assert_not_called()
         assert first_result is None
@@ -193,7 +193,7 @@ class TestWorkspaceStateNoPermBlock:
             ),
             patch.object(mgr, "_run_preflight", return_value=False),
         ):
-            second_result = await mgr.prepare_launch("spec:1", state, {}, {})
+            second_result = await mgr.prepare_launch("spec:1", state, {})
 
         # (b) Second call returns non-None, allowing the task to launch
         assert second_result is not None

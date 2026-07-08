@@ -150,7 +150,6 @@ class SerialDispatcher:
         self,
         ready: list[str],
         state: Any,
-        attempt_tracker: dict[str, int],
         error_tracker: dict[str, str | None],
         first_dispatch: bool,
     ) -> bool:
@@ -166,7 +165,6 @@ class SerialDispatcher:
             launch = orch._dispatch_mgr.prepare_launch(
                 node_id,
                 state,
-                attempt_tracker,
                 error_tracker,
             )
             if asyncio.iscoroutine(launch):
@@ -205,7 +203,6 @@ class SerialDispatcher:
                 record,
                 attempt,
                 state,
-                attempt_tracker,
                 error_tracker,
             )
 
@@ -227,7 +224,6 @@ class ParallelDispatcher:
         self,
         ready: list[str],
         state: Any,
-        attempt_tracker: dict[str, int],
         error_tracker: dict[str, str | None],
     ) -> None:
         """Dispatch ready tasks using a streaming pool."""
@@ -242,7 +238,7 @@ class ParallelDispatcher:
 
         pool: set[asyncio.Task[SessionRecord]] = set()
 
-        await self.fill_pool(pool, ready, state, attempt_tracker, error_tracker)
+        await self.fill_pool(pool, ready, state, error_tracker)
 
         if not pool:
             return
@@ -258,7 +254,6 @@ class ParallelDispatcher:
             barrier_needed = self.process_completed(
                 done,
                 state,
-                attempt_tracker,
                 error_tracker,
             )
 
@@ -270,7 +265,7 @@ class ParallelDispatcher:
                     drain_done, pool = await asyncio.wait(pool)
                 except asyncio.CancelledError:
                     break
-                self.process_completed(drain_done, state, attempt_tracker, error_tracker)
+                self.process_completed(drain_done, state, error_tracker)
 
             if barrier_needed:
                 await orch._run_sync_barrier_if_needed(state)
@@ -284,7 +279,7 @@ class ParallelDispatcher:
                     if promoted:
                         logger.info("Promoted %d deferred review node(s)", len(promoted))
                         new_ready = graph_sync.ready_tasks()
-                await self.fill_pool(pool, new_ready, state, attempt_tracker, error_tracker)
+                await self.fill_pool(pool, new_ready, state, error_tracker)
 
             parallel_runner.track_tasks(list(pool))
 
@@ -293,7 +288,6 @@ class ParallelDispatcher:
         pool: set[asyncio.Task[SessionRecord]],
         candidates: list[str],
         state: Any,
-        attempt_tracker: dict[str, int],
         error_tracker: dict[str, str | None],
     ) -> None:
         """Launch candidates into the parallel pool up to max_parallelism."""
@@ -332,7 +326,6 @@ class ParallelDispatcher:
             launch = orch._dispatch_mgr.prepare_launch(
                 node_id,
                 state,
-                attempt_tracker,
                 error_tracker,
             )
             if asyncio.iscoroutine(launch):
@@ -372,7 +365,6 @@ class ParallelDispatcher:
         self,
         done: set[asyncio.Task[SessionRecord]],
         state: Any,
-        attempt_tracker: dict[str, int],
         error_tracker: dict[str, str | None],
     ) -> bool:
         """Process completed parallel tasks. Returns True if a barrier is needed."""
@@ -388,11 +380,11 @@ class ParallelDispatcher:
                 logger.error("Parallel task raised: %s", exc)
                 continue
 
+            attempt = orch._result_handler.get_attempt_count(record.node_id) or 1
             orch._result_handler.process(
                 record,
-                attempt_tracker.get(record.node_id, 1),
+                attempt,
                 state,
-                attempt_tracker,
                 error_tracker,
             )
 
@@ -484,7 +476,6 @@ class DispatchManager:
         self,
         node_id: str,
         state: Any,
-        attempt_tracker: dict[str, int],
         error_tracker: dict[str, str | None],
     ) -> tuple[str, int, str | None, str, int, str | None] | None:
         """Check whether a node may launch.
@@ -578,12 +569,12 @@ class DispatchManager:
         archetype = self.get_node_archetype(node_id)
         mode = self.get_node_mode(node_id)
 
-        attempt = attempt_tracker.get(node_id, 0) + 1
+        rh = self._result_handler
+        attempt = (rh.get_attempt_count(node_id) if rh is not None else 0) + 1
         verdict = self._check_launch(
             node_id,
             attempt,
             state,
-            attempt_tracker,
             error_tracker,
         )
         if verdict != "allowed":
@@ -594,7 +585,8 @@ class DispatchManager:
             if skip:
                 return None
 
-        attempt_tracker[node_id] = attempt
+        if rh is not None:
+            rh.record_attempt(node_id, attempt)
         previous_error = error_tracker.get(node_id)
         instances = self.get_node_instances(node_id)
 
@@ -605,7 +597,6 @@ class DispatchManager:
         node_id: str,
         attempt: int,
         state: Any,
-        attempt_tracker: dict[str, int],
         error_tracker: dict[str, str | None] | None = None,
     ) -> str:
         """Check whether *node_id* may be launched.
@@ -617,7 +608,8 @@ class DispatchManager:
             return "allowed"
 
         if self._config.max_retries is not None and attempt > self._config.max_retries + 1:
-            attempt_tracker[node_id] = attempt
+            if self._result_handler is not None:
+                self._result_handler.record_attempt(node_id, attempt)
             last_error = error_tracker.get(node_id) if error_tracker else None
             reason = f"Retry limit exceeded for {node_id}"
             if last_error:

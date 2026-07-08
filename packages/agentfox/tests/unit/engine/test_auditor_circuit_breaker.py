@@ -34,10 +34,10 @@ def _make_auditor_orchestrator(
     *,
     max_retries: int = 2,
     auditor_max_retries: int = 2,
-) -> tuple[Orchestrator, ExecutionState, dict[str, int], dict[str, str | None]]:
+) -> tuple[Orchestrator, ExecutionState, dict[str, str | None]]:
     """Create a minimal Orchestrator for auditor circuit breaker tests.
 
-    Returns (orchestrator, state, attempt_tracker, error_tracker).
+    Returns (orchestrator, state, error_tracker).
     """
     config = OrchestratorConfig(max_retries=max_retries)
     orch = Orchestrator(
@@ -97,10 +97,9 @@ def _make_auditor_orchestrator(
         updated_at="2024-01-01",
     )
 
-    attempt_tracker: dict[str, int] = {}
     error_tracker: dict[str, str | None] = {}
 
-    return orch, state, attempt_tracker, error_tracker
+    return orch, state, error_tracker
 
 
 # ---------------------------------------------------------------------------
@@ -134,7 +133,7 @@ class TestRetryOnFail:
             "spec:1.5": "in_progress",
         }
 
-        orch, state, attempt_tracker, error_tracker = _make_auditor_orchestrator(plan_nodes, edges_list, node_states)
+        orch, state, error_tracker = _make_auditor_orchestrator(plan_nodes, edges_list, node_states)
 
         failed_record = SessionRecord(
             node_id="spec:1.5",
@@ -152,7 +151,6 @@ class TestRetryOnFail:
             failed_record,
             1,
             state,
-            attempt_tracker,
             error_tracker,
         )
 
@@ -193,7 +191,7 @@ class TestAuditorReruns:
             "spec:1.5": "in_progress",
         }
 
-        orch, state, attempt_tracker, error_tracker = _make_auditor_orchestrator(plan_nodes, edges_list, node_states)
+        orch, state, error_tracker = _make_auditor_orchestrator(plan_nodes, edges_list, node_states)
 
         failed_record = SessionRecord(
             node_id="spec:1.5",
@@ -211,7 +209,6 @@ class TestAuditorReruns:
             failed_record,
             1,
             state,
-            attempt_tracker,
             error_tracker,
         )
 
@@ -253,7 +250,7 @@ class TestCircuitBreakerBlocks:
             "spec:1.5": "in_progress",
         }
 
-        orch, state, attempt_tracker, error_tracker = _make_auditor_orchestrator(
+        orch, state, error_tracker = _make_auditor_orchestrator(
             plan_nodes,
             edges_list,
             node_states,
@@ -282,7 +279,6 @@ class TestCircuitBreakerBlocks:
                     failed_record,
                     attempt,
                     state,
-                    attempt_tracker,
                     error_tracker,
                 )
 
@@ -343,7 +339,7 @@ class TestMaxRetriesZeroBlocks:
         }
 
         # max_retries=0 means no retries at all
-        orch, state, attempt_tracker, error_tracker = _make_auditor_orchestrator(
+        orch, state, error_tracker = _make_auditor_orchestrator(
             plan_nodes,
             edges_list,
             node_states,
@@ -366,7 +362,6 @@ class TestMaxRetriesZeroBlocks:
             failed_record,
             1,
             state,
-            attempt_tracker,
             error_tracker,
         )
 
@@ -405,7 +400,7 @@ class TestPassNoRetry:
             "spec:1.5": "in_progress",
         }
 
-        orch, state, attempt_tracker, error_tracker = _make_auditor_orchestrator(plan_nodes, edges_list, node_states)
+        orch, state, error_tracker = _make_auditor_orchestrator(plan_nodes, edges_list, node_states)
 
         pass_record = SessionRecord(
             node_id="spec:1.5",
@@ -423,7 +418,6 @@ class TestPassNoRetry:
             pass_record,
             1,
             state,
-            attempt_tracker,
             error_tracker,
         )
 
@@ -474,7 +468,7 @@ class TestPropertyCircuitBreakerBound:
         }
 
         # Use a single orchestrator to accumulate failures across attempts
-        orch, state, attempt_tracker, error_tracker = _make_auditor_orchestrator(
+        orch, state, error_tracker = _make_auditor_orchestrator(
             plan_nodes,
             edges_list,
             node_states,
@@ -503,7 +497,6 @@ class TestPropertyCircuitBreakerBound:
                 failed_record,
                 attempt,
                 state,
-                attempt_tracker,
                 error_tracker,
             )
 

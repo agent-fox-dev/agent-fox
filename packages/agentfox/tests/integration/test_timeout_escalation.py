@@ -76,7 +76,6 @@ def _make_handler_with_sink(
     SessionResultHandler,
     ExecutionState,
     _EventCaptureSink,
-    dict[str, int],
     dict[str, str | None],
 ]:
     """Build a SessionResultHandler configured for integration timeout tests."""
@@ -106,10 +105,9 @@ def _make_handler_with_sink(
         node_states={node_id: "in_progress"},
     )
 
-    attempt_tracker: dict[str, int] = {}
     error_tracker: dict[str, str | None] = {}
 
-    return handler, state, sink, attempt_tracker, error_tracker
+    return handler, state, sink, error_tracker
 
 
 # ---------------------------------------------------------------------------
@@ -128,7 +126,7 @@ class TestTimeoutThenSuccess:
         session 2 succeeds.
         """
         node_id = "spec:1"
-        handler, state, sink, attempt_tracker, error_tracker = _make_handler_with_sink(node_id)
+        handler, state, sink, error_tracker = _make_handler_with_sink(node_id)
 
         # Currently FAILS: timeout-aware routing doesn't exist.
         handler._max_timeout_retries = 2  # noqa: SLF001
@@ -139,14 +137,13 @@ class TestTimeoutThenSuccess:
             timeout_record,
             attempt=1,
             state=state,
-            attempt_tracker=attempt_tracker,
             error_tracker=error_tracker,
         )
 
         # After timeout: node should be pending for retry.
         # Currently FAILS: _handle_failure is called, not _handle_timeout.
         assert handler._graph_sync.node_states[node_id] == "pending"
-        assert handler._node_failure_counts.get(node_id, 0) == 0
+        assert handler.get_failure_count(node_id) == 0
 
         # Session 2: succeeds.
         success_record = _make_session_record(node_id, "completed", attempt=2)
@@ -155,7 +152,6 @@ class TestTimeoutThenSuccess:
             success_record,
             attempt=2,
             state=state,
-            attempt_tracker=attempt_tracker,
             error_tracker=error_tracker,
         )
 
@@ -169,7 +165,7 @@ class TestTimeoutThenSuccess:
         event_type = AuditEventType.SESSION_TIMEOUT_RETRY
 
         node_id = "spec:1"
-        handler, state, sink, attempt_tracker, error_tracker = _make_handler_with_sink(node_id)
+        handler, state, sink, error_tracker = _make_handler_with_sink(node_id)
 
         # Currently FAILS: _max_timeout_retries doesn't exist.
         handler._max_timeout_retries = 2
@@ -179,7 +175,6 @@ class TestTimeoutThenSuccess:
             timeout_record,
             attempt=1,
             state=state,
-            attempt_tracker=attempt_tracker,
             error_tracker=error_tracker,
         )
 
@@ -190,7 +185,7 @@ class TestTimeoutThenSuccess:
     def test_timeout_extends_session_parameters(self) -> None:
         """TS-75-E1: Extended session timeout is recorded after timeout retry."""
         node_id = "spec:1"
-        handler, state, sink, attempt_tracker, error_tracker = _make_handler_with_sink(
+        handler, state, sink, error_tracker = _make_handler_with_sink(
             node_id,
             timeout_multiplier=1.5,
             original_timeout=30,
@@ -204,7 +199,6 @@ class TestTimeoutThenSuccess:
             timeout_record,
             attempt=1,
             state=state,
-            attempt_tracker=attempt_tracker,
             error_tracker=error_tracker,
         )
 
@@ -227,7 +221,7 @@ class TestTimeoutExhaustionThenEscalation:
         Simulates: 2 timeouts (max_timeout_retries=1) → fall through to ladder.
         """
         node_id = "spec:1"
-        handler, state, sink, attempt_tracker, error_tracker = _make_handler_with_sink(node_id, max_timeout_retries=1)
+        handler, state, sink, error_tracker = _make_handler_with_sink(node_id, max_timeout_retries=1)
 
         # Currently FAILS: _max_timeout_retries doesn't exist.
         handler._max_timeout_retries = 1
@@ -238,12 +232,11 @@ class TestTimeoutExhaustionThenEscalation:
             timeout1,
             attempt=1,
             state=state,
-            attempt_tracker=attempt_tracker,
             error_tracker=error_tracker,
         )
 
         # Currently FAILS: record_failure IS called for all failures.
-        assert handler._node_failure_counts.get(node_id, 0) == 0
+        assert handler.get_failure_count(node_id) == 0
 
         # Session 2: timeout again (retries exhausted → fall through to ladder).
         # Simulate the dispatch loop re-queuing the node to in_progress.
@@ -254,12 +247,11 @@ class TestTimeoutExhaustionThenEscalation:
             timeout2,
             attempt=2,
             state=state,
-            attempt_tracker=attempt_tracker,
             error_tracker=error_tracker,
         )
 
         # Now the escalation ladder must have been invoked.
-        assert handler._node_failure_counts.get(node_id, 0) == 1
+        assert handler.get_failure_count(node_id) == 1
 
     def test_exhausted_retries_warning_then_escalation(self) -> None:
         """TS-75-E2: Exhaustion warning is logged before falling through."""
@@ -267,7 +259,7 @@ class TestTimeoutExhaustionThenEscalation:
         import logging
 
         node_id = "spec:1"
-        handler, state, sink, attempt_tracker, error_tracker = _make_handler_with_sink(node_id, max_timeout_retries=1)
+        handler, state, sink, error_tracker = _make_handler_with_sink(node_id, max_timeout_retries=1)
 
         handler._max_timeout_retries = 1
         handler._get_node_state(node_id).timeout_retries = 1  # pre-exhaust
@@ -285,14 +277,13 @@ class TestTimeoutExhaustionThenEscalation:
                 timeout_record,
                 attempt=2,
                 state=state,
-                attempt_tracker=attempt_tracker,
                 error_tracker=error_tracker,
             )
         finally:
             handler_logger.removeHandler(log_handler)
 
         # After implementation: record_failure is called after exhaustion.
-        assert handler._node_failure_counts.get(node_id, 0) == 1
+        assert handler.get_failure_count(node_id) == 1
 
     def test_two_timeouts_one_success_at_escalated_tier(self) -> None:
         """TS-75-E2: Sequence: timeout → timeout (exhausted) → success at new tier.
@@ -301,7 +292,7 @@ class TestTimeoutExhaustionThenEscalation:
         success should complete the node.
         """
         node_id = "spec:1"
-        handler, state, sink, attempt_tracker, error_tracker = _make_handler_with_sink(node_id, max_timeout_retries=1)
+        handler, state, sink, error_tracker = _make_handler_with_sink(node_id, max_timeout_retries=1)
 
         # Currently FAILS: _max_timeout_retries doesn't exist.
         handler._max_timeout_retries = 1
@@ -311,7 +302,6 @@ class TestTimeoutExhaustionThenEscalation:
             _make_session_record(node_id, "timeout", attempt=1),
             attempt=1,
             state=state,
-            attempt_tracker=attempt_tracker,
             error_tracker=error_tracker,
         )
 
@@ -323,13 +313,12 @@ class TestTimeoutExhaustionThenEscalation:
             _make_session_record(node_id, "timeout", attempt=2),
             attempt=2,
             state=state,
-            attempt_tracker=attempt_tracker,
             error_tracker=error_tracker,
         )
 
         # After exhaustion, escalation was triggered.
         # Currently FAILS: record_failure is called on every non-success.
-        assert handler._node_failure_counts.get(node_id, 0) == 1
+        assert handler.get_failure_count(node_id) == 1
 
         # Session 3: success at escalated tier.
         state.node_states[node_id] = "in_progress"
@@ -338,7 +327,6 @@ class TestTimeoutExhaustionThenEscalation:
             _make_session_record(node_id, "completed", attempt=3, model="claude-opus-4-6"),
             attempt=3,
             state=state,
-            attempt_tracker=attempt_tracker,
             error_tracker=error_tracker,
         )
 

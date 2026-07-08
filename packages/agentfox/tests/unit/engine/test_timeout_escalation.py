@@ -78,12 +78,11 @@ def _make_handler(
 ) -> tuple[
     SessionResultHandler,
     ExecutionState,
-    dict[str, int],
     dict[str, str | None],
 ]:
     """Create a minimal SessionResultHandler with mocked dependencies.
 
-    Returns (handler, state, attempt_tracker, error_tracker).
+    Returns (handler, state, error_tracker).
     """
     graph_sync = GraphSync({node_id: "in_progress"}, {node_id: []})
 
@@ -112,10 +111,9 @@ def _make_handler(
         node_states={node_id: "in_progress"},
     )
 
-    attempt_tracker: dict[str, int] = {}
     error_tracker: dict[str, str | None] = {}
 
-    return handler, state, attempt_tracker, error_tracker
+    return handler, state, error_tracker
 
 
 # ---------------------------------------------------------------------------
@@ -129,29 +127,27 @@ class TestTimeoutRouting:
 
     def test_timeout_does_not_increment_failure_count(self) -> None:
         """TS-75-1: Timeout status should NOT increment the failure counter."""
-        handler, state, attempt_tracker, error_tracker = _make_handler()
+        handler, state, error_tracker = _make_handler()
         record = _make_record("timeout")
 
         handler.process(
             record,
             attempt=1,
             state=state,
-            attempt_tracker=attempt_tracker,
             error_tracker=error_tracker,
         )
 
-        assert handler._node_failure_counts.get("node1", 0) == 0
+        assert handler.get_failure_count("node1") == 0
 
     def test_timeout_sets_node_to_pending(self) -> None:
         """TS-75-1: Timeout with retries remaining should reset node to pending."""
-        handler, state, attempt_tracker, error_tracker = _make_handler()
+        handler, state, error_tracker = _make_handler()
         record = _make_record("timeout")
 
         handler.process(
             record,
             attempt=1,
             state=state,
-            attempt_tracker=attempt_tracker,
             error_tracker=error_tracker,
         )
 
@@ -160,14 +156,13 @@ class TestTimeoutRouting:
 
     def test_timeout_increments_retry_counter(self) -> None:
         """TS-75-1: Timeout increments the timeout retry counter."""
-        handler, state, attempt_tracker, error_tracker = _make_handler()
+        handler, state, error_tracker = _make_handler()
         record = _make_record("timeout")
 
         handler.process(
             record,
             attempt=1,
             state=state,
-            attempt_tracker=attempt_tracker,
             error_tracker=error_tracker,
         )
 
@@ -185,29 +180,27 @@ class TestNonTimeoutFailureRouting:
 
     def test_failed_status_increments_failure_count(self) -> None:
         """TS-75-2: 'failed' status must increment the failure counter."""
-        handler, state, attempt_tracker, error_tracker = _make_handler()
+        handler, state, error_tracker = _make_handler()
         record = _make_record("failed")
 
         handler.process(
             record,
             attempt=1,
             state=state,
-            attempt_tracker=attempt_tracker,
             error_tracker=error_tracker,
         )
 
-        assert handler._node_failure_counts.get("node1", 0) == 1
+        assert handler.get_failure_count("node1") == 1
 
     def test_failed_status_does_not_increment_timeout_counter(self) -> None:
         """TS-75-2: 'failed' status does not increment timeout retry counter."""
-        handler, state, attempt_tracker, error_tracker = _make_handler()
+        handler, state, error_tracker = _make_handler()
         record = _make_record("failed")
 
         handler.process(
             record,
             attempt=1,
             state=state,
-            attempt_tracker=attempt_tracker,
             error_tracker=error_tracker,
         )
 
@@ -228,14 +221,13 @@ class TestStatusStringDetection:
         timeout_handler_invocations: dict[str, int] = {}
 
         for status in ("timeout", "failed", "completed"):
-            handler, state, attempt_tracker, error_tracker = _make_handler()
+            handler, state, error_tracker = _make_handler()
             record = _make_record(status)
 
             handler.process(
                 record,
                 attempt=1,
                 state=state,
-                attempt_tracker=attempt_tracker,
                 error_tracker=error_tracker,
             )
 
@@ -258,7 +250,7 @@ class TestFailedWithTimeoutInMessage:
 
     def test_failed_with_timeout_in_error_increments_failure_count(self) -> None:
         """TS-75-4: status='failed', error='Connection timeout' → failure counter."""
-        handler, state, attempt_tracker, error_tracker = _make_handler()
+        handler, state, error_tracker = _make_handler()
         record = _make_record(
             "failed",
             error_message="Connection timeout after 30s",
@@ -268,16 +260,15 @@ class TestFailedWithTimeoutInMessage:
             record,
             attempt=1,
             state=state,
-            attempt_tracker=attempt_tracker,
             error_tracker=error_tracker,
         )
 
         # Must still increment the failure counter (not timeout handler).
-        assert handler._node_failure_counts.get("node1", 0) == 1
+        assert handler.get_failure_count("node1") == 1
 
     def test_failed_with_timeout_in_error_no_timeout_counter(self) -> None:
         """TS-75-4: status='failed' with timeout in message → counter stays 0."""
-        handler, state, attempt_tracker, error_tracker = _make_handler()
+        handler, state, error_tracker = _make_handler()
         record = _make_record(
             "failed",
             error_message="Connection timeout after 30s",
@@ -287,7 +278,6 @@ class TestFailedWithTimeoutInMessage:
             record,
             attempt=1,
             state=state,
-            attempt_tracker=attempt_tracker,
             error_tracker=error_tracker,
         )
 
@@ -305,7 +295,7 @@ class TestTimeoutCounterIndependence:
 
     def test_two_timeouts_increment_counter_twice(self) -> None:
         """TS-75-5: Two timeout records increment the counter to 2."""
-        handler, state, attempt_tracker, error_tracker = _make_handler()
+        handler, state, error_tracker = _make_handler()
 
         for attempt_n in (1, 2):
             # Simulate the dispatch loop: node goes back to in_progress before
@@ -318,7 +308,6 @@ class TestTimeoutCounterIndependence:
                 record,
                 attempt=attempt_n,
                 state=state,
-                attempt_tracker=attempt_tracker,
                 error_tracker=error_tracker,
             )
 
@@ -326,18 +315,17 @@ class TestTimeoutCounterIndependence:
 
     def test_timeouts_dont_affect_failure_count(self) -> None:
         """TS-75-5: Timeouts must NOT increment the failure counter."""
-        handler, state, attempt_tracker, error_tracker = _make_handler()
+        handler, state, error_tracker = _make_handler()
 
         record = _make_record("timeout")
         handler.process(
             record,
             attempt=1,
             state=state,
-            attempt_tracker=attempt_tracker,
             error_tracker=error_tracker,
         )
 
-        assert handler._node_failure_counts.get("node1", 0) == 0
+        assert handler.get_failure_count("node1") == 0
 
 
 # ---------------------------------------------------------------------------
@@ -351,14 +339,13 @@ class TestRetryAtSameTier:
 
     def test_timeout_retry_resets_node_to_pending(self) -> None:
         """TS-75-6: After a timeout retry, node state must be 'pending'."""
-        handler, state, attempt_tracker, error_tracker = _make_handler()
+        handler, state, error_tracker = _make_handler()
         record = _make_record("timeout")
 
         handler.process(
             record,
             attempt=1,
             state=state,
-            attempt_tracker=attempt_tracker,
             error_tracker=error_tracker,
         )
 
@@ -366,18 +353,17 @@ class TestRetryAtSameTier:
 
     def test_timeout_retry_does_not_increment_failure_count(self) -> None:
         """TS-75-6: Timeout retry must NOT increment the failure counter."""
-        handler, state, attempt_tracker, error_tracker = _make_handler()
+        handler, state, error_tracker = _make_handler()
         record = _make_record("timeout")
 
         handler.process(
             record,
             attempt=1,
             state=state,
-            attempt_tracker=attempt_tracker,
             error_tracker=error_tracker,
         )
 
-        assert handler._node_failure_counts.get("node1", 0) == 0
+        assert handler.get_failure_count("node1") == 0
 
 
 # ---------------------------------------------------------------------------
@@ -391,7 +377,7 @@ class TestTimeoutFallThrough:
 
     def test_exhausted_timeout_counter_increments_failure_count(self) -> None:
         """TS-75-7: After max timeout retries, next timeout increments failure counter."""
-        handler, state, attempt_tracker, error_tracker = _make_handler()
+        handler, state, error_tracker = _make_handler()
 
         handler._get_node_state("node1").timeout_retries = 2
 
@@ -400,11 +386,10 @@ class TestTimeoutFallThrough:
             record,
             attempt=3,
             state=state,
-            attempt_tracker=attempt_tracker,
             error_tracker=error_tracker,
         )
 
-        assert handler._node_failure_counts.get("node1", 0) == 1
+        assert handler.get_failure_count("node1") == 1
 
 
 # ---------------------------------------------------------------------------
@@ -418,14 +403,13 @@ class TestMixedTimeoutAndFailures:
 
     def test_mixed_events_maintain_independent_counters(self) -> None:
         """TS-75-8: timeout x2 + failed x2 → timeout_retries=2, failure_count=2."""
-        handler, state, attempt_tracker, error_tracker = _make_handler()
+        handler, state, error_tracker = _make_handler()
 
         # First timeout (node starts as in_progress from _make_handler)
         handler.process(
             _make_record("timeout", attempt=1),
             attempt=1,
             state=state,
-            attempt_tracker=attempt_tracker,
             error_tracker=error_tracker,
         )
         # Between calls the dispatch loop re-dispatches the node to in_progress.
@@ -435,7 +419,6 @@ class TestMixedTimeoutAndFailures:
             _make_record("failed", attempt=2),
             attempt=2,
             state=state,
-            attempt_tracker=attempt_tracker,
             error_tracker=error_tracker,
         )
         handler._graph_sync.node_states["node1"] = "in_progress"
@@ -444,7 +427,6 @@ class TestMixedTimeoutAndFailures:
             _make_record("timeout", attempt=3),
             attempt=3,
             state=state,
-            attempt_tracker=attempt_tracker,
             error_tracker=error_tracker,
         )
         handler._graph_sync.node_states["node1"] = "in_progress"
@@ -453,13 +435,12 @@ class TestMixedTimeoutAndFailures:
             _make_record("failed", attempt=4),
             attempt=4,
             state=state,
-            attempt_tracker=attempt_tracker,
             error_tracker=error_tracker,
         )
 
         assert handler._get_node_state("node1").timeout_retries == 2
         # Failure counter should only count the 'failed' records.
-        assert handler._node_failure_counts.get("node1", 0) == 2
+        assert handler.get_failure_count("node1") == 2
 
 
 # ---------------------------------------------------------------------------
@@ -473,7 +454,7 @@ class TestZeroMaxTimeoutRetries:
 
     def test_zero_max_retries_increments_failure_count_immediately(self) -> None:
         """TS-75-9: When max_timeout_retries=0, timeout increments the failure counter."""
-        handler, state, attempt_tracker, error_tracker = _make_handler()
+        handler, state, error_tracker = _make_handler()
 
         handler._max_timeout_retries = 0
 
@@ -482,15 +463,14 @@ class TestZeroMaxTimeoutRetries:
             record,
             attempt=1,
             state=state,
-            attempt_tracker=attempt_tracker,
             error_tracker=error_tracker,
         )
 
-        assert handler._node_failure_counts.get("node1", 0) == 1
+        assert handler.get_failure_count("node1") == 1
 
     def test_zero_max_retries_no_timeout_counter_increment(self) -> None:
         """TS-75-9: When max_timeout_retries=0, timeout counter stays at 0."""
-        handler, state, attempt_tracker, error_tracker = _make_handler()
+        handler, state, error_tracker = _make_handler()
 
         handler._max_timeout_retries = 0
 
@@ -499,7 +479,6 @@ class TestZeroMaxTimeoutRetries:
             record,
             attempt=1,
             state=state,
-            attempt_tracker=attempt_tracker,
             error_tracker=error_tracker,
         )
 
@@ -518,7 +497,7 @@ class TestMaxTurnsExtension:
 
     def test_max_turns_multiplied_and_rounded_up(self) -> None:
         """TS-75-10: original=200, multiplier=1.5 → extended=300."""
-        handler, _, _, _ = _make_handler()
+        handler, _, _ = _make_handler()
 
         ns = handler._get_node_state("node1")
         ns.max_turns = 200
@@ -543,7 +522,7 @@ class TestSessionTimeoutExtension:
 
     def test_session_timeout_multiplied_and_rounded_up(self) -> None:
         """TS-75-11: original_timeout=30, multiplier=1.5 → extended=45."""
-        handler, _, _, _ = _make_handler()
+        handler, _, _ = _make_handler()
 
         ns = handler._get_node_state("node1")
         ns.timeout = 30
@@ -568,7 +547,7 @@ class TestTimeoutCeiling:
 
     def test_two_retries_clamp_to_ceiling(self) -> None:
         """TS-75-12: original=30, mult=1.5, ceil=2.0: retry1→45, retry2→60 (clamped)."""
-        handler, _, _, _ = _make_handler()
+        handler, _, _ = _make_handler()
 
         ns = handler._get_node_state("node1")
         ns.timeout = 30
@@ -597,7 +576,7 @@ class TestUnlimitedTurnsPreservation:
 
     def test_none_max_turns_not_modified(self) -> None:
         """TS-75-13: If max_turns is None, it must remain None after extension."""
-        handler, _, _, _ = _make_handler()
+        handler, _, _ = _make_handler()
 
         ns = handler._get_node_state("node1")
         ns.max_turns = None
@@ -622,7 +601,7 @@ class TestPerNodeParameterIsolation:
 
     def test_extending_node1_does_not_affect_node2(self) -> None:
         """TS-75-14: node1 extension is isolated; node2 must not appear in dicts."""
-        handler, _, _, _ = _make_handler()
+        handler, _, _ = _make_handler()
 
         ns = handler._get_node_state("node1")
         ns.max_turns = 200
@@ -648,7 +627,7 @@ class TestCeilingClamp:
 
     def test_ceiling_clamp_when_multiplier_exceeds_ceiling(self) -> None:
         """TS-75-15: original=20, multiplier=2.0, ceiling=1.5 → clamped to 30."""
-        handler, _, _, _ = _make_handler()
+        handler, _, _ = _make_handler()
 
         # original_timeout=20, multiplier=2.0: ceil(20 * 2.0) = 40
         # ceiling = ceil(20 * 1.5) = 30 → clamped to 30
@@ -675,7 +654,7 @@ class TestMultiplierOneNoExtensionHandler:
 
     def test_multiplier_one_no_change_to_turns(self) -> None:
         """TS-75-20: With multiplier=1.0, max_turns is unchanged after extension."""
-        handler, _, _, _ = _make_handler()
+        handler, _, _ = _make_handler()
 
         ns = handler._get_node_state("node1")
         ns.max_turns = 200
@@ -690,7 +669,7 @@ class TestMultiplierOneNoExtensionHandler:
 
     def test_multiplier_one_no_change_to_timeout(self) -> None:
         """TS-75-20: With multiplier=1.0, session_timeout unchanged after extend."""
-        handler, _, _, _ = _make_handler()
+        handler, _, _ = _make_handler()
 
         ns = handler._get_node_state("node1")
         ns.max_turns = 200
@@ -721,14 +700,13 @@ class TestTimeoutRetryAuditEvent:
         event_type = AuditEventType.SESSION_TIMEOUT_RETRY
 
         sink = _EventCaptureSink()
-        handler, state, attempt_tracker, error_tracker = _make_handler(sink=sink)
+        handler, state, error_tracker = _make_handler(sink=sink)
 
         record = _make_record("timeout")
         handler.process(
             record,
             attempt=1,
             state=state,
-            attempt_tracker=attempt_tracker,
             error_tracker=error_tracker,
         )
 
@@ -742,14 +720,13 @@ class TestTimeoutRetryAuditEvent:
         event_type = AuditEventType.SESSION_TIMEOUT_RETRY  # Currently FAILS
 
         sink = _EventCaptureSink()
-        handler, state, attempt_tracker, error_tracker = _make_handler(sink=sink)
+        handler, state, error_tracker = _make_handler(sink=sink)
 
         record = _make_record("timeout")
         handler.process(
             record,
             attempt=1,
             state=state,
-            attempt_tracker=attempt_tracker,
             error_tracker=error_tracker,
         )
 
@@ -771,7 +748,7 @@ class TestExhaustionWarningLog:
 
     def test_warning_logged_on_timeout_exhaustion(self, caplog: pytest.LogCaptureFixture) -> None:
         """TS-75-22: Warning mentioning exhaustion is emitted when retries run out."""
-        handler, state, attempt_tracker, error_tracker = _make_handler()
+        handler, state, error_tracker = _make_handler()
 
         handler._get_node_state("node1").timeout_retries = 2
         handler._max_timeout_retries = 2
@@ -783,7 +760,6 @@ class TestExhaustionWarningLog:
                 record,
                 attempt=3,
                 state=state,
-                attempt_tracker=attempt_tracker,
                 error_tracker=error_tracker,
             )
 
@@ -810,14 +786,13 @@ class TestAuditEventPayloadValues:
         event_type = AuditEventType.SESSION_TIMEOUT_RETRY  # Currently FAILS
 
         sink = _EventCaptureSink()
-        handler, state, attempt_tracker, error_tracker = _make_handler(sink=sink)
+        handler, state, error_tracker = _make_handler(sink=sink)
 
         record = _make_record("timeout")
         handler.process(
             record,
             attempt=1,
             state=state,
-            attempt_tracker=attempt_tracker,
             error_tracker=error_tracker,
         )
 
@@ -836,7 +811,7 @@ class TestAuditEventPayloadValues:
         event_type = AuditEventType.SESSION_TIMEOUT_RETRY  # Currently FAILS
 
         sink = _EventCaptureSink()
-        handler, state, attempt_tracker, error_tracker = _make_handler(sink=sink)
+        handler, state, error_tracker = _make_handler(sink=sink)
 
         ns = handler._get_node_state("node1")
         ns.max_turns = 200
@@ -849,7 +824,6 @@ class TestAuditEventPayloadValues:
             record,
             attempt=1,
             state=state,
-            attempt_tracker=attempt_tracker,
             error_tracker=error_tracker,
         )
 

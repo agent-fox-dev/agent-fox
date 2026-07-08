@@ -46,7 +46,6 @@ def _make_handler(
 ) -> tuple[
     SessionResultHandler,
     ExecutionState,
-    dict[str, int],
     dict[str, str | None],
 ]:
     graph_sync = GraphSync({node_id: "in_progress"}, {node_id: []})
@@ -70,7 +69,7 @@ def _make_handler(
         node_states={node_id: "in_progress"},
     )
 
-    return handler, state, {}, {}
+    return handler, state, {}
 
 
 # ---------------------------------------------------------------------------
@@ -203,13 +202,13 @@ class TestSingleTimeoutTwoDispatches:
     def test_timeout_handler_resets_via_mark_pending(self) -> None:
         """AC-3: _handle_timeout() resets node via mark_pending, recording the transition."""
         node_id = "01_project_setup:2"
-        handler, state, attempt_tracker, error_tracker = _make_handler(node_id)
+        handler, state, error_tracker = _make_handler(node_id)
 
         # Confirm the node starts as in_progress
         assert handler._graph_sync.node_states[node_id] == "in_progress"
 
         record = _make_record("timeout", node_id=node_id)
-        handler.process(record, attempt=1, state=state, attempt_tracker=attempt_tracker, error_tracker=error_tracker)
+        handler.process(record, attempt=1, state=state, error_tracker=error_tracker)
 
         # Node should now be pending (ready for second dispatch)
         assert handler._graph_sync.node_states[node_id] == "pending"
@@ -231,14 +230,14 @@ class TestExhaustedTimeoutRetries:
     def test_exhausted_timeout_does_not_call_mark_pending(self) -> None:
         """AC-5: When retries exhausted, _handle_timeout falls through to failure path."""
         node_id = "01_project_setup:2"
-        handler, state, attempt_tracker, error_tracker = _make_handler(node_id, max_timeout_retries=1)
+        handler, state, error_tracker = _make_handler(node_id, max_timeout_retries=1)
 
         handler._get_node_state(node_id).timeout_retries = 1  # already at max
         # Pre-exhaust the failure counter so the fall-through blocks
-        handler._node_failure_counts[node_id] = 2  # max_retries=2, next will be 3 > 2
+        handler._get_node_state(node_id).failure_count = 2  # max_retries=2, next will be 3 > 2
 
         record = _make_record("timeout", node_id=node_id, attempt=2)
-        handler.process(record, attempt=2, state=state, attempt_tracker=attempt_tracker, error_tracker=error_tracker)
+        handler.process(record, attempt=2, state=state, error_tracker=error_tracker)
 
         # With exhausted timeout retries and exhausted failure counter, node is blocked (not pending)
         final_state = handler._graph_sync.node_states[node_id]
@@ -249,11 +248,11 @@ class TestExhaustedTimeoutRetries:
     def test_two_timeouts_max_one_retry_final_state_not_pending(self) -> None:
         """AC-5: max_timeout_retries=1, two timeouts → escalation ladder, not re-queued."""
         node_id = "01_project_setup:2"
-        handler, state, attempt_tracker, error_tracker = _make_handler(node_id, max_timeout_retries=1)
+        handler, state, error_tracker = _make_handler(node_id, max_timeout_retries=1)
 
         # First timeout: within retry budget, reset to pending
         record1 = _make_record("timeout", node_id=node_id, attempt=1)
-        handler.process(record1, attempt=1, state=state, attempt_tracker=attempt_tracker, error_tracker=error_tracker)
+        handler.process(record1, attempt=1, state=state, error_tracker=error_tracker)
         assert handler._graph_sync.node_states[node_id] == "pending"
         assert handler._get_node_state(node_id).timeout_retries == 1
 
@@ -262,9 +261,9 @@ class TestExhaustedTimeoutRetries:
 
         # Second timeout: retries exhausted, falls through to failure handler
         record2 = _make_record("timeout", node_id=node_id, attempt=2)
-        handler.process(record2, attempt=2, state=state, attempt_tracker=attempt_tracker, error_tracker=error_tracker)
+        handler.process(record2, attempt=2, state=state, error_tracker=error_tracker)
 
         # Timeout retry count is 1 (not incremented beyond max)
         assert handler._get_node_state(node_id).timeout_retries == 1
         # Failure counter was incremented (fell through to _handle_failure)
-        assert handler._node_failure_counts.get(node_id, 0) == 1
+        assert handler.get_failure_count(node_id) == 1

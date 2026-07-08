@@ -109,10 +109,11 @@ class TestShutdownPersistsInterruptedRecords:
             _graph_sync=None,
         )
 
+        mock_result_handler.get_attempt_count = MagicMock(return_value=0)
+
         await Orchestrator._shutdown(
             fake_self,  # type: ignore[arg-type]
             state,
-            attempt_tracker={"spec:1": 2, "spec:2": 1},
             error_tracker={},
         )
 
@@ -121,7 +122,7 @@ class TestShutdownPersistsInterruptedRecords:
 
     @pytest.mark.asyncio
     async def test_shutdown_uses_attempt_tracker_for_attempt_number(self) -> None:
-        """_shutdown() uses attempt_tracker values rather than the default=1."""
+        """_shutdown() uses result handler's ledger for attempt counts."""
         runner = ParallelRunner(
             session_runner_factory=_slow_factory(delay=10.0),
             max_parallelism=4,
@@ -135,6 +136,7 @@ class TestShutdownPersistsInterruptedRecords:
         runner.track_tasks([task])
 
         mock_result_handler = MagicMock()
+        mock_result_handler.get_attempt_count = MagicMock(return_value=3)
         state = _make_minimal_state()
 
         fake_self = SimpleNamespace(
@@ -146,12 +148,11 @@ class TestShutdownPersistsInterruptedRecords:
         await Orchestrator._shutdown(
             fake_self,  # type: ignore[arg-type]
             state,
-            attempt_tracker={"spec:1": 3},
             error_tracker={},
         )
 
         assert mock_result_handler.process.call_count == 1
-        # The record passed to process() should use the tracker's attempt (3)
+        # The record passed to process() should use the ledger's attempt (3)
         call_args = mock_result_handler.process.call_args
         record: SessionRecord = call_args[0][0]
         assert record.attempt == 3
@@ -257,7 +258,7 @@ class TestDoubleSignintSystemExit:
         # because _signal and other instance attributes are set in __init__, not
         # the class body, so the spec would reject them.
         mock_self = MagicMock()
-        mock_self._init_run.return_value = (state, {}, {})
+        mock_self._init_run.return_value = (state, {})
         mock_self._finalize_run = AsyncMock()
         mock_self._signal.interrupted = True  # Enter _shutdown path immediately
         mock_self._graph = None  # _sync_plan_statuses returns early

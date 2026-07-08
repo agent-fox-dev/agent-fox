@@ -66,7 +66,6 @@ def _make_handler(
 ) -> tuple[
     SessionResultHandler,
     ExecutionState,
-    dict[str, int],
     dict[str, str | None],
 ]:
     """Create a minimal SessionResultHandler."""
@@ -89,10 +88,9 @@ def _make_handler(
         plan_hash="test",
         node_states={node_id: "in_progress"},
     )
-    attempt_tracker: dict[str, int] = {}
     error_tracker: dict[str, str | None] = {}
 
-    return handler, state, attempt_tracker, error_tracker
+    return handler, state, error_tracker
 
 
 # ---------------------------------------------------------------------------
@@ -107,54 +105,54 @@ class TestTransportErrorSkipsFailureCounter:
 
     def test_transport_error_does_not_consume_failure_count(self) -> None:
         """AC-6: Transport errors must NOT increment the failure counter."""
-        handler, state, attempt_tracker, error_tracker = _make_handler()
+        handler, state, error_tracker = _make_handler()
         record = _make_transport_record()
 
-        handler._handle_failure(record, 1, state, attempt_tracker, error_tracker)
+        handler._handle_failure(record, 1, state, error_tracker)
 
-        assert handler._node_failure_counts.get("node1", 0) == 0, (
+        assert handler.get_failure_count("node1") == 0, (
             "Failure counter must not be incremented for transport errors"
         )
 
     def test_transport_error_resets_node_to_pending(self) -> None:
         """AC-6: Node is reset to pending so the orchestrator re-dispatches it."""
-        handler, state, attempt_tracker, error_tracker = _make_handler()
+        handler, state, error_tracker = _make_handler()
         record = _make_transport_record()
 
-        handler._handle_failure(record, 1, state, attempt_tracker, error_tracker)
+        handler._handle_failure(record, 1, state, error_tracker)
 
         assert handler._graph_sync.node_states["node1"] == "pending"
 
     def test_transport_error_failure_count_unchanged(self) -> None:
         """AC-6: The failure counter must remain unchanged after a
         transport-error failure."""
-        handler, state, attempt_tracker, error_tracker = _make_handler()
+        handler, state, error_tracker = _make_handler()
         record = _make_transport_record()
 
-        handler._handle_failure(record, 1, state, attempt_tracker, error_tracker)
+        handler._handle_failure(record, 1, state, error_tracker)
 
-        assert handler._node_failure_counts.get("node1", 0) == 0
+        assert handler.get_failure_count("node1") == 0
 
     def test_regular_failure_does_increment_failure_count(self) -> None:
         """Regression: a normal (non-transport) failure still increments the counter."""
-        handler, state, attempt_tracker, error_tracker = _make_handler()
+        handler, state, error_tracker = _make_handler()
         record = _make_regular_failure_record()
 
-        handler._handle_failure(record, 1, state, attempt_tracker, error_tracker)
+        handler._handle_failure(record, 1, state, error_tracker)
 
-        assert handler._node_failure_counts.get("node1", 0) == 1, (
+        assert handler.get_failure_count("node1") == 1, (
             "Failure counter must be incremented for non-transport failures"
         )
 
     def test_process_transport_error_does_not_consume_retry(self) -> None:
         """AC-6: Calling process() with a transport-error record leaves the
         failure counter untouched and resets node to pending."""
-        handler, state, attempt_tracker, error_tracker = _make_handler()
+        handler, state, error_tracker = _make_handler()
         record = _make_transport_record()
 
-        handler.process(record, 1, state, attempt_tracker, error_tracker)
+        handler.process(record, 1, state, error_tracker)
 
-        assert handler._node_failure_counts.get("node1", 0) == 0
+        assert handler.get_failure_count("node1") == 0
         assert handler._graph_sync.node_states["node1"] == "pending"
 
 
@@ -237,15 +235,15 @@ class TestTransportInternalRetryNoFailedRecord:
         reaches result_handler), we still record the event but do NOT penalise
         the escalation ladder.
         """
-        handler, state, attempt_tracker, error_tracker = _make_handler()
+        handler, state, error_tracker = _make_handler()
 
         record = _make_transport_record()
-        handler.process(record, 1, state, attempt_tracker, error_tracker)
+        handler.process(record, 1, state, error_tracker)
 
         # State is updated (record kept for auditing via update_state_with_session)
         assert state.total_sessions == 1
         assert len(state.session_history) == 1
         # But the failure counter was never incremented
-        assert handler._node_failure_counts.get("node1", 0) == 0
+        assert handler.get_failure_count("node1") == 0
         # And the node is pending (not blocked)
         assert handler._graph_sync.node_states["node1"] == "pending"

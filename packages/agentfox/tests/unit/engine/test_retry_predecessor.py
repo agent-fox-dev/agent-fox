@@ -22,10 +22,10 @@ def _make_orchestrator_with_graph(
     node_states: dict[str, str],
     *,
     max_retries: int = 2,
-) -> tuple[Orchestrator, ExecutionState, dict[str, int], dict[str, str | None]]:
+) -> tuple[Orchestrator, ExecutionState, dict[str, str | None]]:
     """Create a minimal Orchestrator with pre-built graph state.
 
-    Returns (orchestrator, state, attempt_tracker, error_tracker).
+    Returns (orchestrator, state, error_tracker).
     """
     config = OrchestratorConfig(max_retries=max_retries)
     orch = Orchestrator(
@@ -85,10 +85,9 @@ def _make_orchestrator_with_graph(
         updated_at="2024-01-01",
     )
 
-    attempt_tracker: dict[str, int] = {}
     error_tracker: dict[str, str | None] = {}
 
-    return orch, state, attempt_tracker, error_tracker
+    return orch, state, error_tracker
 
 
 # ---------------------------------------------------------------------------
@@ -134,7 +133,7 @@ class TestPredecessorReset:
             "spec:5": "in_progress",
         }
 
-        orch, state, attempt_tracker, error_tracker = _make_orchestrator_with_graph(plan_nodes, edges_list, node_states)
+        orch, state, error_tracker = _make_orchestrator_with_graph(plan_nodes, edges_list, node_states)
 
         failed_record = SessionRecord(
             node_id="spec:5",
@@ -152,7 +151,6 @@ class TestPredecessorReset:
             failed_record,
             1,
             state,
-            attempt_tracker,
             error_tracker,
         )
 
@@ -202,7 +200,7 @@ class TestRetryCycleLimit:
             "spec:5": "in_progress",
         }
 
-        orch, state, attempt_tracker, error_tracker = _make_orchestrator_with_graph(
+        orch, state, error_tracker = _make_orchestrator_with_graph(
             plan_nodes,
             edges_list,
             node_states,
@@ -230,7 +228,6 @@ class TestRetryCycleLimit:
                 failed_record,
                 attempt,
                 state,
-                attempt_tracker,
                 error_tracker,
             )
 
@@ -276,7 +273,7 @@ class TestNonCoderPredecessor:
             "spec:4": "in_progress",
         }
 
-        orch, state, attempt_tracker, error_tracker = _make_orchestrator_with_graph(plan_nodes, edges_list, node_states)
+        orch, state, error_tracker = _make_orchestrator_with_graph(plan_nodes, edges_list, node_states)
 
         failed_record = SessionRecord(
             node_id="spec:4",
@@ -294,7 +291,6 @@ class TestNonCoderPredecessor:
             failed_record,
             1,
             state,
-            attempt_tracker,
             error_tracker,
         )
 

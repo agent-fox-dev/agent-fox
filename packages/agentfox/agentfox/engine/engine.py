@@ -69,7 +69,6 @@ from agentfox.engine.state_manager import (
     StateManager,
     build_edges_dict,
     defer_ready_reviews,
-    init_attempt_tracker,
     init_error_tracker,
     load_or_init_state,
     reset_blocked_tasks,
@@ -432,8 +431,9 @@ class Orchestrator:
         )
 
         self._dispatch_mgr.set_result_handler(self._result_handler)
+        self._result_handler.init_attempts(state)
 
-        return state, init_attempt_tracker(state), init_error_tracker(state)
+        return state, init_error_tracker(state)
 
     async def run(self) -> ExecutionState:
         """Execute the full orchestration loop."""
@@ -442,7 +442,7 @@ class Orchestrator:
         result = self._init_run()
         if isinstance(result, ExecutionState):
             return result
-        state, attempt_tracker, error_tracker = result
+        state, error_tracker = result
 
         self._signal.install()
 
@@ -482,7 +482,7 @@ class Orchestrator:
         try:
             while True:
                 if self._signal.interrupted:
-                    await self._shutdown(state, attempt_tracker, error_tracker)
+                    await self._shutdown(state, error_tracker=error_tracker)
                     return state
                 if state.run_status == RunStatus.BLOCK_LIMIT:
                     return state
@@ -545,12 +545,11 @@ class Orchestrator:
                     return state
 
                 if self._is_parallel and self._dispatch_mgr.parallel_runner is not None:
-                    await self._parallel_dispatcher.dispatch(ready, state, attempt_tracker, error_tracker)
+                    await self._parallel_dispatcher.dispatch(ready, state, error_tracker)
                 else:
                     first_dispatch = await self._serial_dispatcher.dispatch(
                         ready,
                         state,
-                        attempt_tracker,
                         error_tracker,
                         first_dispatch,
                     )
@@ -817,22 +816,20 @@ class Orchestrator:
     async def _shutdown(
         self,
         state: ExecutionState,
-        attempt_tracker: dict[str, int] | None = None,
         error_tracker: dict[str, str | None] | None = None,
     ) -> None:
         if self._dispatch_mgr.parallel_runner is not None:
             unprocessed = await self._dispatch_mgr.parallel_runner.cancel_all()
             if unprocessed and self._result_handler is not None:
-                _at = attempt_tracker or {}
                 _et = error_tracker or {}
                 for record in unprocessed:
-                    actual_attempt = _at.get(record.node_id, record.attempt)
+                    actual_attempt = self._result_handler.get_attempt_count(record.node_id) or record.attempt
                     if record.attempt != actual_attempt:
                         from dataclasses import replace as _dc_replace
 
                         record = _dc_replace(record, attempt=actual_attempt)
                     try:
-                        self._result_handler.process(record, actual_attempt, state, _at, _et)
+                        self._result_handler.process(record, actual_attempt, state, _et)
                     except Exception:
                         logger.debug(
                             "Failed to persist interrupted session record for %s",

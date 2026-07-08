@@ -180,7 +180,7 @@ class TestWorkspaceBackoffAndCircuitBreaker:
         handler = self._make_handler(graph_sync, block_calls)
 
         state = ExecutionState(plan_hash="abc", node_states=node_states)
-        handler.process(self._make_record(), 1, state, {}, {})
+        handler.process(self._make_record(), 1, state, {})
 
         assert len(block_calls) == 0
         assert graph_sync.node_states["spec:1"] == "pending"
@@ -194,12 +194,11 @@ class TestWorkspaceBackoffAndCircuitBreaker:
         handler = self._make_handler(graph_sync, block_calls)
 
         state = ExecutionState(plan_hash="abc", node_states=node_states)
-        attempt_tracker: dict[str, int] = {}
         error_tracker: dict[str, str | None] = {}
 
         for i in range(_MAX_WORKSPACE_FAILURES):
             graph_sync.node_states["spec:1"] = "in_progress"
-            handler.process(self._make_record(attempt=i + 1), i + 1, state, attempt_tracker, error_tracker)
+            handler.process(self._make_record(attempt=i + 1), i + 1, state, error_tracker)
 
         assert len(block_calls) == 1
         assert "Workspace setup failed" in block_calls[0][1]
@@ -219,12 +218,11 @@ class TestWorkspaceBackoffAndCircuitBreaker:
         handler = self._make_handler(graph_sync, block_calls)
 
         state = ExecutionState(plan_hash="abc", node_states=node_states)
-        attempt_tracker: dict[str, int] = {}
         error_tracker: dict[str, str | None] = {}
 
         for i in range(5):
             graph_sync.node_states["spec:1"] = "in_progress"
-            handler.process(self._make_record(attempt=i + 1), i + 1, state, attempt_tracker, error_tracker)
+            handler.process(self._make_record(attempt=i + 1), i + 1, state, error_tracker)
 
         assert len(block_calls) == 0
         assert graph_sync.node_states["spec:1"] == "pending"
@@ -239,9 +237,9 @@ class TestWorkspaceBackoffAndCircuitBreaker:
         handler = self._make_handler(graph_sync, block_calls)
 
         state = ExecutionState(plan_hash="abc", node_states=node_states)
-        handler.process(self._make_record(), 1, state, {}, {})
+        handler.process(self._make_record(), 1, state, {})
 
-        assert handler._node_failure_counts.get("spec:1", 0) == 0
+        assert handler.get_failure_count("spec:1") == 0
 
     def test_backoff_clears_on_success(self) -> None:
         node_states = {"spec:1": "in_progress"}
@@ -252,7 +250,7 @@ class TestWorkspaceBackoffAndCircuitBreaker:
 
         state = ExecutionState(plan_hash="abc", node_states=node_states)
 
-        handler.process(self._make_record(), 1, state, {}, {})
+        handler.process(self._make_record(), 1, state, {})
         assert handler.is_workspace_backoff_active("spec:1") is True
 
         graph_sync.node_states["spec:1"] = "in_progress"
@@ -267,7 +265,7 @@ class TestWorkspaceBackoffAndCircuitBreaker:
             error_message=None,
             timestamp="2026-01-01T00:00:00",
         )
-        handler.process(success_record, 2, state, {}, {})
+        handler.process(success_record, 2, state, {})
 
         assert handler.is_workspace_backoff_active("spec:1") is False
 
@@ -279,7 +277,7 @@ class TestWorkspaceBackoffAndCircuitBreaker:
         handler = self._make_handler(graph_sync, block_calls)
 
         state = ExecutionState(plan_hash="abc", node_states=node_states)
-        handler.process(self._make_record(), 1, state, {}, {})
+        handler.process(self._make_record(), 1, state, {})
 
         ns = handler._node_retry_states["spec:1"]
         ns.workspace_next_eligible = time.monotonic() - 1

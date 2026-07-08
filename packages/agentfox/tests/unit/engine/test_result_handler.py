@@ -70,10 +70,9 @@ class TestNonRetryableImmediateBlock:
             node_states=node_states,
         )
 
-        attempt_tracker: dict[str, int] = {"spec:1": 1}
         error_tracker: dict[str, str | None] = {}
 
-        handler.process(record, 1, state, attempt_tracker, error_tracker)
+        handler.process(record, 1, state, error_tracker)
 
         # Node must be blocked
         assert node_states["spec:1"] == "blocked"
@@ -84,4 +83,4 @@ class TestNonRetryableImmediateBlock:
 
         # Failure counter must NOT have been incremented
         # (the non-retryable path blocks immediately without counting)
-        assert handler._node_failure_counts.get("spec:1", 0) == 0
+        assert handler.get_failure_count("spec:1") == 0

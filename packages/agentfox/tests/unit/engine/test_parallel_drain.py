@@ -382,7 +382,7 @@ class TestReviewConcurrencyCapPool:
         dispatch_mgr.parallel_runner = runner
         dispatch_mgr.get_node_archetype = lambda nid: nodes[nid].archetype
 
-        async def mock_prepare_launch(node_id, state, at, et):
+        async def mock_prepare_launch(node_id, state, et):
             arch = nodes[node_id].archetype
             return ("allowed", 1, None, arch, 1, None)
 
@@ -393,7 +393,7 @@ class TestReviewConcurrencyCapPool:
         pool: set[asyncio.Task[SessionRecord]] = set()
         candidates = ["spec_a:1", "spec_b:1", "spec_c:1"]
 
-        await dispatcher.fill_pool(pool, candidates, MagicMock(), {}, {})
+        await dispatcher.fill_pool(pool, candidates, MagicMock(), {})
 
         launched = [t.get_name().replace("parallel-", "") for t in pool]
 
@@ -469,7 +469,7 @@ class TestReviewConcurrencyCapPool:
         dispatch_mgr.parallel_runner = runner
         dispatch_mgr.get_node_archetype = lambda nid: nodes[nid].archetype
 
-        async def mock_prepare_launch(node_id, state, at, et):
+        async def mock_prepare_launch(node_id, state, et):
             arch = nodes[node_id].archetype
             return ("allowed", 1, None, arch, 1, None)
 
@@ -480,7 +480,7 @@ class TestReviewConcurrencyCapPool:
         pool: set[asyncio.Task[SessionRecord]] = set()
         candidates = ["spec_a:0", "spec_b:0", "spec_c:1"]
 
-        await dispatcher.fill_pool(pool, candidates, MagicMock(), {}, {})
+        await dispatcher.fill_pool(pool, candidates, MagicMock(), {})
 
         launched = [t.get_name().replace("parallel-", "") for t in pool]
 
@@ -571,7 +571,7 @@ class TestReviewConcurrencyCapPool:
         dispatch_mgr.parallel_runner = runner
         dispatch_mgr.get_node_archetype = lambda nid: nodes[nid].archetype
 
-        async def mock_prepare_launch(node_id, state, at, et):
+        async def mock_prepare_launch(node_id, state, et):
             arch = nodes[node_id].archetype
             return ("allowed", 1, None, arch, 1, None)
 
@@ -583,7 +583,7 @@ class TestReviewConcurrencyCapPool:
         # Reviews first, then coders — cap should let 1 review + 2 coders
         candidates = ["spec_a:2", "spec_b:2", "spec_c:2", "spec_d:1", "spec_e:1"]
 
-        await dispatcher.fill_pool(pool, candidates, MagicMock(), {}, {})
+        await dispatcher.fill_pool(pool, candidates, MagicMock(), {})
 
         launched = [t.get_name().replace("parallel-", "") for t in pool]
 
@@ -605,19 +605,19 @@ class TestReviewConcurrencyCapPool:
 
 
 class TestReviewCapDoesNotConsumeRetries:
-    """Verify that the review concurrency cap does not increment attempt_tracker.
+    """Verify that the review concurrency cap does not consume retry budget.
 
     When a review candidate is skipped because the review slot budget is
     exhausted, _prepare_launch must NOT be called.  Previously, the cap
-    check was placed AFTER _prepare_launch, which incremented
-    attempt_tracker on each pool-refill cycle.  After max_retries+1
+    check was placed AFTER _prepare_launch, which incremented the
+    attempt counter on each pool-refill cycle.  After max_retries+1
     such skips the circuit breaker permanently blocked the task with
     'Retry limit exceeded' — without ever starting a session.
     """
 
     @pytest.mark.asyncio
-    async def test_attempt_tracker_unchanged_for_capped_review(self) -> None:
-        """Skipped review candidates keep attempt_tracker at 0."""
+    async def test_attempt_unchanged_for_capped_review(self) -> None:
+        """Skipped review candidates do not consume retry budget."""
         from unittest.mock import AsyncMock, MagicMock, PropertyMock
 
         from agentfox.engine.engine import Orchestrator
@@ -669,17 +669,15 @@ class TestReviewCapDoesNotConsumeRetries:
 
         prepare_calls: list[str] = []
 
-        async def mock_prepare_launch(node_id, state, at, et):
+        async def mock_prepare_launch(node_id, state, et):
             prepare_calls.append(node_id)
             arch = nodes[node_id].archetype
-            at[node_id] = at.get(node_id, 0) + 1
-            return ("allowed", at[node_id], None, arch, 1, None)
+            return ("allowed", 1, None, arch, 1, None)
 
         dispatch_mgr.prepare_launch = mock_prepare_launch
         orch._dispatch_mgr = dispatch_mgr
 
         dispatcher = ParallelDispatcher(orch)
-        attempt_tracker: dict[str, int] = {}
         pool: set[asyncio.Task[SessionRecord]] = set()
 
         # max_review = max(1, int(3*0.34)) = 1
@@ -689,7 +687,6 @@ class TestReviewCapDoesNotConsumeRetries:
             pool,
             ["spec_a:1", "spec_b:1"],
             MagicMock(),
-            attempt_tracker,
             {},
         )
 
@@ -697,7 +694,6 @@ class TestReviewCapDoesNotConsumeRetries:
         assert "spec_b:1" not in prepare_calls, (
             "_prepare_launch must not be called for review candidates skipped by the concurrency cap"
         )
-        assert attempt_tracker.get("spec_b:1", 0) == 0
 
         for t in pool:
             t.cancel()
@@ -750,16 +746,17 @@ class TestReviewCapDoesNotConsumeRetries:
             nodes.get(nid, nodes.get(nid, MagicMock(archetype="reviewer"))).archetype
         )
 
-        async def mock_prepare_launch(node_id, state, at, et):
+        prepare_calls: list[str] = []
+
+        async def mock_prepare_launch(node_id, state, et):
+            prepare_calls.append(node_id)
             arch = nodes[node_id].archetype
-            at[node_id] = at.get(node_id, 0) + 1
-            return ("allowed", at[node_id], None, arch, 1, None)
+            return ("allowed", 1, None, arch, 1, None)
 
         dispatch_mgr.prepare_launch = mock_prepare_launch
         orch._dispatch_mgr = dispatch_mgr
 
         dispatcher = ParallelDispatcher(orch)
-        attempt_tracker: dict[str, int] = {}
         node_id = "spec_x:1:reviewer:audit-review"
 
         # Simulate a review already occupying the single review slot.
@@ -786,12 +783,11 @@ class TestReviewCapDoesNotConsumeRetries:
                 pool,
                 [node_id],
                 MagicMock(),
-                attempt_tracker,
                 {},
             )
 
-        assert attempt_tracker.get(node_id, 0) == 0, (
-            f"attempt_tracker was {attempt_tracker.get(node_id, 0)} after "
-            f"10 refill cycles; expected 0 (review cap should not consume retries)"
+        assert node_id not in prepare_calls, (
+            f"prepare_launch was called for {node_id} during "
+            f"10 refill cycles; expected 0 calls (review cap should skip before prepare_launch)"
         )
         assert orch._graph_sync.node_states.get(node_id) != "blocked"
