@@ -127,13 +127,13 @@ def _get_integration_head(repo_root: Path, branch: str) -> str:
 def build_summary_comment(
     spec_name: str,
     commit_sha: str,
-    tasks_path: Path,
+    spec_dir: Path,
     branch: str = "main",
 ) -> str:
     """Construct the Markdown comment body for the originating issue.
 
     Includes the spec name, the integration branch HEAD commit SHA, a bulleted list
-    of task group titles derived from tasks.md, and an auto-generated footer.
+    of task group titles derived from tasks.json, and an auto-generated footer.
 
     Requirements: 108-REQ-3.1, 108-REQ-3.2, 108-REQ-3.3, 108-REQ-3.4
     """
@@ -142,7 +142,6 @@ def build_summary_comment(
     # Extract task group titles from spec directory
     group_lines: list[str] = []
     try:
-        spec_dir = tasks_path.parent
         if spec_dir.is_dir():
             groups = parse_tasks(spec_dir)
             group_lines = [f"- {g.title}" for g in groups]
@@ -234,8 +233,8 @@ async def post_issue_summaries(
             )
 
         commit_sha = _get_integration_head(repo_root, integration_branch)
-        tasks_path = specs_dir / spec_name / "tasks.md"
-        body = build_summary_comment(spec_name, commit_sha, tasks_path, integration_branch)
+        spec_dir = specs_dir / spec_name
+        body = build_summary_comment(spec_name, commit_sha, spec_dir, integration_branch)
 
         try:
             await platform.add_issue_comment(source_issue.issue_number, body)

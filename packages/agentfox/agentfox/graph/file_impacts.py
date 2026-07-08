@@ -1,6 +1,6 @@
 """Predictive file conflict detection for parallel task dispatch.
 
-Extracts predicted file modification sets from spec documents (tasks.md,
+Extracts predicted file modification sets from spec documents (tasks.json,
 architecture.md) and detects overlapping files between task groups to prevent
 merge conflicts when dispatching tasks in parallel.
 
@@ -9,9 +9,12 @@ Requirements: 39-REQ-9.1, 39-REQ-9.2, 39-REQ-9.3, 39-REQ-9.E1
 
 from __future__ import annotations
 
+import logging
 import re
 from dataclasses import dataclass
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -37,11 +40,12 @@ def extract_file_impacts(
 ) -> set[str]:
     """Extract predicted file modifications from spec documents.
 
-    Scans tasks.md and architecture.md for backtick-quoted file paths
-    within the specified task group's section.
+    Parses tasks.json for the specified task group and scans its body
+    and subtask titles for backtick-quoted file paths.  Also scans
+    architecture.md for additional file references.
 
     Args:
-        spec_dir: Path to the spec directory containing tasks.md and/or
+        spec_dir: Path to the spec directory containing tasks.json and/or
             architecture.md.
         task_group: The task group number to extract impacts for.
 
@@ -53,12 +57,26 @@ def extract_file_impacts(
     """
     files: set[str] = set()
 
-    # Extract from tasks.md
-    tasks_md = spec_dir / "tasks.md"
-    if tasks_md.exists():
-        content = tasks_md.read_text()
-        section = _extract_task_group_section(content, task_group)
-        files.update(_extract_file_paths(section))
+    # Extract from tasks.json via the spec parser
+    try:
+        from agentfox.spec.parser import parse_tasks  # noqa: PLC0415
+
+        groups = parse_tasks(spec_dir)
+        for group in groups:
+            if group.number == task_group:
+                # Scan the group body for file paths
+                if group.body:
+                    files.update(_extract_file_paths(group.body))
+                # Scan subtask titles for file paths
+                for subtask in group.subtasks:
+                    files.update(_extract_file_paths(subtask.title))
+                break
+    except Exception:
+        logger.debug(
+            "Failed to parse tasks.json in %s for file impact extraction",
+            spec_dir,
+            exc_info=True,
+        )
 
     # Extract from architecture.md
     design_md = spec_dir / "architecture.md"
@@ -69,32 +87,6 @@ def extract_file_impacts(
         files.update(_extract_file_paths(content))
 
     return files
-
-
-def _extract_task_group_section(content: str, task_group: int) -> str:
-    """Extract the section of tasks.md corresponding to a task group.
-
-    Looks for patterns like "- [ ] N." or "- [x] N." where N matches
-    the task_group number, and extracts until the next top-level task.
-    """
-    lines = content.split("\n")
-    in_section = False
-    section_lines: list[str] = []
-
-    # Pattern for top-level task group: "- [ ] N." or "- [x] N." or "- [-] N."
-    group_pattern = re.compile(rf"^- \[.\] {task_group}\.")
-    next_group_pattern = re.compile(r"^- \[.\] \d+\.")
-
-    for line in lines:
-        if group_pattern.match(line):
-            in_section = True
-            section_lines.append(line)
-        elif in_section:
-            if next_group_pattern.match(line):
-                break
-            section_lines.append(line)
-
-    return "\n".join(section_lines)
 
 
 def _extract_file_paths(text: str) -> set[str]:

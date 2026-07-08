@@ -135,7 +135,7 @@ def build_task_prompt(
         f"Implement task group {task_group} from specification "
         f"`{spec_name}`.\n"
         f"\n"
-        f"Refer to the tasks.md subtask list in the context above for the "
+        f"Refer to the tasks.json subtask list in the context above for the "
         f"detailed breakdown of work items. Complete all subtasks in group "
         f"{task_group}.\n"
         f"\n"

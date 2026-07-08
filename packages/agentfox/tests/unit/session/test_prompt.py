@@ -157,6 +157,33 @@ class TestInvalidTaskGroupRaisesValueError:
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# TS-NS-2: Task prompt references tasks.json (not tasks.md)
+# Requirement: NS-REQ-2
+# ---------------------------------------------------------------------------
+
+
+class TestTaskPromptReferencesTasksJson:
+    """TS-NS-2: task prompt text refers to tasks.json, not tasks.md.
+
+    Requirement: NS-REQ-2
+    """
+
+    def test_prompt_does_not_contain_tasks_md(self) -> None:
+        """Coder task prompt must not reference tasks.md."""
+        result = build_task_prompt(1, "my_spec")
+        assert "tasks.md" not in result, (
+            f"Task prompt must not reference tasks.md: {result!r}"
+        )
+
+    def test_prompt_references_tasks_json(self) -> None:
+        """Coder task prompt references tasks.json."""
+        result = build_task_prompt(1, "my_spec")
+        assert "tasks.json" in result, (
+            f"Task prompt must reference tasks.json: {result!r}"
+        )
+
+
 class TestNonCoderTaskPromptOmitsGroupNumber:
     """AC-2 regression guard: verifier (and other non-coder archetypes)
     must never have a task group number in their task prompt, even if

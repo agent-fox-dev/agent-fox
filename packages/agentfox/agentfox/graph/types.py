@@ -74,3 +74,30 @@ class TaskGraph:
     def successors(self, node_id: str) -> list[str]:
         """Return IDs of all direct successors of a node."""
         return [e.target for e in self.edges if e.source == node_id]
+
+
+# ---------------------------------------------------------------------------
+# Shared node lookup helpers
+# ---------------------------------------------------------------------------
+
+
+def get_node_archetype(graph: TaskGraph | None, node_id: str) -> str:
+    """Resolve the archetype for a node, defaulting to ``'coder'``.
+
+    Single implementation used by both :class:`DispatchManager` and
+    :class:`SessionResultHandler` to avoid duplicated lookup logic.
+    """
+    if graph is not None and node_id in graph.nodes:
+        return graph.nodes[node_id].archetype
+    return "coder"
+
+
+def get_node_mode(graph: TaskGraph | None, node_id: str) -> str | None:
+    """Resolve the mode for a node, defaulting to ``None``.
+
+    Single implementation used by both :class:`DispatchManager` and
+    :class:`SessionResultHandler` to avoid duplicated lookup logic.
+    """
+    if graph is not None and node_id in graph.nodes:
+        return graph.nodes[node_id].mode
+    return None

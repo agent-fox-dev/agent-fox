@@ -31,6 +31,7 @@ from agentfox.engine.coverage import (
 )
 from agentfox.engine.graph_sync import GraphSync
 from agentfox.engine.state import ExecutionState, SessionRecord, update_state_with_session
+from agentfox.graph.types import get_node_archetype, get_node_mode
 from agentfox.ui.progress import TaskCallback, TaskEvent
 
 logger = logging.getLogger(__name__)
@@ -114,18 +115,6 @@ class SessionResultHandler:
         self._timeout_multiplier: float = timeout_multiplier
         self._timeout_ceiling_factor: float = timeout_ceiling_factor
         self._original_session_timeout: int = original_session_timeout
-
-    def _get_node_archetype(self, node_id: str) -> str:
-        """Get the archetype name for a node from the task graph."""
-        if self._graph is not None and node_id in self._graph.nodes:
-            return self._graph.nodes[node_id].archetype
-        return "coder"
-
-    def _get_node_mode(self, node_id: str) -> str | None:
-        """Get the mode for a node from the task graph."""
-        if self._graph is not None and node_id in self._graph.nodes:
-            return self._graph.nodes[node_id].mode
-        return None
 
     def _get_node_state(self, node_id: str) -> _NodeRetryState:
         ns = self._node_retry_states.get(node_id)
@@ -300,15 +289,15 @@ class SessionResultHandler:
             record,
             self._archetypes_config,
             self._knowledge_db_conn,
-            mode=self._get_node_mode(record.node_id),
+            mode=get_node_mode(self._graph, record.node_id),
             sink=self._sink,
             run_id=self._run_id,
         )
         if not decision.should_block:
             return False
 
-        node_archetype = self._get_node_archetype(record.node_id)
-        node_mode = self._get_node_mode(record.node_id)
+        node_archetype = get_node_archetype(self._graph, record.node_id)
+        node_mode = get_node_mode(self._graph, record.node_id)
         archetype_entry = get_archetype(node_archetype)
         if node_mode is not None:
             from agentfox.archetypes import resolve_effective_config
@@ -386,7 +375,7 @@ class SessionResultHandler:
                     node_id=record.node_id,
                     status="disagreed",
                     duration_s=0,
-                    archetype=self._get_node_archetype(record.node_id),
+                    archetype=get_node_archetype(self._graph, record.node_id),
                     predecessor_node=coder_node_id,
                 )
             )
@@ -481,7 +470,7 @@ class SessionResultHandler:
                     node_id=record.node_id,
                     status="disagreed",
                     duration_s=0,
-                    archetype=self._get_node_archetype(record.node_id),
+                    archetype=get_node_archetype(self._graph, record.node_id),
                     predecessor_node=coder_node_id,
                 )
             )
@@ -499,7 +488,7 @@ class SessionResultHandler:
         update_state_with_session(state, record)
 
         # Run coverage regression gate for successful coder sessions
-        if record.status == "completed" and self._get_node_archetype(record.node_id) == "coder":
+        if record.status == "completed" and get_node_archetype(self._graph, record.node_id) == "coder":
             self.check_coverage_regression(record, state, Path.cwd())
 
         # 105-REQ-3.2: Record session outcome to DB (unified single source of truth).
@@ -619,7 +608,7 @@ class SessionResultHandler:
                     node_id=node_id,
                     status="completed",
                     duration_s=duration_s,
-                    archetype=self._get_node_archetype(node_id),
+                    archetype=get_node_archetype(self._graph, node_id),
                 )
             )
 
@@ -979,8 +968,8 @@ class SessionResultHandler:
                 return
 
         # 26-REQ-9.3: Retry-predecessor for archetypes with the flag
-        node_archetype = self._get_node_archetype(node_id)
-        node_mode = self._get_node_mode(node_id)
+        node_archetype = get_node_archetype(self._graph, node_id)
+        node_mode = get_node_mode(self._graph, node_id)
         archetype_entry = get_archetype(node_archetype)
         if node_mode is not None:
             from agentfox.archetypes import resolve_effective_config
@@ -1043,7 +1032,7 @@ class SessionResultHandler:
                     node_id=node_id,
                     status="disagreed",
                     duration_s=0,
-                    archetype=self._get_node_archetype(node_id),
+                    archetype=get_node_archetype(self._graph, node_id),
                     predecessor_node=pred_id,
                 )
             )
@@ -1068,7 +1057,7 @@ class SessionResultHandler:
                     status="failed",
                     duration_s=duration_s,
                     error_message=record.error_message,
-                    archetype=self._get_node_archetype(node_id),
+                    archetype=get_node_archetype(self._graph, node_id),
                 )
             )
         self._block_task(
@@ -1101,7 +1090,7 @@ class SessionResultHandler:
                     node_id=node_id,
                     status="retry",
                     duration_s=0,
-                    archetype=self._get_node_archetype(node_id),
+                    archetype=get_node_archetype(self._graph, node_id),
                     attempt=attempt + 1,
                 )
             )

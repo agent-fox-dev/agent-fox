@@ -436,6 +436,14 @@ def _build_nodes_and_edges(
         prev_node_id: str | None = None
         for group in sorted_groups:
             node_id = f"{spec_info.name}:{group.number}"
+            # Match builder._create_nodes_and_intra_edges archetype logic:
+            # default coder, checkpoint kind → gate, explicit archetype tag wins
+            archetype = "coder"
+            if getattr(group, "kind", None) == "checkpoint":
+                archetype = "gate"
+            if hasattr(group, "archetype") and group.archetype:
+                archetype = group.archetype
+
             new_nodes[node_id] = Node(
                 id=node_id,
                 spec_name=spec_info.name,
@@ -445,6 +453,7 @@ def _build_nodes_and_edges(
                 status=NodeStatus.PENDING,
                 subtask_count=len(group.subtasks),
                 body=group.body,
+                archetype=archetype,
             )
 
             if prev_node_id is not None:

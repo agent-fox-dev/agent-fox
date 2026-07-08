@@ -1,10 +1,11 @@
 """Hot-load tests.
 
 Test Spec: TS-06-15 (discover and add new specs),
-           TS-06-16 (no new specs is no-op)
+           TS-06-16 (no new specs is no-op),
+           TS-NS-5
 Edge Cases: TS-06-E5 (invalid dependency), TS-06-E7 (sync interval zero)
 Requirements: 06-REQ-6.E1, 06-REQ-7.1, 06-REQ-7.2, 06-REQ-7.3,
-              06-REQ-7.E1, 06-REQ-7.E2
+              06-REQ-7.E1, 06-REQ-7.E2, NS-REQ-5
 """
 
 from __future__ import annotations
@@ -78,3 +79,101 @@ class TestSyncIntervalZero:
                 triggered_at.append(completed)
 
         assert triggered_at == [5, 10, 15, 20]
+
+
+# ---------------------------------------------------------------------------
+# TS-NS-5: _build_nodes_and_edges sets archetype defaults and checkpoint kind
+# Requirement: NS-REQ-5
+# ---------------------------------------------------------------------------
+
+
+class TestBuildNodesAndEdgesArchetypeDefaults:
+    """TS-NS-5: hot_load _build_nodes_and_edges archetype defaults.
+
+    Requirement: NS-REQ-5
+    """
+
+    def test_coder_node_defaults_to_coder_archetype(self) -> None:
+        """Nodes from normal task groups default to archetype='coder'."""
+        from agentfox.engine.hot_load import _build_nodes_and_edges
+        from agentfox.spec.discovery import SpecInfo
+        from agentfox.spec.types import SubtaskDef, TaskGroupDef
+
+        spec = SpecInfo(name="99_test", prefix=99, path=Path("/tmp/99_test"), has_tasks=True, has_prd=True)
+        groups = [
+            TaskGroupDef(
+                number=1,
+                title="Implement feature",
+                optional=False,
+                completed=False,
+                subtasks=(SubtaskDef(id="1.1", title="t1", completed=False),),
+                body="",
+                archetype=None,
+            ),
+        ]
+        spec_task_groups = {"99_test": groups}
+        spec_deps: dict[str, list[str]] = {"99_test": []}
+
+        new_nodes, _edges, _added = _build_nodes_and_edges(
+            [spec], spec_task_groups, spec_deps, {}, [],
+        )
+
+        node = new_nodes["99_test:1"]
+        assert node.archetype == "coder"
+
+    def test_checkpoint_kind_gets_gate_archetype(self) -> None:
+        """Groups with kind='checkpoint' receive archetype='gate'."""
+        from agentfox.engine.hot_load import _build_nodes_and_edges
+        from agentfox.spec.discovery import SpecInfo
+        from agentfox.spec.types import SubtaskDef, TaskGroupDef
+
+        spec = SpecInfo(name="99_test", prefix=99, path=Path("/tmp/99_test"), has_tasks=True, has_prd=True)
+        groups = [
+            TaskGroupDef(
+                number=1,
+                title="Checkpoint gate",
+                optional=False,
+                completed=False,
+                subtasks=(SubtaskDef(id="1.1", title="t1", completed=False),),
+                body="",
+                archetype=None,
+                kind="checkpoint",
+            ),
+        ]
+        spec_task_groups = {"99_test": groups}
+        spec_deps: dict[str, list[str]] = {"99_test": []}
+
+        new_nodes, _edges, _added = _build_nodes_and_edges(
+            [spec], spec_task_groups, spec_deps, {}, [],
+        )
+
+        node = new_nodes["99_test:1"]
+        assert node.archetype == "gate"
+
+    def test_explicit_archetype_overrides_default(self) -> None:
+        """Groups with an explicit archetype tag override the default."""
+        from agentfox.engine.hot_load import _build_nodes_and_edges
+        from agentfox.spec.discovery import SpecInfo
+        from agentfox.spec.types import SubtaskDef, TaskGroupDef
+
+        spec = SpecInfo(name="99_test", prefix=99, path=Path("/tmp/99_test"), has_tasks=True, has_prd=True)
+        groups = [
+            TaskGroupDef(
+                number=1,
+                title="Review step",
+                optional=False,
+                completed=False,
+                subtasks=(SubtaskDef(id="1.1", title="t1", completed=False),),
+                body="",
+                archetype="reviewer",
+            ),
+        ]
+        spec_task_groups = {"99_test": groups}
+        spec_deps: dict[str, list[str]] = {"99_test": []}
+
+        new_nodes, _edges, _added = _build_nodes_and_edges(
+            [spec], spec_task_groups, spec_deps, {}, [],
+        )
+
+        node = new_nodes["99_test:1"]
+        assert node.archetype == "reviewer"

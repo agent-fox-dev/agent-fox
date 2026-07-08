@@ -25,6 +25,8 @@ from agentfox.engine.graph_sync import _is_auto_pre
 from agentfox.engine.preflight import PreflightVerdict, run_preflight
 from agentfox.engine.session_lifecycle import _REVIEW_ARCHETYPES
 from agentfox.engine.state import SessionRecord
+from agentfox.graph.types import get_node_archetype as _get_node_archetype
+from agentfox.graph.types import get_node_mode as _get_node_mode
 from agentfox.ui.progress import TaskCallback, TaskEvent
 
 logger = logging.getLogger(__name__)
@@ -459,8 +461,7 @@ class DispatchManager:
 
     def get_node_archetype(self, node_id: str) -> str:
         """Get the archetype name for a node from the task graph."""
-        node = self.get_node(node_id)
-        return node.archetype if node else "coder"
+        return _get_node_archetype(self._graph, node_id)
 
     def get_node_instances(self, node_id: str) -> int:
         """Get the instance count for a node from the task graph."""
@@ -469,8 +470,7 @@ class DispatchManager:
 
     def get_node_mode(self, node_id: str) -> str | None:
         """Get the mode for a node from the task graph (97-REQ-5.3)."""
-        node = self.get_node(node_id)
-        return node.mode if node else None
+        return _get_node_mode(self._graph, node_id)
 
     async def prepare_launch(
         self,
