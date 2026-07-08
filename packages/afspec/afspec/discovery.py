@@ -27,6 +27,37 @@ _SPEC_DIR_RE = re.compile(r"^\d+_[a-z][a-z0-9_]*$")
 _FRONTMATTER_RE = re.compile(r"\A---\r?\n(.*?)^---\r?\n", re.DOTALL | re.MULTILINE)
 
 
+def is_spec_dir_name(name: str) -> bool:
+    """Check whether *name* matches the canonical spec directory pattern.
+
+    The pattern is ``{digits}_{snake_case_name}`` — one or more leading
+    digits, an underscore, then a lowercase letter followed by lowercase
+    letters, digits, or underscores.
+
+    This is the single source of truth for spec-directory name matching.
+    All packages should call this function (or :func:`parse_spec_dir_name`)
+    instead of defining their own regex.
+    """
+    return bool(_SPEC_DIR_RE.match(name))
+
+
+def parse_spec_dir_name(name: str) -> tuple[int, str] | None:
+    """Parse a spec directory name into ``(prefix, spec_name)``.
+
+    Returns ``None`` if *name* does not match the canonical spec directory
+    pattern (see :func:`is_spec_dir_name`).
+
+    >>> parse_spec_dir_name("01_core_foundation")
+    (1, 'core_foundation')
+    >>> parse_spec_dir_name("invalid") is None
+    True
+    """
+    if not _SPEC_DIR_RE.match(name):
+        return None
+    prefix_str, _, rest = name.partition("_")
+    return int(prefix_str), rest
+
+
 class DependencyGraph:
     """Directed dependency graph across specs.
 

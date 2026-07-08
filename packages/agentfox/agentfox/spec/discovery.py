@@ -1,21 +1,23 @@
 """Specification discovery: scan the spec root for valid spec folders.
 
+Delegates spec-directory name matching to :func:`afspec.discovery.is_spec_dir_name`
+(the single canonical implementation) and adds agentfox-specific filtering
+(``requirements.json`` existence, ``filter_spec`` parameter).
+
 Requirements: 02-REQ-1.1, 02-REQ-1.2, 02-REQ-1.3, 02-REQ-1.E1, 02-REQ-1.E2
 """
 
 from __future__ import annotations
 
 import logging
-import re
 from dataclasses import dataclass
 from pathlib import Path
+
+from afspec.discovery import parse_spec_dir_name
 
 from agentfox.core.errors import PlanError
 
 logger = logging.getLogger(__name__)
-
-# Pattern: numeric prefix (2+ digits), underscore, descriptive name
-_SPEC_DIR_PATTERN = re.compile(r"^(\d+)_(.+)$")
 
 
 @dataclass(frozen=True)
@@ -57,12 +59,12 @@ def discover_specs(
     for entry in sorted(specs_dir.iterdir()):
         if not entry.is_dir():
             continue
-        match = _SPEC_DIR_PATTERN.match(entry.name)
-        if not match:
+        parsed = parse_spec_dir_name(entry.name)
+        if parsed is None:
             continue
 
         found_candidates = True
-        prefix = int(match.group(1))
+        prefix, _ = parsed
 
         # Skip folders without requirements.json (not a valid spec)
         if not (entry / "requirements.json").is_file():

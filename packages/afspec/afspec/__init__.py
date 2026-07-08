@@ -11,7 +11,13 @@ from afspec.constructors import (
     unwanted_criterion,
 )
 from afspec.coverage import compute_coverage
-from afspec.discovery import DependencyGraph, build_dependency_graph, discover_specs
+from afspec.discovery import (
+    DependencyGraph,
+    build_dependency_graph,
+    discover_specs,
+    is_spec_dir_name,
+    parse_spec_dir_name,
+)
 from afspec.ears import render_ears_sentence
 from afspec.exceptions import (
     BootstrapError,
@@ -70,6 +76,7 @@ from afspec.validation import (
     validate_cross_file,
     validate_cross_spec,
     validate_schema,
+    validate_structured,
 )
 
 __all__ = [
@@ -132,6 +139,8 @@ __all__ = [
     "render_ears_sentence",
     "discover_specs",
     "build_dependency_graph",
+    "is_spec_dir_name",
+    "parse_spec_dir_name",
     "create_spec",
     # EARS criterion builders
     "ubiquitous_criterion",
@@ -146,6 +155,7 @@ __all__ = [
     "ValidationError",
     "ValidationResult",
     "ValidationWarning",
+    "validate_structured",
     # Exceptions
     "SpecError",
     "LoadError",

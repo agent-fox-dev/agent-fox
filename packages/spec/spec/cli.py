@@ -16,15 +16,14 @@ from pathlib import Path
 from typing import Any
 
 import click
-import jsonschema
 import yaml
+from afspec.discovery import parse_spec_dir_name
 from agentfox.core.config import ThemeConfig, load_config
 from agentfox.io import AgentFoxGroup, StatusSpinner, emit, emit_ok
 from agentfox.ui.display import create_theme, render_banner
 from agentspec.errors import AgentError
 from agentspec.session import SessionState, SpecSession
 
-_SPEC_DIR_RE = re.compile(r"^(\d{2})_(.+)$")
 _SPEC_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
 _DEFAULT_SPEC_DIR = ".agent-fox/specs"
 
@@ -65,6 +64,8 @@ def _resolve_spec(spec_dir: Path, spec_arg: str) -> Path:
     """Resolve a spec argument to a spec directory path.
 
     Matches by full directory name first, then by zero-padded prefix.
+    Uses :func:`afspec.discovery.parse_spec_dir_name` for directory
+    name matching (the canonical single implementation).
     """
     candidates: list[tuple[int, Path]] = []
     if not spec_dir.exists():
@@ -73,9 +74,9 @@ def _resolve_spec(spec_dir: Path, spec_arg: str) -> Path:
     for entry in spec_dir.iterdir():
         if not entry.is_dir():
             continue
-        match = _SPEC_DIR_RE.match(entry.name)
-        if match:
-            candidates.append((int(match.group(1)), entry))
+        parsed = parse_spec_dir_name(entry.name)
+        if parsed is not None:
+            candidates.append((parsed[0], entry))
 
     candidates.sort(key=lambda x: x[0])
 
@@ -84,9 +85,8 @@ def _resolve_spec(spec_dir: Path, spec_arg: str) -> Path:
             return path
 
     padded = spec_arg.zfill(2)
-    for _, path in candidates:
-        match = _SPEC_DIR_RE.match(path.name)
-        if match and match.group(1) == padded:
+    for prefix, path in candidates:
+        if str(prefix).zfill(2) == padded:
             return path
 
     if candidates:
@@ -102,9 +102,9 @@ def _next_prefix(spec_dir: Path) -> int:
         for entry in spec_dir.iterdir():
             if not entry.is_dir():
                 continue
-            match = _SPEC_DIR_RE.match(entry.name)
-            if match:
-                max_prefix = max(max_prefix, int(match.group(1)))
+            parsed = parse_spec_dir_name(entry.name)
+            if parsed is not None:
+                max_prefix = max(max_prefix, parsed[0])
     return max_prefix + 1
 
 
@@ -496,127 +496,20 @@ _VALIDATE_ARTIFACT_FILES: dict[str, str] = {
     "tasks": "tasks.json",
 }
 
-_VALIDATE_SCHEMA_MAP: dict[str, str] = {
-    "requirements.json": "requirements.v1.json",
-    "test_spec.json": "test_spec.v1.json",
-    "tasks.json": "tasks.v1.json",
-}
-
-
-def _extract_requirement_id(message: str) -> str | None:
-    """Extract a requirement/criterion ID from a validation error message.
-
-    Looks for the first identifier in single quotes that matches a
-    typical requirement ID pattern (e.g., ``TEST-REQ-1.1``).
-    """
-    match = re.search(r"'([A-Z][\w.-]+)'", message)
-    return match.group(1) if match else None
-
-
-def _build_schema_errors(
-    target: Path,
-    artifact_data: dict[str, dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """Validate raw JSON artifact data against JSON schemas.
-
-    Runs ``jsonschema`` validation directly on the raw JSON dicts
-    to capture both missing-required-field errors (which produce
-    top-level empty-path errors) and field-constraint errors (which
-    carry the offending value).
-
-    Returns a list of structured error dicts with
-    ``category="schema"``.
-    """
-    import afspec as _afspec
-
-    all_schemas = _afspec.schemas()
-    errors: list[dict[str, Any]] = []
-
-    for filename, schema_name in _VALIDATE_SCHEMA_MAP.items():
-        if filename not in artifact_data:
-            continue  # IO errors handled separately
-        raw_data = artifact_data[filename]
-        schema = json.loads(all_schemas[schema_name])
-        validator = jsonschema.Draft202012Validator(schema)
-        for err in validator.iter_errors(raw_data):
-            path = ".".join(str(p) for p in err.absolute_path) if err.absolute_path else ""
-            error_dict: dict[str, Any] = {
-                "category": "schema",
-                "artifact": filename,
-                "message": err.message,
-            }
-            if path:
-                error_dict["path"] = path
-                error_dict["value"] = err.instance
-            # Top-level errors (empty path) omit path and value per 05-REQ-3.E2
-            errors.append(error_dict)
-
-    return errors
-
-
-def _build_model_schema_errors(spec_obj: Any) -> list[dict[str, Any]]:
-    """Run model-level schema validation (EARS constraints, task group rules).
-
-    These checks require a loaded ``Spec`` object and complement
-    the raw JSON schema validation.
-    """
-    from afspec.validation import _validate_ears_constraints, _validate_task_group_structure
-
-    errors: list[dict[str, Any]] = []
-    for err in _validate_ears_constraints(spec_obj):
-        error_dict: dict[str, Any] = {
-            "category": "schema",
-            "artifact": err.file,
-            "message": err.message,
-        }
-        if err.path:
-            error_dict["path"] = err.path
-        errors.append(error_dict)
-
-    for err in _validate_task_group_structure(spec_obj):
-        error_dict = {
-            "category": "schema",
-            "artifact": err.file,
-            "message": err.message,
-        }
-        if err.path:
-            error_dict["path"] = err.path
-        errors.append(error_dict)
-
-    return errors
-
-
-def _build_integrity_errors(spec_obj: Any) -> list[dict[str, Any]]:
-    """Run cross-file integrity validation and produce structured errors."""
-    import afspec as _afspec
-
-    errors: list[dict[str, Any]] = []
-    for err in _afspec.validate_cross_file(spec_obj):
-        error_dict: dict[str, Any] = {
-            "category": "integrity",
-            "check": err.rule,
-            "message": err.message,
-        }
-        req_id = _extract_requirement_id(err.message)
-        if req_id:
-            error_dict["requirement_id"] = req_id
-        errors.append(error_dict)
-    return errors
-
 
 def _validate_single_spec(target: Path) -> dict[str, Any]:
     """Run full validation on a single spec pack and return a result dict.
+
+    Delegates all schema, EARS-constraint, task-group-structure, and
+    cross-file integrity checks to :func:`afspec.validation.validate_structured`,
+    which is the single public entry point for structured validation output.
 
     Returns a dict with ``valid``, ``errors``, and optionally ``warnings``
     keys.  Does not emit output or set exit codes — the caller decides
     how to present results.
     """
     import afspec as _afspec
-    from afspec.validation import (
-        _check_group_subtask_count,
-        _check_group_test_spec_refs,
-        _check_subtask_overload,
-    )
+    from afspec.validation import validate_structured
 
     required_files = ["prd.md", "requirements.json", "test_spec.json", "tasks.json"]
     io_errors: list[dict[str, Any]] = []
@@ -634,11 +527,11 @@ def _validate_single_spec(target: Path) -> dict[str, Any]:
     if io_errors:
         return {"valid": False, "errors": io_errors}
 
-    artifact_data: dict[str, dict[str, Any]] = {}
+    # Verify JSON artifacts are readable before loading
     for filename in ["requirements.json", "test_spec.json", "tasks.json"]:
         fpath = target / filename
         try:
-            artifact_data[filename] = json.loads(fpath.read_text())
+            json.loads(fpath.read_text())
         except (OSError, json.JSONDecodeError) as exc:
             io_errors.append(
                 {
@@ -651,34 +544,13 @@ def _validate_single_spec(target: Path) -> dict[str, Any]:
     if io_errors:
         return {"valid": False, "errors": io_errors}
 
-    schema_errors = _build_schema_errors(target, artifact_data)
-
     try:
         spec_obj = _afspec.load_spec(target)
     except Exception:
         session = SpecSession.resume(target)
         spec_obj = session._load_spec_from_artifacts()
 
-    schema_errors.extend(_build_model_schema_errors(spec_obj))
-    integrity_errors = _build_integrity_errors(spec_obj)
-
-    warning_dicts: list[dict[str, Any]] = []
-    for group in spec_obj.tasks.task_groups:
-        for w in _check_group_test_spec_refs(group):
-            warning_dicts.append({"category": "warning", "message": w.message, "entity_id": w.entity_id})
-        for w in _check_group_subtask_count(group):
-            warning_dicts.append({"category": "warning", "message": w.message, "entity_id": w.entity_id})
-        for w in _check_subtask_overload(group):
-            warning_dicts.append({"category": "warning", "message": w.message, "entity_id": w.entity_id})
-
-    all_errors = schema_errors + integrity_errors
-    result: dict[str, Any] = {
-        "valid": len(all_errors) == 0,
-        "errors": all_errors,
-    }
-    if warning_dicts:
-        result["warnings"] = warning_dicts
-    return result
+    return validate_structured(spec_obj)
 
 
 def _run_cross_spec_checks(spec_dir: Path) -> list[dict[str, Any]]:
@@ -785,6 +657,52 @@ def validate_cmd(ctx: click.Context, spec: str | None, cross_check: bool) -> Non
 
 
 # ---------------------------------------------------------------------------
+# lint
+# ---------------------------------------------------------------------------
+
+
+@main.command("lint")
+@click.option("--all", "lint_all", is_flag=True, default=False, help="Include fully-implemented specs")
+@click.pass_context
+def lint_cmd(ctx: click.Context, lint_all: bool) -> None:
+    """Lint spec packs for validation errors.
+
+    Discovers all spec packs in the spec directory and runs afspec
+    validation on each.  Exits with code 0 when clean, 1 when
+    error-severity findings exist.
+    """
+    from agentfox.spec.lint import run_lint_specs
+
+    spec_dir: Path = ctx.obj["spec_dir"]
+    quiet: bool = ctx.obj["quiet"]
+
+    with StatusSpinner("Linting specs...", quiet=quiet):
+        result = run_lint_specs(spec_dir, lint_all=lint_all)
+
+    findings_out = [
+        {
+            "spec": f.spec_name,
+            "file": f.file,
+            "rule": f.rule,
+            "severity": f.severity,
+            "message": f.message,
+        }
+        for f in result.findings
+    ]
+
+    output: dict[str, Any] = {
+        "findings": findings_out,
+        "exit_code": result.exit_code,
+    }
+
+    if result.exit_code == 0:
+        emit_ok(**output)
+    else:
+        emit(output)
+        ctx.exit(result.exit_code)
+
+
+# ---------------------------------------------------------------------------
 # status
 # ---------------------------------------------------------------------------
 
@@ -812,6 +730,76 @@ def status_cmd(ctx: click.Context, spec: str) -> None:
         output["quality"] = assessment.quality
 
     emit(output)
+
+
+# ---------------------------------------------------------------------------
+# campaign
+# ---------------------------------------------------------------------------
+
+
+@main.command("campaign")
+@click.argument("action", type=click.Choice(["create", "open", "new-spec"]))
+@click.option("--path", "-p", type=click.Path(), default=".", help="Campaign directory path")
+@click.option("--name", "-n", default=None, help="Campaign or spec name")
+@click.option("--description", default="", help="Campaign description")
+@click.option("--prd", type=click.Path(exists=True), default=None, help="PRD file path (for new-spec)")
+@click.pass_context
+def campaign_cmd(
+    ctx: click.Context,
+    action: str,
+    path: str,
+    name: str | None,
+    description: str,
+    prd: str | None,
+) -> None:
+    """Manage spec campaigns.
+
+    Actions:
+
+    \b
+      create    Create a new campaign directory
+      open      Open an existing campaign and list its specs
+      new-spec  Add a new spec to a campaign
+    """
+    from agentspec.campaign import Campaign
+    from agentspec.errors import CampaignError
+
+    target = Path(path)
+
+    try:
+        if action == "create":
+            if name is None:
+                raise click.ClickException("--name is required for 'create'")
+            camp = Campaign.create(target, name, description)
+            emit_ok(action="created", path=str(camp.path), name=camp.metadata.name)
+
+        elif action == "open":
+            camp = Campaign.open(target)
+            specs = [s.name for s in camp.specs()]
+            emit_ok(
+                action="opened",
+                name=camp.metadata.name,
+                description=camp.metadata.description,
+                specs=specs,
+            )
+
+        elif action == "new-spec":
+            if name is None:
+                raise click.ClickException("--name is required for 'new-spec'")
+            camp = Campaign.open(target)
+            prd_arg: str | Path = Path(prd) if prd else ""
+            if not prd_arg:
+                raise click.ClickException("--prd is required for 'new-spec'")
+            session = camp.new_spec(name, prd_arg)
+            emit_ok(
+                action="new-spec",
+                spec_dir=session._spec_dir.name,
+                state=session.state.value,
+            )
+
+    except CampaignError as exc:
+        emit({"ok": False, "error": str(exc)})
+        ctx.exit(1)
 
 
 cli = main

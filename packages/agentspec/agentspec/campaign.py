@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import yaml
+from afspec.discovery import parse_spec_dir_name
 
 from agentspec.errors import CampaignError
 
@@ -22,9 +23,6 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from agentspec.session import SpecSession
-
-# Pattern for valid spec directory names: NN_snake_case
-_SPEC_DIR_PATTERN = re.compile(r"^(\d{2})_([a-z][a-z0-9_]*)$")
 
 # Pattern for valid spec names: starts with letter, then letters/digits/underscores
 _SPEC_NAME_PATTERN = re.compile(r"^[a-z][a-z0-9_]*$")
@@ -158,17 +156,16 @@ class Campaign:
 
         Returns:
             A list of ``Path`` objects for all spec subdirectories
-            matching the ``{NN}_{snake_case_name}`` pattern, sorted by
+            matching the canonical spec directory pattern, sorted by
             numeric prefix. Excludes ``archive/`` and non-matching entries.
         """
         result: list[tuple[int, Path]] = []
         for entry in self._path.iterdir():
             if not entry.is_dir():
                 continue
-            match = _SPEC_DIR_PATTERN.match(entry.name)
-            if match:
-                prefix = int(match.group(1))
-                result.append((prefix, entry))
+            parsed = parse_spec_dir_name(entry.name)
+            if parsed is not None:
+                result.append((parsed[0], entry))
 
         result.sort(key=lambda x: x[0])
         return [p for _, p in result]

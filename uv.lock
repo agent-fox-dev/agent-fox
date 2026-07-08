@@ -2780,7 +2780,6 @@ dependencies = [
     { name = "agentfox" },
     { name = "agentspec" },
     { name = "click" },
-    { name = "jsonschema" },
     { name = "rich" },
 ]
 
@@ -2790,7 +2789,6 @@ requires-dist = [
     { name = "agentfox", editable = "packages/agentfox" },
     { name = "agentspec", editable = "packages/agentspec" },
     { name = "click", specifier = ">=8.1" },
-    { name = "jsonschema", specifier = ">=4.0" },
     { name = "rich", specifier = ">=13.0" },
 ]
 

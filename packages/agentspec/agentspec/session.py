@@ -39,19 +39,23 @@ from agentspec.errors import AgentError, SessionError
 
 logger = logging.getLogger(__name__)
 
-_SPEC_DIR_RE = re.compile(r"^(\d{2})_([a-z][a-z0-9_]*)$")
-
-
 def _parse_spec_dir_name(name: str) -> tuple[str, str]:
     """Split a spec directory name into (spec_id, spec_name).
+
+    Delegates name matching to :func:`afspec.discovery.parse_spec_dir_name`
+    (the canonical single implementation).
 
     >>> _parse_spec_dir_name("01_basic_svc")
     ('01', 'basic_svc')
     """
-    match = _SPEC_DIR_RE.match(name)
-    if not match:
+    from afspec.discovery import parse_spec_dir_name
+
+    parsed = parse_spec_dir_name(name)
+    if parsed is None:
         raise SessionError(f"Invalid spec directory name '{name}' — expected format NN_snake_case (e.g. 01_basic_svc)")
-    return match.group(1), match.group(2)
+    prefix, spec_name = parsed
+    # Return zero-padded prefix string to match original behavior
+    return f"{prefix:02d}", spec_name
 
 
 _FRONTMATTER_RE = re.compile(r"\A---\r?\n(.*?)^---\r?\n", re.DOTALL | re.MULTILINE)

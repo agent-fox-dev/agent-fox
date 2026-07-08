@@ -25,6 +25,7 @@ class ValidationError(BaseModel):
     path: str = ""
     message: str = ""
     rule: str = ""
+    value: Any | None = None
 
 
 class ValidationWarning(BaseModel):
@@ -113,6 +114,7 @@ def _validate_against_schema(
                 path=path,
                 message=err.message,
                 rule="schema",
+                value=err.instance if path else None,
             )
         )
     return errors
@@ -877,6 +879,8 @@ def validate_structured(spec: Spec) -> dict[str, Any]:
             }
             if err.path:
                 error_dict["path"] = err.path
+            if err.value is not None:
+                error_dict["value"] = err.value
         errors.append(error_dict)
 
     warning_dicts: list[dict[str, Any]] = []
