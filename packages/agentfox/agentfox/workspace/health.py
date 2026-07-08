@@ -11,12 +11,12 @@ Requirements: 118-REQ-1.1, 118-REQ-1.3, 118-REQ-1.E1, 118-REQ-1.E2,
 from __future__ import annotations
 
 import logging
-import shutil
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from agentfox.workspace.git import run_git
+from agentfox.workspace.worktree import _cleanup_empty_ancestors, _safe_rmtree
 
 logger = logging.getLogger(__name__)
 
@@ -240,22 +240,54 @@ class WorkspacePreflightResult:
     stale_worktrees_removed: int = 0
 
 
+@dataclass
+class _StaleCleanupResult:
+    """Internal result of stale worktree cleanup."""
+
+    removed: int = 0
+    pruned: bool = False
+
+
 async def cleanup_stale_worktrees(repo_root: Path) -> int:
     """Remove all worktree directories under ``.agent-fox/worktrees/``.
 
     At orchestrator startup there are no active sessions, so every directory
     under the worktrees root is stale — left over from a prior interrupted
     run.  Each worktree is removed via ``git worktree remove --force``,
-    falling back to ``shutil.rmtree`` if the git command fails.  Empty
-    parent directories are cleaned up afterward.
+    falling back to ``_safe_rmtree`` if the git command fails.  Empty
+    parent directories are cleaned up via ``_cleanup_empty_ancestors``.
+
+    Ends with a single ``git worktree prune`` to clean the registry.
 
     Best-effort: never raises.  Returns the count of worktrees removed.
 
-    Issue: #629
+    Issue: #629, #694
     """
+    result = await _cleanup_stale_worktrees_impl(repo_root)
+    return result.removed
+
+
+async def _cleanup_stale_worktrees_impl(repo_root: Path) -> _StaleCleanupResult:
+    """Core implementation of stale worktree cleanup.
+
+    Returns a ``_StaleCleanupResult`` with both the removal count and
+    whether ``git worktree prune`` succeeded, so that
+    ``run_preflight_workspace_check`` can populate ``worktrees_pruned``
+    from the single prune call without running a redundant second one.
+    """
+    result = _StaleCleanupResult()
     worktrees_root = repo_root / ".agent-fox" / "worktrees"
     if not worktrees_root.is_dir():
-        return 0
+        # No worktree directories, but still prune the git registry to
+        # clean up any stale entries referencing deleted directories.
+        try:
+            rc, _stdout, _stderr = await run_git(
+                ["worktree", "prune"], cwd=repo_root, check=False
+            )
+            result.pruned = rc == 0
+        except Exception:
+            logger.debug("git worktree prune failed during stale cleanup", exc_info=True)
+        return result
 
     # Collect worktree paths registered in git that live under our root.
     registered: set[str] = set()
@@ -277,7 +309,8 @@ async def cleanup_stale_worktrees(repo_root: Path) -> int:
     except Exception:
         logger.debug("Could not list worktrees during stale cleanup", exc_info=True)
 
-    removed = 0
+    # Track paths that were successfully removed for ancestor cleanup.
+    removed_paths: list[Path] = []
 
     # Phase 1: remove registered worktrees via git worktree remove --force
     for wt_path_str in registered:
@@ -291,9 +324,10 @@ async def cleanup_stale_worktrees(repo_root: Path) -> int:
                 check=False,
             )
             if rc != 0 and wt_path.exists():
-                shutil.rmtree(wt_path, ignore_errors=True)
+                _safe_rmtree(wt_path)
             if not wt_path.exists():
-                removed += 1
+                result.removed += 1
+                removed_paths.append(wt_path)
                 logger.info("Removed stale worktree: %s", wt_path)
         except Exception:
             logger.debug("Failed to remove registered worktree %s", wt_path, exc_info=True)
@@ -303,36 +337,39 @@ async def cleanup_stale_worktrees(repo_root: Path) -> int:
         for child in _walk_leaf_dirs(worktrees_root):
             if child.is_dir():
                 try:
-                    shutil.rmtree(child, ignore_errors=True)
+                    _safe_rmtree(child)
                     if not child.exists():
-                        removed += 1
+                        result.removed += 1
+                        removed_paths.append(child)
                         logger.info("Removed orphan worktree directory: %s", child)
                 except Exception:
                     logger.debug("Failed to remove orphan directory %s", child, exc_info=True)
     except Exception:
         logger.debug("Failed to scan for orphan worktree directories", exc_info=True)
 
-    # Phase 3: clean up empty ancestor directories
-    try:
-        for child in sorted(worktrees_root.rglob("*"), reverse=True):
-            if child.is_dir():
-                try:
-                    child.rmdir()
-                except OSError:
-                    pass
-    except Exception:
-        pass
+    # Phase 3: clean up empty ancestor directories using the consolidated
+    # _cleanup_empty_ancestors from worktree.py (issue #694).
+    for wt_path in removed_paths:
+        try:
+            _cleanup_empty_ancestors(wt_path, worktrees_root)
+        except Exception:
+            logger.debug(
+                "Failed to clean up empty ancestors for %s", wt_path, exc_info=True
+            )
 
-    # Phase 4: prune the git worktree registry
+    # Phase 4: prune the git worktree registry (single prune per startup)
     try:
-        await run_git(["worktree", "prune"], cwd=repo_root, check=False)
+        rc, _stdout, _stderr = await run_git(
+            ["worktree", "prune"], cwd=repo_root, check=False
+        )
+        result.pruned = rc == 0
     except Exception:
         logger.debug("git worktree prune failed during stale cleanup", exc_info=True)
 
-    if removed:
-        logger.info("Cleaned up %d stale worktree(s) from prior run", removed)
+    if result.removed:
+        logger.info("Cleaned up %d stale worktree(s) from prior run", result.removed)
 
-    return removed
+    return result
 
 
 def _walk_leaf_dirs(root: Path) -> list[Path]:
@@ -359,29 +396,20 @@ async def run_preflight_workspace_check(repo_root: Path) -> WorkspacePreflightRe
     """
     result = WorkspacePreflightResult()
 
-    # 1a. Remove stale worktree directories from prior interrupted runs (#629)
+    # 1. Remove stale worktree directories and prune the registry (single
+    #    prune per startup — issue #694).
     try:
-        removed = await cleanup_stale_worktrees(repo_root)
-        result.stale_worktrees_removed = removed
-    except Exception:
-        logger.warning("Run pre-flight: stale worktree cleanup raised exception", exc_info=True)
-
-    # 1b. Prune stale worktree entries
-    try:
-        rc, _stdout, stderr = await run_git(
-            ["worktree", "prune"],
-            cwd=repo_root,
-            check=False,
-        )
-        if rc == 0:
-            result.worktrees_pruned = True
+        cleanup_result = await _cleanup_stale_worktrees_impl(repo_root)
+        result.stale_worktrees_removed = cleanup_result.removed
+        result.worktrees_pruned = cleanup_result.pruned
+        if cleanup_result.pruned:
             logger.info("Run pre-flight: pruned stale worktree entries")
         else:
-            msg = f"git worktree prune failed (rc={rc}): {stderr.strip()}"
+            msg = "git worktree prune failed during stale cleanup"
             result.issues_found.append(msg)
             logger.warning("Run pre-flight: %s", msg)
     except Exception:
-        logger.warning("Run pre-flight: git worktree prune raised exception", exc_info=True)
+        logger.warning("Run pre-flight: stale worktree cleanup raised exception", exc_info=True)
 
     # 2. Check for stale lock files in .git/
     git_dir = repo_root / ".git"

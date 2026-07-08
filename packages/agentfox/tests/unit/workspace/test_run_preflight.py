@@ -273,3 +273,140 @@ class TestCleanupStaleWorktrees:
 
         assert result.stale_worktrees_removed >= 1
         assert not wt.exists()
+
+
+# ---------------------------------------------------------------------------
+# Issue #694: Consolidation tests
+# ---------------------------------------------------------------------------
+
+
+class TestSinglePruneDuringPreflight:
+    """TS-NS-3: git worktree prune is called exactly once per preflight."""
+
+    @pytest.mark.asyncio
+    async def test_prune_called_exactly_once(self, tmp_path: Path) -> None:
+        """git worktree prune is called exactly once across the entire
+        run_preflight_workspace_check invocation (issue #694)."""
+        git_dir = tmp_path / ".git"
+        git_dir.mkdir()
+
+        prune_calls: list[list[str]] = []
+
+        async def mock_git(args, cwd, check=True, timeout=None):
+            if args == ["worktree", "prune"]:
+                prune_calls.append(args)
+            return (0, "", "")
+
+        with patch("agentfox.workspace.health.run_git", side_effect=mock_git):
+            result = await run_preflight_workspace_check(tmp_path)
+
+        assert len(prune_calls) == 1, (
+            f"Expected exactly 1 worktree prune call, got {len(prune_calls)}"
+        )
+        assert result.worktrees_pruned is True
+
+
+class TestNoShutilRmtreeInHealth:
+    """TS-NS-1: health.py uses _safe_rmtree, not raw shutil.rmtree."""
+
+    def test_no_shutil_rmtree_import(self) -> None:
+        """health.py does not import or call shutil.rmtree (issue #694)."""
+        import inspect
+
+        from agentfox.workspace import health
+
+        source = inspect.getsource(health)
+        assert "shutil.rmtree" not in source, (
+            "health.py must not use shutil.rmtree; use _safe_rmtree instead"
+        )
+        assert "import shutil" not in source, (
+            "health.py must not import shutil after consolidation"
+        )
+
+
+class TestCleanupStaleWorktreeSymlinkProtection:
+    """TS-NS-1: cleanup_stale_worktrees uses _safe_rmtree for CWE-59 safety."""
+
+    @pytest.mark.asyncio
+    async def test_symlink_target_not_deleted(self, tmp_path: Path) -> None:
+        """A symlink inside a stale worktree dir must not cause deletion
+        of the external target file (CWE-59, issue #694)."""
+        # External file that must survive
+        external_file = tmp_path / "external.txt"
+        external_file.write_text("keep me")
+
+        # Create a stale worktree directory with a symlink inside
+        worktrees_root = tmp_path / ".agent-fox" / "worktrees"
+        wt = worktrees_root / "spec_sym" / "1"
+        wt.mkdir(parents=True)
+        (wt / "link").symlink_to(external_file)
+
+        async def mock_git(args, cwd, check=True, timeout=None):
+            if args[:2] == ["worktree", "list"]:
+                return (0, "", "")
+            return (0, "", "")
+
+        with patch("agentfox.workspace.health.run_git", side_effect=mock_git):
+            count = await cleanup_stale_worktrees(tmp_path)
+
+        assert count == 1
+        assert not wt.exists(), "Stale worktree should be removed"
+        assert external_file.exists(), "External file must survive symlink cleanup"
+        assert external_file.read_text() == "keep me"
+
+
+class TestCleanupPreservesNonEmptyAncestors:
+    """TS-NS-2: cleanup_stale_worktrees delegates to _cleanup_empty_ancestors."""
+
+    @pytest.mark.asyncio
+    async def test_non_empty_spec_dir_preserved(self, tmp_path: Path) -> None:
+        """When a spec dir has two task dirs and only one is removed,
+        the spec dir is preserved (issue #694).
+
+        We patch _safe_rmtree so that only wt_stale is actually removed,
+        simulating wt_keep being locked/in-use.  The ancestor cleanup
+        must preserve spec_mixed/ because it still contains wt_keep.
+        """
+        from agentfox.workspace.worktree import _safe_rmtree as real_safe_rmtree
+
+        worktrees_root = tmp_path / ".agent-fox" / "worktrees"
+        # Two task dirs under the same spec
+        wt_stale = worktrees_root / "spec_mixed" / "1"
+        wt_stale.mkdir(parents=True)
+        (wt_stale / "code.py").touch()
+
+        wt_keep = worktrees_root / "spec_mixed" / "2"
+        wt_keep.mkdir(parents=True)
+        (wt_keep / "code.py").touch()
+
+        async def mock_git(args, cwd, check=True, timeout=None):
+            if args[:2] == ["worktree", "list"]:
+                # Only wt_stale is registered; wt_keep is not.
+                return (0, f"worktree {wt_stale}\nbranch refs/heads/feature/spec_mixed/1\n\n", "")
+            if args[:2] == ["worktree", "remove"]:
+                # Simulate successful removal via git
+                import shutil as _shutil
+                target = Path(args[3])
+                if target.exists():
+                    _shutil.rmtree(target)
+                return (0, "", "")
+            return (0, "", "")
+
+        def selective_safe_rmtree(path: Path) -> None:
+            """Only remove wt_stale; wt_keep simulates being locked."""
+            if path == wt_keep or wt_keep in path.parents:
+                return  # simulate removal failure (dir stays)
+            real_safe_rmtree(path)
+
+        with (
+            patch("agentfox.workspace.health.run_git", side_effect=mock_git),
+            patch("agentfox.workspace.health._safe_rmtree", side_effect=selective_safe_rmtree),
+        ):
+            count = await cleanup_stale_worktrees(tmp_path)
+
+        assert count == 1
+        assert not wt_stale.exists(), "Stale worktree should be removed"
+        # spec_mixed/ should be preserved because wt_keep (task 2) is still there
+        spec_dir = worktrees_root / "spec_mixed"
+        assert spec_dir.exists(), "Non-empty spec dir must be preserved"
+        assert wt_keep.exists(), "Sibling worktree must not be touched"
