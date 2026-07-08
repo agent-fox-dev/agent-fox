@@ -1,11 +1,11 @@
 [project]
 name = "agentspec"
-version = "4.1.13"
+version = "4.1.14"
 description = "AI-powered spec creation library"
 requires-python = ">=3.12"
 dependencies = [
-    "afspec>=4.1.13",
-    "agentfox>=4.1.13",
+    "afspec>=4.1.14",
+    "agentfox>=4.1.14",
     "pyyaml>=6.0",
 ]
 
