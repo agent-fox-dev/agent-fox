@@ -396,12 +396,17 @@ async def ai_call(
     system: str | list[dict[str, Any]] | None = None,
     context: str,
     cache_policy: CachePolicy = CachePolicy.DEFAULT,
+    **kwargs: Any,
 ) -> tuple[str | None, Any]:
     """Async AI call: resolve model, create client, retry, track usage, extract text.
 
     Combines the repeated pattern of resolve_model + create_async_client +
     cached_messages_create + retry + track_response_usage + extract text
     into a single call.
+
+    Extra keyword arguments (e.g. ``tools``, ``tool_choice``, ``temperature``)
+    are forwarded to ``cached_messages_create()`` and ultimately to
+    ``client.messages.create()``.
 
     Returns:
         A tuple of (response_text_or_none, raw_response). Callers should
@@ -422,6 +427,7 @@ async def ai_call(
                 messages=messages,
                 system=system,
                 cache_policy=cache_policy,
+                **kwargs,
             )
         finally:
             await client.close()
@@ -439,10 +445,15 @@ def ai_call_sync(
     system: str | list[dict[str, Any]] | None = None,
     context: str,
     cache_policy: CachePolicy = CachePolicy.DEFAULT,
+    **kwargs: Any,
 ) -> tuple[str | None, Any]:
     """Synchronous AI call: resolve model, create client, retry, track usage, extract text.
 
     Synchronous variant of :func:`ai_call` for callers that cannot use async.
+
+    Extra keyword arguments (e.g. ``tools``, ``tool_choice``, ``temperature``)
+    are forwarded to ``cached_messages_create_sync()`` and ultimately to
+    ``client.messages.create()``.
 
     Returns:
         A tuple of (response_text_or_none, raw_response).
@@ -461,6 +472,7 @@ def ai_call_sync(
             messages=messages,
             system=system,
             cache_policy=cache_policy,
+            **kwargs,
         )
 
     response = retry_api_call(_call, context=context)

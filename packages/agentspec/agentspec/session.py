@@ -705,12 +705,13 @@ def _utcnow() -> str:
 
 
 def _create_agent() -> SpecAgent:
-    """Create a SpecAgent using the agentfox client factory and config."""
-    from agentfox.core.client import create_async_anthropic_client
+    """Create a SpecAgent with the configured model tier.
 
+    ``ai_call()`` (used inside ``SpecAgent._call_api``) creates its own
+    client per call, so the agent only needs the model tier name.
+    """
     config = load_config()
-    client = create_async_anthropic_client()
-    return SpecAgent(client, config.model)
+    return SpecAgent(config.model)
 
 
 def _error_to_dict(exc: AgentError) -> dict[str, Any]:

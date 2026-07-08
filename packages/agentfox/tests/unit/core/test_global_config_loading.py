@@ -127,7 +127,7 @@ class TestPostMergeValidation:
 
         assert isinstance(config, AgentFoxConfig)
         # spec_tool defaults (new sub-config)
-        assert config.spec_tool.model == "claude-sonnet-4-6"
+        assert config.spec_tool.model == "STANDARD"
         assert config.spec_tool.auth_method == ""
 
 
@@ -492,7 +492,7 @@ class TestSpecToolDefaults:
     def test_spec_tool_defaults(self):
         """Default SpecToolConfig has expected field values."""
         config = AgentFoxConfig()
-        assert config.spec_tool.model == "claude-sonnet-4-6"
+        assert config.spec_tool.model == "STANDARD"
         assert config.spec_tool.auth_method == ""
         assert config.spec_tool.vertex_project == ""
         assert config.spec_tool.vertex_region == ""
@@ -602,7 +602,7 @@ class TestHardcodedDefaultModel:
     """TS-13-E6: Default model with no config, no settings.yaml, no env var."""
 
     def test_hardcoded_default_model(self, fake_home, monkeypatch, capsys, clean_af_env):
-        """Default model is 'claude-sonnet-4-6' with no deprecation warning."""
+        """Default model is 'STANDARD' with no deprecation warning."""
         from agentspec.config import load_config as agentspec_load_config
 
         # Ensure no settings.yaml exists
@@ -615,7 +615,7 @@ class TestHardcodedDefaultModel:
         agent_fox_config = AgentFoxConfig()
         spec_config = agentspec_load_config(agent_fox_config=agent_fox_config)
 
-        assert spec_config.model == "claude-sonnet-4-6"
+        assert spec_config.model == "STANDARD"
         captured = capsys.readouterr()
         assert captured.err == ""  # no deprecation warning
 

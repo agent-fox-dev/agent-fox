@@ -686,8 +686,8 @@ class SpecToolConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     model: str = Field(
-        default="claude-sonnet-4-6",
-        description="Anthropic model used for spec generation",
+        default="STANDARD",
+        description="Model tier name (e.g. 'STANDARD') or direct model ID for spec generation",
     )
     auth_method: str = Field(
         default="",

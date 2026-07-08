@@ -1,15 +1,15 @@
-"""SpecAgent -- core agent wrapping the Anthropic client for spec operations.
+"""SpecAgent -- core agent for spec operations using shared LLM infrastructure.
 
 Provides async methods for PRD assessment, refinement, and artifact
 generation using the Anthropic messages API with tool use for structured
-output.  Handles retry logic with exponential backoff for transient errors.
+output.  Delegates LLM calls to :func:`agentfox.core.client.ai_call`
+for model resolution, retry, caching, and token tracking.
 
 Requirements: 03-REQ-1.*, 03-REQ-2.*, 03-REQ-3.*, 03-REQ-5.*
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -44,10 +44,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Retry configuration (03-REQ-5.1, 03-REQ-5.E2)
-_MAX_RETRIES = 3
-_BASE_DELAY = 1.0  # seconds
-_MAX_CUMULATIVE_WAIT = 30.0  # seconds
 _DEFAULT_MAX_TOKENS = 65536
 _MAX_REPAIR_ATTEMPTS = 2
 
@@ -81,18 +77,22 @@ def _classify_sdk_error(exc: Exception) -> tuple[str, int | None]:
 
 
 class SpecAgent:
-    """Core agent wrapping the Anthropic client for spec operations."""
+    """Core agent for spec operations using shared LLM infrastructure.
 
-    def __init__(self, client: object, model: str) -> None:
-        """Initialize with an Anthropic client and model name.
+    Delegates LLM calls to ``ai_call()`` from ``agentfox.core.client``,
+    which provides model tier resolution, platform-aware client creation,
+    prompt caching, retry logic, and token tracking.
+    """
+
+    def __init__(self, model_tier: str) -> None:
+        """Initialize with a model tier name.
 
         Args:
-            client: An Anthropic client instance (Anthropic,
-                AnthropicBedrock, or AnthropicVertex).
-            model: The model identifier for API calls.
+            model_tier: A model tier name (e.g. ``"STANDARD"``) or a
+                direct model ID (e.g. ``"claude-sonnet-4-6"``).
+                Resolved via ``resolve_model()`` inside ``ai_call()``.
         """
-        self._client = client
-        self._model = model
+        self._model = model_tier
 
     # -- public methods ---------------------------------------------------
 
@@ -400,11 +400,11 @@ class SpecAgent:
         *,
         max_tokens: int = _DEFAULT_MAX_TOKENS,
     ) -> Any:
-        """Send messages to the Anthropic API with retry logic.
+        """Send messages to the Anthropic API via the shared ``ai_call()`` helper.
 
-        Retries up to 3 times on HTTP 429, 5xx, and connection errors
-        using exponential backoff (1 s, 2 s, 4 s).  Raises ``AgentError``
-        immediately on non-retryable 4xx errors.
+        Delegates to :func:`agentfox.core.client.ai_call` which provides
+        model tier resolution, platform-aware client creation, prompt caching,
+        retry with exponential backoff, and token tracking.
 
         Args:
             messages: The conversation messages to send.
@@ -413,98 +413,45 @@ class SpecAgent:
             max_tokens: Maximum tokens in the response.
 
         Returns:
-            The API response message.
+            The raw API response message (``anthropic.types.Message``).
 
         Raises:
             AgentError: On permanent failure or exhausted retries.
                 The original exception is set as ``__cause__``.
         """
-        cumulative_wait = 0.0
-        last_error: Exception | None = None
-        last_category: str = "transient"
-        last_http_status: int | None = None
+        from agentfox.core.client import ai_call
 
-        for attempt in range(_MAX_RETRIES + 1):
-            try:
-                kwargs: dict[str, Any] = {
-                    "model": self._model,
-                    "max_tokens": max_tokens,
-                    "messages": messages,
-                }
-                if tools:
-                    kwargs["tools"] = tools
-                    kwargs["tool_choice"] = {"type": "any"}
-                if system is not None:
-                    kwargs["system"] = system
+        extra_kwargs: dict[str, Any] = {}
+        if tools:
+            extra_kwargs["tools"] = tools
+            extra_kwargs["tool_choice"] = {"type": "any"}
 
-                async with self._client.messages.stream(**kwargs) as stream:  # type: ignore[attr-defined]
-                    response = await stream.get_final_message()
-                logger.debug("API call succeeded on attempt %d", attempt + 1)
-                self._check_stop_reason(response)
-                return response
+        try:
+            _text, response = await ai_call(
+                model_tier=self._model,
+                max_tokens=max_tokens,
+                messages=messages,
+                system=system,
+                context="spec-generation",
+                **extra_kwargs,
+            )
+        except (
+            RateLimitError,
+            InternalServerError,
+            APIConnectionError,
+            APIStatusError,
+        ) as exc:
+            category, http_status = _classify_sdk_error(exc)
+            is_retryable = category in ("rate_limit", "transient", "overloaded")
+            raise AgentError(
+                f"API call failed: {exc}",
+                category=category,
+                retryable=is_retryable,
+                http_status=http_status,
+            ) from exc
 
-            except (
-                RateLimitError,
-                InternalServerError,
-                APIConnectionError,
-            ) as exc:
-                last_error = exc
-                last_category, last_http_status = _classify_sdk_error(exc)
-                logger.debug(
-                    "Transient API error on attempt %d: %s",
-                    attempt + 1,
-                    exc,
-                )
-                if attempt < _MAX_RETRIES:
-                    delay = _BASE_DELAY * (2**attempt)
-                    if cumulative_wait + delay > _MAX_CUMULATIVE_WAIT:
-                        logger.debug(
-                            "Cumulative wait %.1fs + delay %.1fs exceeds %.1fs cap; abandoning retries",
-                            cumulative_wait,
-                            delay,
-                            _MAX_CUMULATIVE_WAIT,
-                        )
-                        break
-                    cumulative_wait += delay
-                    await asyncio.sleep(delay)
-
-            except APIStatusError as exc:
-                if exc.status_code == 529:
-                    last_error = exc
-                    last_category = "overloaded"
-                    last_http_status = 529
-                    logger.debug(
-                        "Overloaded (529) on attempt %d: %s",
-                        attempt + 1,
-                        exc,
-                    )
-                    if attempt < _MAX_RETRIES:
-                        delay = _BASE_DELAY * (2**attempt)
-                        if cumulative_wait + delay > _MAX_CUMULATIVE_WAIT:
-                            break
-                        cumulative_wait += delay
-                        await asyncio.sleep(delay)
-                    continue
-
-                category, http_status = _classify_sdk_error(exc)
-                logger.debug(
-                    "Non-retryable API error (HTTP %d): %s",
-                    exc.status_code,
-                    exc,
-                )
-                raise AgentError(
-                    f"API error (HTTP {exc.status_code}): {exc}",
-                    category=category,
-                    retryable=False,
-                    http_status=http_status,
-                ) from exc
-
-        raise AgentError(
-            f"API call failed after {_MAX_RETRIES + 1} attempts",
-            category=last_category,
-            retryable=True,
-            http_status=last_http_status,
-        ) from last_error
+        self._check_stop_reason(response)
+        return response
 
     @staticmethod
     def _check_stop_reason(response: Any) -> None:

@@ -1,14 +1,17 @@
 """Shared fixtures for agent pipeline tests.
 
-Provides mock Anthropic client and response builders used across
+Provides mock infrastructure and response builders used across
 test_agent.py, test_session_agent.py, and smoke tests.
+
+Since SpecAgent delegates to ``ai_call()`` from ``agentfox.core.client``,
+tests mock ``ai_call`` rather than an Anthropic client directly.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from agentspec.session import Assessment, Question
@@ -37,6 +40,14 @@ class FakeTextBlock:
 
 
 @dataclass
+class FakeUsage:
+    """Simulates an anthropic.types.Usage."""
+
+    input_tokens: int = 100
+    output_tokens: int = 200
+
+
+@dataclass
 class FakeMessage:
     """Simulates an anthropic.types.Message."""
 
@@ -46,6 +57,7 @@ class FakeMessage:
     content: list[Any] = field(default_factory=list)
     model: str = "claude-sonnet-4-6"
     stop_reason: str = "tool_use"
+    usage: FakeUsage = field(default_factory=FakeUsage)
 
 
 # ---------------------------------------------------------------------------
@@ -152,33 +164,72 @@ def make_text_only_response(text: str = "I don't know how to use tools") -> Fake
 
 
 # ---------------------------------------------------------------------------
+# ai_call mock helper
+# ---------------------------------------------------------------------------
+
+
+def _make_ai_call_mock() -> AsyncMock:
+    """Create an AsyncMock for ``agentfox.core.client.ai_call``.
+
+    By default returns ``(None, FakeMessage())``. Tests set
+    ``return_value`` or ``side_effect`` on the mock with tuples of
+    ``(text_or_none, FakeMessage)``.
+    """
+    mock = AsyncMock()
+    mock.return_value = (None, FakeMessage())
+    return mock
+
+
+def _ai_call_response(response: FakeMessage) -> tuple[None, FakeMessage]:
+    """Wrap a FakeMessage in the ``(text, response)`` tuple that ``ai_call`` returns."""
+    return (None, response)
+
+
+def _ai_call_side_effects(responses_or_errors: list[Any]) -> list[Any]:
+    """Convert a list of FakeMessages and/or Exceptions into side_effect entries for ai_call mock.
+
+    FakeMessages are wrapped in ``(None, msg)`` tuples.
+    Exceptions are left as-is (they will be raised by the mock).
+    """
+    result: list[Any] = []
+    for item in responses_or_errors:
+        if isinstance(item, BaseException):
+            result.append(item)
+        else:
+            result.append((None, item))
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
 
-class _FakeStream:
-    """Wraps a FakeMessage so ``await stream.get_final_message()`` works."""
+@pytest.fixture
+def mock_ai_call():
+    """Provide a mock of ``agentfox.core.client.ai_call`` for SpecAgent tests.
 
-    def __init__(self, message: Any) -> None:
-        self._message = message
+    Patches ``ai_call`` at the import location used by ``SpecAgent._call_api``.
+    Tests set ``return_value`` or ``side_effect`` on the returned mock.
 
-    async def get_final_message(self) -> Any:
-        return self._message
+    Usage::
+
+        async def test_something(mock_ai_call):
+            mock_ai_call.return_value = _ai_call_response(make_assessment_response())
+            agent = SpecAgent("STANDARD")
+            result = await agent.assess_prd("# PRD", "spec")
+    """
+    with patch("agentfox.core.client.ai_call", new_callable=AsyncMock) as mock:
+        yield mock
 
 
-class _StreamContextManager:
-    """Async context manager returned by the mocked ``messages.stream``."""
+@pytest.fixture
+def mock_client() -> MagicMock:
+    """Provide a mock Anthropic client (legacy, for backward compatibility).
 
-    def __init__(self, create_mock: AsyncMock, kwargs: dict[str, Any]) -> None:
-        self._create_mock = create_mock
-        self._kwargs = kwargs
-
-    async def __aenter__(self) -> _FakeStream:
-        result = await self._create_mock(**self._kwargs)
-        return _FakeStream(result)
-
-    async def __aexit__(self, *args: Any) -> None:
-        pass
+    Prefer ``mock_ai_call`` for new tests.
+    """
+    return _make_mock_client()
 
 
 def _make_mock_client() -> MagicMock:
@@ -191,16 +242,7 @@ def _make_mock_client() -> MagicMock:
     client = MagicMock()
     client.messages = MagicMock()
     client.messages.create = AsyncMock()
-    client.messages.stream = MagicMock(
-        side_effect=lambda **kwargs: _StreamContextManager(client.messages.create, kwargs)
-    )
     return client
-
-
-@pytest.fixture
-def mock_client() -> MagicMock:
-    """Provide a mock Anthropic client."""
-    return _make_mock_client()
 
 
 @pytest.fixture

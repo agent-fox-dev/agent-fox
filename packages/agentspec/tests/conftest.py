@@ -17,6 +17,7 @@ if _test_dir not in sys.path:
     sys.path.insert(0, _test_dir)
 
 from conftest_agent import (  # noqa: E402
+    mock_ai_call,  # noqa: F401
     mock_client,  # noqa: F401
     sample_assessment,  # noqa: F401
     sample_questions,  # noqa: F401

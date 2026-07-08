@@ -56,7 +56,7 @@ class TestConfigLoading:
         from agentspec.config import load_config
 
         config = load_config()
-        assert config.model == "claude-sonnet-4-6"
+        assert config.model == "STANDARD"
 
 
 class TestConfigEdgeCases:
@@ -88,7 +88,7 @@ class TestConfigEdgeCases:
         from agentspec.config import load_config
 
         config = load_config()
-        assert config.model == "claude-sonnet-4-6"
+        assert config.model == "STANDARD"
 
     def test_unknown_keys(
         self,
@@ -142,7 +142,7 @@ class TestConfigProperties:
         from agentspec.config import load_config
 
         config = load_config()
-        assert config.model == "claude-sonnet-4-6"
+        assert config.model == "STANDARD"
 
 
 class TestConfigSmoke:

@@ -10,7 +10,7 @@ Precedence (highest to lowest):
 1. ``AF_SPEC_MODEL`` environment variable
 2. ``[spec_tool]`` section from the merged ``AgentFoxConfig``
 3. Migration fallback from ``~/.af/settings.yaml``
-4. Hardcoded default ``claude-sonnet-4-6``
+4. Hardcoded default ``STANDARD`` (resolved to a model ID by ``resolve_model()``)
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_MODEL = "claude-sonnet-4-6"
+_DEFAULT_MODEL = "STANDARD"
 
 
 @dataclass

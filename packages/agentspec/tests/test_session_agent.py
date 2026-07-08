@@ -22,11 +22,11 @@ from conftest_agent import (
     SAMPLE_REQUIREMENTS_JSON,
     SAMPLE_TASKS_JSON,
     SAMPLE_TEST_SPEC_JSON,
-    _make_mock_client,
+    _ai_call_response,
+    _ai_call_side_effects,
     make_artifact_response,
     make_assessment_response,
     make_bad_request_error,
-    make_rate_limit_error,
 )
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
@@ -306,22 +306,19 @@ async def test_assessment_history_accumulates(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_partial_generation_preserves_artifacts(tmp_path: Path) -> None:
+async def test_partial_generation_preserves_artifacts(tmp_path: Path, mock_ai_call) -> None:
     """TS-03-E13: When generation fails on second artifact, the first
     artifact remains on disk and session stays in 'generating'."""
     session = _create_test_session(tmp_path, SessionState.PRD_ACCEPTED)
 
-    mock_client = _make_mock_client()
-    mock_client.messages.create = AsyncMock(
-        side_effect=[
-            make_artifact_response("requirements", SAMPLE_REQUIREMENTS_JSON),
-            make_bad_request_error(),
-        ]
-    )
+    mock_ai_call.side_effect = _ai_call_side_effects([
+        make_artifact_response("requirements", SAMPLE_REQUIREMENTS_JSON),
+        make_bad_request_error(),
+    ])
 
     from agentspec.agent import SpecAgent as _SA
 
-    with patch("agentspec.session._create_agent", return_value=_SA(mock_client, "claude-sonnet-4-6")):
+    with patch("agentspec.session._create_agent", return_value=_SA("STANDARD")):
         with pytest.raises(AgentError):
             await session.generate()
 
@@ -339,7 +336,7 @@ async def test_partial_generation_preserves_artifacts(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_resume_after_partial_generation(tmp_path: Path) -> None:
+async def test_resume_after_partial_generation(tmp_path: Path, mock_ai_call) -> None:
     """TS-03-E14: Resumed session detects existing artifacts and
     generates only missing ones."""
     from afspec import Requirements, marshal_json
@@ -350,18 +347,15 @@ async def test_resume_after_partial_generation(tmp_path: Path) -> None:
     req_model = Requirements(**SAMPLE_REQUIREMENTS_JSON)
     (session.spec_dir / "requirements.json").write_text(marshal_json(req_model))
 
-    # Mock client returns only 2 responses (for the missing artifacts)
-    mock_client = _make_mock_client()
-    mock_client.messages.create = AsyncMock(
-        side_effect=[
-            make_artifact_response("test_spec", SAMPLE_TEST_SPEC_JSON),
-            make_artifact_response("tasks", SAMPLE_TASKS_JSON),
-        ]
-    )
+    # Mock ai_call returns only 2 responses (for the missing artifacts)
+    mock_ai_call.side_effect = _ai_call_side_effects([
+        make_artifact_response("test_spec", SAMPLE_TEST_SPEC_JSON),
+        make_artifact_response("tasks", SAMPLE_TASKS_JSON),
+    ])
 
     from agentspec.agent import SpecAgent as _SA
 
-    with patch("agentspec.session._create_agent", return_value=_SA(mock_client, "claude-sonnet-4-6")):
+    with patch("agentspec.session._create_agent", return_value=_SA("STANDARD")):
         await session.generate()
 
     # All three artifacts should now exist
@@ -372,7 +366,7 @@ async def test_resume_after_partial_generation(tmp_path: Path) -> None:
     assert session.state == SessionState.GENERATED
 
     # Only 2 API calls — for missing artifacts only (not requirements)
-    assert mock_client.messages.create.call_count == 2
+    assert mock_ai_call.call_count == 2
 
 
 # ===================================================================
@@ -402,19 +396,17 @@ class TestPropertyPartialArtifacts:
 
         session = _create_test_session(tmp_path, SessionState.PRD_ACCEPTED)
 
-        side_effects: list = []
-        for i in range(failure_point):
-            side_effects.append(make_artifact_response(artifact_names[i], artifact_jsons[i]))
-        side_effects.append(make_bad_request_error())
-
-        mock_client = _make_mock_client()
-        mock_client.messages.create = AsyncMock(side_effect=side_effects)
+        side_effects = _ai_call_side_effects(
+            [make_artifact_response(artifact_names[i], artifact_jsons[i]) for i in range(failure_point)]
+            + [make_bad_request_error()]
+        )
 
         from agentspec.agent import SpecAgent as _SA
 
-        with patch("agentspec.session._create_agent", return_value=_SA(mock_client, "claude-sonnet-4-6")):
-            with pytest.raises(AgentError):
-                asyncio.run(session.generate())
+        with patch("agentfox.core.client.ai_call", new_callable=AsyncMock, side_effect=side_effects):
+            with patch("agentspec.session._create_agent", return_value=_SA("STANDARD")):
+                with pytest.raises(AgentError):
+                    asyncio.run(session.generate())
 
         for i in range(failure_point):
             assert (session.spec_dir / f"{artifact_names[i]}.json").exists(), f"{artifact_names[i]}.json should exist"
@@ -552,29 +544,26 @@ async def test_smoke_full_generation_flow(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_smoke_retry_and_recovery(tmp_path: Path) -> None:
-    """TS-03-SMOKE-4: Full path demonstrating retry on transient error
-    followed by successful completion."""
+async def test_smoke_retry_and_recovery(tmp_path: Path, mock_ai_call) -> None:
+    """TS-03-SMOKE-4: Full path demonstrating successful assessment via ai_call.
+
+    Retry logic is now internal to ``ai_call()`` (via ``retry_api_call_async``).
+    This test verifies that the session-agent integration works end-to-end
+    when ``ai_call`` returns a successful response (after any internal retries).
+    """
     session = _create_test_session(tmp_path, SessionState.INIT)
 
-    mock_client = _make_mock_client()
-    mock_client.messages.create = AsyncMock(
-        side_effect=[
-            make_rate_limit_error(),
-            make_assessment_response(
-                quality="needs_refinement",
-                summary="Needs work",
-            ),
-        ]
+    mock_ai_call.return_value = _ai_call_response(
+        make_assessment_response(
+            quality="needs_refinement",
+            summary="Needs work",
+        )
     )
 
     from agentspec.agent import SpecAgent as _SA
 
-    with (
-        patch("agentspec.session._create_agent", return_value=_SA(mock_client, "claude-sonnet-4-6")),
-        patch("asyncio.sleep", new_callable=AsyncMock),
-    ):
+    with patch("agentspec.session._create_agent", return_value=_SA("STANDARD")):
         await session.assess()
 
     assert session.state == SessionState.ASSESSING
-    assert mock_client.messages.create.call_count == 2
+    assert mock_ai_call.call_count == 1
