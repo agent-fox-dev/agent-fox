@@ -438,12 +438,14 @@ and processes them through a multi-stage fix pipeline.
 |-------|------|---------|--------|-------------|
 | `issue_check_interval` | int | `900` | >= 60 | Seconds between issue-tracker checks |
 | `push_fix_branch` | bool | `false` | -- | Push fix branches to origin before harvest |
+| `max_parallel` | int | `1` | 1--8 | Maximum number of issues processed concurrently. Independent issues (no dependency edges) are dispatched in parallel up to this limit. Issues with dependencies wait for their prerequisites to complete. Default `1` preserves serial processing. |
 
 **Example:**
 
 ```toml
 [night_shift]
 issue_check_interval = 1800
+max_parallel = 3
 ```
 
 ### Pipeline model tiers

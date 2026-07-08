@@ -8,6 +8,7 @@ Requirements: 61-REQ-1.1, 61-REQ-1.E1, 61-REQ-9.3
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import sys
 from collections.abc import Callable
@@ -18,7 +19,7 @@ from afaudit.emit import emit_audit_event as _emit_audit_event
 from afaudit.events import AuditEventType, generate_run_id
 
 from agentfox.core.config import AgentFoxConfig
-from agentfox.nightshift.dep_graph import build_graph, merge_edges
+from agentfox.nightshift.dep_graph import build_graph, build_parallel_graph, merge_edges
 from agentfox.nightshift.fix_pipeline import FixPipeline
 from agentfox.nightshift.reference_parser import (
     fetch_github_relationships,
@@ -58,6 +59,8 @@ class NightShiftState:
     """Runtime state for the daemon.
 
     Mutable -- fields are updated during the daemon lifecycle.
+    Protected by an asyncio.Lock for safe concurrent access from
+    parallel issue processing tasks.
     """
 
     total_cost: float = 0.0
@@ -67,6 +70,23 @@ class NightShiftState:
     issue_checks_completed: int = 0
     is_shutting_down: bool = False
     issue_outcomes: list[IssueOutcome] = field(default_factory=list)
+    _lock: asyncio.Lock = field(default_factory=asyncio.Lock, repr=False)
+
+    async def add_fix_result(
+        self,
+        cost: float,
+        sessions: int,
+        outcome: IssueOutcome,
+        *,
+        succeeded: bool,
+    ) -> None:
+        """Thread-safe update of counters after a fix completes."""
+        async with self._lock:
+            self.total_sessions += sessions
+            self.total_cost += cost
+            if succeeded:
+                self.issues_fixed += 1
+            self.issue_outcomes.append(outcome)
 
 
 def validate_night_shift_prerequisites(config: AgentFoxConfig) -> None:
@@ -121,6 +141,11 @@ class NightShiftEngine:
         # re-processing issues that were closed/fixed but still returned
         # by the platform API due to eventual consistency (issue #465).
         self._processed_issues: set[int] = set()
+        self._processed_issues_lock = asyncio.Lock()
+        # Issues currently being processed in parallel — excluded from
+        # staleness evaluation by sibling fixes.
+        self._in_flight: set[int] = set()
+        self._in_flight_lock = asyncio.Lock()
 
     def _check_cost_limit(self) -> bool:
         """Check whether the cost limit has been reached.
@@ -250,7 +275,7 @@ class NightShiftEngine:
                     exc_info=True,
                 )
 
-        # Compute processing order via topological sort
+        # Compute processing order via topological sort (used for logging)
         processing_order = build_graph(issues, all_edges)
         logger.info("Resolved processing order: %s", processing_order)
 
@@ -292,90 +317,183 @@ class NightShiftEngine:
                     exc_info=True,
                 )
 
-        for issue_num in processing_order:
-            if issue_num in closed:
-                continue  # removed by staleness check
-            if self.state.is_shutting_down:
-                break
-            if self._check_cost_limit():
-                logger.info("Cost limit reached, stopping issue processing")
-                break
-            if self._check_session_limit():
-                logger.info("Session limit reached, stopping issue processing")
-                break
+        # Parallel dispatch with dependency-aware scheduling
+        _mp = getattr(
+            getattr(self._config, "night_shift", None),
+            "max_parallel",
+            1,
+        )
+        max_parallel = _mp if isinstance(_mp, int) and _mp >= 1 else 1
+        await self._dispatch_parallel(
+            issues=issues,
+            all_edges=all_edges,
+            issue_map=issue_map,
+            processing_order=processing_order,
+            closed=closed,
+            seen=seen,
+            max_parallel=max_parallel,
+            issue_check_run_id=issue_check_run_id,
+        )
 
+        self.state.issue_checks_completed += 1
+
+    async def _dispatch_parallel(
+        self,
+        *,
+        issues: list[object],
+        all_edges: list[object],
+        issue_map: dict[int, object],
+        processing_order: list[int],
+        closed: set[int],
+        seen: set[int],
+        max_parallel: int,
+        issue_check_run_id: str,
+    ) -> None:
+        """Dependency-aware parallel issue dispatcher.
+
+        Launches up to ``max_parallel`` concurrent ``_process_fix`` tasks.
+        When a task completes, the dependency graph is updated and newly-
+        ready issues are dispatched to fill the pool.
+
+        With ``max_parallel=1`` this behaves identically to the previous
+        serial loop — issues are processed one at a time in topological order.
+        """
+        graph = build_parallel_graph(issues, all_edges)  # type: ignore[arg-type]
+
+        # Remove closed (superseded) issues from the graph
+        for c in closed:
+            graph.complete(c)
+
+        pool: set[asyncio.Task[tuple[int, bool]]] = set()
+        dispatched: set[int] = set()
+
+        async def _run_one(issue_num: int) -> tuple[int, bool]:
+            """Process a single issue and return (issue_num, succeeded)."""
             issue = issue_map[issue_num]
             fix_succeeded = False
             try:
-                await self._process_fix(issue)
-                fix_succeeded = True
+                async with self._in_flight_lock:
+                    self._in_flight.add(issue_num)
+                try:
+                    await self._process_fix(issue)
+                    fix_succeeded = True
+                except Exception:
+                    logger.warning(
+                        "Fix failed for issue #%d, continuing to next",
+                        issue_num,
+                        exc_info=True,
+                    )
+                finally:
+                    async with self._in_flight_lock:
+                        self._in_flight.discard(issue_num)
+                    async with self._processed_issues_lock:
+                        self._processed_issues.add(issue_num)
             except Exception:
                 logger.warning(
-                    "Fix failed for issue #%d, continuing to next",
+                    "Unexpected error processing issue #%d",
                     issue_num,
                     exc_info=True,
                 )
-            finally:
-                # Mark issue as processed regardless of outcome so it is
-                # not picked up again in subsequent scan cycles (issue #465).
-                self._processed_issues.add(issue_num)
+            return (issue_num, fix_succeeded)
 
-            # Post-fix staleness check (71-REQ-5.1, 71-REQ-5.E3)
-            if fix_succeeded:
-                # Record this issue as processed so subsequent drain iterations
-                # do not re-process it if the platform still returns it.
-                seen.add(issue_num)
-                remaining = [issue_map[n] for n in processing_order if n != issue_num and n not in closed]
-                if remaining:
-                    try:
-                        staleness = await check_staleness(
-                            issue,
-                            remaining,
-                            "",  # diff not available in current implementation
-                            self._config,
-                            self._platform,
-                            sink=self._sink,
-                            run_id=issue_check_run_id,
-                        )
-                        remaining_nums = {i.number for i in remaining}
-                        for obsolete_num in staleness.obsolete_issues:
-                            if obsolete_num not in remaining_nums:
-                                continue
-                            await self._platform.close_issue(  # type: ignore[attr-defined]
-                                obsolete_num,
-                                f"Resolved by fix for #{issue_num}",
-                            )
-                            closed.add(obsolete_num)
-                            seen.add(obsolete_num)
-                            _emit_audit_event(
-                                self._sink,
-                                issue_check_run_id,
-                                AuditEventType.ISSUE_OBSOLETE,
-                                payload={
-                                    "closed_issue": obsolete_num,
-                                    "fixed_by": issue_num,
-                                    "rationale": staleness.rationale.get(obsolete_num, ""),
-                                },
-                            )
-                            try:
-                                await self._platform.assign_label(  # type: ignore[attr-defined]
-                                    obsolete_num,
-                                    LABEL_FIXED,
-                                )
-                            except Exception:
-                                logger.warning(
-                                    "Failed to assign af:fixed label to obsolete issue #%d",
-                                    obsolete_num,
-                                    exc_info=True,
-                                )
-                    except Exception:
-                        logger.warning(
-                            "Staleness check failed after fix #%d",
-                            issue_num,
-                            exc_info=True,
-                        )
+        def _fill_pool() -> None:
+            """Add ready issues to the pool up to max_parallel."""
+            if self.state.is_shutting_down:
+                return
+            ready = graph.ready_issues()
+            for issue_num in ready:
+                if len(pool) >= max_parallel:
+                    break
+                if issue_num in dispatched or issue_num in closed:
+                    continue
+                if self.state.is_shutting_down:
+                    break
+                if self._check_cost_limit():
+                    logger.info("Cost limit reached, stopping issue dispatch")
+                    return
+                if self._check_session_limit():
+                    logger.info("Session limit reached, stopping issue dispatch")
+                    return
+                dispatched.add(issue_num)
+                task = asyncio.create_task(
+                    _run_one(issue_num),
+                    name=f"fix-issue-{issue_num}",
+                )
+                pool.add(task)
 
-        self.state.issue_checks_completed += 1
+        _fill_pool()
+
+        while pool:
+            done, pool = await asyncio.wait(pool, return_when=asyncio.FIRST_COMPLETED)
+            for task in done:
+                issue_num, fix_succeeded = task.result()
+
+                # Update graph: mark complete and find newly-ready issues
+                graph.complete(issue_num)
+
+                # Post-fix staleness check (71-REQ-5.1, 71-REQ-5.E3)
+                if fix_succeeded:
+                    seen.add(issue_num)
+                    remaining = [
+                        issue_map[n]
+                        for n in processing_order
+                        if n != issue_num and n not in closed and n not in dispatched
+                    ]
+                    if remaining:
+                        try:
+                            async with self._in_flight_lock:
+                                current_in_flight = set(self._in_flight)
+                            staleness = await check_staleness(
+                                issue_map[issue_num],
+                                remaining,
+                                "",  # diff not available in current implementation
+                                self._config,
+                                self._platform,
+                                sink=self._sink,
+                                run_id=issue_check_run_id,
+                                in_flight=current_in_flight,
+                            )
+                            remaining_nums = {i.number for i in remaining}
+                            for obsolete_num in staleness.obsolete_issues:
+                                if obsolete_num not in remaining_nums:
+                                    continue
+                                await self._platform.close_issue(  # type: ignore[attr-defined]
+                                    obsolete_num,
+                                    f"Resolved by fix for #{issue_num}",
+                                )
+                                closed.add(obsolete_num)
+                                seen.add(obsolete_num)
+                                graph.complete(obsolete_num)
+                                _emit_audit_event(
+                                    self._sink,
+                                    issue_check_run_id,
+                                    AuditEventType.ISSUE_OBSOLETE,
+                                    payload={
+                                        "closed_issue": obsolete_num,
+                                        "fixed_by": issue_num,
+                                        "rationale": staleness.rationale.get(obsolete_num, ""),
+                                    },
+                                )
+                                try:
+                                    await self._platform.assign_label(  # type: ignore[attr-defined]
+                                        obsolete_num,
+                                        LABEL_FIXED,
+                                    )
+                                except Exception:
+                                    logger.warning(
+                                        "Failed to assign af:fixed label to obsolete issue #%d",
+                                        obsolete_num,
+                                        exc_info=True,
+                                    )
+                        except Exception:
+                            logger.warning(
+                                "Staleness check failed after fix #%d",
+                                issue_num,
+                                exc_info=True,
+                            )
+
+            # Fill pool with newly-ready issues
+            _fill_pool()
 
     def _calculate_fix_cost(self, metrics: object) -> float:
         """Calculate USD cost from FixMetrics token counts."""
@@ -435,10 +553,7 @@ class NightShiftEngine:
         effective_body = issue_body if issue_body else getattr(issue, "body", "")
         try:
             metrics = await pipeline.process_issue(issue, issue_body=effective_body, run_id=fix_run_id)
-            self.state.total_sessions += getattr(metrics, "sessions_run", 0)
             cost = self._calculate_fix_cost(metrics)
-            self.state.total_cost += cost
-            self.state.issues_fixed += 1
 
             from agentfox.ui.progress import format_duration
 
@@ -449,18 +564,22 @@ class NightShiftEngine:
                 "bold green",
             )
 
-            self.state.issue_outcomes.append(
-                IssueOutcome(
-                    issue_number=issue.number,
-                    title=issue.title,
-                    run_id=fix_run_id,
-                    outcome="fixed",
-                    duration_ms=duration_ms,
-                    cost_usd=cost,
-                    sessions_run=getattr(metrics, "sessions_run", 0),
-                    input_tokens=getattr(metrics, "input_tokens", 0),
-                    output_tokens=getattr(metrics, "output_tokens", 0),
-                )
+            outcome = IssueOutcome(
+                issue_number=issue.number,
+                title=issue.title,
+                run_id=fix_run_id,
+                outcome="fixed",
+                duration_ms=duration_ms,
+                cost_usd=cost,
+                sessions_run=getattr(metrics, "sessions_run", 0),
+                input_tokens=getattr(metrics, "input_tokens", 0),
+                output_tokens=getattr(metrics, "output_tokens", 0),
+            )
+            await self.state.add_fix_result(
+                cost,
+                getattr(metrics, "sessions_run", 0),
+                outcome,
+                succeeded=True,
             )
 
             _emit_audit_event(
@@ -479,19 +598,18 @@ class NightShiftEngine:
                 "bold red",
             )
 
-            self.state.issue_outcomes.append(
-                IssueOutcome(
-                    issue_number=issue.number,
-                    title=issue.title,
-                    run_id=fix_run_id,
-                    outcome="failed",
-                    duration_ms=duration_ms,
-                    cost_usd=0.0,
-                    sessions_run=0,
-                    input_tokens=0,
-                    output_tokens=0,
-                )
+            outcome = IssueOutcome(
+                issue_number=issue.number,
+                title=issue.title,
+                run_id=fix_run_id,
+                outcome="failed",
+                duration_ms=duration_ms,
+                cost_usd=0.0,
+                sessions_run=0,
+                input_tokens=0,
+                output_tokens=0,
             )
+            await self.state.add_fix_result(0.0, 0, outcome, succeeded=False)
 
             logger.warning(
                 "Fix pipeline raised unexpectedly for issue #%d",

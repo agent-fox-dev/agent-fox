@@ -594,6 +594,11 @@ class NightShiftConfig(BaseModel):
         description="Push fix branches to origin before harvest",
     )
 
+    max_parallel: int = Field(
+        default=1,
+        description="Maximum number of issues processed concurrently (1-8)",
+    )
+
     @field_validator("issue_check_interval")
     @classmethod
     def clamp_interval_minimum(cls, v: int, info: object) -> int:
@@ -608,6 +613,26 @@ class NightShiftConfig(BaseModel):
                 v,
             )
             return 60
+        return v
+
+    @field_validator("max_parallel")
+    @classmethod
+    def clamp_max_parallel(cls, v: int, info: object) -> int:
+        """Clamp max_parallel to range [1, 8]."""
+        if v < 1:
+            logger.warning(
+                "Config field '%s' value %d below minimum, clamped to 1",
+                getattr(info, "field_name", "max_parallel"),
+                v,
+            )
+            return 1
+        if v > 8:
+            logger.warning(
+                "Config field '%s' value %d above maximum, clamped to 8",
+                getattr(info, "field_name", "max_parallel"),
+                v,
+            )
+            return 8
         return v
 
 

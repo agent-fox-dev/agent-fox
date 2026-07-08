@@ -133,6 +133,7 @@ async def check_staleness(
     *,
     sink: SinkDispatcher | None = None,
     run_id: str = "",
+    in_flight: set[int] | None = None,
 ) -> StalenessResult:
     """Evaluate remaining issues for obsolescence after a fix.
 
@@ -140,12 +141,22 @@ async def check_staleness(
     the authoritative source: an issue is only marked obsolete if the
     platform confirms it is no longer open with the af:fix label.
 
+    Issues whose numbers are in ``in_flight`` are excluded from
+    evaluation — they are currently being processed in parallel and
+    must not be closed by a sibling fix's staleness check.
+
     Fallback chain:
     - If AI fails: verify via GitHub API only (71-REQ-5.E1)
     - If GitHub fails: log warning, return empty (71-REQ-5.E2)
 
     Requirements: 71-REQ-5.1, 71-REQ-5.2, 71-REQ-5.E1, 71-REQ-5.E2
     """
+    # Exclude in-flight issues from staleness evaluation
+    if in_flight:
+        remaining_issues = [i for i in remaining_issues if i.number not in in_flight]
+        if not remaining_issues:
+            return StalenessResult(obsolete_issues=[], rationale={})
+
     remaining_numbers = {i.number for i in remaining_issues}
 
     # Step 1: Try AI staleness evaluation

@@ -27,6 +27,80 @@ class DependencyEdge:
     rationale: str  # why this edge exists
 
 
+@dataclass
+class ParallelGraph:
+    """Dependency graph state for parallel dispatch.
+
+    Exposes in-degree tracking so the parallel dispatcher can identify
+    ready issues and update the graph as tasks complete.
+    """
+
+    in_degree: dict[int, int]
+    successors: dict[int, list[int]]
+    priority_map: dict[int, int]
+
+    def ready_issues(self) -> list[int]:
+        """Return issue numbers with in-degree 0, sorted by priority then number."""
+
+        def _sort_key(n: int) -> tuple[int, int]:
+            return (self.priority_map.get(n, 1), n)
+
+        return sorted(
+            (n for n, deg in self.in_degree.items() if deg == 0),
+            key=_sort_key,
+        )
+
+    def complete(self, issue_num: int) -> list[int]:
+        """Mark an issue as complete. Returns newly-ready issue numbers."""
+        newly_ready: list[int] = []
+        # Remove from in_degree tracking
+        self.in_degree.pop(issue_num, None)
+        for succ in self.successors.get(issue_num, []):
+            if succ in self.in_degree:
+                self.in_degree[succ] -= 1
+                if self.in_degree[succ] == 0:
+                    newly_ready.append(succ)
+        return newly_ready
+
+
+def build_parallel_graph(
+    issues: list[IssueResult],
+    edges: list[DependencyEdge],
+) -> ParallelGraph:
+    """Build a dependency graph for parallel dispatch.
+
+    Returns a ``ParallelGraph`` that tracks in-degree and successors,
+    allowing the parallel dispatcher to identify ready issues and
+    update the graph as tasks complete.
+    """
+    issue_numbers = {i.number for i in issues}
+
+    priority_map: dict[int, int] = {}
+    for issue in issues:
+        label_set = set(issue.labels)
+        if LABEL_PRIORITY_HIGH in label_set:
+            priority_map[issue.number] = 0
+        elif LABEL_PRIORITY_LOW in label_set:
+            priority_map[issue.number] = 2
+        else:
+            priority_map[issue.number] = 1
+
+    valid_edges = [e for e in edges if e.from_issue in issue_numbers and e.to_issue in issue_numbers]
+    valid_edges = _break_all_cycles(valid_edges, issue_numbers)
+
+    in_degree: dict[int, int] = {n: 0 for n in issue_numbers}
+    successors: dict[int, list[int]] = defaultdict(list)
+    for edge in valid_edges:
+        in_degree[edge.to_issue] += 1
+        successors[edge.from_issue].append(edge.to_issue)
+
+    return ParallelGraph(
+        in_degree=in_degree,
+        successors=successors,
+        priority_map=priority_map,
+    )
+
+
 def build_graph(
     issues: list[IssueResult],
     edges: list[DependencyEdge],

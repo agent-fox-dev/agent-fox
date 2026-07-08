@@ -95,17 +95,24 @@ class SharedBudget:
     """Single daemon-level spending limit shared across all work streams.
 
     Cost is accumulated on a first-come, first-served basis. The budget
-    check occurs between cycles, not mid-operation.
+    check occurs between cycles, not mid-operation. Protected by an
+    asyncio.Lock for safe concurrent access from parallel tasks.
 
     Requirements: 85-REQ-5.1, 85-REQ-5.2, 85-REQ-5.E1
     """
 
     max_cost: float | None
     _total_cost: float = field(default=0.0, init=False, repr=False)
+    _lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False, repr=False)
 
     def add_cost(self, cost: float) -> None:
-        """Add cost from a work stream cycle."""
+        """Add cost from a work stream cycle (sync, backward-compatible)."""
         self._total_cost += cost
+
+    async def add_cost_async(self, cost: float) -> None:
+        """Add cost from a work stream cycle (async, lock-protected)."""
+        async with self._lock:
+            self._total_cost += cost
 
     @property
     def total_cost(self) -> float:
