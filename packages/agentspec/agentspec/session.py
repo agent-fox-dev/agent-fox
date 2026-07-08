@@ -709,8 +709,31 @@ def _create_agent() -> SpecAgent:
 
     ``ai_call()`` (used inside ``SpecAgent._call_api``) creates its own
     client per call, so the agent only needs the model tier name.
+
+    Reads ``backend.provider`` from the global AgentFoxConfig. When a
+    non-Anthropic backend (``deepagents`` or ``google``) is configured,
+    logs a warning and falls back to the Anthropic client — the spec
+    tool currently only supports the Anthropic Messages API.
     """
     config = load_config()
+
+    # Check backend provider from the global config
+    try:
+        from agentfox.core.config import load_config as load_af_config
+
+        af_config = load_af_config()
+        provider = af_config.backend.provider
+        if provider not in ("claude",):
+            logger.warning(
+                "Backend provider '%s' is not supported by the spec tool; "
+                "falling back to the Anthropic (claude) backend. "
+                "The spec tool currently only supports Anthropic-compatible backends.",
+                provider,
+            )
+    except Exception:
+        # If we can't load the AgentFox config, continue with defaults
+        pass
+
     return SpecAgent(config.model)
 
 

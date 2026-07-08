@@ -622,34 +622,34 @@ class TestProtocolTestsRunnable:
 
 
 # ---------------------------------------------------------------------------
-# TS-02-12: OrchestratorConfig has backend field with default 'claude'
+# TS-02-12: BackendConfig has provider field with default 'claude'
 # Requirement: 02-REQ-3.1
 # ---------------------------------------------------------------------------
 
 
 class TestOrchestratorConfigBackendDefault:
-    """Verify OrchestratorConfig.backend defaults to 'claude'."""
+    """Verify BackendConfig.provider defaults to 'claude'."""
 
     def test_backend_default_is_claude(self) -> None:
-        """TS-02-12: OrchestratorConfig().backend == 'claude'."""
-        from agentfox.core.config import OrchestratorConfig
+        """TS-02-12: BackendConfig().provider == 'claude'."""
+        from agentfox.core.config import BackendConfig
 
-        config = OrchestratorConfig()
-        assert config.backend == "claude"
-        assert isinstance(config.backend, str)
+        config = BackendConfig()
+        assert config.provider == "claude"
+        assert isinstance(config.provider, str)
 
 
 # ---------------------------------------------------------------------------
-# TS-02-13: backend field is not settable via environment variable
+# TS-02-13: backend provider field is not settable via environment variable
 # Requirement: 02-REQ-3.2
 # ---------------------------------------------------------------------------
 
 
 class TestOrchestratorConfigBackendNoEnvVar:
-    """Verify backend field ignores environment variables."""
+    """Verify backend provider field ignores environment variables."""
 
     def test_env_vars_do_not_affect_backend(self) -> None:
-        """TS-02-13: Env vars have no effect on backend field."""
+        """TS-02-13: Env vars have no effect on backend provider field."""
         env_vars = ["AGENTFOX_BACKEND", "ORCHESTRATOR_BACKEND", "BACKEND"]
         original_values = {}
         for var in env_vars:
@@ -657,10 +657,10 @@ class TestOrchestratorConfigBackendNoEnvVar:
             os.environ[var] = "deepagents"
 
         try:
-            from agentfox.core.config import OrchestratorConfig
+            from agentfox.core.config import BackendConfig
 
-            config = OrchestratorConfig()
-            assert config.backend == "claude"
+            config = BackendConfig()
+            assert config.provider == "claude"
         finally:
             for var in env_vars:
                 if original_values[var] is None:
@@ -670,22 +670,22 @@ class TestOrchestratorConfigBackendNoEnvVar:
 
 
 # ---------------------------------------------------------------------------
-# TS-02-14: Invalid TOML backend value triggers ConfigError via load_config()
+# TS-02-14: Invalid TOML backend provider triggers ConfigError via load_config()
 # Requirement: 02-REQ-3.3
 # ---------------------------------------------------------------------------
 
 
 class TestLoadConfigInvalidBackend:
-    """Verify invalid backend in TOML raises ConfigError."""
+    """Verify invalid backend provider in TOML raises ConfigError."""
 
     def test_invalid_backend_raises_config_error(self, tmp_path: os.PathLike) -> None:
-        """TS-02-14: TOML with invalid backend raises ConfigError."""
+        """TS-02-14: TOML with invalid backend provider raises ConfigError."""
         from pathlib import Path
 
         from agentfox.core.config import load_config
         from agentfox.core.errors import ConfigError
 
-        toml_content = '[orchestrator]\nbackend = "invalid-value"\n'
+        toml_content = '[backend]\nprovider = "invalid-value"\n'
         toml_file = Path(tmp_path) / "config.toml"
         toml_file.write_text(toml_content, encoding="utf-8")
 
@@ -693,41 +693,77 @@ class TestLoadConfigInvalidBackend:
             load_config(toml_file)
 
         error_msg = str(exc_info.value).lower()
-        assert "backend" in error_msg or "invalid-value" in error_msg
+        assert "provider" in error_msg or "invalid-value" in error_msg
 
 
 # ---------------------------------------------------------------------------
-# TS-02-15: Local TOML omits [orchestrator], global value inherited
+# TS-02-15: BackendConfig default inherited when TOML omits [backend]
 # Requirement: 02-REQ-3.4
 # ---------------------------------------------------------------------------
 
 
 class TestBackendInherited:
-    """Verify backend is inherited when local omits [orchestrator]."""
+    """Verify backend default is inherited when TOML omits [backend]."""
 
-    def test_global_backend_inherited_when_local_omits_orchestrator(self) -> None:
-        """TS-02-15: Global backend value inherited from global config."""
-        from agentfox.core.config import OrchestratorConfig
+    def test_global_backend_inherited_when_local_omits_backend(self) -> None:
+        """TS-02-15: BackendConfig default provider inherited."""
+        from agentfox.core.config import BackendConfig
 
-        config = OrchestratorConfig(**{"backend": "claude", "parallel": 4})
-        assert config.backend == "claude"
+        config = BackendConfig(**{"provider": "claude"})
+        assert config.provider == "claude"
 
 
 # ---------------------------------------------------------------------------
-# TS-02-16: Local TOML includes [orchestrator] but omits backend
+# TS-02-16: BackendConfig pydantic default
 # Requirement: 02-REQ-3.5
 # ---------------------------------------------------------------------------
 
 
 class TestBackendPydanticDefault:
-    """Verify pydantic default applies when local orchestrator omits backend."""
+    """Verify pydantic default applies when BackendConfig omits provider."""
 
-    def test_pydantic_default_applied_when_local_omits_backend(self) -> None:
-        """TS-02-16: Pydantic default 'claude' applied when backend key absent."""
-        from agentfox.core.config import OrchestratorConfig
+    def test_pydantic_default_applied_when_backend_omits_provider(self) -> None:
+        """TS-02-16: Pydantic default 'claude' applied when provider key absent."""
+        from agentfox.core.config import BackendConfig
 
-        config = OrchestratorConfig(**{"parallel": 2})
-        assert config.backend == "claude"
+        config = BackendConfig()
+        assert config.provider == "claude"
+
+
+# ---------------------------------------------------------------------------
+# TS-705-1: create_backend('google') maps to GoogleADKBackend
+# Requirement: NS-REQ-3
+# ---------------------------------------------------------------------------
+
+
+class TestCreateBackendGoogleMapping:
+    """Verify create_backend() accepts 'google' and maps to GoogleADKBackend."""
+
+    def test_create_backend_google_maps_to_google_adk(self) -> None:
+        """create_backend('google') returns a GoogleADKBackend instance."""
+        from unittest.mock import MagicMock, patch
+
+        mock_module = MagicMock()
+        mock_backend_instance = MagicMock()
+        mock_module.GoogleADKBackend.return_value = mock_backend_instance
+
+        with patch.dict(
+            "sys.modules",
+            {"agentfox.session.backends.google_adk": mock_module},
+        ):
+            from agentfox.session.backends import create_backend
+
+            result = create_backend("google")
+            mock_module.GoogleADKBackend.assert_called_once()
+            assert result is mock_backend_instance
+
+    def test_create_backend_unknown_raises_config_error(self) -> None:
+        """create_backend('invalid') raises ConfigError."""
+        from agentfox.core.errors import ConfigError
+        from agentfox.session.backends import create_backend
+
+        with pytest.raises(ConfigError, match="Unknown backend"):
+            create_backend("invalid")
 
 
 # ---------------------------------------------------------------------------
@@ -741,7 +777,7 @@ class TestRunSessionUsesFactory:
 
     @pytest.mark.asyncio
     async def test_create_backend_called_with_config_value(self) -> None:
-        """TS-02-17: create_backend called with config.orchestrator.backend."""
+        """TS-02-17: create_backend called with config.backend.provider."""
         from pathlib import Path
         from typing import Any
         from unittest.mock import patch as mock_patch
@@ -1170,7 +1206,7 @@ class TestInvalidTomlBackendCaughtEarly:
         from agentfox.core.config import load_config
         from agentfox.core.errors import ConfigError
 
-        toml_content = '[orchestrator]\nbackend = "unknown-value"\n'
+        toml_content = '[backend]\nprovider = "unknown-value"\n'
         toml_file = Path(tmp_path) / "config.toml"
         toml_file.write_text(toml_content, encoding="utf-8")
 

@@ -41,6 +41,7 @@ _BOUNDS_MAP_OVERRIDES: dict[tuple[str, str], str] = {
 # Sections NOT in this set are completely omitted from the template output.
 # Requirements: 68-REQ-1.1, 68-REQ-1.2
 _VISIBLE_SECTIONS: set[str] = {
+    "backend",
     "orchestrator",
     "archetypes",
     "archetypes.instances",
@@ -52,6 +53,7 @@ _VISIBLE_SECTIONS: set[str] = {
 # rendered first with an active [section] header; remaining sections follow
 # as commented # [section] blocks.
 _PROMOTED_DEFAULTS: set[tuple[str, str]] = {
+    ("backend", "provider"),
     ("orchestrator", "parallel"),
     ("orchestrator", "max_budget_usd"),
     ("archetypes", "reviewer"),

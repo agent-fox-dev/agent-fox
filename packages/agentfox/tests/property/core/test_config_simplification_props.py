@@ -19,6 +19,7 @@ from hypothesis import strategies as st
 
 _EXPECTED_VISIBLE_SECTIONS = frozenset(
     {
+        "backend",
         "orchestrator",
         "models",
         "archetypes",

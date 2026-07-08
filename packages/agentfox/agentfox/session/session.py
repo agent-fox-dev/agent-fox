@@ -104,7 +104,7 @@ async def run_session(
         task_prompt: Task prompt to send to the agent.
         config: Application configuration.
         backend: Backend instance to use. When ``None``, a backend is created
-            via ``create_backend(config.orchestrator.backend)``.
+            via ``create_backend(config.backend.provider)``.
         activity_callback: Optional callback for UI activity events.
         model_id: Optional model tier or model ID override. When set,
             overrides the archetype's resolved model tier for this session.
@@ -134,7 +134,7 @@ async def run_session(
     # before the try/finally block — no close() is called because no backend
     # was created.
     if backend is None:
-        backend = create_backend(config.orchestrator.backend)
+        backend = create_backend(config.backend.provider)
 
     # Track metrics via mutable state (supports partial reads on timeout/failure)
     state = _QueryExecutionState()

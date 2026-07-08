@@ -126,7 +126,7 @@ class TestTemplateGeneration:
         lines = template.split("\n")
 
         # Sections with promoted fields have active (uncommented) headers
-        for section in ["orchestrator", "archetypes", "platform"]:
+        for section in ["backend", "orchestrator", "archetypes", "platform"]:
             assert any(ln.strip() == f"[{section}]" for ln in lines), f"Missing active section header for [{section}]"
 
         # [models] was removed — must not appear at all
@@ -274,6 +274,7 @@ class TestSchemaExtraction:
         section_paths = {s.path for s in schema}
 
         expected = {
+            "backend",
             "orchestrator",
             "routing",
             "security",

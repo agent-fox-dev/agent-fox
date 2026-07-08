@@ -23,6 +23,7 @@ from pydantic.fields import FieldInfo
 
 # Sections that must appear (active or commented) in the simplified template.
 _EXPECTED_VISIBLE_SECTIONS = {
+    "backend",
     "orchestrator",
     "archetypes",
     "archetypes.instances",

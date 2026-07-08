@@ -1984,28 +1984,28 @@ class TestCreateBackendExistingKeys:
 
 
 class TestOrchestratorConfigGoogleAdk:
-    """Verify OrchestratorConfig.backend accepts 'google-adk'."""
+    """Verify BackendConfig.provider accepts 'google'."""
 
-    def test_google_adk_accepted(self) -> None:
-        """TS-04-35: OrchestratorConfig(backend='google-adk') validates."""
-        from agentfox.core.config import OrchestratorConfig
+    def test_google_accepted(self) -> None:
+        """TS-04-35: BackendConfig(provider='google') validates."""
+        from agentfox.core.config import BackendConfig
 
-        config = OrchestratorConfig(backend="google-adk")
-        assert config.backend == "google-adk"
+        config = BackendConfig(provider="google")
+        assert config.provider == "google"
 
     def test_claude_still_accepted(self) -> None:
-        """TS-04-35: OrchestratorConfig(backend='claude') still validates."""
-        from agentfox.core.config import OrchestratorConfig
+        """TS-04-35: BackendConfig(provider='claude') still validates."""
+        from agentfox.core.config import BackendConfig
 
-        config = OrchestratorConfig(backend="claude")
-        assert config.backend == "claude"
+        config = BackendConfig(provider="claude")
+        assert config.provider == "claude"
 
     def test_deepagents_still_accepted(self) -> None:
-        """TS-04-35: OrchestratorConfig(backend='deepagents') still validates."""
-        from agentfox.core.config import OrchestratorConfig
+        """TS-04-35: BackendConfig(provider='deepagents') still validates."""
+        from agentfox.core.config import BackendConfig
 
-        config = OrchestratorConfig(backend="deepagents")
-        assert config.backend == "deepagents"
+        config = BackendConfig(provider="deepagents")
+        assert config.provider == "deepagents"
 
 
 # ---------------------------------------------------------------------------
@@ -2163,15 +2163,15 @@ class TestCreateBackendMissingGoogleAdk:
 
 
 class TestOrchestratorConfigUnknownBackend:
-    """Verify OrchestratorConfig rejects unknown backend values."""
+    """Verify BackendConfig rejects unknown provider values."""
 
     def test_unknown_backend_raises_validation_error(self) -> None:
-        """TS-04-E15: OrchestratorConfig(backend='unknown') raises."""
-        from agentfox.core.config import OrchestratorConfig
+        """TS-04-E15: BackendConfig(provider='unknown') raises."""
+        from agentfox.core.config import BackendConfig
         from pydantic import ValidationError
 
         with pytest.raises(ValidationError):
-            OrchestratorConfig(backend="unknown-backend")
+            BackendConfig(provider="unknown-backend")
 
 
 # ===========================================================================
@@ -2526,23 +2526,23 @@ class TestCrossSpecEntryPointVerification:
         backend = GoogleADKBackend()
         assert isinstance(backend, Backend)
 
-    def test_orchestrator_config_google_adk(self) -> None:
-        """13.5: OrchestratorConfig(backend='google-adk') validates."""
-        from agentfox.core.config import OrchestratorConfig
+    def test_backend_config_google(self) -> None:
+        """13.5: BackendConfig(provider='google') validates."""
+        from agentfox.core.config import BackendConfig
 
-        config = OrchestratorConfig(backend="google-adk")
-        assert config.backend == "google-adk"
+        config = BackendConfig(provider="google")
+        assert config.provider == "google"
 
     def test_all_three_backends_validate_and_create(self) -> None:
         """13.5: All three backend keys validate in config and create_backend."""
-        from agentfox.core.config import OrchestratorConfig
+        from agentfox.core.config import BackendConfig
         from agentfox.session.backends import create_backend
         from agentfox.session.backends.protocol import Backend
 
-        for backend_name in ("claude", "deepagents", "google-adk"):
+        for backend_name in ("claude", "deepagents", "google"):
             # Config validation
-            config = OrchestratorConfig(backend=backend_name)
-            assert config.backend == backend_name
+            config = BackendConfig(provider=backend_name)
+            assert config.provider == backend_name
 
             # Factory instantiation
             backend = create_backend(backend_name)

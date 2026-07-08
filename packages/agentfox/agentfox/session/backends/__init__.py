@@ -19,14 +19,15 @@ from agentfox.session.backends.types import (
     ToolUseMessage,
 )
 
-_VALID_BACKENDS = ["claude", "deepagents", "google-adk"]
+_VALID_BACKENDS = ["claude", "deepagents", "google"]
 
 
 def create_backend(name: str) -> Backend:
     """Create a backend instance by name using lazy imports.
 
     Args:
-        name: Backend identifier (e.g. ``'claude'``).
+        name: Backend identifier (e.g. ``'claude'``).  The user-facing
+            name ``'google'`` is mapped internally to ``GoogleADKBackend``.
 
     Returns:
         A ``Backend`` instance.
@@ -62,14 +63,14 @@ def create_backend(name: str) -> Backend:
             )
         return _DeepAgents()
 
-    if name == "google-adk":
+    if name in ("google", "google-adk"):
         try:
             from agentfox.session.backends.google_adk import (
                 GoogleADKBackend as _GoogleADK,
             )
         except ImportError:
             raise ConfigError(
-                "Backend \"google-adk\" requires google-adk>=2.0. Install it with: pip install 'agentfox[google-adk]'"
+                "Backend \"google\" requires google-adk>=2.0. Install it with: pip install 'agentfox[google-adk]'"
             )
         return _GoogleADK()
 

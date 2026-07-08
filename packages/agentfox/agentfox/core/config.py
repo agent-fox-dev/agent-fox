@@ -123,12 +123,24 @@ class RoutingConfig(BaseModel):
     _auto_clamp = _auto_clamp_validator()
 
 
+class BackendConfig(BaseModel):
+    """Backend provider configuration.
+
+    Determines which AI backend is used for agent sessions across all
+    entry points (``af``, ``nightshift``, ``spec``).
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    provider: Literal["claude", "deepagents", "google"] = Field(
+        default="claude",
+        description="Backend provider to use for agent sessions",
+    )
+
+
 class OrchestratorConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
-    backend: Literal["claude", "deepagents", "google-adk"] = Field(
-        default="claude", description="Backend adapter to use for agent sessions"
-    )
     parallel: Annotated[int, Clamped(ge=1, le=8)] = Field(default=2, description="Maximum parallel sessions")
     sync_interval: int | None = Field(
         default=None,
@@ -708,6 +720,7 @@ class AgentFoxConfig(BaseModel):
 
     paths: PathsConfig = Field(default_factory=PathsConfig)
     workspace: WorkspaceConfig = Field(default_factory=WorkspaceConfig)
+    backend: BackendConfig = Field(default_factory=BackendConfig)
     orchestrator: OrchestratorConfig = Field(default_factory=OrchestratorConfig)
     routing: RoutingConfig = Field(default_factory=RoutingConfig)
     security: SecurityConfig = Field(default_factory=SecurityConfig)

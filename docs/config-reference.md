@@ -20,6 +20,7 @@ the most commonly changed settings. Add any section below manually to
 
 - [paths](#paths)
 - [workspace](#workspace)
+- [backend](#backend)
 - [orchestrator](#orchestrator)
 - [routing](#routing)
 - [security](#security)
@@ -68,6 +69,26 @@ Controls workspace health checks, automatic cleanup, and branch configuration.
 [workspace]
 force_clean = false
 integration_branch = "main"
+```
+
+---
+
+## backend
+
+Selects the AI backend provider used for agent sessions across all entry
+points (`af`, `nightshift`, `spec`).
+
+| Field | Type | Default | Bounds | Description |
+|-------|------|---------|--------|-------------|
+| `provider` | str | `"claude"` | -- | Backend provider: `"claude"`, `"deepagents"`, or `"google"` |
+
+The `"google"` provider name maps internally to the Google ADK backend.
+
+**Example:**
+
+```toml
+[backend]
+provider = "claude"
 ```
 
 ---

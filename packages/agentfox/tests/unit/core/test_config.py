@@ -128,6 +128,73 @@ class TestConfigUnrecognizedKeys:
         assert config.orchestrator.parallel == 2
 
 
+class TestBackendConfig:
+    """Tests for BackendConfig model and the new [backend] config section."""
+
+    def test_default_backend_provider_is_claude(self) -> None:
+        """AgentFoxConfig.backend.provider defaults to 'claude'."""
+        config = AgentFoxConfig()
+        assert config.backend.provider == "claude"
+
+    def test_backend_provider_google_is_valid(self) -> None:
+        """BackendConfig accepts 'google' as a valid provider."""
+        from agentfox.core.config import BackendConfig
+
+        config = BackendConfig(provider="google")
+        assert config.provider == "google"
+
+    def test_backend_provider_deepagents_is_valid(self) -> None:
+        """BackendConfig accepts 'deepagents' as a valid provider."""
+        from agentfox.core.config import BackendConfig
+
+        config = BackendConfig(provider="deepagents")
+        assert config.provider == "deepagents"
+
+    def test_backend_provider_invalid_raises_validation_error(self) -> None:
+        """BackendConfig rejects invalid provider values."""
+        from agentfox.core.config import BackendConfig
+        from pydantic import ValidationError
+
+        with pytest.raises(ValidationError):
+            BackendConfig(provider="invalid")
+
+    def test_orchestrator_no_longer_has_backend_field(self) -> None:
+        """OrchestratorConfig no longer has a 'backend' field."""
+        from agentfox.core.config import OrchestratorConfig
+
+        assert "backend" not in OrchestratorConfig.model_fields
+
+    def test_agentfox_config_has_backend_field(self) -> None:
+        """AgentFoxConfig has a 'backend' field keyed to BackendConfig."""
+        from agentfox.core.config import BackendConfig
+
+        assert "backend" in AgentFoxConfig.model_fields
+        assert AgentFoxConfig.model_fields["backend"].annotation is BackendConfig
+
+    def test_toml_with_backend_section_loads_provider(self, tmp_path: Path) -> None:
+        """A TOML with [backend] provider='deepagents' loads correctly."""
+        config_file = tmp_path / "config.toml"
+        config_file.write_text('[backend]\nprovider = "deepagents"\n')
+
+        config = load_config(path=config_file)
+
+        assert config.backend.provider == "deepagents"
+
+    def test_old_orchestrator_backend_silently_ignored(self, tmp_path: Path) -> None:
+        """An old TOML with [orchestrator] backend='deepagents' is silently ignored.
+
+        The old key falls through extra='ignore' on OrchestratorConfig.
+        The new config.backend.provider stays at its default 'claude'.
+        """
+        config_file = tmp_path / "config.toml"
+        config_file.write_text('[orchestrator]\nbackend = "deepagents"\nparallel = 4\n')
+
+        config = load_config(path=config_file)
+
+        assert config.backend.provider == "claude"  # default, old key ignored
+        assert config.orchestrator.parallel == 4  # other fields still work
+
+
 class TestConfigSymlinkRejection:
     """Security: load_config() rejects symlinked config files (CWE-59 mitigation)."""
 

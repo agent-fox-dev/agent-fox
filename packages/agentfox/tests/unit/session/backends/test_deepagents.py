@@ -342,41 +342,40 @@ class TestCreateBackendFactory:
 # TS-03-34, TS-03-35: OrchestratorConfig.backend Literal widening
 # Requirement: 03-REQ-9.1, 03-REQ-9.2
 #
-# Errata: OrchestratorConfig has no backend field. The implementation
-# group (task 6.4) must add it.
+# Backend provider field moved from OrchestratorConfig to BackendConfig.
 # ---------------------------------------------------------------------------
 
 
 class TestOrchestratorConfigBackend:
-    """Verify OrchestratorConfig accepts 'claude' and 'deepagents' backend values."""
+    """Verify BackendConfig accepts 'claude' and 'deepagents' provider values."""
 
     def test_config_accepts_deepagents(self) -> None:
-        """TS-03-34: OrchestratorConfig(backend='deepagents') succeeds."""
-        from agentfox.core.config import OrchestratorConfig
+        """TS-03-34: BackendConfig(provider='deepagents') succeeds."""
+        from agentfox.core.config import BackendConfig
 
-        config = OrchestratorConfig(backend="deepagents")
-        assert config.backend == "deepagents"
+        config = BackendConfig(provider="deepagents")
+        assert config.provider == "deepagents"
 
     def test_config_accepts_claude(self) -> None:
-        """TS-03-34/35: OrchestratorConfig(backend='claude') succeeds."""
-        from agentfox.core.config import OrchestratorConfig
+        """TS-03-34/35: BackendConfig(provider='claude') succeeds."""
+        from agentfox.core.config import BackendConfig
 
-        config = OrchestratorConfig(backend="claude")
-        assert config.backend == "claude"
+        config = BackendConfig(provider="claude")
+        assert config.provider == "claude"
 
     def test_config_rejects_invalid(self) -> None:
-        """TS-03-34: OrchestratorConfig(backend='invalid') raises validation error."""
-        from agentfox.core.config import OrchestratorConfig
+        """TS-03-34: BackendConfig(provider='invalid') raises validation error."""
+        from agentfox.core.config import BackendConfig
 
         with pytest.raises((ValueError, TypeError, Exception)):
-            OrchestratorConfig(backend="llama")
+            BackendConfig(provider="llama")
 
     def test_existing_claude_config_valid(self) -> None:
-        """TS-03-35: Existing backend='claude' configs pass validation unchanged."""
-        from agentfox.core.config import OrchestratorConfig
+        """TS-03-35: Existing provider='claude' configs pass validation unchanged."""
+        from agentfox.core.config import BackendConfig
 
-        config = OrchestratorConfig(backend="claude")
-        assert config.backend == "claude"
+        config = BackendConfig(provider="claude")
+        assert config.provider == "claude"
 
 
 # ---------------------------------------------------------------------------
@@ -3250,7 +3249,7 @@ class TestSmokeEndToEnd:
         """TS-03-SMOKE-1: End-to-end with mocked create_deep_agent.
 
         Verifies the complete flow:
-        1. OrchestratorConfig accepts backend='deepagents'
+        1. BackendConfig accepts provider='deepagents'
         2. create_backend('deepagents') returns a DeepAgentsBackend instance
         3. execute() calls create_deep_agent with correct params and 5 tools
         4. AssistantMessage yielded for on_chat_model_stream events
@@ -3268,14 +3267,14 @@ class TestSmokeEndToEnd:
             ToolUseMessage,
         )
 
-        # Step 1: Verify OrchestratorConfig accepts 'deepagents'
+        # Step 1: Verify BackendConfig accepts 'deepagents'
         try:
-            from agentfox.core.config import OrchestratorConfig
+            from agentfox.core.config import BackendConfig
 
-            config = OrchestratorConfig(backend="deepagents")
-            assert config.backend == "deepagents"
+            config = BackendConfig(provider="deepagents")
+            assert config.provider == "deepagents"
         except (ImportError, AttributeError, TypeError):
-            # OrchestratorConfig.backend field may not exist yet (errata E3)
+            # BackendConfig.provider field may not exist yet (errata E3)
             pass
 
         # Step 2: Verify create_backend('deepagents') returns correct type
