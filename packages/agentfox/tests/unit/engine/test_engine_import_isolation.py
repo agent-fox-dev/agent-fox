@@ -52,7 +52,6 @@ class TestKnowledgeFilesDeleted:
     """
 
     DELETED = [
-        "extraction.py",
         "embeddings.py",
         "search.py",
         "retrieval.py",
@@ -295,7 +294,6 @@ class TestDeadTestsDeleted:
     """
 
     DELETED_TESTS = [
-        "tests/unit/knowledge/test_extraction.py",
         "tests/unit/knowledge/test_embeddings.py",
         "tests/unit/knowledge/test_adaptive_retrieval.py",
         "tests/unit/knowledge/test_consolidation.py",

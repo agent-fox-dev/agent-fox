@@ -605,6 +605,11 @@ class TestTypeIdentityPreserved:
 class TestFullPackageImportability:
     """TS-137-P2: Every Python module in agent_fox/ is importable."""
 
+    OPTIONAL_MODULES = {
+        "agentfox.session.backends.deepagents",
+        "agentfox.session.backends.google_adk",
+    }
+
     @pytest.mark.property
     def test_all_modules_importable(self) -> None:
 
@@ -613,6 +618,8 @@ class TestFullPackageImportability:
             path=agentfox.__path__,
             prefix="agentfox.",
         ):
+            if modname in self.OPTIONAL_MODULES:
+                continue
             try:
                 importlib.import_module(modname)
             except ImportError as exc:
