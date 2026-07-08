@@ -544,43 +544,6 @@ class TestWarningLoggedForFailedInstances:
 # ---------------------------------------------------------------------------
 
 
-class TestAllInstancesFailEmitsParseFailure:
-    """TS-74-25: REVIEW_PARSE_FAILURE emitted when all instances fail parsing.
-
-    Requirements: 74-REQ-4.E1
-    """
-
-    def test_all_none_results_emit_parse_failure(self) -> None:
-        """All-None instance results produce a parse failure event."""
-        from agentfox.engine.review_persistence import (
-            converge_multi_instance_skeptic,
-        )
-
-        mock_sink = MagicMock()
-        emitted_events: list[Any] = []
-
-        def capture_emit(event: Any) -> None:
-            emitted_events.append(event)
-
-        mock_sink.emit_audit_event = capture_emit
-
-        raw_results: list[list[ReviewFinding] | None] = [None, None]
-
-        results = converge_multi_instance_skeptic(
-            raw_results,
-            sink=mock_sink,
-            run_id="run1",
-            node_id="node1",
-            block_threshold=5,
-        )
-
-        assert results == [] or results == ([], False)
-        event_types = [getattr(e, "event_type", None) for e in emitted_events]
-        assert AuditEventType.REVIEW_PARSE_FAILURE in event_types, (
-            "REVIEW_PARSE_FAILURE event must be emitted when all instances fail"
-        )
-
-
 # ---------------------------------------------------------------------------
 # TS-74-26: Retry success audit event (REQ-5.1)
 # ---------------------------------------------------------------------------

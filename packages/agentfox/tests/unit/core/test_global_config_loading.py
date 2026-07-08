@@ -988,44 +988,6 @@ class TestAfInitNoHome:
 
 
 # ===================================================================
-# TS-13-P1: Shallow merge property test
-# ===================================================================
-class TestShallowMergeProperty:
-    """TS-13-P1: Shallow section replacement idempotency."""
-
-    @pytest.mark.property
-    def test_shallow_merge_invariants(self):
-        """Property: shallow merge preserves local sections and inherits absent ones."""
-        from agentfox.core.config import shallow_merge
-        from hypothesis import given, settings
-        from hypothesis import strategies as st
-
-        section_names = st.sampled_from(["orchestrator", "routing", "theme", "security"])
-        scalar_values = st.integers(min_value=0, max_value=100)
-        section_dict = st.dictionaries(
-            st.sampled_from(["parallel", "retries", "playful", "timeout"]),
-            scalar_values,
-            min_size=1,
-            max_size=3,
-        )
-        config_dict = st.dictionaries(section_names, section_dict, min_size=0, max_size=4)
-
-        @given(global_cfg=config_dict, local_cfg=config_dict)
-        @settings(max_examples=50)
-        def check(global_cfg, local_cfg):
-            merged = shallow_merge(global_cfg, local_cfg)
-            # Every section in local exactly equals the output
-            for section in local_cfg:
-                assert merged[section] == local_cfg[section]
-            # Every section in global but absent from local equals the output
-            for section in global_cfg:
-                if section not in local_cfg:
-                    assert merged[section] == global_cfg[section]
-
-        check()
-
-
-# ===================================================================
 # TS-13-P2: Global config not overwritten after first creation
 # ===================================================================
 class TestGlobalConfigNotOverwrittenProperty:

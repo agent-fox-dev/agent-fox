@@ -223,37 +223,6 @@ class TestOrchestratorStartupSmoke:
 
 
 @pytest.mark.smoke
-class TestFixAnalyzerSmoke:
-    """TS-06-SMOKE-4: fix/analyzer.py opens knowledge.duckdb read-only."""
-
-    def test_analyzer_end_to_end_read_only(self, tmp_path: Path) -> None:
-        """Full analyzer invocation against a populated DuckDB."""
-        from agentfox.core.config import KnowledgeConfig
-        from agentfox.knowledge.db import open_knowledge_store as real_open
-
-        db_path = str(tmp_path / "knowledge.duckdb")
-        _create_populated_db(db_path)
-        counts_before = _snapshot_row_counts(db_path)
-
-        call_log: list[bool] = []
-
-        def _tracking_open(config, *, read_only):
-            call_log.append(read_only)
-            return real_open(KnowledgeConfig(store_path=db_path), read_only=read_only)
-
-        with patch("agentfox.knowledge.db.open_knowledge_store", side_effect=_tracking_open):
-            from agentfox.fix.analyzer import load_review_context
-
-            result = load_review_context(tmp_path)
-
-        assert len(call_log) >= 1
-        assert call_log[0] is True
-        assert isinstance(result, str)
-        counts_after = _snapshot_row_counts(db_path)
-        assert counts_before == counts_after
-
-
-@pytest.mark.smoke
 class TestAfStandupSmoke:
     """TS-06-SMOKE-5: af standup opens knowledge.duckdb with read_only=True."""
 

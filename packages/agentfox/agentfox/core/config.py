@@ -704,41 +704,6 @@ class AgentFoxConfig(BaseModel):
     _spec_tool_explicit: bool = PrivateAttr(default=False)
 
 
-def shallow_merge(global_dict: dict, local_dict: dict) -> dict:
-    """Merge two config dicts using shallow section replacement.
-
-    For each key in *local_dict*:
-    - If the value is a ``dict`` (i.e. a TOML section), the entire
-      corresponding section in *global_dict* is replaced wholesale.
-    - If the value is a scalar, it overrides the matching global key.
-
-    Keys present in *global_dict* but absent from *local_dict* are
-    inherited unchanged.  Nested keys within a section are **never**
-    deep-merged — a section present in the local config replaces
-    the entire global section including all nested keys.
-
-    Requirements: 13-REQ-3.1, 13-REQ-3.3
-    """
-    merged: dict = {}
-    # Start with a shallow copy of all global keys
-    for key, value in global_dict.items():
-        if isinstance(value, dict):
-            merged[key] = dict(value)  # copy so mutations don't leak
-        else:
-            merged[key] = value
-
-    # Apply local overrides
-    for key, value in local_dict.items():
-        if isinstance(value, dict):
-            # Section replacement: wholesale, not deep-merged
-            merged[key] = dict(value)
-        else:
-            # Scalar override
-            merged[key] = value
-
-    return merged
-
-
 def _check_symlink(path: Path) -> None:
     """Reject a config file path that is a symlink (CWE-59).
 

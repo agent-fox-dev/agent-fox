@@ -39,16 +39,9 @@ def _failure_record(node_id: str, attempt: int, exc: BaseException) -> SessionRe
 class ParallelRunner:
     """Runs up to N tasks concurrently via asyncio.
 
-    Supports two execution models:
-
-    - **Batch** (``execute_batch``): Launch all tasks at once, bounded by a
-      semaphore. Waits for all to complete before returning.  Used by tests.
-    - **Streaming pool** (``execute_one`` + external pool management): The
-      orchestrator manages a pool of asyncio tasks, launching new ones as
-      slots open after each completion.  Preferred at runtime.
-
-    State writes via completion callbacks are serialized under an
-    ``asyncio.Lock`` to prevent interleaved writes.
+    Uses a streaming pool model (``execute_one`` + external pool management):
+    the orchestrator manages a pool of asyncio tasks, launching new ones as
+    slots open after each completion.
     """
 
     def __init__(
@@ -143,81 +136,6 @@ class ParallelRunner:
     def track_tasks(self, tasks: list[asyncio.Task[SessionRecord]]) -> None:
         """Update the set of in-flight tasks (for SIGINT cancellation)."""
         self._in_flight_tasks = list(tasks)
-
-    async def execute_batch(
-        self,
-        tasks: list[tuple[str, int, str | None]],
-        on_complete: Callable[[SessionRecord], Awaitable[None]],
-    ) -> list[SessionRecord]:
-        """Execute a batch of tasks concurrently.
-
-        Creates one asyncio task per entry in *tasks*, bounded by a
-        semaphore to ``_max_parallelism`` concurrent executions. After
-        each session completes, the ``on_complete`` callback is invoked
-        under ``_state_lock`` so the orchestrator can safely update
-        execution state.
-
-        Args:
-            tasks: List of ``(node_id, attempt, previous_error)`` tuples.
-            on_complete: Callback invoked (under lock) after each session
-                completes. Used by the orchestrator to update state and
-                propagate graph changes.
-
-        Returns:
-            List of SessionRecords for all completed tasks.
-        """
-        semaphore = asyncio.Semaphore(self._max_parallelism)
-
-        async def _run_one(
-            node_id: str,
-            attempt: int,
-            previous_error: str | None,
-        ) -> SessionRecord:
-            async with semaphore:
-                try:
-                    record = await self._execute_session(
-                        node_id,
-                        attempt,
-                        previous_error,
-                    )
-                except Exception as exc:
-                    logger.error(
-                        "Task %s failed with exception: %s",
-                        node_id,
-                        exc,
-                    )
-                    record = _failure_record(node_id, attempt, exc)
-
-            # Invoke callback under lock to serialise state writes
-            async with self._state_lock:
-                await on_complete(record)
-
-            return record
-
-        # Launch all tasks concurrently
-        self._in_flight_tasks = [
-            asyncio.create_task(
-                _run_one(node_id, attempt, previous_error),
-                name=f"parallel-{node_id}",
-            )
-            for node_id, attempt, previous_error in tasks
-        ]
-
-        # Gather results, collecting exceptions rather than raising
-        results = await asyncio.gather(
-            *self._in_flight_tasks,
-            return_exceptions=True,
-        )
-
-        records: list[SessionRecord] = []
-        for result in results:
-            if isinstance(result, SessionRecord):
-                records.append(result)
-            elif isinstance(result, BaseException):
-                logger.error("Task failed with exception: %s", result)
-
-        self._in_flight_tasks.clear()
-        return records
 
     async def cancel_all(self) -> list[SessionRecord]:
         """Cancel all in-flight tasks. Called on SIGINT.

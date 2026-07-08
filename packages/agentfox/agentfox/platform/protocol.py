@@ -27,18 +27,6 @@ class IssueResult:
 
 
 @dataclass(frozen=True)
-class PullRequestResult:
-    """Structured result for pull request creation.
-
-    Requirements: 85-REQ-8.3
-    """
-
-    number: int
-    url: str
-    html_url: str
-
-
-@dataclass(frozen=True)
 class IssueComment:
     """Structured result for issue comments.
 
@@ -91,20 +79,6 @@ class PlatformProtocol(Protocol):
         issue_number: int,
         comment: str | None = None,
     ) -> None: ...
-
-    async def create_pull_request(
-        self,
-        title: str,
-        body: str,
-        head: str,
-        base: str,
-        draft: bool = True,
-    ) -> PullRequestResult:
-        """Create a pull request from head branch to base branch.
-
-        Requirements: 85-REQ-8.3
-        """
-        ...
 
     async def remove_label(
         self,

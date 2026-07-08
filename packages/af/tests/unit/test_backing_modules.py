@@ -132,12 +132,6 @@ class TestRemainingBackingFunctions:
     Requirement: 59-REQ-5.1
     """
 
-    def test_run_fix_importable(self) -> None:
-        """run_fix can be imported."""
-        from agentfox.fix.runner import run_fix
-
-        assert callable(run_fix)
-
     def test_run_plan_importable(self) -> None:
         """run_plan can be imported."""
         from agentfox.graph.planner import run_plan
@@ -168,13 +162,6 @@ class TestBackingFunctionsAcceptParameters:
 
     Requirement: 59-REQ-5.2
     """
-
-    def test_run_fix_has_issue_url_param(self) -> None:
-        """run_fix signature includes issue_url."""
-        from agentfox.fix.runner import run_fix
-
-        sig = inspect.signature(run_fix)
-        assert "issue_url" in sig.parameters
 
     def test_run_plan_has_config_param(self) -> None:
         """run_plan signature includes config."""

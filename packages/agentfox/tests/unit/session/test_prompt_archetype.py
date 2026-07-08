@@ -94,21 +94,6 @@ class TestRunnerUsesArchetype:
         # Verify the archetype was stored
         assert runner._archetype == "reviewer"
 
-    def test_runner_accepts_instances_param(self) -> None:
-        from agentfox.core.config import AgentFoxConfig
-        from agentfox.engine.session_lifecycle import NodeSessionRunner
-
-        config = AgentFoxConfig()
-        runner = NodeSessionRunner(
-            "spec:0",
-            config,
-            archetype="reviewer",
-            mode="pre-flight",
-            instances=3,
-            knowledge_db=_MOCK_KB,
-        )
-        assert runner._instances == 3
-
     def test_runner_resolves_model_tier(self) -> None:
         from agentfox.core.config import AgentFoxConfig
         from agentfox.engine.session_lifecycle import NodeSessionRunner
