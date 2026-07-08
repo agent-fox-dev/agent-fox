@@ -18,7 +18,7 @@ pip install "agentfox @ git+https://github.com/agent-fox-dev/agent-fox.git#subdi
 Pin to a release tag:
 
 ```bash
-pip install "agentfox @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.1.14#subdirectory=packages/agentfox"
+pip install "agentfox @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.1.15#subdirectory=packages/agentfox"
 ```
 
 In `pyproject.toml`:
@@ -26,7 +26,7 @@ In `pyproject.toml`:
 ```toml
 [project]
 dependencies = [
-    "agentfox @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.1.14#subdirectory=packages/agentfox",
+    "agentfox @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.1.15#subdirectory=packages/agentfox",
 ]
 ```
 
