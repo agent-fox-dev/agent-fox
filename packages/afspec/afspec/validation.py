@@ -835,3 +835,64 @@ def validate(spec: Spec) -> ValidationResult:
         errors=errors,
         warnings=warnings,
     )
+
+
+def validate_structured(spec: Spec) -> dict[str, Any]:
+    """Run full validation and return a structured dict for CLI consumption.
+
+    Wraps :func:`validate` and reshapes the :class:`ValidationResult`
+    into a dict with categorised errors and warnings.  Each error carries
+    a ``category`` key (``"schema"`` or ``"integrity"``) plus
+    format-specific fields so the CLI can emit the result directly
+    without rebuilding the JSON shape from low-level validation
+    functions.
+
+    Returns a dict with keys:
+
+    - ``valid`` — ``True`` when there are no errors.
+    - ``errors`` — list of dicts, each with ``category``, ``message``,
+      and category-specific keys (``artifact``/``path`` for schema
+      errors; ``check``/``requirement_id`` for integrity errors).
+    - ``warnings`` — list of dicts with ``category``, ``message``, and
+      ``entity_id`` (present only when non-empty).
+    """
+    result = validate(spec)
+
+    errors: list[dict[str, Any]] = []
+    for err in result.errors:
+        if err.rule.startswith("cross-file") or err.rule.startswith("cross-spec"):
+            error_dict: dict[str, Any] = {
+                "category": "integrity",
+                "check": err.rule,
+                "message": err.message,
+            }
+            req_match = re.search(r"'([A-Z][\w.-]+)'", err.message)
+            if req_match:
+                error_dict["requirement_id"] = req_match.group(1)
+        else:
+            error_dict = {
+                "category": "schema",
+                "artifact": err.file,
+                "message": err.message,
+            }
+            if err.path:
+                error_dict["path"] = err.path
+        errors.append(error_dict)
+
+    warning_dicts: list[dict[str, Any]] = []
+    for w in result.warnings:
+        warning_dicts.append(
+            {
+                "category": "warning",
+                "message": w.message,
+                "entity_id": w.entity_id,
+            }
+        )
+
+    output: dict[str, Any] = {
+        "valid": result.valid,
+        "errors": errors,
+    }
+    if warning_dicts:
+        output["warnings"] = warning_dicts
+    return output

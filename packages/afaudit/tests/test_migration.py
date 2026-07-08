@@ -3,7 +3,7 @@
 These tests verify the atomic import migration across the workspace.
 They will fail until the full migration is complete.
 
-TS-01-34: agentfox/pyproject.toml declares afaudit>=4.1.12
+TS-01-34: agentfox/pyproject.toml declares afaudit>=4.1.13
 TS-01-35: No old audit module paths remain in agentfox, af, nightshift
 TS-01-36: agentfox/__init__.py does not re-export moved audit symbols
 TS-01-37: af and nightshift pyproject.toml declare afaudit dependency
@@ -46,13 +46,13 @@ def _read_all_py_content(base: Path) -> str:
 
 
 class TestAgentfoxDependency:
-    """TS-01-34: agentfox/pyproject.toml declares afaudit>=4.1.12.
+    """TS-01-34: agentfox/pyproject.toml declares afaudit>=4.1.13.
 
     Requirement: 01-REQ-10.1
     """
 
     def test_afaudit_in_agentfox_dependencies(self) -> None:
-        """agentfox must list afaudit>=4.1.12 in [project.dependencies]."""
+        """agentfox must list afaudit>=4.1.13 in [project.dependencies]."""
         with open(AGENTFOX_PKG / "pyproject.toml", "rb") as f:
             toml = tomllib.load(f)
         deps = toml["project"]["dependencies"]
@@ -60,7 +60,7 @@ class TestAgentfoxDependency:
         assert len(matching) > 0, f"afaudit not found in agentfox [project.dependencies]; current deps: {deps}"
         # Verify version constraint
         dep_str = matching[0]
-        assert "4.1.12" in dep_str, f"Expected version constraint with 4.1.12, got: {dep_str}"
+        assert "4.1.13" in dep_str, f"Expected version constraint with 4.1.13, got: {dep_str}"
 
 
 class TestNoOldImportPaths:
