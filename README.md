@@ -115,9 +115,9 @@ uv run af <command>
 Install any package directly from git:
 
 ```bash
-pip install "agentfox @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.1.17#subdirectory=packages/agentfox"
-pip install "afspec @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.1.17#subdirectory=packages/afspec"
-pip install "afaudit @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.1.17#subdirectory=packages/afaudit"
+pip install "agentfox @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.1.18#subdirectory=packages/agentfox"
+pip install "afspec @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.1.18#subdirectory=packages/afspec"
+pip install "afaudit @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.1.18#subdirectory=packages/afaudit"
 ```
 
 - **agentfox** — core orchestrator library: execution engine, session runtime,
