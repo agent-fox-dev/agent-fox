@@ -34,13 +34,24 @@ class TestSkillsInstalledToCorrectPaths:
     """
 
     def test_skills_installed_to_correct_paths(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
-        """Each bundled skill produces .claude/skills/{name}/SKILL.md."""
+        """Each bundled skill produces .agents/skills/{name}/SKILL.md."""
         result = cli_runner.invoke(main, ["init", "--skills"])
 
         assert result.exit_code == 0
         for name in _bundled_skill_names():
-            skill_path = tmp_git_repo / ".claude" / "skills" / name / "SKILL.md"
+            skill_path = tmp_git_repo / ".agents" / "skills" / name / "SKILL.md"
             assert skill_path.exists(), f"Missing skill: {name}"
+
+    def test_claude_skills_symlink_created(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
+        """709-AC-2: .claude/skills is a symlink after init --skills."""
+        cli_runner.invoke(main, ["init", "--skills"])
+
+        claude_skills = tmp_git_repo / ".claude" / "skills"
+        assert claude_skills.is_symlink()
+        for name in _bundled_skill_names():
+            assert (claude_skills / name / "SKILL.md").exists(), (
+                f"Skill {name} not accessible via .claude/skills symlink"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -55,12 +66,13 @@ class TestNoSkillsWithoutFlag:
     """
 
     def test_no_skills_without_flag(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
-        """No .claude/skills/ directory created without --skills."""
+        """No .agents/skills/ directory created without --skills."""
         result = cli_runner.invoke(main, ["init"])
 
         assert result.exit_code == 0
-        skills_dir = tmp_git_repo / ".claude" / "skills"
+        skills_dir = tmp_git_repo / ".agents" / "skills"
         assert not skills_dir.exists() or len(list(skills_dir.iterdir())) == 0
+        assert not (tmp_git_repo / ".claude" / "skills").is_symlink()
 
 
 # ---------------------------------------------------------------------------
@@ -81,7 +93,7 @@ class TestSkillsOverwriteOnRerun:
 
         # Pick the first skill and modify it
         first_name = sorted(_bundled_skill_names())[0]
-        skill_path = tmp_git_repo / ".claude" / "skills" / first_name / "SKILL.md"
+        skill_path = tmp_git_repo / ".agents" / "skills" / first_name / "SKILL.md"
         skill_path.write_text("modified content")
 
         # Re-install
@@ -137,4 +149,54 @@ class TestSkillsWorkOnReinit:
         result = cli_runner.invoke(main, ["init", "--skills"])
 
         assert result.exit_code == 0
-        assert (tmp_git_repo / ".claude" / "skills" / "af-spec" / "SKILL.md").exists()
+        assert (tmp_git_repo / ".agents" / "skills" / "af-spec" / "SKILL.md").exists()
+        assert (tmp_git_repo / ".claude" / "skills").is_symlink()
+
+
+# ---------------------------------------------------------------------------
+# 709: CLAUDE.md symlink on init
+# ---------------------------------------------------------------------------
+
+
+class TestClaudeMdSymlinkOnInit:
+    """709-AC-4: CLAUDE.md symlink is created by af init."""
+
+    def test_claude_md_symlink_on_fresh_init(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
+        """Fresh af init creates CLAUDE.md as a symlink to AGENTS.md."""
+        result = cli_runner.invoke(main, ["init"])
+
+        assert result.exit_code == 0
+        claude_md = tmp_git_repo / "CLAUDE.md"
+        assert claude_md.is_symlink()
+        assert claude_md.read_text(encoding="utf-8") == (tmp_git_repo / "AGENTS.md").read_text(encoding="utf-8")
+
+    def test_claude_md_symlink_survives_reinit(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
+        """CLAUDE.md symlink is preserved on re-init."""
+        cli_runner.invoke(main, ["init"])
+        cli_runner.invoke(main, ["init"])
+
+        assert (tmp_git_repo / "CLAUDE.md").is_symlink()
+
+
+# ---------------------------------------------------------------------------
+# 709-AC-3: Migration from old-style .claude/skills/ directory
+# ---------------------------------------------------------------------------
+
+
+class TestSkillsMigrationOnReinit:
+    """709-AC-3: Old .claude/skills/ directory is migrated on re-init."""
+
+    def test_old_skills_migrated(self, cli_runner: CliRunner, tmp_git_repo: Path) -> None:
+        """Pre-existing .claude/skills/ dir is migrated to .agents/skills/."""
+        # Simulate old-style install by creating .claude/skills/ as a real dir
+        old_skills = tmp_git_repo / ".claude" / "skills" / "af-custom"
+        old_skills.mkdir(parents=True)
+        (old_skills / "SKILL.md").write_text("custom skill content")
+
+        result = cli_runner.invoke(main, ["init", "--skills"])
+
+        assert result.exit_code == 0
+        # Custom skill migrated
+        assert (tmp_git_repo / ".agents" / "skills" / "af-custom" / "SKILL.md").read_text() == "custom skill content"
+        # .claude/skills is now a symlink
+        assert (tmp_git_repo / ".claude" / "skills").is_symlink()

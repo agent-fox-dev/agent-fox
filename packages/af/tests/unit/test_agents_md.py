@@ -14,7 +14,7 @@ from pathlib import Path
 
 import agentfox
 import pytest
-from agentfox.workspace.init_project import _ensure_agents_md
+from agentfox.workspace.init_project import _ensure_agents_md, _ensure_claude_md_symlink
 from click.testing import CliRunner
 
 # ---------------------------------------------------------------------------
@@ -190,6 +190,84 @@ class TestEmptyAgentsMd:
 
         assert agents_md.read_text(encoding="utf-8") == ""
         assert result == "skipped"
+
+
+# ---------------------------------------------------------------------------
+# 709-AC-4: CLAUDE.md symlink created when AGENTS.md is created
+# ---------------------------------------------------------------------------
+
+
+class TestClaudeMdSymlinkCreated:
+    """709-AC-4: CLAUDE.md -> AGENTS.md symlink is created."""
+
+    def test_symlink_created(self, tmp_path: Path) -> None:
+        """CLAUDE.md is a symlink to AGENTS.md after _ensure_claude_md_symlink."""
+        _ensure_agents_md(tmp_path)
+        _ensure_claude_md_symlink(tmp_path)
+
+        claude_md = tmp_path / "CLAUDE.md"
+        assert claude_md.is_symlink()
+        assert os.readlink(str(claude_md)) == "AGENTS.md"
+
+    def test_symlink_content_matches(self, tmp_path: Path) -> None:
+        """Reading CLAUDE.md via symlink yields same content as AGENTS.md."""
+        _ensure_agents_md(tmp_path)
+        _ensure_claude_md_symlink(tmp_path)
+
+        agents_content = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
+        claude_content = (tmp_path / "CLAUDE.md").read_text(encoding="utf-8")
+        assert claude_content == agents_content
+
+    def test_symlink_idempotent(self, tmp_path: Path) -> None:
+        """Calling _ensure_claude_md_symlink twice does not error."""
+        _ensure_agents_md(tmp_path)
+        _ensure_claude_md_symlink(tmp_path)
+        _ensure_claude_md_symlink(tmp_path)
+
+        assert (tmp_path / "CLAUDE.md").is_symlink()
+
+
+# ---------------------------------------------------------------------------
+# 709-AC-5: Existing CLAUDE.md file is not overwritten
+# ---------------------------------------------------------------------------
+
+
+class TestClaudeMdExistingFileUntouched:
+    """709-AC-5: Existing CLAUDE.md regular file is left untouched."""
+
+    def test_existing_file_preserved(self, tmp_path: Path) -> None:
+        """CLAUDE.md as a regular file is not replaced with a symlink."""
+        (tmp_path / "CLAUDE.md").write_text("custom instructions", encoding="utf-8")
+        _ensure_agents_md(tmp_path)
+        _ensure_claude_md_symlink(tmp_path)
+
+        claude_md = tmp_path / "CLAUDE.md"
+        assert not claude_md.is_symlink()
+        assert claude_md.read_text(encoding="utf-8") == "custom instructions"
+
+    def test_existing_symlink_preserved(self, tmp_path: Path) -> None:
+        """CLAUDE.md as an existing symlink is left as-is."""
+        _ensure_agents_md(tmp_path)
+        claude_md = tmp_path / "CLAUDE.md"
+        claude_md.symlink_to(Path("AGENTS.md"))
+        _ensure_claude_md_symlink(tmp_path)
+
+        assert claude_md.is_symlink()
+
+
+# ---------------------------------------------------------------------------
+# 709: No CLAUDE.md symlink when AGENTS.md absent
+# ---------------------------------------------------------------------------
+
+
+class TestClaudeMdSymlinkNoAgentsMd:
+    """No CLAUDE.md symlink when AGENTS.md does not exist."""
+
+    def test_no_symlink_without_agents_md(self, tmp_path: Path) -> None:
+        """CLAUDE.md is not created when AGENTS.md does not exist."""
+        _ensure_claude_md_symlink(tmp_path)
+
+        assert not (tmp_path / "CLAUDE.md").exists()
 
 
 # ---------------------------------------------------------------------------

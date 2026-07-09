@@ -81,7 +81,7 @@ class TestInstallationBijection:
 
         count = _install_skills(project_root)
 
-        skills_dir = project_root / ".claude" / "skills"
+        skills_dir = project_root / ".agents" / "skills"
         templates = {f.name for f in _SKILLS_DIR.iterdir() if f.is_file() and not f.name.startswith(".")}
         installed = {d.name for d in skills_dir.iterdir() if d.is_dir()}
 
@@ -114,12 +114,12 @@ class TestCountAccuracy:
     """
 
     def test_return_value_matches_files_written(self, tmp_path: Path) -> None:
-        """Integer returned equals count of SKILL.md files under .claude/skills/."""
+        """Integer returned equals count of SKILL.md files under .agents/skills/."""
         project_root = tmp_path / "project"
         project_root.mkdir()
 
         count = _install_skills(project_root)
 
-        skills_dir = project_root / ".claude" / "skills"
+        skills_dir = project_root / ".agents" / "skills"
         written = sum(1 for d in skills_dir.iterdir() if (d / "SKILL.md").exists())
         assert count == written

@@ -13,9 +13,10 @@ Install all bundled skills into your project with:
 af init --skills
 ```
 
-This copies each skill template to `.claude/skills/{name}/SKILL.md`, making
-them available as slash commands in Claude Code. Re-running the command updates
-skills to the latest bundled versions.
+This copies each skill template to `.agents/skills/{name}/SKILL.md` (the
+agent-agnostic canonical location) and creates a `.claude/skills` symlink for
+Claude Code compatibility. Re-running the command updates skills to the latest
+bundled versions.
 
 ---
 

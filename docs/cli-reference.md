@@ -88,7 +88,7 @@ agent-fox init [OPTIONS]
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `--config` | flag | off | Create a local `.agent-fox/config.toml` (overwrites if present) |
-| `--skills` | flag | off | Install bundled Claude Code skills into `.claude/skills/` |
+| `--skills` | flag | off | Install bundled agent skills into `.agents/skills/` |
 | `--profiles` | flag | off | Copy default archetype profiles into `.agent-fox/profiles/` |
 
 Creates the `.agent-fox/` directory structure, sets up the integration branch
@@ -126,10 +126,13 @@ customization of agent behavior. See [Profiles](profiles.md) for details.
 
 **Skills installation (`--skills`):** When `--skills` is provided, copies
 bundled skill templates from the agent-fox package into
-`.claude/skills/{name}/SKILL.md`. Each skill becomes available as a slash
-command in Claude Code (e.g., `/af-spec`). Existing skill files are
-overwritten with the latest bundled versions. Works on both fresh init and
-re-init. The output reports the number of skills installed.
+`.agents/skills/{name}/SKILL.md` and creates a `.claude/skills` symlink
+pointing to `.agents/skills/` for Claude Code compatibility. Each skill
+becomes available as a slash command in Claude Code (e.g., `/af-spec`).
+Existing skill files are overwritten with the latest bundled versions.
+Works on both fresh init and re-init. If `.claude/skills/` exists as a
+regular directory from a prior install, its contents are migrated to
+`.agents/skills/` automatically.
 
 **GitHub labels:** When a `[platform]` section with `type = "github"` is
 configured, `init` automatically creates labels on the repository for the

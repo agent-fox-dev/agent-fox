@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import shutil
 import stat
 import subprocess
 from dataclasses import dataclass
@@ -127,10 +128,10 @@ def _create_branch(branch: str) -> None:
 
 
 def _install_skills(project_root: Path) -> int:
-    """Install bundled skill templates into .claude/skills/.
+    """Install bundled skill templates into .agents/skills/.
 
     Discovers all non-hidden files in _SKILLS_DIR, creates
-    {project_root}/.claude/skills/{name}/SKILL.md for each.
+    {project_root}/.agents/skills/{name}/SKILL.md for each.
     Overwrites existing files.  Template variables (``{{SPEC_ROOT}}``)
     are substituted with the project's configured spec root.
 
@@ -155,7 +156,7 @@ def _install_skills(project_root: Path) -> int:
         return 0
 
     # 47-REQ-2.E2: handle permission errors creating skills directory
-    skills_target = project_root / ".claude" / "skills"
+    skills_target = project_root / ".agents" / "skills"
     try:
         skills_target.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
@@ -185,6 +186,49 @@ def _install_skills(project_root: Path) -> int:
             logger.warning("Skipping skill '%s': %s", name, exc)
 
     return count
+
+
+def _ensure_skills_symlink(project_root: Path) -> None:
+    """Create .claude/skills symlink pointing to ../.agents/skills.
+
+    If .claude/skills/ exists as a regular directory, its contents are
+    migrated to .agents/skills/ first, the directory is removed, and
+    the symlink is created.  If it is already a symlink, it is left
+    untouched.  Symlink creation failure is logged as a warning.
+
+    Requirements: 709-AC-2, 709-AC-3, 709-AC-6
+    """
+    claude_skills = project_root / ".claude" / "skills"
+    agents_skills = project_root / ".agents" / "skills"
+
+    # Already a symlink — nothing to do
+    if claude_skills.is_symlink():
+        return
+
+    # Migration: .claude/skills/ is a real directory from a prior install
+    if claude_skills.is_dir():
+        agents_skills.mkdir(parents=True, exist_ok=True)
+        for child in claude_skills.iterdir():
+            dest = agents_skills / child.name
+            if dest.exists():
+                logger.debug("Skipping migration of '%s': already exists at destination", child.name)
+                continue
+            shutil.move(str(child), str(dest))
+        shutil.rmtree(claude_skills)
+        logger.debug("Migrated skills from .claude/skills/ to .agents/skills/")
+
+    # Only create the symlink if the canonical directory exists
+    if not agents_skills.is_dir():
+        return
+
+    # Ensure .claude/ directory exists (may already from _ensure_claude_settings)
+    claude_dir = project_root / ".claude"
+    claude_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        claude_skills.symlink_to(Path("..", ".agents", "skills"))
+    except OSError as exc:
+        logger.warning("Could not create .claude/skills symlink: %s", exc)
 
 
 def _update_gitignore(project_root: Path) -> None:
@@ -319,6 +363,29 @@ def _ensure_agents_md(project_root: Path) -> str:
     agents_md.write_text(content, encoding="utf-8")
     logger.debug("Created AGENTS.md from template")
     return "created"
+
+
+def _ensure_claude_md_symlink(project_root: Path) -> None:
+    """Create CLAUDE.md -> AGENTS.md symlink if CLAUDE.md does not exist.
+
+    If CLAUDE.md exists as a regular file it is left untouched.
+    If CLAUDE.md already exists as a symlink it is left as-is.
+    Symlink creation failure is logged as a warning.
+
+    Requirements: 709-AC-4, 709-AC-5, 709-AC-6
+    """
+    claude_md = project_root / "CLAUDE.md"
+
+    if claude_md.exists() or claude_md.is_symlink():
+        return
+
+    if not (project_root / "AGENTS.md").exists():
+        return
+
+    try:
+        claude_md.symlink_to(Path("AGENTS.md"))
+    except OSError as exc:
+        logger.warning("Could not create CLAUDE.md symlink: %s", exc)
 
 
 def _ensure_steering_md(project_root: Path, specs_dir: Path | None = None) -> str:
@@ -511,11 +578,13 @@ def init_project(
         _ensure_integration_branch(cfg.workspace.integration_branch, quiet=quiet)
         _ensure_claude_settings(path)
         agents_md_status = _ensure_agents_md(path)
+        _ensure_claude_md_symlink(path)
         steering_status = _ensure_steering_md(path)
 
         skills_count = 0
         if skills:
             skills_count = _install_skills(path)
+        _ensure_skills_symlink(path)
 
         labels_count = _ensure_platform_labels(path)
 
@@ -539,11 +608,13 @@ def init_project(
     _update_gitignore(path)
     _ensure_claude_settings(path)
     agents_md_status = _ensure_agents_md(path)
+    _ensure_claude_md_symlink(path)
     steering_status = _ensure_steering_md(path)
 
     skills_count = 0
     if skills:
         skills_count = _install_skills(path)
+    _ensure_skills_symlink(path)
 
     labels_count = _ensure_platform_labels(path)
 

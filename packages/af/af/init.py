@@ -149,7 +149,7 @@ def _create_local_config(project_root: Path) -> str:
     "--skills",
     is_flag=True,
     default=False,
-    help="Install bundled Claude Code skills into .claude/skills/.",
+    help="Install bundled agent skills into .agents/skills/.",
 )
 @click.option(
     "--profiles",

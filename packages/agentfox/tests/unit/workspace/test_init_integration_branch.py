@@ -47,7 +47,9 @@ class TestFreshInitIntegrationBranch:
             patch("agentfox.workspace.init_project._update_gitignore"),
             patch("agentfox.workspace.init_project._ensure_claude_settings"),
             patch("agentfox.workspace.init_project._ensure_agents_md", return_value="created"),
+            patch("agentfox.workspace.init_project._ensure_claude_md_symlink"),
             patch("agentfox.workspace.init_project._ensure_steering_md", return_value="created"),
+            patch("agentfox.workspace.init_project._ensure_skills_symlink"),
             patch("agentfox.workspace.init_project._ensure_platform_labels", return_value=0),
         ):
             from agentfox.workspace.init_project import init_project
@@ -92,7 +94,9 @@ class TestFreshInitIntegrationBranch:
             patch("agentfox.workspace.init_project._update_gitignore"),
             patch("agentfox.workspace.init_project._ensure_claude_settings"),
             patch("agentfox.workspace.init_project._ensure_agents_md", return_value="created"),
+            patch("agentfox.workspace.init_project._ensure_claude_md_symlink"),
             patch("agentfox.workspace.init_project._ensure_steering_md", return_value="created"),
+            patch("agentfox.workspace.init_project._ensure_skills_symlink"),
             patch("agentfox.workspace.init_project._ensure_platform_labels", return_value=0),
         ):
             from agentfox.workspace.init_project import init_project
@@ -127,7 +131,9 @@ class TestFreshInitIntegrationBranch:
             patch("agentfox.workspace.init_project._update_gitignore"),
             patch("agentfox.workspace.init_project._ensure_claude_settings"),
             patch("agentfox.workspace.init_project._ensure_agents_md", return_value="created"),
+            patch("agentfox.workspace.init_project._ensure_claude_md_symlink"),
             patch("agentfox.workspace.init_project._ensure_steering_md", return_value="created"),
+            patch("agentfox.workspace.init_project._ensure_skills_symlink"),
             patch("agentfox.workspace.init_project._ensure_platform_labels", return_value=0),
         ):
             from agentfox.workspace.init_project import init_project
