@@ -41,6 +41,7 @@ from agentfox.engine.state import SessionRecord
 from agentfox.knowledge.db import ContextKnowledgeDB, KnowledgeDB
 from agentfox.knowledge.extraction import extract_session_summary  # noqa: F401 — 05-REQ-4.2
 from agentfox.knowledge.fox_provider import KnowledgeProvider
+from agentfox.schemas.session_summary import RejectedApproach, SessionSummary
 from agentfox.session.prompt import (
     assemble_context,
     build_system_prompt,
@@ -393,26 +394,44 @@ class NodeSessionRunner:
         return system_prompt, task_prompt
 
     @staticmethod
-    def _read_session_artifacts(workspace: WorkspaceInfo) -> dict | None:
+    def _read_session_artifacts(workspace: WorkspaceInfo) -> SessionSummary | None:
         """Read session-summary.json from the worktree if it exists.
 
         Looks in ``.agent-fox/session-summary.json`` inside the worktree.
-        Returns the parsed JSON dict or None if the file is absent or
-        cannot be parsed.
+        Validates the parsed JSON against the ``SessionSummary`` Pydantic
+        model and returns a typed model instance.  Returns ``None`` if the
+        file is absent, cannot be parsed, or fails validation (with a
+        diagnostic WARNING log).
         """
+        from pydantic import ValidationError
+
         from agentfox.core.node_id import AGENT_FOX_DIR, SESSION_SUMMARY_FILENAME
 
         summary_path = workspace.path / AGENT_FOX_DIR / SESSION_SUMMARY_FILENAME
         if not summary_path.exists():
             return None
         try:
-            return json.loads(summary_path.read_text(encoding="utf-8"))
+            raw = json.loads(summary_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError, TypeError) as exc:
             logger.warning(
                 "Failed to read session summary from %s: %s",
                 summary_path,
                 exc,
             )
+            return None
+
+        try:
+            return SessionSummary.model_validate(raw)
+        except ValidationError as exc:
+            for error in exc.errors():
+                field_path = ".".join(str(loc) for loc in error["loc"])
+                logger.warning(
+                    "Session summary validation failed in %s — field %r: %s (received value: %r)",
+                    summary_path,
+                    field_path,
+                    error["msg"],
+                    raw.get(str(error["loc"][0])) if isinstance(raw, dict) and error["loc"] else raw,
+                )
             return None
 
     @staticmethod
@@ -1051,10 +1070,19 @@ class NodeSessionRunner:
         gotchas_list: list | None = None
         assumptions_list: list | None = None
         if artifacts:
-            summary_text = artifacts.get("summary") or None
-            rejected_approaches = artifacts.get("rejected_approaches")
-            gotchas_list = artifacts.get("gotchas")
-            assumptions_list = artifacts.get("assumptions")
+            summary_text = artifacts.summary or None
+            # Convert RejectedApproach models to dicts for downstream consumers.
+            # Bare strings (accepted for backward compat) pass through as-is.
+            rejected_approaches = [
+                ra.model_dump() if isinstance(ra, RejectedApproach) else ra
+                for ra in artifacts.rejected_approaches
+            ]
+            gotchas_list = artifacts.gotchas
+            assumptions_list = artifacts.assumptions
+            # TODO(#708): artifacts.tests_added_or_modified is now accessible
+            # via the SessionSummary model.  Wire it into audit events or
+            # knowledge ingestion once a downstream consumer is ready.
+            _ = artifacts.tests_added_or_modified  # accessed, not yet forwarded
             if not summary_text:
                 logger.debug(
                     "Session artifacts present but no summary for %s",

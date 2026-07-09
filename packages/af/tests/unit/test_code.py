@@ -440,7 +440,7 @@ class TestNodeSessionRunnerHarvestError:
         result = NodeSessionRunner._read_session_artifacts(workspace)
 
         assert result is not None
-        assert result["summary"] == "Implemented task group 1."
+        assert result.summary == "Implemented task group 1."
 
 
 class TestWorkspaceStateRunSummary:

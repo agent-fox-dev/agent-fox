@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import duckdb
 import pytest
 from agentfox.knowledge.migrations import run_migrations
+from agentfox.schemas.session_summary import SessionSummary
 
 _SESSION_SUMMARIES_DDL = """
 CREATE TABLE IF NOT EXISTS session_summaries (
@@ -117,7 +118,7 @@ class TestAuditEventIncludesSummary:
 
         artifacts = NodeSessionRunner._read_session_artifacts(workspace)
         assert artifacts is not None
-        summary_text = artifacts.get("summary", "")
+        summary_text = artifacts.summary
 
         conn = _make_conn()
         try:
@@ -198,7 +199,7 @@ class TestAuditEventIncludesSummary:
             patch.object(
                 runner,
                 "_read_session_artifacts",
-                return_value={"summary": "Built the store"},
+                return_value=SessionSummary(summary="Built the store"),
             ),
         ):
             record = await runner._run_and_harvest(
@@ -454,7 +455,7 @@ class TestSummaryAvailableToBothPaths:
 
         artifacts = NodeSessionRunner._read_session_artifacts(workspace)
         assert artifacts is not None
-        summary_text = artifacts.get("summary", "")
+        summary_text = artifacts.summary
 
         conn = _make_conn()
         try:
@@ -554,7 +555,7 @@ class TestSummaryAvailableToBothPaths:
             patch.object(
                 runner,
                 "_read_session_artifacts",
-                return_value={"summary": "Implemented handlers"},
+                return_value=SessionSummary(summary="Implemented handlers"),
             ),
         ):
             record = await runner._run_and_harvest(
@@ -641,7 +642,7 @@ class TestSmokeAuditEventIncludesSummary:
 
         artifacts = NodeSessionRunner._read_session_artifacts(workspace)
         assert artifacts is not None
-        summary_text = artifacts["summary"]
+        summary_text = artifacts.summary
 
         conn = _make_conn()
         try:

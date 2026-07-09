@@ -114,14 +114,18 @@ class TestResolveSecurityConfig:
 class TestReadSessionArtifacts:
     """Tests for NodeSessionRunner._read_session_artifacts."""
 
-    def test_returns_parsed_json(self, tmp_path: Path) -> None:
-        """Valid session-summary.json is parsed and returned."""
+    def test_returns_validated_model(self, tmp_path: Path) -> None:
+        """Valid session-summary.json is parsed into a SessionSummary model."""
+        from agentfox.schemas.session_summary import SessionSummary
+
         summary = {"summary": "Did things", "tests_added_or_modified": []}
         (tmp_path / ".agent-fox").mkdir()
         (tmp_path / ".agent-fox" / "session-summary.json").write_text(json.dumps(summary))
         workspace = WorkspaceInfo(path=tmp_path, spec_name="s", task_group=1, branch="feature/s/1")
         result = NodeSessionRunner._read_session_artifacts(workspace)
-        assert result == summary
+        assert isinstance(result, SessionSummary)
+        assert result.summary == "Did things"
+        assert result.tests_added_or_modified == []
 
     def test_returns_none_when_missing(self, tmp_path: Path) -> None:
         """Returns None when .session-summary.json does not exist."""
@@ -132,6 +136,13 @@ class TestReadSessionArtifacts:
         """Returns None when session-summary.json contains invalid JSON."""
         (tmp_path / ".agent-fox").mkdir(exist_ok=True)
         (tmp_path / ".agent-fox" / "session-summary.json").write_text("not valid json {{{")
+        workspace = WorkspaceInfo(path=tmp_path, spec_name="s", task_group=1, branch="feature/s/1")
+        assert NodeSessionRunner._read_session_artifacts(workspace) is None
+
+    def test_returns_none_on_validation_failure(self, tmp_path: Path) -> None:
+        """Returns None when JSON is valid but fails schema validation."""
+        (tmp_path / ".agent-fox").mkdir(exist_ok=True)
+        (tmp_path / ".agent-fox" / "session-summary.json").write_text('{"summary": 123}')
         workspace = WorkspaceInfo(path=tmp_path, spec_name="s", task_group=1, branch="feature/s/1")
         assert NodeSessionRunner._read_session_artifacts(workspace) is None
 

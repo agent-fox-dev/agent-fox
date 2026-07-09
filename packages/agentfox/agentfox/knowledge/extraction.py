@@ -9,6 +9,10 @@ The function looks for a JSON object (optionally inside a markdown
 fenced code block) containing the session-summary schema fields:
 ``summary``, ``rejected_approaches``, ``gotchas``, ``assumptions``.
 
+Validation is performed via the ``SessionSummary`` Pydantic model
+(``agentfox.schemas.session_summary``) which serves as the single
+source of truth for the artifact shape.
+
 Requirements: 05-REQ-3.1, 05-REQ-3.2, 05-REQ-3.3, 05-REQ-3.4,
               05-REQ-3.5, 05-REQ-4.1
 """
@@ -16,6 +20,10 @@ Requirements: 05-REQ-3.1, 05-REQ-3.2, 05-REQ-3.3, 05-REQ-3.4,
 import json
 import logging
 import re
+
+from pydantic import ValidationError
+
+from agentfox.schemas.session_summary import RejectedApproach, SessionSummary
 
 logger = logging.getLogger(__name__)
 
@@ -113,26 +121,35 @@ def _try_parse_dict(text: str) -> dict | None:
 def _extract_fields(data: dict) -> tuple[str | None, list, list, list]:
     """Extract session-summary fields from a parsed JSON dict.
 
-    Validates field types and returns the empty result when the data
-    does not conform to the expected schema.
+    Validates the data against the ``SessionSummary`` Pydantic model.
+    On validation failure, emits a WARNING-level log message naming the
+    offending field(s) and the received value, then returns the empty
+    result.  This replaces the previous silent degradation so operators
+    can detect agent drift.
     """
-    summary = data.get("summary")
-    if summary is not None and not isinstance(summary, str):
-        return _EMPTY_RESULT
-    if not summary:
-        # None or empty string — no summary available.
-        return _EMPTY_RESULT
-
-    rejected = data.get("rejected_approaches", [])
-    gotchas = data.get("gotchas", [])
-    assumptions = data.get("assumptions", [])
-
-    # Validate that list fields are actually lists.
-    if not isinstance(rejected, list):
-        return _EMPTY_RESULT
-    if not isinstance(gotchas, list):
-        return _EMPTY_RESULT
-    if not isinstance(assumptions, list):
+    try:
+        model = SessionSummary.model_validate(data)
+    except ValidationError as exc:
+        # Emit diagnostic warning for each field that failed validation.
+        for error in exc.errors():
+            field_path = ".".join(str(loc) for loc in error["loc"])
+            logger.warning(
+                "Session summary validation failed — field %r: %s (received value: %r)",
+                field_path,
+                error["msg"],
+                data.get(str(error["loc"][0])) if error["loc"] else data,
+            )
         return _EMPTY_RESULT
 
-    return (summary, rejected, gotchas, assumptions)
+    if not model.summary:
+        # Empty string — no summary available.
+        return _EMPTY_RESULT
+
+    # Convert RejectedApproach models back to dicts for backward
+    # compatibility with downstream consumers that expect list[dict].
+    # Bare strings (accepted for backward compat) pass through as-is.
+    rejected = [
+        ra.model_dump() if isinstance(ra, RejectedApproach) else ra
+        for ra in model.rejected_approaches
+    ]
+    return (model.summary, rejected, model.gotchas, model.assumptions)
