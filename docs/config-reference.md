@@ -127,11 +127,12 @@ max_retries = 3
 
 ## routing
 
-Adaptive model routing configuration. Controls when the orchestrator escalates
-to a more capable model tier based on past session outcomes.
+Timeout retry and session extension configuration. Controls how the
+orchestrator retries sessions that exceed their timeout, extending the
+timeout and max-turns limits on each retry.
 
 > **Note:** This is a hidden section -- it does not appear in the simplified
-> template. Add it manually when you want to tune routing behaviour.
+> template. Add it manually when you want to tune timeout retry behaviour.
 
 | Field | Type | Default | Bounds | Description |
 |-------|------|---------|--------|-------------|
@@ -255,6 +256,9 @@ for the context injected into session prompts.
 |-------|------|---------|-------------|
 | `max_items` | int | `10` | Max total retrieval items across all categories |
 | `max_cross_group_items` | int | `3` | Max cross-group retrieval items (findings from other groups in the same spec) |
+| `max_cross_spec_items` | int | `3` | Max cross-spec drift items |
+| `max_drift_age_days` | int\|null | `30` | Max age in days for active drift findings; `null` disables age-based pruning |
+| `max_summary_items` | int | `20` | Max session summaries from prior task groups injected as context |
 
 **Example:**
 
@@ -318,16 +322,16 @@ Reviewer-specific configuration, consolidating settings for all review modes.
 
 | Field | Type | Default | Bounds | Description |
 |-------|------|---------|--------|-------------|
-| `pre_review_block_threshold` | int | `1` | >= 0 | Finding count to block merge for pre-review mode |
-| `drift_review_block_threshold` | int\|null | `null` | >= 1 | Drift count to block for drift-review mode; `null` = advisory only |
+| `pre_flight_block_threshold` | int | `1` | >= 0 | Finding count to block for pre-flight review findings |
+| `pre_flight_drift_block_threshold` | int\|null | `1` | -- | Drift finding count to block for pre-flight drift findings; `null` = advisory only |
 | `audit_min_ts_entries` | int | `5` | >= 1 | Minimum test-spec entries to trigger audit-review injection |
-| `audit_max_retries` | int | `2` | >= 0 | Maximum audit-review/coder retry cycles before permanently blocking. Tracked independently of the generic failure counter. Set to 0 to block on the first audit-review failure |
+| `audit_max_retries` | int | `1` | >= 0 | Maximum audit-review/coder retry cycles before permanently blocking. Tracked independently of the generic failure counter. Set to 0 to block on the first audit-review failure |
 
 **Example:**
 
 ```toml
 [archetypes.reviewer_config]
-pre_review_block_threshold = 3
+pre_flight_block_threshold = 3
 audit_min_ts_entries = 3
 audit_max_retries = 1
 ```

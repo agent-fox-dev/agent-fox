@@ -532,7 +532,10 @@ def init_project(
     (agent_fox_dir / "worktrees").mkdir(exist_ok=True)
     _ensure_specs_dirs(path)
 
-    _ensure_integration_branch("develop", quiet=quiet)
+    from agentfox.core.config import load_config
+
+    cfg = load_config(config_path) if config_path.exists() else load_config()
+    _ensure_integration_branch(cfg.workspace.integration_branch, quiet=quiet)
     _update_gitignore(path)
     _ensure_claude_settings(path)
     agents_md_status = _ensure_agents_md(path)
