@@ -27,6 +27,11 @@ Before producing output, understand the problem:
 3. Trace the code path described in the issue to identify the root cause.
 4. Determine which files need to change and why.
 
+File paths and line numbers cited in the issue body are snapshots — they may
+have shifted since the issue was filed. Before including a path in
+`affected_files`, confirm it exists in the current tree. If referenced code
+has moved, report the current location.
+
 Only read files tracked by git. Skip anything matched by `.gitignore`.
 
 ## Output Format

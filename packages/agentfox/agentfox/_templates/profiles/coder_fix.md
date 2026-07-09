@@ -51,6 +51,11 @@ Before changing files, understand the codebase:
 4. Run 1-2 relevant tests to confirm the baseline is green before touching
    anything.
 
+File paths and line numbers from the issue and triage analysis may be stale.
+Before navigating to a referenced location, confirm the file exists and the
+relevant code is at the cited line. If references have drifted, locate the
+current code using search.
+
 Only read files tracked by git. Skip anything matched by `.gitignore`.
 
 ## Git Workflow

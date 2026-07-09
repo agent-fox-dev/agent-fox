@@ -23,6 +23,14 @@ Before making any changes, orient yourself:
 
 Do not implement anything before completing these steps.
 
+**Verify External References:** File paths, line numbers, and function names
+in issue descriptions, triage analysis, spec artifacts, and context summaries
+are snapshots from when they were written. Before navigating to or acting on a
+specific file:line reference, confirm the file still exists at that path and
+the referenced code is at (or near) the cited line. Files may have been
+renamed, moved, or reorganized; line numbers shift with every edit. Use `grep`
+or search to locate the actual code if references are stale.
+
 ## Project Structure
 
 ```
