@@ -75,6 +75,10 @@ You are running inside a git worktree already on the correct fix branch.
 3. **Implement** the fix directly — write the code that resolves the issue.
 4. **Write or update tests** that verify the fix works and prevents regression.
 5. **Verify** your fix does not break unrelated behavior.
+6. **Update documentation** if your fix changes user-facing behavior, CLI
+   options, configuration, public APIs, or error messages. Check `docs/`,
+   `README.md`, and any inline documentation (docstrings, help text) that
+   references the changed behavior.
 
 ## Quality Gates
 

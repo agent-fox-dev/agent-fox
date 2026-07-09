@@ -26,6 +26,9 @@ Treat this file as executable workflow policy.
 3. Code inspection: root cause addressed? Error handling present? Edge
    cases handled?
 4. Regression check: previously passing tests still pass? Linter passes?
+5. Documentation check: if the fix changes user-facing behavior, CLI options,
+   configuration, or public APIs, verify that affected documentation in
+   `docs/`, `README.md`, and inline help text has been updated.
 
 If no acceptance criteria are available, verify based on the issue description
 alone and produce a single overall verdict.
