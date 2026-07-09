@@ -30,20 +30,36 @@ from pydantic import ValidationError
 _FAKE_MESSAGE = MagicMock(spec=anthropic.types.Message)
 
 
+class _MockStream:
+    """Async context manager returned by MockMessages.stream()."""
+
+    def __init__(self, message: anthropic.types.Message) -> None:
+        self._message = message
+
+    async def __aenter__(self) -> "_MockStream":
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        pass
+
+    async def get_final_message(self) -> anthropic.types.Message:
+        return self._message
+
+
 class MockMessages:
-    """Captures kwargs passed to messages.create() / messages.acreate()."""
+    """Captures kwargs passed to messages.stream()."""
 
     def __init__(self, *, fail_first_with: Exception | None = None) -> None:
         self.call_count = 0
         self.last_call_kwargs: dict[str, Any] = {}
         self._fail_first_with = fail_first_with
 
-    async def create(self, **kwargs: Any) -> anthropic.types.Message:
+    def stream(self, **kwargs: Any) -> _MockStream:
         self.call_count += 1
         if self._fail_first_with is not None and self.call_count == 1:
             raise self._fail_first_with
         self.last_call_kwargs = kwargs
-        return _FAKE_MESSAGE
+        return _MockStream(_FAKE_MESSAGE)
 
 
 class MockAsyncAnthropic:

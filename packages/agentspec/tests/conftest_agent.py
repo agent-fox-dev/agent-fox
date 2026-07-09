@@ -233,15 +233,14 @@ def mock_client() -> MagicMock:
 
 
 def _make_mock_client() -> MagicMock:
-    """Create a MagicMock Anthropic client with AsyncMock messages.create.
+    """Create a MagicMock Anthropic client with mock messages.stream.
 
-    ``messages.stream`` delegates to ``messages.create`` internally so
-    tests can set ``return_value`` / ``side_effect`` on ``create`` and
-    assert against its ``call_count`` / ``call_args`` as before.
+    Tests can set ``return_value`` / ``side_effect`` on ``stream`` and
+    assert against its ``call_count`` / ``call_args``.
     """
     client = MagicMock()
     client.messages = MagicMock()
-    client.messages.create = AsyncMock()
+    client.messages.stream = MagicMock()
     return client
 
 

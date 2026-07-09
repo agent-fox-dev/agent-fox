@@ -38,13 +38,27 @@ pytestmark = pytest.mark.skipif(not HAS_HYPOTHESIS, reason="hypothesis not insta
 _FAKE_MESSAGE = MagicMock(spec=anthropic.types.Message)
 
 
+class _MockStream:
+    def __init__(self, message: anthropic.types.Message) -> None:
+        self._message = message
+
+    async def __aenter__(self) -> "_MockStream":
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        pass
+
+    async def get_final_message(self) -> anthropic.types.Message:
+        return self._message
+
+
 class _MockMessages:
     def __init__(self) -> None:
         self.last_call_kwargs: dict[str, Any] = {}
 
-    async def create(self, **kwargs: Any) -> anthropic.types.Message:
+    def stream(self, **kwargs: Any) -> _MockStream:
         self.last_call_kwargs = kwargs
-        return _FAKE_MESSAGE
+        return _MockStream(_FAKE_MESSAGE)
 
 
 class _MockAsyncAnthropic:

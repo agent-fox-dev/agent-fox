@@ -12,7 +12,23 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 
-def _make_mock_client() -> MagicMock:
+class _FakeStream:
+    """Async context manager mimicking client.messages.stream()."""
+
+    def __init__(self, message: MagicMock) -> None:
+        self._message = message
+
+    async def __aenter__(self) -> "_FakeStream":
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        pass
+
+    async def get_final_message(self) -> MagicMock:
+        return self._message
+
+
+def _make_mock_client(*, stream_side_effect: Exception | None = None) -> MagicMock:
     """Build a mock AsyncAnthropic client with a trackable close()."""
     client = MagicMock()
     client.close = AsyncMock()
@@ -26,7 +42,10 @@ def _make_mock_client() -> MagicMock:
         cache_creation_input_tokens=0,
     )
     client.messages = MagicMock()
-    client.messages.create = AsyncMock(return_value=fake_response)
+    if stream_side_effect:
+        client.messages.stream = MagicMock(side_effect=stream_side_effect)
+    else:
+        client.messages.stream = MagicMock(return_value=_FakeStream(fake_response))
     return client
 
 
@@ -64,8 +83,7 @@ class TestAiCallClosesClient:
 
     @pytest.mark.asyncio
     async def test_client_closed_on_api_error(self) -> None:
-        mock_client = _make_mock_client()
-        mock_client.messages.create = AsyncMock(side_effect=RuntimeError("API error"))
+        mock_client = _make_mock_client(stream_side_effect=RuntimeError("API error"))
 
         async def fake_retry(fn, **kw):  # noqa: ANN001, ANN003, ARG001
             return await fn()

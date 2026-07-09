@@ -167,7 +167,8 @@ async def cached_messages_create(
         call_kwargs["system"] = modified_system
 
     try:
-        return await client.messages.create(**call_kwargs)
+        async with client.messages.stream(**call_kwargs) as stream:
+            return await stream.get_final_message()
     except anthropic.BadRequestError as exc:
         if "cache_control" in str(exc).lower():
             logger.warning(
@@ -183,7 +184,8 @@ async def cached_messages_create(
             )
             if system is not None:
                 fallback_kwargs["system"] = system
-            return await client.messages.create(**fallback_kwargs)
+            async with client.messages.stream(**fallback_kwargs) as stream:
+                return await stream.get_final_message()
         raise
 
 
@@ -220,7 +222,8 @@ def cached_messages_create_sync(
         call_kwargs["system"] = modified_system
 
     try:
-        return client.messages.create(**call_kwargs)
+        with client.messages.stream(**call_kwargs) as stream:
+            return stream.get_final_message()
     except anthropic.BadRequestError as exc:
         if "cache_control" in str(exc).lower():
             logger.warning(
@@ -235,7 +238,8 @@ def cached_messages_create_sync(
             )
             if system is not None:
                 fallback_kwargs["system"] = system
-            return client.messages.create(**fallback_kwargs)
+            with client.messages.stream(**fallback_kwargs) as stream:
+                return stream.get_final_message()
         raise
 
 
