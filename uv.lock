@@ -90,8 +90,13 @@ dev = [
 
 [[package]]
 name = "agent-fox"
+<<<<<<< Updated upstream
 version = "4.1.15"
 source = { virtual = "." }
+=======
+version = "3.1.4"
+source = { editable = "." }
+>>>>>>> Stashed changes
 dependencies = [
     { name = "af" },
     { name = "agentspec" },

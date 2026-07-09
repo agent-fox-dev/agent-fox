@@ -319,6 +319,100 @@ class TestCampaignProperties:
 
 
 # ---------------------------------------------------------------------------
+# Archive-aware prefix numbering tests: Issue #711
+# ---------------------------------------------------------------------------
+
+
+class TestArchiveAwarePrefixNumbering:
+    """Tests for archive-aware prefix numbering in new_spec() — Issue #711."""
+
+    def test_new_spec_continues_from_archived_prefix(self, tmp_path: Path) -> None:
+        """AC-1: new_spec uses next prefix after highest archived spec.
+
+        Given specs/ is empty and archive/ has 01_alpha through 05_epsilon,
+        new_spec('zeta', 'PRD') should create 06_zeta.
+        """
+        target = tmp_path / "camp"
+        camp = Campaign.create(target, "Test", "Desc")
+
+        # Simulate archived specs
+        archive = target / "archive"
+        archive.mkdir()
+        for i, name in enumerate(["alpha", "beta", "gamma", "delta", "epsilon"], 1):
+            (archive / f"{i:02d}_{name}").mkdir()
+
+        camp.new_spec("zeta", "PRD content")
+        assert (target / "06_zeta").is_dir()
+        assert not (target / "01_zeta").exists()
+
+    def test_new_spec_max_of_active_and_archived(self, tmp_path: Path) -> None:
+        """AC-2: new_spec uses max of both active and archived prefixes.
+
+        Given archive/ has 01-05 and active has 06_zeta,
+        new_spec('eta', 'PRD') should create 07_eta.
+        """
+        target = tmp_path / "camp"
+        camp = Campaign.create(target, "Test", "Desc")
+
+        # Simulate archived specs
+        archive = target / "archive"
+        archive.mkdir()
+        for i, name in enumerate(["alpha", "beta", "gamma", "delta", "epsilon"], 1):
+            (archive / f"{i:02d}_{name}").mkdir()
+
+        # Create active spec 06_zeta
+        camp.new_spec("zeta", "PRD Z")
+        assert (target / "06_zeta").is_dir()
+
+        # Next spec should be 07
+        camp.new_spec("eta", "PRD E")
+        assert (target / "07_eta").is_dir()
+
+    def test_new_spec_fallback_when_both_empty(self, tmp_path: Path) -> None:
+        """AC-3: new_spec falls back to 01 when both dirs are empty.
+
+        Backward compatibility: no active specs, no archive dir.
+        """
+        target = tmp_path / "camp"
+        camp = Campaign.create(target, "Test", "Desc")
+
+        camp.new_spec("first", "PRD content")
+        assert (target / "01_first").is_dir()
+
+    def test_new_spec_no_archive_dir(self, tmp_path: Path) -> None:
+        """AC-4: new_spec works when archive/ does not exist.
+
+        No FileNotFoundError or AttributeError.
+        """
+        target = tmp_path / "camp"
+        camp = Campaign.create(target, "Test", "Desc")
+        camp.new_spec("alpha", "PRD A")
+
+        # No archive dir — should still work normally
+        camp.new_spec("beta", "PRD B")
+        assert (target / "02_beta").is_dir()
+
+    def test_new_spec_ignores_non_spec_entries_in_archive(self, tmp_path: Path) -> None:
+        """AC-5: Stray files/folders in archive/ are silently ignored.
+
+        Non-matching entries should not affect prefix computation.
+        """
+        target = tmp_path / "camp"
+        camp = Campaign.create(target, "Test", "Desc")
+
+        archive = target / "archive"
+        archive.mkdir()
+        (archive / "01_alpha").mkdir()
+        (archive / "02_beta").mkdir()
+        # Stray entries that should be ignored
+        (archive / "README.md").write_text("# Archive")
+        (archive / "not_a_spec").mkdir()
+
+        camp.new_spec("gamma", "PRD G")
+        assert (target / "03_gamma").is_dir()
+
+
+# ---------------------------------------------------------------------------
 # Integration smoke tests: TS-02-SMOKE-1, TS-02-SMOKE-2
 # ---------------------------------------------------------------------------
 

@@ -212,11 +212,20 @@ class Campaign:
 
         # Compute next numeric prefix (02-REQ-3.3)
         existing_specs = self.specs()
+        max_prefix = 0
         if existing_specs:
             max_prefix = max(int(s.name.split("_")[0]) for s in existing_specs)
-            next_prefix = max_prefix + 1
-        else:
-            next_prefix = 1
+
+        # Also check archive for highest used prefix (#711)
+        archive_dir = self._path / "archive"
+        if archive_dir.is_dir():
+            for entry in archive_dir.iterdir():
+                if entry.is_dir():
+                    parsed = parse_spec_dir_name(entry.name)
+                    if parsed is not None:
+                        max_prefix = max(max_prefix, parsed[0])
+
+        next_prefix = max_prefix + 1
 
         spec_id = f"{next_prefix:02d}"
         spec_dir_name = f"{spec_id}_{spec_name}"
