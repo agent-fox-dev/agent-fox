@@ -1,11 +1,11 @@
 [project]
 name = "agentfox"
-version = "4.1.15"
+version = "4.1.16"
 description = "Core library for the agent-fox autonomous coding-agent orchestrator"
 requires-python = ">=3.12"
 dependencies = [
-    "afaudit>=4.1.15",
-    "afspec>=4.1.15",
+    "afaudit>=4.1.16",
+    "afspec>=4.1.16",
     "click>=8.1",
     "pydantic>=2.13",
     "rich>=15.0",

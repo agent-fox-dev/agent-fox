@@ -18,7 +18,7 @@ pip install "afaudit @ git+https://github.com/agent-fox-dev/agent-fox.git#subdir
 Pin to a release tag:
 
 ```bash
-pip install "afaudit @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.1.15#subdirectory=packages/afaudit"
+pip install "afaudit @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.1.16#subdirectory=packages/afaudit"
 ```
 
 In `pyproject.toml`:
@@ -26,7 +26,7 @@ In `pyproject.toml`:
 ```toml
 [project]
 dependencies = [
-    "afaudit @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.1.15#subdirectory=packages/afaudit",
+    "afaudit @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.1.16#subdirectory=packages/afaudit",
 ]
 ```
 
