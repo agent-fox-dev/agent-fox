@@ -67,6 +67,29 @@ class TestTimeoutRouting:
 
         assert captured_timeout == _GIT_REMOTE_TIMEOUT
 
+    async def test_timeout_with_already_exited_process(self, tmp_path) -> None:
+        """run_git handles ProcessLookupError when the timed-out process already exited."""
+        import asyncio
+        from unittest.mock import AsyncMock, Mock, patch
+
+        from agentfox.workspace.git import run_git
+
+        mock_proc = AsyncMock()
+        mock_proc.communicate = AsyncMock(side_effect=asyncio.TimeoutError)
+        mock_proc.kill = Mock(side_effect=ProcessLookupError)
+        mock_proc.wait = AsyncMock()
+        mock_proc.returncode = -9
+
+        with patch("asyncio.create_subprocess_exec", return_value=mock_proc):
+            rc, stdout, stderr = await run_git(
+                ["fetch", "origin"],
+                cwd=tmp_path,
+                check=False,
+            )
+
+        assert rc == -1
+        assert "timed out" in stderr
+
     async def test_worktree_gets_remote_timeout(self, tmp_path) -> None:
         """run_git picks _GIT_REMOTE_TIMEOUT (120s) for worktree subcommand."""
         import asyncio

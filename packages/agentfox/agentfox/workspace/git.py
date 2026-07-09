@@ -98,7 +98,10 @@ async def run_git(
             timeout=timeout,
         )
     except TimeoutError:
-        proc.kill()
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
         await proc.wait()
         cmd_str = " ".join(["git", *args])
         subcommand = args[0] if args else "unknown"
