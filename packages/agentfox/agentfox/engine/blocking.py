@@ -228,7 +228,7 @@ def _evaluate_drift_review_blocking(
             return BlockDecision(should_block=False)
 
         drift_findings = query_active_drift_findings(
-            knowledge_db_conn, spec_name, task_group
+            knowledge_db_conn, spec_name, task_group, include_prereview=True
         )
         if not drift_findings:
             return BlockDecision(should_block=False)
@@ -351,9 +351,12 @@ def evaluate_review_blocking(
         session_id = f"{record.node_id}:{record.attempt}"
         findings = query_findings_by_session(knowledge_db_conn, session_id)
 
-        # Scope findings to this task_group only — cross-group findings (e.g. from
-        # a spec-wide reviewer session) must not block an unrelated coder group.
-        findings = [f for f in findings if f.task_group == task_group]
+        # Group-0 pre-flight reviewers are spec-wide gatekeepers: their findings
+        # target multiple coder groups, so we must not filter by the remapped
+        # task_group.  Non-group-0 reviewers still scope to their own group.
+        is_spec_wide_preflight = mode == "pre-flight" and parsed.group_number == 0
+        if not is_spec_wide_preflight:
+            findings = [f for f in findings if f.task_group == task_group]
 
         actionable_count = sum(1 for f in findings if f.severity.lower() in ("critical", "major"))
 

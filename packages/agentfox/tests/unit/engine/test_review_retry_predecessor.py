@@ -477,10 +477,9 @@ class TestEvaluateReviewBlockingTaskGroupFilter:
 class TestRetryOnReviewBlockTaskGroupFilter:
     """AC-2: review block with only cross-group findings does not reset the coder."""
 
-    def test_cross_group_only_findings_do_not_trigger_retry(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
-        """All session findings for group 0 → block decision is False → coder not reset."""
+    def test_group0_preflight_findings_trigger_retry(self, knowledge_conn: duckdb.DuckDBPyConnection) -> None:
+        """Group-0 pre-flight critical findings trigger blocking and coder retry (issue #713)."""
         session_id = "test_spec:0:reviewer:pre-flight:1"
-        # Only task_group='0' findings exist
         finding = _make_finding(
             severity="critical",
             description="Spec-wide finding",
@@ -532,10 +531,12 @@ class TestRetryOnReviewBlockTaskGroupFilter:
             attempt=1,
         )
 
-        # The reviewer runs for group 0, so task_group is mapped to '1' (group-0 targets group-1).
-        # But the finding is tagged task_group='0', which != '1'. So no block.
+        # check_review_blocking returns False when blocking is converted to a
+        # retry (not permanently blocked).  The key assertion is that the coder
+        # was actually reset to pending for retry.
         blocked = handler.check_review_blocking(record, state)
 
         assert blocked is False
-        block_task_fn.assert_not_called()
-        graph_sync._transition.assert_not_called()
+        graph_sync._transition.assert_any_call(
+            "test_spec:1", "pending", reason="retry after review block"
+        )
