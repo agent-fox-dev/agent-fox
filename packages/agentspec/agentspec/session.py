@@ -32,6 +32,7 @@ from afspec import (  # type: ignore[import-untyped]
     TestSpec,
     marshal_json,
 )
+from afspec.discovery import load_spec_landscape  # type: ignore[import-untyped]
 
 from agentspec.agent import SpecAgent
 from agentspec.config import load_config
@@ -267,12 +268,18 @@ class SpecSession:
         self._check_transition("assess", required_states=("init", "refining"))
 
         prd_text = (self._spec_dir / self._prd_path).read_text()
-        _, spec_name = _parse_spec_dir_name(self._spec_dir.name)
+        spec_id, spec_name = _parse_spec_dir_name(self._spec_dir.name)
+
+        landscape: list[dict[str, Any]] | None = None
+        try:
+            landscape = load_spec_landscape(self._spec_dir.parent, current_spec_id=spec_id)
+        except Exception:
+            landscape = None
 
         agent = _create_agent()
 
         try:
-            assessment = await agent.assess_prd(prd_text, spec_name)
+            assessment = await agent.assess_prd(prd_text, spec_name, spec_landscape=landscape)
         except AgentError as exc:
             self._last_error = _error_to_dict(exc)
             self._persist()
@@ -313,6 +320,14 @@ class SpecSession:
         if previous_assessment is None:
             raise AgentError("Cannot refine without a previous assessment")
 
+        spec_id, _ = _parse_spec_dir_name(self._spec_dir.name)
+
+        landscape: list[dict[str, Any]] | None = None
+        try:
+            landscape = load_spec_landscape(self._spec_dir.parent, current_spec_id=spec_id)
+        except Exception:
+            landscape = None
+
         frontmatter_block = _update_frontmatter(prd_text, self._spec_dir.name)
 
         assessment_index = len(self._assessment_history) - 1
@@ -321,7 +336,9 @@ class SpecSession:
         agent = _create_agent()
 
         try:
-            updated_prd, new_assessment = await agent.refine_prd(prd_text, answers, previous_assessment)
+            updated_prd, new_assessment = await agent.refine_prd(
+                prd_text, answers, previous_assessment, spec_landscape=landscape
+            )
         except AgentError as exc:
             self._last_error = _error_to_dict(exc)
             self._persist()

@@ -426,12 +426,14 @@ class TestAssessSmokeEndToEnd:
         # Create the session for the spec being assessed
         session = _create_test_session(tmp_path, SessionState.INIT)
 
-        # Create a sibling spec directory so load_spec_landscape finds it
+        # Create a sibling spec directory so load_spec_landscape finds it.
+        # Use a different spec_id (99) to avoid being filtered out by the
+        # current_spec_id exclusion logic in load_spec_landscape.
         spec_root = session.spec_dir.parent
         _setup_spec_dir(
             spec_root,
-            "01_sibling_spec",
-            "01",
+            "99_sibling_spec",
+            "99",
             "sibling_spec",
             "Sibling Spec",
             intent_text="A sibling spec for testing landscape injection.",
@@ -509,12 +511,14 @@ class TestRefineSmokeEndToEnd:
             assessment_history=[prev_assessment_dict],
         )
 
-        # Create a sibling spec for landscape discovery
+        # Create a sibling spec for landscape discovery.
+        # Use a different spec_id (99) to avoid being filtered out by the
+        # current_spec_id exclusion logic in load_spec_landscape.
         spec_root = session.spec_dir.parent
         _setup_spec_dir(
             spec_root,
-            "01_sibling_spec",
-            "01",
+            "99_sibling_spec",
+            "99",
             "sibling_spec",
             "Sibling Spec",
             intent_text="A sibling spec for testing landscape injection.",
