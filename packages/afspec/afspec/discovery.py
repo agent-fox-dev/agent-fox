@@ -356,3 +356,150 @@ def load_dependent_interfaces(
         return results
     except Exception:
         return []
+
+
+# ---------------------------------------------------------------------------
+# Intent extraction
+# ---------------------------------------------------------------------------
+
+_INTENT_HEADING_RE = re.compile(r"^## Intent\s*$", re.MULTILINE)
+_NEXT_HEADING_RE = re.compile(r"^## ", re.MULTILINE)
+
+
+def _extract_intent(prd_path: Path) -> str:
+    """Extract a concise intent string from a spec's ``prd.md``.
+
+    Looks for a ``## Intent`` section and returns its text content up to
+    the next ``##`` heading or end of file, truncated to 300 characters.
+
+    Falls back to the first non-empty paragraph of the body when no
+    ``## Intent`` section exists.  Returns ``""`` if the file is missing,
+    unreadable, or contains no extractable text.
+    """
+    try:
+        text = prd_path.read_text(encoding="utf-8")
+    except Exception:
+        return ""
+
+    # Strip YAML frontmatter
+    fm_match = _FRONTMATTER_RE.match(text)
+    body = text[fm_match.end() :] if fm_match else text
+
+    # Try to find ## Intent section
+    intent_match = _INTENT_HEADING_RE.search(body)
+    if intent_match:
+        after_heading = body[intent_match.end() :]
+        next_heading = _NEXT_HEADING_RE.search(after_heading)
+        if next_heading:
+            section_text = after_heading[: next_heading.start()]
+        else:
+            section_text = after_heading
+        intent = section_text.strip()
+        return intent[:300]
+
+    # Fallback: first non-empty paragraph
+    paragraphs = body.split("\n\n")
+    for para in paragraphs:
+        stripped = para.strip()
+        # Skip headings and empty paragraphs
+        if stripped and not stripped.startswith("#"):
+            return stripped[:300]
+
+    return ""
+
+
+# ---------------------------------------------------------------------------
+# Spec landscape loading
+# ---------------------------------------------------------------------------
+
+
+def load_spec_landscape(
+    spec_root: Union[str, Path],
+    *,
+    include_archive: bool = True,
+    current_spec_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Collect metadata for all specs (active and optionally archived).
+
+    Returns a ``list[dict[str, Any]]`` containing one entry per discovered
+    spec, excluding any spec whose ``spec_id`` matches *current_spec_id*.
+
+    Active entries contain keys: ``spec_id``, ``spec_name``, ``title``,
+    ``status``, ``intent``, ``archived`` (``False``).
+
+    Archived entries contain keys: ``spec_id``, ``spec_name``, ``title``,
+    ``status``, ``archived`` (``True``).  No ``intent`` key is included.
+
+    Returns ``[]`` on any failure (graceful degradation), matching the
+    pattern used by :func:`load_dependent_interfaces`.
+    """
+    try:
+        spec_root = Path(spec_root)
+        results: list[dict[str, Any]] = []
+
+        # ---- Active specs ------------------------------------------------
+        active_metas = discover_specs(spec_root)
+        for meta in active_metas:
+            if current_spec_id is not None and meta.spec_id == current_spec_id:
+                continue
+
+            prd_path = Path(meta.dir) / "prd.md"
+
+            # Retrieve title from frontmatter (SpecMeta lacks title field)
+            title = ""
+            try:
+                fm = _load_frontmatter_only(prd_path)
+                title = fm.title
+            except Exception:
+                pass
+
+            intent = _extract_intent(prd_path)
+
+            results.append(
+                {
+                    "spec_id": meta.spec_id,
+                    "spec_name": meta.spec_name,
+                    "title": title,
+                    "status": meta.status.value if hasattr(meta.status, "value") else str(meta.status),
+                    "intent": intent,
+                    "archived": False,
+                }
+            )
+
+        # ---- Archived specs ----------------------------------------------
+        if include_archive:
+            archive_dir = spec_root / "archive"
+            if archive_dir.is_dir():
+                try:
+                    entries = sorted(archive_dir.iterdir())
+                except OSError:
+                    entries = []
+
+                for entry in entries:
+                    if not entry.is_dir():
+                        continue
+                    if not _SPEC_DIR_RE.match(entry.name):
+                        continue
+
+                    prd_path = entry / "prd.md"
+                    try:
+                        fm = _load_frontmatter_only(prd_path)
+                    except Exception:
+                        continue
+
+                    if current_spec_id is not None and fm.spec_id == current_spec_id:
+                        continue
+
+                    results.append(
+                        {
+                            "spec_id": fm.spec_id,
+                            "spec_name": fm.spec_name,
+                            "title": fm.title,
+                            "status": fm.status.value if hasattr(fm.status, "value") else str(fm.status),
+                            "archived": True,
+                        }
+                    )
+
+        return results
+    except Exception:
+        return []

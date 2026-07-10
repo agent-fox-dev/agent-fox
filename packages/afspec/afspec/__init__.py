@@ -16,6 +16,7 @@ from afspec.discovery import (
     build_dependency_graph,
     discover_specs,
     is_spec_dir_name,
+    load_spec_landscape,
     parse_spec_dir_name,
 )
 from afspec.ears import render_ears_sentence
@@ -140,6 +141,7 @@ __all__ = [
     "discover_specs",
     "build_dependency_graph",
     "is_spec_dir_name",
+    "load_spec_landscape",
     "parse_spec_dir_name",
     "create_spec",
     # EARS criterion builders
