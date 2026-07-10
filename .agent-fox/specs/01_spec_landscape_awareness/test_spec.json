@@ -1,0 +1,806 @@
+{
+  "$schema": null,
+  "spec_id": "01",
+  "spec_name": "spec_landscape_awareness",
+  "schema_version": 1,
+  "test_cases": [
+    {
+      "id": "TS-01-1",
+      "requirement_id": "01-REQ-1.1",
+      "kind": "unit",
+      "description": "load_spec_landscape calls discover_specs for active specs and scans archive/ for archived specs matching _SPEC_DIR_RE, returning one entry per discovered spec.",
+      "preconditions": [
+        "spec_root directory exists with two active spec directories (e.g., 01_core_foundation, 02_backend_protocol)",
+        "spec_root/archive/ directory exists with one archived spec directory (e.g., 08_old_spec)",
+        "Each spec directory contains a valid prd.md with YAML frontmatter"
+      ],
+      "input": {
+        "current_spec_id": null,
+        "include_archive": true,
+        "spec_root": "/tmp/test_specs"
+      },
+      "expected": "Returns a list of 3 dicts: 2 active entries and 1 archived entry, each with at minimum spec_id and spec_name fields",
+      "assertion_pseudocode": "result = load_spec_landscape(spec_root, include_archive=True)\nassert len(result) == 3\nassert any(e['spec_id'] == '01' and e['archived'] == False for e in result)\nassert any(e['spec_id'] == '02' and e['archived'] == False for e in result)\nassert any(e['spec_id'] == '08' and e['archived'] == True for e in result)"
+    },
+    {
+      "id": "TS-01-2",
+      "requirement_id": "01-REQ-1.2",
+      "kind": "unit",
+      "description": "Each active spec entry returned by load_spec_landscape contains all six required keys with non-null string values.",
+      "preconditions": [
+        "spec_root contains one active spec directory 01_core_foundation",
+        "prd.md has YAML frontmatter with spec_id, spec_name, status, title fields",
+        "prd.md body contains a ## Intent section with text content"
+      ],
+      "input": {
+        "current_spec_id": null,
+        "include_archive": false,
+        "spec_root": "/tmp/test_specs"
+      },
+      "expected": "The single returned entry contains keys spec_id, spec_name, title, status, intent, archived with archived=False and all string values non-null",
+      "assertion_pseudocode": "result = load_spec_landscape(spec_root, include_archive=False)\nassert len(result) == 1\nentry = result[0]\nfor key in ['spec_id', 'spec_name', 'title', 'status', 'intent']:\n    assert key in entry\n    assert isinstance(entry[key], str)\nassert entry['archived'] == False"
+    },
+    {
+      "id": "TS-01-3",
+      "requirement_id": "01-REQ-1.3",
+      "kind": "unit",
+      "description": "Each archived spec entry contains exactly spec_id, spec_name, title, status, and archived=True, with no intent key.",
+      "preconditions": [
+        "spec_root/archive/ contains one archived spec directory 08_old_spec",
+        "08_old_spec/prd.md has valid YAML frontmatter with spec_id, spec_name, status, title"
+      ],
+      "input": {
+        "current_spec_id": null,
+        "include_archive": true,
+        "spec_root": "/tmp/test_specs"
+      },
+      "expected": "The archived entry contains spec_id, spec_name, title, status, archived=True and does NOT contain an 'intent' key",
+      "assertion_pseudocode": "result = load_spec_landscape(spec_root, include_archive=True)\narchived_entries = [e for e in result if e['archived'] == True]\nassert len(archived_entries) == 1\nentry = archived_entries[0]\nfor key in ['spec_id', 'spec_name', 'title', 'status']:\n    assert key in entry\nassert entry['archived'] == True\nassert 'intent' not in entry"
+    },
+    {
+      "id": "TS-01-4",
+      "requirement_id": "01-REQ-1.4",
+      "kind": "unit",
+      "description": "load_spec_landscape excludes the spec whose spec_id matches current_spec_id from the returned list.",
+      "preconditions": [
+        "spec_root contains active spec directories 01_core_foundation and 02_backend_protocol",
+        "Both directories have valid prd.md files"
+      ],
+      "input": {
+        "current_spec_id": "01",
+        "include_archive": false,
+        "spec_root": "/tmp/test_specs"
+      },
+      "expected": "Returns a list with only the entry for spec 02; no entry with spec_id '01' is present",
+      "assertion_pseudocode": "result = load_spec_landscape(spec_root, include_archive=False, current_spec_id='01')\nassert all(e['spec_id'] != '01' for e in result)\nassert any(e['spec_id'] == '02' for e in result)"
+    },
+    {
+      "id": "TS-01-5",
+      "requirement_id": "01-REQ-1.5",
+      "kind": "unit",
+      "description": "load_spec_landscape returns an empty list without re-raising when any exception is raised during discovery or file I/O.",
+      "preconditions": [
+        "discover_specs is mocked/patched to raise an OSError"
+      ],
+      "input": {
+        "current_spec_id": null,
+        "include_archive": true,
+        "spec_root": "/tmp/nonexistent_or_unreadable_path"
+      },
+      "expected": "Returns [] without raising any exception",
+      "assertion_pseudocode": "with mock discover_specs raising OSError:\n    result = load_spec_landscape(spec_root)\n    assert result == []"
+    },
+    {
+      "id": "TS-01-6",
+      "requirement_id": "01-REQ-1.6",
+      "kind": "unit",
+      "description": "When called with include_archive=False, load_spec_landscape skips the archive directory and returns only active spec entries.",
+      "preconditions": [
+        "spec_root contains one active spec directory 01_core_foundation",
+        "spec_root/archive/ contains one archived spec directory 08_old_spec",
+        "Both directories have valid prd.md files"
+      ],
+      "input": {
+        "current_spec_id": null,
+        "include_archive": false,
+        "spec_root": "/tmp/test_specs"
+      },
+      "expected": "Returns a list containing only active entries; no entry with archived=True",
+      "assertion_pseudocode": "result = load_spec_landscape(spec_root, include_archive=False)\nassert all(e['archived'] == False for e in result)\nassert len(result) == 1\nassert result[0]['spec_id'] == '01'"
+    },
+    {
+      "id": "TS-01-7",
+      "requirement_id": "01-REQ-2.1",
+      "kind": "unit",
+      "description": "Intent extraction reads the ## Intent section from prd.md body and returns its text truncated to 300 characters.",
+      "preconditions": [
+        "prd.md exists with YAML frontmatter and a body containing '## Intent\\nThis spec establishes the core foundation...\\n## Background\\n...' where the intent text is 350 characters long"
+      ],
+      "input": {
+        "prd_path": "/tmp/test_specs/01_core/prd.md"
+      },
+      "expected": "Returned intent string is at most 300 characters long and contains content from the ## Intent section, not from ## Background",
+      "assertion_pseudocode": "result = load_spec_landscape(spec_root, include_archive=False)\nentry = result[0]\nassert len(entry['intent']) <= 300\nassert 'core foundation' in entry['intent'].lower()\nassert 'Background' not in entry['intent']"
+    },
+    {
+      "id": "TS-01-8",
+      "requirement_id": "01-REQ-2.2",
+      "kind": "unit",
+      "description": "When no ## Intent section exists in prd.md, the intent falls back to the first non-empty paragraph of the body, truncated to 300 characters.",
+      "preconditions": [
+        "prd.md exists with YAML frontmatter",
+        "prd.md body has no ## Intent section",
+        "prd.md body first non-empty paragraph is 'This is the fallback paragraph describing the spec purpose.'"
+      ],
+      "input": {
+        "include_archive": false,
+        "spec_root": "/tmp/test_specs"
+      },
+      "expected": "Returned intent field contains the first paragraph text, length <= 300",
+      "assertion_pseudocode": "result = load_spec_landscape(spec_root, include_archive=False)\nentry = result[0]\nassert 'fallback paragraph' in entry['intent']\nassert len(entry['intent']) <= 300"
+    },
+    {
+      "id": "TS-01-9",
+      "requirement_id": "01-REQ-3.1",
+      "kind": "unit",
+      "description": "_format_spec_landscape returns a markdown block with both Active Specs and Archived Specs tables when both types are present.",
+      "preconditions": [
+        "landscape list contains one active entry and one archived entry with all required fields populated"
+      ],
+      "input": {
+        "landscape": [
+          {
+            "archived": false,
+            "intent": "Establish the base...",
+            "spec_id": "01",
+            "spec_name": "core_foundation",
+            "status": "implemented",
+            "title": "Core Foundation"
+          },
+          {
+            "archived": true,
+            "spec_id": "08",
+            "spec_name": "old_spec",
+            "status": "archived",
+            "title": "Old Spec"
+          }
+        ]
+      },
+      "expected": "Returned string contains '## Existing Spec Landscape', '### Active Specs', '### Archived Specs', and table rows for both specs",
+      "assertion_pseudocode": "result = _format_spec_landscape(landscape)\nassert '## Existing Spec Landscape' in result\nassert '### Active Specs' in result\nassert '### Archived Specs' in result\nassert 'Core Foundation' in result\nassert 'Old Spec' in result\nassert 'Establish the base' in result"
+    },
+    {
+      "id": "TS-01-10",
+      "requirement_id": "01-REQ-3.2",
+      "kind": "unit",
+      "description": "_format_spec_landscape returns an empty string when called with None or an empty list.",
+      "preconditions": [],
+      "input": {
+        "landscape_empty": [],
+        "landscape_none": null
+      },
+      "expected": "Returns exactly empty string '' for both None and [] inputs",
+      "assertion_pseudocode": "assert _format_spec_landscape(None) == ''\nassert _format_spec_landscape([]) == ''"
+    },
+    {
+      "id": "TS-01-11",
+      "requirement_id": "01-REQ-3.3",
+      "kind": "unit",
+      "description": "_format_spec_landscape omits the ### Archived Specs table when the landscape contains only active specs.",
+      "preconditions": [
+        "landscape list contains only entries with archived=False"
+      ],
+      "input": {
+        "landscape": [
+          {
+            "archived": false,
+            "intent": "Establish the base...",
+            "spec_id": "01",
+            "spec_name": "core_foundation",
+            "status": "implemented",
+            "title": "Core Foundation"
+          }
+        ]
+      },
+      "expected": "Returned string contains '### Active Specs' but does NOT contain '### Archived Specs'",
+      "assertion_pseudocode": "result = _format_spec_landscape(landscape)\nassert '### Active Specs' in result\nassert '### Archived Specs' not in result"
+    },
+    {
+      "id": "TS-01-12",
+      "requirement_id": "01-REQ-3.4",
+      "kind": "unit",
+      "description": "_format_spec_landscape omits the ### Active Specs table when the landscape contains only archived specs.",
+      "preconditions": [
+        "landscape list contains only entries with archived=True"
+      ],
+      "input": {
+        "landscape": [
+          {
+            "archived": true,
+            "spec_id": "08",
+            "spec_name": "old_spec",
+            "status": "archived",
+            "title": "Old Spec"
+          }
+        ]
+      },
+      "expected": "Returned string does NOT contain '### Active Specs' but DOES contain '### Archived Specs'",
+      "assertion_pseudocode": "result = _format_spec_landscape(landscape)\nassert '### Active Specs' not in result\nassert '### Archived Specs' in result"
+    },
+    {
+      "id": "TS-01-13",
+      "requirement_id": "01-REQ-4.1",
+      "kind": "unit",
+      "description": "assessment_user_prompt accepts spec_landscape parameter, formats it via _format_spec_landscape, and substitutes into the template at $spec_landscape_block.",
+      "preconditions": [
+        "assessment_user.md template file contains $spec_landscape_block placeholder",
+        "landscape list has one active entry"
+      ],
+      "input": {
+        "prd_text": "# My PRD\n...",
+        "spec_landscape": [
+          {
+            "archived": false,
+            "intent": "Base layer...",
+            "spec_id": "01",
+            "spec_name": "core",
+            "status": "implemented",
+            "title": "Core"
+          }
+        ],
+        "spec_name": "new_spec"
+      },
+      "expected": "Returned string contains '## Existing Spec Landscape' and does not contain the literal '$spec_landscape_block'",
+      "assertion_pseudocode": "result = assessment_user_prompt(prd_text, spec_name, spec_landscape=landscape)\nassert '## Existing Spec Landscape' in result\nassert '$spec_landscape_block' not in result\nassert 'My PRD' in result"
+    },
+    {
+      "id": "TS-01-14",
+      "requirement_id": "01-REQ-4.2",
+      "kind": "unit",
+      "description": "assessment_user_prompt substitutes an empty string for $spec_landscape_block when spec_landscape is None or empty, producing no landscape section.",
+      "preconditions": [
+        "assessment_user.md template file contains $spec_landscape_block placeholder"
+      ],
+      "input": {
+        "prd_text": "# My PRD\n...",
+        "spec_landscape": null,
+        "spec_name": "new_spec"
+      },
+      "expected": "Returned string does NOT contain '## Existing Spec Landscape' and does not contain '$spec_landscape_block'",
+      "assertion_pseudocode": "result = assessment_user_prompt(prd_text, spec_name, spec_landscape=None)\nassert '## Existing Spec Landscape' not in result\nassert '$spec_landscape_block' not in result\nresult_empty = assessment_user_prompt(prd_text, spec_name, spec_landscape=[])\nassert '## Existing Spec Landscape' not in result_empty"
+    },
+    {
+      "id": "TS-01-15",
+      "requirement_id": "01-REQ-5.1",
+      "kind": "unit",
+      "description": "refinement_user_prompt accepts spec_landscape parameter and substitutes the formatted landscape at $spec_landscape_block after the QA block.",
+      "preconditions": [
+        "refinement_user.md template contains $spec_landscape_block and $qa_block placeholders",
+        "landscape list has one active entry"
+      ],
+      "input": {
+        "answers": {
+          "q1": "answer1"
+        },
+        "prd_text": "# My PRD\n...",
+        "previous_assessment": {
+          "gaps": [],
+          "quality": "draft"
+        },
+        "spec_landscape": [
+          {
+            "archived": false,
+            "intent": "Base layer...",
+            "spec_id": "01",
+            "spec_name": "core",
+            "status": "implemented",
+            "title": "Core"
+          }
+        ]
+      },
+      "expected": "Returned string contains '## Existing Spec Landscape' and does not contain the literal '$spec_landscape_block'",
+      "assertion_pseudocode": "result = refinement_user_prompt(prd_text, answers, previous_assessment, spec_landscape=landscape)\nassert '## Existing Spec Landscape' in result\nassert '$spec_landscape_block' not in result"
+    },
+    {
+      "id": "TS-01-16",
+      "requirement_id": "01-REQ-5.2",
+      "kind": "unit",
+      "description": "refinement_user_prompt substitutes an empty string for $spec_landscape_block when spec_landscape is None or empty.",
+      "preconditions": [
+        "refinement_user.md template contains $spec_landscape_block placeholder"
+      ],
+      "input": {
+        "answers": {
+          "q1": "answer1"
+        },
+        "prd_text": "# My PRD\n...",
+        "previous_assessment": {
+          "gaps": [],
+          "quality": "draft"
+        },
+        "spec_landscape": null
+      },
+      "expected": "Returned string does NOT contain '## Existing Spec Landscape' and does not contain literal '$spec_landscape_block'",
+      "assertion_pseudocode": "result = refinement_user_prompt(prd_text, answers, previous_assessment, spec_landscape=None)\nassert '## Existing Spec Landscape' not in result\nassert '$spec_landscape_block' not in result"
+    },
+    {
+      "id": "TS-01-17",
+      "requirement_id": "01-REQ-6.1",
+      "kind": "unit",
+      "description": "assessment_system.md contains a ## Cross-spec awareness section with instructions for overlap detection, historical precedent, and dependency suggestion.",
+      "preconditions": [
+        "assessment_system.md template file is accessible on disk at the expected path within agentspec package"
+      ],
+      "input": {
+        "template_name": "assessment_system"
+      },
+      "expected": "File content contains '## Cross-spec awareness', references to flagging overlaps as gaps, archived spec historical precedent note, and dependency suggestion instruction",
+      "assertion_pseudocode": "content = read_file('agentspec/prompts/assessment_system.md')\nassert '## Cross-spec awareness' in content\nassert 'gap' in content.lower()\nassert 'archived' in content.lower()\nassert 'dependency' in content.lower()"
+    },
+    {
+      "id": "TS-01-18",
+      "requirement_id": "01-REQ-6.2",
+      "kind": "unit",
+      "description": "assessment_user.md template contains $spec_landscape_block positioned before the PRD text block.",
+      "preconditions": [
+        "assessment_user.md template file is accessible on disk"
+      ],
+      "input": {
+        "template_name": "assessment_user"
+      },
+      "expected": "File content contains '$spec_landscape_block' and '$prd_text'; $spec_landscape_block appears at a lower string index than $prd_text",
+      "assertion_pseudocode": "content = read_file('agentspec/prompts/assessment_user.md')\nassert '$spec_landscape_block' in content\nassert '$prd_text' in content\nassert content.index('$spec_landscape_block') < content.index('$prd_text')"
+    },
+    {
+      "id": "TS-01-19",
+      "requirement_id": "01-REQ-6.3",
+      "kind": "unit",
+      "description": "refinement_user.md template contains $spec_landscape_block positioned after the QA block variable.",
+      "preconditions": [
+        "refinement_user.md template file is accessible on disk"
+      ],
+      "input": {
+        "template_name": "refinement_user"
+      },
+      "expected": "File content contains both '$qa_block' and '$spec_landscape_block'; $spec_landscape_block appears at a higher string index than $qa_block",
+      "assertion_pseudocode": "content = read_file('agentspec/prompts/refinement_user.md')\nassert '$qa_block' in content\nassert '$spec_landscape_block' in content\nassert content.index('$spec_landscape_block') > content.index('$qa_block')"
+    },
+    {
+      "id": "TS-01-20",
+      "requirement_id": "01-REQ-7.1",
+      "kind": "unit",
+      "description": "SpecSession.assess calls load_spec_landscape with the spec_root parent and current_spec_id, then passes the result to agent.assess_prd as spec_landscape.",
+      "preconditions": [
+        "SpecSession is initialized with a valid spec directory containing prd.md with spec_id in frontmatter",
+        "load_spec_landscape is mocked to return a known landscape list",
+        "agent.assess_prd is mocked to capture its arguments"
+      ],
+      "input": {
+        "session": "SpecSession instance with spec_dir containing prd.md with spec_id='05'"
+      },
+      "expected": "agent.assess_prd is called with spec_landscape equal to the list returned by the mocked load_spec_landscape",
+      "assertion_pseudocode": "mock_landscape = [{'spec_id': '01', 'archived': False, ...}]\nmock load_spec_landscape to return mock_landscape\nmock agent.assess_prd to capture kwargs\nawait session.assess()\nassert agent.assess_prd.called_with(spec_landscape=mock_landscape)"
+    },
+    {
+      "id": "TS-01-21",
+      "requirement_id": "01-REQ-7.2",
+      "kind": "unit",
+      "description": "SpecSession.assess catches any exception from load_spec_landscape and calls agent.assess_prd with spec_landscape=None without propagating the error.",
+      "preconditions": [
+        "SpecSession is initialized with a valid spec directory",
+        "load_spec_landscape is mocked to raise an OSError",
+        "agent.assess_prd is mocked to return a valid Assessment"
+      ],
+      "input": {
+        "session": "SpecSession instance configured to trigger load_spec_landscape failure"
+      },
+      "expected": "No exception propagates from assess(); agent.assess_prd is called with spec_landscape=None; an Assessment is returned",
+      "assertion_pseudocode": "mock load_spec_landscape to raise OSError\nmock agent.assess_prd to return Assessment(quality='draft', gaps=[])\nresult = await session.assess()\nassert result is not None\nassert agent.assess_prd.called_with(spec_landscape=None)"
+    },
+    {
+      "id": "TS-01-22",
+      "requirement_id": "01-REQ-8.1",
+      "kind": "unit",
+      "description": "SpecSession.refine calls load_spec_landscape and passes the result to agent.refine_prd as spec_landscape keyword argument.",
+      "preconditions": [
+        "SpecSession is initialized with a valid spec directory",
+        "load_spec_landscape is mocked to return a known landscape list",
+        "agent.refine_prd is mocked to capture its arguments and return (prd_text, Assessment)"
+      ],
+      "input": {
+        "answers": {
+          "q1": "answer1"
+        },
+        "session": "SpecSession instance"
+      },
+      "expected": "agent.refine_prd is called with spec_landscape equal to the mocked landscape list; a tuple(str, Assessment) is returned",
+      "assertion_pseudocode": "mock_landscape = [{'spec_id': '02', 'archived': False, ...}]\nmock load_spec_landscape to return mock_landscape\nmock agent.refine_prd to return ('updated prd', Assessment(quality='ready', gaps=[]))\nresult = await session.refine(answers)\nassert isinstance(result, tuple)\nassert agent.refine_prd.called_with(spec_landscape=mock_landscape)"
+    },
+    {
+      "id": "TS-01-23",
+      "requirement_id": "01-REQ-8.2",
+      "kind": "unit",
+      "description": "SpecSession.refine catches any exception from load_spec_landscape and calls agent.refine_prd with spec_landscape=None.",
+      "preconditions": [
+        "SpecSession is initialized with a valid spec directory",
+        "load_spec_landscape is mocked to raise a PermissionError",
+        "agent.refine_prd is mocked to return a valid (str, Assessment) tuple"
+      ],
+      "input": {
+        "answers": {
+          "q1": "answer1"
+        },
+        "session": "SpecSession instance"
+      },
+      "expected": "No exception propagates; agent.refine_prd is called with spec_landscape=None; a (str, Assessment) tuple is returned",
+      "assertion_pseudocode": "mock load_spec_landscape to raise PermissionError\nmock agent.refine_prd to return ('prd', Assessment(quality='draft', gaps=[]))\nresult = await session.refine(answers)\nassert result is not None\nassert agent.refine_prd.called_with(spec_landscape=None)"
+    },
+    {
+      "id": "TS-01-24",
+      "requirement_id": "01-REQ-9.1",
+      "kind": "unit",
+      "description": "SpecAgent.assess_prd has the updated signature with spec_landscape keyword parameter and passes it to assessment_user_prompt.",
+      "preconditions": [
+        "SpecAgent is instantiated with a mocked LLM client",
+        "assessment_user_prompt is mocked to capture its arguments"
+      ],
+      "input": {
+        "prd_text": "# PRD\n...",
+        "spec_landscape": [
+          {
+            "archived": false,
+            "intent": "I",
+            "spec_id": "01",
+            "spec_name": "n",
+            "status": "draft",
+            "title": "T"
+          }
+        ],
+        "spec_name": "test_spec"
+      },
+      "expected": "assessment_user_prompt is called with the spec_landscape argument matching the provided landscape list; returns an Assessment object",
+      "assertion_pseudocode": "mock assessment_user_prompt to capture kwargs\nresult = await agent.assess_prd(prd_text, spec_name, spec_landscape=landscape)\nassert assessment_user_prompt.called_with(spec_landscape=landscape)\nassert isinstance(result, Assessment)"
+    },
+    {
+      "id": "TS-01-25",
+      "requirement_id": "01-REQ-10.1",
+      "kind": "unit",
+      "description": "SpecAgent.refine_prd has the updated signature with spec_landscape keyword parameter and passes it to refinement_user_prompt.",
+      "preconditions": [
+        "SpecAgent is instantiated with a mocked LLM client",
+        "refinement_user_prompt is mocked to capture its arguments"
+      ],
+      "input": {
+        "answers": {
+          "q1": "a1"
+        },
+        "prd_text": "# PRD\n...",
+        "previous_assessment": {
+          "gaps": [],
+          "quality": "draft"
+        },
+        "spec_landscape": [
+          {
+            "archived": false,
+            "intent": "I",
+            "spec_id": "01",
+            "spec_name": "n",
+            "status": "draft",
+            "title": "T"
+          }
+        ]
+      },
+      "expected": "refinement_user_prompt is called with the spec_landscape argument; returns a tuple(str, Assessment)",
+      "assertion_pseudocode": "mock refinement_user_prompt to capture kwargs\nresult = await agent.refine_prd(prd_text, answers, previous_assessment, spec_landscape=landscape)\nassert refinement_user_prompt.called_with(spec_landscape=landscape)\nassert isinstance(result, tuple)\nassert isinstance(result[1], Assessment)"
+    },
+    {
+      "id": "TS-01-26",
+      "requirement_id": "01-REQ-11.1",
+      "kind": "integration",
+      "description": "When a landscape section is present with an overlapping active spec, the assessment LLM returns an Assessment containing at least one gap and one clarification question referencing the overlapping spec.",
+      "preconditions": [
+        "A landscape list is provided with an active spec whose intent clearly overlaps with the PRD being assessed",
+        "assessment_system.md includes the ## Cross-spec awareness section",
+        "LLM client is connected (or a recorded fixture is available)"
+      ],
+      "input": {
+        "prd_text": "# New PRD\n## Intent\nProvide core foundation utilities for the project.\n...",
+        "spec_landscape": [
+          {
+            "archived": false,
+            "intent": "Establish core foundation utilities for the project",
+            "spec_id": "01",
+            "spec_name": "core_foundation",
+            "status": "implemented",
+            "title": "Core Foundation"
+          }
+        ],
+        "spec_name": "new_spec"
+      },
+      "expected": "Returned Assessment contains gaps list with at least one gap referencing spec '01' and clarification_questions list with at least one question about the overlap",
+      "assertion_pseudocode": "assessment = await agent.assess_prd(prd_text, 'new_spec', spec_landscape=landscape)\nassert len(assessment.gaps) >= 1\nassert any('01' in gap or 'core_foundation' in gap.lower() for gap in assessment.gaps)\nassert len(assessment.clarification_questions) >= 1"
+    },
+    {
+      "id": "TS-01-27",
+      "requirement_id": "01-REQ-11.2",
+      "kind": "integration",
+      "description": "When a PRD overlaps with an archived spec, the assessment notes the historical precedent but does not block ready quality solely on that basis.",
+      "preconditions": [
+        "A landscape list is provided with one archived spec whose intent overlaps with the PRD",
+        "No active spec overlaps with the PRD",
+        "LLM client is connected (or a recorded fixture is available)"
+      ],
+      "input": {
+        "prd_text": "# New PRD\n## Intent\nRe-implement the worktree path collision detection...",
+        "spec_landscape": [
+          {
+            "archived": true,
+            "spec_id": "09",
+            "spec_name": "worktree_path_collision",
+            "status": "archived",
+            "title": "Worktree Path Collision"
+          }
+        ],
+        "spec_name": "new_spec"
+      },
+      "expected": "Returned Assessment mentions the archived spec in summary or notes; quality rating is not forced to non-ready solely due to the archived overlap",
+      "assertion_pseudocode": "assessment = await agent.assess_prd(prd_text, 'new_spec', spec_landscape=landscape)\n# The archived overlap should be noted but not mandatory-block ready\n# Verify the assessment object is returned successfully and not unconditionally non-ready\nassert assessment is not None\n# Check that a note about the archived spec appears somewhere in the assessment output\noutput_str = str(assessment)\nassert '09' in output_str or 'worktree' in output_str.lower()"
+    },
+    {
+      "id": "TS-01-28",
+      "requirement_id": "01-REQ-11.3",
+      "kind": "integration",
+      "description": "When a PRD references capabilities already provided by an existing active spec, the assessment returns a dependency suggestion for that spec.",
+      "preconditions": [
+        "A landscape list is provided with an active spec whose capabilities the PRD clearly relies on",
+        "LLM client is connected (or a recorded fixture is available)"
+      ],
+      "input": {
+        "prd_text": "# New PRD\n## Intent\nBuild on top of the core foundation utilities to add higher-level orchestration.",
+        "spec_landscape": [
+          {
+            "archived": false,
+            "intent": "Establish core foundation utilities",
+            "spec_id": "01",
+            "spec_name": "core_foundation",
+            "status": "implemented",
+            "title": "Core Foundation"
+          }
+        ],
+        "spec_name": "orchestration_spec"
+      },
+      "expected": "Returned Assessment contains a dependency suggestion referencing spec '01' or 'core_foundation'",
+      "assertion_pseudocode": "assessment = await agent.assess_prd(prd_text, 'orchestration_spec', spec_landscape=landscape)\noutput_str = str(assessment)\nassert '01' in output_str or 'core_foundation' in output_str.lower() or 'dependency' in output_str.lower()"
+    },
+    {
+      "id": "TS-01-29",
+      "requirement_id": "01-REQ-12.1",
+      "kind": "unit",
+      "description": "The af-spec SKILL.md Step 2 contains the updated text about automated landscape injection and does not contain the old instruction to manually scan for existing specs.",
+      "preconditions": [
+        ".claude/skills/af-spec/SKILL.md file exists on disk"
+      ],
+      "input": {
+        "file_path": ".claude/skills/af-spec/SKILL.md"
+      },
+      "expected": "File content contains 'spec refine' and 'automatically injects' (or equivalent automated injection language); does not solely instruct the agent to manually scan the directory",
+      "assertion_pseudocode": "content = read_file('.claude/skills/af-spec/SKILL.md')\nassert 'automatically' in content.lower() or 'automatic' in content.lower()\nassert 'spec refine' in content\nassert 'Dependencies' in content"
+    }
+  ],
+  "property_tests": [
+    {
+      "id": "TS-01-P1",
+      "property_id": "01-PROP-1",
+      "validates": [
+        "01-REQ-1.4"
+      ],
+      "description": "For any call to load_spec_landscape with a non-null current_spec_id, no entry in the returned list has spec_id equal to current_spec_id.",
+      "for_any_strategy": "Generate a spec_root with between 1 and 10 spec directories; pick one spec_id as current_spec_id; run load_spec_landscape with that current_spec_id",
+      "invariant_check": "for every entry in result: assert entry['spec_id'] != current_spec_id"
+    },
+    {
+      "id": "TS-01-P2",
+      "property_id": "01-PROP-2",
+      "validates": [
+        "01-REQ-1.5",
+        "01-REQ-1.E3"
+      ],
+      "description": "For any call to load_spec_landscape that raises any exception internally, the function returns [] and does not propagate the exception.",
+      "for_any_strategy": "Generate arbitrary exception types (OSError, ValueError, RuntimeError, PermissionError); mock discover_specs to raise each; call load_spec_landscape",
+      "invariant_check": "result = load_spec_landscape(spec_root); assert result == []; # verify no exception propagated by reaching this line"
+    },
+    {
+      "id": "TS-01-P3",
+      "property_id": "01-PROP-3",
+      "validates": [
+        "01-REQ-3.2",
+        "01-REQ-4.2",
+        "01-REQ-5.2"
+      ],
+      "description": "For any call to _format_spec_landscape with None or [], the function returns exactly the empty string.",
+      "for_any_strategy": "Call _format_spec_landscape with None; call _format_spec_landscape with []",
+      "invariant_check": "assert _format_spec_landscape(None) == ''\nassert _format_spec_landscape([]) == ''"
+    },
+    {
+      "id": "TS-01-P4",
+      "property_id": "01-PROP-4",
+      "validates": [
+        "01-REQ-1.2",
+        "01-REQ-2.1",
+        "01-REQ-2.2"
+      ],
+      "description": "For any active spec entry produced by load_spec_landscape, the intent string has length at most 300 characters.",
+      "for_any_strategy": "Generate prd.md files with ## Intent sections of varying lengths (0 to 1000 characters); run load_spec_landscape and inspect each entry with archived=False",
+      "invariant_check": "for every entry in result where entry['archived'] == False: assert len(entry['intent']) <= 300"
+    },
+    {
+      "id": "TS-01-P5",
+      "property_id": "01-PROP-5",
+      "validates": [
+        "01-REQ-1.3"
+      ],
+      "description": "For any archived spec entry produced by load_spec_landscape, the entry dict does not contain the key 'intent'.",
+      "for_any_strategy": "Generate spec_root with 1 to 5 archived spec directories; run load_spec_landscape with include_archive=True; inspect archived entries",
+      "invariant_check": "for every entry in result where entry['archived'] == True: assert 'intent' not in entry"
+    },
+    {
+      "id": "TS-01-P6",
+      "property_id": "01-PROP-6",
+      "validates": [
+        "01-REQ-4.2",
+        "01-REQ-5.2"
+      ],
+      "description": "For any invocation of assessment_user_prompt or refinement_user_prompt without a spec_landscape argument, the returned prompt is identical to what the pre-landscape version would produce.",
+      "for_any_strategy": "Generate arbitrary prd_text strings and spec_name strings; call both the old default-parameter form and explicitly passing spec_landscape=None; compare outputs",
+      "invariant_check": "result_default = assessment_user_prompt(prd_text, spec_name)\nresult_none = assessment_user_prompt(prd_text, spec_name, spec_landscape=None)\nassert result_default == result_none\nassert '## Existing Spec Landscape' not in result_default"
+    }
+  ],
+  "edge_case_tests": [
+    {
+      "id": "TS-01-E1",
+      "requirement_id": "01-REQ-1.E1",
+      "kind": "unit",
+      "description": "load_spec_landscape treats a missing archive/ directory as an empty archive and returns only active spec entries without raising an exception.",
+      "preconditions": [
+        "spec_root directory exists with one active spec directory 01_core_foundation",
+        "spec_root/archive/ directory does NOT exist"
+      ],
+      "input": {
+        "current_spec_id": null,
+        "include_archive": true,
+        "spec_root": "/tmp/test_specs_no_archive"
+      },
+      "expected": "Returns a list containing only the active spec entry; no exception is raised; no archived entry is present",
+      "assertion_pseudocode": "result = load_spec_landscape(spec_root, include_archive=True)\nassert isinstance(result, list)\nassert len(result) == 1\nassert result[0]['archived'] == False"
+    },
+    {
+      "id": "TS-01-E2",
+      "requirement_id": "01-REQ-1.E2",
+      "kind": "unit",
+      "description": "load_spec_landscape returns [] without error when no specs exist in spec_root and archive/ is empty or absent.",
+      "preconditions": [
+        "spec_root directory exists but contains no spec directories",
+        "spec_root/archive/ either does not exist or is empty"
+      ],
+      "input": {
+        "current_spec_id": null,
+        "include_archive": true,
+        "spec_root": "/tmp/empty_specs"
+      },
+      "expected": "Returns an empty list [] without raising any exception",
+      "assertion_pseudocode": "result = load_spec_landscape(spec_root, include_archive=True)\nassert result == []"
+    },
+    {
+      "id": "TS-01-E3",
+      "requirement_id": "01-REQ-1.E3",
+      "kind": "unit",
+      "description": "load_spec_landscape returns [] and does not call sys.exit or terminate the process when an internal error path raises an exception.",
+      "preconditions": [
+        "discover_specs is mocked to raise a RuntimeError (simulating an unexpected internal error)"
+      ],
+      "input": {
+        "current_spec_id": null,
+        "include_archive": true,
+        "spec_root": "/tmp/test_specs"
+      },
+      "expected": "Returns [] without propagating the exception; the calling process continues normally",
+      "assertion_pseudocode": "mock discover_specs to raise RuntimeError('unexpected')\ntry:\n    result = load_spec_landscape(spec_root)\n    assert result == []\nexcept Exception as e:\n    fail('Exception should not propagate: ' + str(e))"
+    },
+    {
+      "id": "TS-01-E4",
+      "requirement_id": "01-REQ-2.E1",
+      "kind": "unit",
+      "description": "When prd.md is missing or unreadable for an active spec, the intent field is an empty string and the spec entry is still included in the result.",
+      "preconditions": [
+        "spec_root contains one active spec directory 01_core_foundation",
+        "01_core_foundation/prd.md does NOT exist (or is not readable)",
+        "SpecMeta for 01_core_foundation is returned by discover_specs with valid metadata"
+      ],
+      "input": {
+        "current_spec_id": null,
+        "include_archive": false,
+        "spec_root": "/tmp/test_specs_missing_prd"
+      },
+      "expected": "Returns a list with one entry; entry has intent='' and all other required keys present",
+      "assertion_pseudocode": "result = load_spec_landscape(spec_root, include_archive=False)\nassert len(result) == 1\nassert result[0]['intent'] == ''\nassert result[0]['spec_id'] == '01'\nassert 'title' in result[0]"
+    }
+  ],
+  "smoke_tests": [
+    {
+      "id": "TS-01-SMOKE-1",
+      "execution_path_id": "01-PATH-1",
+      "description": "End-to-end smoke test: running spec assess for a new PRD injects the landscape into the LLM prompt and returns an Assessment with landscape-aware content.",
+      "trigger": "User runs `spec assess` CLI command against a spec directory containing prd.md, with sibling specs present in the parent directory",
+      "real_components": [
+        "SpecSession (agentspec.session)",
+        "load_spec_landscape (afspec.discovery)",
+        "discover_specs (afspec.discovery)",
+        "assessment_user_prompt (agentspec.prompts)",
+        "_format_spec_landscape (agentspec.prompts)",
+        "assessment_user.md template",
+        "assessment_system.md template"
+      ],
+      "mockable": [
+        "LLM client (SpecAgent internal HTTP call) — return a canned Assessment JSON with a gap referencing a sibling spec"
+      ],
+      "expected_effects": [
+        "load_spec_landscape is called with the parent of the current spec directory and the current spec_id",
+        "The prompt sent to the LLM contains a '## Existing Spec Landscape' section listing sibling specs",
+        "The returned Assessment object is persisted to disk",
+        "No exception is raised during the entire flow"
+      ]
+    },
+    {
+      "id": "TS-01-SMOKE-2",
+      "execution_path_id": "01-PATH-2",
+      "description": "End-to-end smoke test: running spec refine injects the landscape into the refinement prompt and returns an updated Assessment and revised PRD text.",
+      "trigger": "User runs `spec refine` with answers dict against a spec directory, with sibling specs present",
+      "real_components": [
+        "SpecSession (agentspec.session)",
+        "load_spec_landscape (afspec.discovery)",
+        "discover_specs (afspec.discovery)",
+        "refinement_user_prompt (agentspec.prompts)",
+        "_format_spec_landscape (agentspec.prompts)",
+        "refinement_user.md template"
+      ],
+      "mockable": [
+        "LLM client (SpecAgent internal HTTP call) — return a canned (updated_prd_text, Assessment) response"
+      ],
+      "expected_effects": [
+        "load_spec_landscape is called before agent.refine_prd",
+        "The refinement prompt contains '## Existing Spec Landscape'",
+        "prd.md is overwritten with updated PRD text",
+        "A (str, Assessment) tuple is returned to the caller",
+        "No exception propagates"
+      ]
+    },
+    {
+      "id": "TS-01-SMOKE-3",
+      "execution_path_id": "01-PATH-3",
+      "description": "Graceful degradation smoke test: when landscape loading fails during spec assess, assessment proceeds without landscape context and returns a valid Assessment.",
+      "trigger": "User runs `spec assess` while the spec parent directory is temporarily unreadable (permission denied)",
+      "real_components": [
+        "SpecSession (agentspec.session)",
+        "assessment_user_prompt (agentspec.prompts)",
+        "_format_spec_landscape (agentspec.prompts)"
+      ],
+      "mockable": [
+        "load_spec_landscape (afspec.discovery) — mocked to raise OSError",
+        "LLM client (SpecAgent internal HTTP call) — return a valid Assessment with no landscape-related content"
+      ],
+      "expected_effects": [
+        "SpecSession.assess catches the OSError from load_spec_landscape",
+        "agent.assess_prd is called with spec_landscape=None",
+        "The prompt sent to LLM does NOT contain '## Existing Spec Landscape'",
+        "A valid Assessment is returned to the CLI",
+        "No error about the failed landscape load is surfaced to the user"
+      ]
+    }
+  ],
+  "coverage": {
+    "requirements_covered": [],
+    "properties_covered": [],
+    "paths_covered": [],
+    "gaps": []
+  }
+}

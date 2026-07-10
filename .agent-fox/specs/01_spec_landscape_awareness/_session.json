@@ -1,0 +1,19 @@
+{
+  "state": "generated",
+  "prd_path": "prd.md",
+  "assessment_history": [
+    {
+      "quality": "ready",
+      "summary": "This is a high-quality, well-structured PRD for the \"Spec Landscape Awareness\" feature. All four required spec sections are present and well-articulated. The Intent is clear and concise. The Background provides strong motivation with specific, concrete pain points. The Goals are measurable and tightly scoped. The Non-Goals draw explicit, sensible boundaries. Beyond the core spec sections, the document goes further with a detailed Technical Specification, verified external API references, and explicit Design Decisions \u2014 all of which meaningfully reduce ambiguity for implementers. The PRD is ready to proceed to artifact generation.",
+      "gaps": [],
+      "questions": []
+    }
+  ],
+  "qa_exchanges": [],
+  "generated_artifacts": [
+    "requirements",
+    "test_spec",
+    "tasks"
+  ],
+  "mode": "interactive"
+}

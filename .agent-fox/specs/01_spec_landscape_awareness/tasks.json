@@ -1,0 +1,1215 @@
+{
+  "$schema": null,
+  "spec_id": "01",
+  "spec_name": "spec_landscape_awareness",
+  "schema_version": 1,
+  "test_commands": {
+    "spec_tests": "pytest tests/ -q -k 'spec_landscape_awareness'",
+    "all_tests": "pytest -q",
+    "linter": "ruff check"
+  },
+  "dependencies": [],
+  "task_groups": [
+    {
+      "id": 1,
+      "kind": "tests",
+      "title": "Write tests for load_spec_landscape and intent extraction (REQ-1, REQ-2)",
+      "subtasks": [
+        {
+          "id": "1.1",
+          "title": "Write unit tests for load_spec_landscape discovery logic (TS-01-1 through TS-01-6)",
+          "details": [
+            "Create test file tests/test_discovery_landscape.py",
+            "Write TS-01-1: assert load_spec_landscape returns one entry per discovered active and archived spec",
+            "Write TS-01-2: assert active spec entries contain all six required keys (spec_id, spec_name, title, status, intent, archived=False)",
+            "Write TS-01-3: assert archived spec entries contain five keys and 'intent' key is absent",
+            "Write TS-01-4: assert spec matching current_spec_id is excluded from results",
+            "Write TS-01-5: mock discover_specs to raise OSError; assert load_spec_landscape returns [] without raising",
+            "Write TS-01-6: assert include_archive=False returns only active entries with no archived=True entries"
+          ],
+          "test_spec_refs": [
+            "TS-01-1",
+            "TS-01-2",
+            "TS-01-3",
+            "TS-01-4",
+            "TS-01-5",
+            "TS-01-6"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.1",
+            "01-REQ-1.2",
+            "01-REQ-1.3",
+            "01-REQ-1.4",
+            "01-REQ-1.5",
+            "01-REQ-1.6"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.2",
+          "title": "Write unit tests for intent extraction heuristic (TS-01-7, TS-01-8)",
+          "details": [
+            "Write TS-01-7: create prd.md with ## Intent section whose text is 350 chars; assert extracted intent <= 300 chars and does not include ## Background content",
+            "Write TS-01-8: create prd.md with no ## Intent section; assert returned intent contains the first non-empty paragraph, truncated to <= 300 chars"
+          ],
+          "test_spec_refs": [
+            "TS-01-7",
+            "TS-01-8"
+          ],
+          "requirement_refs": [
+            "01-REQ-2.1",
+            "01-REQ-2.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.3",
+          "title": "Write edge case tests for load_spec_landscape and intent extraction (TS-01-E1 through TS-01-E4)",
+          "details": [
+            "Write TS-01-E1: spec_root/archive/ absent; assert only active entries returned, no exception raised",
+            "Write TS-01-E2: spec_root has no spec dirs and archive/ absent or empty; assert result == []",
+            "Write TS-01-E3: mock discover_specs to raise RuntimeError; assert result == [] and exception does not propagate",
+            "Write TS-01-E4: prd.md missing for active spec; assert entry present with intent == '' and other keys populated"
+          ],
+          "test_spec_refs": [
+            "TS-01-E1",
+            "TS-01-E2",
+            "TS-01-E3",
+            "TS-01-E4"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.E1",
+            "01-REQ-1.E2",
+            "01-REQ-1.E3",
+            "01-REQ-2.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.4",
+          "title": "Write property tests for load_spec_landscape invariants (TS-01-P1, TS-01-P2, TS-01-P4, TS-01-P5)",
+          "details": [
+            "Write TS-01-P1: for any current_spec_id, no returned entry has spec_id == current_spec_id",
+            "Write TS-01-P2: for OSError, ValueError, RuntimeError, PermissionError raised by discover_specs, result is always []",
+            "Write TS-01-P4: for prd.md with Intent sections of 0–1000 chars, all active entries have len(intent) <= 300",
+            "Write TS-01-P5: for any archived entry produced by load_spec_landscape, 'intent' key is absent"
+          ],
+          "test_spec_refs": [
+            "TS-01-P1",
+            "TS-01-P2",
+            "TS-01-P4",
+            "TS-01-P5"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.2",
+            "01-REQ-1.3",
+            "01-REQ-1.4",
+            "01-REQ-1.5",
+            "01-REQ-2.1",
+            "01-REQ-2.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "1.V",
+        "checks": [
+          "All new test stubs in tests/test_discovery_landscape.py are discoverable by pytest (pytest --collect-only -q shows them)",
+          "No linter warnings introduced: ruff check",
+          "Tests are expected to fail at this stage (no implementation yet) — confirm xfail or ImportError rather than syntax errors"
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "kind": "tests",
+      "title": "Write tests for _format_spec_landscape and prompt layer changes (REQ-3, REQ-4, REQ-5, REQ-6)",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Write unit tests for _format_spec_landscape formatting (TS-01-9 through TS-01-12)",
+          "details": [
+            "Create test file tests/test_prompts_landscape.py",
+            "Write TS-01-9: mixed active+archived landscape; assert output contains '## Existing Spec Landscape', '### Active Specs', '### Archived Specs', and row content",
+            "Write TS-01-10: assert _format_spec_landscape(None) == '' and _format_spec_landscape([]) == ''",
+            "Write TS-01-11: active-only landscape; assert '### Active Specs' present and '### Archived Specs' absent",
+            "Write TS-01-12: archived-only landscape; assert '### Active Specs' absent and '### Archived Specs' present"
+          ],
+          "test_spec_refs": [
+            "TS-01-9",
+            "TS-01-10",
+            "TS-01-11",
+            "TS-01-12"
+          ],
+          "requirement_refs": [
+            "01-REQ-3.1",
+            "01-REQ-3.2",
+            "01-REQ-3.3",
+            "01-REQ-3.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.2",
+          "title": "Write unit tests for assessment_user_prompt spec_landscape parameter (TS-01-13, TS-01-14)",
+          "details": [
+            "Write TS-01-13: call assessment_user_prompt with a non-empty landscape; assert '## Existing Spec Landscape' in result and '$spec_landscape_block' not in result",
+            "Write TS-01-14: call with None and with []; assert '## Existing Spec Landscape' not in result and '$spec_landscape_block' not in result"
+          ],
+          "test_spec_refs": [
+            "TS-01-13",
+            "TS-01-14"
+          ],
+          "requirement_refs": [
+            "01-REQ-4.1",
+            "01-REQ-4.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.3",
+          "title": "Write unit tests for refinement_user_prompt spec_landscape parameter (TS-01-15, TS-01-16)",
+          "details": [
+            "Write TS-01-15: call refinement_user_prompt with non-empty landscape; assert '## Existing Spec Landscape' in result and '$spec_landscape_block' not in result",
+            "Write TS-01-16: call with None; assert '## Existing Spec Landscape' not in result"
+          ],
+          "test_spec_refs": [
+            "TS-01-15",
+            "TS-01-16"
+          ],
+          "requirement_refs": [
+            "01-REQ-5.1",
+            "01-REQ-5.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.4",
+          "title": "Write unit tests for template file content (TS-01-17, TS-01-18, TS-01-19)",
+          "details": [
+            "Write TS-01-17: read assessment_system.md; assert '## Cross-spec awareness' present, 'gap', 'archived', 'dependency' in content",
+            "Write TS-01-18: read assessment_user.md; assert '$spec_landscape_block' appears before '$prd_text' by string index",
+            "Write TS-01-19: read refinement_user.md; assert '$spec_landscape_block' appears after '$qa_block' by string index"
+          ],
+          "test_spec_refs": [
+            "TS-01-17",
+            "TS-01-18",
+            "TS-01-19"
+          ],
+          "requirement_refs": [
+            "01-REQ-6.1",
+            "01-REQ-6.2",
+            "01-REQ-6.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.5",
+          "title": "Write property tests for prompt backward compatibility (TS-01-P3, TS-01-P6)",
+          "details": [
+            "Write TS-01-P3: assert _format_spec_landscape(None) == '' and _format_spec_landscape([]) == '' for multiple calls",
+            "Write TS-01-P6: for arbitrary prd_text and spec_name, assert assessment_user_prompt(prd_text, spec_name) == assessment_user_prompt(prd_text, spec_name, spec_landscape=None) and no '## Existing Spec Landscape' appears"
+          ],
+          "test_spec_refs": [
+            "TS-01-P3",
+            "TS-01-P6"
+          ],
+          "requirement_refs": [
+            "01-REQ-3.2",
+            "01-REQ-4.2",
+            "01-REQ-5.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "2.V",
+        "checks": [
+          "All new tests in tests/test_prompts_landscape.py are discoverable: pytest --collect-only -q",
+          "No linter warnings: ruff check",
+          "Tests fail with ImportError or AttributeError only (not syntax errors) — implementation not yet present"
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "kind": "tests",
+      "title": "Write tests for session and agent layer changes (REQ-7, REQ-8, REQ-9, REQ-10)",
+      "subtasks": [
+        {
+          "id": "3.1",
+          "title": "Write unit tests for SpecSession.assess landscape injection (TS-01-20, TS-01-21)",
+          "details": [
+            "Create tests/test_session_landscape.py",
+            "Write TS-01-20: mock load_spec_landscape to return a known list and agent.assess_prd to capture kwargs; assert spec_landscape kwarg equals the mocked list",
+            "Write TS-01-21: mock load_spec_landscape to raise OSError; assert no exception propagates and agent.assess_prd is called with spec_landscape=None"
+          ],
+          "test_spec_refs": [
+            "TS-01-20",
+            "TS-01-21"
+          ],
+          "requirement_refs": [
+            "01-REQ-7.1",
+            "01-REQ-7.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.2",
+          "title": "Write unit tests for SpecSession.refine landscape injection (TS-01-22, TS-01-23)",
+          "details": [
+            "Write TS-01-22: mock load_spec_landscape to return a known list and agent.refine_prd to capture kwargs; assert spec_landscape kwarg matches mocked list and a (str, Assessment) tuple is returned",
+            "Write TS-01-23: mock load_spec_landscape to raise PermissionError; assert no exception propagates and agent.refine_prd is called with spec_landscape=None"
+          ],
+          "test_spec_refs": [
+            "TS-01-22",
+            "TS-01-23"
+          ],
+          "requirement_refs": [
+            "01-REQ-8.1",
+            "01-REQ-8.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.3",
+          "title": "Write unit tests for SpecAgent.assess_prd and refine_prd signature updates (TS-01-24, TS-01-25)",
+          "details": [
+            "Write TS-01-24: mock assessment_user_prompt; call agent.assess_prd with spec_landscape kwarg; assert assessment_user_prompt received spec_landscape and result is an Assessment",
+            "Write TS-01-25: mock refinement_user_prompt; call agent.refine_prd with spec_landscape kwarg; assert refinement_user_prompt received spec_landscape and result is a (str, Assessment) tuple"
+          ],
+          "test_spec_refs": [
+            "TS-01-24",
+            "TS-01-25"
+          ],
+          "requirement_refs": [
+            "01-REQ-9.1",
+            "01-REQ-10.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.4",
+          "title": "Write unit test for af-spec SKILL.md update (TS-01-29)",
+          "details": [
+            "Write TS-01-29: read .claude/skills/af-spec/SKILL.md; assert 'automatically' or 'automatic' in content; assert 'spec refine' in content; assert 'Dependencies' in content"
+          ],
+          "test_spec_refs": [
+            "TS-01-29"
+          ],
+          "requirement_refs": [
+            "01-REQ-12.1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "3.V",
+        "checks": [
+          "All new tests in tests/test_session_landscape.py are discoverable: pytest --collect-only -q",
+          "No linter warnings: ruff check",
+          "Tests fail predictably (AttributeError or ImportError) — not syntax errors"
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "kind": "tests",
+      "title": "Write integration and smoke tests (REQ-11, SMOKE)",
+      "subtasks": [
+        {
+          "id": "4.1",
+          "title": "Write integration tests for overlap detection LLM behavior (TS-01-26, TS-01-27, TS-01-28)",
+          "details": [
+            "Create tests/test_integration_landscape.py",
+            "Write TS-01-26: provide overlapping active spec in landscape; assert Assessment has >= 1 gap referencing the overlapping spec and >= 1 clarification question (use recorded LLM fixture or VCR cassette)",
+            "Write TS-01-27: provide archived spec overlap in landscape; assert Assessment is returned and mentions archived spec; quality not unconditionally blocked",
+            "Write TS-01-28: PRD references capabilities of existing active spec; assert Assessment contains a dependency suggestion mentioning that spec"
+          ],
+          "test_spec_refs": [
+            "TS-01-26",
+            "TS-01-27",
+            "TS-01-28"
+          ],
+          "requirement_refs": [
+            "01-REQ-11.1",
+            "01-REQ-11.2",
+            "01-REQ-11.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.2",
+          "title": "Write smoke tests for end-to-end assess, refine, and graceful degradation paths (TS-01-SMOKE-1 through TS-01-SMOKE-3)",
+          "details": [
+            "Write TS-01-SMOKE-1: run SpecSession.assess with real SpecSession/discovery/prompt components and mocked LLM; assert prompt contains '## Existing Spec Landscape', Assessment is persisted, no exceptions",
+            "Write TS-01-SMOKE-2: run SpecSession.refine with real components and mocked LLM; assert refinement prompt contains '## Existing Spec Landscape', prd.md is overwritten, (str, Assessment) returned",
+            "Write TS-01-SMOKE-3: mock load_spec_landscape to raise OSError; run SpecSession.assess; assert LLM prompt does NOT contain '## Existing Spec Landscape', valid Assessment returned, no error surfaced"
+          ],
+          "test_spec_refs": [
+            "TS-01-SMOKE-1",
+            "TS-01-SMOKE-2",
+            "TS-01-SMOKE-3"
+          ],
+          "requirement_refs": [
+            "01-REQ-7.1",
+            "01-REQ-7.2",
+            "01-REQ-8.1",
+            "01-REQ-8.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "4.V",
+        "checks": [
+          "All integration and smoke test stubs are discoverable: pytest --collect-only -q",
+          "No linter warnings: ruff check",
+          "Integration tests are marked with @pytest.mark.integration or similar to allow selective skipping"
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "kind": "standard",
+      "title": "Implement load_spec_landscape in afspec/discovery.py",
+      "subtasks": [
+        {
+          "id": "5.1",
+          "title": "Implement the load_spec_landscape function skeleton with parameter signature",
+          "details": [
+            "Add `def load_spec_landscape(spec_root: Path, *, include_archive: bool = True, current_spec_id: str | None = None) -> list[dict[str, Any]]` to afspec/discovery.py",
+            "Wrap entire body in try/except Exception: return []",
+            "Call discover_specs(spec_root) to collect active specs",
+            "If include_archive=True, check if spec_root / 'archive' exists before scanning; if absent, treat as empty",
+            "Filter out any entry where spec_id == current_spec_id"
+          ],
+          "test_spec_refs": [
+            "TS-01-1",
+            "TS-01-4",
+            "TS-01-5",
+            "TS-01-6"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.1",
+            "01-REQ-1.4",
+            "01-REQ-1.5",
+            "01-REQ-1.6"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.2",
+          "title": "Implement archive directory scanning using _SPEC_DIR_RE pattern",
+          "details": [
+            "Iterate over entries in spec_root / 'archive' using Path.iterdir()",
+            "Filter directories matching _SPEC_DIR_RE pattern",
+            "For each matching archived directory, call _load_frontmatter_only(archive_dir / 'prd.md') to get PRDFrontmatter",
+            "Build archived entry dict: {spec_id, spec_name, title, status, archived: True} — no intent key",
+            "Handle missing or unreadable prd.md per-entry without raising (skip bad entries or use empty strings)"
+          ],
+          "test_spec_refs": [
+            "TS-01-1",
+            "TS-01-3",
+            "TS-01-E1",
+            "TS-01-E2"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.1",
+            "01-REQ-1.3",
+            "01-REQ-1.E1",
+            "01-REQ-1.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.3",
+          "title": "Implement intent extraction heuristic for active specs",
+          "details": [
+            "Add a private helper `_extract_intent(prd_path: Path) -> str` inside afspec/discovery.py",
+            "Read prd.md body after YAML frontmatter (split on '---' delimiters)",
+            "Search for '## Intent' heading; if found, extract text up to the next '##' heading or EOF, strip whitespace, truncate to 300 chars",
+            "If no '## Intent' section, extract the first non-empty paragraph (split on blank lines), truncate to 300 chars",
+            "If prd.md is missing or unreadable, catch the exception and return ''"
+          ],
+          "test_spec_refs": [
+            "TS-01-7",
+            "TS-01-8",
+            "TS-01-E4"
+          ],
+          "requirement_refs": [
+            "01-REQ-2.1",
+            "01-REQ-2.2",
+            "01-REQ-2.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.4",
+          "title": "Assemble active spec entries with all required fields",
+          "details": [
+            "For each SpecMeta returned by discover_specs, build active entry dict: {spec_id, spec_name, title, status, intent, archived: False}",
+            "Call _extract_intent(spec_meta.dir / 'prd.md') for the intent field",
+            "Retrieve title from _load_frontmatter_only(spec_meta.dir / 'prd.md').title; fall back to '' on error",
+            "Exclude entry if spec_meta.spec_id == current_spec_id",
+            "Combine active and archived lists; return combined result"
+          ],
+          "test_spec_refs": [
+            "TS-01-2",
+            "TS-01-4",
+            "TS-01-P1",
+            "TS-01-P4"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.2",
+            "01-REQ-1.4"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "5.V",
+        "checks": [
+          "Unit tests TS-01-1 through TS-01-8 pass: pytest tests/test_discovery_landscape.py -q",
+          "Edge case tests TS-01-E1 through TS-01-E4 pass: pytest tests/test_discovery_landscape.py -q",
+          "Property tests TS-01-P1, TS-01-P2, TS-01-P4, TS-01-P5 pass",
+          "No linter warnings: ruff check afspec/discovery.py",
+          "Requirements 01-REQ-1.1–1.6, 01-REQ-2.1–2.2 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "kind": "standard",
+      "title": "Implement _format_spec_landscape in agentspec/prompts.py",
+      "subtasks": [
+        {
+          "id": "6.1",
+          "title": "Implement _format_spec_landscape helper function",
+          "details": [
+            "Add `def _format_spec_landscape(landscape: list[dict[str, Any]] | None) -> str` to agentspec/prompts.py",
+            "Return '' immediately if landscape is None or empty list",
+            "Separate entries into active (archived=False) and archived (archived=True) lists",
+            "Build '## Existing Spec Landscape' header with instructional preamble",
+            "If active list non-empty, append '### Active Specs' markdown table with Spec, Title, Status, Intent columns",
+            "If archived list non-empty, append '### Archived Specs' markdown table with Spec, Title, Status columns",
+            "Omit a section header entirely if the corresponding list is empty"
+          ],
+          "test_spec_refs": [
+            "TS-01-9",
+            "TS-01-10",
+            "TS-01-11",
+            "TS-01-12",
+            "TS-01-P3"
+          ],
+          "requirement_refs": [
+            "01-REQ-3.1",
+            "01-REQ-3.2",
+            "01-REQ-3.3",
+            "01-REQ-3.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.2",
+          "title": "Update assessment_user_prompt to accept and inject spec_landscape",
+          "details": [
+            "Add keyword parameter `spec_landscape: list[dict[str, Any]] | None = None` to assessment_user_prompt signature",
+            "Call _format_spec_landscape(spec_landscape) and pass the result as $spec_landscape_block to load_prompt_template('assessment_user', ...)",
+            "When landscape is None or empty, _format_spec_landscape returns '' which substitutes as empty string in template"
+          ],
+          "test_spec_refs": [
+            "TS-01-13",
+            "TS-01-14",
+            "TS-01-P6"
+          ],
+          "requirement_refs": [
+            "01-REQ-4.1",
+            "01-REQ-4.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.3",
+          "title": "Update refinement_user_prompt to accept and inject spec_landscape",
+          "details": [
+            "Add keyword parameter `spec_landscape: list[dict[str, Any]] | None = None` to refinement_user_prompt signature",
+            "Call _format_spec_landscape(spec_landscape) and pass as $spec_landscape_block to load_prompt_template('refinement_user', ...)",
+            "Ensure $spec_landscape_block is available as a substitution variable in the template call kwargs"
+          ],
+          "test_spec_refs": [
+            "TS-01-15",
+            "TS-01-16"
+          ],
+          "requirement_refs": [
+            "01-REQ-5.1",
+            "01-REQ-5.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "6.V",
+        "checks": [
+          "Unit tests TS-01-9 through TS-01-16 pass: pytest tests/test_prompts_landscape.py -q",
+          "Property tests TS-01-P3, TS-01-P6 pass",
+          "No linter warnings: ruff check agentspec/prompts.py",
+          "Requirements 01-REQ-3.1–3.4, 01-REQ-4.1–4.2, 01-REQ-5.1–5.2 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "kind": "standard",
+      "title": "Update prompt templates with cross-spec awareness content",
+      "subtasks": [
+        {
+          "id": "7.1",
+          "title": "Append ## Cross-spec awareness section to assessment_system.md",
+          "details": [
+            "Open agentspec/prompts/assessment_system.md (or equivalent path within the package)",
+            "Append the ## Cross-spec awareness section exactly as specified in the PRD Technical Specification",
+            "Section must instruct LLM to: (1) flag active spec overlaps as a gap blocking 'ready' quality and generate a clarification question, (2) note archived spec overlaps and ask about historical awareness, (3) suggest declaring a dependency when an existing spec's capabilities are referenced"
+          ],
+          "test_spec_refs": [
+            "TS-01-17"
+          ],
+          "requirement_refs": [
+            "01-REQ-6.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.2",
+          "title": "Add $spec_landscape_block placeholder to assessment_user.md before PRD text",
+          "details": [
+            "Edit agentspec/prompts/assessment_user.md",
+            "Insert '$spec_landscape_block' placeholder after the spec_name line and before the '---' separator that precedes $prd_text",
+            "Ensure the string index of '$spec_landscape_block' is strictly less than the string index of '$prd_text' in the file"
+          ],
+          "test_spec_refs": [
+            "TS-01-18"
+          ],
+          "requirement_refs": [
+            "01-REQ-6.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.3",
+          "title": "Add $spec_landscape_block placeholder to refinement_user.md after QA block",
+          "details": [
+            "Edit agentspec/prompts/refinement_user.md",
+            "Insert '$spec_landscape_block' after the $qa_block variable and before the instruction to re-assess",
+            "Ensure the string index of '$spec_landscape_block' is strictly greater than the string index of '$qa_block'"
+          ],
+          "test_spec_refs": [
+            "TS-01-19"
+          ],
+          "requirement_refs": [
+            "01-REQ-6.3"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "7.V",
+        "checks": [
+          "Template content tests TS-01-17, TS-01-18, TS-01-19 pass: pytest tests/test_prompts_landscape.py -q -k 'template'",
+          "No linter warnings on any changed Python files: ruff check",
+          "Requirements 01-REQ-6.1–6.3 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 8,
+      "kind": "standard",
+      "title": "Update SpecAgent assess_prd and refine_prd to thread spec_landscape parameter",
+      "subtasks": [
+        {
+          "id": "8.1",
+          "title": "Update SpecAgent.assess_prd signature and forwarding logic",
+          "details": [
+            "In agentspec/agent.py, update assess_prd signature to: async def assess_prd(self, prd_text: str, spec_name: str, *, spec_landscape: list[dict[str, Any]] | None = None) -> Assessment",
+            "Pass spec_landscape as keyword argument to assessment_user_prompt() call within the method",
+            "Ensure all existing callers of assess_prd that do not provide spec_landscape continue to work (default=None)"
+          ],
+          "test_spec_refs": [
+            "TS-01-24"
+          ],
+          "requirement_refs": [
+            "01-REQ-9.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.2",
+          "title": "Update SpecAgent.refine_prd signature and forwarding logic",
+          "details": [
+            "In agentspec/agent.py, update refine_prd signature to: async def refine_prd(self, prd_text: str, answers: dict[str, str], previous_assessment: Assessment, *, spec_landscape: list[dict[str, Any]] | None = None) -> tuple[str, Assessment]",
+            "Pass spec_landscape as keyword argument to refinement_user_prompt() call within the method",
+            "Ensure existing callers without spec_landscape continue to work"
+          ],
+          "test_spec_refs": [
+            "TS-01-25"
+          ],
+          "requirement_refs": [
+            "01-REQ-10.1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "8.V",
+        "checks": [
+          "Unit tests TS-01-24, TS-01-25 pass: pytest tests/test_session_landscape.py -q -k 'agent'",
+          "All pre-existing agent tests still pass: pytest -q",
+          "No linter warnings: ruff check agentspec/agent.py",
+          "Requirements 01-REQ-9.1 and 01-REQ-10.1 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 9,
+      "kind": "standard",
+      "title": "Update SpecSession.assess and SpecSession.refine to inject landscape",
+      "subtasks": [
+        {
+          "id": "9.1",
+          "title": "Update SpecSession.assess to call load_spec_landscape and pass result to agent",
+          "details": [
+            "In agentspec/session.py, locate the assess() method (lines ~250–286)",
+            "After reading prd_text and parsing spec_id from frontmatter, add try/except block calling load_spec_landscape(self._spec_dir.parent, current_spec_id=spec_id)",
+            "On success, store result as landscape; on any exception, set landscape = None",
+            "Pass spec_landscape=landscape as keyword argument to agent.assess_prd()"
+          ],
+          "test_spec_refs": [
+            "TS-01-20",
+            "TS-01-21"
+          ],
+          "requirement_refs": [
+            "01-REQ-7.1",
+            "01-REQ-7.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "9.2",
+          "title": "Update SpecSession.refine to call load_spec_landscape and pass result to agent",
+          "details": [
+            "In agentspec/session.py, locate the refine() method (lines ~288–346)",
+            "Before calling agent.refine_prd(), add try/except block calling load_spec_landscape(self._spec_dir.parent, current_spec_id=spec_id)",
+            "On success, store result as landscape; on any exception, set landscape = None",
+            "Pass spec_landscape=landscape as keyword argument to agent.refine_prd()"
+          ],
+          "test_spec_refs": [
+            "TS-01-22",
+            "TS-01-23"
+          ],
+          "requirement_refs": [
+            "01-REQ-8.1",
+            "01-REQ-8.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "9.V",
+        "checks": [
+          "Unit tests TS-01-20, TS-01-21, TS-01-22, TS-01-23 pass: pytest tests/test_session_landscape.py -q",
+          "All pre-existing session tests still pass: pytest -q",
+          "No linter warnings: ruff check agentspec/session.py",
+          "Requirements 01-REQ-7.1–7.2 and 01-REQ-8.1–8.2 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 10,
+      "kind": "standard",
+      "title": "Update af-spec SKILL.md Step 2 to reflect automated landscape injection",
+      "subtasks": [
+        {
+          "id": "10.1",
+          "title": "Edit .claude/skills/af-spec/SKILL.md Step 2 with automated injection note",
+          "details": [
+            "Open .claude/skills/af-spec/SKILL.md",
+            "Locate Step 2 ('Learn the Context') and find the paragraph instructing manual scanning for existing specifications",
+            "Replace that paragraph with the updated text from the PRD specifying automated landscape injection via spec refine",
+            "Retain the note that manual review is still advisable for detailed interface understanding needed for the ## Dependencies section",
+            "Ensure 'spec refine', 'automatically injects', and 'Dependencies' all appear in the updated Step 2"
+          ],
+          "test_spec_refs": [
+            "TS-01-29"
+          ],
+          "requirement_refs": [
+            "01-REQ-12.1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "10.V",
+        "checks": [
+          "Test TS-01-29 passes: pytest tests/test_session_landscape.py -q -k 'skill'",
+          "File .claude/skills/af-spec/SKILL.md contains 'automatically' and 'spec refine' and 'Dependencies'",
+          "No linter warnings on any changed Python files: ruff check",
+          "01-REQ-12.1 acceptance criterion met"
+        ]
+      }
+    },
+    {
+      "id": 11,
+      "kind": "checkpoint",
+      "title": "Full test suite checkpoint — all unit and integration tests passing",
+      "subtasks": [
+        {
+          "id": "11.1",
+          "title": "Run full test suite and confirm all spec tests pass",
+          "details": [
+            "Run pytest tests/test_discovery_landscape.py tests/test_prompts_landscape.py -q and confirm zero failures",
+            "Confirm all property tests pass",
+            "Confirm all edge case tests pass"
+          ],
+          "test_spec_refs": [
+            "TS-01-1",
+            "TS-01-2",
+            "TS-01-3",
+            "TS-01-4",
+            "TS-01-5",
+            "TS-01-6",
+            "TS-01-7",
+            "TS-01-8",
+            "TS-01-9",
+            "TS-01-10",
+            "TS-01-11",
+            "TS-01-12"
+          ],
+          "requirement_refs": [
+            "01-REQ-1.1",
+            "01-REQ-1.2",
+            "01-REQ-1.3",
+            "01-REQ-1.4",
+            "01-REQ-1.5",
+            "01-REQ-1.6",
+            "01-REQ-2.1",
+            "01-REQ-2.2",
+            "01-REQ-3.1",
+            "01-REQ-3.2",
+            "01-REQ-3.3",
+            "01-REQ-3.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.2",
+          "title": "Run session and agent layer tests and confirm passing",
+          "details": [
+            "Run pytest tests/test_session_landscape.py -q and confirm zero failures",
+            "Run the full test suite pytest -q and confirm no regressions in pre-existing tests"
+          ],
+          "test_spec_refs": [
+            "TS-01-13",
+            "TS-01-14",
+            "TS-01-15",
+            "TS-01-16",
+            "TS-01-20",
+            "TS-01-21",
+            "TS-01-22",
+            "TS-01-23",
+            "TS-01-24",
+            "TS-01-25"
+          ],
+          "requirement_refs": [
+            "01-REQ-4.1",
+            "01-REQ-4.2",
+            "01-REQ-5.1",
+            "01-REQ-5.2",
+            "01-REQ-7.1",
+            "01-REQ-7.2",
+            "01-REQ-8.1",
+            "01-REQ-8.2",
+            "01-REQ-9.1",
+            "01-REQ-10.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.3",
+          "title": "Confirm no regressions in pre-existing tests and no linter warnings",
+          "details": [
+            "Run pytest -q across all test files and confirm overall pass rate unchanged from pre-spec baseline",
+            "Run ruff check on all modified files: afspec/discovery.py, agentspec/prompts.py, agentspec/agent.py, agentspec/session.py",
+            "Confirm no new linter errors or warnings introduced"
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "11.V",
+        "checks": [
+          "pytest tests/test_discovery_landscape.py tests/test_prompts_landscape.py tests/test_session_landscape.py -q shows 0 failures",
+          "pytest -q shows no regressions versus pre-spec baseline",
+          "ruff check produces zero warnings on all modified files",
+          "All property tests TS-01-P1 through TS-01-P6 pass"
+        ]
+      }
+    },
+    {
+      "id": 12,
+      "kind": "wiring_verification",
+      "title": "Wiring verification — end-to-end integration and stub audit",
+      "subtasks": [
+        {
+          "id": "12.1",
+          "title": "Trace execution paths 01-PATH-1 and 01-PATH-2 — confirm no broken call chains",
+          "details": [
+            "Confirm SpecSession.assess calls load_spec_landscape and passes the result to agent.assess_prd as spec_landscape",
+            "Confirm SpecAgent.assess_prd passes spec_landscape to assessment_user_prompt",
+            "Confirm assessment_user_prompt calls _format_spec_landscape and substitutes result at $spec_landscape_block",
+            "Confirm the same chain for the refine path: SpecSession.refine → agent.refine_prd → refinement_user_prompt → _format_spec_landscape",
+            "Run smoke tests TS-01-SMOKE-1 and TS-01-SMOKE-2 with mocked LLM and confirm expected_effects are met"
+          ],
+          "test_spec_refs": [
+            "TS-01-SMOKE-1",
+            "TS-01-SMOKE-2"
+          ],
+          "requirement_refs": [
+            "01-REQ-7.1",
+            "01-REQ-8.1",
+            "01-REQ-9.1",
+            "01-REQ-10.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "12.2",
+          "title": "Trace graceful degradation path 01-PATH-3 — confirm error containment",
+          "details": [
+            "Confirm that when load_spec_landscape raises, SpecSession.assess and SpecSession.refine catch the exception and set landscape=None",
+            "Confirm that agent.assess_prd and agent.refine_prd are called with spec_landscape=None in this path",
+            "Confirm _format_spec_landscape(None) returns '' and '$spec_landscape_block' is substituted as empty string",
+            "Run smoke test TS-01-SMOKE-3 and confirm LLM prompt has no '## Existing Spec Landscape' section and a valid Assessment is returned"
+          ],
+          "test_spec_refs": [
+            "TS-01-SMOKE-3"
+          ],
+          "requirement_refs": [
+            "01-REQ-7.2",
+            "01-REQ-8.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "12.3",
+          "title": "Verify return value propagation through all layers",
+          "details": [
+            "Confirm SpecSession.assess returns the Assessment object from agent.assess_prd unchanged",
+            "Confirm SpecSession.refine returns the (str, Assessment) tuple from agent.refine_prd unchanged",
+            "Verify that the landscape injection does not mutate or wrap the returned values"
+          ],
+          "test_spec_refs": [
+            "TS-01-20",
+            "TS-01-22"
+          ],
+          "requirement_refs": [
+            "01-REQ-7.1",
+            "01-REQ-8.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "12.4",
+          "title": "Stub and dead-code audit — confirm no raise NotImplementedError or bare pass in new code",
+          "details": [
+            "Search for 'raise NotImplementedError' in afspec/discovery.py, agentspec/prompts.py, agentspec/agent.py, agentspec/session.py — must find zero matches in new code",
+            "Search for bare 'pass' in non-abstract method bodies in new code — must find zero matches",
+            "Search for 'TODO' comments left as stubs in the modified files — must find zero blocking TODOs",
+            "Confirm _extract_intent and load_spec_landscape have fully implemented bodies, not stub returns"
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "12.5",
+          "title": "Run all smoke tests and confirm full integration",
+          "details": [
+            "Run pytest tests/test_integration_landscape.py -q and confirm all integration tests pass",
+            "Run pytest -q -k 'smoke' and confirm all SMOKE tests pass",
+            "Confirm complete pytest -q run shows zero failures",
+            "Confirm ruff check on all modified files shows zero warnings"
+          ],
+          "test_spec_refs": [
+            "TS-01-SMOKE-1",
+            "TS-01-SMOKE-2",
+            "TS-01-SMOKE-3",
+            "TS-01-26",
+            "TS-01-27",
+            "TS-01-28"
+          ],
+          "requirement_refs": [
+            "01-REQ-7.1",
+            "01-REQ-7.2",
+            "01-REQ-8.1",
+            "01-REQ-8.2",
+            "01-REQ-11.1",
+            "01-REQ-11.2",
+            "01-REQ-11.3"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "12.V",
+        "checks": [
+          "pytest -q runs with zero failures across all test files",
+          "Smoke tests TS-01-SMOKE-1, TS-01-SMOKE-2, TS-01-SMOKE-3 pass with real session/discovery/prompt components and mocked LLM",
+          "Integration tests TS-01-26, TS-01-27, TS-01-28 pass (with LLM fixtures/cassettes)",
+          "ruff check on afspec/discovery.py, agentspec/prompts.py, agentspec/agent.py, agentspec/session.py produces zero warnings",
+          "No 'raise NotImplementedError', bare 'pass', or blocking TODO markers found in any new code paths",
+          "01-PATH-1, 01-PATH-2, 01-PATH-3 fully traced with no missing links in the call chain"
+        ]
+      }
+    }
+  ],
+  "traceability": [
+    {
+      "requirement_id": "01-REQ-1.1",
+      "test_spec_id": "TS-01-1",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-1.2",
+      "test_spec_id": "TS-01-2",
+      "task_id": "5.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-1.3",
+      "test_spec_id": "TS-01-3",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-1.4",
+      "test_spec_id": "TS-01-4",
+      "task_id": "5.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-1.5",
+      "test_spec_id": "TS-01-5",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-1.6",
+      "test_spec_id": "TS-01-6",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-1.E1",
+      "test_spec_id": "TS-01-E1",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-1.E2",
+      "test_spec_id": "TS-01-E2",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-1.E3",
+      "test_spec_id": "TS-01-E3",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-2.1",
+      "test_spec_id": "TS-01-7",
+      "task_id": "5.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-2.2",
+      "test_spec_id": "TS-01-8",
+      "task_id": "5.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-2.E1",
+      "test_spec_id": "TS-01-E4",
+      "task_id": "5.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-3.1",
+      "test_spec_id": "TS-01-9",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-3.2",
+      "test_spec_id": "TS-01-10",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-3.3",
+      "test_spec_id": "TS-01-11",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-3.4",
+      "test_spec_id": "TS-01-12",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-4.1",
+      "test_spec_id": "TS-01-13",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-4.2",
+      "test_spec_id": "TS-01-14",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-5.1",
+      "test_spec_id": "TS-01-15",
+      "task_id": "6.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-5.2",
+      "test_spec_id": "TS-01-16",
+      "task_id": "6.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-6.1",
+      "test_spec_id": "TS-01-17",
+      "task_id": "7.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-6.2",
+      "test_spec_id": "TS-01-18",
+      "task_id": "7.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-6.3",
+      "test_spec_id": "TS-01-19",
+      "task_id": "7.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-7.1",
+      "test_spec_id": "TS-01-20",
+      "task_id": "9.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-7.2",
+      "test_spec_id": "TS-01-21",
+      "task_id": "9.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-8.1",
+      "test_spec_id": "TS-01-22",
+      "task_id": "9.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-8.2",
+      "test_spec_id": "TS-01-23",
+      "task_id": "9.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-9.1",
+      "test_spec_id": "TS-01-24",
+      "task_id": "8.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-10.1",
+      "test_spec_id": "TS-01-25",
+      "task_id": "8.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-11.1",
+      "test_spec_id": "TS-01-26",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-11.2",
+      "test_spec_id": "TS-01-27",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-11.3",
+      "test_spec_id": "TS-01-28",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "01-REQ-12.1",
+      "test_spec_id": "TS-01-29",
+      "task_id": "10.1",
+      "test_path": null
+    }
+  ]
+}

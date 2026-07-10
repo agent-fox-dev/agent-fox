@@ -1,0 +1,777 @@
+{
+  "$schema": null,
+  "spec_id": "01",
+  "spec_name": "spec_landscape_awareness",
+  "schema_version": 1,
+  "introduction": "This spec adds landscape awareness to the `spec` CLI's assessment and refinement pipeline, enabling the LLM to reason about all existing specs (active and archived) when evaluating a new PRD — detecting overlaps, suggesting dependencies, and surfacing historical precedent.",
+  "glossary": {
+    "Assessment": "Structured result type returned by `assess_prd()` and `refine_prd()` containing quality rating, gaps, and clarification questions.",
+    "PRDFrontmatter": "Pydantic model in `afspec.models` representing parsed YAML frontmatter fields: `spec_id`, `spec_name`, `status`, `title`, and related fields.",
+    "SpecAgent": "Class in `agentspec.agent` that wraps LLM calls for assessment and refinement, exposing `assess_prd()` and `refine_prd()` methods.",
+    "SpecMeta": "Dataclass in `afspec.models` representing a discovered spec's metadata: `spec_id`, `spec_name`, `status`, and `dir`.",
+    "SpecSession": "Class in `agentspec.session` that orchestrates the spec authoring pipeline, exposing `assess()` and `refine()` methods.",
+    "_SPEC_DIR_RE": "Compiled regex pattern in `afspec.discovery` (`^\\d+_[a-z][a-z0-9_]*$`) used to identify valid spec directory names.",
+    "_format_spec_landscape": "New helper function in `agentspec.prompts` that converts the landscape list into a markdown table block for inclusion in LLM prompts.",
+    "_load_frontmatter_only": "Private function in `afspec.discovery` that reads and parses only the YAML frontmatter of a `prd.md` file, returning a `PRDFrontmatter` object.",
+    "af-spec": "The Claude skill (`.claude/skills/af-spec/SKILL.md`) that guides an agent through the spec authoring workflow.",
+    "archive": "Subdirectory under `spec_root` (i.e., `spec_root/archive/`) containing superseded or abandoned spec directories.",
+    "assessment_system.md": "System prompt template for the assessment LLM call, defining the model's role and evaluation rules.",
+    "assessment_user.md": "User prompt template for the assessment LLM call, containing the PRD text and landscape block.",
+    "assessment_user_prompt": "Existing function in `agentspec.prompts` that builds the user-facing LLM prompt for `spec assess`.",
+    "current_spec_id": "The spec ID of the spec currently being assessed or refined, excluded from the landscape results to prevent self-reference.",
+    "discover_specs": "Existing function in `afspec.discovery` that finds all active spec directories under a given root, skipping the `archive/` subdirectory.",
+    "gap": "A deficiency identified during assessment that prevents the PRD from reaching \"ready\" quality and requires resolution before proceeding.",
+    "intent": "The content of the `## Intent` section from a spec's `prd.md`, or the first non-empty paragraph if no such section exists, truncated to 300 characters.",
+    "load_dependent_interfaces": "Existing function in `afspec.discovery` that loads upstream spec interfaces for generation-time context; returns `[]` on failure.",
+    "load_prompt_template": "Function in `agentspec.prompt_loader` that loads a named prompt template and performs `$variable` substitution.",
+    "load_spec_landscape": "New public function in `afspec.discovery` that collects metadata for all specs (active and archived) and returns a structured list for prompt injection.",
+    "prd_text": "The raw Markdown text content of a `prd.md` file passed to LLM prompt functions.",
+    "refinement_user.md": "User prompt template for the refinement LLM call, containing the PRD text, QA answers, and landscape block.",
+    "refinement_user_prompt": "Existing function in `agentspec.prompts` that builds the user-facing LLM prompt for `spec refine`.",
+    "spec_landscape": "A lightweight summary of all existing specifications (active and archived) in the project, injected into LLM prompts to enable cross-spec awareness during assessment and refinement.",
+    "spec_landscape_block": "Template variable (`$spec_landscape_block`) substituted into assessment and refinement prompt templates to inject the formatted landscape markdown.",
+    "spec_name": "Human-readable name for a specification, used as a key identifier in prompt functions and metadata.",
+    "spec_root": "The root directory containing all spec subdirectories (active and archived), typically `.agent-fox/specs/`.",
+    "\"\"": "The Python empty string literal, used as a fallback return value when intent extraction fails or when `_format_spec_landscape` receives empty input.",
+    "\"intent\"": "The dictionary key `\"intent\"` in a landscape entry, containing the extracted intent text for active specs; absent from archived spec entries.",
+    "\"ready\"": "The quality rating string indicating a PRD has passed assessment and is ready for artifact generation.",
+    "##": "Markdown heading level-2 prefix, used to delimit sections in `prd.md` (e.g., `## Intent`, `## Background`).",
+    "## Cross-spec awareness": "Section appended to `assessment_system.md` that instructs the LLM to check new PRDs against the existing spec landscape for overlaps, historical precedent, and dependencies.",
+    "## Dependencies": "Optional PRD section listing cross-spec dependencies using a table of upstream and downstream task group references.",
+    "## Existing Spec Landscape": "Markdown section header produced by `_format_spec_landscape`, containing tables of active and archived specs for LLM context.",
+    "## Intent": "Markdown heading in `prd.md` that contains the spec's one-paragraph intent statement, used as the primary source for intent extraction.",
+    "### Active Specs": "Subheading within `## Existing Spec Landscape` for the markdown table of active (non-archived) specs.",
+    "### Archived Specs": "Subheading within `## Existing Spec Landscape` for the markdown table of archived/superseded specs.",
+    "$spec_landscape_block": "Template variable in `assessment_user.md` and `refinement_user.md` that is substituted with the formatted landscape markdown (or empty string if no landscape is available).",
+    "None": "Python's `None` value, used as the default for the `spec_landscape` parameter when no landscape data is available or when landscape loading fails.",
+    "[]": "Python empty list literal, returned by `load_spec_landscape` on any error as a graceful-degradation fallback.",
+    "_format_spec_landscape(spec_landscape)": "Call to the `_format_spec_landscape` helper, converting the landscape list into a formatted markdown string for prompt injection.",
+    "agent.assess_prd()": "Method call on the `SpecAgent` instance within `SpecSession.assess`, forwarding the PRD text, spec name, and landscape to the LLM assessment pipeline.",
+    "agent.refine_prd()": "Method call on the `SpecAgent` instance within `SpecSession.refine`, forwarding the PRD text, answers, previous assessment, and landscape to the LLM refinement pipeline.",
+    "archive/": "Subdirectory under `spec_root` containing superseded or abandoned spec directories.",
+    "archived: false": "Dictionary value indicating that a spec entry in the landscape list is an active (non-archived) spec.",
+    "archived: true": "Dictionary value indicating that a spec entry in the landscape list is an archived/superseded spec.",
+    "assessment_user_prompt()": "Call to the `assessment_user_prompt` function in `agentspec.prompts`, building the user-facing LLM prompt for `spec assess`.",
+    "async def assess_prd(self, prd_text: str, spec_name: str, *, spec_landscape: list[dict[str, Any]] | None = None) -> Assessment": "Updated method signature for `SpecAgent.assess_prd` with the new `spec_landscape` keyword parameter.",
+    "async def refine_prd(self, prd_text: str, answers: dict[str, str], previous_assessment: Assessment, *, spec_landscape: list[dict[str, Any]] | None = None) -> tuple[str, Assessment]": "Updated method signature for `SpecAgent.refine_prd` with the new `spec_landscape` keyword parameter.",
+    "discover_specs(spec_root)": "Call to `discover_specs` with the spec root directory, returning a list of `SpecMeta` for all active (non-archived) spec directories.",
+    "include_archive": "Boolean keyword parameter of `load_spec_landscape` controlling whether archived specs are included in the landscape results (default: `True`).",
+    "include_archive=False": "Calling `load_spec_landscape` with archive scanning disabled, returning only active spec entries.",
+    "landscape": "Local variable holding the result of `load_spec_landscape`, passed as `spec_landscape` to the agent's assess/refine methods.",
+    "load_spec_landscape(self._spec_dir.parent, current_spec_id=spec_id)": "Call to `load_spec_landscape` from within `SpecSession`, using the parent of the current spec directory as `spec_root` and the current spec's ID for self-exclusion.",
+    "prd.md": "Markdown file containing the Product Requirements Document for a spec, with YAML frontmatter and body sections including `## Intent`.",
+    "refinement_user_prompt()": "Call to the `refinement_user_prompt` function in `agentspec.prompts`, building the user-facing LLM prompt for `spec refine`.",
+    "spec refine": "CLI command that runs the refinement pipeline, incorporating user answers and re-assessing the PRD.",
+    "spec_id": "Unique numeric identifier for a specification (e.g., `\"01\"`, `\"02\"`), used for cross-referencing and self-exclusion in landscape results.",
+    "spec_landscape: list[dict[str, Any]] | None = None": "Type-annotated keyword parameter added to prompt functions and agent methods, carrying the landscape data through the call chain.",
+    "spec_landscape=None": "Keyword argument passed to `agent.assess_prd()` or `agent.refine_prd()` when landscape loading fails, triggering graceful degradation.",
+    "spec_root / \"archive\"": "Path expression for the archive subdirectory under the spec root, scanned for archived spec directories when `include_archive` is `True`.",
+    "status": "Field in spec metadata (both `SpecMeta` and landscape entries) indicating the spec's lifecycle state (e.g., `\"draft\"`, `\"implemented\"`, `\"archived\"`).",
+    "sys.exit": "Python's `sys.exit()` function — `load_spec_landscape` must never call this, as it is a library function; errors are signaled via exceptions caught by the outer try/except.",
+    "title": "Field in spec metadata containing the human-readable title of a specification, sourced from the `prd.md` YAML frontmatter."
+  },
+  "requirements": [
+    {
+      "id": "01-REQ-1",
+      "title": "load_spec_landscape function in discovery layer",
+      "user_story": {
+        "role": "spec CLI pipeline",
+        "goal": "load a structured summary of all existing specs (active and archived) excluding the current one",
+        "benefit": "the LLM can reason about the full spec landscape without manual discovery overhead"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-1.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`load_spec_landscape`",
+          "action": "calls `discover_specs(spec_root)` to collect active specs and, when `include_archive` is true, scans `spec_root / \"archive\"` for directories matching `_SPEC_DIR_RE` to collect archived specs",
+          "return_contract": "returns a `list[dict[str, Any]]` containing one entry per discovered spec (excluding `current_spec_id`)"
+        },
+        {
+          "id": "01-REQ-1.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`load_spec_landscape`",
+          "action": "for each active spec, returns a dict with keys `spec_id`, `spec_name`, `title`, `status`, `intent` (extracted from `prd.md` per the intent extraction heuristic, truncated to 300 characters), and `archived: false`",
+          "return_contract": "each active spec entry contains all six keys with non-null string values"
+        },
+        {
+          "id": "01-REQ-1.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`load_spec_landscape`",
+          "action": "for each archived spec, returns a dict with keys `spec_id`, `spec_name`, `title`, `status`, and `archived: true` — no `intent` key is included",
+          "return_contract": "each archived spec entry contains the five listed keys; `intent` key is absent"
+        },
+        {
+          "id": "01-REQ-1.4",
+          "ears_pattern": "ubiquitous",
+          "system": "`load_spec_landscape`",
+          "action": "excludes the spec whose `spec_id` matches `current_spec_id` from the returned list",
+          "return_contract": "the returned list contains zero entries matching `current_spec_id`"
+        },
+        {
+          "id": "01-REQ-1.5",
+          "ears_pattern": "unwanted",
+          "system": "`load_spec_landscape`",
+          "action": "catches the exception and returns `[]` without re-raising, matching the graceful-degradation pattern of `load_dependent_interfaces`",
+          "return_contract": "returns `[]`",
+          "error_condition": "any exception is raised during discovery or file I/O"
+        },
+        {
+          "id": "01-REQ-1.6",
+          "ears_pattern": "event_driven",
+          "system": "`load_spec_landscape`",
+          "action": "skips scanning `spec_root / \"archive\"` and returns only active spec entries",
+          "return_contract": "returned list contains no entries with `archived: true`",
+          "trigger": "called with `include_archive=False`"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "01-REQ-1.E1",
+          "ears_pattern": "unwanted",
+          "system": "`load_spec_landscape`",
+          "action": "treats the missing directory as an empty archive and returns only active spec entries without raising an exception",
+          "return_contract": "returns a list containing only active spec entries",
+          "error_condition": "`spec_root / \"archive\"` does not exist"
+        },
+        {
+          "id": "01-REQ-1.E2",
+          "ears_pattern": "unwanted",
+          "system": "`load_spec_landscape`",
+          "action": "returns `[]` without error",
+          "return_contract": "returns `[]`",
+          "error_condition": "no specs exist in `spec_root` and `archive/` is empty or absent"
+        },
+        {
+          "id": "01-REQ-1.E3",
+          "ears_pattern": "unwanted",
+          "system": "`load_spec_landscape`",
+          "action": "the outer try/except in `load_spec_landscape` catches any such exception and returns `[]`, ensuring the library never terminates the calling process",
+          "return_contract": "returns `[]`; no process exit is triggered",
+          "error_condition": "signals an error via exception (not `sys.exit` or process termination), because `load_spec_landscape` is a library function"
+        }
+      ]
+    },
+    {
+      "id": "01-REQ-2",
+      "title": "Intent extraction heuristic for active spec PRDs",
+      "user_story": {
+        "role": "spec CLI pipeline",
+        "goal": "extract a concise intent string from each active spec's prd.md",
+        "benefit": "the landscape summary remains compact and informative without exceeding context budgets"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-2.1",
+          "ears_pattern": "ubiquitous",
+          "system": "intent extraction logic within `load_spec_landscape`",
+          "action": "reads the body of `prd.md` after the YAML frontmatter, finds the `## Intent` section, and returns its text content up to the next `##` heading or end of file, truncated to 300 characters",
+          "return_contract": "returns a non-empty string of at most 300 characters when an `## Intent` section exists"
+        },
+        {
+          "id": "01-REQ-2.2",
+          "ears_pattern": "event_driven",
+          "system": "intent extraction logic within `load_spec_landscape`",
+          "action": "falls back to returning the first non-empty paragraph of the body, truncated to 300 characters",
+          "return_contract": "returns a string of at most 300 characters, or an empty string if the body has no non-empty paragraphs",
+          "trigger": "no `## Intent` section is found in `prd.md`"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "01-REQ-2.E1",
+          "ears_pattern": "unwanted",
+          "system": "intent extraction logic within `load_spec_landscape`",
+          "action": "returns an empty string for the `intent` field of that spec's entry rather than raising an exception; the spec entry is still included in the result",
+          "return_contract": "`intent` field is an empty string; spec entry is present",
+          "error_condition": "`prd.md` is missing or unreadable for an active spec"
+        }
+      ]
+    },
+    {
+      "id": "01-REQ-3",
+      "title": "_format_spec_landscape helper in prompt layer",
+      "user_story": {
+        "role": "prompt builder",
+        "goal": "convert a landscape list into a structured markdown block",
+        "benefit": "the LLM receives the spec landscape in a consistent, readable format within the prompt"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-3.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`_format_spec_landscape`",
+          "action": "formats active specs as a markdown table with columns Spec, Title, Status, and Intent under a `### Active Specs` subheading, and archived specs as a markdown table with columns Spec, Title, and Status under a `### Archived Specs` subheading, wrapped in a `## Existing Spec Landscape` section with instructional preamble",
+          "return_contract": "returns a non-empty markdown string containing both tables when both active and archived specs are present"
+        },
+        {
+          "id": "01-REQ-3.2",
+          "ears_pattern": "event_driven",
+          "system": "`_format_spec_landscape`",
+          "action": "returns an empty string",
+          "return_contract": "returns `\"\"`",
+          "trigger": "called with `landscape` equal to `None` or an empty list"
+        },
+        {
+          "id": "01-REQ-3.3",
+          "ears_pattern": "event_driven",
+          "system": "`_format_spec_landscape`",
+          "action": "omits the `### Archived Specs` table section from the output",
+          "return_contract": "returned string does not contain `### Archived Specs`",
+          "trigger": "the landscape list contains only active specs (no archived entries)"
+        },
+        {
+          "id": "01-REQ-3.4",
+          "ears_pattern": "event_driven",
+          "system": "`_format_spec_landscape`",
+          "action": "omits the `### Active Specs` table section from the output",
+          "return_contract": "returned string does not contain `### Active Specs`",
+          "trigger": "the landscape list contains only archived specs (no active entries)"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "01-REQ-4",
+      "title": "assessment_user_prompt accepts spec_landscape parameter",
+      "user_story": {
+        "role": "spec CLI pipeline",
+        "goal": "inject the formatted spec landscape into the assessment user prompt",
+        "benefit": "the assessment LLM has full landscape context and can flag overlaps and suggest dependencies"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-4.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`assessment_user_prompt`",
+          "action": "accepts a new keyword parameter `spec_landscape: list[dict[str, Any]] | None = None`, calls `_format_spec_landscape(spec_landscape)` to obtain a formatted string, and substitutes the result into the `assessment_user.md` template via the `$spec_landscape_block` variable",
+          "return_contract": "returns the fully rendered user prompt string with `$spec_landscape_block` replaced by the formatted landscape or empty string"
+        },
+        {
+          "id": "01-REQ-4.2",
+          "ears_pattern": "event_driven",
+          "system": "`assessment_user_prompt`",
+          "action": "substitutes an empty string for `$spec_landscape_block`, producing a prompt identical in structure to the pre-landscape version",
+          "return_contract": "returned prompt string does not contain `## Existing Spec Landscape`",
+          "trigger": "`spec_landscape` is `None` or empty"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "01-REQ-5",
+      "title": "refinement_user_prompt accepts spec_landscape parameter",
+      "user_story": {
+        "role": "spec CLI pipeline",
+        "goal": "inject the formatted spec landscape into the refinement user prompt",
+        "benefit": "the refinement LLM retains landscape context when incorporating user answers and re-assessing the PRD"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-5.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`refinement_user_prompt`",
+          "action": "accepts a new keyword parameter `spec_landscape: list[dict[str, Any]] | None = None`, calls `_format_spec_landscape(spec_landscape)`, and substitutes the result into the `refinement_user.md` template via `$spec_landscape_block` after the QA block",
+          "return_contract": "returns the fully rendered refinement prompt string with `$spec_landscape_block` replaced"
+        },
+        {
+          "id": "01-REQ-5.2",
+          "ears_pattern": "event_driven",
+          "system": "`refinement_user_prompt`",
+          "action": "substitutes an empty string for `$spec_landscape_block`",
+          "return_contract": "returned prompt string does not contain `## Existing Spec Landscape`",
+          "trigger": "`spec_landscape` is `None` or empty"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "01-REQ-6",
+      "title": "Template updates for cross-spec awareness",
+      "user_story": {
+        "role": "spec authoring LLM",
+        "goal": "receive explicit instructions for handling the spec landscape and a substitution point in user prompts",
+        "benefit": "overlap detection and dependency suggestion are enforced by the system prompt and the landscape block appears at the correct location in user prompts"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-6.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`assessment_system.md`",
+          "action": "includes a `## Cross-spec awareness` section instructing the LLM to: (1) flag overlaps with active specs as a `gap` that blocks \"ready\" quality and generate a clarification question, (2) note overlap with archived specs and ask about historical awareness, and (3) suggest declaring a dependency when capabilities from an existing spec are referenced",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-6.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`assessment_user.md`",
+          "action": "includes the `$spec_landscape_block` template variable positioned before the PRD text block so the landscape is visible to the model prior to reading the PRD",
+          "return_contract": null
+        },
+        {
+          "id": "01-REQ-6.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`refinement_user.md`",
+          "action": "includes the `$spec_landscape_block` template variable positioned after the QA block and before the instruction to re-assess",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "01-REQ-7",
+      "title": "SpecSession.assess() injects landscape into LLM call",
+      "user_story": {
+        "role": "spec CLI user running `spec assess`",
+        "goal": "have the assessment LLM automatically receive the current spec landscape",
+        "benefit": "overlap detection and dependency suggestions occur without any manual steps"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-7.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`SpecSession.assess`",
+          "action": "after reading `prd_text` and parsing `spec_id`, calls `load_spec_landscape(self._spec_dir.parent, current_spec_id=spec_id)` and passes the result to `agent.assess_prd()` as the `spec_landscape` keyword argument",
+          "return_contract": "returns an `Assessment` object as before; the landscape is injected transparently"
+        },
+        {
+          "id": "01-REQ-7.2",
+          "ears_pattern": "unwanted",
+          "system": "`SpecSession.assess`",
+          "action": "catches the exception and calls `agent.assess_prd()` with `spec_landscape=None`, proceeding with assessment exactly as before the landscape feature was added",
+          "return_contract": "returns an `Assessment` object; no exception propagates to the caller",
+          "error_condition": "`load_spec_landscape` raises any exception"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "01-REQ-8",
+      "title": "SpecSession.refine() injects landscape into LLM call",
+      "user_story": {
+        "role": "spec CLI user running `spec refine`",
+        "goal": "have the refinement LLM automatically receive the current spec landscape",
+        "benefit": "the model retains overlap and dependency awareness when incorporating user answers"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-8.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`SpecSession.refine`",
+          "action": "before calling `agent.refine_prd()`, calls `load_spec_landscape(self._spec_dir.parent, current_spec_id=spec_id)` and passes the result as the `spec_landscape` keyword argument to `agent.refine_prd()`",
+          "return_contract": "returns a `tuple[str, Assessment]` as before; the landscape is injected transparently"
+        },
+        {
+          "id": "01-REQ-8.2",
+          "ears_pattern": "unwanted",
+          "system": "`SpecSession.refine`",
+          "action": "catches the exception and calls `agent.refine_prd()` with `spec_landscape=None`",
+          "return_contract": "returns a `tuple[str, Assessment]`; no exception propagates to the caller",
+          "error_condition": "`load_spec_landscape` raises any exception"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "01-REQ-9",
+      "title": "SpecAgent.assess_prd() accepts and forwards spec_landscape",
+      "user_story": {
+        "role": "spec CLI pipeline",
+        "goal": "thread the landscape parameter through the agent layer to the prompt builder",
+        "benefit": "the landscape reaches the LLM prompt without requiring callers to build prompts directly"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-9.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`SpecAgent.assess_prd`",
+          "action": "is updated to the signature `async def assess_prd(self, prd_text: str, spec_name: str, *, spec_landscape: list[dict[str, Any]] | None = None) -> Assessment` and passes `spec_landscape` to `assessment_user_prompt()`",
+          "return_contract": "returns an `Assessment` object"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "01-REQ-10",
+      "title": "SpecAgent.refine_prd() accepts and forwards spec_landscape",
+      "user_story": {
+        "role": "spec CLI pipeline",
+        "goal": "thread the landscape parameter through the agent layer to the refinement prompt builder",
+        "benefit": "the landscape reaches the refinement LLM prompt without requiring callers to build prompts directly"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-10.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`SpecAgent.refine_prd`",
+          "action": "is updated to the signature `async def refine_prd(self, prd_text: str, answers: dict[str, str], previous_assessment: Assessment, *, spec_landscape: list[dict[str, Any]] | None = None) -> tuple[str, Assessment]` and passes `spec_landscape` to `refinement_user_prompt()`",
+          "return_contract": "returns a `tuple[str, Assessment]`"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "01-REQ-11",
+      "title": "Overlap detection blocks \"ready\" quality in assessment",
+      "user_story": {
+        "role": "spec author",
+        "goal": "be prevented from marking a PRD as ready when it overlaps with an existing active spec without acknowledgement",
+        "benefit": "specs do not accidentally duplicate or conflict with existing work"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-11.1",
+          "ears_pattern": "state_driven",
+          "system": "assessment LLM",
+          "action": "flags the overlap as a `gap` in the `Assessment` and generates a clarification question asking whether the new spec should depend on, extend, or supersede the existing one — preventing the assessment from returning \"ready\" quality",
+          "return_contract": "returned `Assessment` contains at least one `gap` entry referencing the overlapping spec and at least one clarification question about the overlap",
+          "state": "a `## Existing Spec Landscape` section is present in the user prompt and the new PRD's scope overlaps with an active spec listed there"
+        },
+        {
+          "id": "01-REQ-11.2",
+          "ears_pattern": "state_driven",
+          "system": "assessment LLM",
+          "action": "notes the historical precedent in the assessment summary and asks whether the user is aware of the prior work and what has changed — but does NOT block \"ready\" quality on this basis alone",
+          "return_contract": "returned `Assessment` contains a note about the archived overlap; quality rating is not forced to non-ready solely due to an archived overlap",
+          "state": "the new PRD's scope overlaps with an archived spec listed in the landscape"
+        },
+        {
+          "id": "01-REQ-11.3",
+          "ears_pattern": "state_driven",
+          "system": "assessment LLM",
+          "action": "suggests declaring a dependency on that spec in the PRD",
+          "return_contract": "returned `Assessment` contains a dependency suggestion referencing the relevant spec",
+          "state": "the new PRD references capabilities already provided by an existing active spec"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "01-REQ-12",
+      "title": "af-spec skill Step 2 updated to reflect automated landscape injection",
+      "user_story": {
+        "role": "agent following the af-spec skill",
+        "goal": "understand that landscape context is now automatically injected during spec refine",
+        "benefit": "agents avoid redundant manual landscape scanning while still knowing when manual review is warranted"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "01-REQ-12.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`af-spec` SKILL.md Step 2",
+          "action": "replaces the paragraph instructing the agent to manually scan for existing specifications with a note explaining that `spec refine` automatically injects a summary of all existing specs (active and archived) into the LLM prompts, and advises manual review only when detailed interface understanding is needed for the `## Dependencies` section",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": []
+    }
+  ],
+  "correctness_properties": [
+    {
+      "id": "01-PROP-1",
+      "title": "Self-exclusion invariant",
+      "for_any": "call to `load_spec_landscape` with a non-null `current_spec_id`",
+      "invariant": "no entry in the returned list has `spec_id` equal to `current_spec_id`",
+      "validates": [
+        "01-REQ-1.4"
+      ]
+    },
+    {
+      "id": "01-PROP-2",
+      "title": "Graceful degradation invariant",
+      "for_any": "call to `load_spec_landscape` that raises any exception internally",
+      "invariant": "`load_spec_landscape` returns `[]` and does not propagate the exception to the caller",
+      "validates": [
+        "01-REQ-1.5",
+        "01-REQ-1.E3"
+      ]
+    },
+    {
+      "id": "01-PROP-3",
+      "title": "Empty landscape produces empty prompt block",
+      "for_any": "call to `_format_spec_landscape` with `None` or `[]`",
+      "invariant": "the function returns exactly `\"\"` — the empty string",
+      "validates": [
+        "01-REQ-3.2",
+        "01-REQ-4.2",
+        "01-REQ-5.2"
+      ]
+    },
+    {
+      "id": "01-PROP-4",
+      "title": "Intent truncation invariant",
+      "for_any": "active spec entry produced by `load_spec_landscape`",
+      "invariant": "the `intent` string has length at most 300 characters",
+      "validates": [
+        "01-REQ-1.2",
+        "01-REQ-2.1",
+        "01-REQ-2.2"
+      ]
+    },
+    {
+      "id": "01-PROP-5",
+      "title": "Archived spec entries omit intent",
+      "for_any": "archived spec entry produced by `load_spec_landscape`",
+      "invariant": "the entry dict does not contain the key `\"intent\"`",
+      "validates": [
+        "01-REQ-1.3"
+      ]
+    },
+    {
+      "id": "01-PROP-6",
+      "title": "Backward compatibility when landscape is absent",
+      "for_any": "invocation of `assessment_user_prompt` or `refinement_user_prompt` without a `spec_landscape` argument",
+      "invariant": "the returned prompt string is identical to what the pre-landscape version of the function would produce",
+      "validates": [
+        "01-REQ-4.2",
+        "01-REQ-5.2"
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "01-PATH-1",
+      "title": "Landscape-aware spec assess end-to-end",
+      "steps": [
+        {
+          "actor": "User",
+          "action": "runs `spec assess` for a new PRD"
+        },
+        {
+          "actor": "`SpecSession.assess`",
+          "action": "reads `prd_text` from `prd.md` and parses `spec_id` from frontmatter"
+        },
+        {
+          "actor": "`SpecSession.assess`",
+          "action": "calls `load_spec_landscape(self._spec_dir.parent, current_spec_id=spec_id)` to obtain the landscape list; on failure, falls back to `None`"
+        },
+        {
+          "actor": "`load_spec_landscape`",
+          "action": "calls `discover_specs(spec_root)` for active specs and scans `spec_root / \"archive\"` for archived specs, extracting metadata and intent for each; excludes the `current_spec_id` entry; returns the list or `[]` on any error"
+        },
+        {
+          "actor": "`SpecSession.assess`",
+          "action": "calls `agent.assess_prd(prd_text, spec_name, spec_landscape=landscape)`"
+        },
+        {
+          "actor": "`SpecAgent.assess_prd`",
+          "action": "calls `assessment_user_prompt(prd_text, spec_name, spec_landscape=landscape)` to build the prompt"
+        },
+        {
+          "actor": "`assessment_user_prompt`",
+          "action": "calls `_format_spec_landscape(landscape)` and substitutes the result into the `assessment_user.md` template at `$spec_landscape_block`"
+        },
+        {
+          "actor": "LLM",
+          "action": "receives the prompt including the `## Existing Spec Landscape` section, reasons about overlaps and dependencies, and returns a structured `Assessment`"
+        },
+        {
+          "actor": "`SpecSession.assess`",
+          "action": "persists the `Assessment` and returns it to the CLI; any overlap gaps are visible in the output"
+        }
+      ]
+    },
+    {
+      "id": "01-PATH-2",
+      "title": "Landscape-aware spec refine end-to-end",
+      "steps": [
+        {
+          "actor": "User",
+          "action": "runs `spec refine` with answers to clarification questions"
+        },
+        {
+          "actor": "`SpecSession.refine`",
+          "action": "reads `prd_text`, parses `spec_id`, and calls `load_spec_landscape(self._spec_dir.parent, current_spec_id=spec_id)`; on failure, falls back to `None`"
+        },
+        {
+          "actor": "`load_spec_landscape`",
+          "action": "returns the landscape list (or `[]` on error)"
+        },
+        {
+          "actor": "`SpecSession.refine`",
+          "action": "calls `agent.refine_prd(prd_text, answers, previous_assessment, spec_landscape=landscape)`"
+        },
+        {
+          "actor": "`SpecAgent.refine_prd`",
+          "action": "calls `refinement_user_prompt(prd_text, answers, prev_assessment, spec_landscape=landscape)` to build the prompt"
+        },
+        {
+          "actor": "`refinement_user_prompt`",
+          "action": "calls `_format_spec_landscape(landscape)` and substitutes it at `$spec_landscape_block` in `refinement_user.md`"
+        },
+        {
+          "actor": "LLM",
+          "action": "incorporates user answers and landscape context, updates the PRD text, and returns an updated `Assessment` and revised PRD"
+        },
+        {
+          "actor": "`SpecSession.refine`",
+          "action": "writes updated PRD to `prd.md`, persists the new `Assessment`, and returns to the CLI"
+        }
+      ]
+    },
+    {
+      "id": "01-PATH-3",
+      "title": "Graceful degradation when landscape loading fails",
+      "steps": [
+        {
+          "actor": "User",
+          "action": "runs `spec assess` while the spec directory is temporarily unreadable"
+        },
+        {
+          "actor": "`SpecSession.assess`",
+          "action": "calls `load_spec_landscape(...)` which raises an I/O exception"
+        },
+        {
+          "actor": "`SpecSession.assess`",
+          "action": "catches the exception, sets `landscape = None`, and proceeds"
+        },
+        {
+          "actor": "`SpecAgent.assess_prd`",
+          "action": "calls `assessment_user_prompt(prd_text, spec_name, spec_landscape=None)`"
+        },
+        {
+          "actor": "`_format_spec_landscape`",
+          "action": "returns empty string for `None` input; `$spec_landscape_block` is substituted with empty string"
+        },
+        {
+          "actor": "LLM",
+          "action": "receives prompt without `## Existing Spec Landscape` section and performs assessment in isolation — identical to pre-landscape behavior"
+        },
+        {
+          "actor": "`SpecSession.assess`",
+          "action": "returns the `Assessment` to the CLI; no error is surfaced to the user about the failed landscape load"
+        }
+      ]
+    }
+  ],
+  "error_handling": [
+    {
+      "id": "01-ERR-1",
+      "condition": "Any exception raised during `load_spec_landscape` execution (file I/O error, parse failure, permission denied, etc.)",
+      "behavior": "Caught internally; `load_spec_landscape` returns `[]` without re-raising. `SpecSession.assess` and `SpecSession.refine` additionally wrap their call in try/except and proceed with `spec_landscape=None`.",
+      "requirement_id": "01-REQ-1.5"
+    },
+    {
+      "id": "01-ERR-2",
+      "condition": "`spec_root / \"archive\"` directory does not exist when `include_archive=True`",
+      "behavior": "`load_spec_landscape` treats the missing directory as an empty archive and returns only active spec entries; no exception is raised.",
+      "requirement_id": "01-REQ-1.E1"
+    },
+    {
+      "id": "01-ERR-3",
+      "condition": "`prd.md` is missing or unreadable for an individual active spec during intent extraction",
+      "behavior": "The `intent` field for that spec entry is set to an empty string; the spec entry is still included in the returned list; no exception propagates.",
+      "requirement_id": "01-REQ-2.E1"
+    },
+    {
+      "id": "01-ERR-4",
+      "condition": "`load_spec_landscape` is called from library code and encounters an unhandled error path",
+      "behavior": "Raises a Python exception (not `sys.exit`); the outer try/except in `SpecSession.assess` or `SpecSession.refine` catches it and continues with `spec_landscape=None`. The library never terminates the host process.",
+      "requirement_id": "01-REQ-1.E3"
+    },
+    {
+      "id": "01-ERR-5",
+      "condition": "`_format_spec_landscape` receives `None` or an empty list",
+      "behavior": "Returns an empty string immediately; `$spec_landscape_block` in the prompt template is substituted with empty string, leaving the prompt structurally identical to pre-landscape behavior.",
+      "requirement_id": "01-REQ-3.2"
+    }
+  ],
+  "external_apis": [
+    {
+      "package": "afspec",
+      "version": "installed",
+      "symbols": [
+        {
+          "name": "discover_specs",
+          "import_path": "afspec.discovery",
+          "signature": "(root: str | Path) -> list[SpecMeta]",
+          "notes": "Skips `archive/` directory; returns active specs only"
+        },
+        {
+          "name": "load_dependent_interfaces",
+          "import_path": "afspec.discovery",
+          "signature": "(spec_id: str, spec_root: Path) -> list[dict[str, Any]]",
+          "notes": "Returns `[]` on failure — the graceful-degradation pattern to replicate"
+        },
+        {
+          "name": "_SPEC_DIR_RE",
+          "import_path": "afspec.discovery",
+          "signature": "re.compile(r\"^\\d+_[a-z][a-z0-9_]*$\")",
+          "notes": "Private; use to match spec directory names in `archive/`"
+        },
+        {
+          "name": "_load_frontmatter_only",
+          "import_path": "afspec.discovery",
+          "signature": "(prd_path: Path) -> PRDFrontmatter",
+          "notes": "Private; loads YAML frontmatter only — use for archived spec metadata extraction"
+        },
+        {
+          "name": "SpecMeta",
+          "import_path": "afspec.models",
+          "signature": "dataclass: spec_id, spec_name, status, dir",
+          "notes": "Returned by `discover_specs`"
+        },
+        {
+          "name": "PRDFrontmatter",
+          "import_path": "afspec.models",
+          "signature": "Pydantic model: spec_id, spec_name, status, title, ...",
+          "notes": "Returned by `_load_frontmatter_only`; contains `title` field needed for landscape entries"
+        }
+      ]
+    },
+    {
+      "package": "agentspec",
+      "version": "installed",
+      "symbols": [
+        {
+          "name": "SpecSession.assess",
+          "import_path": "agentspec.session",
+          "signature": "async (self) -> Assessment",
+          "notes": "Updated by this spec to inject `spec_landscape`; state transition: init → assessing"
+        },
+        {
+          "name": "SpecSession.refine",
+          "import_path": "agentspec.session",
+          "signature": "async (self, answers: dict[str, str]) -> Assessment",
+          "notes": "Updated by this spec to inject `spec_landscape`; state transition: assessing → refining"
+        },
+        {
+          "name": "SpecAgent.assess_prd",
+          "import_path": "agentspec.agent",
+          "signature": "async (self, prd_text: str, spec_name: str) -> Assessment",
+          "notes": "Updated by this spec to add `spec_landscape: list[dict[str, Any]] | None = None` keyword parameter"
+        },
+        {
+          "name": "SpecAgent.refine_prd",
+          "import_path": "agentspec.agent",
+          "signature": "async (self, prd_text, answers, prev_assessment) -> tuple[str, Assessment]",
+          "notes": "Updated by this spec to add `spec_landscape: list[dict[str, Any]] | None = None` keyword parameter"
+        },
+        {
+          "name": "assessment_user_prompt",
+          "import_path": "agentspec.prompts",
+          "signature": "(prd_text, spec_name, *, project_dir=None) -> str",
+          "notes": "Updated by this spec to add `spec_landscape=None` keyword parameter; template variable `$spec_landscape_block` added"
+        },
+        {
+          "name": "refinement_user_prompt",
+          "import_path": "agentspec.prompts",
+          "signature": "(prd_text, answers, prev_assessment, *, project_dir=None) -> str",
+          "notes": "Updated by this spec to add `spec_landscape=None` keyword parameter; template variable `$spec_landscape_block` added"
+        },
+        {
+          "name": "_format_dependent_interfaces",
+          "import_path": "agentspec.prompts",
+          "signature": "(dependent_interfaces: list[dict] | None) -> str",
+          "notes": "Analogous to new `_format_spec_landscape`; use as implementation reference"
+        },
+        {
+          "name": "load_prompt_template",
+          "import_path": "agentspec.prompt_loader",
+          "signature": "(name, *, project_dir=None, **kwargs) -> str",
+          "notes": "`$variable` substitution; used by prompt functions to render templates"
+        }
+      ]
+    }
+  ]
+}
