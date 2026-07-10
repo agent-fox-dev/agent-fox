@@ -32,13 +32,18 @@ _STALE_PATTERNS: tuple[str, ...] = (
 _RUN_ID_RE = re.compile(r"^audit_(\d{8}_\d{6}_[0-9a-f]+)\.jsonl$")
 
 
-def purge_stale_audit_files(audit_dir: Path) -> int:
+def purge_stale_audit_files(
+    audit_dir: Path,
+    *,
+    exclude_run_id: str | None = None,
+) -> int:
     """Delete stale audit files from *audit_dir*.
 
     Removes files matching:
 
     - ``agent_*.jsonl``
     - ``audit_*.jsonl``
+    - ``nightshift_*.json``
     - ``postmortem_*.json``
 
     Deletion is best-effort: per-file ``OSError`` exceptions are caught,
@@ -47,6 +52,8 @@ def purge_stale_audit_files(audit_dir: Path) -> int:
     Args:
         audit_dir: Path to the audit directory (typically
             ``<repo_root>/.agent-fox/audit``).
+        exclude_run_id: When set, files whose name contains this run_id
+            are skipped (protects the current run's files from deletion).
 
     Returns:
         The number of files successfully removed.
@@ -61,6 +68,9 @@ def purge_stale_audit_files(audit_dir: Path) -> int:
 
     removed = 0
     for path in candidates:
+        if exclude_run_id and exclude_run_id in path.name:
+            logger.debug("Skipping active run file: %s", path.name)
+            continue
         try:
             path.unlink()
             removed += 1

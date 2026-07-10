@@ -332,6 +332,62 @@ class TestEnforceFileRetentionDeletionFailure:
             assert result == 2
 
 
+class TestPurgeExcludeRunId:
+    """purge_stale_audit_files with exclude_run_id skips matching files."""
+
+    def test_exclude_run_id_preserves_matching_files(self) -> None:
+        """Files containing the excluded run_id are NOT deleted."""
+        with tempfile.TemporaryDirectory() as tmp:
+            audit_dir = Path(tmp) / "audit"
+            audit_dir.mkdir()
+            run_id = "20240101_100000_aaa001"
+            _create_run_files(audit_dir, run_id)
+            (audit_dir / f"nightshift_{run_id}.json").write_text("{}")
+
+            result = cleanup.purge_stale_audit_files(audit_dir, exclude_run_id=run_id)
+
+            assert result == 0
+            assert (audit_dir / f"agent_{run_id}.jsonl").exists()
+            assert (audit_dir / f"audit_{run_id}.jsonl").exists()
+            assert (audit_dir / f"postmortem_{run_id}.json").exists()
+            assert (audit_dir / f"nightshift_{run_id}.json").exists()
+
+    def test_exclude_run_id_deletes_non_matching_files(self) -> None:
+        """Files NOT matching the excluded run_id ARE deleted."""
+        with tempfile.TemporaryDirectory() as tmp:
+            audit_dir = Path(tmp) / "audit"
+            audit_dir.mkdir()
+            active_id = "20240201_100000_bbb002"
+            stale_id = "20240101_100000_aaa001"
+            _create_run_files(audit_dir, active_id)
+            _create_run_files(audit_dir, stale_id)
+
+            result = cleanup.purge_stale_audit_files(audit_dir, exclude_run_id=active_id)
+
+            assert result == 3
+            assert (audit_dir / f"agent_{active_id}.jsonl").exists()
+            assert (audit_dir / f"audit_{active_id}.jsonl").exists()
+            assert (audit_dir / f"postmortem_{active_id}.json").exists()
+            assert not (audit_dir / f"agent_{stale_id}.jsonl").exists()
+
+    def test_exclude_run_id_none_deletes_all(self) -> None:
+        """When exclude_run_id is None, all matching files are deleted."""
+        with tempfile.TemporaryDirectory() as tmp:
+            audit_dir = Path(tmp) / "audit"
+            audit_dir.mkdir()
+            _create_run_files(audit_dir, "20240101_100000_aaa001")
+
+            result = cleanup.purge_stale_audit_files(audit_dir, exclude_run_id=None)
+
+            assert result == 3
+
+    def test_exclude_run_id_is_keyword_only(self) -> None:
+        """exclude_run_id must be keyword-only."""
+        sig = inspect.signature(cleanup.purge_stale_audit_files)
+        param = sig.parameters["exclude_run_id"]
+        assert param.kind == inspect.Parameter.KEYWORD_ONLY
+
+
 # ---------------------------------------------------------------------------
 # Helper: capture log records from a named logger
 # ---------------------------------------------------------------------------

@@ -501,14 +501,6 @@ def code_cmd(
     if cleanup_stale_merge_lock(Path.cwd()):
         logger.info("Removed stale merge lock at startup")
 
-    # Purge stale audit files from the previous run (agent_*.jsonl,
-    # audit_*.jsonl, postmortem_*.json).  Best-effort — failures are logged
-    # as warnings and never abort the startup sequence.
-    from afaudit.cleanup import purge_stale_audit_files
-    from afaudit.constants import AUDIT_DIR
-
-    purge_stale_audit_files(AUDIT_DIR)
-
     # 23-REQ-7.1: read stdin JSON when in JSON mode
     if json_mode:
         read_stdin()

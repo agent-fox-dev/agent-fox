@@ -315,6 +315,14 @@ class Orchestrator:
         self._run_id = generate_run_id()
         logger.debug("Audit run ID: %s", self._run_id)
 
+        if self._audit_dir is not None:
+            try:
+                from afaudit.cleanup import purge_stale_audit_files
+
+                purge_stale_audit_files(self._audit_dir, exclude_run_id=self._run_id)
+            except Exception:
+                logger.warning("Failed to purge stale audit files", exc_info=True)
+
         # Wire run_id to the knowledge provider so summary queries work
         # (120-REQ-1.3).
         if self._knowledge_provider is not None and hasattr(self._knowledge_provider, "set_run_id"):

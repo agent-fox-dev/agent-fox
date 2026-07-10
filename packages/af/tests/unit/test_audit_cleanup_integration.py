@@ -1,6 +1,7 @@
 """Integration tests for audit file cleanup at startup.
 
 Covers:
+- TS-NS-1: engine._init_run calls purge_stale_audit_files with exclude_run_id
 - TS-NS-4: af nightshift calls purge_stale_audit_files in _run_daemon
 - TS-NS-5: af plan and af standup do NOT call purge_stale_audit_files
 
@@ -10,48 +11,33 @@ Requirements: NS-REQ-4, NS-REQ-5
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
-
-import pytest
-from af.app import main
-from agentfox.nightshift.pid import PidStatus
-from click.testing import CliRunner
-
-
-@pytest.fixture()
-def cli_runner() -> CliRunner:
-    return CliRunner()
 
 
 class TestCodeCallsAuditCleanup:
-    """TS-NS-1 (integration): af code invokes purge_stale_audit_files at startup."""
+    """TS-NS-1: purge_stale_audit_files is called from engine._init_run, not af/code.py."""
 
-    def test_code_calls_purge_on_startup(self, cli_runner: CliRunner) -> None:
-        """purge_stale_audit_files is called when af code runs."""
-        from agentfox.engine.state import ExecutionState
+    def test_code_source_does_not_contain_purge_call(self) -> None:
+        """af/code.py no longer calls purge_stale_audit_files directly."""
+        import af.code as code_mod
 
-        state = ExecutionState(
-            plan_hash="x",
-            node_states={"s:1": "completed"},
-            run_status="completed",
-            total_input_tokens=0,
-            total_output_tokens=0,
-            total_cost=0.0,
-            total_sessions=0,
-            started_at="2026-01-01T00:00:00+00:00",
-            updated_at="2026-01-01T01:00:00+00:00",
+        source = Path(code_mod.__file__).read_text()
+        assert "purge_stale_audit_files" not in source, (
+            "purge_stale_audit_files should be called from engine._init_run, not af/code.py"
         )
-        with (
-            patch("af.code.run_code", AsyncMock(return_value=state)),
-            patch("agentfox.core.node_id.DEFAULT_DB_PATH") as mock_db_path,
-            patch("agentfox.nightshift.pid.check_pid_file", return_value=(PidStatus.ABSENT, None)),
-            patch("afaudit.cleanup.purge_stale_audit_files") as mock_purge,
-        ):
-            mock_db_path.exists.return_value = True
-            result = cli_runner.invoke(main, ["code"])
 
-        assert result.exit_code == 0, f"Unexpected exit code: {result.output}"
-        mock_purge.assert_called_once()
+    def test_engine_source_contains_purge_call(self) -> None:
+        """engine.py calls purge_stale_audit_files in _init_run."""
+        import agentfox.engine.engine as engine_mod
+
+        source = Path(engine_mod.__file__).read_text()
+        assert "purge_stale_audit_files" in source
+
+    def test_engine_purge_passes_exclude_run_id(self) -> None:
+        """engine.py passes exclude_run_id to purge_stale_audit_files."""
+        import agentfox.engine.engine as engine_mod
+
+        source = Path(engine_mod.__file__).read_text()
+        assert "exclude_run_id" in source
 
 
 class TestNightshiftCallsAuditCleanup:

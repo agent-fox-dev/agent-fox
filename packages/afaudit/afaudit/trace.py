@@ -35,6 +35,11 @@ def reconstruct_transcript(
     events.
     """
     jsonl_path = audit_dir / f"agent_{run_id}.jsonl"
+    logger.debug(
+        "Looking for agent trace file: %s (cwd=%s)",
+        jsonl_path.resolve(),
+        Path.cwd(),
+    )
     if not jsonl_path.exists():
         logger.warning(
             "Agent trace file not found: %s, falling back to alternative transcript source",
@@ -120,12 +125,14 @@ class AgentTraceSink:
         Returns True if the file handle is ready, False on failure.
         """
         if self._file_handle is not None:
+            logger.debug("Trace file already open: %s", self._path)
             return True
         effective_run_id = run_id or self._run_id
         try:
             self._audit_dir.mkdir(parents=True, exist_ok=True)
             self._path = self._audit_dir / f"agent_{effective_run_id}.jsonl"
             self._file_handle = open(self._path, "a")  # noqa: SIM115
+            logger.debug("Created agent trace file: %s", self._path.resolve())
             return True
         except Exception:
             logger.warning("Failed to create agent trace file", exc_info=True)
