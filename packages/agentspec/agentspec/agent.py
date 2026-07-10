@@ -96,7 +96,13 @@ class SpecAgent:
 
     # -- public methods ---------------------------------------------------
 
-    async def assess_prd(self, prd_text: str, spec_name: str) -> Assessment:
+    async def assess_prd(
+        self,
+        prd_text: str,
+        spec_name: str,
+        *,
+        spec_landscape: list[dict[str, Any]] | None = None,
+    ) -> Assessment:
         """Send PRD to agent for assessment.
 
         Validates the input, sends the PRD to the Anthropic messages API
@@ -106,6 +112,8 @@ class SpecAgent:
         Args:
             prd_text: The PRD markdown text to assess.
             spec_name: The name of the spec being assessed.
+            spec_landscape: Optional list of existing spec metadata for
+                cross-spec awareness during assessment.
 
         Returns:
             An ``Assessment`` with quality, summary, gaps, and questions.
@@ -118,7 +126,7 @@ class SpecAgent:
             raise AgentError("PRD text must not be empty", category="validation")
 
         system = assessment_system_prompt()
-        user_msg = assessment_user_prompt(prd_text, spec_name)
+        user_msg = assessment_user_prompt(prd_text, spec_name, spec_landscape=spec_landscape)
         messages: list[dict[str, str]] = [
             {"role": "user", "content": user_msg},
         ]
@@ -133,6 +141,8 @@ class SpecAgent:
         prd_text: str,
         answers: dict[str, str],
         previous_assessment: Assessment,
+        *,
+        spec_landscape: list[dict[str, Any]] | None = None,
     ) -> tuple[str, Assessment]:
         """Send answers, get updated PRD and new assessment.
 
@@ -146,6 +156,8 @@ class SpecAgent:
             answers: Dict mapping question IDs to answer text.
             previous_assessment: The most recent Assessment with
                 questions the user is answering.
+            spec_landscape: Optional list of existing spec metadata for
+                cross-spec awareness during refinement.
 
         Returns:
             A tuple of ``(updated_prd_text, new_assessment)`` where
@@ -171,7 +183,7 @@ class SpecAgent:
             )
 
         system = refinement_system_prompt()
-        user_msg = refinement_user_prompt(prd_text, answers, previous_assessment)
+        user_msg = refinement_user_prompt(prd_text, answers, previous_assessment, spec_landscape=spec_landscape)
         messages: list[dict[str, str]] = [
             {"role": "user", "content": user_msg},
         ]
