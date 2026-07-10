@@ -63,6 +63,52 @@ def _format_prior_artifacts(prior_artifacts: dict[str, Any] | None) -> str:
     return "\n".join(parts)
 
 
+def _format_spec_landscape(landscape: list[dict[str, Any]] | None) -> str:
+    """Format a landscape list into a markdown section for LLM prompt injection.
+
+    Returns an empty string when *landscape* is ``None`` or empty, ensuring
+    backward-compatible prompt output.  Otherwise builds a
+    ``## Existing Spec Landscape`` section with tables for active and/or
+    archived specs.
+    """
+    if not landscape:
+        return ""
+
+    active = [e for e in landscape if not e.get("archived", False)]
+    archived = [e for e in landscape if e.get("archived", False)]
+
+    parts: list[str] = [
+        "## Existing Spec Landscape\n",
+        "The following specs already exist in this project. "
+        "Check for overlaps, historical precedent, and potential dependencies.\n",
+    ]
+
+    if active:
+        parts.append("### Active Specs\n")
+        parts.append("| Spec | Title | Status | Intent |")
+        parts.append("|------|-------|--------|--------|")
+        for entry in active:
+            spec = entry.get("spec_name", entry.get("spec_id", ""))
+            title = entry.get("title", "")
+            status = entry.get("status", "")
+            intent = entry.get("intent", "")
+            parts.append(f"| {spec} | {title} | {status} | {intent} |")
+        parts.append("")
+
+    if archived:
+        parts.append("### Archived Specs\n")
+        parts.append("| Spec | Title | Status |")
+        parts.append("|------|-------|--------|")
+        for entry in archived:
+            spec = entry.get("spec_name", entry.get("spec_id", ""))
+            title = entry.get("title", "")
+            status = entry.get("status", "")
+            parts.append(f"| {spec} | {title} | {status} |")
+        parts.append("")
+
+    return "\n".join(parts)
+
+
 def _format_dependent_interfaces(dependent_interfaces: list[dict[str, Any]] | None) -> str:
     """Format dependent spec interfaces into a markdown section."""
     if not dependent_interfaces:
@@ -163,18 +209,25 @@ def assessment_user_prompt(
     spec_name: str,
     *,
     project_dir: Path | None = None,
+    spec_landscape: list[dict[str, Any]] | None = None,
 ) -> str:
     """Return the user message for PRD assessment.
+
+    When *spec_landscape* is provided, the formatted landscape markdown
+    is injected into the prompt via ``$spec_landscape_block``.
 
     Raises ``ValueError`` if *prd_text* is empty.
     """
     _require_non_empty(prd_text, "prd_text")
+
+    spec_landscape_block = _format_spec_landscape(spec_landscape)
 
     return load_prompt_template(
         "assessment_user",
         project_dir=project_dir,
         prd_text=prd_text,
         spec_name=spec_name,
+        spec_landscape_block=spec_landscape_block,
     )
 
 
@@ -196,14 +249,18 @@ def refinement_user_prompt(
     previous_assessment: Assessment,
     *,
     project_dir: Path | None = None,
+    spec_landscape: list[dict[str, Any]] | None = None,
 ) -> str:
     """Return the user message for PRD refinement.
 
     Formats the original PRD, the user's answers (keyed by question ID),
-    and the previous assessment into a single user message.
+    and the previous assessment into a single user message.  When
+    *spec_landscape* is provided, the formatted landscape markdown is
+    injected via ``$spec_landscape_block``.
     """
     assessment_block = _format_assessment_block(previous_assessment)
     qa_block = _format_qa_block(previous_assessment, answers)
+    spec_landscape_block = _format_spec_landscape(spec_landscape)
 
     return load_prompt_template(
         "refinement_user",
@@ -211,6 +268,7 @@ def refinement_user_prompt(
         prd_text=prd_text,
         assessment_block=assessment_block,
         qa_block=qa_block,
+        spec_landscape_block=spec_landscape_block,
     )
 
 

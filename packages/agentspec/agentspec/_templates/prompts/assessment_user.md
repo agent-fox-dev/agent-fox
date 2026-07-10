@@ -1,5 +1,7 @@
 Please assess the following PRD for the spec named "$spec_name".
 
+$spec_landscape_block
+
 ---
 
 $prd_text
