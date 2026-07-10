@@ -41,10 +41,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-# TS-03-37 / 03-REQ-10.2: Guard all DeepAgentsBackend tests behind importorskip.
-# Tests are skipped with a clear reason when deepagents is not installed.
-pytest.importorskip("deepagents")
-
 
 # ---------------------------------------------------------------------------
 # TS-03-1: DeepAgentsBackend satisfies the Backend Protocol
@@ -379,19 +375,16 @@ class TestOrchestratorConfigBackend:
 
 
 # ---------------------------------------------------------------------------
-# TS-03-36: pyproject.toml declares deepagents optional dependency
+# TS-03-36: pyproject.toml declares deepagents dependency
 # Requirement: 03-REQ-10.1
 # ---------------------------------------------------------------------------
 
 
-class TestPyprojectOptionalDependency:
-    """Verify pyproject.toml declares deepagents under optional-dependencies."""
+class TestPyprojectDeepagentsDependency:
+    """Verify pyproject.toml declares deepagents as a mandatory dependency."""
 
-    def test_deepagents_optional_dependency(self) -> None:
-        """TS-03-36: optional-dependencies contains deepagents = ['deepagents>=0.5']."""
-        # Find the agentfox package pyproject.toml by walking up from types.py.
-        # types.py lives at .../packages/agentfox/agentfox/session/backends/types.py
-        # pyproject.toml lives at .../packages/agentfox/pyproject.toml (3 dirs up from backends/)
+    def test_deepagents_in_dependencies(self) -> None:
+        """TS-03-36: dependencies contains 'deepagents>=0.5'."""
         types_path = inspect.getfile(
             __import__("agentfox.session.backends.types", fromlist=["types"])
         )
@@ -405,86 +398,11 @@ class TestPyprojectOptionalDependency:
         with open(pyproject_path, "rb") as f:
             config = tomllib.load(f)
 
-        opt_deps = config.get("project", {}).get("optional-dependencies", {})
-        assert "deepagents" in opt_deps, "pyproject.toml missing 'deepagents' in [project.optional-dependencies]"
-        assert "deepagents>=0.5" in opt_deps["deepagents"], (
-            f"Expected 'deepagents>=0.5' in optional-dependencies.deepagents, got {opt_deps['deepagents']}"
+        deps = config.get("project", {}).get("dependencies", [])
+        assert any("deepagents>=0.5" in d for d in deps), (
+            f"Expected 'deepagents>=0.5' in project.dependencies, got {deps}"
         )
 
-
-# ---------------------------------------------------------------------------
-# TS-03-37: Test modules have pytest.importorskip guard
-# Requirement: 03-REQ-10.2
-# ---------------------------------------------------------------------------
-
-
-class TestImportSkipGuard:
-    """Verify all DeepAgentsBackend test modules have pytest.importorskip guard."""
-
-    def test_importorskip_present(self) -> None:
-        """TS-03-37: This test module contains pytest.importorskip('deepagents')."""
-        # Read our own source file to verify the guard is present
-        this_file = os.path.abspath(__file__)
-        with open(this_file, encoding="utf-8") as f:
-            source = f.read()
-        assert "pytest.importorskip('deepagents')" in source or 'pytest.importorskip("deepagents")' in source, (
-            f"{this_file} missing pytest.importorskip guard"
-        )
-
-
-# ---------------------------------------------------------------------------
-# TS-03-38: CI workflow includes deepagents matrix leg
-# Requirement: 03-REQ-10.3
-#
-# Errata: No .github/workflows/ directory exists. The implementation
-# group (task 6.3) must create it.
-# ---------------------------------------------------------------------------
-
-
-class TestCIWorkflowDeepagentsLeg:
-    """Verify CI workflow has a matrix leg for deepagents extra."""
-
-    def test_ci_has_deepagents_leg(self) -> None:
-        """TS-03-38: At least one CI workflow step installs '.[deepagents]'."""
-        # Walk up from backends/ to the monorepo root.
-        # types.py is at .../packages/agentfox/agentfox/session/backends/types.py
-        # Repo root is 5 dirs up from backends/:
-        #   backends/ -> session/ -> agentfox/ -> agentfox/ -> packages/ -> root
-        types_path = inspect.getfile(
-            __import__("agentfox.session.backends.types", fromlist=["types"])
-        )
-        backends_dir = os.path.dirname(types_path)
-        project_root = os.path.normpath(
-            os.path.join(backends_dir, "..", "..", "..", "..", "..")
-        )
-
-        workflow_patterns = [
-            os.path.join(project_root, ".github", "workflows", "*.yml"),
-            os.path.join(project_root, ".github", "workflows", "*.yaml"),
-        ]
-
-        workflow_files: list[str] = []
-        for pattern in workflow_patterns:
-            workflow_files.extend(glob.glob(pattern))
-
-        # Also check Makefile for deepagents test target as alternative CI
-        makefile_path = os.path.join(project_root, "Makefile")
-        found_deepagents_leg = False
-
-        for wf_file in workflow_files:
-            with open(wf_file, encoding="utf-8") as f:
-                content = f.read()
-            if ".[deepagents]" in content:
-                found_deepagents_leg = True
-                break
-
-        if not found_deepagents_leg and os.path.exists(makefile_path):
-            with open(makefile_path, encoding="utf-8") as f:
-                content = f.read()
-            if "deepagents" in content:
-                found_deepagents_leg = True
-
-        assert found_deepagents_leg, "No CI workflow or Makefile target found that installs/tests deepagents extra"
 
 
 # ---------------------------------------------------------------------------

@@ -53,25 +53,17 @@ def create_backend(name: str) -> Backend:
         return _Claude()
 
     if name == "deepagents":
-        try:
-            from agentfox.session.backends.deepagents import (
-                DeepAgentsBackend as _DeepAgents,
-            )
-        except ImportError:
-            raise ConfigError(
-                "Backend \"deepagents\" requires deepagents>=0.5. Install it with: pip install 'agentfox[deepagents]'"
-            )
+        from agentfox.session.backends.deepagents import (
+            DeepAgentsBackend as _DeepAgents,
+        )
+
         return _DeepAgents()
 
     if name in ("google", "google-adk"):
-        try:
-            from agentfox.session.backends.google_adk import (
-                GoogleADKBackend as _GoogleADK,
-            )
-        except ImportError:
-            raise ConfigError(
-                "Backend \"google\" requires google-adk>=2.0. Install it with: pip install 'agentfox[google-adk]'"
-            )
+        from agentfox.session.backends.google_adk import (
+            GoogleADKBackend as _GoogleADK,
+        )
+
         return _GoogleADK()
 
     raise ConfigError(f"Unknown backend: '{name}'. Valid backends are: {_VALID_BACKENDS}")

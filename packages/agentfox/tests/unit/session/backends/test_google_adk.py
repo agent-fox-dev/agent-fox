@@ -18,8 +18,7 @@ Requirements: 04-REQ-1.1, 04-REQ-1.2, 04-REQ-1.3,
               04-REQ-12.1,
               04-REQ-13.1
 
-All tests are guarded with pytest.importorskip('google.adk') so the suite
-is skipped cleanly when the google-adk optional dependency is not installed.
+google-adk is a mandatory dependency of the agentfox package.
 """
 
 from __future__ import annotations
@@ -36,9 +35,6 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
-# Skip the entire module when google-adk is not installed (04-REQ-14.1).
-pytest.importorskip("google.adk")
 
 
 # ---------------------------------------------------------------------------
@@ -1993,17 +1989,16 @@ class TestOrchestratorConfigGoogleAdk:
 
 
 # ---------------------------------------------------------------------------
-# TS-04-36: pyproject.toml declares google-adk>=2.0 optional dependency
+# TS-04-36: pyproject.toml declares google-adk>=2.0 dependency
 # Requirement: 04-REQ-12.1
 # ---------------------------------------------------------------------------
 
 
 class TestPyprojectGoogleAdkDependency:
-    """Verify pyproject.toml declares google-adk as optional dependency."""
+    """Verify pyproject.toml declares google-adk as a mandatory dependency."""
 
-    def test_google_adk_in_optional_dependencies(self) -> None:
-        """TS-04-36: google-adk>=2.0 in [project.optional-dependencies]."""
-        # Navigate from test file to pyproject.toml
+    def test_google_adk_in_dependencies(self) -> None:
+        """TS-04-36: google-adk>=2.0 in [project.dependencies]."""
         pyproject_path = Path(__file__).resolve().parents[4] / "pyproject.toml"
         assert pyproject_path.exists(), (
             f"pyproject.toml not found at {pyproject_path}"
@@ -2012,16 +2007,9 @@ class TestPyprojectGoogleAdkDependency:
         with open(pyproject_path, "rb") as f:
             data = tomllib.load(f)
 
-        optional_deps = data.get("project", {}).get(
-            "optional-dependencies", {}
-        )
-        assert "google-adk" in optional_deps, (
-            f"'google-adk' not in optional-dependencies: "
-            f"{list(optional_deps)}"
-        )
-        google_adk_deps = optional_deps["google-adk"]
-        assert any("google-adk>=2.0" in dep for dep in google_adk_deps), (
-            f"'google-adk>=2.0' not found in deps: {google_adk_deps}"
+        deps = data.get("project", {}).get("dependencies", [])
+        assert any("google-adk>=2.0" in dep for dep in deps), (
+            f"'google-adk>=2.0' not found in project.dependencies: {deps}"
         )
 
 
@@ -2084,60 +2072,6 @@ class TestContainmentGoogleAdk:
         assert violations == [], (
             f"google.adk imports found outside google_adk.py: {violations}"
         )
-
-
-# ---------------------------------------------------------------------------
-# TS-04-E14: ImportError when google-adk not installed
-# Requirement: 04-REQ-10.E1
-# ---------------------------------------------------------------------------
-
-
-class TestCreateBackendMissingGoogleAdk:
-    """Verify ImportError when google-adk is not installed."""
-
-    def test_import_error_with_informative_message(self) -> None:
-        """TS-04-E14: create_backend('google-adk') raises ImportError."""
-        from agentfox.session.backends import create_backend
-
-        original_import = (
-            __builtins__.__import__  # type: ignore[union-attr]
-            if hasattr(__builtins__, "__import__")
-            else __import__
-        )
-
-        def block_google_adk(
-            name: str,
-            *args: object,
-            **kwargs: object,
-        ) -> object:
-            if "google" in name and (
-                "adk" in name or "google_adk" in name
-            ):
-                raise ImportError(
-                    f"No module named '{name}' (test simulation)"
-                )
-            return original_import(name, *args, **kwargs)  # type: ignore[operator]
-
-        # Clear any cached module so the lazy import is forced
-        cached_mod = sys.modules.pop(
-            "agentfox.session.backends.google_adk", None,
-        )
-        try:
-            with patch(
-                "builtins.__import__", side_effect=block_google_adk,
-            ):
-                with pytest.raises((ImportError, Exception)) as exc_info:
-                    create_backend("google-adk")
-                error_msg = str(exc_info.value).lower()
-                assert "google" in error_msg or "adk" in error_msg, (
-                    f"Error message should mention google-adk: "
-                    f"{exc_info.value}"
-                )
-        finally:
-            if cached_mod is not None:
-                sys.modules[
-                    "agentfox.session.backends.google_adk"
-                ] = cached_mod
 
 
 # ---------------------------------------------------------------------------

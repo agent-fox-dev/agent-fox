@@ -4,10 +4,9 @@ All ``deepagents`` SDK imports are confined to this module (03-REQ-1.2).
 The adapter maps LangGraph ``astream_events()`` v2 event types to the
 canonical ``AgentMessage`` types defined in ``types.py``.
 
-If the ``deepagents`` package is not installed, importing this module raises
-``ImportError`` at import time — exactly the behaviour required by
-03-REQ-1.E1.  The ``create_backend()`` factory in ``__init__.py`` uses a
-lazy import so that other backends remain unaffected.
+The ``create_backend()`` factory in ``__init__.py`` uses a lazy import so
+that importing the backends package does not eagerly pull in all SDK
+dependencies.
 
 Requirements: 03-REQ-1.1, 03-REQ-1.2, 03-REQ-1.3, 03-REQ-2.1
 """

@@ -141,7 +141,9 @@ dependencies = [
     { name = "anthropic", extra = ["bedrock", "vertex"] },
     { name = "claude-agent-sdk" },
     { name = "click" },
+    { name = "deepagents" },
     { name = "duckdb" },
+    { name = "google-adk" },
     { name = "pathspec" },
     { name = "pydantic" },
     { name = "pyyaml" },
@@ -171,14 +173,6 @@ dependencies = [
     { name = "tree-sitter-typescript" },
 ]
 
-[package.optional-dependencies]
-deepagents = [
-    { name = "deepagents" },
-]
-google-adk = [
-    { name = "google-adk" },
-]
-
 [package.metadata]
 requires-dist = [
     { name = "afaudit", editable = "packages/afaudit" },
@@ -186,9 +180,9 @@ requires-dist = [
     { name = "anthropic", extras = ["vertex", "bedrock"], specifier = ">=0.111" },
     { name = "claude-agent-sdk", specifier = ">=0.2.108" },
     { name = "click", specifier = ">=8.1" },
-    { name = "deepagents", marker = "extra == 'deepagents'", specifier = ">=0.5" },
+    { name = "deepagents", specifier = ">=0.5" },
     { name = "duckdb", specifier = ">=1.5.4" },
-    { name = "google-adk", marker = "extra == 'google-adk'", specifier = ">=2.0" },
+    { name = "google-adk", specifier = ">=2.0" },
     { name = "pathspec", specifier = ">=1.0" },
     { name = "pydantic", specifier = ">=2.13" },
     { name = "pyyaml", specifier = ">=6.0" },
@@ -217,7 +211,6 @@ requires-dist = [
     { name = "tree-sitter-swift", specifier = ">=0.0.1" },
     { name = "tree-sitter-typescript", specifier = ">=0.23" },
 ]
-provides-extras = ["deepagents", "google-adk"]
 
 [[package]]
 name = "agentspec"

@@ -7,8 +7,7 @@ Requirements: 04-REQ-6.1, 04-REQ-6.2, 04-REQ-6.3, 04-REQ-6.4, 04-REQ-6.5,
               04-REQ-6.E1, 04-REQ-6.E2, 04-REQ-6.E3, 04-REQ-6.E4,
               04-REQ-14.1, 04-REQ-14.3
 
-All tests are guarded with pytest.importorskip('google.adk') so the suite
-is skipped cleanly when the google-adk optional dependency is not installed.
+google-adk is a mandatory dependency of the agentfox package.
 """
 
 from __future__ import annotations
@@ -18,9 +17,6 @@ import tempfile
 from pathlib import Path
 
 import pytest
-
-# Skip the entire module when google-adk is not installed (04-REQ-14.1).
-pytest.importorskip("google.adk")
 
 
 # ---------------------------------------------------------------------------
@@ -85,21 +81,6 @@ class TestAdkToolsSignatures:
                     f"Tool {tool.__name__} return annotation is {ret}, expected dict"
                 )
 
-
-# ---------------------------------------------------------------------------
-# TS-04-38: Test file has importorskip guard (meta test — structural check)
-# Requirement: 04-REQ-14.1
-# ---------------------------------------------------------------------------
-
-
-class TestAdkToolsImportGuard:
-    """Verify this test file has the importorskip guard at module level."""
-
-    def test_importorskip_present(self) -> None:
-        """TS-04-38: This file contains pytest.importorskip('google.adk')."""
-        source = Path(__file__).read_text(encoding="utf-8")
-        assert "importorskip" in source
-        assert "google.adk" in source
 
 
 # ---------------------------------------------------------------------------
