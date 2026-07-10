@@ -1879,44 +1879,28 @@ class TestAfSdkToolImportFailure:
         """TS-04-E11: ImportError raised if af SDK module is unavailable."""
         import importlib
 
-        # Remove the google_adk module from cache if present so we can
-        # force a fresh import with the patched sys.modules.
         mod_name = "agentfox.session.backends.google_adk"
+        dep_name = "agentfox.session.backends.adk_tools"
         cached = sys.modules.pop(mod_name, None)
+        cached_dep = sys.modules.pop(dep_name, None)
 
         try:
-            # Patch one of the af SDK source modules to simulate unavailability.
-            # The exact module path depends on the implementation; we try a
-            # broadly scoped approach: block any module whose import path
-            # contains the af SDK tool function names.  This test verifies that
-            # the import error is NOT silently suppressed.
-            original_import = (
-                __builtins__.__import__  # type: ignore[union-attr]
-                if hasattr(__builtins__, "__import__")
-                else __import__
-            )
+            # Setting a sys.modules entry to None causes ImportError on
+            # any attempt to import that module.  When google_adk is
+            # re-imported it will fail on ``from ...adk_tools import ...``.
+            sys.modules[dep_name] = None  # type: ignore[assignment]
 
-            def blocking_import(
-                name: str,
-                *args: object,
-                **kwargs: object,
-            ) -> object:
-                # Block imports that are likely af SDK tool source modules
-                if "spec_read" in name or "context_search" in name:
-                    raise ImportError(
-                        f"No module named '{name}' (test simulation)"
-                    )
-                return original_import(name, *args, **kwargs)  # type: ignore[operator]
-
-            with patch("builtins.__import__", side_effect=blocking_import):
-                with pytest.raises(ImportError):
-                    importlib.import_module(mod_name)
+            with pytest.raises(ImportError):
+                importlib.import_module(mod_name)
         finally:
-            # Restore the original cached module if it existed
             if cached is not None:
                 sys.modules[mod_name] = cached
             else:
                 sys.modules.pop(mod_name, None)
+            if cached_dep is not None:
+                sys.modules[dep_name] = cached_dep
+            else:
+                sys.modules.pop(dep_name, None)
 
 
 # ---------------------------------------------------------------------------

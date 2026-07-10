@@ -213,6 +213,9 @@ def _search_files(cwd: Path, *, pattern: str, path: str) -> dict:
     if isinstance(check, dict):
         return check
 
+    if not check.exists():
+        return {"error": "FileNotFoundError", "detail": f"Path does not exist: {path}"}
+
     resolved_cwd = cwd.resolve()
     matches: list[dict[str, Any]] = []
 
