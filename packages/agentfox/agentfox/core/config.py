@@ -669,7 +669,8 @@ class PathsConfig(BaseModel):
 class WorkspaceConfig(BaseModel):
     """Workspace health and cleanup configuration.
 
-    Requirements: 118-REQ-2.2
+    Requirements: 118-REQ-2.2, 02-REQ-1.1, 02-REQ-1.2, 02-REQ-1.3,
+                  02-REQ-1.E1, 02-REQ-1.E2
     """
 
     model_config = ConfigDict(extra="ignore")
@@ -683,6 +684,13 @@ class WorkspaceConfig(BaseModel):
     integration_branch: str = Field(
         default="main",
         description="Git branch used as the integration target for all merges.",
+    )
+    merge_strategy: Literal["direct", "branch", "pr"] = Field(
+        default="direct",
+        description=(
+            "Post-session branch integration: 'direct' (squash-merge), "
+            "'branch' (keep locally), or 'pr' (open GitHub PR)."
+        ),
     )
 
 

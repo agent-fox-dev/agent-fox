@@ -25,6 +25,7 @@ _EXPECTED_VISIBLE_SECTIONS = frozenset(
         "archetypes",
         "archetypes.instances",
         "platform",
+        "workspace",
     }
 )
 

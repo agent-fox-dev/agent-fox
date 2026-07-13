@@ -46,6 +46,7 @@ _VISIBLE_SECTIONS: set[str] = {
     "archetypes",
     "archetypes.instances",
     "platform",
+    "workspace",
 }
 
 # Fields rendered as active (uncommented) in the default config template.
@@ -60,6 +61,7 @@ _PROMOTED_DEFAULTS: set[tuple[str, str]] = {
     ("archetypes", "verifier"),
     ("archetypes.instances", "verifier"),
     ("platform", "type"),
+    ("workspace", "merge_strategy"),
 }
 
 # Fields that are still present in the schema (for backward compatibility) but

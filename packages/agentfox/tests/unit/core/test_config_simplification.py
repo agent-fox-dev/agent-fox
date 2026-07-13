@@ -28,6 +28,7 @@ _EXPECTED_VISIBLE_SECTIONS = {
     "archetypes",
     "archetypes.instances",
     "platform",
+    "workspace",
 }
 
 # Sections that must be completely absent from the simplified template.
