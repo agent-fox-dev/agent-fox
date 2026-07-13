@@ -121,12 +121,62 @@ class FixMetrics:
     sessions_run: int = 0
 
 
-def build_pr_body(issue_number: int, summary: str) -> str:
-    """Build a PR body with an issue reference.
+def build_pr_body(
+    *,
+    spec_name: str | None = None,
+    task_group_id: str | None = None,
+    task_group_title: str | None = None,
+    changed_files: list[str],
+    issue_number: int | None = None,
+    issue_title: str | None = None,
+) -> str:
+    """Build a Markdown PR body for af code or nightshift fix sessions.
 
-    Requirements: 61-REQ-7.2
+    Pure function with no side effects.  All parameters are keyword-only.
+
+    For **af code** sessions, pass ``spec_name``, ``task_group_id``, and
+    ``task_group_title`` (with ``issue_number`` and ``issue_title`` as
+    ``None``).  The rendered body includes ``## Summary``,
+    ``## Task Group``, and ``## Changed Files`` sections.
+
+    For **nightshift fix** sessions, pass ``issue_number`` and
+    ``issue_title`` (with ``spec_name``, ``task_group_id``, and
+    ``task_group_title`` as ``None``).  The rendered body includes
+    ``## Summary``, ``## Changed Files``, and a trailing
+    ``Fixes #{issue_number}`` line for GitHub auto-close.
+
+    Requirements: 02-REQ-5.1, 02-REQ-5.2, 02-REQ-5.3, 02-REQ-5.E1,
+                  02-REQ-5.E2, 61-REQ-7.2
     """
-    return f"## Summary\n\n{summary}\n\nFixes #{issue_number}\n"
+    sections: list[str] = []
+
+    # -- Summary section --
+    if issue_number is not None and issue_title is not None and spec_name is None:
+        # Nightshift fix session
+        sections.append(f"## Summary\n\nFix #{issue_number}: {issue_title}")
+    elif spec_name is not None:
+        sections.append(f"## Summary\n\n{spec_name}")
+    else:
+        sections.append("## Summary")
+
+    # -- Task Group section (af code sessions only) --
+    if task_group_id is not None and task_group_title is not None and issue_number is None:
+        sections.append(f"## Task Group\n\n{task_group_id}: {task_group_title}")
+
+    # -- Changed Files section --
+    if changed_files:
+        file_list = "\n".join(f"- {f}" for f in changed_files)
+        sections.append(f"## Changed Files\n\n{file_list}")
+    else:
+        sections.append("## Changed Files")
+
+    body = "\n\n".join(sections) + "\n"
+
+    # -- Fixes #N line (nightshift fix sessions only) --
+    if issue_number is not None and spec_name is None:
+        body += f"\nFixes #{issue_number}\n"
+
+    return body
 
 
 class FixPipeline:

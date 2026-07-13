@@ -33,7 +33,11 @@ class TestFixPipelineCompleteness:
         branch = sanitise_branch_name(title)
         assert branch.startswith("fix/")
 
-        body = build_pr_body(issue_number=issue_number, summary="test fix")
+        body = build_pr_body(
+            issue_number=issue_number,
+            issue_title="test fix",
+            changed_files=["example.py"],
+        )
         assert f"#{issue_number}" in body
 
 

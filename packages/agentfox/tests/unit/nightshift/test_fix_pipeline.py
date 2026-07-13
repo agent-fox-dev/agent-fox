@@ -108,7 +108,11 @@ class TestPRBody:
         """PR body contains 'Fixes #42' or 'Closes #42'."""
         from agentfox.nightshift.fix_pipeline import build_pr_body
 
-        body = build_pr_body(issue_number=42, summary="Removed unused imports")
+        body = build_pr_body(
+            issue_number=42,
+            issue_title="Removed unused imports",
+            changed_files=["example.py"],
+        )
         assert "#42" in body
         assert "Fixes #42" in body or "Closes #42" in body
 
