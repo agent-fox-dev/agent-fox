@@ -587,6 +587,28 @@ class GitHubPlatform:
             f"GitHub label creation failed ({resp.status_code})",
         )
 
+    async def create_pr(
+        self,
+        *,
+        title: str,
+        body: str,
+        head: str,
+        base: str,
+    ) -> str:
+        """Create a pull request and return its ``html_url``.
+
+        Sends ``POST /repos/{owner}/{repo}/pulls``.  On HTTP 201 returns the
+        ``html_url`` from the response.  On HTTP 422 with a duplicate-PR
+        message, queries the existing PR and returns its ``html_url``
+        (idempotent).  All other errors raise ``IntegrationError``.
+
+        Requirements: 02-REQ-7.1, 02-REQ-7.2, 02-REQ-7.3
+        """
+        raise NotImplementedError(
+            "GitHubPlatform.create_pr() is not yet implemented — "
+            "see task group 12 in spec 02_merge_strategy"
+        )
+
     async def check_credentials(self) -> None:
         """Verify that the stored token has access to the configured repository.
 

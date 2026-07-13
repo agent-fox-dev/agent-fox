@@ -128,35 +128,37 @@ class TestGitHubPlatformApiBaseGhe:
 
 
 # ---------------------------------------------------------------------------
-# TS-65-12: PlatformProtocol has no create_pr
+# TS-65-12: PlatformProtocol has create_pr (superseded by 02-REQ-6.1)
 # ---------------------------------------------------------------------------
 
 
-class TestPlatformProtocolNoCreatePr:
-    """TS-65-12: PlatformProtocol must not define create_pr.
+class TestPlatformProtocolHasCreatePr:
+    """PlatformProtocol declares create_pr.
 
-    Requirement: 65-REQ-4.1
+    Originally TS-65-12 asserted create_pr was absent (65-REQ-4.1).
+    Spec 02 (02-REQ-6.1) adds create_pr back to the protocol.
     """
 
-    def test_protocol_no_create_pr(self) -> None:
-        """PlatformProtocol does not have a create_pr method."""
-        assert not hasattr(PlatformProtocol, "create_pr")
+    def test_protocol_has_create_pr(self) -> None:
+        """PlatformProtocol has a create_pr method (02-REQ-6.1)."""
+        assert hasattr(PlatformProtocol, "create_pr")
 
 
 # ---------------------------------------------------------------------------
-# TS-65-13: GitHubPlatform has no create_pr
+# TS-65-13: GitHubPlatform has create_pr (superseded by 02-REQ-7.1)
 # ---------------------------------------------------------------------------
 
 
-class TestGitHubPlatformNoCreatePr:
-    """TS-65-13: GitHubPlatform must not implement create_pr.
+class TestGitHubPlatformHasCreatePr:
+    """GitHubPlatform implements create_pr.
 
-    Requirement: 65-REQ-4.2
+    Originally TS-65-13 asserted create_pr was absent (65-REQ-4.2).
+    Spec 02 (02-REQ-7.1) adds create_pr to GitHubPlatform.
     """
 
-    def test_github_no_create_pr(self) -> None:
-        """GitHubPlatform does not have a create_pr method."""
-        assert not hasattr(GitHubPlatform, "create_pr")
+    def test_github_has_create_pr(self) -> None:
+        """GitHubPlatform has a create_pr method (02-REQ-7.1)."""
+        assert hasattr(GitHubPlatform, "create_pr")
 
 
 # ---------------------------------------------------------------------------
