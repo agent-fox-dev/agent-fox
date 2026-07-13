@@ -1,0 +1,522 @@
+{
+  "state": "generated",
+  "prd_path": "prd.md",
+  "assessment_history": [
+    {
+      "quality": "needs_refinement",
+      "summary": "The \"merge_strategy\" PRD is well-written and technically detailed. It clearly describes the problem, solution, behavior per mode, configuration, integration points, and design decisions. However, it is structured around a Problem/Solution format rather than the required Intent/Goals/Non-Goals/Background spec format \u2014 key sections are missing or implicit. Specifically: there is no explicit **Intent** statement, no **Goals** with measurable outcomes, and no **Non-Goals** section. The **Background** is partially addressed in the Problem section but lacks reference to prior art. Additionally, there is a notable cross-spec concern: the PRD references re-adding `create_pr()` to `PlatformProtocol` that \"was removed in spec 65,\" which is not represented in the active spec landscape, and the active spec `spec_landscape_awareness` does not overlap. These issues put the PRD at \"needs_refinement\" rather than \"incomplete,\" as the substance is strong.",
+      "gaps": [
+        "Missing explicit 'Intent' section \u2014 the PRD has a Problem/Solution structure but no concise, standalone intent statement summarizing what the feature aims to achieve.",
+        "Missing 'Goals' section \u2014 there are no measurable outcomes defined (e.g., adoption targets, reduction in manual steps, success criteria for PR creation, error rates, etc.).",
+        "Missing 'Non-Goals' section \u2014 there is no explicit list of what is out of scope (e.g., support for GitLab/Bitbucket PR creation, auto-merge of PRs, branch protection enforcement, multi-remote support).",
+        "Background section is absent as a formal section \u2014 the 'Problem' block gives motivation but does not reference prior art, related decisions, or historical context (e.g., why create_pr() was previously removed from PlatformProtocol in 'spec 65').",
+        "Reference to 'spec 65' (where create_pr() was removed) is unresolved \u2014 this spec does not appear in the active or archived landscape, making it impossible to verify the dependency or conflict.",
+        "No 'Dependencies' section declared despite clear dependencies on platform configuration (GITHUB_PAT, platform.type) and the existing GitHubPlatform implementation.",
+        "Fallback behavior for 'pr' mode (falls back to 'branch') is defined, but error handling for partial failures (e.g., branch pushed but PR creation fails) is not addressed.",
+        "No mention of how merge_strategy interacts with existing WorkspaceConfig validation or migration for users who already have a config file without this field."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "Can you provide a concise Intent statement (1\u20132 sentences) for this spec? It should capture the 'why' at a product level, not just the technical what.",
+          "context": "The Intent section is required and must be a standalone, well-articulated statement. The current Problem/Solution format embeds the intent but does not surface it clearly.",
+          "options": [
+            "Allow agent-fox users to configure how completed feature branches are integrated, supporting direct merge, local branch retention, and automated PR creation.",
+            "Enable teams using agent-fox to adopt code-review workflows by making the post-session merge behavior configurable.",
+            "Other (please specify)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "What are the measurable goals for this feature? What does success look like?",
+          "context": "Goals should be quantifiable or at least verifiable outcomes. Without them, it's impossible to evaluate whether the feature delivered value.",
+          "options": [
+            "Users can configure merge_strategy without errors; all three modes produce the correct Git/GitHub state in automated tests.",
+            "PR creation succeeds for >99% of sessions where platform credentials are configured.",
+            "Zero regressions in 'direct' mode behavior for existing users.",
+            "Other (please specify)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "What is explicitly out of scope for this spec? Please list Non-Goals.",
+          "context": "Non-Goals prevent scope creep and clarify boundaries for implementers and reviewers. Common candidates based on the PRD content include GitLab/Bitbucket support, auto-merging PRs, and branch protection rule enforcement.",
+          "options": [
+            "GitLab and Bitbucket PR creation are out of scope.",
+            "Auto-merging of created PRs is out of scope.",
+            "Enforcement of branch protection rules is out of scope.",
+            "Support for multiple remotes is out of scope.",
+            "All of the above",
+            "Other (please specify)"
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "The PRD references 'spec 65' where create_pr() was previously removed from PlatformProtocol. Can you identify which spec this refers to, and should a dependency or reference to it be declared?",
+          "context": "Spec 65 does not appear in the active or archived spec landscape provided. This creates an unresolved historical reference that affects the design rationale for re-adding create_pr(). Understanding this context would strengthen the Background section and clarify any dependency.",
+          "options": [
+            "Spec 65 is an internal/legacy spec not tracked in the current landscape; no dependency needed.",
+            "Spec 65 corresponds to one of the archived specs (please identify which one).",
+            "A dependency should be declared on the relevant spec.",
+            "Other (please specify)"
+          ],
+          "required": false
+        },
+        {
+          "id": "q5",
+          "text": "What should happen if the feature branch is pushed to origin successfully in 'pr' mode, but the GitHub Pull Request creation subsequently fails?",
+          "context": "This partial-failure scenario is not addressed in the PRD. Leaving a pushed branch without a PR could confuse users or leave the system in an inconsistent state. Clarifying this is important for implementation robustness.",
+          "options": [
+            "Log an error and fall back to 'branch' mode (branch is already pushed, so inform the user).",
+            "Attempt to delete the remote branch and fall back to 'branch' mode locally.",
+            "Retry PR creation up to N times before failing.",
+            "Raise a hard error and surface it to the user with the remote branch URL for manual PR creation.",
+            "Other (please specify)"
+          ],
+          "required": false
+        },
+        {
+          "id": "q6",
+          "text": "How should the merge_strategy field be handled for users with existing config files that predate this change (i.e., no merge_strategy field present)?",
+          "context": "Config migration and backward compatibility are not addressed. Since 'direct' is the default, this may be trivial, but it should be explicitly stated \u2014 especially for Pydantic model validation behavior.",
+          "options": [
+            "Default to 'direct' silently if the field is absent (Pydantic default handles this).",
+            "Log an info message on first run suggesting users add the field.",
+            "The config generator will add it with the default value on next config regeneration.",
+            "Other (please specify)"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD is well-structured and covers the core functionality clearly. Intent, goals, non-goals, configuration, and fallback behavior are all present. However, several gaps remain before this is implementation-ready: the `create_pr()` method signature is never specified, PR title/body generation rules lack precision, test requirements are stated vaguely, the `build_pr_body()` update is mentioned without detail, and there is no definition of the `\"branch\"` mode nightshift comment format. A few security and observability concerns are also unaddressed.",
+      "gaps": [
+        "create_pr() method signature (parameters, return type, raised exceptions) is never defined anywhere in the PRD.",
+        "PR title derivation logic is vague: 'derived from the spec name and task group, or issue title for fixes' \u2014 no format string or examples are given.",
+        "PR body auto-generation rules reference 'updates the existing build_pr_body() function' but do not specify what changes are needed, what fields are added/removed, or the final template.",
+        "Nightshift 'branch' mode comment format is unspecified \u2014 what is the exact content or template of the comment added to the issue?",
+        "Test coverage is described only as 'automated tests covering the full range of mode \u00d7 pipeline combinations' with no specifics on what assertions are required, which files are involved, or whether these are unit or integration tests.",
+        "No mention of how merge_strategy is surfaced in CLI output or logs during normal (non-error) operation \u2014 observability for the user is unclear.",
+        "GITHUB_PAT validation timing is unspecified \u2014 is it validated at startup, at session start, or lazily at the point of PR creation?",
+        "No rate-limiting or retry behavior defined for the GitHub API call in create_pr().",
+        "The NullPlatform / mock platform behavior for create_pr() is not addressed \u2014 what should non-GitHub platforms return or raise?"
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What is the full signature of create_pr()? Please specify parameter names and types, return type, and any exceptions it should raise.",
+          "context": "Without a defined signature, implementors will make inconsistent choices about what the method accepts and returns, and the protocol contract will be ambiguous.",
+          "options": [
+            "async def create_pr(self, *, title: str, body: str, head: str, base: str) -> str  # returns PR URL",
+            "async def create_pr(self, head: str, base: str, title: str, body: str) -> dict  # returns full API response",
+            "Other \u2014 I will specify below"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "What is the exact format of the PR title for each context? For example, for af code sessions and for nightshift fix sessions?",
+          "context": "The PRD says 'derived from the spec name and task group, or issue title for fixes' but provides no format string or example. Implementors need a concrete template to avoid divergence.",
+          "options": [
+            "[{task_group}] {spec_name}  (e.g., '[TG-42] Add payment retry logic')",
+            "Fix: {issue_title} (#{issue_number})  for nightshift",
+            "Other \u2014 I will specify below"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "What should the PR body template look like? Please describe the fields, their order, and any Markdown formatting expected.",
+          "context": "The PRD references updating build_pr_body() but does not specify the final template structure, making it unclear what changes are required to the existing function.",
+          "options": [
+            "## Summary\\n{spec_name or issue ref}\\n\\n## Task Group\\n{task_group}\\n\\n## Changed Files\\n- {file1}\\n- {file2}\\n\\nFixes #{N}  (nightshift only)",
+            "Other \u2014 I will provide the template below"
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "What is the exact content of the comment added to the issue in 'branch' mode under nightshift?",
+          "context": "The PRD says 'a comment is added noting the fix branch name' but gives no template. The implementor needs to know the exact wording to avoid inconsistency with other comment formats in the codebase.",
+          "options": [
+            "Fix branch created: `{branch_name}`. No pull request was opened \u2014 please review and merge manually.",
+            "Branch `{branch_name}` is ready for review. Merge strategy is set to 'branch'; no PR was created.",
+            "Other \u2014 I will specify below"
+          ],
+          "required": true
+        },
+        {
+          "id": "q5",
+          "text": "When is GITHUB_PAT validated \u2014 at agent-fox startup, at the start of a coding session, or lazily at the point of PR creation?",
+          "context": "Early validation gives faster, clearer error feedback; lazy validation avoids startup failures for users who only sometimes use 'pr' mode. The chosen approach affects UX and must be implemented consistently.",
+          "options": [
+            "At startup \u2014 fail fast if merge_strategy='pr' and GITHUB_PAT is absent",
+            "At the start of each session \u2014 validate before the session begins",
+            "Lazily \u2014 only at the point of PR creation; fall back to 'branch' mode with a warning if absent"
+          ],
+          "required": true
+        },
+        {
+          "id": "q6",
+          "text": "What should NullPlatform (or any non-GitHub platform) return or raise when create_pr() is called?",
+          "context": "The protocol must define behavior for all implementors, including the null/stub platform used in tests or when platform.type is 'none'. Without this, test setups will be inconsistent.",
+          "options": [
+            "Raise NotImplementedError",
+            "Raise a typed PlatformError with a descriptive message",
+            "Return None and log a warning (should not be reached due to pre-call guard)"
+          ],
+          "required": false
+        },
+        {
+          "id": "q7",
+          "text": "Should there be any retry or timeout behavior for the GitHub API call in create_pr()?",
+          "context": "The existing GitHubPlatform uses aiohttp. Defining retry/timeout expectations here ensures consistent reliability behavior and avoids implementors making arbitrary choices.",
+          "options": [
+            "No retry \u2014 single attempt only; failure is handled by the partial-failure fallback already described",
+            "One retry with exponential backoff, then fall back",
+            "Configurable timeout (default 30 s), no retry"
+          ],
+          "required": false
+        },
+        {
+          "id": "q8",
+          "text": "What specific test cases or assertions are required to satisfy Goal 2 ('verified by automated tests covering the full range of mode \u00d7 pipeline combinations')?",
+          "context": "The goal is stated qualitatively. Enumerating the required test scenarios (e.g., direct\u00d7af_code, branch\u00d7nightshift, pr\u00d7nightshift with PAT missing) will make the acceptance criteria unambiguous.",
+          "options": [
+            "I will list the required test scenarios explicitly",
+            "Leave test design to the implementor \u2014 the goal statement is sufficient",
+            "Add an Acceptance Tests section to the PRD with a table of scenarios"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD is well-structured and covers the core feature thoroughly. Intent, background, goals, non-goals, behavior modes, configuration, integration points, observability, and design decisions are all present and clearly written. However, several gaps remain that could lead to ambiguity during implementation: the exact Pydantic model field definition is not shown, the `create_pr()` guard logic is described but not fully specified, edge cases around concurrent nightshift runs are unaddressed, the `NullPlatform.create_pr()` return type contradicts the protocol signature, test scope is explicitly deferred, and a few behavioral details (e.g., what \"changed files\" means and where it comes from) are underspecified.",
+      "gaps": [
+        "Pydantic field definition not shown: The PRD says the field is added to WorkspaceConfig alongside integration_branch and force_clean, but does not provide the actual field definition (type annotation, Literal type constraint, default value). An implementor must infer this from prose.",
+        "NullPlatform.create_pr() return type contradiction: The protocol signature declares the return type as str, but NullPlatform is specified to return None. This is a type contract violation \u2014 the stub either needs to raise NotImplementedError, return an empty string, or the protocol must use Optional[str].",
+        "Platform availability guard logic not fully specified: The PRD says 'create_pr() is always guarded by a platform availability check before it is called' but never defines what that guard looks like in code \u2014 who calls it, where it lives, and exactly what conditions it checks (is it a standalone function, an inline conditional, or a method on the platform?).",
+        "'Changed files' source not defined: The PR body template includes a 'Changed Files' list but the PRD does not specify where this list comes from \u2014 is it derived from git diff, tracked by the session, returned by harvest(), or something else?",
+        "Test strategy fully deferred: Goal #2 acknowledges that test design is left to the implementor, but provides no guidance on test boundaries, mocking strategy for GitHub API calls, or which edge cases are explicitly required to be covered. This makes the goal unverifiable.",
+        "Behavior when merge_strategy = 'pr' and the session produces no changed files is unspecified: Should a PR still be created? Should the system skip PR creation and fall back to branch mode?",
+        "Concurrent nightshift runs not addressed: If nightshift triggers multiple fix sessions simultaneously and both attempt to create PRs for branches on the same repo, there is no guidance on conflict handling.",
+        "af code session context for build_pr_body() is unclear: The PR body template references spec_name and task_group_id/task_group_title, but the PRD does not specify where these values come from in the af code session object or what the fallback is if they are absent.",
+        "Fallback warning log placement is ambiguous: The PRD states the fallback warning is logged 'before the branch push is attempted' for missing platform, but for partial failure (branch pushed, PR fails), the error log is after. The exact sequence of operations and log points should be explicitly ordered."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What is the exact Pydantic field definition for merge_strategy in WorkspaceConfig? Please provide the Python type annotation and default, e.g.: merge_strategy: Literal['direct', 'branch', 'pr'] = 'direct'",
+          "context": "The PRD describes the field in prose and TOML but omits the actual Python model definition. Implementors should not have to infer the Literal type constraint or default from prose alone.",
+          "options": [
+            "merge_strategy: Literal['direct', 'branch', 'pr'] = 'direct'",
+            "merge_strategy: str = 'direct' (with a validator)",
+            "Other \u2014 please specify"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "How should NullPlatform.create_pr() behave to satisfy the str return type declared in PlatformProtocol? The current spec says it returns None, which violates the type contract.",
+          "context": "The protocol signature declares -> str, but NullPlatform is specified to return None. This will cause type errors at runtime or under static analysis.",
+          "options": [
+            "Raise NotImplementedError (since this path should never be reached in practice)",
+            "Return an empty string ''",
+            "Change the protocol return type to Optional[str]",
+            "Log a warning and raise IntegrationError"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "Where does the 'Changed Files' list in the PR body come from? What is the data source \u2014 git diff output, a list tracked by the session/pipeline, the return value of harvest(), or something else?",
+          "context": "build_pr_body() needs to construct the Changed Files section, but the PRD does not specify the source of this data or how it is passed into the function.",
+          "options": [
+            "Returned by harvest() / _harvest_and_integrate() as a list of file paths",
+            "Derived from git diff between the feature branch and integration branch at PR creation time",
+            "Tracked incrementally by the session as files are written",
+            "Other \u2014 please specify"
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "What is the exact platform availability guard? Is it an inline conditional in the calling code, a standalone helper function, or a method on the platform object \u2014 and what are the precise conditions it checks?",
+          "context": "The PRD references this guard in multiple places ('always guarded by a platform availability check') but never defines its implementation. Implementors need a clear contract.",
+          "options": [
+            "Inline check: if not GITHUB_PAT or config.platform.type != 'github': fallback",
+            "A standalone helper function, e.g. is_github_platform_available(config) -> bool",
+            "A method on GitHubPlatform or PlatformProtocol",
+            "Other \u2014 please specify"
+          ],
+          "required": false
+        },
+        {
+          "id": "q5",
+          "text": "Should a PR still be created in 'pr' mode if the coding session produces zero changed files? If not, what should happen instead?",
+          "context": "An edge case where a session completes but makes no file changes \u2014 should the pipeline skip PR creation, fall back to branch mode, raise an error, or proceed with an empty Changed Files list?",
+          "options": [
+            "Proceed normally \u2014 create a PR with an empty Changed Files section",
+            "Skip PR creation and fall back to 'branch' mode with a warning",
+            "Raise an error / abort the session",
+            "This case cannot occur \u2014 sessions with no changes are already handled upstream"
+          ],
+          "required": false
+        },
+        {
+          "id": "q6",
+          "text": "In af code sessions, where do spec_name, task_group_id, and task_group_title come from for use in build_pr_body() and the PR title? What is the fallback if any of these values are absent?",
+          "context": "The PR title format for af code is '{spec_name}: {task_group_title}' and the body includes task_group_id and task_group_title, but the PRD does not specify the object/attribute path to retrieve these values from the session context.",
+          "options": [
+            "From the active TaskGroup object on the session (e.g., session.task_group.id, session.task_group.title)",
+            "From the spec manifest loaded at session start",
+            "Passed explicitly as parameters to build_pr_body()",
+            "Other \u2014 please specify"
+          ],
+          "required": true
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "The PRD is well-structured and highly detailed overall \u2014 it clearly defines three merge strategy modes, configuration, fallback behavior, observability, and integration points. The design decisions section is thorough. However, several gaps remain that could block implementation or cause ambiguity: the return type contract for `_harvest_and_integrate()` and `_integrate_fix()` is not specified, the exact signature of `build_pr_body()` is missing, there is no specification of how `\"branch\"` mode behaves for `af code` sessions (only nightshift is described), rate-limiting and GitHub API error differentiation are not addressed, and there is no acceptance criteria / definition of done linking Goals to verifiable test contracts.",
+      "gaps": [
+        "The updated return type / return value contract for `_harvest_and_integrate()` across all three modes is not specified \u2014 implementors need to know what tuple/object is returned in `'branch'` and `'pr'` modes versus `'direct'`.",
+        "The exact Python signature of `build_pr_body()` (parameter names, types, return type) is not defined \u2014 only its template output and that parameters are caller-supplied is described.",
+        "The `'branch'` mode behavior for `af code` sessions (non-nightshift) is not explicitly described \u2014 only nightshift branch-mode comment behavior is documented. It is unclear whether any comment or post-session action is taken for `af code` in `'branch'` mode.",
+        "GitHub API rate-limiting and specific HTTP error codes (e.g., 422 Unprocessable Entity for duplicate PRs) are not addressed \u2014 the spec only says 'non-201 response raises IntegrationError', but duplicate PR creation is a realistic failure mode.",
+        "No acceptance criteria or definition-of-done is provided \u2014 Goal 2 defers test design entirely to 'spec generation', leaving no verifiable conditions in this document.",
+        "The `config_gen.py` changes are mentioned (adding to `_VISIBLE_SECTIONS` and `_PROMOTED_DEFAULTS`) but the exact key names and placement within those structures are not specified.",
+        "The behavior when `build_pr_body()` receives a `None` or empty changed-files list is not defined \u2014 it is stated zero-change sessions are pre-empted upstream, but partial sessions with a non-empty diff that later becomes empty are not addressed.",
+        "There is no description of how the PR creation success/failure result propagates back to the CLI output or user-facing exit code."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What is the return value contract of `_harvest_and_integrate()` for each of the three modes? For example, does it return a named tuple, dataclass, or plain tuple \u2014 and what fields does it include (e.g., feature_branch_name, pr_url, changed_files) across `'direct'`, `'branch'`, and `'pr'` modes?",
+          "context": "Without a clear return type, callers cannot be implemented consistently and the integration surface between session_lifecycle.py and its callers will be ambiguous.",
+          "options": [
+            "Returns a dataclass/TypedDict with optional fields (pr_url, branch_name, changed_files) populated per mode",
+            "Returns a plain tuple whose structure differs per mode (documented per mode)",
+            "Returns a single unified object with all fields, None for unused ones",
+            "Leave to implementor discretion"
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "What is the exact Python signature of `build_pr_body()`? Please specify the parameter names and types (e.g., `spec_name: str`, `task_group_id: str | None`, `task_group_title: str | None`, `changed_files: list[str]`, `issue_number: int | None`) and return type.",
+          "context": "The PRD describes what `build_pr_body()` renders and that parameters are caller-supplied, but does not define the function signature. Implementors need this to write the function and its callers consistently.",
+          "options": [
+            "build_pr_body(*, spec_name: str, task_group_id: str | None, task_group_title: str | None, changed_files: list[str], issue_number: int | None, issue_title: str | None) -> str",
+            "build_pr_body(session_type: Literal['code','nightshift'], context: PRBodyContext) -> str (with a context dataclass)",
+            "Leave to implementor discretion"
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "What happens in `'branch'` mode for an `af code` session (not nightshift)? Is any comment, log, or post-session action taken beyond keeping the branch local? For example, is there a CLI message printed? Is the session considered 'successful' with exit code 0?",
+          "context": "The PRD only describes the nightshift branch-mode comment behavior explicitly. The af code branch-mode post-session behavior is not documented, which will leave implementors guessing.",
+          "options": [
+            "Only the INFO log line is emitted ('Merge strategy is branch \u2014 feature branch kept locally.'); exit code 0; no other action",
+            "Same INFO log + a CLI summary printed to stdout with the branch name",
+            "Same INFO log + the branch name is written to a file or env var for downstream tooling",
+            "Leave to implementor discretion"
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "How should `create_pr()` handle a GitHub 422 response indicating a PR already exists for the branch (a common duplicate-PR scenario)? Should it treat it as success (return the existing PR URL), raise `IntegrationError`, or handle it separately?",
+          "context": "GitHub returns HTTP 422 with a specific error message when a PR already exists for a head branch. Without guidance, different implementors may handle this differently, leading to inconsistent behavior when nightshift retries a session.",
+          "options": [
+            "Treat 422 'PR already exists' as a success \u2014 query the existing PR URL and return it",
+            "Raise IntegrationError (same as any other non-201 response) and let the partial-failure fallback handle it",
+            "Raise a distinct DuplicatePRError and handle it as a success path in the caller",
+            "Leave to implementor discretion"
+          ],
+          "required": false
+        },
+        {
+          "id": "q5",
+          "text": "Should PR creation success or failure affect the CLI exit code or produce any user-facing output beyond log lines? For example, should `af code` print the PR URL to stdout on success, or only emit an INFO log line?",
+          "context": "The Observability section defines log lines but does not specify whether PR URLs or branch names are surfaced in CLI output (stdout/stderr) versus only in logs. This affects UX for interactive users.",
+          "options": [
+            "PR URL is printed to stdout in addition to the INFO log line",
+            "Only the INFO log line is emitted; no additional stdout output",
+            "PR URL is included in the existing session summary output that af code already prints",
+            "Leave to implementor discretion"
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "needs_refinement",
+      "summary": "This is a well-structured and detailed PRD with strong coverage of behavioral modes, error handling, integration points, and design rationale. The document is largely implementation-ready. However, several areas need clarification or elaboration before it can be considered fully spec-ready: the test strategy is explicitly deferred (\"left to the implementor\"), the `\"branch\"` mode return value for `touched_files` has a subtle inconsistency, the exact behavior of `nightshift` in `\"pr\"` mode partial failure on issue commenting is unspecified, the `build_pr_body()` signature extensibility is underspecified for the `af code` session context, and a few edge cases (e.g., what happens if `get_changed_files()` returns an empty list in `\"pr\"` mode, or if the branch push itself fails before PR creation) are not fully addressed.",
+      "gaps": [
+        "Test strategy is explicitly deferred to the implementor with no acceptance criteria, test scope boundaries, or example test cases provided. Goal #2 references 'automated tests covering the full range of mode \u00d7 pipeline combinations' but provides no further detail.",
+        "The `touched_files` value in the return tuple for `'branch'` mode is listed as 'from `get_changed_files()`', but `get_changed_files()` is described elsewhere as a function of `(repo_root, feature_branch, integration_branch)`. It is not clarified whether this call is made even when no commits exist or whether the empty-list short-circuit applies here too.",
+        "Partial failure in `'pr'` mode (branch pushed, PR creation fails) falls back to `'branch'` mode semantics \u2014 but for nightshift, it is unspecified whether the issue comment (the one added in `'branch'` mode) is also posted, or if only the error log is emitted.",
+        "The `build_pr_body()` signature extensibility is left entirely to the implementor, but the PRD also states that title/body fields are passed explicitly as parameters. There is no contract for what the new parameters must be, making the interface boundary ambiguous for callers in `session_lifecycle.py`.",
+        "Branch push failure (before PR creation is attempted) is not addressed. The operation sequence skips from platform availability check directly to 'push feature branch', with no defined behavior if the push itself fails (e.g., network error, permissions, rejected push).",
+        "The `'pr'` mode PR title format for `af code` sessions uses `{spec_name}: {task_group_title}` but there is no specified behavior if `spec_name` or `task_group_title` contains characters that are problematic in GitHub PR titles (e.g., newlines, very long strings).",
+        "No definition of what constitutes 'success' for the `nightshift` `'pr'` mode at the pipeline level \u2014 specifically, whether the nightshift job is marked complete/successful even when PR creation fails and falls back to branch mode.",
+        "The `_VISIBLE_SECTIONS` and `_PROMOTED_DEFAULTS` registration in `config_gen.py` is described vaguely ('consistent with how `integration_branch` and `force_clean` are registered'), providing no concrete example or anchor for implementors unfamiliar with that file's structure."
+      ],
+      "questions": [
+        {
+          "id": "q1",
+          "text": "What should happen in nightshift `'pr'` mode when the branch is pushed successfully but PR creation fails (partial failure)? Specifically: should the branch-mode issue comment (`Fix branch created: ...`) also be posted to the GitHub issue, or is only the error log emitted?",
+          "context": "The PRD defines 'branch mode semantics' for the partial failure case but nightshift's branch mode posts an issue comment. It's ambiguous whether that comment is part of those semantics in this context.",
+          "options": [
+            "Yes \u2014 post the branch-mode comment to the issue AND log the error.",
+            "No \u2014 only log the error; do not post any issue comment on partial failure.",
+            "Post a different, specific comment for this partial failure case (please specify the exact text)."
+          ],
+          "required": true
+        },
+        {
+          "id": "q2",
+          "text": "What should happen if the git push of the feature branch to origin fails (before PR creation is even attempted)? This is distinct from PR creation failure.",
+          "context": "The operation sequence defines step 3 as 'push feature branch to origin' but provides no error handling for this step. A push can fail due to network errors, auth issues, or rejected pushes.",
+          "options": [
+            "Treat it the same as a platform unavailability: fall back to 'branch' mode (local-only) and log a WARNING.",
+            "Treat it as a hard failure: log an ERROR, set status to 'failed', and do not fall back to branch mode.",
+            "Raise the exception and let the existing pipeline error handling deal with it (no special handling needed)."
+          ],
+          "required": true
+        },
+        {
+          "id": "q3",
+          "text": "For the `build_pr_body()` function, should the spec define a concrete new signature that all callers must use, or is it acceptable to leave the exact parameters at implementor discretion as currently stated?",
+          "context": "The PRD states the signature 'may be extended at implementor discretion' but also says title/body fields are passed 'explicitly as parameters'. Without a concrete signature, callers in session_lifecycle.py and fix_pipeline.py may make incompatible assumptions.",
+          "options": [
+            "Define a concrete signature in the spec (e.g., `build_pr_body(*, spec_name, task_group_id, task_group_title, changed_files, issue_number, issue_title) -> str`).",
+            "Leave the signature at implementor discretion \u2014 the template output is sufficient specification.",
+            "Define a dataclass or TypedDict for the parameters instead of positional/keyword args."
+          ],
+          "required": true
+        },
+        {
+          "id": "q4",
+          "text": "Should nightshift be marked as a successful job completion when `'pr'` mode partially fails (branch pushed, PR not created, falling back to branch-mode semantics)?",
+          "context": "The PRD states exit code remains 0 for interactive `af code` sessions, but does not define whether nightshift treats this partial failure as a successful fix-pipeline run or as a failure requiring retry.",
+          "options": [
+            "Yes \u2014 treat as success (job marked complete, no retry triggered).",
+            "No \u2014 treat as failure (job marked failed, retry eligible).",
+            "Nightshift marks it as a warning state (if such a state exists), no retry."
+          ],
+          "required": true
+        },
+        {
+          "id": "q5",
+          "text": "Should the spec include minimum test acceptance criteria (e.g., specific scenario names or a test matrix), or is full delegation to the implementor acceptable for Goal #2?",
+          "context": "Goal #2 says 'test design is left to the implementor' and references a future spec generation step. Without at least a test matrix, reviewers cannot verify that the goal has been met.",
+          "options": [
+            "Add a test matrix table to the spec (mode \u00d7 pipeline \u00d7 success/failure scenarios).",
+            "Add a short list of required scenario names only (no implementation detail).",
+            "Keep as-is \u2014 full delegation to implementor is intentional and acceptable.",
+            "Remove Goal #2 from the Goals section and add it as a non-goal, relying solely on the spec generation step."
+          ],
+          "required": false
+        },
+        {
+          "id": "q6",
+          "text": "What should happen if `get_changed_files()` returns an empty list in `'branch'` or `'pr'` mode (e.g., due to a git diff edge case not caught by the upstream short-circuit)?",
+          "context": "The PRD states zero-change sessions are short-circuited upstream, but doesn't address what happens if `get_changed_files()` returns an empty list at the point it's called during PR/branch processing (e.g., timing or branch state edge cases).",
+          "options": [
+            "Proceed normally \u2014 an empty Changed Files section in the PR body is acceptable.",
+            "Log a WARNING and proceed \u2014 treat as a suspicious but non-fatal state.",
+            "Treat as a hard error and abort PR creation.",
+            "This case is impossible by design \u2014 no additional handling needed."
+          ],
+          "required": false
+        }
+      ]
+    },
+    {
+      "quality": "ready",
+      "summary": "The PRD is now implementation-ready. All six previously identified gaps have been resolved: the nightshift partial-failure issue comment behavior is now explicitly specified (post branch-mode comment AND log the error); branch push failures are clearly delegated to existing pipeline error handling; `build_pr_body()` has a concrete, fully-specified keyword-only signature; nightshift job completion semantics on partial failure are defined (marked complete, no retry); the empty `get_changed_files()` edge case is addressed (proceed normally); and the `config_gen.py` registration note now references the pattern used by `integration_branch` and `force_clean` rather than vague language. Test delegation is intentional and confirmed acceptable. The document is coherent, internally consistent, and provides sufficient detail for an implementor to begin work without further clarification.",
+      "gaps": [],
+      "questions": []
+    }
+  ],
+  "qa_exchanges": [
+    {
+      "assessment_index": 0,
+      "answers": {
+        "q1": "Enable teams using agent-fox to adopt code-review workflows by making the post-session merge behavior configurable.",
+        "q2": "Users can configure merge_strategy without errors; all three modes produce the correct Git/GitHub state in automated tests. Zero regressions in 'direct' mode behavior for existing users.",
+        "q3": "All of the above \u2014 GitLab/Bitbucket PR creation, auto-merging of PRs, enforcement of branch protection rules, and support for multiple remotes are all out of scope.",
+        "q4": "Spec 65 is an internal/legacy spec not tracked in the current landscape; no dependency needed. The relevant requirement IDs (65-REQ-4.1 through 65-REQ-4.3) are referenced in the existing code but the spec predates the current spec system.",
+        "q5": "Log an error and fall back to 'branch' mode (branch is already pushed, so inform the user). The log message should include the remote branch URL so the user can create the PR manually.",
+        "q6": "Default to 'direct' silently if the field is absent (Pydantic default handles this). This is standard Pydantic behavior and requires no special migration."
+      },
+      "timestamp": "2026-07-13T16:37:34.674534+00:00"
+    },
+    {
+      "assessment_index": 1,
+      "answers": {
+        "q1": "async def create_pr(self, *, title: str, body: str, head: str, base: str) -> str  # returns the PR HTML URL. Raises IntegrationError on API failure (non-201 response).",
+        "q2": "For af code sessions: '{spec_name}: {task_group_title}' (e.g., 'merge_strategy: Config and validation'). For nightshift fix sessions: 'Fix #{issue_number}: {issue_title}' (e.g., 'Fix #42: Login fails on empty password').",
+        "q3": "Use this template:\n## Summary\n\n{spec_name or 'Fix #N: issue_title'}\n\n## Task Group\n\n{task_group_id}: {task_group_title}\n\n## Changed Files\n\n- {file1}\n- {file2}\n\nFixes #{N}\n\nThe 'Fixes #N' line is only included for nightshift PRs that originate from an issue. The 'Task Group' section is only included for af code sessions.",
+        "q4": "Fix branch created: `{branch_name}`. Merge strategy is set to `branch` \u2014 please review and merge manually.",
+        "q5": "Lazily \u2014 only at the point of PR creation; fall back to 'branch' mode with a warning if absent. This is already covered by the fallback behavior described in the PRD.",
+        "q6": "Return None and log a warning (should not be reached due to pre-call guard). The create_pr() call is always guarded by a platform availability check.",
+        "q7": "No retry \u2014 single attempt only; failure is handled by the partial-failure fallback already described in the PRD.",
+        "q8": "Leave test design to the implementor \u2014 the goal statement is sufficient. The spec generation step will produce detailed test contracts."
+      },
+      "timestamp": "2026-07-13T16:39:12.407684+00:00"
+    },
+    {
+      "assessment_index": 2,
+      "answers": {
+        "q1": "merge_strategy: Literal['direct', 'branch', 'pr'] = 'direct'",
+        "q2": "Raise NotImplementedError (since this path should never be reached in practice). The caller always checks platform availability before calling create_pr().",
+        "q3": "Derived from git diff between the feature branch and integration branch at PR creation time. This is the same approach used by harvest() to determine changed_files \u2014 call get_changed_files(repo_root, feature_branch, integration_branch) which already exists in the workspace module.",
+        "q4": "Use create_platform_safe() from the existing platform_factory module. It already returns None when GITHUB_PAT is missing or platform.type is not 'github'. The guard is an inline check: platform = create_platform_safe(config, project_root); if platform is None: log warning and fall back to branch mode.",
+        "q5": "This case cannot occur \u2014 sessions with no changes are already handled upstream. harvest() returns an empty list when there are no new commits, and the caller already short-circuits before reaching PR creation.",
+        "q6": "Passed explicitly as parameters to build_pr_body(). The session lifecycle and fix pipeline callers have access to the node_id (which encodes spec:group), spec metadata, and issue data. They construct the title and body and pass them to create_pr()."
+      },
+      "timestamp": "2026-07-13T16:43:18.748373+00:00"
+    },
+    {
+      "assessment_index": 3,
+      "answers": {
+        "q1": "Keep the existing return type: tuple[str, str | None, list[str], bool] \u2014 (status, error_message, touched_files, is_non_retryable). In 'branch' mode, status is 'completed' and touched_files comes from get_changed_files(). In 'pr' mode, status is 'completed' and the PR URL is logged (not returned in the tuple). The return type does not change.",
+        "q2": "Leave to implementor discretion. The existing build_pr_body() signature in fix_pipeline.py (issue_number: int, summary: str) -> str can be extended as needed.",
+        "q3": "Same INFO log + a CLI summary printed to stdout with the branch name. Exit code 0. The branch name is part of the standard session summary that af code already prints.",
+        "q4": "Treat 422 'PR already exists' as a success \u2014 query the existing PR URL and return it. This mirrors how create_label() already handles 422 'already_exists' as idempotent.",
+        "q5": "PR URL is included in the existing session summary output that af code already prints."
+      },
+      "timestamp": "2026-07-13T16:45:34.327182+00:00"
+    },
+    {
+      "assessment_index": 4,
+      "answers": {
+        "q1": "Yes \u2014 post the branch-mode comment to the issue AND log the error. The user needs to know where to find the branch.",
+        "q2": "Raise the exception and let the existing pipeline error handling deal with it (no special handling needed). Push failures are already handled by the session lifecycle and fix pipeline error paths.",
+        "q3": "Define a concrete signature in the spec: build_pr_body(*, spec_name: str | None = None, task_group_id: str | None = None, task_group_title: str | None = None, changed_files: list[str], issue_number: int | None = None, issue_title: str | None = None) -> str.",
+        "q4": "Yes \u2014 treat as success (job marked complete, no retry triggered). The branch was pushed and the issue comment was posted. The user can create the PR manually.",
+        "q5": "Keep as-is \u2014 full delegation to implementor is intentional and acceptable. The spec generation step will produce detailed test contracts.",
+        "q6": "Proceed normally \u2014 an empty Changed Files section in the PR body is acceptable. This is an edge case that doesn't warrant special handling."
+      },
+      "timestamp": "2026-07-13T16:48:19.579033+00:00"
+    }
+  ],
+  "generated_artifacts": [
+    "requirements",
+    "test_spec",
+    "tasks"
+  ],
+  "mode": "interactive"
+}

@@ -1,0 +1,1917 @@
+{
+  "$schema": null,
+  "spec_id": "02",
+  "spec_name": "merge_strategy",
+  "schema_version": 1,
+  "test_commands": {
+    "spec_tests": "pytest tests/test_merge_strategy.py -q -v",
+    "all_tests": "pytest -q",
+    "linter": "ruff check ."
+  },
+  "dependencies": [],
+  "task_groups": [
+    {
+      "id": 1,
+      "kind": "tests",
+      "title": "Write tests: WorkspaceConfig validation and config_gen (REQ-1)",
+      "subtasks": [
+        {
+          "id": "1.1",
+          "title": "Write TS-02-1: default merge_strategy is 'direct'",
+          "details": [
+            "Create tests/test_merge_strategy.py (or equivalent test file).",
+            "Test that WorkspaceConfig() with no merge_strategy argument defaults to 'direct'.",
+            "Assert cfg.merge_strategy == 'direct' and that the field annotation is Literal['direct','branch','pr']."
+          ],
+          "test_spec_refs": [
+            "TS-02-1"
+          ],
+          "requirement_refs": [
+            "02-REQ-1.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.2",
+          "title": "Write TS-02-2: accepts all three valid literal values",
+          "details": [
+            "Parametrize over ['direct', 'branch', 'pr'].",
+            "Assert each constructs successfully and stores the supplied value."
+          ],
+          "test_spec_refs": [
+            "TS-02-2"
+          ],
+          "requirement_refs": [
+            "02-REQ-1.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.3",
+          "title": "Write TS-02-3 and TS-02-E1, TS-02-E2: validation error cases",
+          "details": [
+            "TS-02-3: assert ValidationError on merge_strategy='squash'.",
+            "TS-02-E1: assert defaults to 'direct' when field is absent from input dict.",
+            "TS-02-E2: assert ValidationError for merge_strategy='' and merge_strategy=None."
+          ],
+          "test_spec_refs": [
+            "TS-02-3",
+            "TS-02-E1",
+            "TS-02-E2"
+          ],
+          "requirement_refs": [
+            "02-REQ-1.3",
+            "02-REQ-1.E1",
+            "02-REQ-1.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.4",
+          "title": "Write TS-02-4: config_gen includes merge_strategy in visible sections and promoted defaults",
+          "details": [
+            "Import config_gen and inspect _VISIBLE_SECTIONS and _PROMOTED_DEFAULTS.",
+            "Assert 'merge_strategy' is present in both structures under the 'workspace' key.",
+            "Assert generated template string contains 'merge_strategy = \"direct\"'."
+          ],
+          "test_spec_refs": [
+            "TS-02-4"
+          ],
+          "requirement_refs": [
+            "02-REQ-1.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.5",
+          "title": "Write TS-02-P1: property test for merge_strategy field invariant",
+          "details": [
+            "Use hypothesis or a manual parametrized test covering valid literals, invalid strings, empty string, None, integers.",
+            "Valid values produce model with merge_strategy in {'direct','branch','pr'}; others raise ValidationError."
+          ],
+          "test_spec_refs": [
+            "TS-02-P1"
+          ],
+          "requirement_refs": [
+            "02-REQ-1.1",
+            "02-REQ-1.2",
+            "02-REQ-1.3",
+            "02-REQ-1.E1",
+            "02-REQ-1.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "1.V",
+        "checks": [
+          "All spec tests in this group pass: pytest tests/test_merge_strategy.py -q -v -k 'config or config_gen or REQ1 or PROP1'",
+          "No linter warnings introduced: ruff check .",
+          "02-REQ-1.1, 02-REQ-1.2, 02-REQ-1.3, 02-REQ-1.E1, 02-REQ-1.E2 acceptance criteria are exercised by these tests (tests are RED before implementation)"
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "kind": "tests",
+      "title": "Write tests: build_pr_body() pure rendering function (REQ-5)",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Write TS-02-13: build_pr_body signature is pure and keyword-only",
+          "details": [
+            "Inspect build_pr_body via inspect.signature; assert all params are keyword-only with correct defaults.",
+            "Call twice with same args; assert results are identical strings."
+          ],
+          "test_spec_refs": [
+            "TS-02-13"
+          ],
+          "requirement_refs": [
+            "02-REQ-5.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.2",
+          "title": "Write TS-02-14: af code session body rendering",
+          "details": [
+            "Call build_pr_body with spec_name, task_group_id, task_group_title, changed_files.",
+            "Assert presence of '## Summary', spec_name, '## Task Group', 'task_group_id: task_group_title', '## Changed Files', each file bullet.",
+            "Assert 'Fixes #' is NOT in the output."
+          ],
+          "test_spec_refs": [
+            "TS-02-14"
+          ],
+          "requirement_refs": [
+            "02-REQ-5.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.3",
+          "title": "Write TS-02-15: nightshift fix session body rendering",
+          "details": [
+            "Call build_pr_body with issue_number, issue_title, changed_files.",
+            "Assert '## Summary' with 'Fix #42: Login fails on empty password'.",
+            "Assert '## Task Group' NOT in output.",
+            "Assert 'Fixes #42' at end of output."
+          ],
+          "test_spec_refs": [
+            "TS-02-15"
+          ],
+          "requirement_refs": [
+            "02-REQ-5.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.4",
+          "title": "Write TS-02-16: all callers use keyword arguments only",
+          "details": [
+            "Use ast module to parse session_lifecycle.py and fix_pipeline.py.",
+            "Find all call sites of build_pr_body; assert len(call.args) == 0 for each."
+          ],
+          "test_spec_refs": [
+            "TS-02-16"
+          ],
+          "requirement_refs": [
+            "02-REQ-5.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.5",
+          "title": "Write TS-02-E9, TS-02-E10: edge cases for build_pr_body",
+          "details": [
+            "TS-02-E9: call with changed_files=[]; assert '## Changed Files' present, no bullet points in that section.",
+            "TS-02-E10: call with both spec_name and issue_number set; assert no unhandled exception, result is a str."
+          ],
+          "test_spec_refs": [
+            "TS-02-E9",
+            "TS-02-E10"
+          ],
+          "requirement_refs": [
+            "02-REQ-5.E1",
+            "02-REQ-5.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.6",
+          "title": "Write TS-02-P4: property test for build_pr_body purity",
+          "details": [
+            "Parametrize or use hypothesis with arbitrary combinations of all nullable params.",
+            "Assert result1 == result2 for identical calls; assert isinstance(result, str); assert no side effects (no filesystem/network access)."
+          ],
+          "test_spec_refs": [
+            "TS-02-P4"
+          ],
+          "requirement_refs": [
+            "02-REQ-5.1",
+            "02-REQ-5.2",
+            "02-REQ-5.3"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "2.V",
+        "checks": [
+          "All spec tests in this group pass: pytest tests/test_merge_strategy.py -q -v -k 'build_pr_body or REQ5 or PROP4'",
+          "No linter warnings introduced: ruff check .",
+          "02-REQ-5.1 through 02-REQ-5.4 and edge cases 02-REQ-5.E1, 02-REQ-5.E2 are exercised (tests are RED before implementation)"
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "kind": "tests",
+      "title": "Write tests: PlatformProtocol and NullPlatform (REQ-6)",
+      "subtasks": [
+        {
+          "id": "3.1",
+          "title": "Write TS-02-17: PlatformProtocol declares create_pr() with correct async signature",
+          "details": [
+            "Import PlatformProtocol from protocol.py.",
+            "Assert create_pr is a coroutine function via inspect.iscoroutinefunction.",
+            "Assert all params (title, body, head, base) are KEYWORD_ONLY with str annotation.",
+            "Assert return annotation is str.",
+            "Assert docstring mentions 'html_url' and 'IntegrationError'."
+          ],
+          "test_spec_refs": [
+            "TS-02-17"
+          ],
+          "requirement_refs": [
+            "02-REQ-6.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.2",
+          "title": "Write TS-02-18: NullPlatform.create_pr raises NotImplementedError with exact message",
+          "details": [
+            "Instantiate NullPlatform(); await create_pr(title='T', body='B', head='H', base='base').",
+            "Assert NotImplementedError raised.",
+            "Assert message contains 'create_pr() called on NullPlatform' and 'create_platform_safe()'."
+          ],
+          "test_spec_refs": [
+            "TS-02-18"
+          ],
+          "requirement_refs": [
+            "02-REQ-6.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.3",
+          "title": "Write TS-02-E11 and TS-02-P5: NullPlatform guard bypass edge case and property",
+          "details": [
+            "TS-02-E11: mock network monitor; assert no HTTP requests made when NotImplementedError is raised.",
+            "TS-02-P5: property test with arbitrary title/body/head/base; always raises NotImplementedError; network_call_count == 0."
+          ],
+          "test_spec_refs": [
+            "TS-02-E11",
+            "TS-02-P5"
+          ],
+          "requirement_refs": [
+            "02-REQ-6.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "3.V",
+        "checks": [
+          "All spec tests in this group pass: pytest tests/test_merge_strategy.py -q -v -k 'protocol or NullPlatform or REQ6 or PROP5'",
+          "No linter warnings introduced: ruff check .",
+          "02-REQ-6.1, 02-REQ-6.2, 02-REQ-6.E1 acceptance criteria exercised (tests are RED before implementation)"
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "kind": "tests",
+      "title": "Write tests: GitHubPlatform.create_pr() HTTP behavior (REQ-7)",
+      "subtasks": [
+        {
+          "id": "4.1",
+          "title": "Write TS-02-19: HTTP 201 success path returns html_url",
+          "details": [
+            "Mock aiohttp ClientSession: POST returns 201 with {'html_url': 'https://github.com/owner/repo/pull/99'}.",
+            "Assert exactly one POST request sent.",
+            "Assert return value is the html_url string."
+          ],
+          "test_spec_refs": [
+            "TS-02-19"
+          ],
+          "requirement_refs": [
+            "02-REQ-7.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.2",
+          "title": "Write TS-02-20: HTTP 422 duplicate-PR idempotent handling",
+          "details": [
+            "POST returns 422 with duplicate-PR error message.",
+            "GET /repos/.../pulls returns [{html_url: 'https://...'}].",
+            "Assert no IntegrationError; assert html_url from GET is returned."
+          ],
+          "test_spec_refs": [
+            "TS-02-20"
+          ],
+          "requirement_refs": [
+            "02-REQ-7.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.3",
+          "title": "Write TS-02-21: non-201 non-duplicate responses raise IntegrationError",
+          "details": [
+            "Parametrize over [400, 403, 404, 500, 422-without-duplicate-message].",
+            "Assert IntegrationError is raised for each."
+          ],
+          "test_spec_refs": [
+            "TS-02-21"
+          ],
+          "requirement_refs": [
+            "02-REQ-7.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.4",
+          "title": "Write TS-02-E12 and TS-02-E13: aiohttp timeout and empty GET after 422",
+          "details": [
+            "TS-02-E12: mock session raises aiohttp.ServerTimeoutError on POST; assert it propagates unchanged.",
+            "TS-02-E13: POST returns 422 (duplicate-PR), GET returns []; assert IntegrationError raised."
+          ],
+          "test_spec_refs": [
+            "TS-02-E12",
+            "TS-02-E13"
+          ],
+          "requirement_refs": [
+            "02-REQ-7.E1",
+            "02-REQ-7.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.5",
+          "title": "Write TS-02-E14 and TS-02-P7: single attempt and property test",
+          "details": [
+            "TS-02-E14: POST returns 500; assert exactly one POST was made; assert IntegrationError raised.",
+            "TS-02-P7: property test across HTTP statuses; assert POST count == 1, GET count <= 1 on 422-duplicate, else 0."
+          ],
+          "test_spec_refs": [
+            "TS-02-E14",
+            "TS-02-P7"
+          ],
+          "requirement_refs": [
+            "02-REQ-7.E3"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "4.V",
+        "checks": [
+          "All spec tests in this group pass: pytest tests/test_merge_strategy.py -q -v -k 'GitHubPlatform or create_pr or REQ7 or PROP7'",
+          "No linter warnings introduced: ruff check .",
+          "02-REQ-7.1, 02-REQ-7.2, 02-REQ-7.3, 02-REQ-7.E1, 02-REQ-7.E2, 02-REQ-7.E3 acceptance criteria exercised (tests RED)"
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "kind": "tests",
+      "title": "Write tests: direct mode zero-regression and return contract (REQ-2, REQ-8)",
+      "subtasks": [
+        {
+          "id": "5.1",
+          "title": "Write TS-02-5: _harvest_and_integrate() in direct mode calls harvest() exactly once",
+          "details": [
+            "Mock harvest() to return ['file_a.py'].",
+            "Assert harvest call_count == 1.",
+            "Assert return == ('completed', None, ['file_a.py'], False).",
+            "Assert no extra INFO/WARNING log lines about merge strategy emitted."
+          ],
+          "test_spec_refs": [
+            "TS-02-5"
+          ],
+          "requirement_refs": [
+            "02-REQ-2.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.2",
+          "title": "Write TS-02-6: _integrate_fix() in direct mode calls _harvest_and_push() and closes issue",
+          "details": [
+            "Mock _harvest_and_push() to return ['fix.py'].",
+            "Mock platform.close_issue.",
+            "Assert _harvest_and_push call_count == 1; close_issue call_count == 1.",
+            "Assert return == ('completed', None, ['fix.py'], False)."
+          ],
+          "test_spec_refs": [
+            "TS-02-6"
+          ],
+          "requirement_refs": [
+            "02-REQ-2.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.3",
+          "title": "Write TS-02-22: return tuple shape invariant across all modes",
+          "details": [
+            "Run scenarios: direct, branch, pr-success, pr-partial-failure for both _harvest_and_integrate() and _integrate_fix().",
+            "For all 8 combos: assert status=='completed', error_msg is None, touched is list, non_retry==False."
+          ],
+          "test_spec_refs": [
+            "TS-02-22"
+          ],
+          "requirement_refs": [
+            "02-REQ-8.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.4",
+          "title": "Write TS-02-P2 and TS-02-P6: property tests for return shape and direct-mode invariant",
+          "details": [
+            "TS-02-P2: property test over merge_strategy values and partial-failure flags; assert tuple shape invariant.",
+            "TS-02-P6: direct mode — assert harvest() called, no extra Merge Strategy log lines, create_pr not called."
+          ],
+          "test_spec_refs": [
+            "TS-02-P2",
+            "TS-02-P6"
+          ],
+          "requirement_refs": [
+            "02-REQ-8.1",
+            "02-REQ-2.1",
+            "02-REQ-2.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "5.V",
+        "checks": [
+          "All spec tests in this group pass: pytest tests/test_merge_strategy.py -q -v -k 'direct or REQ2 or REQ8 or PROP2 or PROP6'",
+          "No linter warnings introduced: ruff check .",
+          "02-REQ-2.1, 02-REQ-2.2, 02-REQ-8.1 and property invariants 02-PROP-2, 02-PROP-6 exercised (tests RED)"
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "kind": "tests",
+      "title": "Write tests: branch mode behavior (REQ-3) and observability (REQ-9 partial)",
+      "subtasks": [
+        {
+          "id": "6.1",
+          "title": "Write TS-02-7: _harvest_and_integrate() branch mode — skips harvest, emits INFO log",
+          "details": [
+            "Mock harvest (should NOT be called), git push (should NOT be called), get_changed_files returning ['changed.py'].",
+            "Assert harvest and push call_count == 0.",
+            "Assert get_changed_files call_count == 1.",
+            "Assert exactly one INFO log line: \"Merge strategy is 'branch' — feature branch 'feat/my-feature' kept locally.\"",
+            "Assert return == ('completed', None, ['changed.py'], False)."
+          ],
+          "test_spec_refs": [
+            "TS-02-7",
+            "TS-02-23"
+          ],
+          "requirement_refs": [
+            "02-REQ-3.1",
+            "02-REQ-9.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.2",
+          "title": "Write TS-02-8: _integrate_fix() branch mode — skips harvest, posts exact comment, does not close issue",
+          "details": [
+            "Mock harvest (NOT called), git push (NOT called), platform.close_issue (NOT called), platform.post_comment (capture).",
+            "Assert post_comment called with exact text: 'Fix branch created: `fix/issue-42-branch`. Merge strategy is set to `branch` — please review and merge manually.'",
+            "Assert return[0]=='completed', return[1] is None, return[3]==False."
+          ],
+          "test_spec_refs": [
+            "TS-02-8"
+          ],
+          "requirement_refs": [
+            "02-REQ-3.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.3",
+          "title": "Write TS-02-27: stdout session summary includes branch name in branch mode",
+          "details": [
+            "Capture stdout; run af code session in branch mode with feature_branch='feat/my-feature'.",
+            "Assert 'feat/my-feature' in captured stdout.",
+            "Assert exit_code == 0."
+          ],
+          "test_spec_refs": [
+            "TS-02-27"
+          ],
+          "requirement_refs": [
+            "02-REQ-9.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.4",
+          "title": "Write TS-02-E3: branch mode proceeds normally when get_changed_files returns empty list",
+          "details": [
+            "Mock get_changed_files to return [].",
+            "Assert no exception, no error log.",
+            "Assert return == ('completed', None, [], False)."
+          ],
+          "test_spec_refs": [
+            "TS-02-E3"
+          ],
+          "requirement_refs": [
+            "02-REQ-3.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "6.V",
+        "checks": [
+          "All spec tests in this group pass: pytest tests/test_merge_strategy.py -q -v -k 'branch or REQ3 or REQ9_branch'",
+          "No linter warnings introduced: ruff check .",
+          "02-REQ-3.1, 02-REQ-3.2, 02-REQ-3.E1, 02-REQ-9.1, 02-REQ-9.5 acceptance criteria exercised (tests RED)"
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "kind": "tests",
+      "title": "Write tests: PR mode happy path and observability (REQ-4, REQ-9 partial)",
+      "subtasks": [
+        {
+          "id": "7.1",
+          "title": "Write TS-02-9: _harvest_and_integrate() pr mode success — correct title, INFO log, return tuple",
+          "details": [
+            "Mock create_platform_safe (valid platform), git push, get_changed_files, platform.create_pr (returns PR URL).",
+            "Assert git push called once; create_pr called with title='merge_strategy: Config and validation', head=feature_branch.",
+            "Assert INFO log 'Pull request created: https://github.com/owner/repo/pull/1'.",
+            "Assert return == ('completed', None, ['config.py'], False)."
+          ],
+          "test_spec_refs": [
+            "TS-02-9",
+            "TS-02-24"
+          ],
+          "requirement_refs": [
+            "02-REQ-4.1",
+            "02-REQ-9.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.2",
+          "title": "Write TS-02-10: _integrate_fix() pr mode success — nightshift title, Fixes #N, issue not closed",
+          "details": [
+            "Assert create_pr called with title='Fix #42: Login fails on empty password'.",
+            "Assert PR body contains 'Fixes #42'.",
+            "Assert close_issue NOT called.",
+            "Assert return == ('completed', None, ['auth/login.py'], False)."
+          ],
+          "test_spec_refs": [
+            "TS-02-10"
+          ],
+          "requirement_refs": [
+            "02-REQ-4.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.3",
+          "title": "Write TS-02-11 and TS-02-25: platform None fallback warning",
+          "details": [
+            "Mock create_platform_safe to return None; git push mock NOT called.",
+            "Assert exactly one WARNING log: \"Merge strategy is 'pr' but platform is not configured — falling back to 'branch' mode.\"",
+            "Assert return tuple shape: ('completed', None, <list>, False) for both _harvest_and_integrate and _integrate_fix."
+          ],
+          "test_spec_refs": [
+            "TS-02-11",
+            "TS-02-25"
+          ],
+          "requirement_refs": [
+            "02-REQ-4.3",
+            "02-REQ-9.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.4",
+          "title": "Write TS-02-12: lazy platform validation — not called at startup",
+          "details": [
+            "Instrument create_platform_safe with call log.",
+            "Assert call log is empty after session initialization.",
+            "Assert call log has exactly one entry after merge strategy phase executes."
+          ],
+          "test_spec_refs": [
+            "TS-02-12"
+          ],
+          "requirement_refs": [
+            "02-REQ-4.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.5",
+          "title": "Write TS-02-28: stdout session summary includes PR URL in pr mode",
+          "details": [
+            "Capture stdout; run af code session in pr mode with successful PR creation.",
+            "Assert PR URL in captured stdout.",
+            "Assert exit_code == 0."
+          ],
+          "test_spec_refs": [
+            "TS-02-28"
+          ],
+          "requirement_refs": [
+            "02-REQ-9.6"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "7.V",
+        "checks": [
+          "All spec tests in this group pass: pytest tests/test_merge_strategy.py -q -v -k 'pr_mode or REQ4_happy or REQ9_pr'",
+          "No linter warnings introduced: ruff check .",
+          "02-REQ-4.1, 02-REQ-4.2, 02-REQ-4.3, 02-REQ-4.4, 02-REQ-9.2, 02-REQ-9.3, 02-REQ-9.5, 02-REQ-9.6 exercised (tests RED)"
+        ]
+      }
+    },
+    {
+      "id": 8,
+      "kind": "tests",
+      "title": "Write tests: PR mode error handling, operation sequence, and property tests (REQ-4 errors, REQ-10)",
+      "subtasks": [
+        {
+          "id": "8.1",
+          "title": "Write TS-02-E4: git push failure before create_pr propagates exception",
+          "details": [
+            "Mock git push to raise OSError; assert OSError propagates.",
+            "Assert create_pr.call_count == 0."
+          ],
+          "test_spec_refs": [
+            "TS-02-E4"
+          ],
+          "requirement_refs": [
+            "02-REQ-4.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.2",
+          "title": "Write TS-02-E5 and TS-02-26: partial failure in af code — ERROR log with URL, branch mode semantics",
+          "details": [
+            "Mock push succeed, create_pr raises IntegrationError.",
+            "Assert ERROR log contains remote branch URL 'https://github.com/owner/repo/tree/feat/my-branch'.",
+            "Assert harvest() NOT called (no squash-merge).",
+            "Assert return == ('completed', None, <list>, False); exit code 0."
+          ],
+          "test_spec_refs": [
+            "TS-02-E5",
+            "TS-02-26"
+          ],
+          "requirement_refs": [
+            "02-REQ-4.E2",
+            "02-REQ-9.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.3",
+          "title": "Write TS-02-E6: nightshift partial failure — ERROR log, branch-mode comment posted, no retry",
+          "details": [
+            "Mock push succeed, create_pr raises IntegrationError.",
+            "Assert ERROR log with remote branch URL.",
+            "Assert post_comment called with exact branch-mode text.",
+            "Assert close_issue NOT called.",
+            "Assert return == ('completed', None, <list>, False)."
+          ],
+          "test_spec_refs": [
+            "TS-02-E6"
+          ],
+          "requirement_refs": [
+            "02-REQ-4.E3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.4",
+          "title": "Write TS-02-E7: empty changed_files in pr mode — empty Changed Files section in PR body",
+          "details": [
+            "Mock get_changed_files returns [].",
+            "Capture PR body from create_pr call; assert '## Changed Files' present with no bullet items.",
+            "Assert touched_files is []."
+          ],
+          "test_spec_refs": [
+            "TS-02-E7"
+          ],
+          "requirement_refs": [
+            "02-REQ-4.E4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.5",
+          "title": "Write TS-02-29 and TS-02-P3: operation sequence and platform-guard-precedes-push property",
+          "details": [
+            "TS-02-29: instrument all dependencies with call_order list; assert order is [create_platform_safe, git_push, get_changed_files, build_pr_body, create_pr].",
+            "TS-02-P3: property test — for None platform, assert push never called; for valid platform, assert platform check index < push index."
+          ],
+          "test_spec_refs": [
+            "TS-02-29",
+            "TS-02-P3"
+          ],
+          "requirement_refs": [
+            "02-REQ-10.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.6",
+          "title": "Write TS-02-E8 and TS-02-E15: push timeout and unexpected exception propagation",
+          "details": [
+            "TS-02-E8: mock git push to block/raise TimeoutError; assert exception propagates from _harvest_and_integrate without being swallowed.",
+            "TS-02-E15: mock get_changed_files to raise RuntimeError; assert RuntimeError propagates unchanged."
+          ],
+          "test_spec_refs": [
+            "TS-02-E8",
+            "TS-02-E15"
+          ],
+          "requirement_refs": [
+            "02-REQ-4.E5",
+            "02-REQ-10.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "8.V",
+        "checks": [
+          "All spec tests in this group pass: pytest tests/test_merge_strategy.py -q -v -k 'pr_error or REQ4_E or REQ10 or PROP3'",
+          "No linter warnings introduced: ruff check .",
+          "02-REQ-4.E1 through 02-REQ-4.E5, 02-REQ-9.4, 02-REQ-10.1, 02-REQ-10.E1 acceptance criteria exercised (tests RED)"
+        ]
+      }
+    },
+    {
+      "id": 9,
+      "kind": "standard",
+      "title": "Implement WorkspaceConfig.merge_strategy field and config_gen update",
+      "subtasks": [
+        {
+          "id": "9.1",
+          "title": "Add merge_strategy field to WorkspaceConfig in config.py",
+          "details": [
+            "In WorkspaceConfig (config.py), add: merge_strategy: Literal['direct', 'branch', 'pr'] = 'direct'",
+            "Place alongside integration_branch and force_clean fields.",
+            "Pydantic v2 Literal typing with default 'direct' handles backward compat automatically."
+          ],
+          "test_spec_refs": [
+            "TS-02-1",
+            "TS-02-2",
+            "TS-02-3",
+            "TS-02-E1",
+            "TS-02-E2"
+          ],
+          "requirement_refs": [
+            "02-REQ-1.1",
+            "02-REQ-1.2",
+            "02-REQ-1.3",
+            "02-REQ-1.E1",
+            "02-REQ-1.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "9.2",
+          "title": "Update config_gen.py to include merge_strategy in _VISIBLE_SECTIONS and _PROMOTED_DEFAULTS",
+          "details": [
+            "Add 'merge_strategy' to the workspace entry in _VISIBLE_SECTIONS following the same pattern as integration_branch and force_clean.",
+            "Add 'merge_strategy' with default 'direct' to _PROMOTED_DEFAULTS['workspace'].",
+            "Verify generated template contains: merge_strategy = \"direct\""
+          ],
+          "test_spec_refs": [
+            "TS-02-4"
+          ],
+          "requirement_refs": [
+            "02-REQ-1.4"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "9.V",
+        "checks": [
+          "Spec tests for config validation pass: pytest tests/test_merge_strategy.py -q -v -k 'config or config_gen or REQ1 or PROP1'",
+          "All existing tests still pass: pytest -q",
+          "No linter warnings: ruff check .",
+          "02-REQ-1.1, 02-REQ-1.2, 02-REQ-1.3, 02-REQ-1.4, 02-REQ-1.E1, 02-REQ-1.E2 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 10,
+      "kind": "standard",
+      "title": "Implement build_pr_body() in fix_pipeline.py",
+      "subtasks": [
+        {
+          "id": "10.1",
+          "title": "Implement build_pr_body() with the specified keyword-only signature",
+          "details": [
+            "Define in fix_pipeline.py: def build_pr_body(*, spec_name: str | None = None, task_group_id: str | None = None, task_group_title: str | None = None, changed_files: list[str], issue_number: int | None = None, issue_title: str | None = None) -> str",
+            "Function must be pure: no side effects, no imports of session internals."
+          ],
+          "test_spec_refs": [
+            "TS-02-13"
+          ],
+          "requirement_refs": [
+            "02-REQ-5.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "10.2",
+          "title": "Implement af code session rendering branch (spec_name + task_group present)",
+          "details": [
+            "When spec_name is provided: render ## Summary with spec_name.",
+            "When task_group_id and task_group_title are provided: render ## Task Group with '{task_group_id}: {task_group_title}'.",
+            "Render ## Changed Files with bullet list.",
+            "No 'Fixes #N' line."
+          ],
+          "test_spec_refs": [
+            "TS-02-14"
+          ],
+          "requirement_refs": [
+            "02-REQ-5.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "10.3",
+          "title": "Implement nightshift fix session rendering branch (issue_number + issue_title present)",
+          "details": [
+            "When issue_number is provided: render ## Summary with 'Fix #{issue_number}: {issue_title}'.",
+            "Omit ## Task Group section entirely.",
+            "Render ## Changed Files with bullet list.",
+            "Append 'Fixes #{issue_number}' line at end."
+          ],
+          "test_spec_refs": [
+            "TS-02-15"
+          ],
+          "requirement_refs": [
+            "02-REQ-5.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "10.4",
+          "title": "Handle empty changed_files and ambiguous parameter combinations",
+          "details": [
+            "Empty changed_files: render ## Changed Files header with no bullets (no special error).",
+            "Both spec_name and issue_number set: implementation-defined behavior; must not raise unhandled exception; return a str."
+          ],
+          "test_spec_refs": [
+            "TS-02-E9",
+            "TS-02-E10"
+          ],
+          "requirement_refs": [
+            "02-REQ-5.E1",
+            "02-REQ-5.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "10.V",
+        "checks": [
+          "Spec tests for build_pr_body pass: pytest tests/test_merge_strategy.py -q -v -k 'build_pr_body or REQ5 or PROP4'",
+          "All existing tests still pass: pytest -q",
+          "No linter warnings: ruff check .",
+          "02-REQ-5.1 through 02-REQ-5.4 and edge cases 02-REQ-5.E1, 02-REQ-5.E2 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 11,
+      "kind": "standard",
+      "title": "Implement PlatformProtocol.create_pr() and NullPlatform stub",
+      "subtasks": [
+        {
+          "id": "11.1",
+          "title": "Add create_pr() abstract method to PlatformProtocol in protocol.py",
+          "details": [
+            "Add to PlatformProtocol: async def create_pr(self, *, title: str, body: str, head: str, base: str) -> str",
+            "Include docstring: 'Create a pull request and return its HTML URL. Raises: IntegrationError: On API failure (non-201 response from GitHub, excluding 422 \"PR already exists\" which is handled as success).'",
+            "Mark as abstract method (Protocol/ABC pattern consistent with existing methods)."
+          ],
+          "test_spec_refs": [
+            "TS-02-17"
+          ],
+          "requirement_refs": [
+            "02-REQ-6.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.2",
+          "title": "Implement NullPlatform.create_pr() raising NotImplementedError with exact message",
+          "details": [
+            "In NullPlatform (protocol.py): async def create_pr(self, *, title: str, body: str, head: str, base: str) -> str: raise NotImplementedError('create_pr() called on NullPlatform — this should never be reached. Ensure platform availability is checked via create_platform_safe() before calling create_pr()')"
+          ],
+          "test_spec_refs": [
+            "TS-02-18",
+            "TS-02-E11",
+            "TS-02-P5"
+          ],
+          "requirement_refs": [
+            "02-REQ-6.2",
+            "02-REQ-6.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "11.V",
+        "checks": [
+          "Spec tests for protocol pass: pytest tests/test_merge_strategy.py -q -v -k 'protocol or NullPlatform or REQ6 or PROP5'",
+          "All existing tests still pass: pytest -q",
+          "No linter warnings: ruff check .",
+          "02-REQ-6.1, 02-REQ-6.2, 02-REQ-6.E1 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 12,
+      "kind": "standard",
+      "title": "Implement GitHubPlatform.create_pr() in github.py",
+      "subtasks": [
+        {
+          "id": "12.1",
+          "title": "Implement HTTP 201 success path — POST /repos/.../pulls and return html_url",
+          "details": [
+            "Use existing aiohttp ClientSession in GitHubPlatform.",
+            "Send POST /repos/{owner}/{repo}/pulls with Authorization: Bearer {GITHUB_PAT}.",
+            "On HTTP 201: parse response JSON and return data['html_url'].",
+            "Single attempt only — no retry logic."
+          ],
+          "test_spec_refs": [
+            "TS-02-19",
+            "TS-02-E14"
+          ],
+          "requirement_refs": [
+            "02-REQ-7.1",
+            "02-REQ-7.E3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "12.2",
+          "title": "Implement HTTP 422 duplicate-PR idempotent handling",
+          "details": [
+            "On HTTP 422: inspect error message for duplicate-PR indicator.",
+            "If duplicate: send GET /repos/{owner}/{repo}/pulls?head={head}&base={base}.",
+            "Return html_url of first result.",
+            "If GET returns empty list: raise IntegrationError (02-REQ-7.E2)."
+          ],
+          "test_spec_refs": [
+            "TS-02-20"
+          ],
+          "requirement_refs": [
+            "02-REQ-7.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "12.3",
+          "title": "Implement error paths — non-201 non-duplicate raises IntegrationError; aiohttp exceptions propagate",
+          "details": [
+            "For any non-201 HTTP response not matching duplicate-PR 422: raise IntegrationError with status code and response body.",
+            "Do NOT catch aiohttp exceptions (ServerTimeoutError, ClientError etc.); let them propagate to caller."
+          ],
+          "test_spec_refs": [
+            "TS-02-21",
+            "TS-02-E12",
+            "TS-02-E13"
+          ],
+          "requirement_refs": [
+            "02-REQ-7.3",
+            "02-REQ-7.E1",
+            "02-REQ-7.E2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "12.V",
+        "checks": [
+          "Spec tests for GitHubPlatform pass: pytest tests/test_merge_strategy.py -q -v -k 'GitHubPlatform or create_pr or REQ7 or PROP7'",
+          "All existing tests still pass: pytest -q",
+          "No linter warnings: ruff check .",
+          "02-REQ-7.1, 02-REQ-7.2, 02-REQ-7.3, 02-REQ-7.E1, 02-REQ-7.E2, 02-REQ-7.E3 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 13,
+      "kind": "checkpoint",
+      "title": "Checkpoint: core infrastructure verified before pipeline integration",
+      "subtasks": [
+        {
+          "id": "13.1",
+          "title": "Run all spec tests written so far and confirm RED→GREEN transition",
+          "details": [
+            "Run: pytest tests/test_merge_strategy.py -q",
+            "All tests for REQ-1, REQ-5, REQ-6, REQ-7 must now be GREEN.",
+            "No regressions in existing test suite: pytest -q"
+          ],
+          "test_spec_refs": [
+            "TS-02-1",
+            "TS-02-13",
+            "TS-02-17",
+            "TS-02-19"
+          ],
+          "requirement_refs": [
+            "02-REQ-1.1",
+            "02-REQ-5.1",
+            "02-REQ-6.1",
+            "02-REQ-7.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "13.2",
+          "title": "Confirm protocol interface consistency before session_lifecycle and fix_pipeline changes",
+          "details": [
+            "Verify PlatformProtocol.create_pr signature matches the spec exactly (keyword-only, async, -> str).",
+            "Verify NullPlatform.create_pr raises NotImplementedError with exact message.",
+            "Verify GitHubPlatform satisfies the protocol (isinstance check or static analysis)."
+          ],
+          "test_spec_refs": [
+            "TS-02-17",
+            "TS-02-18"
+          ],
+          "requirement_refs": [
+            "02-REQ-6.1",
+            "02-REQ-6.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "13.V",
+        "checks": [
+          "All tests for config, build_pr_body, protocol, and GitHub platform pass: pytest tests/test_merge_strategy.py -q -v -k 'REQ1 or REQ5 or REQ6 or REQ7'",
+          "Full test suite passes: pytest -q",
+          "No linter warnings: ruff check .",
+          "No raise NotImplementedError stubs remain in PlatformProtocol or GitHubPlatform for create_pr"
+        ]
+      }
+    },
+    {
+      "id": 14,
+      "kind": "standard",
+      "title": "Implement direct mode in _harvest_and_integrate() and _integrate_fix()",
+      "subtasks": [
+        {
+          "id": "14.1",
+          "title": "Update _harvest_and_integrate() to branch on merge_strategy; preserve direct mode path",
+          "details": [
+            "Read config.workspace.merge_strategy at the start of _harvest_and_integrate().",
+            "For 'direct': call harvest() exactly as before with no extra log lines.",
+            "Return type must remain tuple[str, str | None, list[str], bool]."
+          ],
+          "test_spec_refs": [
+            "TS-02-5",
+            "TS-02-22",
+            "TS-02-P6"
+          ],
+          "requirement_refs": [
+            "02-REQ-2.1",
+            "02-REQ-8.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "14.2",
+          "title": "Update _integrate_fix() to branch on merge_strategy; preserve direct mode path",
+          "details": [
+            "Read config.workspace.merge_strategy at the start of _integrate_fix().",
+            "For 'direct': call _harvest_and_push() and close issue as before.",
+            "Return type must remain tuple[str, str | None, list[str], bool]."
+          ],
+          "test_spec_refs": [
+            "TS-02-6",
+            "TS-02-22",
+            "TS-02-P6"
+          ],
+          "requirement_refs": [
+            "02-REQ-2.2",
+            "02-REQ-8.1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "14.V",
+        "checks": [
+          "Direct mode tests pass: pytest tests/test_merge_strategy.py -q -v -k 'direct or REQ2 or PROP6'",
+          "All existing tests still pass: pytest -q",
+          "No linter warnings: ruff check .",
+          "02-REQ-2.1, 02-REQ-2.2 acceptance criteria met; no regressions in existing direct-mode behavior"
+        ]
+      }
+    },
+    {
+      "id": 15,
+      "kind": "standard",
+      "title": "Implement branch mode in _harvest_and_integrate() and _integrate_fix()",
+      "subtasks": [
+        {
+          "id": "15.1",
+          "title": "Implement branch mode in _harvest_and_integrate()",
+          "details": [
+            "For 'branch': skip harvest(); skip git push.",
+            "Call get_changed_files(repo_root, feature_branch, integration_branch) to populate touched_files.",
+            "Emit INFO log: \"Merge strategy is 'branch' — feature branch '{branch_name}' kept locally.\"",
+            "Include branch name in session summary passed to CLI for stdout output.",
+            "Return ('completed', None, touched_files, False)."
+          ],
+          "test_spec_refs": [
+            "TS-02-7",
+            "TS-02-23",
+            "TS-02-27",
+            "TS-02-E3"
+          ],
+          "requirement_refs": [
+            "02-REQ-3.1",
+            "02-REQ-9.1",
+            "02-REQ-9.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "15.2",
+          "title": "Implement branch mode in _integrate_fix()",
+          "details": [
+            "For 'branch': skip harvest(); skip git push; do NOT close issue.",
+            "Post comment to issue with exact text: 'Fix branch created: `{branch_name}`. Merge strategy is set to `branch` — please review and merge manually.'",
+            "Return ('completed', None, touched_files, False)."
+          ],
+          "test_spec_refs": [
+            "TS-02-8"
+          ],
+          "requirement_refs": [
+            "02-REQ-3.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "15.V",
+        "checks": [
+          "Branch mode tests pass: pytest tests/test_merge_strategy.py -q -v -k 'branch or REQ3 or REQ9_branch'",
+          "All existing tests still pass: pytest -q",
+          "No linter warnings: ruff check .",
+          "02-REQ-3.1, 02-REQ-3.2, 02-REQ-3.E1, 02-REQ-9.1, 02-REQ-9.5 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 16,
+      "kind": "standard",
+      "title": "Implement PR mode happy path in _harvest_and_integrate() and _integrate_fix()",
+      "subtasks": [
+        {
+          "id": "16.1",
+          "title": "Implement platform guard (create_platform_safe) and fallback logic",
+          "details": [
+            "At the start of PR mode: platform = create_platform_safe(config, project_root).",
+            "If platform is None: log WARNING 'Merge strategy is \\'pr\\' but platform is not configured — falling back to \\'branch\\' mode.'; execute branch mode behavior; return.",
+            "Validate lazily — do NOT call create_platform_safe at session start."
+          ],
+          "test_spec_refs": [
+            "TS-02-11",
+            "TS-02-12",
+            "TS-02-25",
+            "TS-02-29",
+            "TS-02-P3"
+          ],
+          "requirement_refs": [
+            "02-REQ-4.3",
+            "02-REQ-4.4",
+            "02-REQ-9.3",
+            "02-REQ-10.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "16.2",
+          "title": "Implement PR mode branch push and get_changed_files in _harvest_and_integrate()",
+          "details": [
+            "If platform available: push feature_branch to origin.",
+            "Call get_changed_files(repo_root, feature_branch, integration_branch).",
+            "Construct PR title: '{spec_name}: {task_group_title}'.",
+            "Call build_pr_body(spec_name=..., task_group_id=..., task_group_title=..., changed_files=...).",
+            "Call platform.create_pr(title=..., body=..., head=feature_branch, base=integration_branch).",
+            "On success: log INFO 'Pull request created: {html_url}'; include PR URL in session summary."
+          ],
+          "test_spec_refs": [
+            "TS-02-9",
+            "TS-02-29"
+          ],
+          "requirement_refs": [
+            "02-REQ-4.1",
+            "02-REQ-10.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "16.3",
+          "title": "Implement PR mode in _integrate_fix() — nightshift title, Fixes #N, issue not closed",
+          "details": [
+            "Push feature_branch to origin.",
+            "Call get_changed_files(); build_pr_body(issue_number=..., issue_title=..., changed_files=...).",
+            "PR title: 'Fix #{issue_number}: {issue_title}'.",
+            "Call platform.create_pr(); do NOT close issue.",
+            "PR body contains 'Fixes #{issue_number}' for GitHub auto-close."
+          ],
+          "test_spec_refs": [
+            "TS-02-10",
+            "TS-02-29"
+          ],
+          "requirement_refs": [
+            "02-REQ-4.2",
+            "02-REQ-10.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "16.4",
+          "title": "Implement PR mode stdout output — PR URL in session summary for af code",
+          "details": [
+            "After successful create_pr(): emit INFO log 'Pull request created: {html_url}'.",
+            "Pass PR URL into the existing session summary output structure used by af code CLI.",
+            "Ensure exit code remains 0."
+          ],
+          "test_spec_refs": [
+            "TS-02-24",
+            "TS-02-28"
+          ],
+          "requirement_refs": [
+            "02-REQ-9.2",
+            "02-REQ-9.6"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "16.V",
+        "checks": [
+          "PR mode happy-path tests pass: pytest tests/test_merge_strategy.py -q -v -k 'pr_mode or REQ4_happy or REQ9_pr or REQ10 or PROP3'",
+          "All existing tests still pass: pytest -q",
+          "No linter warnings: ruff check .",
+          "02-REQ-4.1, 02-REQ-4.2, 02-REQ-4.3, 02-REQ-4.4, 02-REQ-9.2, 02-REQ-9.3, 02-REQ-9.6, 02-REQ-10.1 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 17,
+      "kind": "standard",
+      "title": "Implement PR mode error handling — partial failure and exception propagation",
+      "subtasks": [
+        {
+          "id": "17.1",
+          "title": "Implement partial failure handling in _harvest_and_integrate() (af code)",
+          "details": [
+            "Catch IntegrationError from platform.create_pr().",
+            "Log ERROR: 'PR creation failed. Branch available at: https://github.com/{owner}/{repo}/tree/{branch_name}'.",
+            "Fall back to branch mode semantics: no harvest/squash-merge.",
+            "Do NOT attempt to roll back the remote branch.",
+            "Return ('completed', None, touched_files, False); exit code 0."
+          ],
+          "test_spec_refs": [
+            "TS-02-E5",
+            "TS-02-26"
+          ],
+          "requirement_refs": [
+            "02-REQ-4.E2",
+            "02-REQ-9.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "17.2",
+          "title": "Implement partial failure handling in _integrate_fix() (nightshift)",
+          "details": [
+            "Catch IntegrationError from platform.create_pr().",
+            "Log ERROR with remote branch URL.",
+            "Post branch-mode comment to originating issue: 'Fix branch created: `{branch_name}`. Merge strategy is set to `branch` — please review and merge manually.'",
+            "Do NOT close the issue.",
+            "Return ('completed', None, touched_files, False); mark nightshift job complete, no retry."
+          ],
+          "test_spec_refs": [
+            "TS-02-E6"
+          ],
+          "requirement_refs": [
+            "02-REQ-4.E3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "17.3",
+          "title": "Ensure git push failure and unexpected exceptions propagate correctly",
+          "details": [
+            "Do NOT catch git push exceptions (OSError, subprocess errors) in the merge strategy code.",
+            "Do NOT catch unexpected exceptions (RuntimeError, etc.) during the operation sequence.",
+            "Only IntegrationError from create_pr() is caught for partial-failure handling."
+          ],
+          "test_spec_refs": [
+            "TS-02-E4",
+            "TS-02-E8",
+            "TS-02-E15"
+          ],
+          "requirement_refs": [
+            "02-REQ-4.E1",
+            "02-REQ-10.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "17.V",
+        "checks": [
+          "PR mode error handling tests pass: pytest tests/test_merge_strategy.py -q -v -k 'pr_error or REQ4_E or REQ10_E or REQ9_error'",
+          "All existing tests still pass: pytest -q",
+          "No linter warnings: ruff check .",
+          "02-REQ-4.E1, 02-REQ-4.E2, 02-REQ-4.E3, 02-REQ-9.4, 02-REQ-10.E1 acceptance criteria met"
+        ]
+      }
+    },
+    {
+      "id": 18,
+      "kind": "checkpoint",
+      "title": "Checkpoint: all unit tests GREEN before smoke tests",
+      "subtasks": [
+        {
+          "id": "18.1",
+          "title": "Run full test suite and confirm all spec tests are GREEN",
+          "details": [
+            "Run: pytest tests/test_merge_strategy.py -q",
+            "All tests must be GREEN.",
+            "Run: pytest -q (full suite — no regressions).",
+            "Run: ruff check . (no lint errors)."
+          ],
+          "test_spec_refs": [
+            "TS-02-1",
+            "TS-02-5",
+            "TS-02-7",
+            "TS-02-9",
+            "TS-02-13",
+            "TS-02-17",
+            "TS-02-19",
+            "TS-02-22",
+            "TS-02-23",
+            "TS-02-29"
+          ],
+          "requirement_refs": [
+            "02-REQ-1.1",
+            "02-REQ-2.1",
+            "02-REQ-3.1",
+            "02-REQ-4.1",
+            "02-REQ-5.1",
+            "02-REQ-6.1",
+            "02-REQ-7.1",
+            "02-REQ-8.1",
+            "02-REQ-9.1",
+            "02-REQ-10.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "18.2",
+          "title": "Confirm return type contract across all modes and partial failure scenarios",
+          "details": [
+            "Verify 02-PROP-2: all 8 scenarios (2 functions × 4 modes/partial-failures) return ('completed', None, list[str], False).",
+            "Verify 02-PROP-3: platform guard always precedes branch push."
+          ],
+          "test_spec_refs": [
+            "TS-02-22",
+            "TS-02-P2"
+          ],
+          "requirement_refs": [
+            "02-REQ-8.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "18.3",
+          "title": "Search for residual stubs in changed modules",
+          "details": [
+            "Search session_lifecycle.py, fix_pipeline.py, github.py, protocol.py, config.py, config_gen.py for: 'raise NotImplementedError', 'pass', 'return None' in non-trivial paths, '# TODO'.",
+            "Confirm no stubs remain in production paths (NullPlatform.create_pr intentionally raises NotImplementedError — this is acceptable)."
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [
+            "02-REQ-4.1",
+            "02-REQ-5.1",
+            "02-REQ-6.1",
+            "02-REQ-7.1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "18.V",
+        "checks": [
+          "Full spec test suite GREEN: pytest tests/test_merge_strategy.py -q",
+          "Full project test suite GREEN: pytest -q",
+          "No lint warnings: ruff check .",
+          "No unintentional raise NotImplementedError/pass stubs in production paths"
+        ]
+      }
+    },
+    {
+      "id": 19,
+      "kind": "wiring_verification",
+      "title": "Wiring verification: end-to-end integration, smoke tests, and execution path tracing",
+      "subtasks": [
+        {
+          "id": "19.1",
+          "title": "Trace execution paths — verify each path's call chain has no stubs",
+          "details": [
+            "02-PATH-1 (af code + pr mode): trace _harvest_and_integrate → create_platform_safe → git push → get_changed_files → build_pr_body → platform.create_pr → session summary; confirm each step calls the next with no placeholder returns.",
+            "02-PATH-2 (af code + branch mode): trace _harvest_and_integrate → get_changed_files → log INFO → session summary.",
+            "02-PATH-3 (nightshift + pr mode): trace _integrate_fix → create_platform_safe → git push → get_changed_files → build_pr_body → platform.create_pr; confirm issue NOT closed.",
+            "02-PATH-4 (platform not configured): trace fallback to branch mode; confirm no push attempted.",
+            "02-PATH-7 (direct mode): trace _harvest_and_integrate → harvest(); confirm create_platform_safe NOT called."
+          ],
+          "test_spec_refs": [
+            "TS-02-SMOKE-1",
+            "TS-02-SMOKE-2",
+            "TS-02-SMOKE-3",
+            "TS-02-SMOKE-4",
+            "TS-02-SMOKE-7"
+          ],
+          "requirement_refs": [
+            "02-REQ-4.1",
+            "02-REQ-4.2",
+            "02-REQ-4.3",
+            "02-REQ-2.1",
+            "02-REQ-3.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "19.2",
+          "title": "Verify return value propagation — callers receive and use return tuples",
+          "details": [
+            "Confirm callers of _harvest_and_integrate() and _integrate_fix() (the af code CLI and nightshift daemon) correctly handle ('completed', None, touched_files, False) for all three modes.",
+            "Confirm PR URL is NOT in the return tuple (it must be surfaced only via log and session summary).",
+            "Confirm touched_files from get_changed_files is passed through correctly in branch and pr modes."
+          ],
+          "test_spec_refs": [
+            "TS-02-22",
+            "TS-02-P2"
+          ],
+          "requirement_refs": [
+            "02-REQ-8.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "19.3",
+          "title": "Run all smoke tests with real components",
+          "details": [
+            "Run all 7 SMOKE tests: TS-02-SMOKE-1 through TS-02-SMOKE-7.",
+            "Each SMOKE test uses real components (session_lifecycle, fix_pipeline, config, protocol) with only external dependencies mocked.",
+            "Assert expected_effects for each smoke test are met.",
+            "Run: pytest tests/test_merge_strategy.py -q -v -k 'SMOKE'"
+          ],
+          "test_spec_refs": [
+            "TS-02-SMOKE-1",
+            "TS-02-SMOKE-2",
+            "TS-02-SMOKE-3",
+            "TS-02-SMOKE-4",
+            "TS-02-SMOKE-5",
+            "TS-02-SMOKE-6",
+            "TS-02-SMOKE-7"
+          ],
+          "requirement_refs": [
+            "02-REQ-4.1",
+            "02-REQ-4.2",
+            "02-REQ-4.3",
+            "02-REQ-2.1",
+            "02-REQ-3.1",
+            "02-REQ-7.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "19.4",
+          "title": "Stub and dead-code audit across all changed modules",
+          "details": [
+            "Search for Python stub markers in session_lifecycle.py, fix_pipeline.py, github.py, protocol.py, config.py, config_gen.py:",
+            "  - 'raise NotImplementedError' (only NullPlatform is expected; all others are bugs)",
+            "  - bare 'pass' in non-abstract, non-trivial methods",
+            "  - 'return None' where a meaningful value is expected",
+            "  - '# TODO' comments left in production code",
+            "Confirm NullPlatform.create_pr intentionally raises NotImplementedError (acceptable per 02-REQ-6.2).",
+            "Confirm all other production code paths are fully implemented."
+          ],
+          "test_spec_refs": [],
+          "requirement_refs": [
+            "02-REQ-2.1",
+            "02-REQ-3.1",
+            "02-REQ-4.1",
+            "02-REQ-5.1",
+            "02-REQ-6.1",
+            "02-REQ-7.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "19.5",
+          "title": "Verify operation sequence integrity for PR mode (02-PATH-5 and 02-PATH-6)",
+          "details": [
+            "02-PATH-5 (nightshift partial failure): confirm push → create_pr raises IntegrationError → ERROR log → branch-mode comment → return ('completed', None, list, False); no retry.",
+            "02-PATH-6 (duplicate PR): confirm HTTP 422 → GET existing PR → return html_url; no IntegrationError raised.",
+            "Verify create_platform_safe always called before any git push in all scenarios.",
+            "Run final full suite: pytest -q; ruff check ."
+          ],
+          "test_spec_refs": [
+            "TS-02-SMOKE-5",
+            "TS-02-SMOKE-6",
+            "TS-02-29",
+            "TS-02-P3"
+          ],
+          "requirement_refs": [
+            "02-REQ-10.1",
+            "02-REQ-7.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "19.V",
+        "checks": [
+          "All smoke tests pass: pytest tests/test_merge_strategy.py -q -v -k 'SMOKE'",
+          "Full spec test suite passes: pytest tests/test_merge_strategy.py -q",
+          "Full project test suite passes with no regressions: pytest -q",
+          "No lint warnings: ruff check .",
+          "No unintentional stubs in production paths (grep for 'raise NotImplementedError', 'pass', '# TODO' in session_lifecycle.py, fix_pipeline.py, github.py, config.py, config_gen.py)",
+          "02-PATH-1 through 02-PATH-7 execution paths verified — each step calls the correct next function in the chain",
+          "Return type tuple[str, str | None, list[str], bool] confirmed unchanged for all callers",
+          "02-PROP-1 through 02-PROP-7 correctness properties satisfied"
+        ]
+      }
+    }
+  ],
+  "traceability": [
+    {
+      "requirement_id": "02-REQ-1.1",
+      "test_spec_id": "TS-02-1",
+      "task_id": "9.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-1.2",
+      "test_spec_id": "TS-02-2",
+      "task_id": "9.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-1.3",
+      "test_spec_id": "TS-02-3",
+      "task_id": "9.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-1.4",
+      "test_spec_id": "TS-02-4",
+      "task_id": "9.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-1.E1",
+      "test_spec_id": "TS-02-E1",
+      "task_id": "9.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-1.E2",
+      "test_spec_id": "TS-02-E2",
+      "task_id": "9.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-2.1",
+      "test_spec_id": "TS-02-5",
+      "task_id": "14.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-2.2",
+      "test_spec_id": "TS-02-6",
+      "task_id": "14.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-3.1",
+      "test_spec_id": "TS-02-7",
+      "task_id": "15.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-3.2",
+      "test_spec_id": "TS-02-8",
+      "task_id": "15.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-3.E1",
+      "test_spec_id": "TS-02-E3",
+      "task_id": "15.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-4.1",
+      "test_spec_id": "TS-02-9",
+      "task_id": "16.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-4.2",
+      "test_spec_id": "TS-02-10",
+      "task_id": "16.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-4.3",
+      "test_spec_id": "TS-02-11",
+      "task_id": "16.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-4.4",
+      "test_spec_id": "TS-02-12",
+      "task_id": "16.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-4.E1",
+      "test_spec_id": "TS-02-E4",
+      "task_id": "17.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-4.E2",
+      "test_spec_id": "TS-02-E5",
+      "task_id": "17.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-4.E3",
+      "test_spec_id": "TS-02-E6",
+      "task_id": "17.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-4.E4",
+      "test_spec_id": "TS-02-E7",
+      "task_id": "16.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-4.E5",
+      "test_spec_id": "TS-02-E8",
+      "task_id": "17.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-5.1",
+      "test_spec_id": "TS-02-13",
+      "task_id": "10.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-5.2",
+      "test_spec_id": "TS-02-14",
+      "task_id": "10.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-5.3",
+      "test_spec_id": "TS-02-15",
+      "task_id": "10.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-5.4",
+      "test_spec_id": "TS-02-16",
+      "task_id": "10.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-5.E1",
+      "test_spec_id": "TS-02-E9",
+      "task_id": "10.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-5.E2",
+      "test_spec_id": "TS-02-E10",
+      "task_id": "10.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-6.1",
+      "test_spec_id": "TS-02-17",
+      "task_id": "11.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-6.2",
+      "test_spec_id": "TS-02-18",
+      "task_id": "11.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-6.E1",
+      "test_spec_id": "TS-02-E11",
+      "task_id": "11.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-7.1",
+      "test_spec_id": "TS-02-19",
+      "task_id": "12.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-7.2",
+      "test_spec_id": "TS-02-20",
+      "task_id": "12.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-7.3",
+      "test_spec_id": "TS-02-21",
+      "task_id": "12.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-7.E1",
+      "test_spec_id": "TS-02-E12",
+      "task_id": "12.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-7.E2",
+      "test_spec_id": "TS-02-E13",
+      "task_id": "12.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-7.E3",
+      "test_spec_id": "TS-02-E14",
+      "task_id": "12.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-8.1",
+      "test_spec_id": "TS-02-22",
+      "task_id": "14.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-9.1",
+      "test_spec_id": "TS-02-23",
+      "task_id": "15.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-9.2",
+      "test_spec_id": "TS-02-24",
+      "task_id": "16.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-9.3",
+      "test_spec_id": "TS-02-25",
+      "task_id": "16.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-9.4",
+      "test_spec_id": "TS-02-26",
+      "task_id": "17.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-9.5",
+      "test_spec_id": "TS-02-27",
+      "task_id": "15.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-9.6",
+      "test_spec_id": "TS-02-28",
+      "task_id": "16.4",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-10.1",
+      "test_spec_id": "TS-02-29",
+      "task_id": "16.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "02-REQ-10.E1",
+      "test_spec_id": "TS-02-E15",
+      "task_id": "17.3",
+      "test_path": null
+    }
+  ]
+}

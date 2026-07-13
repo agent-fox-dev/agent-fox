@@ -1,0 +1,929 @@
+{
+  "$schema": null,
+  "spec_id": "02",
+  "spec_name": "merge_strategy",
+  "schema_version": 1,
+  "test_cases": [
+    {
+      "id": "TS-02-1",
+      "requirement_id": "02-REQ-1.1",
+      "kind": "unit",
+      "description": "WorkspaceConfig exposes a merge_strategy field typed as Literal['direct','branch','pr'] defaulting to 'direct' when the field is absent from input.",
+      "preconditions": [
+        "WorkspaceConfig is importable from config.py",
+        "Pydantic v2 is installed"
+      ],
+      "input": "WorkspaceConfig() instantiated with no merge_strategy argument",
+      "expected": "model instantiation succeeds; instance.merge_strategy == 'direct'",
+      "assertion_pseudocode": "cfg = WorkspaceConfig()\nassert cfg.merge_strategy == 'direct'\nassert type annotation for merge_strategy is Literal['direct','branch','pr']"
+    },
+    {
+      "id": "TS-02-2",
+      "requirement_id": "02-REQ-1.2",
+      "kind": "unit",
+      "description": "WorkspaceConfig accepts each of the three valid literal values and stores them correctly.",
+      "preconditions": [
+        "WorkspaceConfig is importable from config.py",
+        "Pydantic v2 is installed"
+      ],
+      "input": "WorkspaceConfig(merge_strategy='direct'), WorkspaceConfig(merge_strategy='branch'), WorkspaceConfig(merge_strategy='pr')",
+      "expected": "each model instantiation succeeds; instance.merge_strategy equals the supplied value for all three cases",
+      "assertion_pseudocode": "for value in ['direct', 'branch', 'pr']:\n    cfg = WorkspaceConfig(merge_strategy=value)\n    assert cfg.merge_strategy == value"
+    },
+    {
+      "id": "TS-02-3",
+      "requirement_id": "02-REQ-1.3",
+      "kind": "unit",
+      "description": "WorkspaceConfig raises Pydantic ValidationError when merge_strategy is set to an unrecognized string value.",
+      "preconditions": [
+        "WorkspaceConfig is importable from config.py",
+        "Pydantic v2 is installed"
+      ],
+      "input": "WorkspaceConfig(merge_strategy='squash')",
+      "expected": "pydantic.ValidationError is raised; model is not constructed; error details reference the invalid value 'squash'",
+      "assertion_pseudocode": "with expect_raises(ValidationError):\n    WorkspaceConfig(merge_strategy='squash')"
+    },
+    {
+      "id": "TS-02-4",
+      "requirement_id": "02-REQ-1.4",
+      "kind": "unit",
+      "description": "config_gen.py includes merge_strategy in _VISIBLE_SECTIONS and _PROMOTED_DEFAULTS so the generated config template contains the line 'merge_strategy = \"direct\"'.",
+      "preconditions": [
+        "config_gen.py is importable",
+        "_VISIBLE_SECTIONS and _PROMOTED_DEFAULTS are accessible module-level structures in config_gen.py"
+      ],
+      "input": "call the config template generation function (or inspect _VISIBLE_SECTIONS and _PROMOTED_DEFAULTS directly)",
+      "expected": "generated template string contains the line: merge_strategy = \"direct\" within the [workspace] section; merge_strategy key is present in both _VISIBLE_SECTIONS and _PROMOTED_DEFAULTS",
+      "assertion_pseudocode": "template = generate_config_template()\nassert 'merge_strategy = \"direct\"' in template\nassert 'merge_strategy' in _VISIBLE_SECTIONS['workspace']\nassert 'merge_strategy' in _PROMOTED_DEFAULTS['workspace']"
+    },
+    {
+      "id": "TS-02-5",
+      "requirement_id": "02-REQ-2.1",
+      "kind": "unit",
+      "description": "_harvest_and_integrate() in direct mode calls harvest() exactly once, does not call get_changed_files() or create_pr(), and returns the expected tuple.",
+      "preconditions": [
+        "session_lifecycle.py is importable",
+        "harvest() is mocked to return a list of touched files",
+        "WorkspaceConfig has merge_strategy='direct'",
+        "a mock repo and feature/integration branch names are set up"
+      ],
+      "input": "_harvest_and_integrate() called with merge_strategy='direct' config",
+      "expected": "harvest() called exactly once; return value is ('completed', None, <files_from_harvest>, False); no extra INFO/WARNING log lines emitted beyond existing harvest/merge output",
+      "assertion_pseudocode": "mock_harvest = mock(return_value=['file_a.py'])\nresult = _harvest_and_integrate(config=cfg_direct, ...)\nassert mock_harvest.call_count == 1\nassert result == ('completed', None, ['file_a.py'], False)\nassert no_extra_log_lines_emitted()"
+    },
+    {
+      "id": "TS-02-6",
+      "requirement_id": "02-REQ-2.2",
+      "kind": "unit",
+      "description": "_integrate_fix() in direct mode calls _harvest_and_push() and closes the originating issue, returning the expected tuple.",
+      "preconditions": [
+        "fix_pipeline.py is importable",
+        "_harvest_and_push() is mocked to return touched files",
+        "platform mock is set up with close_issue capability",
+        "WorkspaceConfig has merge_strategy='direct'"
+      ],
+      "input": "_integrate_fix() called with merge_strategy='direct' config and a valid issue context",
+      "expected": "_harvest_and_push() called once; issue close action called on the platform; return value is ('completed', None, <files_from_harvest>, False)",
+      "assertion_pseudocode": "mock_harvest_push = mock(return_value=['fix.py'])\nmock_close_issue = mock()\nresult = _integrate_fix(config=cfg_direct, issue_number=7, ...)\nassert mock_harvest_push.call_count == 1\nassert mock_close_issue.call_count == 1\nassert result == ('completed', None, ['fix.py'], False)"
+    },
+    {
+      "id": "TS-02-7",
+      "requirement_id": "02-REQ-3.1",
+      "kind": "unit",
+      "description": "_harvest_and_integrate() in branch mode skips harvest(), does not push to origin, calls get_changed_files(), emits the correct INFO log, and returns the expected tuple with exit code 0.",
+      "preconditions": [
+        "session_lifecycle.py is importable",
+        "harvest() is mocked and should NOT be called",
+        "get_changed_files() is mocked to return ['changed.py']",
+        "git push subprocess is mocked and should NOT be called",
+        "WorkspaceConfig has merge_strategy='branch'",
+        "log capture is configured"
+      ],
+      "input": "_harvest_and_integrate() called with merge_strategy='branch', feature_branch='feat/my-feature'",
+      "expected": "harvest() not called; git push not called; get_changed_files() called once; INFO log line equals \"Merge strategy is 'branch' — feature branch 'feat/my-feature' kept locally.\"; return value is ('completed', None, ['changed.py'], False)",
+      "assertion_pseudocode": "mock_harvest = mock()\nmock_push = mock()\nmock_gcf = mock(return_value=['changed.py'])\nresult = _harvest_and_integrate(config=cfg_branch, feature_branch='feat/my-feature', ...)\nassert mock_harvest.call_count == 0\nassert mock_push.call_count == 0\nassert mock_gcf.call_count == 1\nassert INFO_log_contains(\"Merge strategy is 'branch' — feature branch 'feat/my-feature' kept locally.\")\nassert result == ('completed', None, ['changed.py'], False)"
+    },
+    {
+      "id": "TS-02-8",
+      "requirement_id": "02-REQ-3.2",
+      "kind": "unit",
+      "description": "_integrate_fix() in branch mode skips harvest(), does not push the feature branch, does not close the issue, and posts the exact branch-mode comment.",
+      "preconditions": [
+        "fix_pipeline.py is importable",
+        "harvest() mock should NOT be called",
+        "git push mock should NOT be called",
+        "platform mock has post_comment capability",
+        "WorkspaceConfig has merge_strategy='branch'",
+        "feature_branch is 'fix/issue-42-branch'"
+      ],
+      "input": "_integrate_fix() called with merge_strategy='branch', issue_number=42, feature_branch='fix/issue-42-branch'",
+      "expected": "harvest() not called; git push not called; issue close not called; platform.post_comment called once with exact text: 'Fix branch created: `fix/issue-42-branch`. Merge strategy is set to `branch` — please review and merge manually.'; return value is ('completed', None, <touched_files>, False)",
+      "assertion_pseudocode": "mock_harvest = mock()\nmock_push = mock()\nmock_close = mock()\nmock_comment = mock()\nresult = _integrate_fix(config=cfg_branch, issue_number=42, feature_branch='fix/issue-42-branch', ...)\nassert mock_harvest.call_count == 0\nassert mock_push.call_count == 0\nassert mock_close.call_count == 0\nassert mock_comment.called_with(issue_number=42, text='Fix branch created: `fix/issue-42-branch`. Merge strategy is set to `branch` — please review and merge manually.')\nassert result[0] == 'completed' and result[1] is None and result[3] == False"
+    },
+    {
+      "id": "TS-02-9",
+      "requirement_id": "02-REQ-4.1",
+      "kind": "unit",
+      "description": "_harvest_and_integrate() in pr mode with a valid platform pushes the branch, calls build_pr_body(), creates the PR with the correct title, emits an INFO log, and returns the expected tuple.",
+      "preconditions": [
+        "session_lifecycle.py is importable",
+        "create_platform_safe() mocked to return a mock platform",
+        "git push subprocess mocked to succeed",
+        "get_changed_files() mocked to return ['config.py']",
+        "platform.create_pr() mocked to return 'https://github.com/owner/repo/pull/1'",
+        "WorkspaceConfig has merge_strategy='pr'",
+        "spec_name='merge_strategy', task_group_id='task-001', task_group_title='Config and validation'",
+        "log capture configured"
+      ],
+      "input": "_harvest_and_integrate() with merge_strategy='pr', spec_name='merge_strategy', task_group_title='Config and validation', feature_branch='feat/ms'",
+      "expected": "git push called once; platform.create_pr called with title='merge_strategy: Config and validation', head='feat/ms', base=integration_branch; INFO log 'Pull request created: https://github.com/owner/repo/pull/1'; return value is ('completed', None, ['config.py'], False)",
+      "assertion_pseudocode": "mock_push = mock()\nmock_create_pr = mock(return_value='https://github.com/owner/repo/pull/1')\nresult = _harvest_and_integrate(config=cfg_pr, spec_name='merge_strategy', task_group_id='task-001', task_group_title='Config and validation', feature_branch='feat/ms', ...)\nassert mock_push.call_count == 1\nassert mock_create_pr.called_with(title='merge_strategy: Config and validation', head='feat/ms')\nassert INFO_log_contains('Pull request created: https://github.com/owner/repo/pull/1')\nassert result == ('completed', None, ['config.py'], False)"
+    },
+    {
+      "id": "TS-02-10",
+      "requirement_id": "02-REQ-4.2",
+      "kind": "unit",
+      "description": "_integrate_fix() in pr mode with a valid platform creates a PR with the correct nightshift title, does not close the issue, and the PR body contains 'Fixes #N'.",
+      "preconditions": [
+        "fix_pipeline.py is importable",
+        "create_platform_safe() mocked to return a mock platform",
+        "git push mocked to succeed",
+        "get_changed_files() mocked to return ['auth/login.py']",
+        "platform.create_pr() mocked to return 'https://github.com/owner/repo/pull/5'",
+        "WorkspaceConfig has merge_strategy='pr'",
+        "issue_number=42, issue_title='Login fails on empty password'"
+      ],
+      "input": "_integrate_fix() with merge_strategy='pr', issue_number=42, issue_title='Login fails on empty password'",
+      "expected": "platform.create_pr called with title='Fix #42: Login fails on empty password'; PR body contains 'Fixes #42'; issue close NOT called; return value is ('completed', None, ['auth/login.py'], False)",
+      "assertion_pseudocode": "mock_create_pr = mock(return_value='https://github.com/owner/repo/pull/5')\nmock_close_issue = mock()\nresult = _integrate_fix(config=cfg_pr, issue_number=42, issue_title='Login fails on empty password', ...)\nassert mock_create_pr.called_with(title='Fix #42: Login fails on empty password')\nactual_body = mock_create_pr.call_args['body']\nassert 'Fixes #42' in actual_body\nassert mock_close_issue.call_count == 0\nassert result == ('completed', None, ['auth/login.py'], False)"
+    },
+    {
+      "id": "TS-02-11",
+      "requirement_id": "02-REQ-4.3",
+      "kind": "unit",
+      "description": "When create_platform_safe() returns None in pr mode, a WARNING is logged and the system falls back to branch mode without any branch push.",
+      "preconditions": [
+        "session_lifecycle.py and fix_pipeline.py are importable",
+        "create_platform_safe() mocked to return None",
+        "git push mock should NOT be called",
+        "WorkspaceConfig has merge_strategy='pr'",
+        "log capture configured"
+      ],
+      "input": "_harvest_and_integrate() and _integrate_fix() both called with merge_strategy='pr' and create_platform_safe returning None",
+      "expected": "git push not called; WARNING log 'Merge strategy is \\'pr\\' but platform is not configured — falling back to \\'branch\\' mode.' emitted; return value is ('completed', None, <touched_files>, False)",
+      "assertion_pseudocode": "mock_push = mock()\nfor fn in [_harvest_and_integrate, _integrate_fix]:\n    result = fn(config=cfg_pr, ...)\n    assert mock_push.call_count == 0\n    assert WARNING_log_contains(\"Merge strategy is 'pr' but platform is not configured — falling back to 'branch' mode.\")\n    assert result[0] == 'completed' and result[1] is None and result[3] == False"
+    },
+    {
+      "id": "TS-02-12",
+      "requirement_id": "02-REQ-4.4",
+      "kind": "unit",
+      "description": "Platform availability is validated lazily via create_platform_safe() only at the point of PR creation, not at startup or session start.",
+      "preconditions": [
+        "session_lifecycle.py and fix_pipeline.py are importable",
+        "session initialization logic does not call create_platform_safe()",
+        "create_platform_safe() is instrumented for call tracking"
+      ],
+      "input": "session starts with merge_strategy='pr'; observe when create_platform_safe() is first invoked",
+      "expected": "create_platform_safe() is NOT called during session initialization or session start; it is called only when the merge strategy logic executes (i.e., within _harvest_and_integrate() or _integrate_fix())",
+      "assertion_pseudocode": "call_log = []\npatch create_platform_safe to record call_log.append('called')\ninitialize_session(config=cfg_pr)\nassert len(call_log) == 0  # not called at startup\nrun_merge_strategy_phase()\nassert len(call_log) == 1  # called only at PR creation point"
+    },
+    {
+      "id": "TS-02-13",
+      "requirement_id": "02-REQ-5.1",
+      "kind": "unit",
+      "description": "build_pr_body() exists in fix_pipeline.py with the exact keyword-only signature and is a pure function with no side effects.",
+      "preconditions": [
+        "fix_pipeline.py is importable",
+        "build_pr_body is accessible from fix_pipeline module"
+      ],
+      "input": "inspect build_pr_body signature and call it twice with the same arguments",
+      "expected": "function signature matches the spec exactly (all keyword-only parameters with correct types and defaults); two calls with identical arguments return identical strings; no external state is read or written",
+      "assertion_pseudocode": "import inspect\nsig = inspect.signature(build_pr_body)\nparams = sig.parameters\nassert params['spec_name'].default is None\nassert params['task_group_id'].default is None\nassert params['task_group_title'].default is None\nassert params['changed_files'].default == inspect.Parameter.empty  # required\nassert params['issue_number'].default is None\nassert params['issue_title'].default is None\nresult1 = build_pr_body(changed_files=['a.py'], spec_name='s')\nresult2 = build_pr_body(changed_files=['a.py'], spec_name='s')\nassert result1 == result2"
+    },
+    {
+      "id": "TS-02-14",
+      "requirement_id": "02-REQ-5.2",
+      "kind": "unit",
+      "description": "build_pr_body() renders the correct Markdown body for an af code session with spec_name, task_group_id, task_group_title, and changed_files.",
+      "preconditions": [
+        "fix_pipeline.py is importable"
+      ],
+      "input": "build_pr_body(spec_name='merge_strategy', task_group_id='task-001', task_group_title='Config and validation', changed_files=['config.py', 'config_gen.py'])",
+      "expected": "returned string contains '## Summary\\n\\nmerge_strategy', '## Task Group\\n\\ntask-001: Config and validation', '## Changed Files\\n\\n- config.py\\n- config_gen.py'; does NOT contain 'Fixes #'",
+      "assertion_pseudocode": "body = build_pr_body(\n    spec_name='merge_strategy',\n    task_group_id='task-001',\n    task_group_title='Config and validation',\n    changed_files=['config.py', 'config_gen.py']\n)\nassert '## Summary' in body\nassert 'merge_strategy' in body\nassert '## Task Group' in body\nassert 'task-001: Config and validation' in body\nassert '## Changed Files' in body\nassert '- config.py' in body\nassert '- config_gen.py' in body\nassert 'Fixes #' not in body"
+    },
+    {
+      "id": "TS-02-15",
+      "requirement_id": "02-REQ-5.3",
+      "kind": "unit",
+      "description": "build_pr_body() renders the correct Markdown body for a nightshift fix session with issue_number, issue_title, and changed_files, omitting the Task Group section.",
+      "preconditions": [
+        "fix_pipeline.py is importable"
+      ],
+      "input": "build_pr_body(issue_number=42, issue_title='Login fails on empty password', changed_files=['auth/login.py', 'tests/test_login.py'])",
+      "expected": "returned string contains '## Summary\\n\\nFix #42: Login fails on empty password'; does NOT contain '## Task Group'; contains '## Changed Files' with both files listed; ends with 'Fixes #42'",
+      "assertion_pseudocode": "body = build_pr_body(\n    issue_number=42,\n    issue_title='Login fails on empty password',\n    changed_files=['auth/login.py', 'tests/test_login.py']\n)\nassert '## Summary' in body\nassert 'Fix #42: Login fails on empty password' in body\nassert '## Task Group' not in body\nassert '- auth/login.py' in body\nassert '- tests/test_login.py' in body\nassert 'Fixes #42' in body"
+    },
+    {
+      "id": "TS-02-16",
+      "requirement_id": "02-REQ-5.4",
+      "kind": "unit",
+      "description": "All callers of build_pr_body() in session_lifecycle.py and fix_pipeline.py use keyword arguments exclusively.",
+      "preconditions": [
+        "session_lifecycle.py and fix_pipeline.py source files are accessible for static analysis"
+      ],
+      "input": "static analysis / AST inspection of all call sites of build_pr_body() in both files",
+      "expected": "all call sites of build_pr_body() pass arguments using keyword syntax only; no positional arguments are present in any call",
+      "assertion_pseudocode": "import ast\nfor filepath in ['session_lifecycle.py', 'fix_pipeline.py']:\n    tree = ast.parse(read_file(filepath))\n    for call in find_calls(tree, 'build_pr_body'):\n        assert len(call.args) == 0, f'Positional args found in {filepath}'"
+    },
+    {
+      "id": "TS-02-17",
+      "requirement_id": "02-REQ-6.1",
+      "kind": "unit",
+      "description": "PlatformProtocol in protocol.py declares create_pr() with the exact async keyword-only signature returning str, with correct docstring.",
+      "preconditions": [
+        "protocol.py is importable",
+        "PlatformProtocol class is accessible"
+      ],
+      "input": "inspect PlatformProtocol.create_pr method signature and annotations",
+      "expected": "method is async; parameters are title: str, body: str, head: str, base: str (all keyword-only); return annotation is str; docstring references html_url and IntegrationError",
+      "assertion_pseudocode": "import inspect\nmethod = PlatformProtocol.create_pr\nassert inspect.iscoroutinefunction(method)\nsig = inspect.signature(method)\nfor param in ['title', 'body', 'head', 'base']:\n    assert sig.parameters[param].kind == KEYWORD_ONLY\n    assert sig.parameters[param].annotation == str\nassert sig.return_annotation == str\nassert 'html_url' in method.__doc__\nassert 'IntegrationError' in method.__doc__"
+    },
+    {
+      "id": "TS-02-18",
+      "requirement_id": "02-REQ-6.2",
+      "kind": "unit",
+      "description": "NullPlatform.create_pr() raises NotImplementedError with the exact specified message.",
+      "preconditions": [
+        "protocol.py is importable",
+        "NullPlatform class is accessible"
+      ],
+      "input": "await NullPlatform().create_pr(title='T', body='B', head='H', base='B')",
+      "expected": "NotImplementedError is raised with message 'create_pr() called on NullPlatform — this should never be reached. Ensure platform availability is checked via create_platform_safe() before calling create_pr()'",
+      "assertion_pseudocode": "platform = NullPlatform()\nwith expect_raises(NotImplementedError) as exc_info:\n    await platform.create_pr(title='T', body='B', head='H', base='base')\nassert 'create_pr() called on NullPlatform' in str(exc_info.value)\nassert 'create_platform_safe()' in str(exc_info.value)"
+    },
+    {
+      "id": "TS-02-19",
+      "requirement_id": "02-REQ-7.1",
+      "kind": "unit",
+      "description": "GitHubPlatform.create_pr() sends a single POST /repos/{owner}/{repo}/pulls request and returns html_url from the HTTP 201 response body.",
+      "preconditions": [
+        "github.py is importable",
+        "GitHubPlatform is instantiated with mocked aiohttp ClientSession",
+        "mock HTTP response returns 201 with body {\"html_url\": \"https://github.com/owner/repo/pull/99\"}"
+      ],
+      "input": "await github_platform.create_pr(title='My PR', body='body text', head='feat/x', base='main')",
+      "expected": "exactly one POST request sent to /repos/{owner}/{repo}/pulls; return value is 'https://github.com/owner/repo/pull/99'",
+      "assertion_pseudocode": "mock_session = MockAiohttpSession()\nmock_session.post('/repos/owner/repo/pulls').respond(201, json={'html_url': 'https://github.com/owner/repo/pull/99'})\nplatform = GitHubPlatform(session=mock_session, owner='owner', repo='repo')\nresult = await platform.create_pr(title='My PR', body='body text', head='feat/x', base='main')\nassert mock_session.post_call_count == 1\nassert result == 'https://github.com/owner/repo/pull/99'"
+    },
+    {
+      "id": "TS-02-20",
+      "requirement_id": "02-REQ-7.2",
+      "kind": "unit",
+      "description": "GitHubPlatform.create_pr() handles HTTP 422 duplicate-PR idempotently by querying the existing PR and returning its html_url.",
+      "preconditions": [
+        "github.py is importable",
+        "GitHubPlatform is instantiated with mocked aiohttp ClientSession",
+        "POST /repos/{owner}/{repo}/pulls returns 422 with body indicating PR already exists",
+        "GET /repos/{owner}/{repo}/pulls?head=feat/x&base=main returns [{\"html_url\": \"https://github.com/owner/repo/pull/7\"}]"
+      ],
+      "input": "await github_platform.create_pr(title='My PR', body='body', head='feat/x', base='main')",
+      "expected": "no IntegrationError raised; GET request made to /repos/{owner}/{repo}/pulls with head and base params; return value is 'https://github.com/owner/repo/pull/7'",
+      "assertion_pseudocode": "mock_session.post('/repos/owner/repo/pulls').respond(422, json={'errors': [{'message': 'A pull request already exists'}]})\nmock_session.get('/repos/owner/repo/pulls').respond(200, json=[{'html_url': 'https://github.com/owner/repo/pull/7'}])\nresult = await platform.create_pr(title='My PR', body='body', head='feat/x', base='main')\nassert result == 'https://github.com/owner/repo/pull/7'\nassert no IntegrationError raised"
+    },
+    {
+      "id": "TS-02-21",
+      "requirement_id": "02-REQ-7.3",
+      "kind": "unit",
+      "description": "GitHubPlatform.create_pr() raises IntegrationError for any non-201 HTTP response that is not a duplicate-PR 422.",
+      "preconditions": [
+        "github.py is importable",
+        "GitHubPlatform is instantiated with mocked aiohttp ClientSession"
+      ],
+      "input": "POST /repos/{owner}/{repo}/pulls returning 500 (internal server error)",
+      "expected": "IntegrationError is raised with details about the failure",
+      "assertion_pseudocode": "for status_code in [400, 403, 404, 500, 422]:  # 422 without duplicate-PR message\n    mock_session.post('/repos/owner/repo/pulls').respond(status_code, json={'message': 'error'})\n    with expect_raises(IntegrationError):\n        await platform.create_pr(title='T', body='B', head='H', base='main')"
+    },
+    {
+      "id": "TS-02-22",
+      "requirement_id": "02-REQ-8.1",
+      "kind": "unit",
+      "description": "_harvest_and_integrate() and _integrate_fix() always return tuple[str, str|None, list[str], bool] with status='completed', error_message=None, is_non_retryable=False across all three modes.",
+      "preconditions": [
+        "session_lifecycle.py and fix_pipeline.py are importable",
+        "all dependencies (harvest, git push, platform, get_changed_files) are mocked for each scenario"
+      ],
+      "input": "call each function under each mode: direct, branch, pr-success, pr-partial-failure",
+      "expected": "all 8 results (2 functions × 4 scenarios) have shape ('completed', None, list, False) where the list contains strings",
+      "assertion_pseudocode": "scenarios = ['direct', 'branch', 'pr_success', 'pr_partial_failure']\nfor fn in [_harvest_and_integrate, _integrate_fix]:\n    for scenario in scenarios:\n        result = run_scenario(fn, scenario)\n        status, err_msg, touched, non_retry = result\n        assert status == 'completed'\n        assert err_msg is None\n        assert isinstance(touched, list)\n        assert non_retry == False"
+    },
+    {
+      "id": "TS-02-23",
+      "requirement_id": "02-REQ-9.1",
+      "kind": "unit",
+      "description": "In branch mode, agent-fox logger emits exactly one INFO log line with the correct message including the actual branch name.",
+      "preconditions": [
+        "session_lifecycle.py is importable",
+        "log capture is set up",
+        "WorkspaceConfig has merge_strategy='branch'",
+        "feature_branch is 'feat/my-feature'"
+      ],
+      "input": "_harvest_and_integrate() called with merge_strategy='branch', feature_branch='feat/my-feature'",
+      "expected": "exactly one INFO log line matching \"Merge strategy is 'branch' — feature branch 'feat/my-feature' kept locally.\" is captured; no additional non-existing log lines added",
+      "assertion_pseudocode": "with capture_logs() as logs:\n    _harvest_and_integrate(config=cfg_branch, feature_branch='feat/my-feature', ...)\ninfo_lines = [l for l in logs if l.level == 'INFO' and 'Merge strategy' in l.message]\nassert len(info_lines) == 1\nassert info_lines[0].message == \"Merge strategy is 'branch' — feature branch 'feat/my-feature' kept locally.\""
+    },
+    {
+      "id": "TS-02-24",
+      "requirement_id": "02-REQ-9.2",
+      "kind": "unit",
+      "description": "In pr mode on successful PR creation, agent-fox logger emits exactly one INFO log line with the PR HTML URL.",
+      "preconditions": [
+        "session_lifecycle.py is importable",
+        "platform.create_pr() mocked to return 'https://github.com/owner/repo/pull/1'",
+        "WorkspaceConfig has merge_strategy='pr'",
+        "log capture configured"
+      ],
+      "input": "_harvest_and_integrate() called with merge_strategy='pr', PR creation succeeds",
+      "expected": "exactly one INFO log line 'Pull request created: https://github.com/owner/repo/pull/1' is captured",
+      "assertion_pseudocode": "with capture_logs() as logs:\n    _harvest_and_integrate(config=cfg_pr, ...)\ninfo_pr_lines = [l for l in logs if l.level == 'INFO' and 'Pull request created' in l.message]\nassert len(info_pr_lines) == 1\nassert 'https://github.com/owner/repo/pull/1' in info_pr_lines[0].message"
+    },
+    {
+      "id": "TS-02-25",
+      "requirement_id": "02-REQ-9.3",
+      "kind": "unit",
+      "description": "In pr mode when create_platform_safe() returns None, agent-fox logger emits exactly one WARNING log line with the correct fallback message.",
+      "preconditions": [
+        "session_lifecycle.py is importable",
+        "create_platform_safe() mocked to return None",
+        "WorkspaceConfig has merge_strategy='pr'",
+        "log capture configured"
+      ],
+      "input": "_harvest_and_integrate() called with merge_strategy='pr' and no platform configured",
+      "expected": "exactly one WARNING log line \"Merge strategy is 'pr' but platform is not configured — falling back to 'branch' mode.\" is captured",
+      "assertion_pseudocode": "with capture_logs() as logs:\n    _harvest_and_integrate(config=cfg_pr, ...)\nwarn_lines = [l for l in logs if l.level == 'WARNING' and 'falling back' in l.message]\nassert len(warn_lines) == 1\nassert \"Merge strategy is 'pr' but platform is not configured\" in warn_lines[0].message"
+    },
+    {
+      "id": "TS-02-26",
+      "requirement_id": "02-REQ-9.4",
+      "kind": "unit",
+      "description": "In pr mode partial failure (branch pushed but create_pr raises IntegrationError), agent-fox logger emits exactly one ERROR log line with the remote branch URL.",
+      "preconditions": [
+        "session_lifecycle.py is importable",
+        "git push mocked to succeed",
+        "platform.create_pr() mocked to raise IntegrationError",
+        "WorkspaceConfig has merge_strategy='pr'",
+        "owner='owner', repo='repo', feature_branch='feat/my-branch'",
+        "log capture configured"
+      ],
+      "input": "_harvest_and_integrate() called with merge_strategy='pr'; push succeeds but create_pr raises IntegrationError",
+      "expected": "exactly one ERROR log line 'PR creation failed. Branch available at: https://github.com/owner/repo/tree/feat/my-branch'; session exit code remains 0 (function returns normally)",
+      "assertion_pseudocode": "with capture_logs() as logs:\n    result = _harvest_and_integrate(config=cfg_pr, feature_branch='feat/my-branch', owner='owner', repo='repo', ...)\nerror_lines = [l for l in logs if l.level == 'ERROR' and 'PR creation failed' in l.message]\nassert len(error_lines) == 1\nassert 'https://github.com/owner/repo/tree/feat/my-branch' in error_lines[0].message\nassert result[0] == 'completed'"
+    },
+    {
+      "id": "TS-02-27",
+      "requirement_id": "02-REQ-9.5",
+      "kind": "unit",
+      "description": "In branch mode, the af code CLI session summary printed to stdout includes the feature branch name.",
+      "preconditions": [
+        "session_lifecycle.py and CLI entry point are importable",
+        "WorkspaceConfig has merge_strategy='branch'",
+        "stdout is captured",
+        "feature_branch='feat/my-feature'"
+      ],
+      "input": "af code session completes with merge_strategy='branch' and feature_branch='feat/my-feature'",
+      "expected": "stdout output contains 'feat/my-feature'; exit code is 0",
+      "assertion_pseudocode": "with capture_stdout() as out:\n    exit_code = run_af_code_session(config=cfg_branch, feature_branch='feat/my-feature')\nassert 'feat/my-feature' in out.getvalue()\nassert exit_code == 0"
+    },
+    {
+      "id": "TS-02-28",
+      "requirement_id": "02-REQ-9.6",
+      "kind": "unit",
+      "description": "In pr mode after successful PR creation, the af code CLI session summary printed to stdout includes the PR URL.",
+      "preconditions": [
+        "session_lifecycle.py and CLI entry point are importable",
+        "platform.create_pr() mocked to return 'https://github.com/owner/repo/pull/1'",
+        "WorkspaceConfig has merge_strategy='pr'",
+        "stdout is captured"
+      ],
+      "input": "af code session completes with merge_strategy='pr'; PR creation succeeds",
+      "expected": "stdout output contains 'https://github.com/owner/repo/pull/1'; exit code is 0",
+      "assertion_pseudocode": "with capture_stdout() as out:\n    exit_code = run_af_code_session(config=cfg_pr, ...)\nassert 'https://github.com/owner/repo/pull/1' in out.getvalue()\nassert exit_code == 0"
+    },
+    {
+      "id": "TS-02-29",
+      "requirement_id": "02-REQ-10.1",
+      "kind": "unit",
+      "description": "_harvest_and_integrate() and _integrate_fix() in pr mode execute operations in the mandatory sequence: platform check first, then push, then get_changed_files, then build_pr_body, then create_pr.",
+      "preconditions": [
+        "session_lifecycle.py and fix_pipeline.py are importable",
+        "all dependencies are mocked with call-order tracking",
+        "WorkspaceConfig has merge_strategy='pr'",
+        "platform is available (create_platform_safe returns mock)"
+      ],
+      "input": "_harvest_and_integrate() called with merge_strategy='pr' and all dependencies instrumented",
+      "expected": "call order recorded is: [create_platform_safe, git_push, get_changed_files, build_pr_body, platform.create_pr]; no step is reordered",
+      "assertion_pseudocode": "call_order = []\npatch create_platform_safe to append('create_platform_safe') to call_order\npatch git_push to append('git_push') to call_order\npatch get_changed_files to append('get_changed_files') to call_order\npatch build_pr_body to append('build_pr_body') to call_order\npatch platform.create_pr to append('create_pr') to call_order\n_harvest_and_integrate(config=cfg_pr, ...)\nassert call_order == ['create_platform_safe', 'git_push', 'get_changed_files', 'build_pr_body', 'create_pr']"
+    }
+  ],
+  "property_tests": [
+    {
+      "id": "TS-02-P1",
+      "property_id": "02-PROP-1",
+      "validates": [
+        "02-REQ-1.1",
+        "02-REQ-1.2",
+        "02-REQ-1.3",
+        "02-REQ-1.E1",
+        "02-REQ-1.E2"
+      ],
+      "description": "For any WorkspaceConfig instance, merge_strategy is always one of 'direct', 'branch', or 'pr' and never None, empty, or unrecognized.",
+      "for_any_strategy": "arbitrary dict of WorkspaceConfig fields; merge_strategy drawn from: valid literals, invalid strings, empty string, None, integers",
+      "invariant_check": "if merge_strategy value is in {'direct','branch','pr'}: model instantiates and cfg.merge_strategy in {'direct','branch','pr'}\nelse: ValidationError is raised and no model instance exists with an invalid merge_strategy"
+    },
+    {
+      "id": "TS-02-P2",
+      "property_id": "02-PROP-2",
+      "validates": [
+        "02-REQ-8.1",
+        "02-REQ-2.1",
+        "02-REQ-2.2",
+        "02-REQ-3.1",
+        "02-REQ-3.2",
+        "02-REQ-4.1",
+        "02-REQ-4.2",
+        "02-REQ-4.E2",
+        "02-REQ-4.E3"
+      ],
+      "description": "For any call to _harvest_and_integrate() or _integrate_fix() across all merge strategy modes and partial failure scenarios, the return tuple always has shape ('completed', None, list[str], False).",
+      "for_any_strategy": "merge_strategy in {'direct','branch','pr'}; optional pr partial failure (create_pr raises IntegrationError); changed_files as arbitrary list of strings",
+      "invariant_check": "status, err_msg, touched, non_retry = result\nassert status == 'completed'\nassert err_msg is None\nassert isinstance(touched, list) and all(isinstance(f, str) for f in touched)\nassert non_retry == False"
+    },
+    {
+      "id": "TS-02-P3",
+      "property_id": "02-PROP-3",
+      "validates": [
+        "02-REQ-4.3",
+        "02-REQ-4.4",
+        "02-REQ-10.1"
+      ],
+      "description": "For any pr mode execution, create_platform_safe() is always called and its result is checked before any git push; a None result always prevents any push from occurring.",
+      "for_any_strategy": "arbitrary config with merge_strategy='pr'; create_platform_safe returns either a mock platform or None",
+      "invariant_check": "push_call_order = index_of_first('git_push', call_order)\nplatform_check_order = index_of_first('create_platform_safe', call_order)\nassert platform_check_order < push_call_order or push_never_called_when_platform_is_none"
+    },
+    {
+      "id": "TS-02-P4",
+      "property_id": "02-PROP-4",
+      "validates": [
+        "02-REQ-5.1",
+        "02-REQ-5.2",
+        "02-REQ-5.3"
+      ],
+      "description": "build_pr_body() is a pure function: calling it with the same arguments always returns the identical string and produces no observable side effects.",
+      "for_any_strategy": "arbitrary combinations of: spec_name (str or None), task_group_id (str or None), task_group_title (str or None), changed_files (list of strings), issue_number (int or None), issue_title (str or None)",
+      "invariant_check": "result1 = build_pr_body(**kwargs)\nresult2 = build_pr_body(**kwargs)\nassert result1 == result2\nassert isinstance(result1, str)\nassert no external state modified (filesystem, network, global variables)"
+    },
+    {
+      "id": "TS-02-P5",
+      "property_id": "02-PROP-5",
+      "validates": [
+        "02-REQ-6.2",
+        "02-REQ-6.E1"
+      ],
+      "description": "For any call to NullPlatform.create_pr() with any arguments, NotImplementedError is always raised immediately with no side effects.",
+      "for_any_strategy": "arbitrary title: str, body: str, head: str, base: str",
+      "invariant_check": "with expect_raises(NotImplementedError):\n    await NullPlatform().create_pr(title=title, body=body, head=head, base=base)\nassert network_call_count == 0\nassert git_state_unchanged()"
+    },
+    {
+      "id": "TS-02-P6",
+      "property_id": "02-PROP-6",
+      "validates": [
+        "02-REQ-2.1",
+        "02-REQ-2.2",
+        "02-REQ-1.E1"
+      ],
+      "description": "For any direct mode execution (or absent merge_strategy), the code path is identical to the pre-feature implementation: harvest() is called, no extra log lines are emitted, and no new functions are invoked.",
+      "for_any_strategy": "config with merge_strategy='direct' or merge_strategy absent; arbitrary feature_branch and integration_branch names",
+      "invariant_check": "harvest_called = True\ncreate_pr_not_called = True\nbranch_push_not_called_separately = True\nextra_info_logs = [l for l in captured_logs if l.level == 'INFO' and 'Merge strategy' in l.message]\nassert len(extra_info_logs) == 0\nassert harvest_called\nassert create_pr_not_called"
+    },
+    {
+      "id": "TS-02-P7",
+      "property_id": "02-PROP-7",
+      "validates": [
+        "02-REQ-7.1",
+        "02-REQ-7.3",
+        "02-REQ-7.E3"
+      ],
+      "description": "GitHubPlatform.create_pr() makes at most one POST /repos/{owner}/{repo}/pulls request per invocation; a follow-up GET is only issued on duplicate-PR 422; no other retries occur.",
+      "for_any_strategy": "HTTP response status in {201, 400, 403, 404, 422, 500}; 422 body either with or without duplicate-PR message",
+      "invariant_check": "post_count = count_requests('POST', '/repos/owner/repo/pulls')\nassert post_count == 1\nget_count = count_requests('GET', '/repos/owner/repo/pulls')\nif status == 422 and is_duplicate_pr_message:\n    assert get_count <= 1\nelse:\n    assert get_count == 0\nassert post_count + get_count <= 2  # bounded iteration"
+    }
+  ],
+  "edge_case_tests": [
+    {
+      "id": "TS-02-E1",
+      "requirement_id": "02-REQ-1.E1",
+      "kind": "unit",
+      "description": "Loading a pre-existing config file without merge_strategy silently defaults to 'direct' via Pydantic's default-value mechanism.",
+      "preconditions": [
+        "WorkspaceConfig is importable from config.py",
+        "Pydantic v2 is installed"
+      ],
+      "input": "WorkspaceConfig(**{...existing_fields_without_merge_strategy...})",
+      "expected": "model instantiation succeeds with no warnings or errors; merge_strategy attribute equals 'direct'",
+      "assertion_pseudocode": "cfg = WorkspaceConfig(integration_branch='main', force_clean=False)  # no merge_strategy\nassert cfg.merge_strategy == 'direct'"
+    },
+    {
+      "id": "TS-02-E2",
+      "requirement_id": "02-REQ-1.E2",
+      "kind": "unit",
+      "description": "WorkspaceConfig raises ValidationError when merge_strategy is supplied as an empty string or null.",
+      "preconditions": [
+        "WorkspaceConfig is importable from config.py",
+        "Pydantic v2 is installed"
+      ],
+      "input": "WorkspaceConfig(merge_strategy='') and WorkspaceConfig(merge_strategy=None)",
+      "expected": "ValidationError raised for both inputs; model is not constructed",
+      "assertion_pseudocode": "with expect_raises(ValidationError):\n    WorkspaceConfig(merge_strategy='')\nwith expect_raises(ValidationError):\n    WorkspaceConfig(merge_strategy=None)"
+    },
+    {
+      "id": "TS-02-E3",
+      "requirement_id": "02-REQ-3.E1",
+      "kind": "unit",
+      "description": "In branch mode, _harvest_and_integrate() proceeds normally when get_changed_files() returns an empty list, returning ('completed', None, [], False).",
+      "preconditions": [
+        "session_lifecycle.py is importable",
+        "get_changed_files() mocked to return []",
+        "WorkspaceConfig has merge_strategy='branch'"
+      ],
+      "input": "_harvest_and_integrate() called with merge_strategy='branch'; get_changed_files() returns []",
+      "expected": "no exception raised; no error log emitted; return value is ('completed', None, [], False)",
+      "assertion_pseudocode": "mock_gcf = mock(return_value=[])\nresult = _harvest_and_integrate(config=cfg_branch, feature_branch='feat/x', ...)\nassert result == ('completed', None, [], False)\nassert no_error_logs_emitted()"
+    },
+    {
+      "id": "TS-02-E4",
+      "requirement_id": "02-REQ-4.E1",
+      "kind": "unit",
+      "description": "If the git push to origin fails before create_pr() is called in pr mode, the exception propagates to the existing pipeline error handling without any special handling in merge strategy code.",
+      "preconditions": [
+        "session_lifecycle.py is importable",
+        "create_platform_safe() mocked to return a valid platform",
+        "git push mocked to raise an OSError('push failed')",
+        "WorkspaceConfig has merge_strategy='pr'"
+      ],
+      "input": "_harvest_and_integrate() called with merge_strategy='pr'; git push raises OSError",
+      "expected": "OSError propagates from _harvest_and_integrate(); platform.create_pr() is never called; no partial git state from merge strategy code",
+      "assertion_pseudocode": "mock_push = mock(side_effect=OSError('push failed'))\nmock_create_pr = mock()\nwith expect_raises(OSError):\n    _harvest_and_integrate(config=cfg_pr, ...)\nassert mock_create_pr.call_count == 0"
+    },
+    {
+      "id": "TS-02-E5",
+      "requirement_id": "02-REQ-4.E2",
+      "kind": "unit",
+      "description": "In af code pr mode, if the branch was pushed successfully but create_pr() raises IntegrationError, the system logs an ERROR with the remote branch URL, falls back to branch mode semantics, and returns ('completed', None, touched_files, False) with exit code 0.",
+      "preconditions": [
+        "session_lifecycle.py is importable",
+        "create_platform_safe() mocked to return a valid platform",
+        "git push mocked to succeed",
+        "platform.create_pr() mocked to raise IntegrationError",
+        "owner='owner', repo='repo', feature_branch='feat/my-branch'",
+        "WorkspaceConfig has merge_strategy='pr'"
+      ],
+      "input": "_harvest_and_integrate() with pr mode; push succeeds; create_pr raises IntegrationError",
+      "expected": "ERROR log contains 'https://github.com/owner/repo/tree/feat/my-branch'; harvest() not called (no squash-merge); return value is ('completed', None, <touched_files>, False); remote branch is NOT rolled back (no delete push call)",
+      "assertion_pseudocode": "mock_harvest = mock()\nmock_delete_push = mock()\nwith capture_logs() as logs:\n    result = _harvest_and_integrate(config=cfg_pr, feature_branch='feat/my-branch', ...)\nassert any('https://github.com/owner/repo/tree/feat/my-branch' in l.message for l in logs if l.level == 'ERROR')\nassert mock_harvest.call_count == 0\nassert mock_delete_push.call_count == 0\nassert result == ('completed', None, result[2], False)"
+    },
+    {
+      "id": "TS-02-E6",
+      "requirement_id": "02-REQ-4.E3",
+      "kind": "unit",
+      "description": "In nightshift pr mode partial failure (push succeeded, create_pr raises IntegrationError), _integrate_fix() logs ERROR, posts branch-mode comment, marks job complete, does not retry.",
+      "preconditions": [
+        "fix_pipeline.py is importable",
+        "create_platform_safe() mocked to return a valid platform",
+        "git push mocked to succeed",
+        "platform.create_pr() mocked to raise IntegrationError",
+        "platform.post_comment mocked",
+        "issue_number=42, feature_branch='fix/issue-42', owner='owner', repo='repo'",
+        "WorkspaceConfig has merge_strategy='pr'"
+      ],
+      "input": "_integrate_fix() with pr mode; push succeeds; create_pr raises IntegrationError",
+      "expected": "ERROR log with remote branch URL; platform.post_comment called with exact branch-mode text for issue 42; issue close NOT called; return value is ('completed', None, <touched_files>, False); no retry triggered",
+      "assertion_pseudocode": "mock_comment = mock()\nmock_close = mock()\nwith capture_logs() as logs:\n    result = _integrate_fix(config=cfg_pr, issue_number=42, feature_branch='fix/issue-42', ...)\nassert any('PR creation failed' in l.message for l in logs if l.level == 'ERROR')\nassert mock_comment.called_with(issue_number=42, body='Fix branch created: `fix/issue-42`. Merge strategy is set to `branch` — please review and merge manually.')\nassert mock_close.call_count == 0\nassert result == ('completed', None, result[2], False)"
+    },
+    {
+      "id": "TS-02-E7",
+      "requirement_id": "02-REQ-4.E4",
+      "kind": "unit",
+      "description": "In pr mode, when get_changed_files() returns an empty list, build_pr_body() is called with an empty list and the PR body contains an empty Changed Files section without errors.",
+      "preconditions": [
+        "fix_pipeline.py is importable",
+        "get_changed_files() mocked to return []",
+        "platform.create_pr() mocked to succeed",
+        "WorkspaceConfig has merge_strategy='pr'"
+      ],
+      "input": "_harvest_and_integrate() or _integrate_fix() with pr mode; get_changed_files() returns []",
+      "expected": "no exception raised; build_pr_body called with changed_files=[]; PR body contains '## Changed Files' with no bullet items; touched_files is []",
+      "assertion_pseudocode": "mock_gcf = mock(return_value=[])\ncaptured_body = []\nmock_create_pr = mock(side_effect=lambda **kw: captured_body.append(kw['body']) or 'https://github.com/owner/repo/pull/1')\nresult = _harvest_and_integrate(config=cfg_pr, ...)\nassert '## Changed Files' in captured_body[0]\nassert '- ' not in captured_body[0].split('## Changed Files')[1].split('##')[0]\nassert result[2] == []"
+    },
+    {
+      "id": "TS-02-E8",
+      "requirement_id": "02-REQ-4.E5",
+      "kind": "unit",
+      "description": "If the git push subprocess hangs indefinitely, the pipeline relies on any existing timeout mechanism; the merge strategy code itself does not silently swallow the hang.",
+      "preconditions": [
+        "session_lifecycle.py is importable",
+        "create_platform_safe() mocked to return a valid platform",
+        "git push subprocess mocked to block for longer than any configured timeout",
+        "WorkspaceConfig has merge_strategy='pr'"
+      ],
+      "input": "_harvest_and_integrate() called; git push blocks indefinitely or until timeout",
+      "expected": "if a timeout mechanism exists, TimeoutError or equivalent propagates; merge strategy code does not silently suppress the exception; the exception reaches the caller's error handling",
+      "assertion_pseudocode": "# If pipeline has timeout_seconds configured:\nmock_push = mock(side_effect=block_for(seconds=999))\nwith expect_raises((TimeoutError, subprocess.TimeoutExpired)):\n    _harvest_and_integrate(config=cfg_pr, ...)\n# The merge strategy code does not catch the timeout"
+    },
+    {
+      "id": "TS-02-E9",
+      "requirement_id": "02-REQ-5.E1",
+      "kind": "unit",
+      "description": "build_pr_body() renders an empty Changed Files section (with header but no bullets) when changed_files is an empty list.",
+      "preconditions": [
+        "fix_pipeline.py is importable"
+      ],
+      "input": "build_pr_body(spec_name='my_spec', task_group_id='g1', task_group_title='Group 1', changed_files=[])",
+      "expected": "returned string contains '## Changed Files'; no bullet points appear in the Changed Files section; no exception is raised",
+      "assertion_pseudocode": "body = build_pr_body(spec_name='my_spec', task_group_id='g1', task_group_title='Group 1', changed_files=[])\nassert '## Changed Files' in body\nchanged_files_section = body.split('## Changed Files')[1].split('##')[0]\nassert '- ' not in changed_files_section"
+    },
+    {
+      "id": "TS-02-E10",
+      "requirement_id": "02-REQ-5.E2",
+      "kind": "unit",
+      "description": "build_pr_body() does not raise an unhandled exception when both spec_name and issue_number are provided simultaneously (caller-side error).",
+      "preconditions": [
+        "fix_pipeline.py is importable"
+      ],
+      "input": "build_pr_body(spec_name='my_spec', issue_number=42, issue_title='Some issue', changed_files=['a.py'])",
+      "expected": "no unhandled exception is raised; function returns a string (behavior is implementation-defined but must not crash)",
+      "assertion_pseudocode": "# Must not raise an unhandled exception\ntry:\n    result = build_pr_body(spec_name='my_spec', issue_number=42, issue_title='Some issue', changed_files=['a.py'])\n    assert isinstance(result, str)\nexcept Exception as e:\n    # Only acceptable if it's a defined caller-error exception, not an unhandled crash\n    assert False, f'Unhandled exception raised: {e}'"
+    },
+    {
+      "id": "TS-02-E11",
+      "requirement_id": "02-REQ-6.E1",
+      "kind": "unit",
+      "description": "Calling create_pr() on NullPlatform (simulating a bypassed platform guard) raises NotImplementedError with no network call or git state mutation.",
+      "preconditions": [
+        "protocol.py is importable",
+        "NullPlatform is accessible",
+        "network calls are monitored (none expected)"
+      ],
+      "input": "await NullPlatform().create_pr(title='T', body='B', head='H', base='main')",
+      "expected": "NotImplementedError raised immediately; no HTTP requests made; no git state modified",
+      "assertion_pseudocode": "with mock_network() as net:\n    with expect_raises(NotImplementedError):\n        await NullPlatform().create_pr(title='T', body='B', head='H', base='main')\nassert net.request_count == 0"
+    },
+    {
+      "id": "TS-02-E12",
+      "requirement_id": "02-REQ-7.E1",
+      "kind": "unit",
+      "description": "When the aiohttp request to GitHub times out during create_pr(), the aiohttp exception propagates without being caught by GitHubPlatform.",
+      "preconditions": [
+        "github.py is importable",
+        "GitHubPlatform instantiated with mocked aiohttp session that raises aiohttp.ServerTimeoutError on POST"
+      ],
+      "input": "await github_platform.create_pr(title='T', body='B', head='H', base='main'); aiohttp raises ServerTimeoutError",
+      "expected": "aiohttp.ServerTimeoutError propagates from GitHubPlatform.create_pr(); it is not caught or wrapped within the method",
+      "assertion_pseudocode": "mock_session.post('/repos/owner/repo/pulls').raise_on_call(aiohttp.ServerTimeoutError())\nwith expect_raises(aiohttp.ServerTimeoutError):\n    await platform.create_pr(title='T', body='B', head='H', base='main')"
+    },
+    {
+      "id": "TS-02-E13",
+      "requirement_id": "02-REQ-7.E2",
+      "kind": "unit",
+      "description": "GitHubPlatform.create_pr() raises IntegrationError when HTTP 422 is returned but the subsequent GET query finds no existing PR.",
+      "preconditions": [
+        "github.py is importable",
+        "GitHubPlatform instantiated with mocked aiohttp session",
+        "POST /repos/{owner}/{repo}/pulls returns 422 with duplicate-PR message",
+        "GET /repos/{owner}/{repo}/pulls returns empty list []"
+      ],
+      "input": "await github_platform.create_pr(title='T', body='B', head='feat/x', base='main')",
+      "expected": "IntegrationError raised; no html_url returned",
+      "assertion_pseudocode": "mock_session.post('/repos/owner/repo/pulls').respond(422, json={'errors': [{'message': 'A pull request already exists'}]})\nmock_session.get('/repos/owner/repo/pulls').respond(200, json=[])\nwith expect_raises(IntegrationError):\n    await platform.create_pr(title='T', body='B', head='feat/x', base='main')"
+    },
+    {
+      "id": "TS-02-E14",
+      "requirement_id": "02-REQ-7.E3",
+      "kind": "unit",
+      "description": "GitHubPlatform.create_pr() makes exactly one POST attempt (no retry) on failure; no additional POST requests are sent.",
+      "preconditions": [
+        "github.py is importable",
+        "GitHubPlatform instantiated with mocked aiohttp session that returns 500"
+      ],
+      "input": "await github_platform.create_pr(title='T', body='B', head='H', base='main'); server returns 500",
+      "expected": "exactly one POST request was made; IntegrationError is raised; no retry POST requests sent",
+      "assertion_pseudocode": "mock_session.post('/repos/owner/repo/pulls').respond(500, json={'message': 'server error'})\nwith expect_raises(IntegrationError):\n    await platform.create_pr(title='T', body='B', head='H', base='main')\nassert mock_session.post_call_count == 1  # exactly one attempt"
+    },
+    {
+      "id": "TS-02-E15",
+      "requirement_id": "02-REQ-10.E1",
+      "kind": "unit",
+      "description": "Unexpected exceptions (not IntegrationError) during the pr mode operation sequence propagate to the caller's standard error path without being silently caught by merge strategy code.",
+      "preconditions": [
+        "session_lifecycle.py is importable",
+        "create_platform_safe() mocked to return a valid platform",
+        "git push mocked to succeed",
+        "get_changed_files() mocked to raise RuntimeError('unexpected')",
+        "WorkspaceConfig has merge_strategy='pr'"
+      ],
+      "input": "_harvest_and_integrate() with pr mode; get_changed_files raises RuntimeError",
+      "expected": "RuntimeError propagates from _harvest_and_integrate(); merge strategy code does not catch it silently; caller's standard error path is triggered",
+      "assertion_pseudocode": "mock_gcf = mock(side_effect=RuntimeError('unexpected'))\nwith expect_raises(RuntimeError, match='unexpected'):\n    _harvest_and_integrate(config=cfg_pr, ...)"
+    }
+  ],
+  "smoke_tests": [
+    {
+      "id": "TS-02-SMOKE-1",
+      "execution_path_id": "02-PATH-1",
+      "description": "End-to-end smoke test: af code session with pr mode successfully creates a GitHub PR and includes the PR URL in the session summary.",
+      "trigger": "Run an af code session with merge_strategy='pr', a valid GITHUB_PAT, and platform.type='github' configured",
+      "real_components": [
+        "session_lifecycle.py (_harvest_and_integrate)",
+        "fix_pipeline.py (build_pr_body)",
+        "protocol.py (PlatformProtocol)",
+        "config.py (WorkspaceConfig)"
+      ],
+      "mockable": [
+        "GitHubPlatform.create_pr() (mock to return 'https://github.com/owner/repo/pull/1')",
+        "git push subprocess",
+        "get_changed_files()",
+        "create_platform_safe()"
+      ],
+      "expected_effects": [
+        "create_platform_safe() returns a mock platform instance",
+        "git push to origin is called once for feature_branch",
+        "get_changed_files() called once",
+        "build_pr_body() called with spec_name, task_group_id, task_group_title, changed_files",
+        "platform.create_pr() called with title='{spec_name}: {task_group_title}' and head=feature_branch",
+        "INFO log 'Pull request created: https://github.com/owner/repo/pull/1' emitted",
+        "stdout session summary contains 'https://github.com/owner/repo/pull/1'",
+        "return value is ('completed', None, <list>, False)",
+        "process exits with code 0"
+      ]
+    },
+    {
+      "id": "TS-02-SMOKE-2",
+      "execution_path_id": "02-PATH-2",
+      "description": "End-to-end smoke test: af code session with branch mode keeps the feature branch locally and includes the branch name in the session summary.",
+      "trigger": "Run an af code session with merge_strategy='branch' configured",
+      "real_components": [
+        "session_lifecycle.py (_harvest_and_integrate)",
+        "config.py (WorkspaceConfig)"
+      ],
+      "mockable": [
+        "get_changed_files() (mock to return ['config.py'])",
+        "git push subprocess (should NOT be called)",
+        "harvest() (should NOT be called)"
+      ],
+      "expected_effects": [
+        "harvest() is not called",
+        "git push is not called",
+        "get_changed_files() called once",
+        "INFO log \"Merge strategy is 'branch' — feature branch '{branch_name}' kept locally.\" emitted",
+        "stdout session summary contains the feature branch name",
+        "return value is ('completed', None, ['config.py'], False)",
+        "process exits with code 0"
+      ]
+    },
+    {
+      "id": "TS-02-SMOKE-3",
+      "execution_path_id": "02-PATH-3",
+      "description": "End-to-end smoke test: nightshift fix session with pr mode creates a PR with the correct title and body including 'Fixes #N', leaving the issue open.",
+      "trigger": "Nightshift invokes _integrate_fix() with merge_strategy='pr', issue_number=42, issue_title='Login fails on empty password'",
+      "real_components": [
+        "fix_pipeline.py (_integrate_fix, build_pr_body)",
+        "config.py (WorkspaceConfig)",
+        "protocol.py (PlatformProtocol)"
+      ],
+      "mockable": [
+        "GitHubPlatform.create_pr() (mock to return 'https://github.com/owner/repo/pull/5')",
+        "git push subprocess",
+        "get_changed_files() (mock ['auth/login.py'])",
+        "create_platform_safe()",
+        "platform.close_issue() (should NOT be called)"
+      ],
+      "expected_effects": [
+        "git push called once",
+        "platform.create_pr() called with title='Fix #42: Login fails on empty password'",
+        "PR body contains 'Fixes #42'",
+        "PR body contains '## Changed Files' with '- auth/login.py'",
+        "issue close NOT called",
+        "INFO log with PR URL emitted",
+        "return value is ('completed', None, ['auth/login.py'], False)",
+        "nightshift marks job as complete"
+      ]
+    },
+    {
+      "id": "TS-02-SMOKE-4",
+      "execution_path_id": "02-PATH-4",
+      "description": "End-to-end smoke test: pr mode falls back to branch mode gracefully when platform is not configured, with no branch push.",
+      "trigger": "Session starts with merge_strategy='pr' but GITHUB_PAT is absent (create_platform_safe returns None)",
+      "real_components": [
+        "session_lifecycle.py (_harvest_and_integrate)",
+        "fix_pipeline.py (_integrate_fix)",
+        "config.py (WorkspaceConfig)"
+      ],
+      "mockable": [
+        "create_platform_safe() (mock to return None)",
+        "git push subprocess (should NOT be called)",
+        "get_changed_files()"
+      ],
+      "expected_effects": [
+        "create_platform_safe() called and returns None",
+        "git push NOT called",
+        "WARNING log \"Merge strategy is 'pr' but platform is not configured — falling back to 'branch' mode.\" emitted",
+        "branch mode behavior executed (get_changed_files called, branch kept locally)",
+        "return value is ('completed', None, <list>, False)",
+        "process exits with code 0"
+      ]
+    },
+    {
+      "id": "TS-02-SMOKE-5",
+      "execution_path_id": "02-PATH-5",
+      "description": "End-to-end smoke test: nightshift pr mode partial failure — branch is pushed but PR creation fails; branch-mode comment is posted and job is marked complete.",
+      "trigger": "Nightshift invokes _integrate_fix() with merge_strategy='pr'; platform is available; git push succeeds; create_pr raises IntegrationError",
+      "real_components": [
+        "fix_pipeline.py (_integrate_fix, build_pr_body)",
+        "config.py (WorkspaceConfig)",
+        "protocol.py (PlatformProtocol)"
+      ],
+      "mockable": [
+        "create_platform_safe() (mock to return a valid platform)",
+        "git push subprocess (mock to succeed)",
+        "platform.create_pr() (mock to raise IntegrationError)",
+        "platform.post_comment() (capture call)",
+        "platform.close_issue() (should NOT be called)",
+        "get_changed_files()"
+      ],
+      "expected_effects": [
+        "git push called once (succeeds)",
+        "platform.create_pr() raises IntegrationError",
+        "ERROR log with remote branch URL 'https://github.com/{owner}/{repo}/tree/{branch_name}' emitted",
+        "platform.post_comment() called with exact branch-mode comment text for the issue",
+        "issue close NOT called",
+        "return value is ('completed', None, <list>, False)",
+        "nightshift marks job complete with no retry triggered"
+      ]
+    },
+    {
+      "id": "TS-02-SMOKE-6",
+      "execution_path_id": "02-PATH-6",
+      "description": "End-to-end smoke test: pr mode handles duplicate PR idempotently — HTTP 422 from GitHub causes lookup of existing PR URL which is returned as success.",
+      "trigger": "Session with merge_strategy='pr'; git push succeeds; GitHub returns HTTP 422 with duplicate-PR message; existing PR found via GET",
+      "real_components": [
+        "fix_pipeline.py (_integrate_fix)",
+        "session_lifecycle.py (_harvest_and_integrate)",
+        "github.py (GitHubPlatform.create_pr)"
+      ],
+      "mockable": [
+        "aiohttp ClientSession (POST returns 422 duplicate-PR; GET returns existing PR list)",
+        "git push subprocess",
+        "create_platform_safe()",
+        "get_changed_files()"
+      ],
+      "expected_effects": [
+        "POST /repos/{owner}/{repo}/pulls returns 422 with duplicate-PR error",
+        "GET /repos/{owner}/{repo}/pulls queried with head and base params",
+        "existing PR html_url returned (e.g. 'https://github.com/owner/repo/pull/7')",
+        "no IntegrationError raised",
+        "result treated as success",
+        "INFO log with existing PR URL emitted",
+        "return value is ('completed', None, <list>, False)"
+      ]
+    },
+    {
+      "id": "TS-02-SMOKE-7",
+      "execution_path_id": "02-PATH-7",
+      "description": "End-to-end smoke test: direct mode (absent merge_strategy) executes unchanged squash-merge behavior with no regressions.",
+      "trigger": "Run af code session with no merge_strategy field in config (defaults to 'direct')",
+      "real_components": [
+        "session_lifecycle.py (_harvest_and_integrate)",
+        "config.py (WorkspaceConfig)"
+      ],
+      "mockable": [
+        "harvest() (mock to return ['existing_file.py'])",
+        "git push subprocess (called by harvest)",
+        "create_platform_safe() (should NOT be called)"
+      ],
+      "expected_effects": [
+        "WorkspaceConfig.merge_strategy defaults to 'direct'",
+        "harvest() called exactly once",
+        "create_platform_safe() NOT called",
+        "get_changed_files() NOT called separately",
+        "no INFO log lines about merge strategy emitted",
+        "return value is ('completed', None, ['existing_file.py'], False)",
+        "process exits with code 0"
+      ]
+    }
+  ],
+  "coverage": {
+    "requirements_covered": [],
+    "properties_covered": [],
+    "paths_covered": [],
+    "gaps": []
+  }
+}

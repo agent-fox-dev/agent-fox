@@ -1,0 +1,989 @@
+{
+  "$schema": null,
+  "spec_id": "02",
+  "spec_name": "merge_strategy",
+  "schema_version": 1,
+  "introduction": "This spec defines the configurable merge strategy feature for agent-fox, enabling teams to select between direct squash-merge, local branch retention, or GitHub Pull Request creation as the post-session integration behavior. Note: requirements referencing internal module APIs (session_lifecycle.py, fix_pipeline.py, github.py, protocol.py, platform_factory) are based on PRD descriptions and should be cross-checked against the installed codebase before implementation.",
+  "glossary": {
+    " \u2014 please review and merge manually.": "Suffix of the branch-mode nightshift issue comment.",
+    "## Changed Files": "Markdown heading in the PR body template for the list of changed file paths.",
+    "## Summary": "Markdown heading in the PR body template for the spec or issue summary.",
+    "## Task Group": "Markdown heading in the PR body template for the active task group (af code sessions only).",
+    "'branch'": "String literal for the 'branch' merge strategy mode.",
+    "'direct'": "String literal for the 'direct' merge strategy mode.",
+    "'pr'": "String literal for the 'pr' merge strategy mode.",
+    "(status, error_message, touched_files, is_non_retryable)": "The four-element return tuple from _harvest_and_integrate() and _integrate_fix().",
+    ". Merge strategy is set to \\": "Fragment of the branch-mode nightshift issue comment.",
+    "ERROR": "Python logging level for error-severity log messages.",
+    "Fix #{issue_number}: {issue_title}": "PR title format for nightshift fix sessions.",
+    "Fix branch created: \\": "Prefix of the branch-mode nightshift issue comment.",
+    "Fixes #N": "The GitHub-recognized Markdown phrase in a PR body that auto-closes issue N when the PR is merged.",
+    "Fixes #{issue_number}": "GitHub keyword line in PR body that auto-closes the referenced issue.",
+    "GET": "HTTP GET method used for querying existing PRs.",
+    "GET /repos/{owner}/{repo}/pulls": "GitHub REST API endpoint for listing pull requests.",
+    "GET /repos/{owner}/{repo}/pulls?head={head}&base={base}": "GitHub REST API query for finding existing PRs by head and base branch.",
+    "GITHUB_PAT": "The `GITHUB_PAT` environment variable holding the GitHub Personal Access Token required for API authentication in 'pr' mode.",
+    "GitHubPlatform": "The concrete implementation of `PlatformProtocol` that communicates with the GitHub REST API via aiohttp.",
+    "GitHubPlatform.create_pr()": "The create_pr() method on the GitHubPlatform class.",
+    "INFO": "Python logging level for informational log messages.",
+    "IntegrationError": "The exception type raised by `GitHubPlatform` methods on API failures.",
+    "Literal['direct', 'branch', 'pr']": "The Pydantic Literal type annotation constraining merge_strategy values.",
+    "Merge strategy is 'branch' \u2014 feature branch '{branch_name}' kept locally.": "The INFO log message emitted in branch mode.",
+    "Merge strategy is 'pr' but platform is not configured \u2014 falling back to 'branch' mode.": "The WARNING log message emitted when pr mode falls back.",
+    "None": "Python None value, indicating absence of a value.",
+    "NotImplementedError": "Python built-in exception raised by NullPlatform.create_pr().",
+    "NullPlatform": "A no-op stub implementation of `PlatformProtocol` used when no platform is configured.",
+    "NullPlatform.create_pr()": "The create_pr() method on NullPlatform, which raises NotImplementedError.",
+    "POST /repos/{owner}/{repo}/pulls": "GitHub REST API endpoint for creating a pull request.",
+    "PR creation failed. Branch available at: https://github.com/{owner}/{repo}/tree/{branch_name}": "The ERROR log message emitted on PR creation partial failure.",
+    "PlatformProtocol": "The abstract interface (protocol class) in `protocol.py` that all platform implementations must satisfy.",
+    "Pull request created: {html_url}": "The INFO log message emitted on successful PR creation.",
+    "Pull request created: {pr_html_url}": "Variant of the INFO log message emitted on successful PR creation.",
+    "RuntimeError": "Python built-in exception type.",
+    "ValidationError": "Pydantic exception raised when config validation fails.",
+    "WARNING": "Python logging level for warning-severity log messages.",
+    "WorkspaceConfig": "The Pydantic v2 model in `config.py` that holds workspace-level configuration including `merge_strategy`.",
+    "_PROMOTED_DEFAULTS": "The data structure in `config_gen.py` listing fields whose default values are explicitly shown in the generated config template.",
+    "_VISIBLE_SECTIONS": "The data structure in `config_gen.py` listing config sections and fields that appear in the generated config template.",
+    "_harvest_and_integrate": "The internal function in `session_lifecycle.py` that orchestrates the merge strategy logic for `af code` sessions.",
+    "_harvest_and_integrate()": "The internal function in session_lifecycle.py with call-site parentheses.",
+    "_harvest_and_push()": "The internal function in fix_pipeline.py that performs harvest and push for nightshift.",
+    "_integrate_fix": "The internal function in `fix_pipeline.py` that orchestrates the merge strategy logic for nightshift fix sessions.",
+    "_integrate_fix()": "The internal function in fix_pipeline.py with call-site parentheses.",
+    "af code": "The interactive CLI command (`af code`) that runs a coding session for a specific spec and task group.",
+    "async def create_pr(self, *, title: str, body: str, head: str, base: str) -> str": "The full async method signature for create_pr on PlatformProtocol.",
+    "base": "The base branch parameter for create_pr() (typically the integration branch).",
+    "body": "The body text parameter for create_pr() (the PR description in Markdown).",
+    "branch": "The 'branch' merge strategy mode: retains the feature branch locally without merging or pushing to origin.",
+    "build_pr_body": "The pure rendering function in `fix_pipeline.py` that produces the Markdown PR body from structured parameters.",
+    "build_pr_body()": "The build_pr_body function with call-site parentheses.",
+    "changed_files": "The list of changed file paths parameter for build_pr_body().",
+    "config.py": "The module containing Pydantic config models including WorkspaceConfig.",
+    "config_gen.py": "The module responsible for generating the agent-fox config file template; must include `merge_strategy` in visible sections and promoted defaults.",
+    "create_label()": "The existing PlatformProtocol method for creating GitHub labels, referenced for its 422 idempotent pattern.",
+    "create_platform_safe": "The utility function from `platform_factory` that returns a configured `GitHubPlatform` instance or `None` when the platform is unavailable.",
+    "create_platform_safe()": "The platform_factory utility function with call-site parentheses.",
+    "create_pr": "The `PlatformProtocol` async method that creates a GitHub Pull Request and returns its HTML URL.",
+    "create_pr()": "The PlatformProtocol method with call-site parentheses.",
+    "create_pr() called on NullPlatform \u2014 this should never be reached. Ensure platform availability is checked via create_platform_safe() before calling create_pr()": "The error message raised by NullPlatform.create_pr().",
+    "def build_pr_body(*, spec_name: str | None = None, task_group_id: str | None = None, task_group_title: str | None = None, changed_files: list[str], issue_number: int | None = None, issue_title: str | None = None) -> str": "The full function signature for build_pr_body.",
+    "direct": "The 'direct' merge strategy mode: squash-merges the feature branch into the integration branch and pushes to origin (current default behavior).",
+    "error_message is None": "Assertion that error_message is None in the return tuple.",
+    "feature_branch": "The short-lived git branch created by agent-fox during a coding session to isolate changes.",
+    "fix_pipeline.py": "The module in agent-fox that manages the lifecycle of nightshift automated fix sessions.",
+    "force_clean": "An existing boolean field in `WorkspaceConfig` used as a placement reference for `merge_strategy`.",
+    "get_changed_files": "The existing function in the `workspace` module that computes the list of changed file paths between a feature branch and the integration branch.",
+    "get_changed_files()": "The workspace module function with call-site parentheses.",
+    "get_changed_files(repo_root, feature_branch, integration_branch)": "Full call signature for get_changed_files.",
+    "harvest": "The internal `harvest()` function that squash-merges a feature branch into the integration branch and pushes; used only in 'direct' mode.",
+    "harvest()": "The harvest function with call-site parentheses.",
+    "head": "The head branch parameter for create_pr() (the feature branch).",
+    "html_url": "The `html_url` field in the GitHub API pull request response body containing the browser-accessible PR URL.",
+    "https://github.com/{owner}/{repo}/tree/{branch_name}": "URL template for a branch on GitHub, used in error logs.",
+    "integration_branch": "The target branch (default: `main`) into which feature branches are merged or against which PRs are opened.",
+    "is_non_retryable == False": "Assertion that the is_non_retryable flag is False in the return tuple.",
+    "issue_number": "The GitHub issue number parameter for build_pr_body().",
+    "issue_title": "The GitHub issue title parameter for build_pr_body().",
+    "list[str]": "Python type annotation for a list of strings.",
+    "merge_strategy": "The `workspace.merge_strategy` config field controlling post-session branch integration behavior; one of 'direct', 'branch', or 'pr'.",
+    "nightshift": "The background daemon that automatically runs fix sessions for GitHub issues without interactive input.",
+    "null": "JSON null value, equivalent to Python None.",
+    "platform.create_pr()": "The create_pr() method called via the platform interface.",
+    "platform.create_pr(title=..., body=..., head=feature_branch, base=integration_branch)": "Example call to platform.create_pr() with named parameters.",
+    "pr": "The 'pr' merge strategy mode: pushes the feature branch to origin and opens a GitHub Pull Request against the integration branch.",
+    "session_lifecycle.py": "The module in agent-fox that manages the full lifecycle of an `af code` interactive session.",
+    "spec_name": "The identifier of the active spec, sourced from spec metadata and used in PR titles and body for `af code` sessions.",
+    "status == 'completed'": "Assertion that the status field equals 'completed' in the return tuple.",
+    "task_group_id": "The identifier of the active task group within a spec, used in PR body for `af code` sessions.",
+    "task_group_title": "The human-readable title of the active task group, used in PR titles and body for `af code` sessions.",
+    "title": "The title parameter for create_pr() (the PR title string).",
+    "touched_files": "The `list[str]` element of the return tuple from `_harvest_and_integrate()` and `_integrate_fix()` containing changed file paths.",
+    "tuple[str, str | None, list[str], bool]": "Python type annotation for the return type of _harvest_and_integrate() and _integrate_fix().",
+    "{spec_name}": "Template placeholder for the spec name in PR body.",
+    "{spec_name}: {task_group_title}": "PR title format for af code sessions.",
+    "{task_group_id}: {task_group_title}": "Format for the Task Group section in the PR body."
+  },
+  "requirements": [
+    {
+      "id": "02-REQ-1",
+      "title": "WorkspaceConfig merge_strategy field",
+      "user_story": {
+        "role": "developer",
+        "goal": "define `merge_strategy` in my config file or rely on its default",
+        "benefit": "I can choose how feature branches are integrated without any migration effort"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "02-REQ-1.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`WorkspaceConfig`",
+          "action": "exposes a `merge_strategy` field typed as `Literal['direct', 'branch', 'pr']` with default value `'direct'`, placed alongside `integration_branch` and `force_clean` in `config.py`",
+          "return_contract": "Pydantic model instantiation succeeds and `merge_strategy` equals `'direct'` when the field is absent from the input"
+        },
+        {
+          "id": "02-REQ-1.2",
+          "ears_pattern": "event_driven",
+          "system": "`WorkspaceConfig`",
+          "action": "accepts the value and stores it on the model instance",
+          "return_contract": "model field equals the supplied literal string with no validation error",
+          "trigger": "a config file is parsed with `merge_strategy` set to `'direct'`, `'branch'`, or `'pr'`"
+        },
+        {
+          "id": "02-REQ-1.3",
+          "ears_pattern": "unwanted",
+          "system": "`WorkspaceConfig`",
+          "action": "raises a Pydantic `ValidationError` listing the invalid value",
+          "return_contract": "exception is raised; model is not constructed",
+          "error_condition": "the config file contains `merge_strategy` set to any string other than `'direct'`, `'branch'`, or `'pr'`"
+        },
+        {
+          "id": "02-REQ-1.4",
+          "ears_pattern": "ubiquitous",
+          "system": "`config_gen.py`",
+          "action": "includes `merge_strategy` in `_VISIBLE_SECTIONS` and `_PROMOTED_DEFAULTS` using the same pattern applied to `integration_branch` and `force_clean`, so it appears with its default value in the generated config template",
+          "return_contract": "generated config template contains the line `merge_strategy = \"direct\"`"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "02-REQ-1.E1",
+          "ears_pattern": "event_driven",
+          "system": "`WorkspaceConfig`",
+          "action": "silently defaults `merge_strategy` to `'direct'` via Pydantic's default-value mechanism with no warning or error",
+          "return_contract": "model field equals `'direct'`",
+          "trigger": "an existing config file that predates this feature is loaded"
+        },
+        {
+          "id": "02-REQ-1.E2",
+          "ears_pattern": "unwanted",
+          "system": "`WorkspaceConfig`",
+          "action": "raises a Pydantic `ValidationError`",
+          "return_contract": "exception is raised; model is not constructed",
+          "error_condition": "`merge_strategy` is supplied as an empty string or `null`"
+        }
+      ]
+    },
+    {
+      "id": "02-REQ-2",
+      "title": "Direct mode \u2014 unchanged squash-merge behavior",
+      "user_story": {
+        "role": "existing agent-fox user",
+        "goal": "have my current workflow preserved when `merge_strategy` is `'direct'` or absent",
+        "benefit": "I experience zero regressions from this feature introduction"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "02-REQ-2.1",
+          "ears_pattern": "state_driven",
+          "system": "`_harvest_and_integrate()`",
+          "action": "calls `harvest()` exactly as before, squash-merges the `feature_branch` into `integration_branch`, and pushes to origin; emits no additional log output beyond existing harvest/merge log lines",
+          "return_contract": "returns `('completed', None, touched_files_from_harvest, False)`",
+          "state": "`merge_strategy` is `'direct'`"
+        },
+        {
+          "id": "02-REQ-2.2",
+          "ears_pattern": "state_driven",
+          "system": "`_integrate_fix()`",
+          "action": "calls `_harvest_and_push()` and closes the originating issue with a comment as per current behavior",
+          "return_contract": "returns `('completed', None, touched_files_from_harvest, False)`",
+          "state": "`merge_strategy` is `'direct'`"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "02-REQ-3",
+      "title": "Branch mode \u2014 local branch retention",
+      "user_story": {
+        "role": "developer",
+        "goal": "have the feature branch kept locally after a session without being merged or pushed",
+        "benefit": "I can inspect, modify, or manually integrate the branch at my own pace"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "02-REQ-3.1",
+          "ears_pattern": "state_driven",
+          "system": "`_harvest_and_integrate()`",
+          "action": "skips `harvest()`, does not push the `feature_branch` to origin, calls `get_changed_files(repo_root, feature_branch, integration_branch)` to populate `touched_files`, emits an `INFO` log line `Merge strategy is 'branch' \u2014 feature branch '{branch_name}' kept locally.`, and includes the branch name in the standard session summary printed to stdout",
+          "return_contract": "returns `('completed', None, touched_files, False)`; session exits with code 0",
+          "state": "`merge_strategy` is `'branch'`"
+        },
+        {
+          "id": "02-REQ-3.2",
+          "ears_pattern": "state_driven",
+          "system": "`_integrate_fix()`",
+          "action": "skips `harvest()`, does not push the `feature_branch`, does NOT close the originating issue, and posts a comment to the originating issue with the exact text: `Fix branch created: \\`{branch_name}\\`. Merge strategy is set to \\`branch\\` \u2014 please review and merge manually.`",
+          "return_contract": "returns `('completed', None, touched_files, False)`",
+          "state": "`merge_strategy` is `'branch'`"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "02-REQ-3.E1",
+          "ears_pattern": "event_driven",
+          "system": "`_harvest_and_integrate()`",
+          "action": "proceeds normally, returning an empty `touched_files` list; no special handling or error is emitted",
+          "return_contract": "returns `('completed', None, [], False)`",
+          "trigger": "`get_changed_files()` returns an empty list in `'branch'` mode"
+        }
+      ]
+    },
+    {
+      "id": "02-REQ-4",
+      "title": "PR mode \u2014 push branch and create GitHub Pull Request",
+      "user_story": {
+        "role": "team developer",
+        "goal": "have agent-fox automatically push my feature branch and open a GitHub Pull Request after a session",
+        "benefit": "my changes enter the team's code-review workflow without manual steps"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "02-REQ-4.1",
+          "ears_pattern": "state_driven",
+          "system": "`_harvest_and_integrate()`",
+          "action": "pushes the `feature_branch` to origin, calls `get_changed_files()`, constructs the PR title as `{spec_name}: {task_group_title}`, calls `build_pr_body()` with all required parameters, calls `platform.create_pr(title=..., body=..., head=feature_branch, base=integration_branch)`, emits `INFO` log `Pull request created: {html_url}`, and includes the PR URL in the standard `af code` session summary output",
+          "return_contract": "returns `('completed', None, touched_files, False)`; session exits with code 0",
+          "state": "`merge_strategy` is `'pr'` and `create_platform_safe()` returns a valid platform"
+        },
+        {
+          "id": "02-REQ-4.2",
+          "ears_pattern": "state_driven",
+          "system": "`_integrate_fix()`",
+          "action": "pushes the `feature_branch` to origin, constructs the PR title as `Fix #{issue_number}: {issue_title}`, calls `build_pr_body()` with `issue_number`, `issue_title`, and `changed_files`, calls `platform.create_pr()`, does NOT close the originating issue (the PR body contains `Fixes #N` for GitHub auto-close)",
+          "return_contract": "returns `('completed', None, touched_files, False)`",
+          "state": "`merge_strategy` is `'pr'` and `create_platform_safe()` returns a valid platform"
+        },
+        {
+          "id": "02-REQ-4.3",
+          "ears_pattern": "state_driven",
+          "system": "`_harvest_and_integrate()` and `_integrate_fix()`",
+          "action": "logs a `WARNING` `Merge strategy is 'pr' but platform is not configured \u2014 falling back to 'branch' mode.` and falls back to `'branch'` mode behavior before any branch push is attempted",
+          "return_contract": "returns `('completed', None, touched_files, False)`; no partial git state is created",
+          "state": "`merge_strategy` is `'pr'` and `create_platform_safe()` returns `None`"
+        },
+        {
+          "id": "02-REQ-4.4",
+          "ears_pattern": "ubiquitous",
+          "system": "`_harvest_and_integrate()` and `_integrate_fix()`",
+          "action": "validates platform availability lazily via `create_platform_safe()` only at the point of PR creation, not at startup or session start",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "02-REQ-4.E1",
+          "ears_pattern": "unwanted",
+          "system": "`_harvest_and_integrate()` and `_integrate_fix()`",
+          "action": "raises the exception and delegates to the existing pipeline error handling in `session_lifecycle.py` and `fix_pipeline.py`; no special handling is added; no partial state remains from the merge strategy code",
+          "return_contract": "exception propagates; caller's existing error path is triggered",
+          "error_condition": "the git push of the `feature_branch` to origin fails (e.g. network error, auth failure, or rejected push) before `create_pr()` is called"
+        },
+        {
+          "id": "02-REQ-4.E2",
+          "ears_pattern": "unwanted",
+          "system": "`_harvest_and_integrate()`",
+          "action": "logs `ERROR` including the remote branch URL `https://github.com/{owner}/{repo}/tree/{branch_name}`; falls back to `'branch'` mode semantics (no `harvest()`/squash-merge, issue not closed); does not attempt to delete or roll back the remote branch",
+          "return_contract": "returns `('completed', None, touched_files, False)`; session exits with code 0",
+          "error_condition": "`feature_branch` was successfully pushed but `platform.create_pr()` raises `IntegrationError`"
+        },
+        {
+          "id": "02-REQ-4.E3",
+          "ears_pattern": "unwanted",
+          "system": "`_integrate_fix()`",
+          "action": "logs `ERROR` with the remote branch URL; falls back to `'branch'` mode semantics; posts the branch-mode issue comment to the originating issue; marks the nightshift job as complete with no retry triggered; does not roll back the remote branch",
+          "return_contract": "returns `('completed', None, touched_files, False)`",
+          "error_condition": "`feature_branch` was successfully pushed but `platform.create_pr()` raises `IntegrationError`"
+        },
+        {
+          "id": "02-REQ-4.E4",
+          "ears_pattern": "event_driven",
+          "system": "`get_changed_files()`",
+          "action": "proceeds normally; passes the empty list to `build_pr_body()`, producing an empty Changed Files section; no error or special handling is triggered",
+          "return_contract": "PR body contains an empty `## Changed Files` section; `touched_files` is `[]`",
+          "trigger": "`get_changed_files()` returns an empty list in `'pr'` mode"
+        },
+        {
+          "id": "02-REQ-4.E5",
+          "ears_pattern": "event_driven",
+          "system": "push subprocess in `'pr'` mode",
+          "action": "the existing pipeline error handling timeout or process management (if any) is relied upon; the merge strategy code itself does not add a separate timeout; if no timeout mechanism exists in the pipeline, the process may hang \u2014 this gap must be noted and addressed by the implementor in the push call",
+          "return_contract": null,
+          "trigger": "the git push subprocess hangs indefinitely"
+        }
+      ]
+    },
+    {
+      "id": "02-REQ-5",
+      "title": "build_pr_body() \u2014 PR body rendering function",
+      "user_story": {
+        "role": "developer",
+        "goal": "have PR bodies auto-generated with a consistent Markdown structure",
+        "benefit": "PRs created by agent-fox are readable and contextually informative without manual editing"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "02-REQ-5.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`build_pr_body()`",
+          "action": "is a pure function in `fix_pipeline.py` with the exact keyword-only signature: `def build_pr_body(*, spec_name: str | None = None, task_group_id: str | None = None, task_group_title: str | None = None, changed_files: list[str], issue_number: int | None = None, issue_title: str | None = None) -> str`",
+          "return_contract": "returns a `str` containing the rendered Markdown PR body; has no side effects and no dependency on session internals"
+        },
+        {
+          "id": "02-REQ-5.2",
+          "ears_pattern": "state_driven",
+          "system": "`build_pr_body()`",
+          "action": "renders a body with `## Summary` containing `{spec_name}`, `## Task Group` containing `{task_group_id}: {task_group_title}`, `## Changed Files` listing each file, and no `Fixes #N` line",
+          "return_contract": "returned string matches the af code full example in the PR Body Template section of the PRD",
+          "state": "called for an `af code` session (spec_name provided, task_group_id and task_group_title provided, issue_number and issue_title are None)"
+        },
+        {
+          "id": "02-REQ-5.3",
+          "ears_pattern": "state_driven",
+          "system": "`build_pr_body()`",
+          "action": "renders a body with `## Summary` containing `Fix #{issue_number}: {issue_title}`, no `## Task Group` section, `## Changed Files` listing each file, and a `Fixes #{issue_number}` line at the end",
+          "return_contract": "returned string matches the nightshift full example in the PR Body Template section of the PRD",
+          "state": "called for a nightshift fix session (issue_number and issue_title provided, spec_name is None, task_group_id and task_group_title are None)"
+        },
+        {
+          "id": "02-REQ-5.4",
+          "ears_pattern": "ubiquitous",
+          "system": "all callers of `build_pr_body()`",
+          "action": "in `session_lifecycle.py` and `fix_pipeline.py` pass all parameters explicitly as keyword arguments; no positional arguments are used",
+          "return_contract": null
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "02-REQ-5.E1",
+          "ears_pattern": "event_driven",
+          "system": "`build_pr_body()`",
+          "action": "renders the `## Changed Files` section with no file entries (empty section body); no error is raised",
+          "return_contract": "returned string contains `## Changed Files` with no bullet points",
+          "trigger": "`changed_files` is an empty list"
+        },
+        {
+          "id": "02-REQ-5.E2",
+          "ears_pattern": "event_driven",
+          "system": "`build_pr_body()`",
+          "action": "behavior is implementation-defined; no conflict-resolution rule is specified; the function must not raise an unhandled exception that crashes the pipeline",
+          "return_contract": null,
+          "trigger": "both `spec_name` and `issue_number` are provided simultaneously (caller-side programming error)"
+        }
+      ]
+    },
+    {
+      "id": "02-REQ-6",
+      "title": "create_pr() on PlatformProtocol",
+      "user_story": {
+        "role": "platform integration developer",
+        "goal": "have `create_pr()` defined as a first-class method on `PlatformProtocol`",
+        "benefit": "all platform implementations have a typed, contractual interface for PR creation"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "02-REQ-6.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`PlatformProtocol` in `protocol.py`",
+          "action": "declares `async def create_pr(self, *, title: str, body: str, head: str, base: str) -> str` as an abstract method with a docstring stating it returns the PR's `html_url` and raises `IntegrationError` on API failure excluding idempotent 422 duplicate-PR responses",
+          "return_contract": "method signature matches exactly; `-> str` return type is declared"
+        },
+        {
+          "id": "02-REQ-6.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`NullPlatform` in `protocol.py`",
+          "action": "implements `create_pr()` by raising `NotImplementedError` with the message: `create_pr() called on NullPlatform \u2014 this should never be reached. Ensure platform availability is checked via create_platform_safe() before calling create_pr()`",
+          "return_contract": "`NotImplementedError` is raised with the specified message when called"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "02-REQ-6.E1",
+          "ears_pattern": "unwanted",
+          "system": "any call site",
+          "action": "raises `NotImplementedError` immediately; does not make any network call or modify git state",
+          "return_contract": "`NotImplementedError` is raised",
+          "error_condition": "`create_pr()` is called on `NullPlatform` or a non-GitHub platform stub because the `create_platform_safe()` guard was bypassed"
+        }
+      ]
+    },
+    {
+      "id": "02-REQ-7",
+      "title": "GitHubPlatform create_pr() implementation",
+      "user_story": {
+        "role": "developer using PR mode",
+        "goal": "have the GitHub API call for PR creation handled correctly including idempotent duplicate detection",
+        "benefit": "PRs are created reliably and nightshift retries are safe from duplicate PR errors"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "02-REQ-7.1",
+          "ears_pattern": "event_driven",
+          "system": "`GitHubPlatform.create_pr()`",
+          "action": "sends a single `POST /repos/{owner}/{repo}/pulls` request using the existing aiohttp session with the `GITHUB_PAT` bearer token; on HTTP 201, returns the `html_url` field from the response body",
+          "return_contract": "returns the `html_url` string from the GitHub API response; makes exactly one HTTP attempt",
+          "trigger": "called with valid `title`, `body`, `head`, and `base` parameters"
+        },
+        {
+          "id": "02-REQ-7.2",
+          "ears_pattern": "event_driven",
+          "system": "`GitHubPlatform.create_pr()`",
+          "action": "queries the existing PR URL via `GET /repos/{owner}/{repo}/pulls?head={head}&base={base}` and returns the `html_url` of the first result, mirroring the idempotent handling pattern established by `create_label()`",
+          "return_contract": "returns the existing PR's `html_url` string; no exception is raised",
+          "trigger": "GitHub returns HTTP 422 with an error message indicating a PR already exists for the head branch"
+        },
+        {
+          "id": "02-REQ-7.3",
+          "ears_pattern": "unwanted",
+          "system": "`GitHubPlatform.create_pr()`",
+          "action": "raises `IntegrationError` with details of the failure",
+          "return_contract": "`IntegrationError` is raised",
+          "error_condition": "GitHub returns any non-201 HTTP response that does not match the duplicate-PR 422 condition"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "02-REQ-7.E1",
+          "ears_pattern": "unwanted",
+          "system": "`GitHubPlatform.create_pr()`",
+          "action": "the aiohttp exception propagates; `GitHubPlatform.create_pr()` does not catch it; the caller's partial-failure handling (02-REQ-4.E2 / 02-REQ-4.E3) takes effect",
+          "return_contract": "aiohttp connection or timeout exception propagates to the caller",
+          "error_condition": "the aiohttp request to GitHub times out or the connection is dropped"
+        },
+        {
+          "id": "02-REQ-7.E2",
+          "ears_pattern": "unwanted",
+          "system": "`GitHubPlatform.create_pr()`",
+          "action": "raises `IntegrationError` to signal the unexpected state",
+          "return_contract": "`IntegrationError` is raised",
+          "error_condition": "HTTP 422 is returned but no existing PR is found by the subsequent `GET /repos/{owner}/{repo}/pulls` query"
+        },
+        {
+          "id": "02-REQ-7.E3",
+          "ears_pattern": "ubiquitous",
+          "system": "`GitHubPlatform.create_pr()`",
+          "action": "makes exactly one attempt at PR creation (no retry logic); failures are handled by the caller's partial-failure fallback",
+          "return_contract": null
+        }
+      ]
+    },
+    {
+      "id": "02-REQ-8",
+      "title": "Return type contract across all modes",
+      "user_story": {
+        "role": "agent-fox maintainer",
+        "goal": "have `_harvest_and_integrate()` and `_integrate_fix()` preserve their existing return type across all three merge strategy modes",
+        "benefit": "no callers of these functions require changes from the introduction of this feature"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "02-REQ-8.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`_harvest_and_integrate()` and `_integrate_fix()`",
+          "action": "always return `tuple[str, str | None, list[str], bool]` in the form `(status, error_message, touched_files, is_non_retryable)` regardless of which `merge_strategy` mode is active; the PR URL is surfaced via log and session summary, never in the return tuple",
+          "return_contract": "in all three modes and all error sub-cases: status is `'completed'`, error_message is `None`, touched_files is a `list[str]`, is_non_retryable is `False`"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "02-REQ-9",
+      "title": "Observability \u2014 log output per merge strategy mode",
+      "user_story": {
+        "role": "developer",
+        "goal": "see clear log output indicating which merge strategy is active and what happened",
+        "benefit": "I can diagnose issues and confirm the expected workflow is executing"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "02-REQ-9.1",
+          "ears_pattern": "state_driven",
+          "system": "agent-fox logger",
+          "action": "emits exactly one `INFO` log line: `Merge strategy is 'branch' \u2014 feature branch '{branch_name}' kept locally.`",
+          "return_contract": "log line is emitted at `INFO` level with the actual branch name substituted",
+          "state": "`merge_strategy` is `'branch'` and the session completes successfully"
+        },
+        {
+          "id": "02-REQ-9.2",
+          "ears_pattern": "state_driven",
+          "system": "agent-fox logger",
+          "action": "emits exactly one `INFO` log line: `Pull request created: {pr_html_url}`",
+          "return_contract": "log line is emitted at `INFO` level with the actual `html_url` substituted",
+          "state": "`merge_strategy` is `'pr'` and `create_pr()` succeeds"
+        },
+        {
+          "id": "02-REQ-9.3",
+          "ears_pattern": "state_driven",
+          "system": "agent-fox logger",
+          "action": "emits exactly one `WARNING` log line: `Merge strategy is 'pr' but platform is not configured \u2014 falling back to 'branch' mode.`",
+          "return_contract": "log line is emitted at `WARNING` level",
+          "state": "`merge_strategy` is `'pr'` and `create_platform_safe()` returns `None`"
+        },
+        {
+          "id": "02-REQ-9.4",
+          "ears_pattern": "state_driven",
+          "system": "agent-fox logger",
+          "action": "emits exactly one `ERROR` log line: `PR creation failed. Branch available at: https://github.com/{owner}/{repo}/tree/{branch_name}`",
+          "return_contract": "log line is emitted at `ERROR` level with the actual remote branch URL substituted; session exit code remains 0",
+          "state": "`merge_strategy` is `'pr'`, branch was pushed, but `create_pr()` raises `IntegrationError`"
+        },
+        {
+          "id": "02-REQ-9.5",
+          "ears_pattern": "state_driven",
+          "system": "`af code` CLI output",
+          "action": "includes the `feature_branch` name in the standard session summary printed to stdout",
+          "return_contract": "branch name appears in the session summary; exit code is 0",
+          "state": "`merge_strategy` is `'branch'`"
+        },
+        {
+          "id": "02-REQ-9.6",
+          "ears_pattern": "state_driven",
+          "system": "`af code` CLI output",
+          "action": "includes the PR URL in the existing session summary printed to stdout",
+          "return_contract": "PR URL appears in session summary; exit code is 0",
+          "state": "`merge_strategy` is `'pr'` and PR creation succeeds"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "02-REQ-10",
+      "title": "Operation sequence integrity for pr mode",
+      "user_story": {
+        "role": "developer",
+        "goal": "have the PR mode operations execute in the correct order with no partial state on early failure",
+        "benefit": "I never end up with an inconsistent git/GitHub state from a failed run"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "02-REQ-10.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`_harvest_and_integrate()` and `_integrate_fix()`",
+          "action": "executes `'pr'` mode operations in the mandatory sequence: (1) call `create_platform_safe()`, (2) if `None` fall back to `'branch'` mode with no branch push, (3) if platform available push `feature_branch` to origin, (4) call `get_changed_files()`, (5) call `build_pr_body()`, (6) call `platform.create_pr()`, (7) on `IntegrationError` log error and fall back to `'branch'` mode semantics, (8) on success log `INFO` with PR URL",
+          "return_contract": "no step in the sequence is reordered; the platform guard always precedes any branch push"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "02-REQ-10.E1",
+          "ears_pattern": "unwanted",
+          "system": "merge strategy code",
+          "action": "the exception propagates to the existing pipeline error handling; the merge strategy code does not silently catch unexpected exceptions",
+          "return_contract": "exception propagates; caller's standard error path handles it",
+          "error_condition": "any exception other than `IntegrationError` is raised during the `'pr'` mode operation sequence (e.g. unexpected `RuntimeError` from aiohttp or git)"
+        }
+      ]
+    }
+  ],
+  "correctness_properties": [
+    {
+      "id": "02-PROP-1",
+      "title": "merge_strategy config field is always valid",
+      "for_any": "`WorkspaceConfig` instance",
+      "invariant": "`merge_strategy` is always one of the string literals `'direct'`, `'branch'`, or `'pr'`; it is never `None`, empty, or an unrecognized value",
+      "validates": [
+        "02-REQ-1.1",
+        "02-REQ-1.2",
+        "02-REQ-1.3",
+        "02-REQ-1.E1",
+        "02-REQ-1.E2"
+      ]
+    },
+    {
+      "id": "02-PROP-2",
+      "title": "Return tuple shape is invariant across all merge modes",
+      "for_any": "call to `_harvest_and_integrate()` or `_integrate_fix()`",
+      "invariant": "the return value is always `tuple[str, str | None, list[str], bool]` where `status == 'completed'`, `error_message is None`, `touched_files` is a `list[str]` (possibly empty), and `is_non_retryable == False`, regardless of which `merge_strategy` mode is active or whether partial failure occurred",
+      "validates": [
+        "02-REQ-8.1",
+        "02-REQ-2.1",
+        "02-REQ-2.2",
+        "02-REQ-3.1",
+        "02-REQ-3.2",
+        "02-REQ-4.1",
+        "02-REQ-4.2",
+        "02-REQ-4.E2",
+        "02-REQ-4.E3"
+      ]
+    },
+    {
+      "id": "02-PROP-3",
+      "title": "Platform guard always precedes branch push in pr mode",
+      "for_any": "execution of `'pr'` mode in `_harvest_and_integrate()` or `_integrate_fix()`",
+      "invariant": "`create_platform_safe()` is always called and its result is checked before any git push to origin is attempted; a `None` result always causes immediate fallback to `'branch'` mode without any push occurring",
+      "validates": [
+        "02-REQ-4.3",
+        "02-REQ-4.4",
+        "02-REQ-10.1"
+      ]
+    },
+    {
+      "id": "02-PROP-4",
+      "title": "build_pr_body is a pure function",
+      "for_any": "call to `build_pr_body()` with the same arguments",
+      "invariant": "returns the identical string output on every invocation; has no observable side effects; does not read from or write to external state",
+      "validates": [
+        "02-REQ-5.1",
+        "02-REQ-5.2",
+        "02-REQ-5.3"
+      ]
+    },
+    {
+      "id": "02-PROP-5",
+      "title": "NullPlatform.create_pr always raises NotImplementedError",
+      "for_any": "call to `NullPlatform.create_pr()` with any arguments",
+      "invariant": "`NotImplementedError` is raised immediately with no network call, no git state mutation, and no side effects",
+      "validates": [
+        "02-REQ-6.2",
+        "02-REQ-6.E1"
+      ]
+    },
+    {
+      "id": "02-PROP-6",
+      "title": "direct mode produces no behavioral change",
+      "for_any": "execution where `merge_strategy` is `'direct'` or absent from the config",
+      "invariant": "the code path is identical to the pre-feature implementation: `harvest()` is called, `feature_branch` is squash-merged into `integration_branch`, pushed to origin, and no additional log lines are emitted",
+      "validates": [
+        "02-REQ-2.1",
+        "02-REQ-2.2",
+        "02-REQ-1.E1"
+      ]
+    },
+    {
+      "id": "02-PROP-7",
+      "title": "GitHubPlatform.create_pr makes exactly one API attempt",
+      "for_any": "call to `GitHubPlatform.create_pr()`",
+      "invariant": "at most one `POST /repos/{owner}/{repo}/pulls` request is sent; a follow-up `GET` is only issued on a duplicate-PR 422 response; no other retries are attempted",
+      "validates": [
+        "02-REQ-7.1",
+        "02-REQ-7.3",
+        "02-REQ-7.E3"
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "02-PATH-1",
+      "title": "af code session with pr mode \u2014 successful PR creation",
+      "steps": [
+        {
+          "actor": "Developer",
+          "action": "runs `af code` with `merge_strategy = 'pr'` in the workspace config"
+        },
+        {
+          "actor": "af code CLI",
+          "action": "completes the coding session and invokes `_harvest_and_integrate()`"
+        },
+        {
+          "actor": "_harvest_and_integrate()",
+          "action": "calls `create_platform_safe(config, project_root)` to obtain the GitHub platform client"
+        },
+        {
+          "actor": "_harvest_and_integrate()",
+          "action": "pushes the `feature_branch` to origin via git"
+        },
+        {
+          "actor": "_harvest_and_integrate()",
+          "action": "calls `get_changed_files(repo_root, feature_branch, integration_branch)` to build the changed files list"
+        },
+        {
+          "actor": "_harvest_and_integrate()",
+          "action": "calls `build_pr_body()` with `spec_name`, `task_group_id`, `task_group_title`, and `changed_files`"
+        },
+        {
+          "actor": "_harvest_and_integrate()",
+          "action": "calls `platform.create_pr(title=..., body=..., head=feature_branch, base=integration_branch)`"
+        },
+        {
+          "actor": "GitHubPlatform",
+          "action": "sends `POST /repos/{owner}/{repo}/pulls` and receives HTTP 201 with `html_url`"
+        },
+        {
+          "actor": "_harvest_and_integrate()",
+          "action": "emits `INFO` log `Pull request created: {html_url}` and returns `('completed', None, touched_files, False)`"
+        },
+        {
+          "actor": "af code CLI",
+          "action": "prints session summary including the PR URL to stdout and exits with code 0"
+        }
+      ]
+    },
+    {
+      "id": "02-PATH-2",
+      "title": "af code session with branch mode",
+      "steps": [
+        {
+          "actor": "Developer",
+          "action": "runs `af code` with `merge_strategy = 'branch'` in the workspace config"
+        },
+        {
+          "actor": "af code CLI",
+          "action": "completes the coding session and invokes `_harvest_and_integrate()`"
+        },
+        {
+          "actor": "_harvest_and_integrate()",
+          "action": "skips `harvest()` and does not push the `feature_branch` to origin"
+        },
+        {
+          "actor": "_harvest_and_integrate()",
+          "action": "calls `get_changed_files(repo_root, feature_branch, integration_branch)` to populate `touched_files`"
+        },
+        {
+          "actor": "_harvest_and_integrate()",
+          "action": "emits `INFO` log `Merge strategy is 'branch' \u2014 feature branch '{branch_name}' kept locally.`"
+        },
+        {
+          "actor": "_harvest_and_integrate()",
+          "action": "returns `('completed', None, touched_files, False)`"
+        },
+        {
+          "actor": "af code CLI",
+          "action": "prints session summary including the branch name to stdout and exits with code 0"
+        }
+      ]
+    },
+    {
+      "id": "02-PATH-3",
+      "title": "nightshift fix session with pr mode \u2014 successful PR creation",
+      "steps": [
+        {
+          "actor": "nightshift daemon",
+          "action": "triggers a fix session for a GitHub issue and invokes `_integrate_fix()` with `merge_strategy = 'pr'`"
+        },
+        {
+          "actor": "_integrate_fix()",
+          "action": "calls `create_platform_safe(config, project_root)` to obtain the GitHub platform client"
+        },
+        {
+          "actor": "_integrate_fix()",
+          "action": "pushes the `feature_branch` to origin"
+        },
+        {
+          "actor": "_integrate_fix()",
+          "action": "calls `get_changed_files()` and `build_pr_body()` with `issue_number` and `issue_title`"
+        },
+        {
+          "actor": "_integrate_fix()",
+          "action": "calls `platform.create_pr(title='Fix #{issue_number}: {issue_title}', body=..., head=feature_branch, base=integration_branch)`"
+        },
+        {
+          "actor": "GitHubPlatform",
+          "action": "sends `POST /repos/{owner}/{repo}/pulls` and receives HTTP 201; PR body contains `Fixes #{issue_number}`"
+        },
+        {
+          "actor": "_integrate_fix()",
+          "action": "emits `INFO` log with PR URL; does NOT close the originating issue; returns `('completed', None, touched_files, False)`"
+        },
+        {
+          "actor": "nightshift daemon",
+          "action": "marks the job as complete"
+        }
+      ]
+    },
+    {
+      "id": "02-PATH-4",
+      "title": "pr mode fallback \u2014 platform not configured",
+      "steps": [
+        {
+          "actor": "Developer or nightshift daemon",
+          "action": "initiates a session with `merge_strategy = 'pr'` but `GITHUB_PAT` is absent or `platform.type` is not `'github'`"
+        },
+        {
+          "actor": "_harvest_and_integrate() or _integrate_fix()",
+          "action": "calls `create_platform_safe(config, project_root)` which returns `None`"
+        },
+        {
+          "actor": "_harvest_and_integrate() or _integrate_fix()",
+          "action": "emits `WARNING` log `Merge strategy is 'pr' but platform is not configured \u2014 falling back to 'branch' mode.`"
+        },
+        {
+          "actor": "_harvest_and_integrate() or _integrate_fix()",
+          "action": "executes `'branch'` mode behavior without any branch push to origin"
+        },
+        {
+          "actor": "af code CLI or nightshift daemon",
+          "action": "receives `('completed', None, touched_files, False)` and completes normally with exit code 0"
+        }
+      ]
+    },
+    {
+      "id": "02-PATH-5",
+      "title": "pr mode partial failure \u2014 branch pushed but PR creation fails in nightshift",
+      "steps": [
+        {
+          "actor": "nightshift daemon",
+          "action": "invokes `_integrate_fix()` with `merge_strategy = 'pr'`; platform is available"
+        },
+        {
+          "actor": "_integrate_fix()",
+          "action": "pushes the `feature_branch` to origin successfully"
+        },
+        {
+          "actor": "_integrate_fix()",
+          "action": "calls `platform.create_pr()` which raises `IntegrationError`"
+        },
+        {
+          "actor": "_integrate_fix()",
+          "action": "emits `ERROR` log `PR creation failed. Branch available at: https://github.com/{owner}/{repo}/tree/{branch_name}`"
+        },
+        {
+          "actor": "_integrate_fix()",
+          "action": "posts branch-mode issue comment to the originating issue: `Fix branch created: \\`{branch_name}\\`. Merge strategy is set to \\`branch\\` \u2014 please review and merge manually.`"
+        },
+        {
+          "actor": "_integrate_fix()",
+          "action": "returns `('completed', None, touched_files, False)` without closing the issue or rolling back the remote branch"
+        },
+        {
+          "actor": "nightshift daemon",
+          "action": "marks the job as complete with no retry triggered"
+        }
+      ]
+    },
+    {
+      "id": "02-PATH-6",
+      "title": "pr mode idempotent duplicate PR handling",
+      "steps": [
+        {
+          "actor": "nightshift daemon or af code CLI",
+          "action": "retries a session where a PR was already created for the `feature_branch`"
+        },
+        {
+          "actor": "_integrate_fix() or _harvest_and_integrate()",
+          "action": "pushes the `feature_branch` to origin and calls `platform.create_pr()`"
+        },
+        {
+          "actor": "GitHubPlatform",
+          "action": "receives HTTP 422 from `POST /repos/{owner}/{repo}/pulls` with message indicating PR already exists"
+        },
+        {
+          "actor": "GitHubPlatform",
+          "action": "queries existing PR via `GET /repos/{owner}/{repo}/pulls?head={head}&base={base}` and returns the existing `html_url`"
+        },
+        {
+          "actor": "_integrate_fix() or _harvest_and_integrate()",
+          "action": "treats the result as success; emits `INFO` log with the existing PR URL; returns `('completed', None, touched_files, False)`"
+        }
+      ]
+    },
+    {
+      "id": "02-PATH-7",
+      "title": "direct mode \u2014 zero regression end-to-end",
+      "steps": [
+        {
+          "actor": "Developer",
+          "action": "runs `af code` with no `merge_strategy` field in config (defaults to `'direct'`)"
+        },
+        {
+          "actor": "af code CLI",
+          "action": "completes the coding session and invokes `_harvest_and_integrate()`"
+        },
+        {
+          "actor": "_harvest_and_integrate()",
+          "action": "calls `harvest()` exactly as before, squash-merging the `feature_branch` into `integration_branch` and pushing to origin"
+        },
+        {
+          "actor": "_harvest_and_integrate()",
+          "action": "returns `('completed', None, touched_files_from_harvest, False)` with no additional log lines"
+        },
+        {
+          "actor": "af code CLI",
+          "action": "prints existing session summary and exits with code 0"
+        }
+      ]
+    }
+  ],
+  "error_handling": [
+    {
+      "id": "02-ERR-1",
+      "condition": "`merge_strategy` is set to an invalid value in the config file",
+      "behavior": "Pydantic raises `ValidationError` during config parsing; model is not constructed; the process fails at config load time before any session begins",
+      "requirement_id": "02-REQ-1.3"
+    },
+    {
+      "id": "02-ERR-2",
+      "condition": "`create_platform_safe()` returns `None` in `'pr'` mode (GITHUB_PAT missing or platform.type is not 'github')",
+      "behavior": "logs `WARNING` `Merge strategy is 'pr' but platform is not configured \u2014 falling back to 'branch' mode.`; executes `'branch'` mode behavior; no branch push is attempted; session completes normally with exit code 0",
+      "requirement_id": "02-REQ-4.3"
+    },
+    {
+      "id": "02-ERR-3",
+      "condition": "git push of `feature_branch` to origin fails before `create_pr()` is called (network error, auth failure, rejected push)",
+      "behavior": "exception propagates to the existing pipeline error handling in `session_lifecycle.py` and `fix_pipeline.py`; no special handling in the merge strategy code; no partial state remains from the merge strategy logic",
+      "requirement_id": "02-REQ-4.E1"
+    },
+    {
+      "id": "02-ERR-4",
+      "condition": "`feature_branch` is successfully pushed but `create_pr()` raises `IntegrationError` in an `af code` session",
+      "behavior": "logs `ERROR` with remote branch URL `https://github.com/{owner}/{repo}/tree/{branch_name}`; falls back to `'branch'` mode semantics; remote branch is not rolled back; returns `('completed', None, touched_files, False)`; exit code is 0",
+      "requirement_id": "02-REQ-4.E2"
+    },
+    {
+      "id": "02-ERR-5",
+      "condition": "`feature_branch` is successfully pushed but `create_pr()` raises `IntegrationError` in a nightshift fix session",
+      "behavior": "logs `ERROR` with remote branch URL; posts branch-mode issue comment to originating issue; falls back to `'branch'` mode semantics; nightshift job is marked complete with no retry; remote branch is not rolled back; returns `('completed', None, touched_files, False)`",
+      "requirement_id": "02-REQ-4.E3"
+    },
+    {
+      "id": "02-ERR-6",
+      "condition": "GitHub returns HTTP 422 for `POST /repos/{owner}/{repo}/pulls` with a message indicating a PR already exists for the head branch",
+      "behavior": "`GitHubPlatform.create_pr()` queries the existing PR via `GET /repos/{owner}/{repo}/pulls?head={head}&base={base}` and returns the existing `html_url`; treated as success; no `IntegrationError` is raised",
+      "requirement_id": "02-REQ-7.2"
+    },
+    {
+      "id": "02-ERR-7",
+      "condition": "GitHub returns any non-201 HTTP response not matching the duplicate-PR 422 condition",
+      "behavior": "`GitHubPlatform.create_pr()` raises `IntegrationError` with details of the failure; caller's partial-failure handling takes effect",
+      "requirement_id": "02-REQ-7.3"
+    },
+    {
+      "id": "02-ERR-8",
+      "condition": "aiohttp request to GitHub times out or connection is dropped during `create_pr()`",
+      "behavior": "aiohttp exception propagates from `GitHubPlatform.create_pr()` without being caught; the caller's partial-failure handling (ERR-4 or ERR-5) takes effect",
+      "requirement_id": "02-REQ-7.E1"
+    },
+    {
+      "id": "02-ERR-9",
+      "condition": "HTTP 422 is returned but the subsequent `GET /repos/{owner}/{repo}/pulls` query finds no existing PR",
+      "behavior": "`GitHubPlatform.create_pr()` raises `IntegrationError` to signal the unexpected state",
+      "requirement_id": "02-REQ-7.E2"
+    },
+    {
+      "id": "02-ERR-10",
+      "condition": "`NullPlatform.create_pr()` is called (platform guard was bypassed)",
+      "behavior": "raises `NotImplementedError` with the specified message immediately; no network call or git state mutation occurs",
+      "requirement_id": "02-REQ-6.E1"
+    }
+  ],
+  "external_apis": [
+    {
+      "package": "pydantic",
+      "version": "v2",
+      "symbols": [
+        {
+          "name": "BaseModel",
+          "import_path": "pydantic",
+          "signature": "class BaseModel",
+          "notes": "Used by WorkspaceConfig; Literal field with default is standard Pydantic v2 syntax"
+        },
+        {
+          "name": "ValidationError",
+          "import_path": "pydantic",
+          "signature": "class ValidationError(ValueError)",
+          "notes": "Raised by Pydantic on invalid merge_strategy values"
+        }
+      ]
+    },
+    {
+      "package": "aiohttp",
+      "version": ">=3.8",
+      "symbols": [
+        {
+          "name": "ClientSession",
+          "import_path": "aiohttp",
+          "signature": "class ClientSession",
+          "notes": "Used by GitHubPlatform for all GitHub REST API calls including POST /pulls and GET /pulls"
+        }
+      ]
+    }
+  ]
+}
