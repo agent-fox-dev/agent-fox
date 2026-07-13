@@ -36,6 +36,7 @@ from agentfox.platform.protocol import IssueResult
 from agentfox.session.context import render_inmemory_spec_sections
 from agentfox.ui.progress import ActivityCallback, SpinnerCallback, TaskCallback, TaskEvent
 from agentfox.workspace import WorkspaceInfo
+from agentfox.workspace import git as _workspace_git
 
 if TYPE_CHECKING:
     import duckdb
@@ -1133,12 +1134,61 @@ class FixPipeline:
         ``"no_changes"``, or ``"error"`` and *changed_files* is the list of
         file paths changed by the harvest (empty on error or no changes).
 
-        Requirements: NS-REQ-4, NS-REQ-5, 93-REQ-3.1, 65-REQ-3.2
+        Requirements: NS-REQ-4, NS-REQ-5, 93-REQ-3.1, 65-REQ-3.2,
+                      02-REQ-2.2, 02-REQ-3.2, 02-REQ-4.2
         """
         # Pre-harvest commit sweep: stage and commit any changes left
         # uncommitted by the coder or reviewer session (NS-REQ-5).
         await self._auto_commit_pending_changes(workspace)
 
+        # 02-REQ-2.2 / 02-REQ-3.2 / 02-REQ-4.2: Branch on merge strategy
+        merge_strategy = self._config.workspace.merge_strategy
+
+        if merge_strategy == "branch":
+            # 02-REQ-3.2: Skip harvest, keep branch locally, post comment
+            changed_files = await _workspace_git.get_changed_files(
+                workspace.path,
+                workspace.branch,
+                self._config.workspace.integration_branch,
+            )
+            comment = (
+                f"Fix branch created: `{spec.branch_name}`. "
+                f"Merge strategy is set to `branch` "
+                f"— please review and merge manually."
+            )
+            await self._platform.add_issue_comment(issue.number, comment)
+            return "merged", changed_files
+
+        if merge_strategy == "pr":
+            # 02-REQ-4.3 / 02-REQ-4.4: Validate platform lazily at PR
+            # creation time, not at startup.
+            from agentfox.nightshift.platform_factory import create_platform_safe
+
+            platform = create_platform_safe(self._config, workspace.path)
+            if platform is None:
+                # Fall back to branch mode (02-REQ-4.3)
+                logger.warning(
+                    "Merge strategy is 'pr' but platform is not configured "
+                    "— falling back to 'branch' mode.",
+                )
+                changed_files = await _workspace_git.get_changed_files(
+                    workspace.path,
+                    workspace.branch,
+                    self._config.workspace.integration_branch,
+                )
+                comment = (
+                    f"Fix branch created: `{spec.branch_name}`. "
+                    f"Merge strategy is set to `branch` "
+                    f"— please review and merge manually."
+                )
+                await self._platform.add_issue_comment(issue.number, comment)
+                return "merged", changed_files
+
+            # PR mode with platform available — full implementation in
+            # groups 16-17.  For now, fall through to direct mode.
+            pass  # pragma: no cover – wired in group 16
+
+        # 'direct' mode (default) — 02-REQ-2.2: unchanged behavior
         # Optionally push fix branch to upstream remote (93-REQ-3.1).
         # Must run BEFORE harvest, which changes the working tree.
         if self._config.night_shift.push_fix_branch:

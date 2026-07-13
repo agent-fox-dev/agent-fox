@@ -57,6 +57,7 @@ from agentfox.workspace import (
     ensure_integration_branch,
     run_git,
 )
+from agentfox.workspace import git as _workspace_git
 from agentfox.workspace.harvest import harvest, post_harvest_integrate
 
 logger = logging.getLogger(__name__)
@@ -568,6 +569,51 @@ class NodeSessionRunner:
         if outcome.status != "completed":
             return status, error_message, touched_files, is_non_retryable
 
+        # 02-REQ-2.1 / 02-REQ-3.1 / 02-REQ-4.1: Branch on merge strategy
+        merge_strategy = self._config.workspace.merge_strategy
+
+        if merge_strategy == "branch":
+            # 02-REQ-3.1: Skip harvest, keep feature branch locally
+            touched_files = await _workspace_git.get_changed_files(
+                repo_root,
+                workspace.branch,
+                self._config.workspace.integration_branch,
+            )
+            logger.info(
+                "Merge strategy is 'branch' — feature branch '%s' kept locally.",
+                workspace.branch,
+            )
+            return status, error_message, touched_files, is_non_retryable
+
+        if merge_strategy == "pr":
+            # 02-REQ-4.3 / 02-REQ-4.4: Validate platform lazily at PR
+            # creation time, not at startup.
+            from agentfox.nightshift.platform_factory import create_platform_safe
+
+            platform = create_platform_safe(self._config, repo_root)
+            if platform is None:
+                # Fall back to branch mode (02-REQ-4.3)
+                logger.warning(
+                    "Merge strategy is 'pr' but platform is not configured "
+                    "— falling back to 'branch' mode.",
+                )
+                touched_files = await _workspace_git.get_changed_files(
+                    repo_root,
+                    workspace.branch,
+                    self._config.workspace.integration_branch,
+                )
+                logger.info(
+                    "Merge strategy is 'branch' — feature branch '%s' kept locally.",
+                    workspace.branch,
+                )
+                return status, error_message, touched_files, is_non_retryable
+
+            # PR mode with platform available — full implementation in
+            # groups 16-17.  For now, push branch, create PR, etc.
+            # Placeholder: fall through to direct mode until fully wired.
+            pass  # pragma: no cover – wired in group 16
+
+        # 'direct' mode (default) — 02-REQ-2.1: unchanged squash-merge
         # 03-REQ-7.1: Harvest changes into integration branch on success
         # 121-REQ-1.1: Push inside the merge lock (atomic merge+push)
         try:
