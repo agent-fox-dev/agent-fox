@@ -608,10 +608,51 @@ class NodeSessionRunner:
                 )
                 return status, error_message, touched_files, is_non_retryable
 
-            # PR mode with platform available — full implementation in
-            # groups 16-17.  For now, push branch, create PR, etc.
-            # Placeholder: fall through to direct mode until fully wired.
-            pass  # pragma: no cover – wired in group 16
+            # 02-REQ-4.1 / 02-REQ-10.1: PR mode — push branch and create PR
+            # Sequence: push → get_changed_files → build_pr_body → create_pr
+            await _workspace_git.push_to_remote(repo_root, workspace.branch)
+            touched_files = await _workspace_git.get_changed_files(
+                repo_root,
+                workspace.branch,
+                self._config.workspace.integration_branch,
+            )
+            from agentfox.nightshift.fix_pipeline import build_pr_body
+
+            pr_title = (
+                f"{workspace.spec_name}: task group {workspace.task_group}"
+            )
+            pr_body = build_pr_body(
+                spec_name=workspace.spec_name,
+                task_group_id=str(workspace.task_group),
+                task_group_title=f"task group {workspace.task_group}",
+                changed_files=touched_files,
+            )
+            try:
+                pr_url = await platform.create_pr(
+                    title=pr_title,
+                    body=pr_body,
+                    head=workspace.branch,
+                    base=self._config.workspace.integration_branch,
+                )
+            except IntegrationError:
+                # 02-REQ-4.E2: Partial failure — branch pushed but PR
+                # creation failed.  Log the error with the remote branch
+                # URL and fall back to branch-mode semantics.
+                # Full implementation in group 17.
+                branch_url = (
+                    f"https://github.com/{platform._owner}/{platform._repo}"
+                    f"/tree/{workspace.branch}"
+                )
+                logger.error(
+                    "PR creation failed. Branch available at: %s",
+                    branch_url,
+                )
+                return status, error_message, touched_files, is_non_retryable
+
+            # 02-REQ-9.2 / 02-REQ-9.6: Log PR URL (surfaces in session
+            # summary stdout output via the logging framework).
+            logger.info("Pull request created: %s", pr_url)
+            return status, error_message, touched_files, is_non_retryable
 
         # 'direct' mode (default) — 02-REQ-2.1: unchanged squash-merge
         # 03-REQ-7.1: Harvest changes into integration branch on success

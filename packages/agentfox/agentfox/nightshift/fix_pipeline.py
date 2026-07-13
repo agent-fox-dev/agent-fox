@@ -24,6 +24,7 @@ from afaudit.emit import emit_audit_event
 from afaudit.events import AuditEventType, generate_run_id
 
 from agentfox.core.config import AgentFoxConfig
+from agentfox.core.errors import IntegrationError
 from agentfox.knowledge.extraction import extract_session_summary
 from agentfox.nightshift.prior_attempts import format_prior_attempts, query_prior_attempts
 from agentfox.nightshift.spec_builder import (
@@ -1184,9 +1185,56 @@ class FixPipeline:
                 await self._platform.add_issue_comment(issue.number, comment)
                 return "merged", changed_files
 
-            # PR mode with platform available — full implementation in
-            # groups 16-17.  For now, fall through to direct mode.
-            pass  # pragma: no cover – wired in group 16
+            # 02-REQ-4.2 / 02-REQ-10.1: PR mode — push branch and create PR
+            # Sequence: push → get_changed_files → build_pr_body → create_pr
+            await _workspace_git.push_to_remote(
+                workspace.path, workspace.branch,
+            )
+            changed_files = await _workspace_git.get_changed_files(
+                workspace.path,
+                workspace.branch,
+                self._config.workspace.integration_branch,
+            )
+            pr_title = f"Fix #{issue.number}: {issue.title}"
+            pr_body = build_pr_body(
+                issue_number=issue.number,
+                issue_title=issue.title,
+                changed_files=changed_files,
+            )
+            try:
+                pr_url = await platform.create_pr(
+                    title=pr_title,
+                    body=pr_body,
+                    head=workspace.branch,
+                    base=self._config.workspace.integration_branch,
+                )
+            except IntegrationError:
+                # 02-REQ-4.E3: Partial failure — branch pushed but PR
+                # creation failed.  Log the error with the remote branch
+                # URL, post branch-mode comment, and fall back to branch
+                # mode semantics.
+                branch_url = (
+                    f"https://github.com/{platform._owner}/{platform._repo}"
+                    f"/tree/{workspace.branch}"
+                )
+                logger.error(
+                    "PR creation failed. Branch available at: %s",
+                    branch_url,
+                )
+                comment = (
+                    f"Fix branch created: `{spec.branch_name}`. "
+                    f"Merge strategy is set to `branch` "
+                    f"— please review and merge manually."
+                )
+                await self._platform.add_issue_comment(
+                    issue.number, comment,
+                )
+                return "merged", changed_files
+
+            # 02-REQ-9.2: Log PR URL.  Do NOT close the issue — the PR
+            # body contains 'Fixes #N' for GitHub auto-close on merge.
+            logger.info("Pull request created: %s", pr_url)
+            return "merged", changed_files
 
         # 'direct' mode (default) — 02-REQ-2.2: unchanged behavior
         # Optionally push fix branch to upstream remote (93-REQ-3.1).
