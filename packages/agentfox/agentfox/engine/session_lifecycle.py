@@ -638,7 +638,6 @@ class NodeSessionRunner:
                 # 02-REQ-4.E2: Partial failure — branch pushed but PR
                 # creation failed.  Log the error with the remote branch
                 # URL and fall back to branch-mode semantics.
-                # Full implementation in group 17.
                 branch_url = (
                     f"https://github.com/{platform._owner}/{platform._repo}"
                     f"/tree/{workspace.branch}"

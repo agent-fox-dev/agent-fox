@@ -1368,7 +1368,7 @@
             "02-REQ-4.E2",
             "02-REQ-9.4"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -1387,7 +1387,7 @@
           "requirement_refs": [
             "02-REQ-4.E3"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -1407,7 +1407,7 @@
             "02-REQ-4.E1",
             "02-REQ-10.E1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],
