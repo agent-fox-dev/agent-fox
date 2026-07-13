@@ -132,6 +132,43 @@ class TestEnsurePlatformLabelsConfigError:
 
 
 # ---------------------------------------------------------------------------
+# TS-358-9b: Falls back to global config when no local config exists
+# ---------------------------------------------------------------------------
+
+
+class TestEnsurePlatformLabelsFallbackToGlobalConfig:
+    """Verify label creation uses global+local merge when no local config."""
+
+    def test_falls_back_to_global_config_when_no_local_config(self, tmp_path: Path) -> None:
+        """When .agent-fox/config.toml does not exist, load_config() is called
+        without arguments so the global config is consulted."""
+        import asyncio
+
+        from agentfox.workspace.init_project import _ensure_platform_labels_async
+
+        mock_platform = AsyncMock()
+        mock_platform.create_label = AsyncMock(return_value=None)
+
+        async def run() -> int:
+            with (
+                patch(
+                    "agentfox.core.config.load_config",
+                    return_value=MagicMock(),
+                ) as mock_load,
+                patch(
+                    "agentfox.nightshift.platform_factory.create_platform_safe",
+                    return_value=mock_platform,
+                ),
+            ):
+                result = await _ensure_platform_labels_async(tmp_path)
+                mock_load.assert_called_once_with()
+                return result
+
+        result = asyncio.run(run())
+        assert result > 0
+
+
+# ---------------------------------------------------------------------------
 # TS-358-10: InitResult includes labels_ensured field
 # ---------------------------------------------------------------------------
 

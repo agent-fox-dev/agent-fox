@@ -489,7 +489,7 @@ async def _ensure_platform_labels_async(project_root: Path) -> int:
 
     config_path = project_root / ".agent-fox" / "config.toml"
     try:
-        config = load_config(config_path)
+        config = load_config(config_path) if config_path.exists() else load_config()
     except Exception:
         logger.debug("Could not load config for label creation; skipping")
         return 0
