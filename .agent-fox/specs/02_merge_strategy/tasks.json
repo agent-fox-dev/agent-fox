@@ -1212,7 +1212,7 @@
             "02-REQ-9.1",
             "02-REQ-9.5"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -1229,7 +1229,7 @@
           "requirement_refs": [
             "02-REQ-3.2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],

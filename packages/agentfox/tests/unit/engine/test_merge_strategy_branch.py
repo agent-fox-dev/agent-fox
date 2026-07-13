@@ -117,6 +117,10 @@ def _make_fix_pipeline(
     )
     if platform is None:
         platform = MagicMock()
+        # Branch/PR modes await platform methods, so they must be AsyncMock.
+        platform.add_issue_comment = AsyncMock()
+        platform.close_issue = AsyncMock()
+        platform.create_pr = AsyncMock()
     return FixPipeline(
         config=config,
         platform=platform,
