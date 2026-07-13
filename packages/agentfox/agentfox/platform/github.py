@@ -602,11 +602,55 @@ class GitHubPlatform:
         message, queries the existing PR and returns its ``html_url``
         (idempotent).  All other errors raise ``IntegrationError``.
 
-        Requirements: 02-REQ-7.1, 02-REQ-7.2, 02-REQ-7.3
+        Makes exactly one POST attempt — no retry logic beyond what
+        ``_request()`` provides for transport-level errors.  Transport
+        exceptions (httpx timeouts, connection errors) propagate to the
+        caller without being caught.
+
+        Requirements: 02-REQ-7.1, 02-REQ-7.2, 02-REQ-7.3,
+                      02-REQ-7.E1, 02-REQ-7.E2, 02-REQ-7.E3
         """
-        raise NotImplementedError(
-            "GitHubPlatform.create_pr() is not yet implemented — "
-            "see task group 12 in spec 02_merge_strategy"
+        headers = self._auth_headers()
+        url = f"{self._api_base}/repos/{self._owner}/{self._repo}/pulls"
+        payload = {"title": title, "body": body, "head": head, "base": base}
+        resp = await self._request("post", url, json=payload, headers=headers)
+
+        if resp.status_code == 201:
+            data = resp.json()
+            return data["html_url"]
+
+        if resp.status_code == 422:
+            # Check if this is a duplicate-PR error — treat as idempotent
+            # success, mirroring the pattern established by create_label().
+            try:
+                errors = resp.json().get("errors", [])
+                is_duplicate = any(
+                    "pull request already exists" in (e.get("message") or "").lower()
+                    for e in errors
+                )
+            except Exception:
+                is_duplicate = False
+
+            if is_duplicate:
+                # Query the existing PR via GET /repos/{owner}/{repo}/pulls
+                existing = await self._request(
+                    "get",
+                    url,
+                    params={"head": f"{self._owner}:{head}", "base": base},
+                    headers=headers,
+                )
+                prs = existing.json()
+                if not prs:
+                    raise IntegrationError(
+                        f"GitHub PR creation returned 422 (duplicate) but "
+                        f"no existing PR found for head={head!r} base={base!r}"
+                    )
+                return prs[0]["html_url"]
+
+        detail = _truncate_response(resp.text)
+        logger.debug("PR creation response (%d): %s", resp.status_code, detail)
+        raise IntegrationError(
+            f"GitHub PR creation failed ({resp.status_code})",
         )
 
     async def check_credentials(self) -> None:

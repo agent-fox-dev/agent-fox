@@ -1020,7 +1020,7 @@
             "02-REQ-7.1",
             "02-REQ-7.E3"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -1038,7 +1038,7 @@
           "requirement_refs": [
             "02-REQ-7.2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -1058,7 +1058,7 @@
             "02-REQ-7.E1",
             "02-REQ-7.E2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],
