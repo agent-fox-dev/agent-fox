@@ -17,7 +17,7 @@ from agentfox.platform.github import GitHubPlatform
 from agentfox.platform.protocol import IssueComment, IssueResult
 
 # Helper to build a mock httpx.AsyncClient context manager
-_TARGET = "agentfox.platform.github.httpx.AsyncClient"
+_TARGET = "agentfox.platform._http.httpx.AsyncClient"
 
 
 def _mock_client(**method_responses: MagicMock | Callable[..., Any]) -> AsyncMock:

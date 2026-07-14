@@ -11,7 +11,6 @@ Requirements: 19-REQ-4.1, 19-REQ-4.2, 19-REQ-4.3, 19-REQ-4.4,
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import re
 from urllib.parse import quote
@@ -19,6 +18,7 @@ from urllib.parse import quote
 import httpx
 
 from agentfox.core.errors import IntegrationError
+from agentfox.platform._http import request_with_retry
 from agentfox.platform._ssrf import SSRFGuardTransport as _SSRFGuardTransport
 from agentfox.platform._ssrf import _validate_url as _validate_github_url
 from agentfox.platform.protocol import IssueComment, IssueResult
@@ -29,9 +29,6 @@ _MAX_ERROR_TEXT = 500
 
 # Timeout for all GitHub API calls: 30s connect, 30s read/write.
 _GITHUB_TIMEOUT = httpx.Timeout(connect=30.0, read=30.0, write=30.0, pool=30.0)
-
-# Transport-level errors that are safe to retry (network blips, DNS timeouts).
-_RETRYABLE_ERRORS = (httpx.ConnectTimeout, httpx.ConnectError, httpx.ReadTimeout)
 
 # Maximum number of attempts before giving up (1 initial + 2 retries).
 _MAX_RETRIES = 3
@@ -92,36 +89,25 @@ class GitHubPlatform:
     async def _request(self, method: str, url: str, **kwargs: object) -> httpx.Response:
         """Execute an HTTP request with explicit timeout and retry on transient errors.
 
-        Creates a new AsyncClient with ``_GITHUB_TIMEOUT`` for each attempt.
-        Retries up to ``_MAX_RETRIES`` times on ``_RETRYABLE_ERRORS`` (transport-
-        level network exceptions).  HTTP-level error responses (4xx, 5xx) are
-        returned as-is — callers are responsible for raising on bad status codes.
-        After all retries are exhausted the original exception is re-raised.
+        Delegates to the shared ``request_with_retry`` helper in
+        ``agentfox.platform._http``.  Creates a new ``AsyncClient`` with
+        ``_GITHUB_TIMEOUT`` and ``_SSRFGuardTransport`` for each attempt.
+        Retries up to ``_MAX_RETRIES`` times on transport-level network
+        exceptions.  HTTP-level error responses (4xx, 5xx) are returned
+        as-is — callers are responsible for raising on bad status codes.
 
-        Requirements: 313-AC-1, 313-AC-2, 313-AC-3, 313-AC-4, 313-AC-5
+        Requirements: 313-AC-1, 313-AC-2, 313-AC-3, 313-AC-4, 313-AC-5,
+                      04-REQ-19.3
         """
-        last_exc: Exception | None = None
-        for attempt in range(_MAX_RETRIES):
-            try:
-                async with httpx.AsyncClient(
-                    timeout=_GITHUB_TIMEOUT,
-                    transport=_SSRFGuardTransport(),
-                ) as client:
-                    resp: httpx.Response = await getattr(client, method)(url, **kwargs)
-                    return resp
-            except _RETRYABLE_ERRORS as exc:
-                last_exc = exc
-                if attempt < _MAX_RETRIES - 1:
-                    delay = _RETRY_BACKOFF * (2**attempt)
-                    logger.warning(
-                        "Transient error on GitHub API attempt %d/%d, retrying in %.1fs: %s",
-                        attempt + 1,
-                        _MAX_RETRIES,
-                        delay,
-                        exc,
-                    )
-                    await asyncio.sleep(delay)
-        raise last_exc  # type: ignore[misc]
+        return await request_with_retry(
+            method,
+            url,
+            timeout=_GITHUB_TIMEOUT,
+            transport=_SSRFGuardTransport(),
+            max_retries=_MAX_RETRIES,
+            backoff_base=_RETRY_BACKOFF,
+            **kwargs,
+        )
 
     # ------------------------------------------------------------------
     # Issue operations (28-REQ-1.* through 28-REQ-4.*)

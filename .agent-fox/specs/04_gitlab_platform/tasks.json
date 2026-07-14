@@ -626,7 +626,7 @@
             "04-REQ-19.1",
             "04-REQ-19.2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -645,7 +645,7 @@
           "requirement_refs": [
             "04-REQ-19.3"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -662,7 +662,7 @@
           "requirement_refs": [
             "04-REQ-19.1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],

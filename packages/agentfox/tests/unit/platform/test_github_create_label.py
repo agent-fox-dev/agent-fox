@@ -13,7 +13,7 @@ import pytest
 from agentfox.core.errors import IntegrationError
 from agentfox.platform.github import GitHubPlatform
 
-_TARGET = "agentfox.platform.github.httpx.AsyncClient"
+_TARGET = "agentfox.platform._http.httpx.AsyncClient"
 
 
 def _mock_client(**method_responses: Any) -> AsyncMock:

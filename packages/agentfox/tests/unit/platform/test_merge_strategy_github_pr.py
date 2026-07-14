@@ -28,8 +28,8 @@ import pytest
 from agentfox.core.errors import IntegrationError
 from agentfox.platform.github import GitHubPlatform
 
-_TARGET = "agentfox.platform.github.httpx.AsyncClient"
-_SLEEP_TARGET = "agentfox.platform.github.asyncio.sleep"
+_TARGET = "agentfox.platform._http.httpx.AsyncClient"
+_SLEEP_TARGET = "agentfox.platform._http.asyncio.sleep"
 
 
 # ---------------------------------------------------------------------------

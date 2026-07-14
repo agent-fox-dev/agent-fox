@@ -13,8 +13,8 @@ import pytest
 from agentfox.core.errors import IntegrationError
 from agentfox.platform.github import _GITHUB_TIMEOUT, _MAX_RETRIES, GitHubPlatform
 
-_TARGET = "agentfox.platform.github.httpx.AsyncClient"
-_SLEEP_TARGET = "agentfox.platform.github.asyncio.sleep"
+_TARGET = "agentfox.platform._http.httpx.AsyncClient"
+_SLEEP_TARGET = "agentfox.platform._http.asyncio.sleep"
 
 
 def _json_response(status_code: int, json_data: dict[Any, Any] | list[Any] | None = None) -> MagicMock:
