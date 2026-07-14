@@ -1,8 +1,8 @@
 """Tests for GiteaPlatform issue and PR operations.
 
-Test Spec: TS-05-1 through TS-05-19, TS-05-E1 through TS-05-E10,
+Test Spec: TS-05-1 through TS-05-31, TS-05-E1 through TS-05-E17,
            TS-05-46 through TS-05-49
-Requirements: 05-REQ-1.* through 05-REQ-6.*, 05-REQ-17.*
+Requirements: 05-REQ-1.* through 05-REQ-11.*, 05-REQ-17.*
 
 Note: Import paths use agentfox.platform.* (the actual codebase layout),
 not afissues.* (the spec-03 future layout that has not been extracted yet).
@@ -1079,3 +1079,612 @@ class TestAssignLabelError:
 
         error_msg = str(exc_info.value)
         assert "G" * 501 not in error_msg
+
+
+# ===========================================================================
+# Group 3 Tests: close_issue, remove_label, list_issue_comments,
+#                get_issue, update_issue
+# Test Spec: TS-05-20 through TS-05-31, TS-05-E11 through TS-05-E17
+# Requirements: 05-REQ-7.* through 05-REQ-11.*
+# ===========================================================================
+
+
+# ===========================================================================
+# TS-05-20: close_issue with non-None comment calls add_issue_comment first,
+#           then PATCH state=closed
+# Requirement: 05-REQ-7.1
+# ===========================================================================
+
+
+class TestCloseIssueWithComment:
+    """Verify close_issue with a comment calls add_issue_comment before PATCH."""
+
+    @pytest.mark.asyncio
+    async def test_close_issue_comment_then_patch(self) -> None:
+        """TS-05-20: add_issue_comment called before PATCH; PATCH has state=closed."""
+        platform = _make_platform()
+
+        call_order: list[str] = []
+
+        async def mock_add_comment(issue_number: int, body: str) -> None:
+            call_order.append("comment")
+
+        mock_patch_resp = _json_response(200, {})
+
+        async def mock_patch(url, *, json=None, headers=None, **kw):
+            call_order.append("patch")
+            return mock_patch_resp
+
+        client = _mock_client(patch=mock_patch)
+
+        with patch(_TARGET, return_value=client), patch.object(
+            platform, "add_issue_comment", side_effect=mock_add_comment
+        ):
+            result = await platform.close_issue(42, "Closing comment")
+
+        assert call_order == ["comment", "patch"]
+        assert result is None
+
+
+# ===========================================================================
+# TS-05-21: close_issue with comment=None skips add_issue_comment entirely
+# Requirement: 05-REQ-7.2
+# ===========================================================================
+
+
+class TestCloseIssueNoComment:
+    """Verify close_issue with comment=None skips comment POST."""
+
+    @pytest.mark.asyncio
+    async def test_close_issue_no_comment_only_patch(self) -> None:
+        """TS-05-21: No POST to comments; exactly one PATCH with state=closed."""
+        platform = _make_platform()
+
+        mock_patch_resp = _json_response(200, {})
+
+        requests_made: list[tuple[str, dict]] = []
+
+        async def mock_patch(url, *, json=None, headers=None, **kw):
+            requests_made.append((url, json or {}))
+            return mock_patch_resp
+
+        client = _mock_client(patch=mock_patch)
+
+        with patch(_TARGET, return_value=client), patch.object(
+            platform, "add_issue_comment", new_callable=AsyncMock
+        ) as mock_comment:
+            result = await platform.close_issue(42, comment=None)
+
+        mock_comment.assert_not_called()
+        assert len(requests_made) == 1
+        _, payload = requests_made[0]
+        assert payload["state"] == "closed"
+        assert result is None
+
+
+# ===========================================================================
+# TS-05-22: close_issue treats any 2xx PATCH response as success
+# Requirement: 05-REQ-7.3
+# ===========================================================================
+
+
+class TestCloseIssue2xxSuccess:
+    """Verify close_issue treats any 2xx PATCH response as success."""
+
+    @pytest.mark.asyncio
+    async def test_close_issue_201_patch_is_success(self) -> None:
+        """TS-05-22: PATCH returns 201 (non-200 2xx); no exception; returns None."""
+        platform = _make_platform()
+
+        mock_resp = _json_response(201, {})
+        client = _mock_client(patch=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client):
+            result = await platform.close_issue(1, comment=None)
+
+        assert result is None
+
+
+# ===========================================================================
+# TS-05-E11: close_issue raises IntegrationError when PATCH returns non-2xx
+# Requirement: 05-REQ-7.E1
+# ===========================================================================
+
+
+class TestCloseIssueError:
+    """Verify close_issue raises IntegrationError on PATCH error."""
+
+    @pytest.mark.asyncio
+    async def test_close_issue_raises_on_500_truncated(self) -> None:
+        """TS-05-E11: PATCH returns 500 with 600-char body; error ≤ 500 chars."""
+        platform = _make_platform()
+
+        long_error = "H" * 600
+        mock_resp = _json_response(500, text=long_error)
+        client = _mock_client(patch=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client):
+            with pytest.raises(IntegrationError) as exc_info:
+                await platform.close_issue(1, comment=None)
+
+        error_msg = str(exc_info.value)
+        assert "H" * 501 not in error_msg
+
+
+# ===========================================================================
+# TS-05-E12: close_issue propagates IntegrationError from add_issue_comment;
+#            PATCH is never called
+# Requirement: 05-REQ-7.E2
+# ===========================================================================
+
+
+class TestCloseIssueCommentFailurePropagation:
+    """Verify close_issue propagates add_issue_comment errors without PATCHing."""
+
+    @pytest.mark.asyncio
+    async def test_close_issue_propagates_comment_error(self) -> None:
+        """TS-05-E12: add_issue_comment raises IntegrationError; PATCH not called."""
+        platform = _make_platform()
+
+        patch_called = False
+
+        async def mock_patch(url, *, json=None, headers=None, **kw):
+            nonlocal patch_called
+            patch_called = True
+            return _json_response(200, {})
+
+        client = _mock_client(patch=mock_patch)
+
+        with patch(_TARGET, return_value=client), patch.object(
+            platform,
+            "add_issue_comment",
+            new_callable=AsyncMock,
+            side_effect=IntegrationError("comment failed"),
+        ):
+            with pytest.raises(IntegrationError, match="comment failed"):
+                await platform.close_issue(5, comment="Some comment")
+
+        assert not patch_called, "PATCH should not be called when comment fails"
+
+
+# ===========================================================================
+# TS-05-23: remove_label resolves label to numeric ID and sends DELETE
+# Requirement: 05-REQ-8.1
+# ===========================================================================
+
+
+class TestRemoveLabel:
+    """Verify remove_label resolves label and sends DELETE with numeric ID."""
+
+    @pytest.mark.asyncio
+    async def test_remove_label_deletes_with_numeric_id(self) -> None:
+        """TS-05-23: _resolve_label_id returns 55; DELETE URL ends in /labels/55."""
+        platform = _make_platform()
+
+        mock_resp = _json_response(204)
+
+        requests_made: list[str] = []
+
+        async def mock_delete(url, *, headers=None, **kw):
+            requests_made.append(url)
+            return mock_resp
+
+        client = _mock_client(delete=mock_delete)
+
+        with patch(_TARGET, return_value=client), patch.object(
+            platform, "_resolve_label_id", new_callable=AsyncMock, return_value=55
+        ):
+            result = await platform.remove_label(3, "wontfix")
+
+        assert len(requests_made) == 1
+        assert "/labels/55" in requests_made[0]
+        assert result is None
+
+
+# ===========================================================================
+# TS-05-24: remove_label returns None when _resolve_label_id raises
+#           IntegrationError (label absent from repo)
+# Requirement: 05-REQ-8.2
+# ===========================================================================
+
+
+class TestRemoveLabelMissingLabelSilent:
+    """Verify remove_label returns None when label doesn't exist in repo."""
+
+    @pytest.mark.asyncio
+    async def test_remove_label_silent_when_resolve_raises(self) -> None:
+        """TS-05-24: _resolve_label_id raises IntegrationError; no DELETE; returns None."""
+        platform = _make_platform()
+
+        delete_called = False
+
+        async def mock_delete(url, *, headers=None, **kw):
+            nonlocal delete_called
+            delete_called = True
+            return _json_response(204)
+
+        client = _mock_client(delete=mock_delete)
+
+        with patch(_TARGET, return_value=client), patch.object(
+            platform,
+            "_resolve_label_id",
+            new_callable=AsyncMock,
+            side_effect=IntegrationError("not found"),
+        ):
+            result = await platform.remove_label(3, "ghost-label")
+
+        assert result is None
+        assert not delete_called, "No DELETE should be made when label is unknown"
+
+
+# ===========================================================================
+# TS-05-25: remove_label returns None silently when DELETE returns 404
+# Requirement: 05-REQ-8.3
+# ===========================================================================
+
+
+class TestRemoveLabel404:
+    """Verify remove_label returns None on 404 DELETE response."""
+
+    @pytest.mark.asyncio
+    async def test_remove_label_404_returns_none(self) -> None:
+        """TS-05-25: DELETE returns 404; no exception; returns None."""
+        platform = _make_platform()
+
+        mock_resp = _json_response(404, text="not found")
+        client = _mock_client(delete=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client), patch.object(
+            platform, "_resolve_label_id", new_callable=AsyncMock, return_value=10
+        ):
+            result = await platform.remove_label(5, "bug")
+
+        assert result is None
+
+
+# ===========================================================================
+# TS-05-26: remove_label returns None silently when DELETE returns 422
+# Requirement: 05-REQ-8.4
+# ===========================================================================
+
+
+class TestRemoveLabel422:
+    """Verify remove_label returns None on 422 DELETE response."""
+
+    @pytest.mark.asyncio
+    async def test_remove_label_422_returns_none(self) -> None:
+        """TS-05-26: DELETE returns 422; no exception; returns None."""
+        platform = _make_platform()
+
+        mock_resp = _json_response(422, text="unprocessable")
+        client = _mock_client(delete=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client), patch.object(
+            platform, "_resolve_label_id", new_callable=AsyncMock, return_value=10
+        ):
+            result = await platform.remove_label(5, "bug")
+
+        assert result is None
+
+
+# ===========================================================================
+# TS-05-E13: remove_label raises IntegrationError on DELETE status other than
+#            204, 404, or 422
+# Requirement: 05-REQ-8.E1
+# ===========================================================================
+
+
+class TestRemoveLabelError:
+    """Verify remove_label raises IntegrationError on unexpected DELETE status."""
+
+    @pytest.mark.asyncio
+    async def test_remove_label_raises_on_500_truncated(self) -> None:
+        """TS-05-E13: DELETE returns 500 with 600-char body; error ≤ 500 chars."""
+        platform = _make_platform()
+
+        long_error = "I" * 600
+        mock_resp = _json_response(500, text=long_error)
+        client = _mock_client(delete=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client), patch.object(
+            platform, "_resolve_label_id", new_callable=AsyncMock, return_value=10
+        ):
+            with pytest.raises(IntegrationError) as exc_info:
+                await platform.remove_label(1, "bug")
+
+        error_msg = str(exc_info.value)
+        assert "I" * 501 not in error_msg
+
+
+# ===========================================================================
+# TS-05-27: list_issue_comments GETs correct URL and maps user.login to user
+# Requirement: 05-REQ-9.1
+# ===========================================================================
+
+
+class TestListIssueComments:
+    """Verify list_issue_comments maps response to IssueComment with user.login."""
+
+    @pytest.mark.asyncio
+    async def test_list_issue_comments_maps_fields(self) -> None:
+        """TS-05-27: GET /issues/7/comments; user.login → user; all fields mapped."""
+        platform = _make_platform()
+
+        mock_comments = [
+            {
+                "id": 1,
+                "body": "Hello",
+                "user": {"login": "alice"},
+                "created_at": "2024-01-01T00:00:00Z",
+            },
+            {
+                "id": 2,
+                "body": "World",
+                "user": {"login": "bob"},
+                "created_at": "2024-01-02T00:00:00Z",
+            },
+        ]
+        mock_resp = _json_response(200, mock_comments)
+
+        requests_made: list[str] = []
+
+        async def mock_get(url, *, params=None, headers=None, **kw):
+            requests_made.append(url)
+            return mock_resp
+
+        client = _mock_client(get=mock_get)
+
+        with patch(_TARGET, return_value=client):
+            results = await platform.list_issue_comments(7)
+
+        # Verify URL
+        assert len(requests_made) == 1
+        assert "/issues/7/comments" in requests_made[0]
+
+        # Verify mapping
+        assert len(results) == 2
+        assert isinstance(results[0], IssueComment)
+        assert results[0].id == 1
+        assert results[0].body == "Hello"
+        assert results[0].user == "alice"
+        assert results[0].created_at == "2024-01-01T00:00:00Z"
+        assert results[1].user == "bob"
+
+
+# ===========================================================================
+# TS-05-28: list_issue_comments sends no limit or pagination query params
+# Requirement: 05-REQ-9.2
+# ===========================================================================
+
+
+class TestListIssueCommentsNoLimitParam:
+    """Verify list_issue_comments sends no limit or page query parameters."""
+
+    @pytest.mark.asyncio
+    async def test_no_limit_or_page_params(self) -> None:
+        """TS-05-28: GET to comments has no 'limit' or 'page' query params."""
+        platform = _make_platform()
+
+        mock_resp = _json_response(200, [])
+
+        captured_params: list[dict | None] = []
+
+        async def mock_get(url, *, params=None, headers=None, **kw):
+            captured_params.append(params)
+            return mock_resp
+
+        client = _mock_client(get=mock_get)
+
+        with patch(_TARGET, return_value=client):
+            await platform.list_issue_comments(1)
+
+        assert len(captured_params) == 1
+        params = captured_params[0] or {}
+        assert "limit" not in params
+        assert "page" not in params
+
+
+# ===========================================================================
+# TS-05-E14: list_issue_comments raises IntegrationError on non-200 status
+# Requirement: 05-REQ-9.E1
+# ===========================================================================
+
+
+class TestListIssueCommentsError:
+    """Verify list_issue_comments raises IntegrationError on API error."""
+
+    @pytest.mark.asyncio
+    async def test_list_comments_raises_on_403_truncated(self) -> None:
+        """TS-05-E14: GET returns 403 with 600-char body; error ≤ 500 chars."""
+        platform = _make_platform()
+
+        long_error = "J" * 600
+        mock_resp = _json_response(403, text=long_error)
+        client = _mock_client(get=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client):
+            with pytest.raises(IntegrationError) as exc_info:
+                await platform.list_issue_comments(5)
+
+        error_msg = str(exc_info.value)
+        assert "J" * 501 not in error_msg
+
+
+# ===========================================================================
+# TS-05-E15: list_issue_comments returns empty list when issue has no comments
+# Requirement: 05-REQ-9.E2
+# ===========================================================================
+
+
+class TestListIssueCommentsEmpty:
+    """Verify list_issue_comments returns empty list on empty API response."""
+
+    @pytest.mark.asyncio
+    async def test_list_comments_empty_returns_empty_list(self) -> None:
+        """TS-05-E15: GET returns 200 with []; result == []."""
+        platform = _make_platform()
+
+        mock_resp = _json_response(200, [])
+        client = _mock_client(get=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client):
+            result = await platform.list_issue_comments(1)
+
+        assert result == []
+
+
+# ===========================================================================
+# TS-05-29: get_issue GETs correct URL and maps response to IssueResult
+# Requirement: 05-REQ-10.1
+# ===========================================================================
+
+
+class TestGetIssue:
+    """Verify get_issue maps response to IssueResult with correct field mapping."""
+
+    @pytest.mark.asyncio
+    async def test_get_issue_maps_fields(self) -> None:
+        """TS-05-29: GET /issues/10; all IssueResult fields mapped correctly."""
+        platform = _make_platform()
+
+        mock_issue = {
+            "number": 10,
+            "title": "A bug",
+            "html_url": "http://gitea.example.com/myorg/myrepo/issues/10",
+            "body": "Details",
+            "labels": [{"name": "bug"}, {"name": "p1"}],
+        }
+        mock_resp = _json_response(200, mock_issue)
+
+        requests_made: list[str] = []
+
+        async def mock_get(url, *, params=None, headers=None, **kw):
+            requests_made.append(url)
+            return mock_resp
+
+        client = _mock_client(get=mock_get)
+
+        with patch(_TARGET, return_value=client):
+            result = await platform.get_issue(10)
+
+        # Verify URL
+        assert len(requests_made) == 1
+        assert "/issues/10" in requests_made[0]
+
+        # Verify field mapping
+        assert isinstance(result, IssueResult)
+        assert result.number == 10
+        assert result.title == "A bug"
+        assert result.html_url == "http://gitea.example.com/myorg/myrepo/issues/10"
+        assert result.body == "Details"
+        assert "bug" in result.labels
+        assert "p1" in result.labels
+
+
+# ===========================================================================
+# TS-05-E16: get_issue raises IntegrationError on non-200 status
+# Requirement: 05-REQ-10.E1
+# ===========================================================================
+
+
+class TestGetIssueError:
+    """Verify get_issue raises IntegrationError on API error."""
+
+    @pytest.mark.asyncio
+    async def test_get_issue_raises_on_404_truncated(self) -> None:
+        """TS-05-E16: GET returns 404 with 600-char body; error ≤ 500 chars."""
+        platform = _make_platform()
+
+        long_error = "K" * 600
+        mock_resp = _json_response(404, text=long_error)
+        client = _mock_client(get=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client):
+            with pytest.raises(IntegrationError) as exc_info:
+                await platform.get_issue(99)
+
+        error_msg = str(exc_info.value)
+        assert "K" * 501 not in error_msg
+
+
+# ===========================================================================
+# TS-05-30: update_issue issues PATCH with body field and returns None on 2xx
+# Requirement: 05-REQ-11.1
+# ===========================================================================
+
+
+class TestUpdateIssue:
+    """Verify update_issue sends PATCH with body field and returns None."""
+
+    @pytest.mark.asyncio
+    async def test_update_issue_patches_body_returns_none(self) -> None:
+        """TS-05-30: PATCH /issues/8 with body field; returns None on 201."""
+        platform = _make_platform()
+
+        mock_resp = _json_response(201, {})
+
+        requests_made: list[tuple[str, dict]] = []
+
+        async def mock_patch(url, *, json=None, headers=None, **kw):
+            requests_made.append((url, json or {}))
+            return mock_resp
+
+        client = _mock_client(patch=mock_patch)
+
+        with patch(_TARGET, return_value=client):
+            result = await platform.update_issue(8, "Updated body text")
+
+        assert len(requests_made) == 1
+        url, payload = requests_made[0]
+        assert "/issues/8" in url
+        assert payload["body"] == "Updated body text"
+        assert result is None
+
+
+# ===========================================================================
+# TS-05-31: update_issue treats both 200 and 201 as success
+# Requirement: 05-REQ-11.2
+# ===========================================================================
+
+
+class TestUpdateIssue200Success:
+    """Verify update_issue treats 200 as success too."""
+
+    @pytest.mark.asyncio
+    async def test_update_issue_200_is_success(self) -> None:
+        """TS-05-31: PATCH returns 200; returns None without error."""
+        platform = _make_platform()
+
+        mock_resp = _json_response(200, {})
+        client = _mock_client(patch=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client):
+            result = await platform.update_issue(8, "Updated body")
+
+        assert result is None
+
+
+# ===========================================================================
+# TS-05-E17: update_issue raises IntegrationError on non-2xx status
+# Requirement: 05-REQ-11.E1
+# ===========================================================================
+
+
+class TestUpdateIssueError:
+    """Verify update_issue raises IntegrationError on API error."""
+
+    @pytest.mark.asyncio
+    async def test_update_issue_raises_on_500_truncated(self) -> None:
+        """TS-05-E17: PATCH returns 500 with 600-char body; error ≤ 500 chars."""
+        platform = _make_platform()
+
+        long_error = "L" * 600
+        mock_resp = _json_response(500, text=long_error)
+        client = _mock_client(patch=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client):
+            with pytest.raises(IntegrationError) as exc_info:
+                await platform.update_issue(3, "new body")
+
+        error_msg = str(exc_info.value)
+        assert "L" * 501 not in error_msg
