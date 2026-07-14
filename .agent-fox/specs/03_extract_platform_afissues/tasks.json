@@ -948,7 +948,7 @@
           "requirement_refs": [
             "03-REQ-8.1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -966,7 +966,7 @@
           "requirement_refs": [
             "03-REQ-8.5"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -985,7 +985,7 @@
             "03-REQ-7.2",
             "03-REQ-8.1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],
