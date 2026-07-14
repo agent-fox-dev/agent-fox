@@ -1,0 +1,921 @@
+{
+  "$schema": null,
+  "spec_id": "03",
+  "spec_name": "extract_platform_afissues",
+  "schema_version": 1,
+  "introduction": "This spec governs the extraction of the platform abstraction layer (`PlatformProtocol`, `GitHubPlatform`, label constants, and associated error types) from the `agentfox` monolith into a new standalone Python package named `afissues`, enabling lightweight consumers and future forge implementations to depend on it independently.",
+  "glossary": {
+    "AfIssuesError": "The base exception class for all errors raised by `afissues`; stores `**context` kwargs as a `.context` dict attribute.",
+    "AgentFoxError": "The base exception class for `agentfox.core.errors`; independent of `AfIssuesError`.",
+    "ConfigError": "An `AfIssuesError` subclass raised for configuration and validation errors such as SSRF guard violations.",
+    "GitHubPlatform": "The GitHub forge implementation of `PlatformProtocol`, using `httpx.AsyncClient` for REST API calls.",
+    "IntegrationError": "An `AfIssuesError` subclass raised for platform API/integration errors; carries a `retryable: bool` attribute defaulting to `True`.",
+    "IssueComment": "A frozen dataclass representing a comment on an issue, with fields: `id`, `body`, `user`, `created_at`.",
+    "IssueResult": "A frozen dataclass representing an issue fetched from a forge, with fields: `number`, `title`, `html_url`, `body`, `labels`.",
+    "LABEL_FIX": "Label constant `str = \"af:fix\"` used to mark issues targeted for fixing.",
+    "LABEL_FIXED": "Label constant `str = \"af:fixed\"` used to mark issues that have been resolved.",
+    "LABEL_IMPLEMENTED": "Label constant `str = \"af:implemented\"` used to mark issues whose features are implemented.",
+    "LABEL_NO_CHANGE": "Label constant `str = \"af:no-change\"` used to mark issues closed without a code change.",
+    "LABEL_PRIORITY_HIGH": "Label constant `str = \"priority:high\"`.",
+    "LABEL_PRIORITY_LOW": "Label constant `str = \"priority:low\"`.",
+    "LABEL_PRIORITY_MEDIUM": "Label constant `str = \"priority:medium\"`.",
+    "LabelSpec": "A frozen dataclass with fields `name`, `color`, and `description` representing a forge label definition.",
+    "NullPlatform": "A no-op stub implementation of `PlatformProtocol`; `create_pr()` intentionally raises `NotImplementedError`.",
+    "PlatformProtocol": "A `typing.Protocol` class defining the async interface all forge implementations must satisfy (12 async methods + `close()`).",
+    "REQUIRED_LABELS": "A `list[LabelSpec]` containing the four `af:*` labels that must exist on a GitHub repo.",
+    "SSRF guard": "Server-Side Request Forgery protection logic embedded in `_SSRFGuardTransport` and `_validate_github_url` that prevents requests to internal/private network addresses.",
+    "_SSRFGuardTransport": "An `httpx.AsyncHTTPTransport` subclass that validates resolved IP addresses at the transport level to prevent SSRF attacks.",
+    "_validate_github_url": "A module-level function `(url: str) -> None` that raises `ConfigError` if the URL is not a permitted GitHub endpoint.",
+    "afaudit": "An existing workspace package used as a structural reference for `afissues` package layout and build conventions.",
+    "afissues": "The new standalone Python workspace package that houses the platform/forge abstraction layer extracted from `agentfox`.",
+    "afissues.errors": "The `afissues/errors.py` module defining the independent `AfIssuesError`, `ConfigError`, and `IntegrationError` hierarchy.",
+    "afissues.github": "The `afissues/github.py` module containing `GitHubPlatform` and associated SSRF guard helpers.",
+    "afissues.labels": "The `afissues/labels.py` module containing `LabelSpec`, all `LABEL_*` constants, and `REQUIRED_LABELS`.",
+    "afissues.protocol": "The `afissues/protocol.py` module containing `PlatformProtocol`, `NullPlatform`, `IssueResult`, and `IssueComment`.",
+    "agentfox": "The core agent-fox monolith Python package from which the platform layer is being extracted.",
+    "forge": "A code hosting and issue-tracking platform such as GitHub, GitLab, or Gitea.",
+    "forge_type": "A string attribute on platform implementations (e.g. `\"github\"`) used to identify the forge backend at runtime.",
+    "hatchling": "The Python build backend used by workspace packages, declared in `[build-system]` of `pyproject.toml`.",
+    "httpx.AsyncClient": "The primary async HTTP client class from `httpx` used by `GitHubPlatform`.",
+    "httpx.AsyncHTTPTransport": "The base transport class from `httpx` that `_SSRFGuardTransport` extends.",
+    "httpx.Timeout": "The `httpx` class for configuring per-phase connection timeouts.",
+    "make check": "The monorepo top-level command that runs lint and all tests across all workspace packages.",
+    "nightshift": "The `agentfox.nightshift` subpackage that contains the platform factory and orchestration logic.",
+    "parse_github_remote": "A module-level function `(remote_url: str) -> tuple[str, str] | None` that extracts `(owner, repo)` from a GitHub remote URL.",
+    "platform_factory": "The factory module at `agentfox.nightshift.platform_factory` that constructs platform instances; stays in `agentfox` with updated import paths.",
+    "py.typed": "A PEP 561 marker file that signals to mypy/pyright that a package ships inline type annotations.",
+    "testpaths": "The pytest ini option listing directories to discover tests in.",
+    "uv workspace": "The monorepo package manager configuration that declares all `packages/*` members and resolves inter-package dependencies.",
+    "\"af:\"": "Label name prefix convention for agent-fox labels.",
+    "(owner, repo)": "The tuple returned by `parse_github_remote` containing the repository owner and name.",
+    "(remote_url: str) -> tuple[str, str] | None": "Signature of `parse_github_remote`: accepts a remote URL string and returns an (owner, repo) tuple or None.",
+    "**context": "Arbitrary keyword arguments stored as structured error context on exception instances.",
+    ".hypothesis/": "Hypothesis test framework's database directory; gitignored in this workspace.",
+    ".py": "Python source file extension.",
+    "4.2.0": "Current version of the agent-fox workspace packages.",
+    "@dataclass(frozen=True)": "Python `dataclasses.dataclass` decorator creating immutable instances.",
+    "AfIssuesError(Exception)": "Declaration of `AfIssuesError` as a direct subclass of the built-in `Exception`.",
+    "ConfigError(AfIssuesError)": "Declaration of `ConfigError` as a subclass of `AfIssuesError`.",
+    "ConfigError(AgentFoxError)": "The existing `agentfox.core.errors.ConfigError` subclass \u2014 unrelated to `afissues.errors.ConfigError`.",
+    "False": "Python boolean literal `False`.",
+    "IntegrationError(AfIssuesError)": "Declaration of `IntegrationError` as a subclass of `AfIssuesError`.",
+    "IntegrationError(AgentFoxError)": "The existing `agentfox.core.errors.IntegrationError` subclass \u2014 unrelated to `afissues.errors.IntegrationError`.",
+    "LABEL_FIX = \"af:fix\"": "Full constant definition for the fix label.",
+    "LABEL_FIXED = \"af:fixed\"": "Full constant definition for the fixed label.",
+    "LABEL_IMPLEMENTED = \"af:implemented\"": "Full constant definition for the implemented label.",
+    "LABEL_NO_CHANGE = \"af:no-change\"": "Full constant definition for the no-change label.",
+    "LABEL_PRIORITY_HIGH = \"priority:high\"": "Full constant definition for the high-priority label.",
+    "LABEL_PRIORITY_LOW = \"priority:low\"": "Full constant definition for the low-priority label.",
+    "LABEL_PRIORITY_MEDIUM = \"priority:medium\"": "Full constant definition for the medium-priority label.",
+    "ModuleNotFoundError": "Python built-in exception raised when an import fails.",
+    "None": "Python built-in singleton representing absence of a value.",
+    "NotImplementedError": "Python built-in exception raised to indicate an unimplemented method.",
+    "True": "Python boolean literal `True`.",
+    "[tool.hatch.build.targets.wheel] packages = [\"afissues\"]": "Hatchling build config specifying the package directory for wheel builds.",
+    "[tool.pytest.ini_options]": "TOML section header for pytest configuration in pyproject.toml.",
+    "_GITHUB_TIMEOUT": "Module-level constant `httpx.Timeout(connect=30.0, ...)` used by `GitHubPlatform`.",
+    "_MAX_RETRIES": "Module-level constant `int = 3` for maximum HTTP retry attempts.",
+    "__init__(self, message: str = \"\", **context: object) -> None": "Constructor signature for `AfIssuesError` and `ConfigError`.",
+    "__init__(self, message: str = \"\", *, retryable: bool = True, **context: object) -> None": "Constructor signature for `IntegrationError` with the `retryable` kwarg.",
+    "__init__.py": "Python package initializer file.",
+    "_check_address": "Internal helper function for IP address validation in SSRF protection.",
+    "_validate_transport_address": "Internal helper function for transport-level SSRF validation.",
+    "af": "The CLI package for the agent-fox orchestrator.",
+    "af/pyproject.toml": "The `af` package's project configuration file.",
+    "af:*": "Glob pattern matching all agent-fox label names prefixed with `af:`.",
+    "afissues.*": "Python import path glob for all submodules of the `afissues` package.",
+    "afissues.errors.IntegrationError": "Fully qualified import path for the `afissues` integration error.",
+    "afissues/": "Root directory of the `afissues` package source code.",
+    "afissues/py.typed": "PEP 561 marker file for the `afissues` package.",
+    "afspec": "An existing workspace package for the specification format library.",
+    "agentfox \u2500\u2500\u25b6 afissues": "Dependency edge in the workspace dependency graph.",
+    "agentfox.core.errors": "The error module within the `agentfox` package.",
+    "agentfox.core.errors.IntegrationError": "Fully qualified import path for the `agentfox` integration error.",
+    "agentfox.platform": "The platform subpackage being extracted from `agentfox`.",
+    "agentfox.platform.*": "Python import path glob for all submodules under `agentfox.platform`.",
+    "agentfox.platform.github.GitHubPlatform": "Fully qualified import path for `GitHubPlatform` in the old location.",
+    "agentfox.platform.labels": "Old import path for label constants.",
+    "agentfox.platform.protocol": "Old import path for protocol types.",
+    "agentfox/platform/labels.py": "File path of the labels module in the old location.",
+    "body": "Field on `IssueResult` and `IssueComment` dataclasses holding the text content.",
+    "close()": "The async cleanup method on `PlatformProtocol` implementations.",
+    "color": "Field on `LabelSpec` dataclass holding the hex color string.",
+    "conftest.py": "Pytest configuration/fixture file.",
+    "context": "The `dict[str, object]` attribute on `AfIssuesError` storing structured error context.",
+    "create_pr()": "The `PlatformProtocol` method for creating pull requests.",
+    "created_at": "Field on `IssueComment` dataclass holding the ISO 8601 timestamp.",
+    "dependencies": "The `[project]` field in `pyproject.toml` listing package dependencies.",
+    "dependencies = [\"httpx>=0.27\"]": "Exact dependency declaration for the `afissues` package.",
+    "description": "Field on `LabelSpec` dataclass holding the human-readable label description.",
+    "e": "Variable name used in correctness property quantifiers for an error type.",
+    "e.retryable == True": "Correctness property assertion that `IntegrationError` defaults to retryable.",
+    "f": "Variable name used in correctness property quantifiers for a file.",
+    "forge_type = \"github\"": "Class attribute on `GitHubPlatform` identifying it as a GitHub forge.",
+    "from afissues import PlatformProtocol, GitHubPlatform": "Example import statement verifying package accessibility.",
+    "from agentfox.platform": "The old import prefix being migrated away from.",
+    "html_url": "Field on `IssueResult` dataclass holding the browser URL of the issue.",
+    "httpx": "The async HTTP client library used by `GitHubPlatform`.",
+    "httpx.ConnectError": "Exception raised by `httpx` on connection failures (retryable).",
+    "httpx.ConnectTimeout": "Exception raised by `httpx` on connection timeout (retryable).",
+    "httpx.ReadTimeout": "Exception raised by `httpx` on read timeout (retryable).",
+    "httpx>=0.27": "Version constraint for the `httpx` dependency.",
+    "id": "Field on `IssueComment` dataclass holding the comment's numeric identifier.",
+    "import agentfox.platform": "Bare import of the old platform package.",
+    "int = 3": "Type annotation and default for `_MAX_RETRIES`.",
+    "issubclass(e, AfIssuesError)": "Correctness property assertion for error hierarchy membership.",
+    "issubclass(e, AgentFoxError)": "Correctness property assertion for error hierarchy non-membership.",
+    "labels": "Field on `IssueResult` dataclass holding the tuple of label name strings.",
+    "len(REQUIRED_LABELS) == 4": "Correctness property assertion for label count preservation.",
+    "list[LabelSpec]": "Type annotation for `REQUIRED_LABELS`.",
+    "m": "Variable name used in correctness property quantifiers for a module.",
+    "members = [\"packages/*\"]": "uv workspace configuration declaring all packages under the `packages/` directory.",
+    "name": "Field on `LabelSpec` dataclass holding the label name string.",
+    "number": "Field on `IssueResult` dataclass holding the issue number.",
+    "packages/afissues/afissues/": "Source directory path within the new package.",
+    "packages/afissues/pyproject.toml": "Project configuration file for the `afissues` package.",
+    "packages/afissues/tests": "Test directory root for the `afissues` package.",
+    "packages/afissues/tests/property/": "Property-based test directory for `afissues`.",
+    "packages/afissues/tests/unit/conftest.py": "Unit test fixture file for `afissues`.",
+    "packages/agentfox/agentfox/platform/": "The platform directory being removed from `agentfox`.",
+    "packages/agentfox/tests/unit/platform/": "The unit test directory being relocated to `afissues`.",
+    "pyproject.toml": "Python project configuration file (PEP 621).",
+    "requires-python = \">=3.12\"": "Python version constraint for `afissues`.",
+    "retryable": "Boolean attribute on `IntegrationError` indicating whether the error is retryable.",
+    "retryable=True": "Default value of the `retryable` parameter on `IntegrationError.__init__`.",
+    "s": "Variable name used in correctness property quantifiers for a source file.",
+    "self.context: dict[str, object]": "Instance attribute storing structured error context.",
+    "self.retryable": "Instance attribute on `IntegrationError` storing the retryable flag.",
+    "sys.exit()": "Python built-in function to exit the interpreter.",
+    "test_overhaul_props.py": "Property-based test file for platform behavior being relocated.",
+    "testpaths = [\"tests\"]": "pytest ini option specifying test discovery directories.",
+    "title": "Field on `IssueResult` dataclass holding the issue title.",
+    "typing.Protocol": "Python `typing` module class for structural subtyping.",
+    "user": "Field on `IssueComment` dataclass holding the author's login name."
+  },
+  "requirements": [
+    {
+      "id": "03-REQ-1",
+      "title": "afissues package scaffold with pyproject.toml",
+      "user_story": {
+        "role": "workspace maintainer",
+        "goal": "create a new `afissues` package with a valid `pyproject.toml` using `hatchling` and the correct metadata",
+        "benefit": "the package can be installed independently and participates in the uv workspace without additional manual registration"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-1.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`afissues` package scaffold",
+          "action": "provides a `packages/afissues/pyproject.toml` declaring build-backend `hatchling`, package name `afissues`, version `4.2.0`, `requires-python = \">=3.12\"`, and `dependencies = [\"httpx>=0.27\"]`",
+          "return_contract": "file exists and `pip install packages/afissues` succeeds without `agentfox` installed"
+        },
+        {
+          "id": "03-REQ-1.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`afissues` package scaffold",
+          "action": "is automatically registered in the `uv workspace` because the root `pyproject.toml` uses `members = [\"packages/*\"]`; no manual entry is required",
+          "return_contract": "`uv sync` resolves `afissues` as a workspace member"
+        },
+        {
+          "id": "03-REQ-1.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`afissues` package scaffold",
+          "action": "includes a `afissues/py.typed` marker file so that mypy and pyright resolve inline types from the package",
+          "return_contract": "`py.typed` file is present in the installed package's root directory"
+        },
+        {
+          "id": "03-REQ-1.4",
+          "ears_pattern": "ubiquitous",
+          "system": "`afissues` `pyproject.toml`",
+          "action": "declares `[tool.hatch.build.targets.wheel] packages = [\"afissues\"]` so that only the `afissues/` source directory is included in the wheel",
+          "return_contract": "built wheel contains `afissues/` and does not bundle test files"
+        },
+        {
+          "id": "03-REQ-1.5",
+          "ears_pattern": "ubiquitous",
+          "system": "`afissues` `pyproject.toml`",
+          "action": "configures pytest via `[tool.pytest.ini_options]` with `testpaths = [\"tests\"]` scoped to the package root, consistent with other workspace packages",
+          "return_contract": "`pytest` invoked from `packages/afissues/` discovers tests under `packages/afissues/tests/`"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "03-REQ-1.E1",
+          "ears_pattern": "unwanted",
+          "system": "`afissues` package",
+          "action": "pip/uv rejects the installation with a Python version incompatibility error before any package files are written",
+          "return_contract": "non-zero exit code and `requires-python` mismatch message",
+          "error_condition": "installation is attempted with Python < 3.12"
+        }
+      ]
+    },
+    {
+      "id": "03-REQ-2",
+      "title": "Protocol module extraction to afissues.protocol",
+      "user_story": {
+        "role": "platform consumer",
+        "goal": "import `PlatformProtocol`, `NullPlatform`, `IssueResult`, and `IssueComment` from `afissues.protocol`",
+        "benefit": "the platform interface is accessible without depending on the `agentfox` monolith"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-2.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`afissues.protocol` module",
+          "action": "defines `PlatformProtocol` as a `typing.Protocol` class with 12 async methods and a synchronous `close()` method, identical in signature to the original in `agentfox.platform.protocol`",
+          "return_contract": "`from afissues.protocol import PlatformProtocol` succeeds and structural subtype checks pass"
+        },
+        {
+          "id": "03-REQ-2.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`afissues.protocol` module",
+          "action": "defines `IssueResult` as a `@dataclass(frozen=True)` with fields `number`, `title`, `html_url`, `body`, and `labels`, identical to the original",
+          "return_contract": "`IssueResult` instances are immutable and field access works as before"
+        },
+        {
+          "id": "03-REQ-2.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`afissues.protocol` module",
+          "action": "defines `IssueComment` as a `@dataclass(frozen=True)` with fields `id`, `body`, `user`, and `created_at`, identical to the original",
+          "return_contract": "`IssueComment` instances are immutable and field access works as before"
+        },
+        {
+          "id": "03-REQ-2.4",
+          "ears_pattern": "ubiquitous",
+          "system": "`NullPlatform` in `afissues.protocol`",
+          "action": "implements all `PlatformProtocol` methods as no-ops except `create_pr()`, which raises `NotImplementedError` exactly as in the original implementation",
+          "return_contract": "calling `NullPlatform().create_pr(...)` raises `NotImplementedError`; all other methods return without error"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "03-REQ-2.E1",
+          "ears_pattern": "unwanted",
+          "system": "`NullPlatform`",
+          "action": "raises `NotImplementedError` unconditionally \u2014 this is intentional preserved behavior, not a bug; do not catch or suppress this error",
+          "return_contract": "`NotImplementedError` propagates to the caller",
+          "error_condition": "`create_pr()` is called on a `NullPlatform` instance"
+        }
+      ]
+    },
+    {
+      "id": "03-REQ-3",
+      "title": "GitHub platform module extraction to afissues.github",
+      "user_story": {
+        "role": "platform consumer",
+        "goal": "import `GitHubPlatform` and `parse_github_remote` from `afissues.github`",
+        "benefit": "GitHub forge operations are available without the `agentfox` monolith and its heavyweight dependencies"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-3.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`afissues.github` module",
+          "action": "defines `GitHubPlatform` with 14 async methods, `forge_type = \"github\"`, and uses `httpx.AsyncClient` for all REST API calls, behaviorally identical to the original `agentfox.platform.github.GitHubPlatform`",
+          "return_contract": "`from afissues.github import GitHubPlatform` succeeds and all existing tests pass unchanged"
+        },
+        {
+          "id": "03-REQ-3.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`afissues.github` module",
+          "action": "defines `parse_github_remote` with signature `(remote_url: str) -> tuple[str, str] | None`, returning `(owner, repo)` for valid GitHub remote URLs and `None` otherwise",
+          "return_contract": "returns a 2-tuple of strings for valid GitHub URLs; returns `None` for non-GitHub or malformed URLs"
+        },
+        {
+          "id": "03-REQ-3.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`afissues.github` module",
+          "action": "includes `_SSRFGuardTransport` (subclassing `httpx.AsyncHTTPTransport`), `_validate_github_url`, `_validate_transport_address`, `_check_address`, `_GITHUB_TIMEOUT` (`httpx.Timeout`), and `_MAX_RETRIES` (`int = 3`), moved verbatim with import paths updated to reference `afissues.errors` and `afissues.protocol`",
+          "return_contract": "module imports without error; `_SSRFGuardTransport` is a subclass of `httpx.AsyncHTTPTransport`"
+        },
+        {
+          "id": "03-REQ-3.4",
+          "ears_pattern": "ubiquitous",
+          "system": "`afissues.github` module",
+          "action": "imports `ConfigError` and `IntegrationError` from `afissues.errors` (not from `agentfox.core.errors`), and imports `PlatformProtocol`, `IssueResult`, `IssueComment` from `afissues.protocol`",
+          "return_contract": "no `agentfox` symbols appear in `afissues.github` import statements"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "03-REQ-3.E1",
+          "ears_pattern": "unwanted",
+          "system": "`_validate_github_url` in `afissues.github`",
+          "action": "raises `ConfigError` from `afissues.errors` before any HTTP request is made",
+          "return_contract": "`ConfigError` is raised with a descriptive message; no outbound HTTP request is issued",
+          "error_condition": "a URL targeting a private or internal network address is passed to `_validate_github_url`"
+        },
+        {
+          "id": "03-REQ-3.E2",
+          "ears_pattern": "unwanted",
+          "system": "`GitHubPlatform` in `afissues.github`",
+          "action": "retries up to `_MAX_RETRIES` times (3), then raises `IntegrationError` from `afissues.errors` with `retryable=True` \u2014 identical to the original retry behavior",
+          "return_contract": "`IntegrationError` is raised after exhausting retries; the `retryable` attribute is `True`",
+          "error_condition": "an HTTP request via `httpx.AsyncClient` raises `httpx.ConnectTimeout`, `httpx.ConnectError`, or `httpx.ReadTimeout`"
+        },
+        {
+          "id": "03-REQ-3.E3",
+          "ears_pattern": "unwanted",
+          "system": "`GitHubPlatform.close()`",
+          "action": "executes as a no-op without raising any exception; does not interact with the error hierarchy",
+          "return_contract": "returns `None`; no exception is raised",
+          "error_condition": "`close()` is called on a `GitHubPlatform` instance"
+        }
+      ]
+    },
+    {
+      "id": "03-REQ-4",
+      "title": "Labels module extraction to afissues.labels",
+      "user_story": {
+        "role": "platform consumer",
+        "goal": "import `LabelSpec`, all `LABEL_*` constants, and `REQUIRED_LABELS` from `afissues.labels`",
+        "benefit": "label definitions are available independently of `agentfox`"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-4.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`afissues.labels` module",
+          "action": "defines `LabelSpec` as a `@dataclass(frozen=True)` with fields `name`, `color`, and `description`, moved verbatim from `agentfox/platform/labels.py`",
+          "return_contract": "`LabelSpec` instances are immutable; field access works identically to the original"
+        },
+        {
+          "id": "03-REQ-4.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`afissues.labels` module",
+          "action": "defines string constants `LABEL_FIX = \"af:fix\"`, `LABEL_FIXED = \"af:fixed\"`, `LABEL_NO_CHANGE = \"af:no-change\"`, `LABEL_IMPLEMENTED = \"af:implemented\"`, `LABEL_PRIORITY_HIGH = \"priority:high\"`, `LABEL_PRIORITY_MEDIUM = \"priority:medium\"`, `LABEL_PRIORITY_LOW = \"priority:low\"`, all moved verbatim",
+          "return_contract": "all seven constants have the exact same string values as the originals"
+        },
+        {
+          "id": "03-REQ-4.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`afissues.labels` module",
+          "action": "defines `REQUIRED_LABELS` as a `list[LabelSpec]` containing exactly the four `af:*` labels (`LABEL_FIX`, `LABEL_FIXED`, `LABEL_NO_CHANGE`, `LABEL_IMPLEMENTED`) and no priority labels, moved verbatim",
+          "return_contract": "`len(REQUIRED_LABELS) == 4` and each entry is a `LabelSpec` instance"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "03-REQ-5",
+      "title": "Independent error hierarchy in afissues.errors",
+      "user_story": {
+        "role": "library consumer",
+        "goal": "catch `afissues.errors.ConfigError` and `afissues.errors.IntegrationError` without importing `agentfox`",
+        "benefit": "error handling for platform operations does not require the `agentfox` monolith"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-5.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`afissues.errors` module",
+          "action": "defines `AfIssuesError(Exception)` with `__init__(self, message: str = \"\", **context: object) -> None` storing `context` kwargs as `self.context: dict[str, object]`",
+          "return_contract": "`AfIssuesError(\"msg\", key=val).context == {\"key\": val}`"
+        },
+        {
+          "id": "03-REQ-5.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`afissues.errors` module",
+          "action": "defines `ConfigError(AfIssuesError)` inheriting the `**context` calling convention from `AfIssuesError`",
+          "return_contract": "`isinstance(ConfigError(), AfIssuesError)` is `True`; `ConfigError` does not subclass `AgentFoxError`"
+        },
+        {
+          "id": "03-REQ-5.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`afissues.errors` module",
+          "action": "defines `IntegrationError(AfIssuesError)` with `__init__(self, message: str = \"\", *, retryable: bool = True, **context: object) -> None` storing `retryable` as `self.retryable`",
+          "return_contract": "`IntegrationError().retryable == True`; `isinstance(IntegrationError(), AfIssuesError)` is `True`"
+        },
+        {
+          "id": "03-REQ-5.4",
+          "ears_pattern": "ubiquitous",
+          "system": "`afissues.errors` module",
+          "action": "has zero imports from `agentfox` or any other workspace package",
+          "return_contract": "grep for `agentfox` in `afissues/errors.py` returns no matches"
+        },
+        {
+          "id": "03-REQ-5.5",
+          "ears_pattern": "ubiquitous",
+          "system": "`agentfox.core.errors`",
+          "action": "continues to define its own `ConfigError(AgentFoxError)` and `IntegrationError(AgentFoxError)` hierarchy unchanged for non-platform use cases within `agentfox`",
+          "return_contract": "existing `agentfox` callers catching `agentfox.core.errors.IntegrationError` for workspace errors continue to work without modification"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "03-REQ-5.E1",
+          "ears_pattern": "unwanted",
+          "system": "`afissues` library code",
+          "action": "raises an `AfIssuesError` subclass (`ConfigError` or `IntegrationError`) to the caller; does not call `sys.exit()` or otherwise terminate the process \u2014 `afissues` is a library, not an application",
+          "return_contract": "exception propagates to caller; process continues running",
+          "error_condition": "an unrecoverable error occurs inside any `afissues` function"
+        }
+      ]
+    },
+    {
+      "id": "03-REQ-6",
+      "title": "Public re-export surface in afissues.__init__",
+      "user_story": {
+        "role": "platform consumer",
+        "goal": "import all public `afissues` symbols from the top-level `afissues` namespace",
+        "benefit": "consumers get a single stable import path and do not need to know which sub-module each symbol lives in"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-6.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`afissues.__init__`",
+          "action": "re-exports `PlatformProtocol`, `NullPlatform`, `IssueResult`, `IssueComment` from `afissues.protocol`; `GitHubPlatform`, `parse_github_remote` from `afissues.github`; and `LabelSpec`, `LABEL_FIX`, `LABEL_FIXED`, `LABEL_NO_CHANGE`, `LABEL_IMPLEMENTED`, `LABEL_PRIORITY_HIGH`, `LABEL_PRIORITY_MEDIUM`, `LABEL_PRIORITY_LOW`, `REQUIRED_LABELS` from `afissues.labels`",
+          "return_contract": "`from afissues import PlatformProtocol, GitHubPlatform, LabelSpec` succeeds in a fresh environment with only `httpx` installed"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "03-REQ-7",
+      "title": "Deletion of agentfox/platform/ directory",
+      "user_story": {
+        "role": "workspace maintainer",
+        "goal": "remove the `agentfox/platform/` directory entirely after extraction",
+        "benefit": "no ambiguity remains about the canonical import path; there are no stale re-export shims or orphaned modules"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-7.1",
+          "ears_pattern": "ubiquitous",
+          "system": "workspace source tree",
+          "action": "removes the entire `packages/agentfox/agentfox/platform/` directory including all `.py` files and `__init__.py`; no empty directory, stub, or re-export shim is left behind",
+          "return_contract": "`ls packages/agentfox/agentfox/platform/` returns a non-existent path error"
+        },
+        {
+          "id": "03-REQ-7.2",
+          "ears_pattern": "ubiquitous",
+          "system": "workspace source tree",
+          "action": "has no remaining `import agentfox.platform` or `from agentfox.platform` statements anywhere in the workspace after deletion (verified by grep)",
+          "return_contract": "`grep -r \"agentfox\\.platform\" packages/` returns zero matches"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "03-REQ-8",
+      "title": "Import migration across 12 source files and 44 test files",
+      "user_story": {
+        "role": "workspace maintainer",
+        "goal": "update all `agentfox` internal imports from `agentfox.platform.*` to `afissues.*` in one atomic pass",
+        "benefit": "the codebase has no mixed import paths and CI passes after a single change"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-8.1",
+          "ears_pattern": "ubiquitous",
+          "system": "12 `agentfox` source files that previously imported from `agentfox.platform.*`",
+          "action": "are updated to import from `afissues` (or its sub-modules) instead; callers that previously caught `agentfox.core.errors.IntegrationError` for platform-originated errors update their except clauses to catch `afissues.errors.IntegrationError`",
+          "return_contract": "all 12 source files import from `afissues`; no `agentfox.platform` import remains"
+        },
+        {
+          "id": "03-REQ-8.2",
+          "ears_pattern": "ubiquitous",
+          "system": "44 `agentfox` test files that previously imported from `agentfox.platform.*`",
+          "action": "are updated to import from `afissues` instead",
+          "return_contract": "all 44 test files import from `afissues`; no `agentfox.platform` import remains"
+        },
+        {
+          "id": "03-REQ-8.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`packages/af/tests/unit/test_init_labels.py`",
+          "action": "is updated to import from `afissues.labels` instead of `agentfox.platform.labels`; `af/pyproject.toml` is not modified because `afissues` is available transitively through `af`'s `agentfox` dependency",
+          "return_contract": "`test_init_labels.py` imports resolve; `af/pyproject.toml` is unchanged"
+        },
+        {
+          "id": "03-REQ-8.4",
+          "ears_pattern": "ubiquitous",
+          "system": "`agentfox` `pyproject.toml`",
+          "action": "adds `afissues` as a workspace dependency so that `agentfox` source and tests can resolve `afissues` imports",
+          "return_contract": "`afissues` appears in `agentfox`'s dependency list; `uv sync` resolves the workspace dependency"
+        },
+        {
+          "id": "03-REQ-8.5",
+          "ears_pattern": "ubiquitous",
+          "system": "`platform_factory` in `agentfox.nightshift`",
+          "action": "has its import paths updated to reference `afissues` instead of `agentfox.platform.*`; no factory logic is changed",
+          "return_contract": "`platform_factory` module imports successfully with zero `agentfox.platform` references"
+        },
+        {
+          "id": "03-REQ-8.6",
+          "ears_pattern": "ubiquitous",
+          "system": "root `pyproject.toml`",
+          "action": "has `testpaths` updated to include `packages/afissues/tests` so that the root-level test run discovers `afissues` tests",
+          "return_contract": "`pytest` invoked from the workspace root discovers and runs `afissues` tests"
+        }
+      ],
+      "edge_cases": [
+        {
+          "id": "03-REQ-8.E1",
+          "ears_pattern": "unwanted",
+          "system": "import migration",
+          "action": "Python raises `ModuleNotFoundError` at import time, causing the relevant test or import to fail; CI catches this before merge",
+          "return_contract": "`ModuleNotFoundError` surfaces in CI output; the task group is retried or rejected",
+          "error_condition": "a source or test file is missed during the migration pass, leaving a `from agentfox.platform` import that resolves to a deleted module"
+        }
+      ]
+    },
+    {
+      "id": "03-REQ-9",
+      "title": "Test migration to packages/afissues/tests/",
+      "user_story": {
+        "role": "workspace maintainer",
+        "goal": "relocate all platform test files to `packages/afissues/tests/` with updated imports",
+        "benefit": "tests live with the code they exercise; `agentfox` test suite no longer contains platform tests"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-9.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`packages/afissues/tests/` directory",
+          "action": "contains the 10 unit test files relocated from `packages/agentfox/tests/unit/platform/`, the relocated `conftest.py` at `packages/afissues/tests/unit/conftest.py` with fixture imports updated to reference `afissues.*`, and `test_overhaul_props.py` at `packages/afissues/tests/property/`",
+          "return_contract": "directory structure matches: `tests/unit/conftest.py`, `tests/unit/<10 files>`, `tests/property/test_overhaul_props.py`"
+        },
+        {
+          "id": "03-REQ-9.2",
+          "ears_pattern": "ubiquitous",
+          "system": "relocated `conftest.py`",
+          "action": "references only `afissues.*` imports; no `agentfox.platform.*` imports remain; fixtures retain the same names and signatures so test files do not need fixture name changes",
+          "return_contract": "all 10 relocated unit test files collect and pass using the relocated `conftest.py` fixtures"
+        },
+        {
+          "id": "03-REQ-9.3",
+          "ears_pattern": "ubiquitous",
+          "system": "relocated `test_overhaul_props.py`",
+          "action": "imports from `afissues.*`; Hypothesis starts with a fresh example database at the new location with no behavioral impact (the `.hypothesis/` directory is not checked in)",
+          "return_contract": "property tests pass at `packages/afissues/tests/property/test_overhaul_props.py`"
+        },
+        {
+          "id": "03-REQ-9.4",
+          "ears_pattern": "ubiquitous",
+          "system": "`packages/agentfox/tests/unit/platform/` directory",
+          "action": "is deleted entirely after relocation; no test files, `conftest.py`, or empty directories remain under that path",
+          "return_contract": "`ls packages/agentfox/tests/unit/platform/` returns a non-existent path error"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "03-REQ-10",
+      "title": "Dependency footprint isolation",
+      "user_story": {
+        "role": "lightweight consumer",
+        "goal": "install `afissues` with only `httpx` as an external dependency",
+        "benefit": "consumers avoid pulling in Anthropic SDK, sentence-transformers, tree-sitter, DuckDB, and other `agentfox` transitive dependencies"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-10.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`afissues` package",
+          "action": "declares only `httpx>=0.27` as an external dependency; no other third-party packages appear in `dependencies` in `pyproject.toml`",
+          "return_contract": "`pip show afissues` lists only `httpx` under `Requires`"
+        },
+        {
+          "id": "03-REQ-10.2",
+          "ears_pattern": "ubiquitous",
+          "system": "`afissues` source modules",
+          "action": "contain zero top-level imports from any other workspace package (`agentfox`, `afspec`, `afaudit`, etc.); only `httpx` and stdlib are imported",
+          "return_contract": "grep for workspace package names in `packages/afissues/afissues/` returns zero matches"
+        },
+        {
+          "id": "03-REQ-10.3",
+          "ears_pattern": "ubiquitous",
+          "system": "`nightshift`",
+          "action": "does not declare `afissues` as an explicit dependency in its own `pyproject.toml`; it receives `afissues` transitively through `agentfox`",
+          "return_contract": "`nightshift/pyproject.toml` does not list `afissues` in its dependencies"
+        },
+        {
+          "id": "03-REQ-10.4",
+          "ears_pattern": "ubiquitous",
+          "system": "`packages/af` package",
+          "action": "does not update `af/pyproject.toml` to add `afissues`; `afissues` is available transitively through `af`'s `agentfox` dependency",
+          "return_contract": "`af/pyproject.toml` is unchanged; `afissues` symbols resolve in `af` tests"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "03-REQ-11",
+      "title": "Documentation updates for afissues",
+      "user_story": {
+        "role": "workspace contributor",
+        "goal": "find `afissues` listed in both the root and packages README files with its description and dependency graph position",
+        "benefit": "new contributors understand the package's purpose and how it relates to `agentfox` without reading source code"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-11.1",
+          "ears_pattern": "ubiquitous",
+          "system": "`packages/README.md`",
+          "action": "includes `afissues` in the package table with its description and adds the dependency edge `agentfox \u2500\u2500\u25b6 afissues` to the dependency graph",
+          "return_contract": "file is updated; `afissues` row appears in the table"
+        },
+        {
+          "id": "03-REQ-11.2",
+          "ears_pattern": "ubiquitous",
+          "system": "root `README.md`",
+          "action": "includes `afissues` in the dependency graph, the package table, and the standalone libraries section",
+          "return_contract": "file is updated; `afissues` appears in all three locations"
+        }
+      ],
+      "edge_cases": []
+    },
+    {
+      "id": "03-REQ-12",
+      "title": "End-to-end validation: make check passes with no regressions",
+      "user_story": {
+        "role": "CI pipeline",
+        "goal": "run `make check` and confirm all lint and tests pass after the extraction",
+        "benefit": "the extraction is verified to be behaviorally transparent before merge"
+      },
+      "acceptance_criteria": [
+        {
+          "id": "03-REQ-12.1",
+          "ears_pattern": "event_driven",
+          "system": "CI pipeline",
+          "action": "runs lint and all workspace tests; all tests pass; no new lint errors are introduced",
+          "return_contract": "`make check` exits with code 0",
+          "trigger": "`make check` is executed after all extraction changes are applied"
+        },
+        {
+          "id": "03-REQ-12.2",
+          "ears_pattern": "ubiquitous",
+          "system": "workspace",
+          "action": "allows `from afissues import PlatformProtocol, GitHubPlatform` to succeed in an environment where only `httpx` is installed (without `agentfox`)",
+          "return_contract": "import succeeds; no `ModuleNotFoundError` or `ImportError` is raised"
+        },
+        {
+          "id": "03-REQ-12.3",
+          "ears_pattern": "ubiquitous",
+          "system": "workspace",
+          "action": "type-checker invocation (mypy or pyright) on code that imports from `afissues` resolves all types correctly due to the presence of `py.typed`",
+          "return_contract": "type checker reports no errors for `afissues` symbol usages"
+        }
+      ],
+      "edge_cases": []
+    }
+  ],
+  "correctness_properties": [
+    {
+      "id": "03-PROP-1",
+      "title": "afissues has zero workspace package imports",
+      "for_any": "module `m` in `packages/afissues/afissues/`",
+      "invariant": "`m` does not import from `agentfox`, `afspec`, `afaudit`, or any other workspace package; only `httpx` and stdlib are imported",
+      "validates": [
+        "03-REQ-10.1",
+        "03-REQ-10.2",
+        "03-REQ-5.4"
+      ]
+    },
+    {
+      "id": "03-PROP-2",
+      "title": "No agentfox.platform imports remain after migration",
+      "for_any": "file `f` in the workspace",
+      "invariant": "`f` contains no import statement referencing `agentfox.platform`",
+      "validates": [
+        "03-REQ-7.2",
+        "03-REQ-8.1",
+        "03-REQ-8.2"
+      ]
+    },
+    {
+      "id": "03-PROP-3",
+      "title": "afissues error types are independent of AgentFoxError",
+      "for_any": "error class `e` defined in `afissues.errors`",
+      "invariant": "`issubclass(e, AfIssuesError)` is `True` and `issubclass(e, AgentFoxError)` is `False`",
+      "validates": [
+        "03-REQ-5.1",
+        "03-REQ-5.2",
+        "03-REQ-5.3"
+      ]
+    },
+    {
+      "id": "03-PROP-4",
+      "title": "Extracted symbols are behaviorally identical to originals",
+      "for_any": "public symbol `s` extracted from `agentfox.platform.*` to `afissues`",
+      "invariant": "all existing platform tests pass against `s` imported from `afissues` with no behavioral changes",
+      "validates": [
+        "03-REQ-2.1",
+        "03-REQ-2.2",
+        "03-REQ-2.3",
+        "03-REQ-3.1",
+        "03-REQ-4.1",
+        "03-REQ-4.2",
+        "03-REQ-4.3"
+      ]
+    },
+    {
+      "id": "03-PROP-5",
+      "title": "REQUIRED_LABELS contains exactly four af:* entries",
+      "for_any": "value of `REQUIRED_LABELS` in `afissues.labels`",
+      "invariant": "`len(REQUIRED_LABELS) == 4` and every entry has a `name` starting with `\"af:\"`",
+      "validates": [
+        "03-REQ-4.3"
+      ]
+    },
+    {
+      "id": "03-PROP-6",
+      "title": "IntegrationError.retryable defaults to True",
+      "for_any": "`IntegrationError` instance `e` created without an explicit `retryable` argument",
+      "invariant": "`e.retryable == True`",
+      "validates": [
+        "03-REQ-5.3",
+        "03-REQ-3.E2"
+      ]
+    }
+  ],
+  "execution_paths": [
+    {
+      "id": "03-PATH-1",
+      "title": "Happy-path: consumer imports GitHubPlatform independently",
+      "steps": [
+        {
+          "actor": "External consumer",
+          "action": "installs `afissues` via `pip install` from the git repo subdirectory in an environment without `agentfox`"
+        },
+        {
+          "actor": "pip / uv",
+          "action": "resolves and installs only `httpx>=0.27` as the sole external dependency"
+        },
+        {
+          "actor": "External consumer",
+          "action": "executes `from afissues import PlatformProtocol, GitHubPlatform, REQUIRED_LABELS`"
+        },
+        {
+          "actor": "`afissues.__init__`",
+          "action": "re-exports all symbols by importing from `afissues.protocol`, `afissues.github`, and `afissues.labels`"
+        },
+        {
+          "actor": "External consumer",
+          "action": "instantiates `GitHubPlatform` and calls an async method such as `get_issue()`"
+        },
+        {
+          "actor": "`GitHubPlatform`",
+          "action": "issues an HTTP request via `httpx.AsyncClient` through `_SSRFGuardTransport`, validates the URL, and returns an `IssueResult`"
+        },
+        {
+          "actor": "External consumer",
+          "action": "receives the `IssueResult` with populated `number`, `title`, `html_url`, `body`, and `labels` fields"
+        }
+      ]
+    },
+    {
+      "id": "03-PATH-2",
+      "title": "SSRF guard blocks a private network request",
+      "steps": [
+        {
+          "actor": "External consumer",
+          "action": "calls a `GitHubPlatform` method with a URL resolving to a private/internal IP address"
+        },
+        {
+          "actor": "`_validate_github_url`",
+          "action": "detects the private address and raises `ConfigError` from `afissues.errors` before issuing any HTTP request"
+        },
+        {
+          "actor": "`GitHubPlatform`",
+          "action": "propagates the `ConfigError` to the caller without making any outbound HTTP request"
+        },
+        {
+          "actor": "External consumer",
+          "action": "catches `afissues.errors.ConfigError` and handles the SSRF violation"
+        }
+      ]
+    },
+    {
+      "id": "03-PATH-3",
+      "title": "agentfox internal code uses platform via afissues after migration",
+      "steps": [
+        {
+          "actor": "`agentfox` source module (post-migration)",
+          "action": "imports `GitHubPlatform` from `afissues` (not from `agentfox.platform`)"
+        },
+        {
+          "actor": "`platform_factory` in `agentfox.nightshift`",
+          "action": "constructs a `GitHubPlatform` instance using environment configuration"
+        },
+        {
+          "actor": "`agentfox` caller",
+          "action": "invokes a `PlatformProtocol` method on the constructed platform instance"
+        },
+        {
+          "actor": "`GitHubPlatform` (from `afissues`)",
+          "action": "performs the GitHub API operation and returns an `IssueResult` or `IssueComment`"
+        },
+        {
+          "actor": "`agentfox` caller",
+          "action": "processes the result; if an `afissues.errors.IntegrationError` is raised, catches it using the updated except clause"
+        }
+      ]
+    },
+    {
+      "id": "03-PATH-4",
+      "title": "CI validates zero agentfox.platform imports after migration",
+      "steps": [
+        {
+          "actor": "CI pipeline",
+          "action": "runs `grep -r \"agentfox\\.platform\" packages/` after all extraction and migration changes are applied"
+        },
+        {
+          "actor": "grep",
+          "action": "returns zero matches"
+        },
+        {
+          "actor": "CI pipeline",
+          "action": "runs `make check` (lint + full test suite including `afissues` tests)"
+        },
+        {
+          "actor": "`make check`",
+          "action": "exits with code 0, confirming no regressions in any workspace package"
+        }
+      ]
+    }
+  ],
+  "error_handling": [
+    {
+      "id": "03-ERR-1",
+      "condition": "`_validate_github_url` receives a URL resolving to a private or internal network address",
+      "behavior": "raises `ConfigError` from `afissues.errors` with a descriptive message before any outbound HTTP request is made",
+      "requirement_id": "03-REQ-3.E1"
+    },
+    {
+      "id": "03-ERR-2",
+      "condition": "`GitHubPlatform` receives `httpx.ConnectTimeout`, `httpx.ConnectError`, or `httpx.ReadTimeout` during an API call",
+      "behavior": "retries up to `_MAX_RETRIES` (3) times, then raises `IntegrationError` from `afissues.errors` with `retryable=True`",
+      "requirement_id": "03-REQ-3.E2"
+    },
+    {
+      "id": "03-ERR-3",
+      "condition": "`NullPlatform.create_pr()` is called",
+      "behavior": "raises `NotImplementedError` unconditionally \u2014 this is preserved intentional behavior",
+      "requirement_id": "03-REQ-2.E1"
+    },
+    {
+      "id": "03-ERR-4",
+      "condition": "installation of `afissues` is attempted with Python < 3.12",
+      "behavior": "pip/uv rejects the installation with a Python version incompatibility error and a non-zero exit code before writing any package files",
+      "requirement_id": "03-REQ-1.E1"
+    },
+    {
+      "id": "03-ERR-5",
+      "condition": "a source or test file is missed during the 56-file import migration, leaving a stale `from agentfox.platform` import targeting the deleted module",
+      "behavior": "Python raises `ModuleNotFoundError` at import time; CI catches this failure and the task group is retried or rejected",
+      "requirement_id": "03-REQ-8.E1"
+    },
+    {
+      "id": "03-ERR-6",
+      "condition": "any `afissues` function encounters an unrecoverable error",
+      "behavior": "raises an `AfIssuesError` subclass to the caller; does not call `sys.exit()` or terminate the process \u2014 library boundary is preserved",
+      "requirement_id": "03-REQ-5.E1"
+    }
+  ],
+  "external_apis": [
+    {
+      "package": "httpx",
+      "version": ">=0.27 (0.28.1 installed)",
+      "symbols": [
+        {
+          "name": "AsyncClient",
+          "import_path": "httpx",
+          "signature": "class AsyncClient(...)",
+          "notes": "Context manager for async HTTP; used by GitHubPlatform for all REST API calls"
+        },
+        {
+          "name": "AsyncHTTPTransport",
+          "import_path": "httpx",
+          "signature": "class AsyncHTTPTransport(...)",
+          "notes": "Base class extended by _SSRFGuardTransport for transport-level SSRF validation"
+        },
+        {
+          "name": "Timeout",
+          "import_path": "httpx",
+          "signature": "class Timeout(connect=, read=, write=, pool=)",
+          "notes": "Used to define _GITHUB_TIMEOUT constant in afissues.github"
+        },
+        {
+          "name": "ConnectTimeout",
+          "import_path": "httpx",
+          "signature": "exception",
+          "notes": "Retryable transport error caught by GitHubPlatform retry logic"
+        },
+        {
+          "name": "ConnectError",
+          "import_path": "httpx",
+          "signature": "exception",
+          "notes": "Retryable transport error caught by GitHubPlatform retry logic"
+        },
+        {
+          "name": "ReadTimeout",
+          "import_path": "httpx",
+          "signature": "exception",
+          "notes": "Retryable transport error caught by GitHubPlatform retry logic"
+        }
+      ]
+    }
+  ]
+}

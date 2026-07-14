@@ -1,0 +1,810 @@
+{
+  "$schema": null,
+  "spec_id": "03",
+  "spec_name": "extract_platform_afissues",
+  "schema_version": 1,
+  "test_cases": [
+    {
+      "id": "TS-03-1",
+      "requirement_id": "03-REQ-1.1",
+      "kind": "acceptance",
+      "description": "Verifies that `packages/afissues/pyproject.toml` exists with the correct build backend, package name, version, Python constraint, and httpx dependency, and that the package installs without `agentfox`.",
+      "preconditions": [
+        "`packages/afissues/` directory exists in the workspace",
+        "A Python 3.12+ virtual environment is available without `agentfox` installed",
+        "`pip` is available for installation"
+      ],
+      "input": "contents of `packages/afissues/pyproject.toml` and a fresh virtualenv without `agentfox`",
+      "expected": "`pyproject.toml` declares build-backend `hatchling`, name `afissues`, version `4.2.0`, `requires-python = \">=3.12\"`, `dependencies = [\"httpx>=0.27\"]`; `pip install packages/afissues` exits with code 0 and `pip show afissues` reports the package",
+      "assertion_pseudocode": "toml = parse_toml('packages/afissues/pyproject.toml')\nassert toml['build-system']['build-backend'] == 'hatchling.build'\nassert toml['project']['name'] == 'afissues'\nassert toml['project']['version'] == '4.2.0'\nassert toml['project']['requires-python'] == '>=3.12'\nassert 'httpx>=0.27' in toml['project']['dependencies']\nresult = shell('pip install packages/afissues', env=WITHOUT_AGENTFOX)\nassert result.returncode == 0\nshow = shell('pip show afissues')\nassert 'afissues' in show.stdout"
+    },
+    {
+      "id": "TS-03-2",
+      "requirement_id": "03-REQ-1.2",
+      "kind": "acceptance",
+      "description": "Verifies that `afissues` is automatically resolved as a uv workspace member without any manual entry in the root `pyproject.toml` beyond the `members = [\"packages/*\"]` glob.",
+      "preconditions": [
+        "Root `pyproject.toml` contains `members = [\"packages/*\"]` under `[tool.uv.workspace]` or equivalent",
+        "`packages/afissues/` directory exists with a valid `pyproject.toml`",
+        "`uv` is installed"
+      ],
+      "input": "running `uv sync` from the workspace root",
+      "expected": "`uv sync` exits with code 0 and `afissues` appears as a workspace member in the resolved lockfile or `uv` output",
+      "assertion_pseudocode": "result = shell('uv sync', cwd=WORKSPACE_ROOT)\nassert result.returncode == 0\nworkspace_members = shell('uv run python -c \"import importlib.metadata; print(importlib.metadata.version(\\'afissues\\'))\"')\nassert '4.2.0' in workspace_members.stdout"
+    },
+    {
+      "id": "TS-03-3",
+      "requirement_id": "03-REQ-1.3",
+      "kind": "acceptance",
+      "description": "Verifies that `afissues/py.typed` marker file exists in the installed package, enabling mypy/pyright to resolve inline types.",
+      "preconditions": [
+        "`afissues` is installed in the test environment",
+        "`py.typed` file is present in `packages/afissues/afissues/py.typed`"
+      ],
+      "input": "inspection of installed `afissues` package contents",
+      "expected": "`py.typed` file exists inside the installed `afissues` package directory",
+      "assertion_pseudocode": "import importlib.resources\nimport afissues\npkg_path = Path(afissues.__file__).parent\nassert (pkg_path / 'py.typed').exists()\n# Also verify source location\nassert Path('packages/afissues/afissues/py.typed').exists()"
+    },
+    {
+      "id": "TS-03-4",
+      "requirement_id": "03-REQ-1.4",
+      "kind": "acceptance",
+      "description": "Verifies that the built wheel includes only the `afissues/` source directory and does not bundle test files.",
+      "preconditions": [
+        "`packages/afissues/pyproject.toml` declares `[tool.hatch.build.targets.wheel] packages = [\"afissues\"]`",
+        "`hatchling` is installed"
+      ],
+      "input": "building a wheel from `packages/afissues/` using `python -m build` or `hatch build`",
+      "expected": "built wheel archive contains `afissues/` directory entries and does NOT contain any `tests/` entries",
+      "assertion_pseudocode": "result = shell('python -m build --wheel packages/afissues/', cwd=WORKSPACE_ROOT)\nassert result.returncode == 0\nwheel_files = list_wheel_contents('packages/afissues/dist/*.whl')\nassert any(f.startswith('afissues/') for f in wheel_files)\nassert not any('tests' in f for f in wheel_files)"
+    },
+    {
+      "id": "TS-03-5",
+      "requirement_id": "03-REQ-1.5",
+      "kind": "acceptance",
+      "description": "Verifies that `afissues` `pyproject.toml` configures pytest with `testpaths = [\"tests\"]` and that running pytest from the package root discovers tests under `packages/afissues/tests/`.",
+      "preconditions": [
+        "`packages/afissues/pyproject.toml` has `[tool.pytest.ini_options]` with `testpaths = [\"tests\"]`",
+        "Test files exist under `packages/afissues/tests/`"
+      ],
+      "input": "running `pytest` from `packages/afissues/` directory",
+      "expected": "pytest discovers and attempts to run tests found under `packages/afissues/tests/`; no tests from other packages are collected",
+      "assertion_pseudocode": "toml = parse_toml('packages/afissues/pyproject.toml')\nassert toml['tool']['pytest']['ini_options']['testpaths'] == ['tests']\nresult = shell('pytest --collect-only', cwd='packages/afissues/')\nassert result.returncode == 0\nassert 'packages/afissues/tests' in result.stdout or 'tests/' in result.stdout\nassert 'packages/agentfox' not in result.stdout"
+    },
+    {
+      "id": "TS-03-6",
+      "requirement_id": "03-REQ-2.1",
+      "kind": "acceptance",
+      "description": "Verifies that `afissues.protocol` defines `PlatformProtocol` as a `typing.Protocol` with 12 async methods and a synchronous `close()` method, importable independently.",
+      "preconditions": [
+        "`afissues` package is installed or on the Python path",
+        "`agentfox` is NOT installed in the test environment"
+      ],
+      "input": "`from afissues.protocol import PlatformProtocol`",
+      "expected": "Import succeeds; `PlatformProtocol` is a `typing.Protocol` subclass; it has 12 async methods and a `close()` method; structural subtype checks pass for valid implementations",
+      "assertion_pseudocode": "from afissues.protocol import PlatformProtocol\nimport typing, inspect\nassert issubclass(PlatformProtocol, typing.Protocol) or hasattr(PlatformProtocol, '_is_protocol')\nmethods = [name for name, fn in inspect.getmembers(PlatformProtocol, predicate=inspect.isfunction)]\nasync_methods = [m for m in methods if inspect.iscoroutinefunction(getattr(PlatformProtocol, m))]\nassert len(async_methods) == 12\nassert 'close' in methods\nassert not inspect.iscoroutinefunction(PlatformProtocol.close)"
+    },
+    {
+      "id": "TS-03-7",
+      "requirement_id": "03-REQ-2.2",
+      "kind": "acceptance",
+      "description": "Verifies that `IssueResult` in `afissues.protocol` is a frozen dataclass with the correct five fields.",
+      "preconditions": [
+        "`afissues` package is installed or on the Python path"
+      ],
+      "input": "`from afissues.protocol import IssueResult`; instantiate with all five fields",
+      "expected": "`IssueResult` is a frozen dataclass; instances are immutable; fields `number`, `title`, `html_url`, `body`, `labels` are accessible",
+      "assertion_pseudocode": "from afissues.protocol import IssueResult\nimport dataclasses\nassert dataclasses.is_dataclass(IssueResult)\nfields = {f.name for f in dataclasses.fields(IssueResult)}\nassert fields == {'number', 'title', 'html_url', 'body', 'labels'}\nissue = IssueResult(number=1, title='t', html_url='u', body='b', labels=['l1'])\nassert issue.number == 1\ntry:\n    issue.number = 2\n    assert False, 'should be frozen'\nexcept dataclasses.FrozenInstanceError:\n    pass"
+    },
+    {
+      "id": "TS-03-8",
+      "requirement_id": "03-REQ-2.3",
+      "kind": "acceptance",
+      "description": "Verifies that `IssueComment` in `afissues.protocol` is a frozen dataclass with the correct four fields.",
+      "preconditions": [
+        "`afissues` package is installed or on the Python path"
+      ],
+      "input": "`from afissues.protocol import IssueComment`; instantiate with all four fields",
+      "expected": "`IssueComment` is a frozen dataclass; instances are immutable; fields `id`, `body`, `user`, `created_at` are accessible",
+      "assertion_pseudocode": "from afissues.protocol import IssueComment\nimport dataclasses\nassert dataclasses.is_dataclass(IssueComment)\nfields = {f.name for f in dataclasses.fields(IssueComment)}\nassert fields == {'id', 'body', 'user', 'created_at'}\ncomment = IssueComment(id=42, body='hi', user='alice', created_at='2024-01-01T00:00:00Z')\nassert comment.id == 42\ntry:\n    comment.id = 99\n    assert False\nexcept dataclasses.FrozenInstanceError:\n    pass"
+    },
+    {
+      "id": "TS-03-9",
+      "requirement_id": "03-REQ-2.4",
+      "kind": "acceptance",
+      "description": "Verifies that `NullPlatform` implements all `PlatformProtocol` methods as no-ops except `create_pr()`, which raises `NotImplementedError`.",
+      "preconditions": [
+        "`afissues` package is installed or on the Python path",
+        "An async test runner (e.g., pytest-asyncio) is available"
+      ],
+      "input": "instantiate `NullPlatform()` and call each method",
+      "expected": "All methods other than `create_pr()` return without error; `create_pr()` raises `NotImplementedError`",
+      "assertion_pseudocode": "from afissues.protocol import NullPlatform\nimport asyncio\nnp = NullPlatform()\n# Test create_pr raises NotImplementedError\ntry:\n    asyncio.run(np.create_pr(...))\n    assert False, 'should raise NotImplementedError'\nexcept NotImplementedError:\n    pass\n# Test other methods are no-ops (example with get_issue)\nresult = asyncio.run(np.get_issue(1))\n# Should return without exception (result may be None or default)"
+    },
+    {
+      "id": "TS-03-10",
+      "requirement_id": "03-REQ-3.1",
+      "kind": "acceptance",
+      "description": "Verifies that `afissues.github` defines `GitHubPlatform` with 14 async methods, `forge_type = 'github'`, and that it uses `httpx.AsyncClient` for REST API calls.",
+      "preconditions": [
+        "`afissues` package is installed or on the Python path",
+        "`httpx` is installed"
+      ],
+      "input": "`from afissues.github import GitHubPlatform`",
+      "expected": "Import succeeds; `GitHubPlatform.forge_type == 'github'`; class has 14 async methods; all existing platform tests pass",
+      "assertion_pseudocode": "from afissues.github import GitHubPlatform\nimport inspect\nassert GitHubPlatform.forge_type == 'github'\nasync_methods = [name for name, fn in inspect.getmembers(GitHubPlatform, predicate=inspect.isfunction)\n                 if inspect.iscoroutinefunction(fn)]\nassert len(async_methods) == 14\n# Verify httpx.AsyncClient is used internally\nimport httpx\nsource = inspect.getsource(GitHubPlatform)\nassert 'AsyncClient' in source or 'httpx' in source"
+    },
+    {
+      "id": "TS-03-11",
+      "requirement_id": "03-REQ-3.2",
+      "kind": "acceptance",
+      "description": "Verifies that `parse_github_remote` has the correct signature and returns `(owner, repo)` for valid GitHub URLs and `None` for invalid ones.",
+      "preconditions": [
+        "`afissues` package is installed or on the Python path"
+      ],
+      "input": "various GitHub and non-GitHub remote URLs",
+      "expected": "Valid GitHub HTTPS and SSH URLs return a `(str, str)` tuple; non-GitHub or malformed URLs return `None`",
+      "assertion_pseudocode": "from afissues.github import parse_github_remote\nresult = parse_github_remote('https://github.com/owner/repo.git')\nassert result == ('owner', 'repo')\nresult2 = parse_github_remote('git@github.com:owner/repo.git')\nassert result2 == ('owner', 'repo')\nassert parse_github_remote('https://gitlab.com/owner/repo') is None\nassert parse_github_remote('not-a-url') is None\nassert parse_github_remote('') is None"
+    },
+    {
+      "id": "TS-03-12",
+      "requirement_id": "03-REQ-3.3",
+      "kind": "acceptance",
+      "description": "Verifies that `afissues.github` includes all SSRF guard helpers and constants with correct types, moved verbatim from the original module.",
+      "preconditions": [
+        "`afissues` package is installed or on the Python path",
+        "`httpx` is installed"
+      ],
+      "input": "`import afissues.github`",
+      "expected": "`_SSRFGuardTransport` is a subclass of `httpx.AsyncHTTPTransport`; `_MAX_RETRIES == 3`; `_GITHUB_TIMEOUT` is an `httpx.Timeout` instance; all helper functions are importable",
+      "assertion_pseudocode": "import afissues.github as gh\nimport httpx\nassert issubclass(gh._SSRFGuardTransport, httpx.AsyncHTTPTransport)\nassert gh._MAX_RETRIES == 3\nassert isinstance(gh._GITHUB_TIMEOUT, httpx.Timeout)\nassert callable(gh._validate_github_url)\nassert callable(gh._validate_transport_address)\nassert callable(gh._check_address)"
+    },
+    {
+      "id": "TS-03-13",
+      "requirement_id": "03-REQ-3.4",
+      "kind": "acceptance",
+      "description": "Verifies that `afissues.github` imports errors from `afissues.errors` and protocol types from `afissues.protocol`, with zero `agentfox` references in its import statements.",
+      "preconditions": [
+        "`packages/afissues/afissues/github.py` exists"
+      ],
+      "input": "static analysis of `packages/afissues/afissues/github.py` import statements",
+      "expected": "No line in `github.py` imports from `agentfox`; `ConfigError` and `IntegrationError` are imported from `afissues.errors`; `PlatformProtocol`, `IssueResult`, `IssueComment` are imported from `afissues.protocol`",
+      "assertion_pseudocode": "source = read_file('packages/afissues/afissues/github.py')\nassert 'agentfox' not in source\nassert 'from afissues.errors import' in source\nassert 'ConfigError' in source\nassert 'IntegrationError' in source\nassert 'from afissues.protocol import' in source or 'afissues.protocol' in source"
+    },
+    {
+      "id": "TS-03-14",
+      "requirement_id": "03-REQ-4.1",
+      "kind": "acceptance",
+      "description": "Verifies that `LabelSpec` in `afissues.labels` is a frozen dataclass with fields `name`, `color`, and `description`.",
+      "preconditions": [
+        "`afissues` package is installed or on the Python path"
+      ],
+      "input": "`from afissues.labels import LabelSpec`; instantiate with all three fields",
+      "expected": "`LabelSpec` is a frozen dataclass; `name`, `color`, `description` fields are accessible; instances are immutable",
+      "assertion_pseudocode": "from afissues.labels import LabelSpec\nimport dataclasses\nassert dataclasses.is_dataclass(LabelSpec)\nfields = {f.name for f in dataclasses.fields(LabelSpec)}\nassert fields == {'name', 'color', 'description'}\nlabel = LabelSpec(name='af:fix', color='0075ca', description='Fix issue')\nassert label.name == 'af:fix'\ntry:\n    label.name = 'other'\n    assert False\nexcept dataclasses.FrozenInstanceError:\n    pass"
+    },
+    {
+      "id": "TS-03-15",
+      "requirement_id": "03-REQ-4.2",
+      "kind": "acceptance",
+      "description": "Verifies that all seven `LABEL_*` string constants in `afissues.labels` have the exact same values as the originals.",
+      "preconditions": [
+        "`afissues` package is installed or on the Python path"
+      ],
+      "input": "`from afissues.labels import LABEL_FIX, LABEL_FIXED, LABEL_NO_CHANGE, LABEL_IMPLEMENTED, LABEL_PRIORITY_HIGH, LABEL_PRIORITY_MEDIUM, LABEL_PRIORITY_LOW`",
+      "expected": "Each constant has the expected string value matching the original `agentfox.platform.labels` values",
+      "assertion_pseudocode": "from afissues.labels import (\n    LABEL_FIX, LABEL_FIXED, LABEL_NO_CHANGE, LABEL_IMPLEMENTED,\n    LABEL_PRIORITY_HIGH, LABEL_PRIORITY_MEDIUM, LABEL_PRIORITY_LOW\n)\nassert LABEL_FIX == 'af:fix'\nassert LABEL_FIXED == 'af:fixed'\nassert LABEL_NO_CHANGE == 'af:no-change'\nassert LABEL_IMPLEMENTED == 'af:implemented'\nassert LABEL_PRIORITY_HIGH == 'priority:high'\nassert LABEL_PRIORITY_MEDIUM == 'priority:medium'\nassert LABEL_PRIORITY_LOW == 'priority:low'"
+    },
+    {
+      "id": "TS-03-16",
+      "requirement_id": "03-REQ-4.3",
+      "kind": "acceptance",
+      "description": "Verifies that `REQUIRED_LABELS` is a `list[LabelSpec]` containing exactly 4 entries, all with `af:*` names.",
+      "preconditions": [
+        "`afissues` package is installed or on the Python path"
+      ],
+      "input": "`from afissues.labels import REQUIRED_LABELS, LabelSpec`",
+      "expected": "`len(REQUIRED_LABELS) == 4`; each entry is a `LabelSpec` instance; each entry's name starts with `'af:'`; no priority labels are included",
+      "assertion_pseudocode": "from afissues.labels import REQUIRED_LABELS, LabelSpec\nassert isinstance(REQUIRED_LABELS, list)\nassert len(REQUIRED_LABELS) == 4\nfor label in REQUIRED_LABELS:\n    assert isinstance(label, LabelSpec)\n    assert label.name.startswith('af:')\nassert not any('priority' in label.name for label in REQUIRED_LABELS)"
+    },
+    {
+      "id": "TS-03-17",
+      "requirement_id": "03-REQ-5.1",
+      "kind": "acceptance",
+      "description": "Verifies that `AfIssuesError` stores `**context` kwargs in a `.context` attribute and accepts a `message` as the first argument.",
+      "preconditions": [
+        "`afissues` package is installed or on the Python path"
+      ],
+      "input": "`AfIssuesError('msg', key='val', other=42)`",
+      "expected": "`str(err) == 'msg'`; `err.context == {'key': 'val', 'other': 42}`",
+      "assertion_pseudocode": "from afissues.errors import AfIssuesError\nerr = AfIssuesError('test message', key='val', other=42)\nassert str(err) == 'test message'\nassert err.context == {'key': 'val', 'other': 42}\nerr_empty = AfIssuesError()\nassert err_empty.context == {}"
+    },
+    {
+      "id": "TS-03-18",
+      "requirement_id": "03-REQ-5.2",
+      "kind": "acceptance",
+      "description": "Verifies that `ConfigError` is a subclass of `AfIssuesError` and does NOT subclass `AgentFoxError`.",
+      "preconditions": [
+        "`afissues` package is installed or on the Python path",
+        "`agentfox` may or may not be installed (test must not import it)"
+      ],
+      "input": "`from afissues.errors import ConfigError, AfIssuesError`",
+      "expected": "`isinstance(ConfigError(), AfIssuesError)` is `True`; `ConfigError.__mro__` does not include `AgentFoxError`; `ConfigError` inherits `**context` calling convention",
+      "assertion_pseudocode": "from afissues.errors import ConfigError, AfIssuesError\nassert issubclass(ConfigError, AfIssuesError)\nassert issubclass(ConfigError, Exception)\nerr = ConfigError('bad config', param='x')\nassert err.context == {'param': 'x'}\n# Verify AgentFoxError is not in MRO without importing agentfox\nfor cls in ConfigError.__mro__:\n    assert cls.__module__ != 'agentfox.core.errors', f'Should not inherit from agentfox: {cls}'"
+    },
+    {
+      "id": "TS-03-19",
+      "requirement_id": "03-REQ-5.3",
+      "kind": "acceptance",
+      "description": "Verifies that `IntegrationError` defaults `retryable` to `True`, stores `**context`, and is a subclass of `AfIssuesError`.",
+      "preconditions": [
+        "`afissues` package is installed or on the Python path"
+      ],
+      "input": "`IntegrationError()`, `IntegrationError('msg', retryable=False, repo='r')`",
+      "expected": "Default instance has `retryable == True`; custom instance has `retryable == False` and `context == {'repo': 'r'}`; both are instances of `AfIssuesError`",
+      "assertion_pseudocode": "from afissues.errors import IntegrationError, AfIssuesError\ndefault_err = IntegrationError()\nassert default_err.retryable == True\nassert isinstance(default_err, AfIssuesError)\ncustom_err = IntegrationError('failed', retryable=False, repo='owner/repo')\nassert custom_err.retryable == False\nassert custom_err.context == {'repo': 'owner/repo'}\nassert str(custom_err) == 'failed'"
+    },
+    {
+      "id": "TS-03-20",
+      "requirement_id": "03-REQ-5.4",
+      "kind": "acceptance",
+      "description": "Verifies that `afissues/errors.py` contains zero imports from `agentfox` or any other workspace package.",
+      "preconditions": [
+        "`packages/afissues/afissues/errors.py` exists"
+      ],
+      "input": "static analysis of `packages/afissues/afissues/errors.py`",
+      "expected": "grep for `agentfox`, `afspec`, `afaudit` in `errors.py` returns zero matches",
+      "assertion_pseudocode": "source = read_file('packages/afissues/afissues/errors.py')\nfor pkg in ['agentfox', 'afspec', 'afaudit', 'nightshift']:\n    assert pkg not in source, f'Found workspace import: {pkg}'"
+    },
+    {
+      "id": "TS-03-21",
+      "requirement_id": "03-REQ-5.5",
+      "kind": "acceptance",
+      "description": "Verifies that `agentfox.core.errors` still defines its own `ConfigError` and `IntegrationError` hierarchy and that existing `agentfox` callers catching workspace errors continue to work.",
+      "preconditions": [
+        "`agentfox` package is installed",
+        "`agentfox.core.errors` module exists and is unchanged"
+      ],
+      "input": "`from agentfox.core.errors import ConfigError, IntegrationError, AgentFoxError`",
+      "expected": "Import succeeds; `ConfigError` and `IntegrationError` are subclasses of `AgentFoxError`; they are NOT subclasses of `afissues.errors.AfIssuesError`",
+      "assertion_pseudocode": "from agentfox.core.errors import ConfigError, IntegrationError, AgentFoxError\nfrom afissues.errors import AfIssuesError\nassert issubclass(ConfigError, AgentFoxError)\nassert issubclass(IntegrationError, AgentFoxError)\nassert not issubclass(ConfigError, AfIssuesError)\nassert not issubclass(IntegrationError, AfIssuesError)\nerr = IntegrationError('workspace error')\nassert err.retryable == True"
+    },
+    {
+      "id": "TS-03-22",
+      "requirement_id": "03-REQ-6.1",
+      "kind": "acceptance",
+      "description": "Verifies that all public symbols are re-exported from the `afissues` top-level namespace and importable without `agentfox`.",
+      "preconditions": [
+        "`afissues` is installed in a clean environment with only `httpx` installed",
+        "`agentfox` is NOT installed"
+      ],
+      "input": "`from afissues import PlatformProtocol, NullPlatform, IssueResult, IssueComment, GitHubPlatform, parse_github_remote, LabelSpec, LABEL_FIX, LABEL_FIXED, LABEL_NO_CHANGE, LABEL_IMPLEMENTED, LABEL_PRIORITY_HIGH, LABEL_PRIORITY_MEDIUM, LABEL_PRIORITY_LOW, REQUIRED_LABELS`",
+      "expected": "All 15 symbols import successfully with no `ModuleNotFoundError` or `ImportError`",
+      "assertion_pseudocode": "# In a fresh environment with only httpx installed:\nfrom afissues import (\n    PlatformProtocol, NullPlatform, IssueResult, IssueComment,\n    GitHubPlatform, parse_github_remote,\n    LabelSpec, LABEL_FIX, LABEL_FIXED, LABEL_NO_CHANGE,\n    LABEL_IMPLEMENTED, LABEL_PRIORITY_HIGH, LABEL_PRIORITY_MEDIUM,\n    LABEL_PRIORITY_LOW, REQUIRED_LABELS\n)\n# If we reach here without ImportError, all symbols are present\nassert PlatformProtocol is not None\nassert GitHubPlatform is not None\nassert LABEL_FIX == 'af:fix'"
+    },
+    {
+      "id": "TS-03-23",
+      "requirement_id": "03-REQ-7.1",
+      "kind": "acceptance",
+      "description": "Verifies that the `packages/agentfox/agentfox/platform/` directory no longer exists after extraction.",
+      "preconditions": [
+        "All extraction changes have been applied to the workspace"
+      ],
+      "input": "filesystem check for `packages/agentfox/agentfox/platform/`",
+      "expected": "The path does not exist; no `.py` files, `__init__.py`, empty directories, or shim files remain",
+      "assertion_pseudocode": "import os\nplatform_dir = 'packages/agentfox/agentfox/platform'\nassert not os.path.exists(platform_dir), f'Directory should not exist: {platform_dir}'\n# Confirm via shell\nresult = shell('ls packages/agentfox/agentfox/platform/')\nassert result.returncode != 0"
+    },
+    {
+      "id": "TS-03-24",
+      "requirement_id": "03-REQ-7.2",
+      "kind": "acceptance",
+      "description": "Verifies that no file in the workspace contains an import referencing `agentfox.platform` after migration.",
+      "preconditions": [
+        "All import migration changes have been applied",
+        "`packages/agentfox/agentfox/platform/` has been deleted"
+      ],
+      "input": "`grep -r 'agentfox\\.platform' packages/`",
+      "expected": "grep returns zero matches and exits with code 1 (no matches found)",
+      "assertion_pseudocode": "result = shell('grep -r \"agentfox\\.platform\" packages/')\nassert result.returncode == 1 or result.stdout.strip() == '', 'No agentfox.platform imports should remain'"
+    },
+    {
+      "id": "TS-03-25",
+      "requirement_id": "03-REQ-8.1",
+      "kind": "acceptance",
+      "description": "Verifies that all 12 `agentfox` source files import from `afissues` instead of `agentfox.platform` and that platform-error except clauses reference `afissues.errors.IntegrationError`.",
+      "preconditions": [
+        "All 12 source files in `packages/agentfox/agentfox/` have been migrated"
+      ],
+      "input": "static analysis of all `.py` source files under `packages/agentfox/agentfox/`",
+      "expected": "Zero occurrences of `agentfox.platform` in any import statement; all platform-catching `except` clauses reference `afissues.errors`",
+      "assertion_pseudocode": "sources = glob('packages/agentfox/agentfox/**/*.py', recursive=True)\nfor path in sources:\n    content = read_file(path)\n    assert 'agentfox.platform' not in content, f'Stale import in {path}'"
+    },
+    {
+      "id": "TS-03-26",
+      "requirement_id": "03-REQ-8.2",
+      "kind": "acceptance",
+      "description": "Verifies that all 44 `agentfox` test files import from `afissues` instead of `agentfox.platform`.",
+      "preconditions": [
+        "All 44 test files in `packages/agentfox/tests/` have been migrated"
+      ],
+      "input": "static analysis of all `.py` test files under `packages/agentfox/tests/`",
+      "expected": "Zero occurrences of `agentfox.platform` in any test file import",
+      "assertion_pseudocode": "test_files = glob('packages/agentfox/tests/**/*.py', recursive=True)\nfor path in test_files:\n    content = read_file(path)\n    assert 'agentfox.platform' not in content, f'Stale import in {path}'"
+    },
+    {
+      "id": "TS-03-27",
+      "requirement_id": "03-REQ-8.3",
+      "kind": "acceptance",
+      "description": "Verifies that `packages/af/tests/unit/test_init_labels.py` imports from `afissues.labels` and that `af/pyproject.toml` is not modified.",
+      "preconditions": [
+        "`packages/af/tests/unit/test_init_labels.py` has been updated",
+        "Original `af/pyproject.toml` contents are known"
+      ],
+      "input": "contents of `test_init_labels.py` and `af/pyproject.toml`",
+      "expected": "`test_init_labels.py` imports from `afissues.labels`; `af/pyproject.toml` does not contain `afissues` in its dependencies",
+      "assertion_pseudocode": "test_content = read_file('packages/af/tests/unit/test_init_labels.py')\nassert 'afissues.labels' in test_content\nassert 'agentfox.platform' not in test_content\naf_toml = parse_toml('packages/af/pyproject.toml')\ndeps = af_toml.get('project', {}).get('dependencies', [])\nassert not any('afissues' in dep for dep in deps)"
+    },
+    {
+      "id": "TS-03-28",
+      "requirement_id": "03-REQ-8.4",
+      "kind": "acceptance",
+      "description": "Verifies that `agentfox` `pyproject.toml` declares `afissues` as a workspace dependency.",
+      "preconditions": [
+        "`packages/agentfox/pyproject.toml` has been updated"
+      ],
+      "input": "contents of `packages/agentfox/pyproject.toml`",
+      "expected": "`afissues` appears in the `dependencies` list of `agentfox`'s `pyproject.toml`; `uv sync` resolves the dependency",
+      "assertion_pseudocode": "toml = parse_toml('packages/agentfox/pyproject.toml')\ndeps = toml['project']['dependencies']\nassert any('afissues' in dep for dep in deps)\nresult = shell('uv sync', cwd=WORKSPACE_ROOT)\nassert result.returncode == 0"
+    },
+    {
+      "id": "TS-03-29",
+      "requirement_id": "03-REQ-8.5",
+      "kind": "acceptance",
+      "description": "Verifies that `platform_factory` in `agentfox.nightshift` imports from `afissues` with no `agentfox.platform` references remaining.",
+      "preconditions": [
+        "`packages/agentfox/agentfox/nightshift/platform_factory.py` has been updated"
+      ],
+      "input": "contents of `packages/agentfox/agentfox/nightshift/platform_factory.py`",
+      "expected": "No `agentfox.platform` import statements; `afissues` is imported; module imports successfully",
+      "assertion_pseudocode": "source = read_file('packages/agentfox/agentfox/nightshift/platform_factory.py')\nassert 'agentfox.platform' not in source\nassert 'afissues' in source\n# Verify module loads without error\nresult = shell('python -c \"import agentfox.nightshift.platform_factory\"')\nassert result.returncode == 0"
+    },
+    {
+      "id": "TS-03-30",
+      "requirement_id": "03-REQ-8.6",
+      "kind": "acceptance",
+      "description": "Verifies that the root `pyproject.toml` `testpaths` includes `packages/afissues/tests` and that pytest discovers `afissues` tests from the workspace root.",
+      "preconditions": [
+        "Root `pyproject.toml` has been updated",
+        "`packages/afissues/tests/` contains test files"
+      ],
+      "input": "contents of root `pyproject.toml` and running `pytest --collect-only` from workspace root",
+      "expected": "`testpaths` in root `pyproject.toml` includes `packages/afissues/tests`; pytest collects `afissues` test files",
+      "assertion_pseudocode": "toml = parse_toml('pyproject.toml')\ntestpaths = toml['tool']['pytest']['ini_options']['testpaths']\nassert any('afissues' in p for p in testpaths)\nresult = shell('pytest --collect-only', cwd=WORKSPACE_ROOT)\nassert 'afissues' in result.stdout"
+    },
+    {
+      "id": "TS-03-31",
+      "requirement_id": "03-REQ-9.1",
+      "kind": "acceptance",
+      "description": "Verifies that the `packages/afissues/tests/` directory contains the correct structure: 10 unit test files, `unit/conftest.py`, and `property/test_overhaul_props.py`.",
+      "preconditions": [
+        "All test relocation changes have been applied"
+      ],
+      "input": "filesystem inspection of `packages/afissues/tests/`",
+      "expected": "Directory has `tests/unit/conftest.py`, 10 unit test files under `tests/unit/`, and `tests/property/test_overhaul_props.py`",
+      "assertion_pseudocode": "import os, glob\nunit_tests = glob.glob('packages/afissues/tests/unit/test_*.py')\nassert len(unit_tests) == 10, f'Expected 10 unit tests, got {len(unit_tests)}'\nassert os.path.exists('packages/afissues/tests/unit/conftest.py')\nassert os.path.exists('packages/afissues/tests/property/test_overhaul_props.py')"
+    },
+    {
+      "id": "TS-03-32",
+      "requirement_id": "03-REQ-9.2",
+      "kind": "acceptance",
+      "description": "Verifies that the relocated `conftest.py` references only `afissues.*` imports and that all 10 unit test files collect and pass.",
+      "preconditions": [
+        "`packages/afissues/tests/unit/conftest.py` has been created from the relocated file",
+        "`afissues` is installed"
+      ],
+      "input": "contents of `packages/afissues/tests/unit/conftest.py` and running `pytest packages/afissues/tests/unit/`",
+      "expected": "No `agentfox.platform` references in `conftest.py`; all 10 unit tests collect and pass",
+      "assertion_pseudocode": "conftest = read_file('packages/afissues/tests/unit/conftest.py')\nassert 'agentfox.platform' not in conftest\nassert 'afissues' in conftest or conftest.strip() == ''\nresult = shell('pytest packages/afissues/tests/unit/ -v')\nassert result.returncode == 0"
+    },
+    {
+      "id": "TS-03-33",
+      "requirement_id": "03-REQ-9.3",
+      "kind": "acceptance",
+      "description": "Verifies that the relocated `test_overhaul_props.py` imports from `afissues.*` and passes when run with Hypothesis.",
+      "preconditions": [
+        "`packages/afissues/tests/property/test_overhaul_props.py` exists",
+        "Hypothesis is installed",
+        "No `.hypothesis/` database from previous location is present"
+      ],
+      "input": "running `pytest packages/afissues/tests/property/test_overhaul_props.py`",
+      "expected": "Module imports from `afissues.*`; property tests pass; Hypothesis generates examples from scratch",
+      "assertion_pseudocode": "source = read_file('packages/afissues/tests/property/test_overhaul_props.py')\nassert 'agentfox.platform' not in source\nassert 'afissues' in source\nresult = shell('pytest packages/afissues/tests/property/test_overhaul_props.py -v')\nassert result.returncode == 0"
+    },
+    {
+      "id": "TS-03-34",
+      "requirement_id": "03-REQ-9.4",
+      "kind": "acceptance",
+      "description": "Verifies that `packages/agentfox/tests/unit/platform/` directory has been deleted entirely after test relocation.",
+      "preconditions": [
+        "All test relocation changes have been applied"
+      ],
+      "input": "filesystem check for `packages/agentfox/tests/unit/platform/`",
+      "expected": "The directory does not exist; no test files, `conftest.py`, or empty directories remain",
+      "assertion_pseudocode": "import os\nassert not os.path.exists('packages/agentfox/tests/unit/platform/')\nresult = shell('ls packages/agentfox/tests/unit/platform/')\nassert result.returncode != 0"
+    },
+    {
+      "id": "TS-03-35",
+      "requirement_id": "03-REQ-10.1",
+      "kind": "acceptance",
+      "description": "Verifies that `pip show afissues` lists only `httpx` under `Requires` with no other external packages.",
+      "preconditions": [
+        "`afissues` is installed in an isolated virtualenv"
+      ],
+      "input": "`pip show afissues`",
+      "expected": "`Requires:` line lists only `httpx`; no `anthropic`, `agentfox`, or other packages appear",
+      "assertion_pseudocode": "result = shell('pip show afissues')\nassert result.returncode == 0\n# Parse the Requires line\nrequires_line = [l for l in result.stdout.splitlines() if l.startswith('Requires:')][0]\nrequires = [r.strip() for r in requires_line.split(':', 1)[1].split(',') if r.strip()]\nassert requires == ['httpx'] or requires == [], f'Got requires: {requires}'"
+    },
+    {
+      "id": "TS-03-36",
+      "requirement_id": "03-REQ-10.2",
+      "kind": "acceptance",
+      "description": "Verifies that no `afissues` source module imports from any workspace package (`agentfox`, `afspec`, `afaudit`, etc.).",
+      "preconditions": [
+        "`packages/afissues/afissues/` contains all source modules"
+      ],
+      "input": "static analysis of all `.py` files under `packages/afissues/afissues/`",
+      "expected": "grep for workspace package names in all source files returns zero matches",
+      "assertion_pseudocode": "workspace_pkgs = ['agentfox', 'afspec', 'afaudit', 'nightshift']\nsource_files = glob('packages/afissues/afissues/**/*.py', recursive=True)\nfor path in source_files:\n    content = read_file(path)\n    for pkg in workspace_pkgs:\n        assert pkg not in content, f'Found workspace package {pkg} in {path}'"
+    },
+    {
+      "id": "TS-03-37",
+      "requirement_id": "03-REQ-10.3",
+      "kind": "acceptance",
+      "description": "Verifies that `nightshift/pyproject.toml` does not declare `afissues` as an explicit dependency.",
+      "preconditions": [
+        "`packages/nightshift/pyproject.toml` or equivalent exists"
+      ],
+      "input": "contents of `nightshift` `pyproject.toml`",
+      "expected": "`afissues` does not appear in the `dependencies` list of `nightshift`'s `pyproject.toml`",
+      "assertion_pseudocode": "# Find nightshift pyproject.toml\nnightshift_toml_paths = glob('packages/*/pyproject.toml')\nnightshift_toml = [p for p in nightshift_toml_paths if 'nightshift' in p]\nfor toml_path in nightshift_toml:\n    toml = parse_toml(toml_path)\n    deps = toml.get('project', {}).get('dependencies', [])\n    assert not any('afissues' in dep for dep in deps), f'afissues should not be in {toml_path}'"
+    },
+    {
+      "id": "TS-03-38",
+      "requirement_id": "03-REQ-10.4",
+      "kind": "acceptance",
+      "description": "Verifies that `af/pyproject.toml` is unchanged (does not add `afissues`) and that `afissues` symbols resolve in `af` tests transitively.",
+      "preconditions": [
+        "`packages/af/pyproject.toml` is at its pre-extraction state",
+        "`packages/af/tests/unit/test_init_labels.py` imports from `afissues.labels`"
+      ],
+      "input": "`af/pyproject.toml` contents and running the `test_init_labels.py` test",
+      "expected": "`af/pyproject.toml` has no `afissues` in its direct dependencies; `test_init_labels.py` still resolves and passes",
+      "assertion_pseudocode": "toml = parse_toml('packages/af/pyproject.toml')\ndeps = toml.get('project', {}).get('dependencies', [])\nassert not any('afissues' in dep for dep in deps)\nresult = shell('pytest packages/af/tests/unit/test_init_labels.py -v')\nassert result.returncode == 0"
+    },
+    {
+      "id": "TS-03-39",
+      "requirement_id": "03-REQ-11.1",
+      "kind": "acceptance",
+      "description": "Verifies that `packages/README.md` includes `afissues` in the package table and the dependency edge `agentfox ──▶ afissues` in the graph.",
+      "preconditions": [
+        "`packages/README.md` has been updated as part of the extraction"
+      ],
+      "input": "contents of `packages/README.md`",
+      "expected": "`afissues` appears in the package table row with a description; `agentfox` dependency arrow to `afissues` is present in the dependency graph section",
+      "assertion_pseudocode": "content = read_file('packages/README.md')\nassert 'afissues' in content\nassert 'agentfox' in content\n# Check for dependency graph notation\nassert ('agentfox' in content and 'afissues' in content and\n        ('──▶' in content or '-->' in content or '→' in content))"
+    },
+    {
+      "id": "TS-03-40",
+      "requirement_id": "03-REQ-11.2",
+      "kind": "acceptance",
+      "description": "Verifies that the root `README.md` includes `afissues` in the dependency graph, package table, and standalone libraries section.",
+      "preconditions": [
+        "Root `README.md` has been updated as part of the extraction"
+      ],
+      "input": "contents of root `README.md`",
+      "expected": "`afissues` appears in all three locations: dependency graph, package table, and standalone libraries section",
+      "assertion_pseudocode": "content = read_file('README.md')\nassert content.count('afissues') >= 3, 'afissues should appear in at least 3 sections'\n# More precise check:\nassert 'afissues' in content  # dependency graph\nassert 'standalone' in content.lower() and 'afissues' in content  # standalone section"
+    },
+    {
+      "id": "TS-03-41",
+      "requirement_id": "03-REQ-12.1",
+      "kind": "acceptance",
+      "description": "Verifies that `make check` passes with code 0 after all extraction changes are applied.",
+      "preconditions": [
+        "All extraction, migration, and documentation changes have been applied",
+        "`make` is available and `Makefile` has a `check` target"
+      ],
+      "input": "running `make check` from the workspace root",
+      "expected": "`make check` exits with code 0; no lint errors or test failures",
+      "assertion_pseudocode": "result = shell('make check', cwd=WORKSPACE_ROOT)\nassert result.returncode == 0, f'make check failed:\\n{result.stdout}\\n{result.stderr}'"
+    },
+    {
+      "id": "TS-03-42",
+      "requirement_id": "03-REQ-12.2",
+      "kind": "acceptance",
+      "description": "Verifies that `from afissues import PlatformProtocol, GitHubPlatform` succeeds in an environment with only `httpx` installed.",
+      "preconditions": [
+        "A fresh virtualenv with only `httpx>=0.27` and `afissues` installed; `agentfox` is NOT installed"
+      ],
+      "input": "`from afissues import PlatformProtocol, GitHubPlatform`",
+      "expected": "Import succeeds with no `ModuleNotFoundError` or `ImportError`",
+      "assertion_pseudocode": "# In isolated environment without agentfox:\nresult = shell(\n    'python -c \"from afissues import PlatformProtocol, GitHubPlatform; print(\\\"OK\\\")\"',\n    env=ONLY_HTTPX_ENV\n)\nassert result.returncode == 0\nassert 'OK' in result.stdout"
+    },
+    {
+      "id": "TS-03-43",
+      "requirement_id": "03-REQ-12.3",
+      "kind": "acceptance",
+      "description": "Verifies that a type checker (mypy or pyright) resolves all `afissues` types correctly due to the `py.typed` marker.",
+      "preconditions": [
+        "`afissues` is installed with `py.typed` present",
+        "`mypy` or `pyright` is installed"
+      ],
+      "input": "a test Python file that imports and uses `PlatformProtocol`, `GitHubPlatform`, `IssueResult` from `afissues`",
+      "expected": "Type checker reports zero errors for `afissues` symbol usages",
+      "assertion_pseudocode": "test_file = write_temp_file(\"\"\"\nfrom afissues import PlatformProtocol, GitHubPlatform, IssueResult\ndef accepts_protocol(p: PlatformProtocol) -> None: ...\n\"\"\")\nresult = shell(f'mypy {test_file} --ignore-missing-imports')\nassert result.returncode == 0, f'mypy errors: {result.stdout}'"
+    }
+  ],
+  "property_tests": [
+    {
+      "id": "TS-03-P1",
+      "property_id": "03-PROP-1",
+      "validates": [
+        "03-REQ-10.1",
+        "03-REQ-10.2",
+        "03-REQ-5.4"
+      ],
+      "description": "For every module in `packages/afissues/afissues/`, verifies that no import statement references any workspace package (agentfox, afspec, afaudit, etc.), only httpx and stdlib.",
+      "for_any_strategy": "module path drawn from `glob('packages/afissues/afissues/**/*.py', recursive=True)`",
+      "invariant_check": "for each module path m: parse_imports(read_file(m)) contains no module starting with 'agentfox', 'afspec', 'afaudit', or other workspace package names; all imports are from httpx, stdlib, or within afissues itself"
+    },
+    {
+      "id": "TS-03-P2",
+      "property_id": "03-PROP-2",
+      "validates": [
+        "03-REQ-7.2",
+        "03-REQ-8.1",
+        "03-REQ-8.2"
+      ],
+      "description": "For every file in the workspace, verifies that no import statement references `agentfox.platform` after migration.",
+      "for_any_strategy": "file path drawn from `glob('packages/**/*.py', recursive=True)`",
+      "invariant_check": "for each file f: read_file(f) does not contain the substring 'agentfox.platform' in any import statement (import or from ... import lines)"
+    },
+    {
+      "id": "TS-03-P3",
+      "property_id": "03-PROP-3",
+      "validates": [
+        "03-REQ-5.1",
+        "03-REQ-5.2",
+        "03-REQ-5.3"
+      ],
+      "description": "For every error class defined in `afissues.errors`, verifies it is a subclass of `AfIssuesError` and NOT a subclass of `AgentFoxError`.",
+      "for_any_strategy": "error class drawn from [AfIssuesError, ConfigError, IntegrationError] in `afissues.errors`",
+      "invariant_check": "for each class e in afissues_error_classes: issubclass(e, AfIssuesError) == True AND (AgentFoxError not in e.__mro__) — checked without importing agentfox by inspecting __module__ of each MRO entry"
+    },
+    {
+      "id": "TS-03-P4",
+      "property_id": "03-PROP-4",
+      "validates": [
+        "03-REQ-2.1",
+        "03-REQ-2.2",
+        "03-REQ-2.3",
+        "03-REQ-3.1",
+        "03-REQ-4.1",
+        "03-REQ-4.2",
+        "03-REQ-4.3"
+      ],
+      "description": "For every public symbol extracted from `agentfox.platform.*` to `afissues`, verifies that all existing platform test cases pass when the symbol is imported from `afissues` instead of the original location.",
+      "for_any_strategy": "public symbol drawn from [PlatformProtocol, NullPlatform, IssueResult, IssueComment, GitHubPlatform, parse_github_remote, LabelSpec, LABEL_FIX, LABEL_FIXED, LABEL_NO_CHANGE, LABEL_IMPLEMENTED, REQUIRED_LABELS]",
+      "invariant_check": "for each symbol s: import s from afissues; run the full set of relocated platform tests against s; assert all tests pass (returncode 0 from pytest on packages/afissues/tests/)"
+    },
+    {
+      "id": "TS-03-P5",
+      "property_id": "03-PROP-5",
+      "validates": [
+        "03-REQ-4.3"
+      ],
+      "description": "Verifies that `REQUIRED_LABELS` always contains exactly 4 entries and every entry name starts with 'af:'.",
+      "for_any_strategy": "the `REQUIRED_LABELS` list value from `afissues.labels`",
+      "invariant_check": "len(REQUIRED_LABELS) == 4 AND for each label in REQUIRED_LABELS: isinstance(label, LabelSpec) AND label.name.startswith('af:')"
+    },
+    {
+      "id": "TS-03-P6",
+      "property_id": "03-PROP-6",
+      "validates": [
+        "03-REQ-5.3",
+        "03-REQ-3.E2"
+      ],
+      "description": "For any `IntegrationError` instance created without an explicit `retryable` argument, verifies that `retryable` defaults to `True`; also verifies that retry logic in `GitHubPlatform` never exceeds `_MAX_RETRIES` iterations.",
+      "for_any_strategy": "IntegrationError instances created with various message strings and context kwargs but no `retryable` kwarg; and GitHubPlatform call attempts with mock transient errors",
+      "invariant_check": "for each default IntegrationError e: e.retryable == True; AND for any sequence of transient httpx errors: retry_count <= _MAX_RETRIES (== 3) before IntegrationError is raised"
+    }
+  ],
+  "edge_case_tests": [
+    {
+      "id": "TS-03-E1",
+      "requirement_id": "03-REQ-1.E1",
+      "kind": "edge_case",
+      "description": "Verifies that installing `afissues` with Python < 3.12 is rejected with a version incompatibility error.",
+      "preconditions": [
+        "A Python interpreter version < 3.12 is available (e.g., Python 3.11)",
+        "`pip` for the Python 3.11 interpreter is available"
+      ],
+      "input": "attempt to install `packages/afissues` using Python 3.11",
+      "expected": "pip exits with non-zero code and error message mentioning `requires-python` or version mismatch; no package files are written",
+      "assertion_pseudocode": "result = shell('python3.11 -m pip install packages/afissues')\nassert result.returncode != 0\nassert ('python_requires' in result.stderr.lower() or\n        'requires-python' in result.stderr.lower() or\n        'version' in result.stderr.lower())"
+    },
+    {
+      "id": "TS-03-E2",
+      "requirement_id": "03-REQ-2.E1",
+      "kind": "edge_case",
+      "description": "Verifies that calling `NullPlatform.create_pr()` unconditionally raises `NotImplementedError` — preserved intentional behavior.",
+      "preconditions": [
+        "`afissues` is installed",
+        "An async test runner is available"
+      ],
+      "input": "`NullPlatform().create_pr(...)` called with arbitrary arguments",
+      "expected": "`NotImplementedError` is raised and propagates to the caller without being caught or suppressed",
+      "assertion_pseudocode": "from afissues.protocol import NullPlatform\nimport asyncio\nnp = NullPlatform()\ntry:\n    asyncio.run(np.create_pr(title='t', body='b', head='h', base='main'))\n    assert False, 'Expected NotImplementedError'\nexcept NotImplementedError as e:\n    pass  # correct behavior\nexcept Exception as e:\n    assert False, f'Wrong exception type: {type(e)}'"
+    },
+    {
+      "id": "TS-03-E3",
+      "requirement_id": "03-REQ-3.E1",
+      "kind": "edge_case",
+      "description": "Verifies that `_validate_github_url` raises `ConfigError` from `afissues.errors` for private/internal IP URLs before any HTTP request.",
+      "preconditions": [
+        "`afissues` is installed",
+        "No outbound network calls are made (verified by mocking `httpx.AsyncClient`)"
+      ],
+      "input": "a URL resolving to a private network address (e.g., `http://192.168.1.1/api`, `http://10.0.0.1/`, `http://localhost/api`)",
+      "expected": "`ConfigError` from `afissues.errors` is raised with a descriptive message; no outbound HTTP request is issued",
+      "assertion_pseudocode": "from afissues.github import _validate_github_url\nfrom afissues.errors import ConfigError\nprivate_urls = [\n    'http://192.168.1.1/api',\n    'http://10.0.0.1/',\n    'http://172.16.0.1/repo',\n    'http://localhost/api',\n]\nfor url in private_urls:\n    try:\n        _validate_github_url(url)\n        assert False, f'Expected ConfigError for {url}'\n    except ConfigError as e:\n        assert str(e) != '', f'ConfigError should have descriptive message for {url}'\n    except Exception as e:\n        assert False, f'Wrong exception type {type(e)} for {url}'"
+    },
+    {
+      "id": "TS-03-E4",
+      "requirement_id": "03-REQ-3.E2",
+      "kind": "edge_case",
+      "description": "Verifies that `GitHubPlatform` retries up to `_MAX_RETRIES` (exactly 3) times on transient HTTP errors and then raises `IntegrationError` with `retryable=True`.",
+      "preconditions": [
+        "`afissues` is installed",
+        "`httpx` is installed",
+        "A mock that always raises `httpx.ConnectTimeout` is configured"
+      ],
+      "input": "calling any `GitHubPlatform` async method when `httpx.AsyncClient` raises `httpx.ConnectTimeout` on every attempt",
+      "expected": "`IntegrationError` is raised from `afissues.errors` after exactly 3 attempts; `err.retryable == True`; no more than 3 HTTP requests are attempted",
+      "assertion_pseudocode": "from afissues.github import GitHubPlatform, _MAX_RETRIES\nfrom afissues.errors import IntegrationError\nimport httpx, asyncio\nfrom unittest.mock import patch, AsyncMock\ncall_count = 0\nasync def mock_request(*args, **kwargs):\n    nonlocal call_count\n    call_count += 1\n    raise httpx.ConnectTimeout('timeout')\nplatform = GitHubPlatform(token='test', owner='o', repo='r')\nwith patch.object(platform._client, 'get', side_effect=mock_request):\n    try:\n        asyncio.run(platform.get_issue(1))\n        assert False, 'Expected IntegrationError'\n    except IntegrationError as e:\n        assert e.retryable == True\n        assert call_count == _MAX_RETRIES, f'Expected {_MAX_RETRIES} retries, got {call_count}'"
+    },
+    {
+      "id": "TS-03-E5",
+      "requirement_id": "03-REQ-3.E3",
+      "kind": "edge_case",
+      "description": "Verifies that `GitHubPlatform.close()` is a no-op that returns `None` without raising any exception.",
+      "preconditions": [
+        "`afissues` is installed",
+        "A `GitHubPlatform` instance has been created"
+      ],
+      "input": "calling `close()` on a `GitHubPlatform` instance",
+      "expected": "`close()` returns `None`; no exception of any type is raised",
+      "assertion_pseudocode": "from afissues.github import GitHubPlatform\nplatform = GitHubPlatform(token='test', owner='o', repo='r')\ntry:\n    result = platform.close()\n    assert result is None\nexcept Exception as e:\n    assert False, f'close() raised unexpected exception: {type(e).__name__}: {e}'"
+    },
+    {
+      "id": "TS-03-E6",
+      "requirement_id": "03-REQ-5.E1",
+      "kind": "edge_case",
+      "description": "Verifies that `afissues` library functions raise `AfIssuesError` subclasses on errors instead of calling `sys.exit()` or terminating the process.",
+      "preconditions": [
+        "`afissues` is installed",
+        "An error-inducing condition is set up (e.g., invalid URL for SSRF guard)"
+      ],
+      "input": "calling `_validate_github_url` with a private IP URL",
+      "expected": "`ConfigError` (an `AfIssuesError` subclass) is raised and propagates; the process continues; `sys.exit` is not called",
+      "assertion_pseudocode": "from afissues.github import _validate_github_url\nfrom afissues.errors import AfIssuesError\nimport sys\noriginal_exit = sys.exit\nsys_exit_called = False\ndef mock_exit(*args):\n    nonlocal sys_exit_called\n    sys_exit_called = True\nsys.exit = mock_exit\ntry:\n    _validate_github_url('http://169.254.169.254/metadata')\nexcept AfIssuesError:\n    pass  # expected\nfinally:\n    sys.exit = original_exit\nassert not sys_exit_called, 'sys.exit should not be called by library code'"
+    },
+    {
+      "id": "TS-03-E7",
+      "requirement_id": "03-REQ-8.E1",
+      "kind": "edge_case",
+      "description": "Verifies that a missed import migration (stale `from agentfox.platform` after directory deletion) causes `ModuleNotFoundError` at import time.",
+      "preconditions": [
+        "`packages/agentfox/agentfox/platform/` directory has been deleted",
+        "A hypothetical file with a stale `from agentfox.platform.protocol import PlatformProtocol` import is used for the test"
+      ],
+      "input": "attempting to import a module containing `from agentfox.platform.protocol import PlatformProtocol` after the directory is deleted",
+      "expected": "`ModuleNotFoundError` is raised with a message referencing `agentfox.platform`",
+      "assertion_pseudocode": "# Simulate a missed migration by creating a temp module with stale import\nstale_code = 'from agentfox.platform.protocol import PlatformProtocol'\nimport importlib, sys\ntry:\n    exec(stale_code)\n    assert False, 'Expected ModuleNotFoundError'\nexcept ModuleNotFoundError as e:\n    assert 'agentfox.platform' in str(e) or 'agentfox' in str(e)"
+    }
+  ],
+  "smoke_tests": [
+    {
+      "id": "TS-03-SMOKE-1",
+      "execution_path_id": "03-PATH-1",
+      "description": "End-to-end smoke test: an external consumer installs `afissues` in a fresh environment without `agentfox`, imports `PlatformProtocol`, `GitHubPlatform`, and `REQUIRED_LABELS`, and performs a mocked `get_issue()` call returning an `IssueResult`.",
+      "trigger": "Install `afissues` in an isolated virtualenv with only `httpx`; run a consumer script that imports and uses the package",
+      "real_components": [
+        "afissues.__init__",
+        "afissues.protocol",
+        "afissues.github",
+        "afissues.labels"
+      ],
+      "mockable": [
+        "httpx.AsyncClient (mock HTTP response for get_issue)",
+        "GitHub REST API endpoint"
+      ],
+      "expected_effects": [
+        "`pip install packages/afissues` succeeds with only httpx installed",
+        "`from afissues import PlatformProtocol, GitHubPlatform, REQUIRED_LABELS` raises no ImportError",
+        "Instantiating `GitHubPlatform` with a test token succeeds",
+        "Calling `get_issue(1)` with a mocked HTTP response returns an `IssueResult` with populated fields",
+        "No `agentfox` package is present in the environment"
+      ]
+    },
+    {
+      "id": "TS-03-SMOKE-2",
+      "execution_path_id": "03-PATH-2",
+      "description": "Smoke test for SSRF guard path: a call to `GitHubPlatform` with a private-network URL triggers `_validate_github_url` to raise `ConfigError` before any HTTP request is issued.",
+      "trigger": "Instantiate `GitHubPlatform` and call a method with a URL configured to resolve to a private IP address",
+      "real_components": [
+        "afissues.github._validate_github_url",
+        "afissues.github._SSRFGuardTransport",
+        "afissues.errors.ConfigError"
+      ],
+      "mockable": [
+        "DNS resolution (mock to return private IP)",
+        "httpx.AsyncClient send"
+      ],
+      "expected_effects": [
+        "`ConfigError` from `afissues.errors` is raised",
+        "No outbound HTTP request is made (verified by httpx send mock not being called)",
+        "`ConfigError` message is descriptive and non-empty",
+        "The `ConfigError` is an instance of `AfIssuesError`"
+      ]
+    },
+    {
+      "id": "TS-03-SMOKE-3",
+      "execution_path_id": "03-PATH-3",
+      "description": "Smoke test for internal `agentfox` usage after migration: `platform_factory` in `agentfox.nightshift` constructs a `GitHubPlatform` from `afissues`, which successfully responds to a `PlatformProtocol` method call.",
+      "trigger": "Import `agentfox.nightshift.platform_factory` and use it to construct a platform instance; call a `PlatformProtocol` method on the result",
+      "real_components": [
+        "agentfox.nightshift.platform_factory",
+        "afissues.github.GitHubPlatform",
+        "afissues.protocol.PlatformProtocol"
+      ],
+      "mockable": [
+        "httpx.AsyncClient (mock GitHub API response)",
+        "environment variables for token/owner/repo configuration"
+      ],
+      "expected_effects": [
+        "`platform_factory` imports successfully with zero `agentfox.platform` references",
+        "Constructed platform instance passes `isinstance` check against `PlatformProtocol`",
+        "Calling a platform method (e.g., `get_issue`) with a mocked HTTP response returns an `IssueResult`",
+        "Catching `afissues.errors.IntegrationError` in the caller's updated except clause works correctly"
+      ]
+    },
+    {
+      "id": "TS-03-SMOKE-4",
+      "execution_path_id": "03-PATH-4",
+      "description": "Smoke test for CI validation: `grep -r 'agentfox\\.platform' packages/` returns zero matches and `make check` exits with code 0 after all extraction changes.",
+      "trigger": "Run the CI validation sequence: grep check followed by `make check`",
+      "real_components": [
+        "workspace filesystem (all packages/)",
+        "make check (lint + pytest across all workspace packages)",
+        "root pyproject.toml testpaths"
+      ],
+      "mockable": [
+        "external GitHub API calls (all platform tests use mocked httpx)"
+      ],
+      "expected_effects": [
+        "`grep -r 'agentfox\\.platform' packages/` exits with code 1 (no matches found)",
+        "`make check` exits with code 0",
+        "All `afissues` tests are discovered and pass",
+        "All `agentfox` tests (with updated imports) pass",
+        "No new lint errors are introduced in any workspace package"
+      ]
+    }
+  ],
+  "coverage": {
+    "requirements_covered": [],
+    "properties_covered": [],
+    "paths_covered": [],
+    "gaps": []
+  }
+}

@@ -1,0 +1,1659 @@
+{
+  "$schema": null,
+  "spec_id": "03",
+  "spec_name": "extract_platform_afissues",
+  "schema_version": 1,
+  "test_commands": {
+    "spec_tests": "pytest packages/afissues/tests/ -q",
+    "all_tests": "pytest -q",
+    "linter": "ruff check packages/afissues/"
+  },
+  "dependencies": [],
+  "task_groups": [
+    {
+      "id": 1,
+      "kind": "tests",
+      "title": "Write spec tests: package scaffold, protocol extraction, GitHub extraction",
+      "subtasks": [
+        {
+          "id": "1.1",
+          "title": "Write tests for afissues package scaffold (TS-03-1 through TS-03-5)",
+          "details": [
+            "Create `packages/afissues/tests/unit/test_scaffold.py` (or equivalent integration test file).",
+            "TS-03-1: Parse pyproject.toml and assert build-backend, name, version, requires-python, dependencies; shell-test `pip install` without agentfox.",
+            "TS-03-2: Run `uv sync` from workspace root and assert `afissues` version resolves.",
+            "TS-03-3: Assert `packages/afissues/afissues/py.typed` exists and is present in installed package.",
+            "TS-03-4: Build wheel and assert contents include `afissues/` but not `tests/`.",
+            "TS-03-5: Parse pyproject.toml pytest ini_options and assert testpaths; run `pytest --collect-only` from package root."
+          ],
+          "test_spec_refs": [
+            "TS-03-1",
+            "TS-03-2",
+            "TS-03-3",
+            "TS-03-4",
+            "TS-03-5"
+          ],
+          "requirement_refs": [
+            "03-REQ-1.1",
+            "03-REQ-1.2",
+            "03-REQ-1.3",
+            "03-REQ-1.4",
+            "03-REQ-1.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.2",
+          "title": "Write tests for afissues.protocol module (TS-03-6 through TS-03-9, TS-03-E2)",
+          "details": [
+            "Create `packages/afissues/tests/unit/test_protocol.py`.",
+            "TS-03-6: Import PlatformProtocol; assert it is a Protocol with 12 async methods and synchronous close().",
+            "TS-03-7: Import IssueResult; assert frozen dataclass with fields {number, title, html_url, body, labels}; assert FrozenInstanceError on mutation.",
+            "TS-03-8: Import IssueComment; assert frozen dataclass with fields {id, body, user, created_at}; assert FrozenInstanceError on mutation.",
+            "TS-03-9: Instantiate NullPlatform; call create_pr() and assert NotImplementedError; call other protocol methods and assert no exception.",
+            "TS-03-E2: Call NullPlatform().create_pr() with arbitrary args; assert NotImplementedError propagates without suppression."
+          ],
+          "test_spec_refs": [
+            "TS-03-6",
+            "TS-03-7",
+            "TS-03-8",
+            "TS-03-9",
+            "TS-03-E2"
+          ],
+          "requirement_refs": [
+            "03-REQ-2.1",
+            "03-REQ-2.2",
+            "03-REQ-2.3",
+            "03-REQ-2.4",
+            "03-REQ-2.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "1.3",
+          "title": "Write tests for afissues.github module (TS-03-10 through TS-03-13, TS-03-E3 through TS-03-E5)",
+          "details": [
+            "Create `packages/afissues/tests/unit/test_github.py`.",
+            "TS-03-10: Import GitHubPlatform; assert forge_type == 'github'; assert 14 async methods; assert httpx.AsyncClient used internally.",
+            "TS-03-11: Test parse_github_remote with valid HTTPS/SSH GitHub URLs returning (owner, repo); test non-GitHub and malformed URLs returning None.",
+            "TS-03-12: Assert _SSRFGuardTransport subclasses httpx.AsyncHTTPTransport; assert _MAX_RETRIES == 3; assert _GITHUB_TIMEOUT is httpx.Timeout; assert helpers callable.",
+            "TS-03-13: Static analysis of afissues/github.py — assert no 'agentfox' in source; assert imports from afissues.errors and afissues.protocol.",
+            "TS-03-E3: Call _validate_github_url with private IP URLs; assert ConfigError raised with non-empty message; no HTTP request issued.",
+            "TS-03-E4: Mock httpx ConnectTimeout on every attempt; assert IntegrationError raised after exactly _MAX_RETRIES attempts; assert retryable=True.",
+            "TS-03-E5: Call GitHubPlatform.close(); assert returns None; assert no exception raised."
+          ],
+          "test_spec_refs": [
+            "TS-03-10",
+            "TS-03-11",
+            "TS-03-12",
+            "TS-03-13",
+            "TS-03-E3",
+            "TS-03-E4",
+            "TS-03-E5"
+          ],
+          "requirement_refs": [
+            "03-REQ-3.1",
+            "03-REQ-3.2",
+            "03-REQ-3.3",
+            "03-REQ-3.4",
+            "03-REQ-3.E1",
+            "03-REQ-3.E2",
+            "03-REQ-3.E3"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "1.V",
+        "checks": [
+          "Spec test files exist at packages/afissues/tests/unit/test_scaffold.py, test_protocol.py, test_github.py.",
+          "All tests in this group are collected by pytest (--collect-only) with no import errors: `pytest packages/afissues/tests/unit/test_scaffold.py packages/afissues/tests/unit/test_protocol.py packages/afissues/tests/unit/test_github.py --collect-only -q`.",
+          "Tests fail (as expected — implementation not yet written) or are skipped, but do NOT error on import.",
+          "No ruff lint errors in new test files: `ruff check packages/afissues/tests/`."
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "kind": "tests",
+      "title": "Write spec tests: labels, errors, re-exports, deletion, and import migration",
+      "subtasks": [
+        {
+          "id": "2.1",
+          "title": "Write tests for afissues.labels module (TS-03-14 through TS-03-16, TS-03-P5)",
+          "details": [
+            "Create `packages/afissues/tests/unit/test_labels.py`.",
+            "TS-03-14: Import LabelSpec; assert frozen dataclass with fields {name, color, description}; assert FrozenInstanceError on mutation.",
+            "TS-03-15: Import all seven LABEL_* constants; assert exact string values match originals.",
+            "TS-03-16: Import REQUIRED_LABELS; assert isinstance list; assert len == 4; assert each entry is LabelSpec with name starting 'af:'; assert no priority labels.",
+            "TS-03-P5: Property test — assert len(REQUIRED_LABELS) == 4 and every label.name.startswith('af:') invariant holds."
+          ],
+          "test_spec_refs": [
+            "TS-03-14",
+            "TS-03-15",
+            "TS-03-16",
+            "TS-03-P5"
+          ],
+          "requirement_refs": [
+            "03-REQ-4.1",
+            "03-REQ-4.2",
+            "03-REQ-4.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.2",
+          "title": "Write tests for afissues.errors module (TS-03-17 through TS-03-21, TS-03-P3, TS-03-E6)",
+          "details": [
+            "Create `packages/afissues/tests/unit/test_errors.py`.",
+            "TS-03-17: Instantiate AfIssuesError with message and context kwargs; assert str(err) == message; assert err.context == expected dict.",
+            "TS-03-18: Assert ConfigError subclasses AfIssuesError; inspect MRO to confirm no agentfox module present; assert context kwarg pattern works.",
+            "TS-03-19: Assert IntegrationError().retryable == True; assert IntegrationError('msg', retryable=False, repo='r').context == {'repo': 'r'}; assert isinstance AfIssuesError.",
+            "TS-03-20: Static analysis of afissues/errors.py — grep for agentfox/afspec/afaudit returns zero matches.",
+            "TS-03-21: Import agentfox.core.errors ConfigError/IntegrationError; assert subclass of AgentFoxError; assert NOT subclass of AfIssuesError.",
+            "TS-03-P3: Property check — for each error class in [AfIssuesError, ConfigError, IntegrationError]: issubclass(AfIssuesError) True and agentfox not in MRO modules.",
+            "TS-03-E6: Call _validate_github_url with private IP; assert AfIssuesError raised; mock sys.exit and assert not called."
+          ],
+          "test_spec_refs": [
+            "TS-03-17",
+            "TS-03-18",
+            "TS-03-19",
+            "TS-03-20",
+            "TS-03-21",
+            "TS-03-P3",
+            "TS-03-E6"
+          ],
+          "requirement_refs": [
+            "03-REQ-5.1",
+            "03-REQ-5.2",
+            "03-REQ-5.3",
+            "03-REQ-5.4",
+            "03-REQ-5.5",
+            "03-REQ-5.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.3",
+          "title": "Write tests for public re-export surface (TS-03-22)",
+          "details": [
+            "Create `packages/afissues/tests/unit/test_init_reexports.py`.",
+            "TS-03-22: In an environment with only httpx installed (no agentfox), import all 15 public symbols from top-level afissues namespace; assert each symbol is not None; assert LABEL_FIX == 'af:fix'."
+          ],
+          "test_spec_refs": [
+            "TS-03-22"
+          ],
+          "requirement_refs": [
+            "03-REQ-6.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "2.4",
+          "title": "Write tests for platform directory deletion and import migration (TS-03-23 through TS-03-30, TS-03-E7)",
+          "details": [
+            "Create `packages/afissues/tests/unit/test_migration.py` (integration/static analysis tests).",
+            "TS-03-23: Assert packages/agentfox/agentfox/platform/ does not exist on filesystem.",
+            "TS-03-24: Shell `grep -r 'agentfox\\.platform' packages/`; assert returncode == 1 or stdout empty.",
+            "TS-03-25: Glob all .py files under packages/agentfox/agentfox/; assert no file contains 'agentfox.platform'.",
+            "TS-03-26: Glob all .py files under packages/agentfox/tests/; assert no file contains 'agentfox.platform'.",
+            "TS-03-27: Read test_init_labels.py; assert 'afissues.labels' in content; parse af/pyproject.toml and assert no afissues in deps.",
+            "TS-03-28: Parse agentfox/pyproject.toml; assert afissues in dependencies; run uv sync and assert returncode 0.",
+            "TS-03-29: Read platform_factory.py; assert no 'agentfox.platform'; assert 'afissues' present; import module and assert returncode 0.",
+            "TS-03-30: Parse root pyproject.toml testpaths; assert afissues path included; run pytest --collect-only and assert afissues tests discovered.",
+            "TS-03-E7: exec() a stale agentfox.platform import after directory deletion; assert ModuleNotFoundError raised."
+          ],
+          "test_spec_refs": [
+            "TS-03-23",
+            "TS-03-24",
+            "TS-03-25",
+            "TS-03-26",
+            "TS-03-27",
+            "TS-03-28",
+            "TS-03-29",
+            "TS-03-30",
+            "TS-03-E7"
+          ],
+          "requirement_refs": [
+            "03-REQ-7.1",
+            "03-REQ-7.2",
+            "03-REQ-8.1",
+            "03-REQ-8.2",
+            "03-REQ-8.3",
+            "03-REQ-8.4",
+            "03-REQ-8.5",
+            "03-REQ-8.6",
+            "03-REQ-8.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "2.V",
+        "checks": [
+          "Spec test files exist at test_labels.py, test_errors.py, test_init_reexports.py, test_migration.py under packages/afissues/tests/unit/.",
+          "All tests in this group are collected without import errors: `pytest packages/afissues/tests/unit/test_labels.py packages/afissues/tests/unit/test_errors.py packages/afissues/tests/unit/test_init_reexports.py packages/afissues/tests/unit/test_migration.py --collect-only -q`.",
+          "No ruff lint errors in new test files: `ruff check packages/afissues/tests/`."
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "kind": "tests",
+      "title": "Write spec tests: test migration, dependency footprint, docs, and validation",
+      "subtasks": [
+        {
+          "id": "3.1",
+          "title": "Write tests for test migration structure (TS-03-31 through TS-03-34)",
+          "details": [
+            "Create `packages/afissues/tests/unit/test_test_migration.py`.",
+            "TS-03-31: Glob packages/afissues/tests/unit/test_*.py; assert count == 10; assert conftest.py and test_overhaul_props.py exist.",
+            "TS-03-32: Read conftest.py; assert no 'agentfox.platform'; run `pytest packages/afissues/tests/unit/ -v` and assert returncode 0.",
+            "TS-03-33: Read test_overhaul_props.py; assert imports from afissues; run pytest on it and assert returncode 0.",
+            "TS-03-34: Assert packages/agentfox/tests/unit/platform/ does not exist on filesystem."
+          ],
+          "test_spec_refs": [
+            "TS-03-31",
+            "TS-03-32",
+            "TS-03-33",
+            "TS-03-34"
+          ],
+          "requirement_refs": [
+            "03-REQ-9.1",
+            "03-REQ-9.2",
+            "03-REQ-9.3",
+            "03-REQ-9.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.2",
+          "title": "Write tests for dependency footprint isolation (TS-03-35 through TS-03-38, TS-03-P1)",
+          "details": [
+            "Create `packages/afissues/tests/unit/test_footprint.py`.",
+            "TS-03-35: Shell `pip show afissues`; parse Requires line; assert only httpx listed.",
+            "TS-03-36: Glob all .py files under packages/afissues/afissues/; assert no file imports agentfox/afspec/afaudit/nightshift.",
+            "TS-03-37: Glob packages/*/pyproject.toml for nightshift; parse deps; assert afissues not listed.",
+            "TS-03-38: Parse af/pyproject.toml deps; assert no afissues; run test_init_labels.py and assert returncode 0.",
+            "TS-03-P1: Property invariant — for every module in afissues/afissues/: parse imports; assert none reference workspace packages."
+          ],
+          "test_spec_refs": [
+            "TS-03-35",
+            "TS-03-36",
+            "TS-03-37",
+            "TS-03-38",
+            "TS-03-P1"
+          ],
+          "requirement_refs": [
+            "03-REQ-10.1",
+            "03-REQ-10.2",
+            "03-REQ-10.3",
+            "03-REQ-10.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.3",
+          "title": "Write tests for documentation updates (TS-03-39 through TS-03-40)",
+          "details": [
+            "Create `packages/afissues/tests/unit/test_docs.py`.",
+            "TS-03-39: Read packages/README.md; assert 'afissues' present; assert dependency arrow notation (──▶ or -->) from agentfox to afissues present.",
+            "TS-03-40: Read root README.md; assert 'afissues' appears at least 3 times (graph, table, standalone section)."
+          ],
+          "test_spec_refs": [
+            "TS-03-39",
+            "TS-03-40"
+          ],
+          "requirement_refs": [
+            "03-REQ-11.1",
+            "03-REQ-11.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "3.4",
+          "title": "Write tests for end-to-end validation and property tests (TS-03-41 through TS-03-43, TS-03-P2, TS-03-P4, TS-03-P6, TS-03-E1)",
+          "details": [
+            "Create `packages/afissues/tests/unit/test_validation.py` and `packages/afissues/tests/property/test_overhaul_props.py` (skeleton).",
+            "TS-03-41: Shell `make check` from workspace root; assert returncode 0.",
+            "TS-03-42: In isolated env without agentfox, shell python -c 'from afissues import PlatformProtocol, GitHubPlatform; print(\"OK\")'; assert returncode 0.",
+            "TS-03-43: Write temp file with afissues imports; run mypy on it; assert returncode 0.",
+            "TS-03-P2: Property — for every .py file in packages/: assert 'agentfox.platform' not in import lines.",
+            "TS-03-P4: Property — import each public symbol from afissues; run full afissues test suite; assert returncode 0.",
+            "TS-03-P6: Property — IntegrationError() default retryable == True; retry count never exceeds _MAX_RETRIES.",
+            "TS-03-E1: Shell python3.11 -m pip install packages/afissues; assert returncode != 0 and error message references version."
+          ],
+          "test_spec_refs": [
+            "TS-03-41",
+            "TS-03-42",
+            "TS-03-43",
+            "TS-03-P2",
+            "TS-03-P4",
+            "TS-03-P6",
+            "TS-03-E1"
+          ],
+          "requirement_refs": [
+            "03-REQ-12.1",
+            "03-REQ-12.2",
+            "03-REQ-12.3",
+            "03-REQ-1.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "3.V",
+        "checks": [
+          "Spec test files exist at test_test_migration.py, test_footprint.py, test_docs.py, test_validation.py under packages/afissues/tests/unit/.",
+          "Skeleton property test file exists at packages/afissues/tests/property/test_overhaul_props.py.",
+          "All new test files collected without import errors: `pytest packages/afissues/tests/ --collect-only -q`.",
+          "No ruff lint errors: `ruff check packages/afissues/tests/`."
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "kind": "standard",
+      "title": "Create afissues package scaffold",
+      "subtasks": [
+        {
+          "id": "4.1",
+          "title": "Create packages/afissues/ directory structure and pyproject.toml",
+          "details": [
+            "Create `packages/afissues/` directory.",
+            "Create `packages/afissues/pyproject.toml` with: build-backend = 'hatchling.build', name = 'afissues', version = '4.2.0', requires-python = '>=3.12', dependencies = ['httpx>=0.27'].",
+            "Add `[tool.hatch.build.targets.wheel] packages = ['afissues']` so only the afissues/ source dir is bundled.",
+            "Add `[tool.pytest.ini_options] testpaths = ['tests']` scoped to the package root.",
+            "Create `packages/afissues/afissues/` source directory.",
+            "The package is automatically registered in the uv workspace via the root `members = ['packages/*']` glob — no manual entry required."
+          ],
+          "test_spec_refs": [
+            "TS-03-1",
+            "TS-03-2",
+            "TS-03-4",
+            "TS-03-5"
+          ],
+          "requirement_refs": [
+            "03-REQ-1.1",
+            "03-REQ-1.2",
+            "03-REQ-1.4",
+            "03-REQ-1.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.2",
+          "title": "Add py.typed marker file",
+          "details": [
+            "Create an empty `packages/afissues/afissues/py.typed` file.",
+            "This PEP 561 marker signals to mypy/pyright that the package ships inline type annotations.",
+            "Verify the file will be included in the wheel (covered by hatch.build.targets.wheel packages = ['afissues'])."
+          ],
+          "test_spec_refs": [
+            "TS-03-3"
+          ],
+          "requirement_refs": [
+            "03-REQ-1.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "4.3",
+          "title": "Create tests/ directory structure for afissues",
+          "details": [
+            "Create `packages/afissues/tests/` directory.",
+            "Create `packages/afissues/tests/unit/` directory.",
+            "Create `packages/afissues/tests/property/` directory.",
+            "Create an empty or minimal `packages/afissues/tests/conftest.py`.",
+            "This structure mirrors the workspace convention used by afaudit and other packages."
+          ],
+          "test_spec_refs": [
+            "TS-03-31"
+          ],
+          "requirement_refs": [
+            "03-REQ-9.1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "4.V",
+        "checks": [
+          "packages/afissues/pyproject.toml parses correctly: `python -c \"import tomllib; tomllib.load(open('packages/afissues/pyproject.toml','rb'))\"` exits 0.",
+          "packages/afissues/afissues/py.typed exists: `ls packages/afissues/afissues/py.typed`.",
+          "packages/afissues/tests/unit/ and packages/afissues/tests/property/ directories exist.",
+          "`uv sync` from workspace root resolves afissues as a member (returncode 0).",
+          "Requirements 03-REQ-1.1 through 03-REQ-1.5 acceptance criteria: `pytest packages/afissues/tests/unit/test_scaffold.py -q`."
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "kind": "standard",
+      "title": "Create afissues.errors independent error hierarchy",
+      "subtasks": [
+        {
+          "id": "5.1",
+          "title": "Implement afissues/errors.py with AfIssuesError base class",
+          "details": [
+            "Create `packages/afissues/afissues/errors.py`.",
+            "Define `class AfIssuesError(Exception)` with `__init__(self, message: str = '', **context: object) -> None` storing context kwargs as `self.context: dict[str, object]`.",
+            "Call `super().__init__(message)` so str(err) returns the message.",
+            "Zero imports from agentfox, afspec, afaudit, or any other workspace package — only stdlib."
+          ],
+          "test_spec_refs": [
+            "TS-03-17",
+            "TS-03-20"
+          ],
+          "requirement_refs": [
+            "03-REQ-5.1",
+            "03-REQ-5.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.2",
+          "title": "Implement ConfigError and IntegrationError in afissues/errors.py",
+          "details": [
+            "Define `class ConfigError(AfIssuesError)` inheriting context kwargs from AfIssuesError — no additional __init__ override needed.",
+            "Define `class IntegrationError(AfIssuesError)` with `__init__(self, message: str = '', *, retryable: bool = True, **context: object) -> None`; call `super().__init__(message, **context)`; store `self.retryable = retryable`.",
+            "Verify `IntegrationError().retryable == True` and `isinstance(IntegrationError(), AfIssuesError)` is True.",
+            "Confirm neither class imports or references agentfox.core.errors.AgentFoxError."
+          ],
+          "test_spec_refs": [
+            "TS-03-18",
+            "TS-03-19",
+            "TS-03-P3"
+          ],
+          "requirement_refs": [
+            "03-REQ-5.2",
+            "03-REQ-5.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "5.3",
+          "title": "Verify agentfox.core.errors hierarchy remains unchanged",
+          "details": [
+            "Confirm packages/agentfox/agentfox/core/errors.py still defines AgentFoxError, ConfigError(AgentFoxError), and IntegrationError(AgentFoxError) unchanged.",
+            "Do NOT modify agentfox/core/errors.py — both hierarchies coexist independently.",
+            "The two ConfigError and IntegrationError classes serve different domains: agentfox for workspace errors, afissues for platform/API errors."
+          ],
+          "test_spec_refs": [
+            "TS-03-21"
+          ],
+          "requirement_refs": [
+            "03-REQ-5.5"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "5.V",
+        "checks": [
+          "afissues.errors module imports without error: `python -c 'from afissues.errors import AfIssuesError, ConfigError, IntegrationError'`.",
+          "`grep -r 'agentfox' packages/afissues/afissues/errors.py` returns zero matches.",
+          "Error hierarchy tests pass: `pytest packages/afissues/tests/unit/test_errors.py -q`.",
+          "Requirements 03-REQ-5.1 through 03-REQ-5.4 met.",
+          "No ruff lint errors: `ruff check packages/afissues/afissues/errors.py`."
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "kind": "standard",
+      "title": "Extract afissues.protocol module",
+      "subtasks": [
+        {
+          "id": "6.1",
+          "title": "Create afissues/protocol.py by moving PlatformProtocol, IssueResult, IssueComment verbatim",
+          "details": [
+            "Create `packages/afissues/afissues/protocol.py`.",
+            "Move PlatformProtocol (typing.Protocol with 12 async methods + close()) verbatim from agentfox/platform/protocol.py.",
+            "Move IssueResult (@dataclass(frozen=True) with fields number, title, html_url, body, labels) verbatim.",
+            "Move IssueComment (@dataclass(frozen=True) with fields id, body, user, created_at) verbatim.",
+            "Update any internal import paths if protocol.py references agentfox modules — replace with afissues equivalents.",
+            "Ensure no agentfox imports remain in afissues/protocol.py."
+          ],
+          "test_spec_refs": [
+            "TS-03-6",
+            "TS-03-7",
+            "TS-03-8"
+          ],
+          "requirement_refs": [
+            "03-REQ-2.1",
+            "03-REQ-2.2",
+            "03-REQ-2.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "6.2",
+          "title": "Add NullPlatform to afissues/protocol.py preserving NotImplementedError on create_pr()",
+          "details": [
+            "Move NullPlatform verbatim from agentfox/platform/protocol.py into afissues/protocol.py.",
+            "NullPlatform.create_pr() MUST raise NotImplementedError — do not change this behavior; it is intentional.",
+            "All other NullPlatform methods are no-ops that return without error.",
+            "This is existing preserved behavior, not a bug — do not suppress or wrap the NotImplementedError."
+          ],
+          "test_spec_refs": [
+            "TS-03-9",
+            "TS-03-E2"
+          ],
+          "requirement_refs": [
+            "03-REQ-2.4",
+            "03-REQ-2.E1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "6.V",
+        "checks": [
+          "afissues.protocol imports cleanly: `python -c 'from afissues.protocol import PlatformProtocol, NullPlatform, IssueResult, IssueComment'`.",
+          "Protocol tests pass: `pytest packages/afissues/tests/unit/test_protocol.py -q`.",
+          "`grep -r 'agentfox' packages/afissues/afissues/protocol.py` returns zero matches.",
+          "Requirements 03-REQ-2.1 through 03-REQ-2.4 acceptance criteria met.",
+          "No ruff lint errors: `ruff check packages/afissues/afissues/protocol.py`."
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "kind": "standard",
+      "title": "Extract afissues.labels module",
+      "subtasks": [
+        {
+          "id": "7.1",
+          "title": "Create afissues/labels.py by moving LabelSpec and all label constants verbatim",
+          "details": [
+            "Create `packages/afissues/afissues/labels.py`.",
+            "Move LabelSpec (@dataclass(frozen=True) with fields name, color, description) verbatim from agentfox/platform/labels.py.",
+            "Move all seven LABEL_* string constants verbatim: LABEL_FIX='af:fix', LABEL_FIXED='af:fixed', LABEL_NO_CHANGE='af:no-change', LABEL_IMPLEMENTED='af:implemented', LABEL_PRIORITY_HIGH='priority:high', LABEL_PRIORITY_MEDIUM='priority:medium', LABEL_PRIORITY_LOW='priority:low'.",
+            "Ensure no agentfox imports remain in afissues/labels.py."
+          ],
+          "test_spec_refs": [
+            "TS-03-14",
+            "TS-03-15"
+          ],
+          "requirement_refs": [
+            "03-REQ-4.1",
+            "03-REQ-4.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "7.2",
+          "title": "Add REQUIRED_LABELS list to afissues/labels.py",
+          "details": [
+            "Move REQUIRED_LABELS (list[LabelSpec]) verbatim from agentfox/platform/labels.py.",
+            "REQUIRED_LABELS must contain exactly 4 entries: the four af:* labels (LABEL_FIX, LABEL_FIXED, LABEL_NO_CHANGE, LABEL_IMPLEMENTED) as LabelSpec instances.",
+            "Priority labels (LABEL_PRIORITY_HIGH, LABEL_PRIORITY_MEDIUM, LABEL_PRIORITY_LOW) must NOT be included in REQUIRED_LABELS.",
+            "Assert len(REQUIRED_LABELS) == 4 via the test suite."
+          ],
+          "test_spec_refs": [
+            "TS-03-16",
+            "TS-03-P5"
+          ],
+          "requirement_refs": [
+            "03-REQ-4.3"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "7.V",
+        "checks": [
+          "afissues.labels imports cleanly: `python -c 'from afissues.labels import LabelSpec, REQUIRED_LABELS, LABEL_FIX'`.",
+          "Labels tests pass: `pytest packages/afissues/tests/unit/test_labels.py -q`.",
+          "`grep -r 'agentfox' packages/afissues/afissues/labels.py` returns zero matches.",
+          "Requirements 03-REQ-4.1, 03-REQ-4.2, 03-REQ-4.3 acceptance criteria met.",
+          "No ruff lint errors: `ruff check packages/afissues/afissues/labels.py`."
+        ]
+      }
+    },
+    {
+      "id": 8,
+      "kind": "standard",
+      "title": "Extract afissues.github module",
+      "subtasks": [
+        {
+          "id": "8.1",
+          "title": "Create afissues/github.py moving GitHubPlatform and all helpers verbatim",
+          "details": [
+            "Create `packages/afissues/afissues/github.py`.",
+            "Move GitHubPlatform (14 async methods, forge_type='github', httpx.AsyncClient for REST API) verbatim from agentfox/platform/github.py.",
+            "Move _SSRFGuardTransport (httpx.AsyncHTTPTransport subclass), _validate_github_url, _validate_transport_address, _check_address verbatim.",
+            "Move _GITHUB_TIMEOUT (httpx.Timeout) and _MAX_RETRIES (int = 3) verbatim.",
+            "GitHubPlatform.close() remains a no-op returning None — do not add any error handling to it."
+          ],
+          "test_spec_refs": [
+            "TS-03-10",
+            "TS-03-12"
+          ],
+          "requirement_refs": [
+            "03-REQ-3.1",
+            "03-REQ-3.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.2",
+          "title": "Update import paths in afissues/github.py to reference afissues.errors and afissues.protocol",
+          "details": [
+            "Replace `from agentfox.core.errors import ConfigError, IntegrationError` with `from afissues.errors import ConfigError, IntegrationError`.",
+            "Replace `from agentfox.platform.protocol import PlatformProtocol, IssueResult, IssueComment` with `from afissues.protocol import PlatformProtocol, IssueResult, IssueComment`.",
+            "Verify zero 'agentfox' references remain in afissues/github.py.",
+            "Retry logic: on httpx.ConnectTimeout/ConnectError/ReadTimeout, retry up to _MAX_RETRIES (3) times then raise IntegrationError(retryable=True) from afissues.errors."
+          ],
+          "test_spec_refs": [
+            "TS-03-13",
+            "TS-03-E3",
+            "TS-03-E4",
+            "TS-03-E5"
+          ],
+          "requirement_refs": [
+            "03-REQ-3.4",
+            "03-REQ-3.E1",
+            "03-REQ-3.E2",
+            "03-REQ-3.E3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "8.3",
+          "title": "Move parse_github_remote to afissues/github.py",
+          "details": [
+            "Move parse_github_remote function with signature `(remote_url: str) -> tuple[str, str] | None` verbatim from agentfox/platform/github.py.",
+            "Function returns (owner, repo) for valid GitHub HTTPS and SSH remote URLs; returns None for non-GitHub or malformed URLs.",
+            "Ensure function is included in afissues/__init__.py re-exports."
+          ],
+          "test_spec_refs": [
+            "TS-03-11"
+          ],
+          "requirement_refs": [
+            "03-REQ-3.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "8.V",
+        "checks": [
+          "afissues.github imports cleanly: `python -c 'from afissues.github import GitHubPlatform, parse_github_remote'`.",
+          "GitHub module tests pass: `pytest packages/afissues/tests/unit/test_github.py -q`.",
+          "`grep -r 'agentfox' packages/afissues/afissues/github.py` returns zero matches.",
+          "Requirements 03-REQ-3.1 through 03-REQ-3.4 acceptance criteria met.",
+          "No ruff lint errors: `ruff check packages/afissues/afissues/github.py`."
+        ]
+      }
+    },
+    {
+      "id": 9,
+      "kind": "standard",
+      "title": "Create afissues/__init__.py public re-export surface",
+      "subtasks": [
+        {
+          "id": "9.1",
+          "title": "Implement afissues/__init__.py with all public symbol re-exports",
+          "details": [
+            "Create `packages/afissues/afissues/__init__.py`.",
+            "Re-export from afissues.protocol: PlatformProtocol, NullPlatform, IssueResult, IssueComment.",
+            "Re-export from afissues.github: GitHubPlatform, parse_github_remote.",
+            "Re-export from afissues.labels: LabelSpec, LABEL_FIX, LABEL_FIXED, LABEL_NO_CHANGE, LABEL_IMPLEMENTED, LABEL_PRIORITY_HIGH, LABEL_PRIORITY_MEDIUM, LABEL_PRIORITY_LOW, REQUIRED_LABELS.",
+            "All 15 public symbols must be importable directly from `afissues` top-level namespace.",
+            "Consumers with only httpx installed (no agentfox) must be able to use all symbols."
+          ],
+          "test_spec_refs": [
+            "TS-03-22"
+          ],
+          "requirement_refs": [
+            "03-REQ-6.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "9.2",
+          "title": "Verify full afissues package imports without agentfox in environment",
+          "details": [
+            "Run `python -c 'from afissues import PlatformProtocol, GitHubPlatform, REQUIRED_LABELS'` in an environment without agentfox installed; assert returncode 0.",
+            "Verify `pip show afissues` Requires field lists only httpx.",
+            "Grep all files under packages/afissues/afissues/ for workspace package names (agentfox, afspec, afaudit); assert zero matches.",
+            "Run re-export tests: `pytest packages/afissues/tests/unit/test_init_reexports.py -q`."
+          ],
+          "test_spec_refs": [
+            "TS-03-22",
+            "TS-03-35",
+            "TS-03-36"
+          ],
+          "requirement_refs": [
+            "03-REQ-6.1",
+            "03-REQ-10.1",
+            "03-REQ-10.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "9.V",
+        "checks": [
+          "All 15 public symbols importable: `python -c 'from afissues import PlatformProtocol, NullPlatform, IssueResult, IssueComment, GitHubPlatform, parse_github_remote, LabelSpec, LABEL_FIX, LABEL_FIXED, LABEL_NO_CHANGE, LABEL_IMPLEMENTED, LABEL_PRIORITY_HIGH, LABEL_PRIORITY_MEDIUM, LABEL_PRIORITY_LOW, REQUIRED_LABELS'`.",
+          "Re-export tests pass: `pytest packages/afissues/tests/unit/test_init_reexports.py -q`.",
+          "`grep -rn 'agentfox\\|afspec\\|afaudit' packages/afissues/afissues/` returns zero matches.",
+          "Requirements 03-REQ-6.1, 03-REQ-10.1, 03-REQ-10.2 acceptance criteria met.",
+          "No ruff lint errors: `ruff check packages/afissues/afissues/__init__.py`."
+        ]
+      }
+    },
+    {
+      "id": 10,
+      "kind": "checkpoint",
+      "title": "Checkpoint: afissues package complete and self-contained",
+      "subtasks": [
+        {
+          "id": "10.1",
+          "title": "Run full afissues test suite to confirm all module tests pass",
+          "details": [
+            "Run `pytest packages/afissues/tests/ -q` and confirm returncode 0.",
+            "All unit tests for protocol, github, labels, errors, and __init__ pass.",
+            "No import errors, no collection errors."
+          ],
+          "test_spec_refs": [
+            "TS-03-6",
+            "TS-03-10",
+            "TS-03-14",
+            "TS-03-17",
+            "TS-03-22"
+          ],
+          "requirement_refs": [
+            "03-REQ-1.1",
+            "03-REQ-2.1",
+            "03-REQ-3.1",
+            "03-REQ-4.1",
+            "03-REQ-5.1",
+            "03-REQ-6.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "10.2",
+          "title": "Verify afissues dependency isolation with grep and pip show",
+          "details": [
+            "Run `grep -rn 'agentfox\\|afspec\\|afaudit\\|nightshift' packages/afissues/afissues/` and assert zero matches.",
+            "Run `pip show afissues` and confirm only httpx listed under Requires.",
+            "Footprint tests pass: `pytest packages/afissues/tests/unit/test_footprint.py -q`."
+          ],
+          "test_spec_refs": [
+            "TS-03-35",
+            "TS-03-36",
+            "TS-03-P1"
+          ],
+          "requirement_refs": [
+            "03-REQ-10.1",
+            "03-REQ-10.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "10.3",
+          "title": "Verify py.typed and type checker resolution",
+          "details": [
+            "Assert `packages/afissues/afissues/py.typed` exists.",
+            "Write a minimal Python file importing PlatformProtocol, GitHubPlatform, IssueResult from afissues; run mypy on it; assert returncode 0.",
+            "Type checker validation test passes: `pytest packages/afissues/tests/unit/test_validation.py::test_type_checker -q` (or equivalent)."
+          ],
+          "test_spec_refs": [
+            "TS-03-3",
+            "TS-03-43"
+          ],
+          "requirement_refs": [
+            "03-REQ-1.3",
+            "03-REQ-12.3"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "10.V",
+        "checks": [
+          "Full afissues test suite passes: `pytest packages/afissues/tests/ -q` exits with code 0.",
+          "Zero workspace imports in afissues source: `grep -rn 'agentfox\\|afspec\\|afaudit' packages/afissues/afissues/` returns no matches.",
+          "py.typed marker present: `ls packages/afissues/afissues/py.typed` succeeds.",
+          "No ruff lint errors across entire afissues package: `ruff check packages/afissues/`.",
+          "Requirements 03-REQ-1 through 03-REQ-6, 03-REQ-10 fully satisfied at this checkpoint."
+        ]
+      }
+    },
+    {
+      "id": 11,
+      "kind": "standard",
+      "title": "Delete agentfox/platform/ directory and update agentfox dependencies",
+      "subtasks": [
+        {
+          "id": "11.1",
+          "title": "Delete packages/agentfox/agentfox/platform/ directory entirely",
+          "details": [
+            "Delete `packages/agentfox/agentfox/platform/` including all .py files, __init__.py, and the directory itself.",
+            "The agentfox/platform/__init__.py contains only a docstring with no re-exports — safe to delete without further audit.",
+            "No empty directories, stub files, or re-export shims are left behind.",
+            "Verify `ls packages/agentfox/agentfox/platform/` returns a non-existent path error."
+          ],
+          "test_spec_refs": [
+            "TS-03-23"
+          ],
+          "requirement_refs": [
+            "03-REQ-7.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.2",
+          "title": "Add afissues as a workspace dependency in agentfox/pyproject.toml",
+          "details": [
+            "Add `afissues` to the dependencies list in `packages/agentfox/pyproject.toml`.",
+            "Use workspace dependency syntax consistent with uv workspace (e.g., `afissues` or `afissues>=4.2.0`).",
+            "Run `uv sync` from workspace root and confirm returncode 0.",
+            "nightshift does NOT need to declare afissues — it receives it transitively through agentfox.",
+            "af/pyproject.toml does NOT need to be updated — afissues is available transitively through af's agentfox dependency."
+          ],
+          "test_spec_refs": [
+            "TS-03-28"
+          ],
+          "requirement_refs": [
+            "03-REQ-8.4"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "11.3",
+          "title": "Update root pyproject.toml testpaths to include packages/afissues/tests",
+          "details": [
+            "Add `packages/afissues/tests` to the `testpaths` list in the root `pyproject.toml` under `[tool.pytest.ini_options]`.",
+            "Run `pytest --collect-only` from workspace root and confirm afissues tests are discovered.",
+            "Verify other existing testpaths entries are unchanged."
+          ],
+          "test_spec_refs": [
+            "TS-03-30"
+          ],
+          "requirement_refs": [
+            "03-REQ-8.6"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "11.V",
+        "checks": [
+          "Platform directory deleted: `ls packages/agentfox/agentfox/platform/` returns non-zero exit code.",
+          "afissues in agentfox deps: `grep 'afissues' packages/agentfox/pyproject.toml` returns a match.",
+          "`uv sync` exits with code 0 from workspace root.",
+          "Root testpaths updated: `grep 'afissues' pyproject.toml` returns a match.",
+          "Deletion tests pass: `pytest packages/afissues/tests/unit/test_migration.py::test_platform_dir_deleted -q`.",
+          "Requirements 03-REQ-7.1, 03-REQ-8.4, 03-REQ-8.6 acceptance criteria met."
+        ]
+      }
+    },
+    {
+      "id": 12,
+      "kind": "standard",
+      "title": "Migrate 12 agentfox source files and platform_factory from agentfox.platform to afissues",
+      "subtasks": [
+        {
+          "id": "12.1",
+          "title": "Update all 12 agentfox source files: replace agentfox.platform imports with afissues imports",
+          "details": [
+            "Find all 12 source files under packages/agentfox/agentfox/ importing from agentfox.platform.*.",
+            "Replace `from agentfox.platform.protocol import ...` with `from afissues.protocol import ...`.",
+            "Replace `from agentfox.platform.github import ...` with `from afissues.github import ...`.",
+            "Replace `from agentfox.platform.labels import ...` with `from afissues.labels import ...`.",
+            "Update except clauses that previously caught `agentfox.core.errors.IntegrationError` for platform-originated errors to catch `afissues.errors.IntegrationError`.",
+            "Leave except clauses for non-platform workspace errors (agentfox.core.errors.IntegrationError) unchanged."
+          ],
+          "test_spec_refs": [
+            "TS-03-25",
+            "TS-03-P2"
+          ],
+          "requirement_refs": [
+            "03-REQ-8.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "12.2",
+          "title": "Update platform_factory.py in agentfox.nightshift to import from afissues",
+          "details": [
+            "Update `packages/agentfox/agentfox/nightshift/platform_factory.py` to replace all `agentfox.platform.*` imports with `afissues.*` imports.",
+            "Factory logic (construction, environment variable handling) must remain unchanged — only import paths are updated.",
+            "Verify `python -c 'import agentfox.nightshift.platform_factory'` exits with code 0.",
+            "Confirm zero 'agentfox.platform' references remain in platform_factory.py."
+          ],
+          "test_spec_refs": [
+            "TS-03-29"
+          ],
+          "requirement_refs": [
+            "03-REQ-8.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "12.3",
+          "title": "Verify zero agentfox.platform imports remain in agentfox source files",
+          "details": [
+            "Run `grep -r 'agentfox\\.platform' packages/agentfox/agentfox/` and assert zero matches.",
+            "Run `grep -r 'agentfox\\.platform' packages/` and assert zero matches across entire workspace.",
+            "Source migration tests pass: `pytest packages/afissues/tests/unit/test_migration.py -q`."
+          ],
+          "test_spec_refs": [
+            "TS-03-24",
+            "TS-03-25"
+          ],
+          "requirement_refs": [
+            "03-REQ-7.2",
+            "03-REQ-8.1"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "12.V",
+        "checks": [
+          "Zero agentfox.platform imports in agentfox source: `grep -r 'agentfox\\.platform' packages/agentfox/agentfox/` returns no matches.",
+          "platform_factory imports successfully: `python -c 'import agentfox.nightshift.platform_factory'` exits 0.",
+          "agentfox package imports cleanly after migration: `python -c 'import agentfox'` exits 0.",
+          "Source migration tests pass: `pytest packages/afissues/tests/unit/test_migration.py -q`.",
+          "Requirements 03-REQ-7.2, 03-REQ-8.1, 03-REQ-8.5 acceptance criteria met."
+        ]
+      }
+    },
+    {
+      "id": 13,
+      "kind": "standard",
+      "title": "Migrate 44 agentfox test files and 1 af test file from agentfox.platform to afissues",
+      "subtasks": [
+        {
+          "id": "13.1",
+          "title": "Update all 44 agentfox test files: replace agentfox.platform imports with afissues imports",
+          "details": [
+            "Find all 44 test files under packages/agentfox/tests/ importing from agentfox.platform.*.",
+            "Replace `from agentfox.platform.protocol import ...` with `from afissues.protocol import ...`.",
+            "Replace `from agentfox.platform.github import ...` with `from afissues.github import ...`.",
+            "Replace `from agentfox.platform.labels import ...` with `from afissues.labels import ...`.",
+            "Do not change test logic — only import paths are updated.",
+            "Run `grep -r 'agentfox\\.platform' packages/agentfox/tests/` and assert zero matches after migration."
+          ],
+          "test_spec_refs": [
+            "TS-03-26",
+            "TS-03-P2"
+          ],
+          "requirement_refs": [
+            "03-REQ-8.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "13.2",
+          "title": "Update packages/af/tests/unit/test_init_labels.py to import from afissues.labels",
+          "details": [
+            "Update `packages/af/tests/unit/test_init_labels.py` to replace `from agentfox.platform.labels import ...` with `from afissues.labels import ...`.",
+            "Do NOT modify `af/pyproject.toml` — afissues is available transitively through af's agentfox dependency.",
+            "Run `pytest packages/af/tests/unit/test_init_labels.py -q` and assert returncode 0.",
+            "Verify `grep 'agentfox.platform' packages/af/tests/unit/test_init_labels.py` returns zero matches."
+          ],
+          "test_spec_refs": [
+            "TS-03-27"
+          ],
+          "requirement_refs": [
+            "03-REQ-8.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "13.3",
+          "title": "Verify all agentfox and af tests pass after import migration",
+          "details": [
+            "Run `pytest packages/agentfox/tests/ -q` and assert returncode 0.",
+            "Run `pytest packages/af/tests/ -q` and assert returncode 0.",
+            "Confirm zero 'agentfox.platform' references remain anywhere in packages/: `grep -r 'agentfox\\.platform' packages/` returns empty."
+          ],
+          "test_spec_refs": [
+            "TS-03-25",
+            "TS-03-26",
+            "TS-03-27"
+          ],
+          "requirement_refs": [
+            "03-REQ-8.1",
+            "03-REQ-8.2",
+            "03-REQ-8.3"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "13.V",
+        "checks": [
+          "Zero agentfox.platform imports in test files: `grep -r 'agentfox\\.platform' packages/agentfox/tests/ packages/af/tests/` returns no matches.",
+          "agentfox test suite passes: `pytest packages/agentfox/tests/ -q` exits 0.",
+          "af test including test_init_labels passes: `pytest packages/af/tests/unit/test_init_labels.py -q` exits 0.",
+          "af/pyproject.toml unchanged: `grep 'afissues' packages/af/pyproject.toml` returns no matches.",
+          "Requirements 03-REQ-8.2, 03-REQ-8.3 acceptance criteria met."
+        ]
+      }
+    },
+    {
+      "id": 14,
+      "kind": "standard",
+      "title": "Relocate platform test files to packages/afissues/tests/",
+      "subtasks": [
+        {
+          "id": "14.1",
+          "title": "Relocate 10 unit test files and conftest.py from agentfox/tests/unit/platform/ to afissues/tests/unit/",
+          "details": [
+            "Move all 10 test files from `packages/agentfox/tests/unit/platform/` to `packages/afissues/tests/unit/`.",
+            "Move `packages/agentfox/tests/unit/platform/conftest.py` to `packages/afissues/tests/unit/conftest.py`.",
+            "Update all fixture imports in conftest.py from agentfox.platform.* to afissues.*.",
+            "Update all test file imports from agentfox.platform.* to afissues.*.",
+            "Fixture names and signatures must remain identical so test files do not need fixture name changes.",
+            "Run `pytest packages/afissues/tests/unit/ -q` and assert returncode 0."
+          ],
+          "test_spec_refs": [
+            "TS-03-31",
+            "TS-03-32"
+          ],
+          "requirement_refs": [
+            "03-REQ-9.1",
+            "03-REQ-9.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "14.2",
+          "title": "Relocate test_overhaul_props.py to packages/afissues/tests/property/",
+          "details": [
+            "Move `packages/agentfox/tests/property/platform/test_overhaul_props.py` to `packages/afissues/tests/property/test_overhaul_props.py`.",
+            "Update all imports from agentfox.platform.* to afissues.*.",
+            "The .hypothesis/ directory is in .gitignore and not checked in — Hypothesis will build a fresh database at the new location on first run.",
+            "Run `pytest packages/afissues/tests/property/test_overhaul_props.py -q` and assert returncode 0."
+          ],
+          "test_spec_refs": [
+            "TS-03-33"
+          ],
+          "requirement_refs": [
+            "03-REQ-9.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "14.3",
+          "title": "Delete packages/agentfox/tests/unit/platform/ directory after relocation",
+          "details": [
+            "Delete `packages/agentfox/tests/unit/platform/` and all its contents after all files are relocated.",
+            "Verify `ls packages/agentfox/tests/unit/platform/` returns a non-existent path error.",
+            "No empty directories, test files, or conftest.py stubs remain under that path.",
+            "Run `pytest packages/agentfox/tests/ -q` to confirm remaining agentfox tests still pass after directory removal."
+          ],
+          "test_spec_refs": [
+            "TS-03-34"
+          ],
+          "requirement_refs": [
+            "03-REQ-9.4"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "14.V",
+        "checks": [
+          "packages/afissues/tests/unit/ contains exactly 10 test files plus conftest.py: `ls packages/afissues/tests/unit/test_*.py | wc -l` == 10.",
+          "packages/agentfox/tests/unit/platform/ does not exist: `ls packages/agentfox/tests/unit/platform/` returns non-zero.",
+          "All relocated unit tests pass: `pytest packages/afissues/tests/unit/ -q` exits 0.",
+          "Property tests pass: `pytest packages/afissues/tests/property/test_overhaul_props.py -q` exits 0.",
+          "Remaining agentfox tests unaffected: `pytest packages/agentfox/tests/ -q` exits 0.",
+          "Requirements 03-REQ-9.1 through 03-REQ-9.4 acceptance criteria met."
+        ]
+      }
+    },
+    {
+      "id": 15,
+      "kind": "standard",
+      "title": "Update README documentation for afissues",
+      "subtasks": [
+        {
+          "id": "15.1",
+          "title": "Update packages/README.md with afissues entry and dependency graph edge",
+          "details": [
+            "Add `afissues` row to the package table in `packages/README.md` with description: 'Standalone platform/forge abstraction layer for agent-fox'.",
+            "Add the dependency edge `agentfox ──▶ afissues` to the dependency graph section.",
+            "Verify grep for 'afissues' in packages/README.md returns at least 2 matches (table row + graph entry)."
+          ],
+          "test_spec_refs": [
+            "TS-03-39"
+          ],
+          "requirement_refs": [
+            "03-REQ-11.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "15.2",
+          "title": "Update root README.md with afissues in dependency graph, package table, and standalone libraries section",
+          "details": [
+            "Add `afissues` to the dependency graph in root `README.md` showing agentfox depends on afissues.",
+            "Add `afissues` row to the package table with description.",
+            "Add `afissues` to the standalone libraries section describing it as the lightweight platform abstraction.",
+            "Verify `afissues` appears at least 3 times in root README.md."
+          ],
+          "test_spec_refs": [
+            "TS-03-40"
+          ],
+          "requirement_refs": [
+            "03-REQ-11.2"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "15.V",
+        "checks": [
+          "packages/README.md updated: `grep 'afissues' packages/README.md` returns matches for both table and graph.",
+          "Root README.md updated: `grep -c 'afissues' README.md` returns 3 or more.",
+          "Documentation tests pass: `pytest packages/afissues/tests/unit/test_docs.py -q` exits 0.",
+          "Requirements 03-REQ-11.1, 03-REQ-11.2 acceptance criteria met."
+        ]
+      }
+    },
+    {
+      "id": 16,
+      "kind": "wiring_verification",
+      "title": "Wiring verification: end-to-end integration and CI validation",
+      "subtasks": [
+        {
+          "id": "16.1",
+          "title": "Trace execution paths: verify PATH-1 (consumer imports), PATH-2 (SSRF guard), PATH-3 (agentfox internal usage)",
+          "details": [
+            "PATH-1: In isolated env with only httpx, run consumer script: `from afissues import PlatformProtocol, GitHubPlatform, REQUIRED_LABELS`; instantiate GitHubPlatform; call get_issue() with mocked httpx response; assert IssueResult returned.",
+            "PATH-2: Configure GitHubPlatform with URL resolving to private IP; assert _validate_github_url raises ConfigError from afissues.errors before any HTTP call; assert ConfigError is AfIssuesError instance.",
+            "PATH-3: Import agentfox.nightshift.platform_factory; construct GitHubPlatform via factory; call platform method with mocked response; assert IssueResult returned; assert catching afissues.errors.IntegrationError works in caller.",
+            "Verify each PATH entry point calls the next function in the chain — no dead stubs remain."
+          ],
+          "test_spec_refs": [
+            "TS-03-SMOKE-1",
+            "TS-03-SMOKE-2",
+            "TS-03-SMOKE-3"
+          ],
+          "requirement_refs": [
+            "03-REQ-3.1",
+            "03-REQ-3.E1",
+            "03-REQ-8.1",
+            "03-REQ-8.5"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "16.2",
+          "title": "Verify return value propagation across module boundaries",
+          "details": [
+            "Confirm IssueResult returned by GitHubPlatform.get_issue() propagates correctly to callers — fields number, title, html_url, body, labels are accessible.",
+            "Confirm IssueComment returned by comment methods propagates fields id, body, user, created_at.",
+            "Confirm REQUIRED_LABELS list[LabelSpec] accessible from afissues top-level and contains exactly 4 af:* LabelSpec entries.",
+            "Confirm parse_github_remote returns (owner, repo) tuple or None — callers handle both cases correctly."
+          ],
+          "test_spec_refs": [
+            "TS-03-SMOKE-1",
+            "TS-03-SMOKE-3"
+          ],
+          "requirement_refs": [
+            "03-REQ-2.1",
+            "03-REQ-3.1",
+            "03-REQ-4.3"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "16.3",
+          "title": "Run all smoke tests with real components",
+          "details": [
+            "SMOKE-1: Install afissues without agentfox; import all symbols; call GitHubPlatform with mocked httpx; assert IssueResult populated.",
+            "SMOKE-2: SSRF guard smoke — call GitHubPlatform with private-network URL; assert ConfigError raised; assert no httpx.send called.",
+            "SMOKE-3: agentfox internal usage — import platform_factory; construct platform; call method; catch afissues.errors.IntegrationError.",
+            "SMOKE-4: CI validation — `grep -r 'agentfox\\.platform' packages/` returns empty; `make check` exits 0.",
+            "Run `pytest packages/afissues/tests/ -q` and assert all pass."
+          ],
+          "test_spec_refs": [
+            "TS-03-SMOKE-1",
+            "TS-03-SMOKE-2",
+            "TS-03-SMOKE-3",
+            "TS-03-SMOKE-4"
+          ],
+          "requirement_refs": [
+            "03-REQ-12.1",
+            "03-REQ-12.2"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "16.4",
+          "title": "Stub and dead-code audit across afissues and migrated agentfox files",
+          "details": [
+            "Search for Python stub markers in afissues source: `grep -rn 'raise NotImplementedError\\|pass$\\|return None' packages/afissues/afissues/` — review each match; NullPlatform.create_pr() raising NotImplementedError is intentional and expected.",
+            "Confirm no unintentional `pass` in non-abstract methods of GitHubPlatform that should have implementations.",
+            "Confirm GitHubPlatform.close() is an intentional no-op (documented) — not an accidental stub.",
+            "Search migrated agentfox source for any remaining `agentfox.platform` strings: `grep -rn 'agentfox.platform' packages/` — assert zero matches.",
+            "Verify no TODO/FIXME comments left in afissues source referencing incomplete migration tasks."
+          ],
+          "test_spec_refs": [
+            "TS-03-9",
+            "TS-03-10"
+          ],
+          "requirement_refs": [
+            "03-REQ-2.4",
+            "03-REQ-3.1",
+            "03-REQ-5.1"
+          ],
+          "state": "pending",
+          "optional": false
+        },
+        {
+          "id": "16.5",
+          "title": "Run make check and verify full workspace CI passes with no regressions",
+          "details": [
+            "Run `make check` from workspace root; assert returncode 0.",
+            "Confirm all workspace packages pass lint: `ruff check packages/` exits 0.",
+            "Confirm all workspace tests pass: `pytest -q` from workspace root exits 0.",
+            "Run mypy on afissues consumer code; assert type checker reports zero errors due to py.typed presence.",
+            "PATH-4: `grep -r 'agentfox\\.platform' packages/` returns empty; `make check` exits 0."
+          ],
+          "test_spec_refs": [
+            "TS-03-41",
+            "TS-03-42",
+            "TS-03-43"
+          ],
+          "requirement_refs": [
+            "03-REQ-12.1",
+            "03-REQ-12.3"
+          ],
+          "state": "pending",
+          "optional": false
+        }
+      ],
+      "verification": {
+        "id": "16.V",
+        "checks": [
+          "`make check` exits with code 0 — lint + all workspace tests pass with no regressions.",
+          "All 4 smoke tests pass: SMOKE-1 (consumer install), SMOKE-2 (SSRF guard), SMOKE-3 (agentfox internal usage), SMOKE-4 (CI grep + make check).",
+          "Zero agentfox.platform imports anywhere: `grep -r 'agentfox\\.platform' packages/` returns no output.",
+          "packages/agentfox/agentfox/platform/ directory does not exist.",
+          "packages/agentfox/tests/unit/platform/ directory does not exist.",
+          "afissues package self-contained: `python -c 'from afissues import PlatformProtocol, GitHubPlatform'` succeeds without agentfox installed.",
+          "mypy reports zero errors on afissues consumer code.",
+          "All 03-REQ-1 through 03-REQ-12 acceptance criteria met; traceability matrix complete."
+        ]
+      }
+    }
+  ],
+  "traceability": [
+    {
+      "requirement_id": "03-REQ-1.1",
+      "test_spec_id": "TS-03-1",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-1.2",
+      "test_spec_id": "TS-03-2",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-1.3",
+      "test_spec_id": "TS-03-3",
+      "task_id": "4.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-1.4",
+      "test_spec_id": "TS-03-4",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-1.5",
+      "test_spec_id": "TS-03-5",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-1.E1",
+      "test_spec_id": "TS-03-E1",
+      "task_id": "4.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-2.1",
+      "test_spec_id": "TS-03-6",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-2.2",
+      "test_spec_id": "TS-03-7",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-2.3",
+      "test_spec_id": "TS-03-8",
+      "task_id": "6.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-2.4",
+      "test_spec_id": "TS-03-9",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-2.E1",
+      "test_spec_id": "TS-03-E2",
+      "task_id": "6.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-3.1",
+      "test_spec_id": "TS-03-10",
+      "task_id": "8.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-3.2",
+      "test_spec_id": "TS-03-11",
+      "task_id": "8.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-3.3",
+      "test_spec_id": "TS-03-12",
+      "task_id": "8.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-3.4",
+      "test_spec_id": "TS-03-13",
+      "task_id": "8.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-3.E1",
+      "test_spec_id": "TS-03-E3",
+      "task_id": "8.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-3.E2",
+      "test_spec_id": "TS-03-E4",
+      "task_id": "8.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-3.E3",
+      "test_spec_id": "TS-03-E5",
+      "task_id": "8.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-4.1",
+      "test_spec_id": "TS-03-14",
+      "task_id": "7.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-4.2",
+      "test_spec_id": "TS-03-15",
+      "task_id": "7.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-4.3",
+      "test_spec_id": "TS-03-16",
+      "task_id": "7.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-4.3",
+      "test_spec_id": "TS-03-P5",
+      "task_id": "7.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-5.1",
+      "test_spec_id": "TS-03-17",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-5.2",
+      "test_spec_id": "TS-03-18",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-5.3",
+      "test_spec_id": "TS-03-19",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-5.4",
+      "test_spec_id": "TS-03-20",
+      "task_id": "5.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-5.5",
+      "test_spec_id": "TS-03-21",
+      "task_id": "5.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-5.E1",
+      "test_spec_id": "TS-03-E6",
+      "task_id": "5.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-6.1",
+      "test_spec_id": "TS-03-22",
+      "task_id": "9.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-7.1",
+      "test_spec_id": "TS-03-23",
+      "task_id": "11.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-7.2",
+      "test_spec_id": "TS-03-24",
+      "task_id": "12.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-7.2",
+      "test_spec_id": "TS-03-P2",
+      "task_id": "12.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-8.1",
+      "test_spec_id": "TS-03-25",
+      "task_id": "12.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-8.2",
+      "test_spec_id": "TS-03-26",
+      "task_id": "13.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-8.3",
+      "test_spec_id": "TS-03-27",
+      "task_id": "13.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-8.4",
+      "test_spec_id": "TS-03-28",
+      "task_id": "11.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-8.5",
+      "test_spec_id": "TS-03-29",
+      "task_id": "12.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-8.6",
+      "test_spec_id": "TS-03-30",
+      "task_id": "11.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-8.E1",
+      "test_spec_id": "TS-03-E7",
+      "task_id": "12.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-9.1",
+      "test_spec_id": "TS-03-31",
+      "task_id": "14.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-9.2",
+      "test_spec_id": "TS-03-32",
+      "task_id": "14.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-9.3",
+      "test_spec_id": "TS-03-33",
+      "task_id": "14.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-9.4",
+      "test_spec_id": "TS-03-34",
+      "task_id": "14.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-10.1",
+      "test_spec_id": "TS-03-35",
+      "task_id": "9.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-10.2",
+      "test_spec_id": "TS-03-36",
+      "task_id": "9.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-10.2",
+      "test_spec_id": "TS-03-P1",
+      "task_id": "9.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-10.3",
+      "test_spec_id": "TS-03-37",
+      "task_id": "11.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-10.4",
+      "test_spec_id": "TS-03-38",
+      "task_id": "13.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-11.1",
+      "test_spec_id": "TS-03-39",
+      "task_id": "15.1",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-11.2",
+      "test_spec_id": "TS-03-40",
+      "task_id": "15.2",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-12.1",
+      "test_spec_id": "TS-03-41",
+      "task_id": "16.5",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-12.2",
+      "test_spec_id": "TS-03-42",
+      "task_id": "16.3",
+      "test_path": null
+    },
+    {
+      "requirement_id": "03-REQ-12.3",
+      "test_spec_id": "TS-03-43",
+      "task_id": "16.5",
+      "test_path": null
+    }
+  ]
+}
