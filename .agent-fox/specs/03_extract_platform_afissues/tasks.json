@@ -40,7 +40,7 @@
             "03-REQ-1.4",
             "03-REQ-1.5"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -68,7 +68,7 @@
             "03-REQ-2.4",
             "03-REQ-2.E1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -102,7 +102,7 @@
             "03-REQ-3.E2",
             "03-REQ-3.E3"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],
