@@ -1,8 +1,8 @@
 """Tests for GiteaPlatform issue and PR operations.
 
-Test Spec: TS-05-1 through TS-05-9, TS-05-E1 through TS-05-E3,
+Test Spec: TS-05-1 through TS-05-19, TS-05-E1 through TS-05-E10,
            TS-05-46 through TS-05-49
-Requirements: 05-REQ-1.* through 05-REQ-2.*, 05-REQ-17.*
+Requirements: 05-REQ-1.* through 05-REQ-6.*, 05-REQ-17.*
 
 Note: Import paths use agentfox.platform.* (the actual codebase layout),
 not afissues.* (the spec-03 future layout that has not been extracted yet).
@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from agentfox.core.errors import ConfigError, IntegrationError
-from agentfox.platform.protocol import IssueResult  # noqa: F401 (used in later groups)
+from agentfox.platform.protocol import IssueComment, IssueResult  # noqa: F401
 
 # ---------------------------------------------------------------------------
 # Helpers (modelled after test_gitlab.py / test_github_issues_rest.py)
@@ -495,3 +495,587 @@ class TestParseRemoteAnyHostname:
 
         result = parse_remote("https://192.168.1.100/org/repo.git")
         assert result == ("org", "repo")
+
+
+# ===========================================================================
+# Group 2 Tests: create_issue, list_issues_by_label, add_issue_comment,
+#                assign_label
+# Test Spec: TS-05-10 through TS-05-19, TS-05-E4 through TS-05-E10
+# Requirements: 05-REQ-3.* through 05-REQ-6.*
+# ===========================================================================
+
+
+# ===========================================================================
+# TS-05-10: create_issue with labels resolves IDs and POSTs numeric array
+# Requirement: 05-REQ-3.1
+# ===========================================================================
+
+
+class TestCreateIssueWithLabels:
+    """Verify create_issue resolves label names to numeric IDs via _resolve_label_id."""
+
+    @pytest.mark.asyncio
+    async def test_create_issue_resolves_labels_to_numeric_ids(self) -> None:
+        """TS-05-10: labels=['bug'] → _resolve_label_id returns 42 → POST labels=[42]."""
+        platform = _make_platform()
+
+        mock_issue_resp = _json_response(
+            201,
+            {
+                "number": 1,
+                "title": "Fix crash",
+                "html_url": "http://gitea.example.com/myorg/myrepo/issues/1",
+                "body": "Description here",
+                "labels": [{"name": "bug"}],
+            },
+        )
+
+        requests_made: list[tuple[str, dict]] = []
+
+        async def mock_post(url, *, json=None, headers=None, **kw):
+            requests_made.append((url, json or {}))
+            return mock_issue_resp
+
+        client = _mock_client(post=mock_post)
+
+        # Mock _resolve_label_id to return a known numeric ID
+        with patch(_TARGET, return_value=client), patch.object(
+            platform, "_resolve_label_id", new_callable=AsyncMock, return_value=42
+        ):
+            result = await platform.create_issue("Fix crash", "Description here", ["bug"])
+
+        # POST body must contain labels as array of ints
+        assert len(requests_made) == 1
+        _, posted_body = requests_made[0]
+        assert posted_body["labels"] == [42]
+
+        # Return value is correctly mapped IssueResult
+        assert isinstance(result, IssueResult)
+        assert result.number == 1
+        assert result.title == "Fix crash"
+        assert result.html_url == "http://gitea.example.com/myorg/myrepo/issues/1"
+        assert result.body == "Description here"
+        assert result.labels == ("bug",)
+
+
+# ===========================================================================
+# TS-05-11: create_issue with empty labels omits labels field from POST body
+# Requirement: 05-REQ-3.2
+# ===========================================================================
+
+
+class TestCreateIssueNoLabels:
+    """Verify create_issue omits the labels key when called with an empty list."""
+
+    @pytest.mark.asyncio
+    async def test_create_issue_no_labels_key_in_body(self) -> None:
+        """TS-05-11: labels=[] → POST body has no 'labels' key."""
+        platform = _make_platform()
+
+        mock_resp = _json_response(
+            201,
+            {
+                "number": 1,
+                "title": "Fix crash",
+                "html_url": "http://gitea.example.com/myorg/myrepo/issues/1",
+                "body": "Description",
+                "labels": [],
+            },
+        )
+
+        requests_made: list[tuple[str, dict]] = []
+
+        async def mock_post(url, *, json=None, headers=None, **kw):
+            requests_made.append((url, json or {}))
+            return mock_resp
+
+        client = _mock_client(post=mock_post)
+
+        with patch(_TARGET, return_value=client):
+            result = await platform.create_issue("Fix crash", "Description", [])
+
+        # POST body should not contain a 'labels' key
+        assert len(requests_made) == 1
+        _, posted_body = requests_made[0]
+        assert "labels" not in posted_body
+
+        assert isinstance(result, IssueResult)
+        assert result.number == 1
+
+
+# ===========================================================================
+# TS-05-12: create_issue treats any 2xx (including 200) as success
+# Requirement: 05-REQ-3.3
+# ===========================================================================
+
+
+class TestCreateIssue2xxSuccess:
+    """Verify create_issue treats any 2xx response as success."""
+
+    @pytest.mark.asyncio
+    async def test_create_issue_200_is_success(self) -> None:
+        """TS-05-12: POST returns 200 (not 201); IssueResult returned without error."""
+        platform = _make_platform()
+
+        mock_resp = _json_response(
+            200,
+            {
+                "number": 5,
+                "title": "Title",
+                "html_url": "http://gitea.example.com/myorg/myrepo/issues/5",
+                "body": "Body",
+                "labels": [],
+            },
+        )
+        client = _mock_client(post=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client):
+            result = await platform.create_issue("Title", "Body", [])
+
+        assert result.number == 5
+
+
+# ===========================================================================
+# TS-05-E4: create_issue raises IntegrationError on non-2xx with truncated text
+# Requirement: 05-REQ-3.E1
+# ===========================================================================
+
+
+class TestCreateIssueError:
+    """Verify create_issue raises IntegrationError with truncated response text."""
+
+    @pytest.mark.asyncio
+    async def test_create_issue_raises_on_500_with_truncated_text(self) -> None:
+        """TS-05-E4: POST returns 500 with 600-char body; error text ≤ 500 chars."""
+        platform = _make_platform()
+
+        long_error = "X" * 600
+        mock_resp = _json_response(500, text=long_error)
+        client = _mock_client(post=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client):
+            with pytest.raises(IntegrationError) as exc_info:
+                await platform.create_issue("Title", "Body", [])
+
+        # Verify the 600-char response text is not embedded verbatim
+        error_msg = str(exc_info.value)
+        assert "X" * 501 not in error_msg
+
+
+# ===========================================================================
+# TS-05-E5: create_issue maps null body to empty string
+# Requirement: 05-REQ-3.E2
+# ===========================================================================
+
+
+class TestCreateIssueNullBody:
+    """Verify create_issue maps null/absent body field to ''."""
+
+    @pytest.mark.asyncio
+    async def test_create_issue_null_body_maps_to_empty_string(self) -> None:
+        """TS-05-E5: Response body=null → IssueResult.body == ''."""
+        platform = _make_platform()
+
+        mock_resp = _json_response(
+            201,
+            {
+                "number": 1,
+                "title": "Title",
+                "html_url": "http://gitea.example.com/myorg/myrepo/issues/1",
+                "body": None,
+                "labels": [],
+            },
+        )
+        client = _mock_client(post=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client):
+            result = await platform.create_issue("Title", "Body", [])
+
+        assert result.body == ""
+
+
+# ===========================================================================
+# TS-05-E6: create_issue maps absent labels to empty tuple
+# Requirement: 05-REQ-3.E3
+# ===========================================================================
+
+
+class TestCreateIssueAbsentLabels:
+    """Verify create_issue maps absent labels field to empty tuple."""
+
+    @pytest.mark.asyncio
+    async def test_create_issue_absent_labels_maps_to_empty_tuple(self) -> None:
+        """TS-05-E6: Response missing labels field → IssueResult.labels == ()."""
+        platform = _make_platform()
+
+        # Response JSON has no 'labels' key at all
+        mock_resp = _json_response(
+            201,
+            {
+                "number": 1,
+                "title": "Title",
+                "html_url": "http://gitea.example.com/myorg/myrepo/issues/1",
+                "body": "",
+            },
+        )
+        client = _mock_client(post=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client):
+            result = await platform.create_issue("Title", "Body", [])
+
+        assert result.labels == ()
+
+
+# ===========================================================================
+# TS-05-13: list_issues_by_label sends correct query params with sort mapping
+# Requirement: 05-REQ-4.1
+# ===========================================================================
+
+
+class TestListIssuesByLabelParams:
+    """Verify list_issues_by_label sends correct GET query parameters."""
+
+    @pytest.mark.asyncio
+    async def test_list_issues_correct_params(self) -> None:
+        """TS-05-13: GET has labels, state, type=issues, sort=oldest, limit=50."""
+        platform = _make_platform()
+
+        mock_issues = [
+            {
+                "number": 1,
+                "title": "Bug fix",
+                "html_url": "http://gitea.example.com/myorg/myrepo/issues/1",
+                "body": "Details",
+                "labels": [{"name": "bug"}],
+            },
+        ]
+        mock_resp = _json_response(200, mock_issues)
+
+        requests_made: list[tuple[str, dict]] = []
+
+        async def mock_get(url, *, params=None, headers=None, **kw):
+            requests_made.append((url, params or {}))
+            return mock_resp
+
+        client = _mock_client(get=mock_get)
+
+        with patch(_TARGET, return_value=client):
+            result = await platform.list_issues_by_label(
+                "bug", state="open", sort="created", direction="asc"
+            )
+
+        assert len(requests_made) == 1
+        _, params = requests_made[0]
+        assert params["labels"] == "bug"
+        assert params["state"] == "open"
+        assert params["type"] == "issues"
+        assert params["sort"] == "oldest"
+        assert params["limit"] == 50
+
+        assert isinstance(result, list)
+        assert len(result) == 1
+        assert isinstance(result[0], IssueResult)
+
+
+# ===========================================================================
+# TS-05-14: list_issues_by_label sort+direction mapping (all 4 combos)
+# Requirement: 05-REQ-4.2
+# ===========================================================================
+
+
+class TestListIssuesByLabelSortMapping:
+    """Verify all four sort+direction combinations map to correct Gitea values."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("sort_in", "dir_in", "expected_sort"),
+        [
+            ("created", "asc", "oldest"),
+            ("created", "desc", "newest"),
+            ("updated", "asc", "leastupdate"),
+            ("updated", "desc", "recentupdate"),
+        ],
+    )
+    async def test_sort_direction_mapping(
+        self, sort_in: str, dir_in: str, expected_sort: str
+    ) -> None:
+        """TS-05-14: sort+direction maps to Gitea's combined sort values."""
+        platform = _make_platform()
+
+        mock_resp = _json_response(200, [])
+
+        requests_made: list[dict] = []
+
+        async def mock_get(url, *, params=None, headers=None, **kw):
+            requests_made.append(params or {})
+            return mock_resp
+
+        client = _mock_client(get=mock_get)
+
+        with patch(_TARGET, return_value=client):
+            await platform.list_issues_by_label(
+                "bug", state="open", sort=sort_in, direction=dir_in
+            )
+
+        assert requests_made[0]["sort"] == expected_sort
+
+
+# ===========================================================================
+# TS-05-15: list_issues_by_label unmapped sort+direction defaults to 'newest'
+# Requirement: 05-REQ-4.3
+# ===========================================================================
+
+
+class TestListIssuesByLabelSortFallback:
+    """Verify unmapped sort+direction combination silently defaults to 'newest'."""
+
+    @pytest.mark.asyncio
+    async def test_sort_fallback_to_newest(self) -> None:
+        """TS-05-15: sort='comments', direction='asc' → sort=newest silently."""
+        platform = _make_platform()
+
+        mock_resp = _json_response(200, [])
+
+        requests_made: list[dict] = []
+
+        async def mock_get(url, *, params=None, headers=None, **kw):
+            requests_made.append(params or {})
+            return mock_resp
+
+        client = _mock_client(get=mock_get)
+
+        with patch(_TARGET, return_value=client):
+            result = await platform.list_issues_by_label(
+                "bug", sort="comments", direction="asc"
+            )
+
+        assert requests_made[0]["sort"] == "newest"
+        assert result == []
+
+
+# ===========================================================================
+# TS-05-16: list_issues_by_label always includes type=issues
+# Requirement: 05-REQ-4.4
+# ===========================================================================
+
+
+class TestListIssuesByLabelTypeFilter:
+    """Verify list_issues_by_label always includes type=issues query parameter."""
+
+    @pytest.mark.asyncio
+    async def test_type_issues_always_present(self) -> None:
+        """TS-05-16: type=issues is present in every GET request."""
+        platform = _make_platform()
+
+        mock_resp = _json_response(200, [])
+
+        requests_made: list[dict] = []
+
+        async def mock_get(url, *, params=None, headers=None, **kw):
+            requests_made.append(params or {})
+            return mock_resp
+
+        client = _mock_client(get=mock_get)
+
+        with patch(_TARGET, return_value=client):
+            await platform.list_issues_by_label("bug")
+
+        assert requests_made[0].get("type") == "issues"
+
+
+# ===========================================================================
+# TS-05-E7: list_issues_by_label raises IntegrationError on non-200 with
+#           truncated text
+# Requirement: 05-REQ-4.E1
+# ===========================================================================
+
+
+class TestListIssuesByLabelError:
+    """Verify list_issues_by_label raises IntegrationError on API error."""
+
+    @pytest.mark.asyncio
+    async def test_raises_on_422_with_truncated_text(self) -> None:
+        """TS-05-E7: GET returns 422 with 600-char body; error text ≤ 500 chars."""
+        platform = _make_platform()
+
+        long_error = "E" * 600
+        mock_resp = _json_response(422, text=long_error)
+        client = _mock_client(get=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client):
+            with pytest.raises(IntegrationError) as exc_info:
+                await platform.list_issues_by_label("bug")
+
+        error_msg = str(exc_info.value)
+        assert "E" * 501 not in error_msg
+
+
+# ===========================================================================
+# TS-05-E8: list_issues_by_label returns empty list on empty API response
+# Requirement: 05-REQ-4.E2
+# ===========================================================================
+
+
+class TestListIssuesByLabelEmpty:
+    """Verify list_issues_by_label returns empty list when API returns []."""
+
+    @pytest.mark.asyncio
+    async def test_empty_response_returns_empty_list(self) -> None:
+        """TS-05-E8: GET returns 200 with []; result == []."""
+        platform = _make_platform()
+
+        mock_resp = _json_response(200, [])
+        client = _mock_client(get=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client):
+            result = await platform.list_issues_by_label("bug")
+
+        assert result == []
+
+
+# ===========================================================================
+# TS-05-17: add_issue_comment POSTs to correct endpoint with body, returns None
+# Requirement: 05-REQ-5.1
+# ===========================================================================
+
+
+class TestAddIssueComment:
+    """Verify add_issue_comment sends correct POST and returns None."""
+
+    @pytest.mark.asyncio
+    async def test_add_issue_comment_posts_body_and_returns_none(self) -> None:
+        """TS-05-17: POST to /issues/42/comments with body field; returns None."""
+        platform = _make_platform()
+
+        mock_resp = _json_response(201, {})
+
+        requests_made: list[tuple[str, dict]] = []
+
+        async def mock_post(url, *, json=None, headers=None, **kw):
+            requests_made.append((url, json or {}))
+            return mock_resp
+
+        client = _mock_client(post=mock_post)
+
+        with patch(_TARGET, return_value=client):
+            result = await platform.add_issue_comment(42, "This is a comment")
+
+        assert len(requests_made) == 1
+        url, payload = requests_made[0]
+        assert "/issues/42/comments" in url
+        assert payload["body"] == "This is a comment"
+        assert result is None
+
+
+# ===========================================================================
+# TS-05-18: add_issue_comment treats any 2xx response as success
+# Requirement: 05-REQ-5.2
+# ===========================================================================
+
+
+class TestAddIssueComment2xxSuccess:
+    """Verify add_issue_comment treats any 2xx response as success."""
+
+    @pytest.mark.asyncio
+    async def test_add_issue_comment_200_is_success(self) -> None:
+        """TS-05-18: POST returns 200 (not 201); no exception; returns None."""
+        platform = _make_platform()
+
+        mock_resp = _json_response(200, {})
+        client = _mock_client(post=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client):
+            result = await platform.add_issue_comment(10, "Hello")
+
+        assert result is None
+
+
+# ===========================================================================
+# TS-05-E9: add_issue_comment raises IntegrationError on non-2xx with
+#           truncated text
+# Requirement: 05-REQ-5.E1
+# ===========================================================================
+
+
+class TestAddIssueCommentError:
+    """Verify add_issue_comment raises IntegrationError with truncated text."""
+
+    @pytest.mark.asyncio
+    async def test_add_issue_comment_raises_on_500_truncated(self) -> None:
+        """TS-05-E9: POST returns 500 with 600-char body; error text ≤ 500 chars."""
+        platform = _make_platform()
+
+        long_error = "F" * 600
+        mock_resp = _json_response(500, text=long_error)
+        client = _mock_client(post=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client):
+            with pytest.raises(IntegrationError) as exc_info:
+                await platform.add_issue_comment(1, "text")
+
+        error_msg = str(exc_info.value)
+        assert "F" * 501 not in error_msg
+
+
+# ===========================================================================
+# TS-05-19: assign_label resolves label name to numeric ID and POSTs labels=[id]
+# Requirement: 05-REQ-6.1
+# ===========================================================================
+
+
+class TestAssignLabel:
+    """Verify assign_label resolves label and POSTs with numeric ID array."""
+
+    @pytest.mark.asyncio
+    async def test_assign_label_posts_numeric_id_array(self) -> None:
+        """TS-05-19: _resolve_label_id returns 99; POST body has labels=[99]."""
+        platform = _make_platform()
+
+        mock_resp = _json_response(200, {})
+
+        requests_made: list[tuple[str, dict]] = []
+
+        async def mock_post(url, *, json=None, headers=None, **kw):
+            requests_made.append((url, json or {}))
+            return mock_resp
+
+        client = _mock_client(post=mock_post)
+
+        with patch(_TARGET, return_value=client), patch.object(
+            platform, "_resolve_label_id", new_callable=AsyncMock, return_value=99
+        ):
+            result = await platform.assign_label(5, "enhancement")
+
+        assert len(requests_made) == 1
+        url, payload = requests_made[0]
+        assert "/issues/5/labels" in url
+        assert payload["labels"] == [99]
+        assert result is None
+
+
+# ===========================================================================
+# TS-05-E10: assign_label raises IntegrationError on non-2xx with truncated text
+# Requirement: 05-REQ-6.E1
+# ===========================================================================
+
+
+class TestAssignLabelError:
+    """Verify assign_label raises IntegrationError with truncated response text."""
+
+    @pytest.mark.asyncio
+    async def test_assign_label_raises_on_422_truncated(self) -> None:
+        """TS-05-E10: POST returns 422 with 600-char body; error ≤ 500 chars."""
+        platform = _make_platform()
+
+        long_error = "G" * 600
+        mock_resp = _json_response(422, text=long_error)
+        client = _mock_client(post=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client), patch.object(
+            platform, "_resolve_label_id", new_callable=AsyncMock, return_value=1
+        ):
+            with pytest.raises(IntegrationError) as exc_info:
+                await platform.assign_label(1, "bug")
+
+        error_msg = str(exc_info.value)
+        assert "G" * 501 not in error_msg
