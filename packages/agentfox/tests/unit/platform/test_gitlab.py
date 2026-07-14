@@ -1,7 +1,7 @@
 """Tests for GitLabPlatform issue and PR operations.
 
-Test Spec: TS-04-1 through TS-04-16, TS-04-E1 through TS-04-E11
-Requirements: 04-REQ-1.* through 04-REQ-8.*, 04-REQ-16.*
+Test Spec: TS-04-1 through TS-04-32, TS-04-E1 through TS-04-E24
+Requirements: 04-REQ-1.* through 04-REQ-18.*, 04-REQ-16.*, 04-REQ-17.*
 
 Note: Import paths use agentfox.platform.* (the actual codebase layout),
 not afissues.* (the spec-03 future layout that has not been extracted yet).
@@ -930,3 +930,842 @@ class TestListIssueCommentsError:
         with patch(_TARGET, return_value=client):
             with pytest.raises(IntegrationError):
                 await platform.list_issue_comments(5)
+
+
+# ===========================================================================
+# Group 2 tests: TS-04-17 through TS-04-32, TS-04-E12 through TS-04-E24
+# Requirements: 04-REQ-9.* through 04-REQ-18.*
+# ===========================================================================
+
+
+# ===========================================================================
+# TS-04-17: get_issue happy path with null description → body=''
+# Requirement: 04-REQ-9.1
+# ===========================================================================
+
+
+class TestGetIssue:
+    """Verify get_issue sends correct GET and maps response fields."""
+
+    @pytest.mark.asyncio
+    async def test_returns_issue_result_with_null_description(self) -> None:
+        """TS-04-17: GET /issues/{iid}; null description defaults to body=''."""
+        platform = _make_platform()
+
+        mock_resp = _json_response(
+            200,
+            {
+                "iid": 15,
+                "title": "My Issue",
+                "web_url": "https://gitlab.com/group/project/-/issues/15",
+                "description": None,
+                "labels": [],
+            },
+        )
+
+        requests_made: list[str] = []
+
+        async def mock_get(url, *, params=None, headers=None, **kw):
+            requests_made.append(url)
+            return mock_resp
+
+        client = _mock_client(get=mock_get)
+
+        with patch(_TARGET, return_value=client):
+            result = await platform.get_issue(15)
+
+        assert isinstance(result, IssueResult)
+        assert result.number == 15
+        assert result.title == "My Issue"
+        assert result.html_url == "https://gitlab.com/group/project/-/issues/15"
+        assert result.body == ""
+        assert result.labels == ()
+
+        # Verify correct URL
+        assert len(requests_made) == 1
+        assert "/issues/15" in requests_made[0]
+
+    @pytest.mark.asyncio
+    async def test_returns_issue_result_with_body(self) -> None:
+        """TS-04-17: get_issue maps all fields correctly."""
+        platform = _make_platform()
+
+        mock_resp = _json_response(
+            200,
+            {
+                "iid": 5,
+                "title": "Bug report",
+                "web_url": "https://gitlab.com/group/project/-/issues/5",
+                "description": "Bug details",
+                "labels": ["bug", "critical"],
+            },
+        )
+        client = _mock_client(get=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client):
+            result = await platform.get_issue(5)
+
+        assert result.number == 5
+        assert result.body == "Bug details"
+        assert result.labels == ("bug", "critical")
+
+
+# ===========================================================================
+# TS-04-E12: get_issue raises IntegrationError on 404
+# Requirement: 04-REQ-9.E1
+# ===========================================================================
+
+
+class TestGetIssueError:
+    """Verify get_issue raises IntegrationError on error."""
+
+    @pytest.mark.asyncio
+    async def test_raises_on_404(self) -> None:
+        """TS-04-E12: IntegrationError raised on HTTP 404."""
+        platform = _make_platform()
+        mock_resp = _json_response(404, text="Not Found")
+        client = _mock_client(get=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client):
+            with pytest.raises(IntegrationError):
+                await platform.get_issue(999)
+
+
+# ===========================================================================
+# TS-04-18: update_issue happy path
+# Requirement: 04-REQ-10.1
+# ===========================================================================
+
+
+class TestUpdateIssue:
+    """Verify update_issue sends PUT with description field mapped from body."""
+
+    @pytest.mark.asyncio
+    async def test_sends_put_with_description(self) -> None:
+        """TS-04-18: PUT /issues/{iid} with {'description': body}."""
+        platform = _make_platform()
+        mock_resp = _json_response(200)
+
+        requests_made: list[tuple[str, str, dict]] = []
+
+        async def mock_put(url, *, json=None, headers=None, **kw):
+            requests_made.append((url, "put", json or {}))
+            return mock_resp
+
+        client = _mock_client(put=mock_put)
+
+        with patch(_TARGET, return_value=client):
+            await platform.update_issue(8, "Updated description text")
+
+        assert len(requests_made) == 1
+        url, method, payload = requests_made[0]
+        assert method == "put"
+        assert "/issues/8" in url
+        assert payload == {"description": "Updated description text"}
+
+
+# ===========================================================================
+# TS-04-E13: update_issue raises IntegrationError on non-200
+# Requirement: 04-REQ-10.E1
+# ===========================================================================
+
+
+class TestUpdateIssueError:
+    """Verify update_issue raises IntegrationError on error."""
+
+    @pytest.mark.asyncio
+    async def test_raises_on_422(self) -> None:
+        """TS-04-E13: IntegrationError raised on non-200 status."""
+        platform = _make_platform()
+        mock_resp = _json_response(422, text="Unprocessable")
+        client = _mock_client(put=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client):
+            with pytest.raises(IntegrationError):
+                await platform.update_issue(8, "new body")
+
+
+# ===========================================================================
+# TS-04-19: create_label happy path
+# Requirement: 04-REQ-11.1
+# ===========================================================================
+
+
+class TestCreateLabel:
+    """Verify create_label sends POST with color prefixed with '#'."""
+
+    @pytest.mark.asyncio
+    async def test_creates_label_with_hash_color(self) -> None:
+        """TS-04-19: POST /labels with '#'+color; returns None on 201."""
+        platform = _make_platform()
+        mock_resp = _json_response(201)
+
+        requests_made: list[tuple[str, dict]] = []
+
+        async def mock_post(url, *, json=None, headers=None, **kw):
+            requests_made.append((url, json or {}))
+            return mock_resp
+
+        client = _mock_client(post=mock_post)
+
+        with patch(_TARGET, return_value=client):
+            result = await platform.create_label("blocker", "ff0000", "Blocking issue")
+
+        assert result is None
+
+        # Verify POST payload
+        assert len(requests_made) == 1
+        url, payload = requests_made[0]
+        assert "/labels" in url
+        assert payload["name"] == "blocker"
+        assert payload["color"] == "#ff0000"
+        assert payload["description"] == "Blocking issue"
+
+
+# ===========================================================================
+# TS-04-20: create_label 409 → returns None (idempotent)
+# Requirement: 04-REQ-11.2
+# ===========================================================================
+
+
+class TestCreateLabelIdempotent:
+    """Verify create_label treats HTTP 409 as success."""
+
+    @pytest.mark.asyncio
+    async def test_409_returns_none(self) -> None:
+        """TS-04-20: 409 Conflict returns None without exception."""
+        platform = _make_platform()
+        mock_resp = _json_response(409, text="Conflict")
+        client = _mock_client(post=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client):
+            result = await platform.create_label("existing-label", "00ff00", "Already exists")
+
+        assert result is None
+
+
+# ===========================================================================
+# TS-04-E14: create_label raises IntegrationError on non-201/non-409
+# Requirement: 04-REQ-11.E1
+# ===========================================================================
+
+
+class TestCreateLabelError:
+    """Verify create_label raises IntegrationError on non-201/non-409."""
+
+    @pytest.mark.asyncio
+    async def test_raises_on_422(self) -> None:
+        """TS-04-E14: IntegrationError raised on 422 status."""
+        platform = _make_platform()
+        mock_resp = _json_response(422, text="Validation failed")
+        client = _mock_client(post=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client):
+            with pytest.raises(IntegrationError):
+                await platform.create_label("badlabel", "zzzzzz", "invalid color")
+
+
+# ===========================================================================
+# TS-04-21: create_pr happy path (HTTP 201)
+# Requirement: 04-REQ-12.1
+# ===========================================================================
+
+
+class TestCreatePr:
+    """Verify create_pr sends correct POST and returns web_url on 201."""
+
+    @pytest.mark.asyncio
+    async def test_returns_web_url_on_201(self) -> None:
+        """TS-04-21: POST /merge_requests with correct body; returns web_url."""
+        platform = _make_platform()
+
+        mock_resp = _json_response(
+            201,
+            {"web_url": "https://gitlab.com/group/project/-/merge_requests/1"},
+        )
+
+        requests_made: list[tuple[str, dict]] = []
+
+        async def mock_post(url, *, json=None, headers=None, **kw):
+            requests_made.append((url, json or {}))
+            return mock_resp
+
+        client = _mock_client(post=mock_post)
+
+        with patch(_TARGET, return_value=client):
+            url = await platform.create_pr(
+                title="Fix: resolve the bug",
+                body="This PR fixes the bug",
+                head="feature-branch",
+                base="main",
+            )
+
+        assert url == "https://gitlab.com/group/project/-/merge_requests/1"
+
+        # Verify POST payload
+        assert len(requests_made) == 1
+        _, payload = requests_made[0]
+        assert payload["source_branch"] == "feature-branch"
+        assert payload["target_branch"] == "main"
+        assert payload["title"] == "Fix: resolve the bug"
+        assert payload["description"] == "This PR fixes the bug"
+
+
+# ===========================================================================
+# TS-04-22: create_pr 409 → fallback GET → returns web_url
+# Requirement: 04-REQ-12.2
+# ===========================================================================
+
+
+class TestCreatePrFallback:
+    """Verify create_pr on 409 performs fallback GET and returns existing MR."""
+
+    @pytest.mark.asyncio
+    async def test_fallback_get_returns_existing_mr(self) -> None:
+        """TS-04-22: 409 → fallback GET 200 with MR list → returns web_url."""
+        platform = _make_platform()
+
+        call_log: list[tuple[str, str, dict]] = []
+
+        async def mock_post(url, *, json=None, headers=None, **kw):
+            call_log.append(("post", url, json or {}))
+            return _json_response(409, text="Conflict")
+
+        async def mock_get(url, *, params=None, headers=None, **kw):
+            call_log.append(("get", url, params or {}))
+            return _json_response(
+                200,
+                [{"web_url": "https://gitlab.com/group/project/-/merge_requests/3"}],
+            )
+
+        client = _mock_client(post=mock_post, get=mock_get)
+
+        with patch(_TARGET, return_value=client):
+            url = await platform.create_pr(
+                title="My MR", body="body", head="feature", base="main"
+            )
+
+        assert url == "https://gitlab.com/group/project/-/merge_requests/3"
+
+        # Verify fallback GET params
+        assert len(call_log) == 2
+        _, fallback_url, fallback_params = call_log[1]
+        assert fallback_params["source_branch"] == "feature"
+        assert fallback_params["target_branch"] == "main"
+        assert fallback_params["state"] == "opened"
+
+
+# ===========================================================================
+# TS-04-E15: create_pr 409 fallback GET 200 empty list → IntegrationError
+# Requirement: 04-REQ-12.E1
+# ===========================================================================
+
+
+class TestCreatePrFallbackEmpty:
+    """Verify create_pr raises IntegrationError when fallback returns empty list."""
+
+    @pytest.mark.asyncio
+    async def test_empty_fallback_raises(self) -> None:
+        """TS-04-E15: 409 + empty list → IntegrationError about no open MR."""
+        platform = _make_platform()
+
+        async def mock_post(url, *, json=None, headers=None, **kw):
+            return _json_response(409, text="Conflict")
+
+        async def mock_get(url, *, params=None, headers=None, **kw):
+            return _json_response(200, [])
+
+        client = _mock_client(post=mock_post, get=mock_get)
+
+        with patch(_TARGET, return_value=client):
+            with pytest.raises(IntegrationError) as exc_info:
+                await platform.create_pr(
+                    title="My MR", body="body", head="feature", base="main"
+                )
+
+        err_msg = str(exc_info.value)
+        assert "409" in err_msg or "duplicate" in err_msg.lower() or "no" in err_msg.lower()
+
+
+# ===========================================================================
+# TS-04-E16: create_pr 409 fallback GET non-200 → IntegrationError
+# Requirement: 04-REQ-12.E2
+# ===========================================================================
+
+
+class TestCreatePrFallbackGetFails:
+    """Verify create_pr raises IntegrationError when fallback GET fails."""
+
+    @pytest.mark.asyncio
+    async def test_fallback_non_200_raises(self) -> None:
+        """TS-04-E16: 409 + fallback GET 500 → IntegrationError referencing 409."""
+        platform = _make_platform()
+
+        async def mock_post(url, *, json=None, headers=None, **kw):
+            return _json_response(409, text="Conflict")
+
+        async def mock_get(url, *, params=None, headers=None, **kw):
+            return _json_response(500, text="Server Error")
+
+        client = _mock_client(post=mock_post, get=mock_get)
+
+        with patch(_TARGET, return_value=client):
+            with pytest.raises(IntegrationError) as exc_info:
+                await platform.create_pr(
+                    title="My MR", body="body", head="feature", base="main"
+                )
+
+        err_msg = str(exc_info.value)
+        assert "409" in err_msg
+        assert "500" in err_msg or "fallback" in err_msg.lower()
+
+
+# ===========================================================================
+# TS-04-E17: create_pr non-201/non-409 → IntegrationError, single call
+# Requirement: 04-REQ-12.E3
+# ===========================================================================
+
+
+class TestCreatePrDirectError:
+    """Verify create_pr raises IntegrationError on non-201/non-409."""
+
+    @pytest.mark.asyncio
+    async def test_403_raises_with_single_call(self) -> None:
+        """TS-04-E17: 403 → IntegrationError; only one HTTP call (no fallback)."""
+        platform = _make_platform()
+
+        call_count = 0
+
+        async def mock_post(url, *, json=None, headers=None, **kw):
+            nonlocal call_count
+            call_count += 1
+            return _json_response(403, text="x" * 600)
+
+        async def mock_get(url, *, params=None, headers=None, **kw):
+            nonlocal call_count
+            call_count += 1
+            return _json_response(200, [])
+
+        client = _mock_client(post=mock_post, get=mock_get)
+
+        with patch(_TARGET, return_value=client):
+            with pytest.raises(IntegrationError):
+                await platform.create_pr(
+                    title="My MR", body="body", head="feature", base="main"
+                )
+
+        # Only the POST was attempted; no fallback GET
+        assert call_count == 1
+
+
+# ===========================================================================
+# TS-04-23: close() returns None with no HTTP calls
+# Requirement: 04-REQ-13.1
+# ===========================================================================
+
+
+class TestClose:
+    """Verify close() is a no-op lifecycle method."""
+
+    @pytest.mark.asyncio
+    async def test_returns_none_no_io(self) -> None:
+        """TS-04-23: close() returns None; no HTTP calls made."""
+        platform = _make_platform()
+
+        call_count = 0
+
+        async def mock_any(url, **kw):
+            nonlocal call_count
+            call_count += 1
+            return _json_response(200)
+
+        client = _mock_client(get=mock_any, post=mock_any, put=mock_any)
+
+        with patch(_TARGET, return_value=client):
+            result = await platform.close()
+
+        assert result is None
+        assert call_count == 0
+
+
+# ===========================================================================
+# TS-04-24: search_issues happy path
+# Requirement: 04-REQ-14.1
+# ===========================================================================
+
+
+class TestSearchIssues:
+    """Verify search_issues sends GET with search param and state mapping."""
+
+    @pytest.mark.asyncio
+    async def test_returns_issue_results(self) -> None:
+        """TS-04-24: GET /issues with search, state mapped, per_page=100."""
+        platform = _make_platform()
+
+        issues_json = [
+            {
+                "iid": 1,
+                "title": "Fix: bug",
+                "web_url": "url",
+                "description": "d",
+                "labels": [],
+            },
+        ]
+
+        requests_made: list[tuple[str, dict]] = []
+
+        async def mock_get(url, *, params=None, headers=None, **kw):
+            requests_made.append((url, params or {}))
+            return _json_response(200, issues_json)
+
+        client = _mock_client(get=mock_get)
+
+        with patch(_TARGET, return_value=client):
+            results = await platform.search_issues("Fix:", "open")
+
+        assert len(results) == 1
+        assert isinstance(results[0], IssueResult)
+
+        # Verify query parameters
+        assert len(requests_made) == 1
+        _, params = requests_made[0]
+        assert params["search"] == "Fix:"
+        assert params["state"] == "opened"  # 'open' → 'opened'
+        assert params["per_page"] == 100
+
+
+# ===========================================================================
+# TS-04-E18: search_issues raises IntegrationError on non-200
+# Requirement: 04-REQ-14.E1
+# ===========================================================================
+
+
+class TestSearchIssuesError:
+    """Verify search_issues raises IntegrationError on error."""
+
+    @pytest.mark.asyncio
+    async def test_raises_on_500(self) -> None:
+        """TS-04-E18: IntegrationError raised on non-200 status."""
+        platform = _make_platform()
+        mock_resp = _json_response(500, text="Server Error")
+        client = _mock_client(get=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client):
+            with pytest.raises(IntegrationError):
+                await platform.search_issues("Fix:", "open")
+
+
+# ===========================================================================
+# TS-04-25: check_credentials raises IntegrationError on 401/403 only
+# Requirements: 04-REQ-15.1, 04-REQ-15.E1, 04-REQ-15.E2
+# ===========================================================================
+
+
+class TestCheckCredentials:
+    """Verify check_credentials raises on 401/403, returns None otherwise."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("status", [401, 403])
+    async def test_raises_on_401_403(self, status: int) -> None:
+        """TS-04-25/TS-04-E20: IntegrationError raised on 401 and 403."""
+        platform = _make_platform()
+        mock_resp = _json_response(status, text="Unauthorized")
+        client = _mock_client(get=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client):
+            with pytest.raises(IntegrationError):
+                await platform.check_credentials()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("status", [404, 500])
+    async def test_returns_none_on_404_500(self, status: int) -> None:
+        """TS-04-25/TS-04-E19: None returned for 404 and 500."""
+        platform = _make_platform()
+        mock_resp = _json_response(status)
+        client = _mock_client(get=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client):
+            result = await platform.check_credentials()
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_sends_get_to_project_endpoint(self) -> None:
+        """TS-04-25: GET /projects/{project_id} with PRIVATE-TOKEN."""
+        platform = _make_platform()
+
+        requests_made: list[str] = []
+
+        async def mock_get(url, *, params=None, headers=None, **kw):
+            requests_made.append(url)
+            return _json_response(200)
+
+        client = _mock_client(get=mock_get)
+
+        with patch(_TARGET, return_value=client):
+            await platform.check_credentials()
+
+        assert len(requests_made) == 1
+        assert "/projects/" in requests_made[0]
+
+
+# ===========================================================================
+# TS-04-26: parse_remote HTTPS GitLab URL
+# Requirement: 04-REQ-16.1
+# ===========================================================================
+
+
+class TestParseRemoteHTTPS:
+    """Verify parse_remote extracts namespace and project from HTTPS URLs."""
+
+    def test_https_with_subgroup(self) -> None:
+        """TS-04-26: HTTPS URL returns ('group/subgroup', 'project')."""
+        from agentfox.platform.gitlab import parse_remote
+
+        result = parse_remote("https://gitlab.com/group/subgroup/project.git")
+        assert result == ("group/subgroup", "project")
+
+    def test_https_simple(self) -> None:
+        """TS-04-26: HTTPS URL with simple namespace."""
+        from agentfox.platform.gitlab import parse_remote
+
+        result = parse_remote("https://gitlab.com/group/project.git")
+        assert result == ("group", "project")
+
+    def test_https_without_git_suffix(self) -> None:
+        """TS-04-26: HTTPS URL without .git suffix."""
+        from agentfox.platform.gitlab import parse_remote
+
+        result = parse_remote("https://gitlab.com/group/subgroup/project")
+        assert result == ("group/subgroup", "project")
+
+
+# ===========================================================================
+# TS-04-27: parse_remote SSH GitLab URL
+# Requirement: 04-REQ-16.2
+# ===========================================================================
+
+
+class TestParseRemoteSSH:
+    """Verify parse_remote extracts namespace and project from SSH URLs."""
+
+    def test_ssh_with_subgroup(self) -> None:
+        """TS-04-27: SSH URL returns ('group/subgroup', 'project')."""
+        from agentfox.platform.gitlab import parse_remote
+
+        result = parse_remote("git@gitlab.com:group/subgroup/project.git")
+        assert result == ("group/subgroup", "project")
+
+    def test_ssh_simple(self) -> None:
+        """TS-04-27: SSH URL with simple namespace."""
+        from agentfox.platform.gitlab import parse_remote
+
+        result = parse_remote("git@gitlab.com:group/project.git")
+        assert result == ("group", "project")
+
+
+# ===========================================================================
+# TS-04-28: parse_remote returns None for invalid URLs
+# Requirement: 04-REQ-16.3
+# ===========================================================================
+
+
+class TestParseRemoteInvalid:
+    """Verify parse_remote returns None for non-GitLab URLs without raising."""
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "https://github.com/org/repo.git",
+            "not-a-url",
+            "",
+            "https://gitlab.com:8080/group/project.git",
+            "git@github.com:org/repo.git",
+        ],
+    )
+    def test_returns_none_for_invalid_urls(self, url: str) -> None:
+        """TS-04-28: Returns None for each invalid URL; no exception raised."""
+        from agentfox.platform.gitlab import parse_remote
+
+        result = parse_remote(url)
+        assert result is None
+
+
+# ===========================================================================
+# TS-04-E21: parse_remote returns None for GitHub HTTPS URL
+# Requirement: 04-REQ-16.E1
+# ===========================================================================
+
+
+class TestParseRemoteGitHubUrl:
+    """Verify parse_remote returns None for GitHub URLs."""
+
+    def test_github_url_returns_none(self) -> None:
+        """TS-04-E21: GitHub URL returns None; no exception."""
+        from agentfox.platform.gitlab import parse_remote
+
+        result = parse_remote("https://github.com/org/repo.git")
+        assert result is None
+
+
+# ===========================================================================
+# TS-04-E22: parse_remote returns None for URL with port
+# Requirement: 04-REQ-16.E2
+# ===========================================================================
+
+
+class TestParseRemotePortUrl:
+    """Verify parse_remote returns None for URLs with port numbers."""
+
+    def test_port_url_returns_none(self) -> None:
+        """TS-04-E22: GitLab URL with port returns None."""
+        from agentfox.platform.gitlab import parse_remote
+
+        result = parse_remote("https://gitlab.com:8080/group/project.git")
+        assert result is None
+
+
+# ===========================================================================
+# TS-04-E23: parse_remote returns None for single-segment URL
+# Requirement: 04-REQ-16.E3
+# ===========================================================================
+
+
+class TestParseRemoteSingleSegment:
+    """Verify parse_remote returns None when only one path segment exists."""
+
+    def test_single_segment_returns_none(self) -> None:
+        """TS-04-E23: Only one path segment (no project path) returns None."""
+        from agentfox.platform.gitlab import parse_remote
+
+        result = parse_remote("https://gitlab.com/onlyone.git")
+        assert result is None
+
+
+# ===========================================================================
+# TS-04-29: parse_remote in github.py; parse_github_remote removed
+# Requirement: 04-REQ-17.1
+# ===========================================================================
+
+
+class TestParseRemoteRename:
+    """Verify parse_github_remote has been renamed to parse_remote."""
+
+    def test_parse_remote_importable_from_github(self) -> None:
+        """TS-04-29: 'from agentfox.platform.github import parse_remote' succeeds."""
+        from agentfox.platform.github import parse_remote  # noqa: F401
+
+        assert callable(parse_remote)
+
+    def test_parse_github_remote_removed_from_github_module(self) -> None:
+        """TS-04-29: parse_github_remote no longer exists in github.py."""
+        try:
+            from agentfox.platform.github import parse_github_remote  # noqa: F401
+
+            pytest.fail("Expected ImportError — parse_github_remote should be removed")
+        except (ImportError, AttributeError):
+            pass  # Expected: old name is removed
+
+    def test_parse_github_remote_removed_from_init(self) -> None:
+        """TS-04-E24: parse_github_remote not re-exported from platform package."""
+        import agentfox.platform
+
+        assert not hasattr(agentfox.platform, "parse_github_remote")
+
+
+# ===========================================================================
+# TS-04-30: _ssrf.py exports required symbols
+# Requirement: 04-REQ-18.1
+# ===========================================================================
+
+
+class TestSSRFModuleExports:
+    """Verify _ssrf.py exports all four required symbols."""
+
+    def test_all_symbols_importable(self) -> None:
+        """TS-04-30: All four SSRF symbols importable from _ssrf module."""
+        from agentfox.platform._ssrf import (  # noqa: F401
+            SSRFGuardTransport,
+            _check_address,
+            _validate_transport_address,
+            _validate_url,
+        )
+
+        assert callable(_validate_url)
+        assert callable(_validate_transport_address)
+        assert callable(_check_address)
+
+    def test_ssrf_guard_transport_is_subclass(self) -> None:
+        """TS-04-30: SSRFGuardTransport is a subclass of httpx.AsyncHTTPTransport."""
+        from agentfox.platform._ssrf import SSRFGuardTransport
+
+        assert issubclass(SSRFGuardTransport, httpx.AsyncHTTPTransport)
+
+    def test_github_imports_from_ssrf(self) -> None:
+        """TS-04-30: github.py imports from _ssrf module."""
+        import inspect
+
+        import agentfox.platform.github
+
+        github_src = inspect.getsource(agentfox.platform.github)
+        assert "_ssrf" in github_src
+
+    def test_gitlab_imports_from_ssrf(self) -> None:
+        """TS-04-30: gitlab.py imports from _ssrf module."""
+        import inspect
+
+        import agentfox.platform.gitlab
+
+        gitlab_src = inspect.getsource(agentfox.platform.gitlab)
+        assert "_ssrf" in gitlab_src
+
+
+# ===========================================================================
+# TS-04-31: _check_address raises ConfigError (not IntegrationError)
+# Requirement: 04-REQ-18.2
+# ===========================================================================
+
+
+class TestCheckAddressSSRF:
+    """Verify _check_address raises ConfigError for SSRF violation."""
+
+    def test_raises_config_error_for_private_ip(self) -> None:
+        """TS-04-31: ConfigError raised for private IP address."""
+        from ipaddress import ip_address
+
+        from agentfox.platform._ssrf import _check_address
+
+        private_addr = ip_address("192.168.1.1")
+        with pytest.raises(ConfigError):
+            _check_address(private_addr, "http://192.168.1.1")
+
+    def test_not_integration_error(self) -> None:
+        """TS-04-31: IntegrationError is NOT raised for SSRF violation."""
+        from ipaddress import ip_address
+
+        from agentfox.platform._ssrf import _check_address
+
+        private_addr = ip_address("192.168.1.1")
+        try:
+            _check_address(private_addr, "http://192.168.1.1")
+        except ConfigError:
+            pass  # Expected
+        except IntegrationError:
+            pytest.fail("Should raise ConfigError, not IntegrationError")
+
+
+# ===========================================================================
+# TS-04-32: _ssrf module is not re-exported from platform __init__.py
+# Requirement: 04-REQ-18.3
+# ===========================================================================
+
+
+class TestSSRFNotPublic:
+    """Verify _ssrf is not part of the public platform API."""
+
+    def test_ssrf_not_in_all(self) -> None:
+        """TS-04-32: _ssrf not in platform __all__."""
+        import agentfox.platform
+
+        all_exports = getattr(agentfox.platform, "__all__", [])
+        assert "_ssrf" not in all_exports
