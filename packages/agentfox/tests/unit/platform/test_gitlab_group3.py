@@ -997,11 +997,10 @@ class TestPropertyFactoryImportsAlways:
 
 
 # ===========================================================================
-# Smoke tests: xfail until full implementation is done (task groups 4-11)
+# Smoke tests (task groups 4-11 now implemented)
 # ===========================================================================
 
 
-@pytest.mark.xfail(reason="Requires full implementation (task groups 4-11)")
 class TestSmokeCreateIssueAndLabel:
     """TS-04-SMOKE-1: Factory -> GitLabPlatform -> create_issue -> assign_label."""
 
@@ -1055,7 +1054,6 @@ class TestSmokeCreateIssueAndLabel:
         assert result.number == 42
 
 
-@pytest.mark.xfail(reason="Requires full implementation (task groups 4-11)")
 class TestSmokeCreatePrFallback:
     """TS-04-SMOKE-2: create_pr 409 -> fallback GET -> web_url returned."""
 
@@ -1092,7 +1090,6 @@ class TestSmokeCreatePrFallback:
         assert url == "https://gitlab.com/g/p/-/merge_requests/3"
 
 
-@pytest.mark.xfail(reason="Requires full implementation (task groups 4-11)")
 class TestSmokeCloseIssueWithComment:
     """TS-04-SMOKE-3: close_issue -> comment -> state_event=close."""
 
@@ -1109,7 +1106,6 @@ class TestSmokeCloseIssueWithComment:
             await platform.close_issue(10, "Closing this issue.")
 
 
-@pytest.mark.xfail(reason="Requires full implementation (task groups 4-11)")
 class TestSmokeSSRFBlocked:
     """TS-04-SMOKE-4: SSRF violation blocked at construction time."""
 
@@ -1129,7 +1125,6 @@ class TestSmokeSSRFBlocked:
                 create_platform(config, tmp_path)
 
 
-@pytest.mark.xfail(reason="Requires full implementation (task groups 4-11)")
 class TestSmokeGiteaUnavailable:
     """TS-04-SMOKE-5: Gitea unavailable -> ConfigError."""
 

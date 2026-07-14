@@ -1197,7 +1197,7 @@
             "04-REQ-20.2",
             "04-REQ-21.2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -1221,7 +1221,7 @@
             "04-REQ-20.E1",
             "04-REQ-20.E2"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         },
         {
@@ -1243,7 +1243,7 @@
             "04-REQ-21.2",
             "04-REQ-21.E1"
           ],
-          "state": "pending",
+          "state": "done",
           "optional": false
         }
       ],
