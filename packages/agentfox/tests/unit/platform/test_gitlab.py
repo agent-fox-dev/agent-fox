@@ -24,7 +24,7 @@ from agentfox.platform.protocol import IssueComment, IssueResult
 
 # Target for patching httpx.AsyncClient in the gitlab module.
 # This will resolve once agentfox/platform/gitlab.py is created.
-_TARGET = "agentfox.platform.gitlab.httpx.AsyncClient"
+_TARGET = "agentfox.platform._http.httpx.AsyncClient"
 
 
 def _mock_client(**method_responses: MagicMock | AsyncMock) -> AsyncMock:

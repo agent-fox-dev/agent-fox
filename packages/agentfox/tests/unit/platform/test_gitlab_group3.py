@@ -21,7 +21,7 @@ from agentfox.core.errors import ConfigError, IntegrationError
 # Helpers (same pattern as test_gitlab.py)
 # ---------------------------------------------------------------------------
 
-_TARGET = "agentfox.platform.gitlab.httpx.AsyncClient"
+_TARGET = "agentfox.platform._http.httpx.AsyncClient"
 _HTTP_TARGET = "agentfox.platform._http.httpx.AsyncClient"
 _HTTP_SLEEP = "agentfox.platform._http.asyncio.sleep"
 
