@@ -13,8 +13,8 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from agentfox.nightshift.fix_pipeline import FixPipeline
 from afissues.protocol import IssueResult
+from agentfox.nightshift.fix_pipeline import FixPipeline
 from agentfox.workspace import WorkspaceInfo
 from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st

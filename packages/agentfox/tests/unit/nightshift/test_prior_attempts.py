@@ -360,8 +360,8 @@ class TestPipelineWiring:
         """TS-128-9: process_issue calls query_prior_attempts with correct args."""
         import json
 
-        from agentfox.nightshift.fix_pipeline import FixPipeline
         from afissues.protocol import IssueResult
+        from agentfox.nightshift.fix_pipeline import FixPipeline
 
         config = MagicMock()
         config.archetypes.overrides.get.return_value = None

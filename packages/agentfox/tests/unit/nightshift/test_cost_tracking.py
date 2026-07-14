@@ -245,8 +245,8 @@ class TestProcessIssueGeneratesRunId:
     async def test_process_issue_generates_unique_run_ids(self) -> None:
         """Two successive process_issue calls produce two distinct run_ids."""
         from afaudit.events import generate_run_id as real_generate_run_id
-        from agentfox.nightshift.fix_pipeline import FixPipeline
         from afissues.protocol import IssueResult
+        from agentfox.nightshift.fix_pipeline import FixPipeline
 
         config = _make_config()
         mock_platform = AsyncMock()
@@ -287,8 +287,8 @@ class TestProcessIssueGeneratesRunId:
     @pytest.mark.asyncio
     async def test_process_issue_accepts_caller_run_id(self) -> None:
         """When run_id is supplied, process_issue uses it without generating a new one."""
-        from agentfox.nightshift.fix_pipeline import FixPipeline
         from afissues.protocol import IssueResult
+        from agentfox.nightshift.fix_pipeline import FixPipeline
 
         config = _make_config()
         mock_platform = AsyncMock()
@@ -331,8 +331,8 @@ class TestEnginePropagatessRunId:
         """_process_fix generates one run_id and forwards it to process_issue."""
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        from agentfox.nightshift.engine import NightShiftEngine
         from afissues.protocol import IssueResult
+        from agentfox.nightshift.engine import NightShiftEngine
 
         config = MagicMock()
         config.orchestrator.max_cost = None
@@ -745,8 +745,8 @@ class TestAuditWriteFailureContinues:
     @pytest.mark.asyncio
     async def test_pipeline_continues_despite_audit_write_failure(self) -> None:
         """process_issue returns FixMetrics even if sink.emit_audit_event raises."""
-        from agentfox.nightshift.fix_pipeline import FixPipeline
         from afissues.protocol import IssueResult
+        from agentfox.nightshift.fix_pipeline import FixPipeline
 
         mock_sink = MagicMock(spec=SinkDispatcher)
         mock_sink.emit_audit_event.side_effect = RuntimeError("write failed")

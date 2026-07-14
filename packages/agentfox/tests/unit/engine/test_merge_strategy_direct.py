@@ -25,12 +25,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from afaudit.sink import SessionOutcome
+from afissues.protocol import IssueResult
 from agentfox.core.config import AgentFoxConfig, WorkspaceConfig
 from agentfox.engine.session_lifecycle import NodeSessionRunner
 from agentfox.knowledge.db import KnowledgeDB
 from agentfox.nightshift.fix_pipeline import FixPipeline
 from agentfox.nightshift.spec_builder import InMemorySpec
-from afissues.protocol import IssueResult
 from agentfox.workspace import WorkspaceInfo
 
 # ---------------------------------------------------------------------------

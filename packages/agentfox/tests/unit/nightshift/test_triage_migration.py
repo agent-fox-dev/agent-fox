@@ -12,8 +12,8 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 import pytest
-from agentfox.nightshift.dep_graph import DependencyEdge
 from afissues.protocol import IssueResult
+from agentfox.nightshift.dep_graph import DependencyEdge
 
 # ---------------------------------------------------------------------------
 # Helpers

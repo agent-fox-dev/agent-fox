@@ -21,8 +21,8 @@ class TestParseStatenessResponse:
 
     def test_parses_valid_json(self) -> None:
         """Parses a clean JSON response."""
-        from agentfox.nightshift.staleness import _parse_staleness_response
         from afissues.protocol import IssueResult
+        from agentfox.nightshift.staleness import _parse_staleness_response
 
         remaining = [
             IssueResult(number=10, title="A", html_url="", body=""),
@@ -35,8 +35,8 @@ class TestParseStatenessResponse:
 
     def test_ignores_unknown_issue_numbers(self) -> None:
         """Issue numbers not in remaining list are silently dropped."""
-        from agentfox.nightshift.staleness import _parse_staleness_response
         from afissues.protocol import IssueResult
+        from agentfox.nightshift.staleness import _parse_staleness_response
 
         remaining = [IssueResult(number=10, title="A", html_url="", body="")]
         response = '{"obsolete": [{"issue_number": 99, "rationale": "?"}]}'
@@ -57,8 +57,8 @@ class TestCheckStalenessGateLogic:
         """Issue flagged by AI that is still open → included in obsolete list."""
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        from agentfox.nightshift.staleness import StalenessResult, check_staleness
         from afissues.protocol import IssueResult
+        from agentfox.nightshift.staleness import StalenessResult, check_staleness
 
         fixed = IssueResult(number=1, title="Fixed", html_url="", body="")
         remaining = [IssueResult(number=2, title="Remaining", html_url="", body="")]
@@ -91,8 +91,8 @@ class TestCheckStalenessGateLogic:
         """
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        from agentfox.nightshift.staleness import StalenessResult, check_staleness
         from afissues.protocol import IssueResult
+        from agentfox.nightshift.staleness import StalenessResult, check_staleness
 
         fixed = IssueResult(number=1, title="Fixed", html_url="", body="")
         remaining = [IssueResult(number=2, title="Remaining", html_url="", body="")]
@@ -118,8 +118,8 @@ class TestCheckStalenessGateLogic:
         """When AI call fails, no issues are closed (71-REQ-5.E1)."""
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        from agentfox.nightshift.staleness import check_staleness
         from afissues.protocol import IssueResult
+        from agentfox.nightshift.staleness import check_staleness
 
         fixed = IssueResult(number=1, title="Fixed", html_url="", body="")
         remaining = [IssueResult(number=2, title="Remaining", html_url="", body="")]
@@ -146,8 +146,8 @@ class TestCheckStalenessGateLogic:
         """When GitHub re-fetch fails, return empty (71-REQ-5.E2)."""
         from unittest.mock import AsyncMock, MagicMock, patch
 
-        from agentfox.nightshift.staleness import StalenessResult, check_staleness
         from afissues.protocol import IssueResult
+        from agentfox.nightshift.staleness import StalenessResult, check_staleness
 
         fixed = IssueResult(number=1, title="Fixed", html_url="", body="")
         remaining = [IssueResult(number=2, title="Remaining", html_url="", body="")]

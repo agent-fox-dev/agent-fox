@@ -175,9 +175,9 @@ class TestRetryFeedbackInjection:
     def test_fail_evidence_in_coder_prompt(self, verdicts: list[tuple[str, str, str]]) -> None:
         from unittest.mock import MagicMock
 
+        from afissues.protocol import IssueResult
         from agentfox.nightshift.fix_pipeline import FixPipeline
         from agentfox.nightshift.spec_builder import build_in_memory_spec
-        from afissues.protocol import IssueResult
         from agentfox.session.review_parser import (
             parse_fix_review_output,
             parse_triage_output,

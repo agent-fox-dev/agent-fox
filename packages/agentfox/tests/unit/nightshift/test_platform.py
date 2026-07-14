@@ -66,9 +66,9 @@ class TestPlatformFactory:
         """Config with type='github' returns a GitHubPlatform."""
         from unittest.mock import patch
 
+        from afissues.github import GitHubPlatform
         from agentfox.core.config import AgentFoxConfig
         from agentfox.nightshift.platform_factory import create_platform
-        from afissues.github import GitHubPlatform
 
         config = AgentFoxConfig()
         config.platform.type = "github"  # type: ignore[misc]

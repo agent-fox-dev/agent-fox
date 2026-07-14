@@ -13,8 +13,8 @@ from io import StringIO
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from agentfox.nightshift.engine import NightShiftEngine
 from afissues.protocol import IssueResult
+from agentfox.nightshift.engine import NightShiftEngine
 from agentfox.ui.progress import ProgressDisplay
 
 

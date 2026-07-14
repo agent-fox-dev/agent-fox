@@ -41,7 +41,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # TS-03-1: DeepAgentsBackend satisfies the Backend Protocol
 # Requirement: 03-REQ-1.1

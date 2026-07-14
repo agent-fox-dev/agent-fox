@@ -75,10 +75,10 @@ class TestNightshiftTriageViaMaintainer:
         import asyncio
         from unittest.mock import MagicMock, patch
 
+        from afissues.protocol import IssueResult
         from agentfox.core.config import AgentFoxConfig
         from agentfox.nightshift.dep_graph import DependencyEdge
         from agentfox.nightshift.triage import run_batch_triage
-        from afissues.protocol import IssueResult
 
         config = AgentFoxConfig()
         issues = [
