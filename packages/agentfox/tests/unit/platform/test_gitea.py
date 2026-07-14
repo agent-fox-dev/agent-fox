@@ -1,8 +1,10 @@
 """Tests for GiteaPlatform issue and PR operations.
 
 Test Spec: TS-05-1 through TS-05-45, TS-05-E1 through TS-05-E21,
-           TS-05-46 through TS-05-52
-Requirements: 05-REQ-1.* through 05-REQ-19.*
+           TS-05-46 through TS-05-52,
+           TS-05-P1 through TS-05-P7 (property tests),
+           TS-05-SMOKE-1 through TS-05-SMOKE-6 (smoke tests)
+Requirements: 05-REQ-1.* through 05-REQ-20.*
 
 Note: Import paths use agentfox.platform.* (the actual codebase layout),
 not afissues.* (the spec-03 future layout that has not been extracted yet).
@@ -12,11 +14,12 @@ existing agentfox.platform.github module.
 
 from __future__ import annotations
 
+import inspect
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from agentfox.core.errors import ConfigError, IntegrationError
-from agentfox.platform.protocol import IssueComment, IssueResult  # noqa: F401
+from agentfox.platform.protocol import IssueComment, IssueResult, PlatformProtocol
 
 # ---------------------------------------------------------------------------
 # Helpers (modelled after test_gitlab.py / test_github_issues_rest.py)
@@ -2368,3 +2371,1017 @@ class TestReExports:
 
         assert GiteaPlatform is not None
         assert GitHubPlatform is not None
+
+
+# ===========================================================================
+# Group 5: Property Tests and Smoke Tests
+# Test Spec: TS-05-P1 through TS-05-P7, TS-05-SMOKE-1 through TS-05-SMOKE-6
+# Requirements: 05-REQ-1.E1, 05-REQ-2.*, 05-REQ-3.1, 05-REQ-3.E1,
+#               05-REQ-4.1, 05-REQ-4.4, 05-REQ-5.E1, 05-REQ-6.1,
+#               05-REQ-6.E1, 05-REQ-7.1, 05-REQ-7.2, 05-REQ-7.E1,
+#               05-REQ-8.1, 05-REQ-8.E1, 05-REQ-9.E1, 05-REQ-10.E1,
+#               05-REQ-11.E1, 05-REQ-12.1, 05-REQ-12.2, 05-REQ-12.3,
+#               05-REQ-12.E1, 05-REQ-13.1, 05-REQ-13.2, 05-REQ-13.E1,
+#               05-REQ-15.2, 05-REQ-15.E1, 05-REQ-18.1
+# ===========================================================================
+
+
+# ===========================================================================
+# TS-05-P1: Label ID cache consistency — cache only grows, entries derived
+#           from API responses or create_label success
+# Property: 05-PROP-1
+# Validates: 05-REQ-2.1, 05-REQ-2.2, 05-REQ-2.4, 05-REQ-12.3
+# ===========================================================================
+
+
+class TestPropertyLabelCacheConsistency:
+    """Property: label ID cache only grows and is always consistent."""
+
+    @pytest.mark.asyncio
+    async def test_cache_grows_monotonically_with_resolve(self) -> None:
+        """TS-05-P1: After _resolve_label_id populates cache, entries are never removed."""
+        platform = _make_platform()
+
+        mock_labels = [
+            {"id": 7, "name": "bug"},
+            {"id": 8, "name": "enhancement"},
+            {"id": 9, "name": "feature"},
+        ]
+        mock_resp = _json_response(200, mock_labels)
+
+        async def mock_get(url, *, params=None, headers=None, **kw):
+            return mock_resp
+
+        client = _mock_client(get=mock_get)
+
+        with patch(_TARGET, return_value=client):
+            # Resolve one label — should populate cache with ALL labels
+            result = await platform._resolve_label_id("bug")
+            assert result == 7
+
+            cache_after_first = dict(platform._label_cache)  # snapshot
+            assert len(cache_after_first) == 3
+
+            # Resolve another label from cache — cache should not shrink
+            result2 = await platform._resolve_label_id("enhancement")
+            assert result2 == 8
+            assert len(platform._label_cache) >= len(cache_after_first)
+
+            # All original entries still present
+            for name, lid in cache_after_first.items():
+                assert platform._label_cache[name] == lid
+
+    @pytest.mark.asyncio
+    async def test_cache_grows_with_create_label_insert(self) -> None:
+        """TS-05-P1: create_label inserts new entry; cache only grows."""
+        platform = _make_platform()
+
+        # Pre-populate cache to simulate prior resolve
+        platform._label_cache = {"bug": 7}
+        platform._cache_populated = True
+        cache_before = dict(platform._label_cache)
+
+        mock_label_resp = _json_response(
+            201, {"id": 42, "name": "newlabel", "color": "#ff0000"}
+        )
+
+        async def mock_post(url, *, json=None, headers=None, **kw):
+            return mock_label_resp
+
+        client = _mock_client(post=mock_post)
+
+        with patch(_TARGET, return_value=client), patch.object(
+            platform,
+            "_resolve_label_id",
+            new_callable=AsyncMock,
+            side_effect=IntegrationError("not found"),
+        ):
+            await platform.create_label("newlabel", "ff0000")
+
+        # Cache grew: old entries preserved, new entry added
+        assert len(platform._label_cache) > len(cache_before)
+        for name, lid in cache_before.items():
+            assert platform._label_cache[name] == lid
+        assert platform._label_cache["newlabel"] == 42
+
+    @pytest.mark.asyncio
+    async def test_no_refetch_for_missing_label_after_full_populate(self) -> None:
+        """TS-05-P1: After full fetch, a missing label raises immediately on 2nd call."""
+        platform = _make_platform()
+
+        api_call_count = 0
+
+        async def mock_get(url, *, params=None, headers=None, **kw):
+            nonlocal api_call_count
+            api_call_count += 1
+            return _json_response(200, [{"id": 7, "name": "bug"}])
+
+        client = _mock_client(get=mock_get)
+
+        with patch(_TARGET, return_value=client):
+            # First call: fetches from API
+            with pytest.raises(IntegrationError):
+                await platform._resolve_label_id("ghost")
+            first_call_count = api_call_count
+
+            # Second call: must NOT re-fetch
+            with pytest.raises(IntegrationError):
+                await platform._resolve_label_id("ghost")
+            assert api_call_count == first_call_count
+
+            # Third call for a different missing label: also no re-fetch
+            with pytest.raises(IntegrationError):
+                await platform._resolve_label_id("another-ghost")
+            assert api_call_count == first_call_count
+
+
+# ===========================================================================
+# TS-05-P2: Numeric label IDs used exclusively for assignment and removal
+# Property: 05-PROP-2
+# Validates: 05-REQ-3.1, 05-REQ-6.1, 05-REQ-8.1
+# ===========================================================================
+
+
+class TestPropertyNumericLabelIds:
+    """Property: _resolve_label_id is called before any label HTTP request;
+    only numeric IDs appear in request bodies and URLs."""
+
+    @pytest.mark.asyncio
+    async def test_create_issue_uses_numeric_ids_not_names(self) -> None:
+        """TS-05-P2: create_issue with labels — POST body has numeric IDs only."""
+        platform = _make_platform()
+
+        label_name = "my-special-label"
+        numeric_id = 777
+
+        mock_resp = _json_response(
+            201,
+            {
+                "number": 1,
+                "title": "T",
+                "html_url": "http://x/1",
+                "body": "",
+                "labels": [{"name": label_name}],
+            },
+        )
+
+        requests_made: list[dict] = []
+
+        async def mock_post(url, *, json=None, headers=None, **kw):
+            requests_made.append(json or {})
+            return mock_resp
+
+        client = _mock_client(post=mock_post)
+
+        with patch(_TARGET, return_value=client), patch.object(
+            platform,
+            "_resolve_label_id",
+            new_callable=AsyncMock,
+            return_value=numeric_id,
+        ) as mock_resolve:
+            await platform.create_issue("Title", "Body", [label_name])
+
+        # _resolve_label_id was called before any HTTP request
+        mock_resolve.assert_called_once_with(label_name)
+
+        # POST body contains numeric ID, not label name string
+        assert len(requests_made) == 1
+        labels_in_body = requests_made[0].get("labels", [])
+        for label_val in labels_in_body:
+            assert isinstance(label_val, int), f"Label should be int, got {type(label_val)}"
+            assert label_val == numeric_id
+        assert label_name not in str(labels_in_body)
+
+    @pytest.mark.asyncio
+    async def test_assign_label_uses_numeric_id_not_name(self) -> None:
+        """TS-05-P2: assign_label — POST body has numeric ID only."""
+        platform = _make_platform()
+
+        label_name = "fancy-label"
+        numeric_id = 999
+
+        requests_made: list[dict] = []
+
+        async def mock_post(url, *, json=None, headers=None, **kw):
+            requests_made.append(json or {})
+            return _json_response(200, {})
+
+        client = _mock_client(post=mock_post)
+
+        with patch(_TARGET, return_value=client), patch.object(
+            platform,
+            "_resolve_label_id",
+            new_callable=AsyncMock,
+            return_value=numeric_id,
+        ) as mock_resolve:
+            await platform.assign_label(5, label_name)
+
+        mock_resolve.assert_called_once_with(label_name)
+        assert len(requests_made) == 1
+        labels_in_body = requests_made[0].get("labels", [])
+        assert labels_in_body == [numeric_id]
+        assert label_name not in str(labels_in_body)
+
+    @pytest.mark.asyncio
+    async def test_remove_label_uses_numeric_id_in_url(self) -> None:
+        """TS-05-P2: remove_label — DELETE URL contains numeric ID, not name."""
+        platform = _make_platform()
+
+        label_name = "remove-me"
+        numeric_id = 333
+
+        urls_called: list[str] = []
+
+        async def mock_delete(url, *, headers=None, **kw):
+            urls_called.append(url)
+            return _json_response(204)
+
+        client = _mock_client(delete=mock_delete)
+
+        with patch(_TARGET, return_value=client), patch.object(
+            platform,
+            "_resolve_label_id",
+            new_callable=AsyncMock,
+            return_value=numeric_id,
+        ) as mock_resolve:
+            await platform.remove_label(3, label_name)
+
+        mock_resolve.assert_called_once_with(label_name)
+        assert len(urls_called) == 1
+        assert f"/labels/{numeric_id}" in urls_called[0]
+        assert label_name not in urls_called[0]
+
+
+# ===========================================================================
+# TS-05-P3: Error response text truncated to 500 characters
+# Property: 05-PROP-3
+# Validates: 05-REQ-3.E1, 05-REQ-4.E1, 05-REQ-5.E1, 05-REQ-6.E1,
+#            05-REQ-7.E1, 05-REQ-8.E1, 05-REQ-9.E1, 05-REQ-10.E1,
+#            05-REQ-11.E1, 05-REQ-12.E1, 05-REQ-13.E1, 05-REQ-15.E1
+# ===========================================================================
+
+
+class TestPropertyErrorTruncation:
+    """Property: IntegrationError messages never embed more than 500 chars
+    of raw API response text, regardless of response body length."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("body_len", [1, 100, 499, 500, 501, 1000, 2000])
+    async def test_create_issue_error_truncation(self, body_len: int) -> None:
+        """TS-05-P3: create_issue — response text in error ≤ 500 chars for any body length."""
+        platform = _make_platform()
+        error_body = "Z" * body_len
+        mock_resp = _json_response(500, text=error_body)
+        client = _mock_client(post=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client):
+            with pytest.raises(IntegrationError) as exc_info:
+                await platform.create_issue("T", "B", [])
+
+        # The full 501+ char string should never appear verbatim in the error
+        if body_len > 500:
+            assert error_body not in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("body_len", [1, 500, 501, 1000])
+    async def test_list_issues_error_truncation(self, body_len: int) -> None:
+        """TS-05-P3: list_issues_by_label — response text ≤ 500 chars."""
+        platform = _make_platform()
+        error_body = "A" * body_len
+        mock_resp = _json_response(422, text=error_body)
+        client = _mock_client(get=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client):
+            with pytest.raises(IntegrationError) as exc_info:
+                await platform.list_issues_by_label("bug")
+
+        if body_len > 500:
+            assert error_body not in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("body_len", [1, 500, 501, 1000])
+    async def test_add_comment_error_truncation(self, body_len: int) -> None:
+        """TS-05-P3: add_issue_comment — response text ≤ 500 chars."""
+        platform = _make_platform()
+        error_body = "B" * body_len
+        mock_resp = _json_response(500, text=error_body)
+        client = _mock_client(post=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client):
+            with pytest.raises(IntegrationError) as exc_info:
+                await platform.add_issue_comment(1, "text")
+
+        if body_len > 500:
+            assert error_body not in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("body_len", [1, 500, 501, 1000])
+    async def test_assign_label_error_truncation(self, body_len: int) -> None:
+        """TS-05-P3: assign_label — response text ≤ 500 chars."""
+        platform = _make_platform()
+        error_body = "C" * body_len
+        mock_resp = _json_response(422, text=error_body)
+        client = _mock_client(post=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client), patch.object(
+            platform, "_resolve_label_id", new_callable=AsyncMock, return_value=1
+        ):
+            with pytest.raises(IntegrationError) as exc_info:
+                await platform.assign_label(1, "bug")
+
+        if body_len > 500:
+            assert error_body not in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("body_len", [1, 500, 501, 1000])
+    async def test_close_issue_error_truncation(self, body_len: int) -> None:
+        """TS-05-P3: close_issue PATCH — response text ≤ 500 chars."""
+        platform = _make_platform()
+        error_body = "D" * body_len
+        mock_resp = _json_response(500, text=error_body)
+        client = _mock_client(patch=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client):
+            with pytest.raises(IntegrationError) as exc_info:
+                await platform.close_issue(1, comment=None)
+
+        if body_len > 500:
+            assert error_body not in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("body_len", [1, 500, 501, 1000])
+    async def test_remove_label_error_truncation(self, body_len: int) -> None:
+        """TS-05-P3: remove_label DELETE — response text ≤ 500 chars for non-204/404/422."""
+        platform = _make_platform()
+        error_body = "R" * body_len
+        mock_resp = _json_response(500, text=error_body)
+        client = _mock_client(delete=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client), patch.object(
+            platform, "_resolve_label_id", new_callable=AsyncMock, return_value=10
+        ):
+            with pytest.raises(IntegrationError) as exc_info:
+                await platform.remove_label(1, "bug")
+
+        if body_len > 500:
+            assert error_body not in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("body_len", [1, 500, 501, 1000])
+    async def test_list_comments_error_truncation(self, body_len: int) -> None:
+        """TS-05-P3: list_issue_comments — response text ≤ 500 chars."""
+        platform = _make_platform()
+        error_body = "S" * body_len
+        mock_resp = _json_response(403, text=error_body)
+        client = _mock_client(get=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client):
+            with pytest.raises(IntegrationError) as exc_info:
+                await platform.list_issue_comments(5)
+
+        if body_len > 500:
+            assert error_body not in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("body_len", [1, 500, 501, 1000])
+    async def test_get_issue_error_truncation(self, body_len: int) -> None:
+        """TS-05-P3: get_issue — response text ≤ 500 chars."""
+        platform = _make_platform()
+        error_body = "T" * body_len
+        mock_resp = _json_response(404, text=error_body)
+        client = _mock_client(get=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client):
+            with pytest.raises(IntegrationError) as exc_info:
+                await platform.get_issue(99)
+
+        if body_len > 500:
+            assert error_body not in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("body_len", [1, 500, 501, 1000])
+    async def test_update_issue_error_truncation(self, body_len: int) -> None:
+        """TS-05-P3: update_issue — response text ≤ 500 chars."""
+        platform = _make_platform()
+        error_body = "U" * body_len
+        mock_resp = _json_response(500, text=error_body)
+        client = _mock_client(patch=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client):
+            with pytest.raises(IntegrationError) as exc_info:
+                await platform.update_issue(3, "new body")
+
+        if body_len > 500:
+            assert error_body not in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("body_len", [1, 500, 501, 1000])
+    async def test_create_label_error_truncation(self, body_len: int) -> None:
+        """TS-05-P3: create_label — response text ≤ 500 chars."""
+        platform = _make_platform()
+        error_body = "V" * body_len
+        mock_resp = _json_response(500, text=error_body)
+        client = _mock_client(post=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client), patch.object(
+            platform,
+            "_resolve_label_id",
+            new_callable=AsyncMock,
+            side_effect=IntegrationError("not found"),
+        ):
+            with pytest.raises(IntegrationError) as exc_info:
+                await platform.create_label("newlabel", "aabbcc")
+
+        if body_len > 500:
+            assert error_body not in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("body_len", [1, 500, 501, 1000])
+    async def test_create_pr_error_truncation(self, body_len: int) -> None:
+        """TS-05-P3: create_pr POST — response text ≤ 500 chars."""
+        platform = _make_platform()
+        error_body = "W" * body_len
+        mock_resp = _json_response(500, text=error_body)
+        client = _mock_client(post=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client):
+            with pytest.raises(IntegrationError) as exc_info:
+                await platform.create_pr(
+                    title="T", body="B", head="h", base="b"
+                )
+
+        if body_len > 500:
+            assert error_body not in str(exc_info.value)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("body_len", [1, 500, 501, 1000])
+    async def test_search_issues_error_truncation(self, body_len: int) -> None:
+        """TS-05-P3: search_issues — response text ≤ 500 chars."""
+        platform = _make_platform()
+        error_body = "X" * body_len
+        mock_resp = _json_response(503, text=error_body)
+        client = _mock_client(get=AsyncMock(return_value=mock_resp))
+
+        with patch(_TARGET, return_value=client):
+            with pytest.raises(IntegrationError) as exc_info:
+                await platform.search_issues("Fix")
+
+        if body_len > 500:
+            assert error_body not in str(exc_info.value)
+
+
+# ===========================================================================
+# TS-05-P4: type=issues always present on list endpoints
+# Property: 05-PROP-4
+# Validates: 05-REQ-4.4, 05-REQ-15.2
+# ===========================================================================
+
+
+class TestPropertyTypeIssuesAlwaysPresent:
+    """Property: list_issues_by_label and search_issues always include type=issues
+    in the GET request, regardless of other parameter values."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("label", "state", "sort", "direction"),
+        [
+            ("bug", "open", "created", "asc"),
+            ("enhancement", "closed", "updated", "desc"),
+            ("", "all", "comments", "asc"),
+            ("a-very-long-label-name", "open", "created", "desc"),
+        ],
+    )
+    async def test_list_issues_type_issues_with_various_params(
+        self, label: str, state: str, sort: str, direction: str
+    ) -> None:
+        """TS-05-P4: type=issues always present for list_issues_by_label."""
+        platform = _make_platform()
+        mock_resp = _json_response(200, [])
+        captured_params: list[dict] = []
+
+        async def mock_get(url, *, params=None, headers=None, **kw):
+            captured_params.append(params or {})
+            return mock_resp
+
+        client = _mock_client(get=mock_get)
+
+        with patch(_TARGET, return_value=client):
+            await platform.list_issues_by_label(
+                label, state=state, sort=sort, direction=direction
+            )
+
+        assert len(captured_params) == 1
+        assert captured_params[0].get("type") == "issues"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("prefix", "state"),
+        [
+            ("Fix", "open"),
+            ("Bug", "closed"),
+            ("", "all"),
+            ("a b c", "open"),
+        ],
+    )
+    async def test_search_issues_type_issues_with_various_params(
+        self, prefix: str, state: str
+    ) -> None:
+        """TS-05-P4: type=issues always present for search_issues."""
+        platform = _make_platform()
+        mock_resp = _json_response(200, [])
+        captured_params: list[dict] = []
+
+        async def mock_get(url, *, params=None, headers=None, **kw):
+            captured_params.append(params or {})
+            return mock_resp
+
+        client = _mock_client(get=mock_get)
+
+        with patch(_TARGET, return_value=client):
+            await platform.search_issues(prefix, state=state)
+
+        assert len(captured_params) == 1
+        assert captured_params[0].get("type") == "issues"
+
+
+# ===========================================================================
+# TS-05-P5: PlatformProtocol default parameters mirrored exactly
+# Property: 05-PROP-5
+# Validates: 05-REQ-4.1, 05-REQ-7.2, 05-REQ-12.2
+# ===========================================================================
+
+
+class TestPropertyDefaultParamsMatchProtocol:
+    """Property: GiteaPlatform method signatures have default parameter values
+    that exactly match PlatformProtocol."""
+
+    def test_list_issues_by_label_defaults(self) -> None:
+        """TS-05-P5: list_issues_by_label defaults match protocol."""
+        from agentfox.platform.gitea import GiteaPlatform
+
+        sig = inspect.signature(GiteaPlatform.list_issues_by_label)
+        proto_sig = inspect.signature(PlatformProtocol.list_issues_by_label)
+
+        assert sig.parameters["state"].default == "open"
+        assert sig.parameters["sort"].default == "created"
+        assert sig.parameters["direction"].default == "asc"
+
+        # Also verify they match the protocol exactly
+        assert sig.parameters["state"].default == proto_sig.parameters["state"].default
+        assert sig.parameters["sort"].default == proto_sig.parameters["sort"].default
+        assert (
+            sig.parameters["direction"].default
+            == proto_sig.parameters["direction"].default
+        )
+
+    def test_close_issue_comment_default(self) -> None:
+        """TS-05-P5: close_issue comment default matches protocol."""
+        from agentfox.platform.gitea import GiteaPlatform
+
+        sig = inspect.signature(GiteaPlatform.close_issue)
+        proto_sig = inspect.signature(PlatformProtocol.close_issue)
+
+        assert sig.parameters["comment"].default is None
+        assert sig.parameters["comment"].default == proto_sig.parameters["comment"].default
+
+    def test_create_label_description_default(self) -> None:
+        """TS-05-P5: create_label description default matches protocol."""
+        from agentfox.platform.gitea import GiteaPlatform
+
+        sig = inspect.signature(GiteaPlatform.create_label)
+        proto_sig = inspect.signature(PlatformProtocol.create_label)
+
+        assert sig.parameters["description"].default == ""
+        assert (
+            sig.parameters["description"].default
+            == proto_sig.parameters["description"].default
+        )
+
+
+# ===========================================================================
+# TS-05-P6: ConfigError never re-wrapped by GiteaPlatform constructor
+# Property: 05-PROP-6
+# Validates: 05-REQ-1.E1
+# ===========================================================================
+
+
+class TestPropertyConfigErrorPropagation:
+    """Property: ConfigError raised by _validate_url always propagates unchanged;
+    never caught or re-wrapped as IntegrationError or any other type."""
+
+    @pytest.mark.parametrize(
+        "error_message",
+        [
+            "SSRF disallowed",
+            "Private IP address",
+            "localhost is not allowed",
+            "",
+            "x" * 1000,
+        ],
+    )
+    def test_config_error_message_preserved(self, error_message: str) -> None:
+        """TS-05-P6: ConfigError message propagates unchanged."""
+        from agentfox.platform.gitea import GiteaPlatform
+
+        with patch(
+            _VALIDATE_URL_TARGET,
+            side_effect=ConfigError(error_message),
+        ):
+            with pytest.raises(ConfigError) as exc_info:
+                GiteaPlatform("org", "repo", "token", "evil.host")
+
+            # Exact type is ConfigError, not a subclass or re-wrap
+            assert type(exc_info.value) is ConfigError
+            assert str(exc_info.value) == error_message
+
+    def test_config_error_is_not_integration_error(self) -> None:
+        """TS-05-P6: ConfigError is never caught and re-raised as IntegrationError."""
+        from agentfox.platform.gitea import GiteaPlatform
+
+        with patch(
+            _VALIDATE_URL_TARGET,
+            side_effect=ConfigError("blocked"),
+        ):
+            with pytest.raises(ConfigError):
+                GiteaPlatform("org", "repo", "token", "evil.host")
+
+            # Confirm IntegrationError is NOT raised
+            try:
+                with patch(
+                    _VALIDATE_URL_TARGET,
+                    side_effect=ConfigError("blocked2"),
+                ):
+                    GiteaPlatform("org", "repo", "token", "evil.host")
+            except IntegrationError:
+                pytest.fail("ConfigError was re-wrapped as IntegrationError")
+            except ConfigError:
+                pass  # Expected
+
+
+# ===========================================================================
+# TS-05-P7: close_issue(n, comment=None) makes exactly one HTTP call (PATCH)
+# Property: 05-PROP-7
+# Validates: 05-REQ-7.2
+# ===========================================================================
+
+
+class TestPropertyCloseIssueNoCommentSingleCall:
+    """Property: close_issue with comment=None makes exactly one PATCH request
+    and zero POST requests to the comments endpoint."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("issue_number", [1, 42, 100, 9999])
+    async def test_close_issue_none_comment_exactly_one_http_call(
+        self, issue_number: int
+    ) -> None:
+        """TS-05-P7: Exactly 1 HTTP call (PATCH) for any issue_number with comment=None."""
+        platform = _make_platform()
+
+        http_calls: list[tuple[str, str]] = []  # (method, url)
+
+        mock_patch_resp = _json_response(200, {})
+        mock_post_resp = _json_response(201, {})
+
+        async def mock_patch(url, *, json=None, headers=None, **kw):
+            http_calls.append(("PATCH", url))
+            return mock_patch_resp
+
+        async def mock_post(url, *, json=None, headers=None, **kw):
+            http_calls.append(("POST", url))
+            return mock_post_resp
+
+        client = _mock_client(patch=mock_patch, post=mock_post)
+
+        with patch(_TARGET, return_value=client):
+            result = await platform.close_issue(issue_number, comment=None)
+
+        assert result is None
+        # Exactly 1 HTTP call total
+        assert len(http_calls) == 1
+        # That call was PATCH, not POST
+        method, url = http_calls[0]
+        assert method == "PATCH"
+        assert f"/issues/{issue_number}" in url
+        # No comment POST
+        post_calls = [c for c in http_calls if c[0] == "POST"]
+        assert len(post_calls) == 0
+
+
+# ===========================================================================
+# Smoke Tests (TS-05-SMOKE-1 through TS-05-SMOKE-6)
+# Execution Paths: 05-PATH-1 through 05-PATH-6
+# ===========================================================================
+
+
+# ===========================================================================
+# TS-05-SMOKE-1: Happy path — create issue with labels
+# Execution Path: 05-PATH-1
+# Real components: GiteaPlatform, _resolve_label_id
+# Mockable: HTTP client, _validate_url
+# ===========================================================================
+
+
+@pytest.mark.smoke
+class TestSmokeCreateIssueWithLabels:
+    """Smoke test: create_issue with labels resolves IDs via GET /labels,
+    then POSTs the issue with numeric label IDs, returning IssueResult."""
+
+    @pytest.mark.asyncio
+    async def test_smoke_create_issue_happy_path(self) -> None:
+        """TS-05-SMOKE-1: Full create_issue flow with label cache miss and resolution."""
+        platform = _make_platform()
+
+        # Mock labels GET response (for _resolve_label_id cache miss)
+        mock_labels_resp = _json_response(
+            200,
+            [{"id": 10, "name": "bug"}, {"id": 11, "name": "enhancement"}],
+        )
+
+        # Mock issue POST response
+        mock_issue_resp = _json_response(
+            201,
+            {
+                "number": 42,
+                "title": "Fix crash",
+                "html_url": "http://gitea.example.com/myorg/myrepo/issues/42",
+                "body": "Description",
+                "labels": [{"name": "bug"}],
+            },
+        )
+
+        call_log: list[tuple[str, str]] = []  # (method, url-fragment)
+
+        async def mock_get(url, *, params=None, headers=None, **kw):
+            call_log.append(("GET", url))
+            return mock_labels_resp
+
+        async def mock_post(url, *, json=None, headers=None, **kw):
+            call_log.append(("POST", url))
+            # Verify labels are numeric IDs, not strings
+            if json and "labels" in json:
+                for lid in json["labels"]:
+                    assert isinstance(lid, int), f"Expected int label ID, got {type(lid)}"
+            return mock_issue_resp
+
+        client = _mock_client(get=mock_get, post=mock_post)
+
+        with patch(_TARGET, return_value=client):
+            result = await platform.create_issue(
+                "Fix crash", "Description", ["bug"]
+            )
+
+        # Verify execution order: GET labels first, then POST issue
+        assert len(call_log) == 2
+        assert call_log[0][0] == "GET"
+        assert "/labels" in call_log[0][1]
+        assert call_log[1][0] == "POST"
+        assert "/issues" in call_log[1][1]
+
+        # Verify IssueResult mapping
+        assert isinstance(result, IssueResult)
+        assert result.number == 42
+        assert result.title == "Fix crash"
+        assert result.body == "Description"
+        assert "bug" in result.labels
+
+        # Verify label cache was populated
+        assert platform._label_cache.get("bug") == 10
+        assert platform._label_cache.get("enhancement") == 11
+
+
+# ===========================================================================
+# TS-05-SMOKE-2: Happy path — create PR with 409 duplicate detection
+# Execution Path: 05-PATH-2
+# Real components: GiteaPlatform
+# Mockable: HTTP client, _validate_url
+# ===========================================================================
+
+
+@pytest.mark.smoke
+class TestSmokeCreatePrDuplicate:
+    """Smoke test: create_pr handles 409 by querying existing PR and
+    returning its html_url."""
+
+    @pytest.mark.asyncio
+    async def test_smoke_create_pr_409_duplicate(self) -> None:
+        """TS-05-SMOKE-2: POST 409 → GET existing PR → return html_url."""
+        platform = _make_platform()
+
+        mock_post_resp = _json_response(409, {})
+        existing_pr = [
+            {"html_url": "http://gitea.example.com/myorg/myrepo/pulls/7"}
+        ]
+        mock_get_resp = _json_response(200, existing_pr)
+
+        call_log: list[str] = []
+
+        async def mock_post(url, *, json=None, headers=None, **kw):
+            call_log.append("POST")
+            return mock_post_resp
+
+        async def mock_get(url, *, params=None, headers=None, **kw):
+            call_log.append("GET")
+            # Verify query params for existing PR lookup
+            assert params is not None
+            assert params.get("state") == "open"
+            return mock_get_resp
+
+        client = _mock_client(post=mock_post, get=mock_get)
+
+        with patch(_TARGET, return_value=client):
+            result = await platform.create_pr(
+                title="Fix bug", body="Body", head="fix-branch", base="main"
+            )
+
+        # POST attempted first, then GET to find existing
+        assert call_log == ["POST", "GET"]
+        assert result == "http://gitea.example.com/myorg/myrepo/pulls/7"
+
+
+# ===========================================================================
+# TS-05-SMOKE-3: Happy path — close issue with comment
+# Execution Path: 05-PATH-3
+# Real components: GiteaPlatform, add_issue_comment
+# Mockable: HTTP client, _validate_url
+# ===========================================================================
+
+
+@pytest.mark.smoke
+class TestSmokeCloseIssueWithComment:
+    """Smoke test: close_issue posts comment first, then patches state=closed."""
+
+    @pytest.mark.asyncio
+    async def test_smoke_close_issue_comment_then_patch(self) -> None:
+        """TS-05-SMOKE-3: POST comment → PATCH state=closed → returns None."""
+        platform = _make_platform()
+
+        call_log: list[tuple[str, str]] = []
+
+        async def mock_post(url, *, json=None, headers=None, **kw):
+            call_log.append(("POST", url))
+            return _json_response(201, {})
+
+        async def mock_patch(url, *, json=None, headers=None, **kw):
+            call_log.append(("PATCH", url))
+            assert json is not None
+            assert json.get("state") == "closed"
+            return _json_response(200, {})
+
+        client = _mock_client(post=mock_post, patch=mock_patch)
+
+        with patch(_TARGET, return_value=client):
+            result = await platform.close_issue(42, "Resolved by PR #7")
+
+        assert result is None
+        # Comment POST comes before state PATCH
+        assert len(call_log) == 2
+        assert call_log[0][0] == "POST"
+        assert "/comments" in call_log[0][1]
+        assert call_log[1][0] == "PATCH"
+        assert "/issues/42" in call_log[1][1]
+
+
+# ===========================================================================
+# TS-05-SMOKE-4: Happy path — create label idempotently (label exists)
+# Execution Path: 05-PATH-4
+# Real components: GiteaPlatform, _resolve_label_id
+# Mockable: HTTP client, _validate_url
+# ===========================================================================
+
+
+@pytest.mark.smoke
+class TestSmokeCreateLabelIdempotent:
+    """Smoke test: create_label returns None silently when label already exists."""
+
+    @pytest.mark.asyncio
+    async def test_smoke_create_label_existing_no_post(self) -> None:
+        """TS-05-SMOKE-4: _resolve_label_id returns ID → no POST → returns None."""
+        platform = _make_platform()
+
+        # Pre-populate cache so _resolve_label_id returns immediately
+        platform._label_cache = {"bug": 7}
+        platform._cache_populated = True
+
+        post_called = False
+
+        async def mock_post(url, *, json=None, headers=None, **kw):
+            nonlocal post_called
+            post_called = True
+            return _json_response(201, {})
+
+        client = _mock_client(post=mock_post)
+
+        with patch(_TARGET, return_value=client):
+            result = await platform.create_label("bug", "ff0000", "A bug report")
+
+        assert result is None
+        assert not post_called, "No POST should be made when label already exists"
+
+
+# ===========================================================================
+# TS-05-SMOKE-5: End-to-end — factory → check_credentials → create_issue
+# Execution Path: 05-PATH-5
+# Real components: GiteaPlatform, _resolve_label_id, _validate_url
+# Mockable: HTTP client, _validate_url
+# ===========================================================================
+
+
+@pytest.mark.smoke
+class TestSmokeEndToEnd:
+    """Smoke test: configure type=gitea, construct platform, check_credentials,
+    then create_issue — full end-to-end chain with mocked HTTP."""
+
+    @pytest.mark.asyncio
+    async def test_smoke_e2e_factory_check_create(self) -> None:
+        """TS-05-SMOKE-5: GiteaPlatform construction → check_credentials → create_issue."""
+        from agentfox.platform.gitea import GiteaPlatform
+
+        # 1. Construct platform
+        with patch(_VALIDATE_URL_TARGET):
+            platform = GiteaPlatform("myorg", "myrepo", "mytoken", "gitea.corp.com")
+
+        assert platform.forge_type == "gitea"
+        assert isinstance(platform._label_cache, dict)
+        assert len(platform._label_cache) == 0
+
+        # 2. check_credentials succeeds (200)
+        mock_cred_resp = _json_response(200, {})
+
+        # 3. GET /labels for _resolve_label_id
+        mock_labels_resp = _json_response(
+            200, [{"id": 5, "name": "bug"}]
+        )
+
+        # 4. POST /issues
+        mock_issue_resp = _json_response(
+            201,
+            {
+                "number": 1,
+                "title": "Test Issue",
+                "html_url": "http://gitea.corp.com/myorg/myrepo/issues/1",
+                "body": "Body",
+                "labels": [{"name": "bug"}],
+            },
+        )
+
+        call_log: list[tuple[str, str]] = []
+
+        async def mock_get(url, *, params=None, headers=None, **kw):
+            call_log.append(("GET", url))
+            if "/labels" in url:
+                return mock_labels_resp
+            return mock_cred_resp
+
+        async def mock_post(url, *, json=None, headers=None, **kw):
+            call_log.append(("POST", url))
+            return mock_issue_resp
+
+        client = _mock_client(get=mock_get, post=mock_post)
+
+        with patch(_TARGET, return_value=client):
+            # check_credentials
+            cred_result = await platform.check_credentials()
+            assert cred_result is None
+
+            # create_issue with labels
+            issue = await platform.create_issue("Test Issue", "Body", ["bug"])
+
+        assert isinstance(issue, IssueResult)
+        assert issue.number == 1
+        assert issue.title == "Test Issue"
+        assert "bug" in issue.labels
+
+        # Verify call chain: GET /repos (cred) → GET /labels → POST /issues
+        assert len(call_log) == 3
+        assert call_log[0][0] == "GET"  # check_credentials
+        assert call_log[1][0] == "GET"  # _resolve_label_id
+        assert call_log[2][0] == "POST"  # create_issue
+
+
+# ===========================================================================
+# TS-05-SMOKE-6: Error path — SSRF-disallowed URL rejects construction
+# Execution Path: 05-PATH-6
+# Real components: GiteaPlatform, _validate_url
+# Mockable: _validate_url (mocked to raise ConfigError)
+# ===========================================================================
+
+
+@pytest.mark.smoke
+class TestSmokeSsrfRejection:
+    """Smoke test: SSRF-disallowed URL causes ConfigError during construction,
+    propagating to the caller without creating a GiteaPlatform instance."""
+
+    def test_smoke_ssrf_disallowed_url(self) -> None:
+        """TS-05-SMOKE-6: _validate_url raises ConfigError → no instance created."""
+        from agentfox.platform.gitea import GiteaPlatform
+
+        with patch(
+            _VALIDATE_URL_TARGET,
+            side_effect=ConfigError("SSRF: private IP disallowed"),
+        ):
+            with pytest.raises(ConfigError) as exc_info:
+                GiteaPlatform("org", "repo", "token", "169.254.169.254")
+
+        # ConfigError propagated unchanged — not IntegrationError
+        assert type(exc_info.value) is ConfigError
+        assert "SSRF" in str(exc_info.value)
