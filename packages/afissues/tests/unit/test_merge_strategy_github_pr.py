@@ -25,6 +25,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+
 from afissues.errors import IntegrationError
 from afissues.github import GitHubPlatform
 

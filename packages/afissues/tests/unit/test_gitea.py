@@ -18,6 +18,7 @@ import inspect
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
 from afissues.errors import ConfigError, IntegrationError
 from afissues.protocol import IssueComment, IssueResult, PlatformProtocol
 

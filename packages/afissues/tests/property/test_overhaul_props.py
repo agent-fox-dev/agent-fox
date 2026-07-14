@@ -23,13 +23,14 @@ from unittest.mock import AsyncMock, patch
 
 from agentfox.core.config import AgentFoxConfig, PlatformConfig
 from agentfox.core.config_gen import extract_schema
-from agentfox.core.errors import ConfigError
 from agentfox.nightshift.platform_factory import create_platform
-from afissues.github import GitHubPlatform, _validate_github_url, parse_remote
 from agentfox.workspace import WorkspaceInfo
 from agentfox.workspace.harvest import post_harvest_integrate
 from hypothesis import assume, given, settings
 from hypothesis import strategies as st
+
+from afissues.errors import ConfigError
+from afissues.github import GitHubPlatform, _validate_github_url, parse_remote
 
 # ---------------------------------------------------------------------------
 # Shared strategies

@@ -26,6 +26,7 @@ import socket
 from unittest.mock import patch
 
 import pytest
+
 from afissues.errors import ConfigError
 from afissues.github import GitHubPlatform, _validate_github_url
 

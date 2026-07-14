@@ -12,6 +12,7 @@ from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
 from afissues.errors import IntegrationError
 from afissues.github import GitHubPlatform
 from afissues.protocol import IssueComment, IssueResult

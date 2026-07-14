@@ -73,6 +73,7 @@ with five packages:
 | `packages/af/` | CLI for the agent-fox orchestrator (`af` command) |
 | `packages/nightshift/` | Standalone CLI for the night-shift fix daemon (`nightshift` command) |
 | `packages/agentfox/` | Core library — spec engine, graph planner, session runtime, workspace tools |
+| `packages/afissues/` | Standalone platform/forge abstraction layer — protocol, GitHub integration, label definitions |
 | `packages/afspec/` | Standalone library for the agent-fox specification format (v1.2) |
 | `packages/afaudit/` | Standalone audit infrastructure — structured events, sinks, postmortem, traces (zero dependencies) |
 | `packages/agentspec/` | AI-powered spec creation library |
@@ -81,6 +82,7 @@ with five packages:
 ```
 af  ──▶  agentfox  ──▶  afspec
               │              ▲
+              ├──▶  afissues │
               └──▶  afaudit  │
                              │
 spec ──▶ agentspec ──────────┘
@@ -111,11 +113,12 @@ uv run af <command>
 
 ## Using packages as standalone libraries
 
-`agentfox`, `afspec`, and `afaudit` are designed for reuse outside the CLI tools.
+`agentfox`, `afissues`, `afspec`, and `afaudit` are designed for reuse outside the CLI tools.
 Install any package directly from git:
 
 ```bash
 pip install "agentfox @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.2.0#subdirectory=packages/agentfox"
+pip install "afissues @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.2.0#subdirectory=packages/afissues"
 pip install "afspec @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.2.0#subdirectory=packages/afspec"
 pip install "afaudit @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.2.0#subdirectory=packages/afaudit"
 ```
@@ -124,6 +127,9 @@ pip install "afaudit @ git+https://github.com/agent-fox-dev/agent-fox.git@v4.2.0
   configuration, workspace management, knowledge store, Anthropic client
   helpers. See [`packages/agentfox/README.md`](packages/agentfox/README.md)
   for the full API reference.
+- **afissues** — lightweight platform/forge abstraction layer: `PlatformProtocol`,
+  `GitHubPlatform`, label constants, SSRF guards. Only depends on `httpx`. See
+  [`packages/afissues/`](packages/afissues/) for the package.
 - **afspec** — load, validate, mutate, and render spec packs. See
   [`packages/afspec/README.md`](packages/afspec/README.md) for the full API
   reference.
